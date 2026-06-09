@@ -60,7 +60,7 @@ spec:
                     description: Maximum tokens to generate
                     type: integer
                   temperature:
-                    description: Temperature for sampling
+                    description: temperature for sampling
                     type: string
                   topK:
                     description: Top-k sampling parameter
@@ -126,7 +126,7 @@ spec:
                     description: Maximum tokens to generate
                     type: integer
                   temperature:
-                    description: Temperature for sampling
+                    description: temperature for sampling
                     type: string
                   topP:
                     description: Top-p sampling parameter
@@ -182,7 +182,7 @@ spec:
                 type: string
               modelInfo:
                 description: |-
-                  ModelInfo contains information about the model.
+                  modelInfo contains information about the model.
                   This field is required if the model is not one of the
                   pre-defined autogen models. That list can be found here:
                 properties:
@@ -203,12 +203,12 @@ spec:
                 description: Ollama-specific configuration
                 properties:
                   host:
-                    description: Host for the Ollama API
+                    description: host for the Ollama API
                     type: string
                   options:
                     additionalProperties:
                       type: string
-                    description: Options for the Ollama API
+                    description: options for the Ollama API
                     type: object
                 type: object
               openAI:
@@ -224,19 +224,19 @@ spec:
                     description: Maximum tokens to generate
                     type: integer
                   "n":
-                    description: N value
+                    description: n value
                     type: integer
                   organization:
-                    description: Organization ID for the OpenAI API
+                    description: organization ID for the OpenAI API
                     type: string
                   presencePenalty:
                     description: Presence penalty
                     type: string
                   seed:
-                    description: Seed value
+                    description: seed value
                     type: integer
                   temperature:
-                    description: Temperature for sampling
+                    description: temperature for sampling
                     type: string
                   timeout:
                     description: Timeout
@@ -387,7 +387,7 @@ spec:
                     description: Maximum tokens to generate
                     type: integer
                   temperature:
-                    description: Temperature for sampling
+                    description: temperature for sampling
                     type: string
                   topK:
                     description: Top-k sampling parameter
@@ -428,7 +428,7 @@ spec:
                 type: object
               apiKeyPassthrough:
                 description: |-
-                  APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
+                  apiKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
                   directly to the LLM provider as the API key. This is useful for organizations
                   with federated identity that want to avoid separate secret management.
                   Mutually exclusive with apiKeySecret.
@@ -463,7 +463,7 @@ spec:
                     description: Maximum tokens to generate
                     type: integer
                   temperature:
-                    description: Temperature for sampling
+                    description: temperature for sampling
                     type: string
                   topP:
                     description: Top-p sampling parameter
@@ -477,7 +477,7 @@ spec:
                 properties:
                   additionalModelRequestFields:
                     description: |-
-                      AdditionalModelRequestFields passes model-specific parameters to Bedrock's
+                      additionalModelRequestFields passes model-specific parameters to Bedrock's
                       additionalModelRequestFields in the Converse API. Use this for provider-specific
                       options that are not part of the standard InferenceConfiguration block, such as
                       Claude extended thinking or top_k. Values are forwarded as-is to the API.
@@ -577,12 +577,12 @@ spec:
                 description: Ollama-specific configuration
                 properties:
                   host:
-                    description: Host for the Ollama API
+                    description: host for the Ollama API
                     type: string
                   options:
                     additionalProperties:
                       type: string
-                    description: Options for the Ollama API
+                    description: options for the Ollama API
                     type: object
                 type: object
               openAI:
@@ -598,10 +598,10 @@ spec:
                     description: Maximum tokens to generate
                     type: integer
                   "n":
-                    description: N value
+                    description: n value
                     type: integer
                   organization:
-                    description: Organization ID for the OpenAI API
+                    description: organization ID for the OpenAI API
                     type: string
                   presencePenalty:
                     description: Presence penalty
@@ -615,17 +615,17 @@ spec:
                     - high
                     type: string
                   seed:
-                    description: Seed value
+                    description: seed value
                     type: integer
                   temperature:
-                    description: Temperature for sampling
+                    description: temperature for sampling
                     type: string
                   timeout:
                     description: Timeout
                     type: integer
                   tokenExchange:
                     description: |-
-                      TokenExchange configures dynamic bearer token acquisition via credential exchange.
+                      tokenExchange configures dynamic bearer token acquisition via credential exchange.
                       Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
                     properties:
                       gdchServiceAccount:
@@ -633,7 +633,7 @@ spec:
                           token exchange parameters.
                         properties:
                           audience:
-                            description: Audience is the token exchange audience URL
+                            description: audience is the token exchange audience URL
                               (the GDC inference gateway base URL)
                             type: string
                         required:
@@ -684,20 +684,20 @@ spec:
                 type: object
               tls:
                 description: |-
-                  TLS configuration for provider connections.
+                  tls configuration for provider connections.
                   Enables agents to connect to internal LiteLLM gateways or other providers
                   that use self-signed certificates or custom certificate authorities.
                 properties:
                   caCertSecretKey:
                     description: |-
-                      CACertSecretKey is the key within the Secret that contains the
+                      caCertSecretKey is the key within the Secret that contains the
                       CA certificate data (PEM-encoded). Required when CACertSecretRef
                       is set — admission rejects ref-without-key regardless of
                       DisableVerify (see the TLSConfig-level XValidation rules).
                     type: string
                   caCertSecretRef:
                     description: |-
-                      CACertSecretRef is a reference to a Kubernetes Secret containing
+                      caCertSecretRef is a reference to a Kubernetes Secret containing
                       CA certificate(s) in PEM format. The Secret must be in the same
                       namespace as the resource referencing it (ModelConfig,
                       RemoteMCPServer, or any future consumer of TLSConfig).
@@ -707,7 +707,7 @@ spec:
                   disableSystemCAs:
                     default: false
                     description: |-
-                      DisableSystemCAs disables the use of system CA certificates.
+                      disableSystemCAs disables the use of system CA certificates.
                       When false (default), system CA certificates are used for verification (safe behavior).
                       When true, only the custom CA from CACertSecretRef is trusted.
                       This allows strict security policies where only corporate CAs should be trusted.
@@ -715,7 +715,7 @@ spec:
                   disableVerify:
                     default: false
                     description: |-
-                      DisableVerify disables SSL certificate verification entirely.
+                      disableVerify disables SSL certificate verification entirely.
                       When false (default), SSL certificates are verified.
                       When true, SSL certificate verification is disabled.
                       WARNING: This should ONLY be used in development/testing environments.
