@@ -196,7 +196,7 @@
                     "value": "http://kagent-controller.kagent:8083"
                   }
                 ],
-                "image": "cr.kagent.dev/kagent-dev/kagent/app:dev",
+                "image": "cr.kagent.dev/kagent-dev/kagent/app@sha256:test-app",
                 "imagePullPolicy": "IfNotPresent",
                 "name": "kagent",
                 "ports": [
