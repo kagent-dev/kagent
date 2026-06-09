@@ -53,14 +53,14 @@ type RemoteMCPServerSpec struct {
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
 	// +optional
 	// +kubebuilder:default="30s"
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	Timeout *metav1.Duration `json:"timeout,omitempty"` //nolint:kubeapilinter // breaking change to rename to TimeoutSeconds
 	// +optional
-	SseReadTimeout *metav1.Duration `json:"sseReadTimeout,omitempty"`
+	SseReadTimeout *metav1.Duration `json:"sseReadTimeout,omitempty"` //nolint:kubeapilinter // breaking change to rename to SseReadTimeoutSeconds
 	// +optional
 	// +kubebuilder:default=true
 	TerminateOnClose *bool `json:"terminateOnClose,omitempty"`
 
-	// AllowedNamespaces defines which namespaces are allowed to reference this RemoteMCPServer.
+	// allowedNamespaces defines which namespaces are allowed to reference this RemoteMCPServer.
 	// This follows the Gateway API pattern for cross-namespace route attachments.
 	// If not specified, only Agents in the same namespace can reference this RemoteMCPServer.
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
@@ -74,7 +74,7 @@ type RemoteMCPServerSpec struct {
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 
-	// TLS configuration for the upstream MCP server connection.
+	// tls configuration for the upstream MCP server connection.
 	// Use this for HTTPS upstreams that present a certificate the agent's
 	// system trust store does not include (corporate CA, self-signed cert
 	// on a test fixture, internal MCP gateway). Reuses the same TLSConfig
@@ -117,7 +117,7 @@ type RemoteMCPServerStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// +optional
 	DiscoveredTools []*MCPTool `json:"discoveredTools,omitempty"`
-	// SecretHash stores a hash of the TLS Secret referenced by spec.tls so
+	// secretHash stores a hash of the TLS Secret referenced by spec.tls so
 	// agents that consume this RemoteMCPServer can detect cert rotation and
 	// roll on the next reconcile. Empty when spec.tls.caCertSecretRef is unset.
 	// +optional

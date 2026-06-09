@@ -48,7 +48,7 @@ type AgentSpec struct {
 	// Can either be a reference to the name of a Memory in the same namespace as the referencing Agent, or a reference to the name of a Memory in a different namespace in the form <namespace>/<name>
 	// +optional
 	Memory []string `json:"memory,omitempty"`
-	// A2AConfig instantiates an A2A server for this agent,
+	// a2aConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).
 	// The A2A server URL will be served at

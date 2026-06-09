@@ -127,9 +127,9 @@ type HttpToolServerConfig struct {
 	// +optional
 	HeadersFrom []ValueRef `json:"headersFrom,omitempty"`
 	// +optional
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	Timeout *metav1.Duration `json:"timeout,omitempty"` //nolint:kubeapilinter // v1alpha1 deprecated: breaking change to rename to TimeoutSeconds
 	// +optional
-	SseReadTimeout *metav1.Duration `json:"sseReadTimeout,omitempty"`
+	SseReadTimeout *metav1.Duration `json:"sseReadTimeout,omitempty"` //nolint:kubeapilinter // v1alpha1 deprecated: breaking change to rename to SseReadTimeoutSeconds
 }
 
 type SseMcpServerConfig struct {
@@ -167,11 +167,11 @@ type Component struct {
 	// +required
 	Provider string `json:"provider"`
 	// +required
-	ComponentType string `json:"component_type"`
+	ComponentType string `json:"component_type"` //nolint:kubeapilinter // v1alpha1 deprecated: breaking change to rename json tag
 	// +required
 	Version int `json:"version"`
 	// +required
-	ComponentVersion int `json:"component_version"`
+	ComponentVersion int `json:"component_version"` //nolint:kubeapilinter // v1alpha1 deprecated: breaking change to rename json tag
 	// +required
 	Description string `json:"description"`
 	// +required
