@@ -21,8 +21,12 @@ func TestResolveReadPath_AllowsSymlinkedSkillsDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveReadPath() error = %v", err)
 	}
-	if resolved != skillFile {
-		t.Fatalf("resolveReadPath() = %q, want %q", resolved, skillFile)
+	want, err := filepath.EvalSymlinks(skillFile)
+	if err != nil {
+		t.Fatalf("EvalSymlinks() error = %v", err)
+	}
+	if resolved != want {
+		t.Fatalf("resolveReadPath() = %q, want %q", resolved, want)
 	}
 }
 

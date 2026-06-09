@@ -78,9 +78,9 @@ TOOLS_GO_VERSION ?= $(shell $(AWK) '/^go / { print $$2 }' go/go.mod)
 export GOTOOLCHAIN=go$(TOOLS_GO_VERSION)
 
 # Version information for the build
-LDFLAGS := "-X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSION)      \
-            -X github.com/$(DOCKER_REPO)/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
-            -X github.com/$(DOCKER_REPO)/go/core/internal/version.BuildDate=$(BUILD_DATE)"
+LDFLAGS := -X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSION) \
+           -X github.com/$(DOCKER_REPO)/go/core/internal/version.GitCommit=$(GIT_COMMIT) \
+           -X github.com/$(DOCKER_REPO)/go/core/internal/version.BuildDate=$(BUILD_DATE)
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.10.4
@@ -89,7 +89,7 @@ TOOLS_PYTHON_VERSION ?= 3.13
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
-TOOLS_IMAGE_BUILD_ARGS += --build-arg LDFLAGS=$(LDFLAGS)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg LDFLAGS="$(LDFLAGS)"
 TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REPO=$(DOCKER_REPO)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg BASE_IMAGE_REGISTRY=$(BASE_IMAGE_REGISTRY)
@@ -197,7 +197,7 @@ build-all: buildx-create
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-controller build-ui build-app build-golang-adk build-golang-adk-full build-skills-init
+build: buildx-create build-ui build-skills-init build-golang-adk build-golang-adk-full build-app build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
@@ -241,9 +241,18 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
-build-controller: ## Build and push the controller image
-build-controller: buildx-create controller-manifests
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=core/cmd/controller/main.go -t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+build-controller: ## Build and push the controller image (embeds agent runtime digests via scripts/controller-digest-ldflags.sh)
+build-controller: buildx-create controller-manifests build-app build-golang-adk build-golang-adk-full
+	@set -e; \
+	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
+		APP_IMG=$(APP_IMG) \
+		GOLANG_ADK_IMG=$(GOLANG_ADK_IMG) \
+		GOLANG_ADK_FULL_IMG=$(GOLANG_ADK_FULL_IMG) \
+		./scripts/controller-digest-ldflags.sh); \
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		--build-arg LDFLAGS="$(LDFLAGS)$$DIGEST_LDFLAGS" \
+		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
+		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 
 .PHONY: build-ui
@@ -555,5 +564,4 @@ prune-images: ## Remove old kagent images and dangling images from the local dae
 	$(CONTAINER_RUNTIME) images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
 	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $$2}' | xargs -r $(CONTAINER_RUNTIME) rmi || :
 	$(CONTAINER_RUNTIME) images --filter dangling=true -q | xargs -r $(CONTAINER_RUNTIME) rmi || :
-
 

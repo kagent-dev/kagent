@@ -187,10 +187,10 @@ controller:
     repository: kagent-dev/kagent/skills-init
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
-  streaming: # Streaming buffer size for A2A communication
-    maxBufSize: 1Mi # 1024 * 1024
-    initialBufSize: 4Ki # 4 * 1024
-    timeout: 600s # 600 seconds
+  # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
+  # internally. These values have no effect and will be removed in a future release.
+  streaming: null
+
   # -- Namespaces the controller should watch.
   # If empty, the controller will watch ALL available namespaces.
   # @default -- [] (watches all available namespaces)

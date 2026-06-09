@@ -110,6 +110,20 @@ docker build --build-arg BUILD_PACKAGE=adk/cmd/main.go -t golang-adk .
 
 In practice, use the root Makefile targets (`make build-controller`, `make build-golang-adk`).
 
+### Agent runtime image digests
+
+The controller embeds OCI manifest digests for agent workload images at **link time** so declarative agents are deployed with `@sha256:...` refs instead of tags. Substrate ActorTemplates require digest-pinned images.
+
+| Image | Makefile target | Injected into |
+|---|---|---|
+| `app` (Python runtime) | `build-app` | `PythonADKImageDigest` |
+| `golang-adk` | `build-golang-adk` | `GoADKImageDigest` |
+| `golang-adk-full` | `build-golang-adk-full` | `GoADKFullImageDigest` |
+
+`make build-controller` builds those three images first, runs [`scripts/controller-digest-ldflags.sh`](../scripts/controller-digest-ldflags.sh) to inspect their digests from the registry, and passes the result via `LDFLAGS` (same mechanism as version/git metadata).
+
+`kagent-adk` is not included — it is only a build-time base for `app`, not a deployed agent runtime.
+
 ## Quick Testing with Oneshot
 
 The `adk/examples/oneshot` tool lets you test agent configs locally:

@@ -3,17 +3,17 @@ package translator
 import (
 	"context"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 type AgentOutputs struct {
 	Manifest []client.Object `json:"manifest,omitempty"`
 
 	Config    *adk.AgentConfig `json:"config,omitempty"`
-	AgentCard server.AgentCard `json:"agentCard"`
+	AgentCard a2a.AgentCard    `json:"agentCard"`
 }
 
 // TranslatorPlugin is the manifest-phase plugin: it runs after the workload
