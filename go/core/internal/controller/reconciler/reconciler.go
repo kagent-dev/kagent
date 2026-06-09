@@ -966,6 +966,9 @@ func (a *kagentReconciler) reconcileRemoteMCPServerPlugins(ctx context.Context, 
 	// delete and found by the owner index for pruning. This also rejects
 	// cross-namespace objects (SetControllerReference requires same namespace).
 	for _, obj := range outputs.Manifest {
+		if obj == nil {
+			return fmt.Errorf("remote mcp server plugin returned a nil object in outputs.Manifest")
+		}
 		if err := controllerutil.SetControllerReference(server, obj, a.kube.Scheme()); err != nil {
 			return fmt.Errorf("set controller reference on %s %s/%s: %w",
 				obj.GetObjectKind().GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), err)

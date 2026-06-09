@@ -7,8 +7,44 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// TestOwnerIndexValue covers the owner-index key function used by
+// SetupOwnerIndexes. It maps an owned object to its controller-owner UID
+// (regardless of owner Kind), or nil when there is no controller owner.
+func TestOwnerIndexValue(t *testing.T) {
+	controller := true
+	withController := func(kind string, uid types.UID) client.Object {
+		return &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				OwnerReferences: []metav1.OwnerReference{{
+					Kind:       kind,
+					UID:        uid,
+					Name:       "owner",
+					Controller: &controller,
+				}},
+			},
+		}
+	}
+
+	cases := []struct {
+		name string
+		obj  client.Object
+		want []string
+	}{
+		{"controller owner maps to its UID", withController("RemoteMCPServer", "uid-r"), []string{"uid-r"}},
+		{"owner Kind is irrelevant — any controller owner is indexed", withController("Agent", "uid-a"), []string{"uid-a"}},
+		{"no controller owner is not indexed", &corev1.ConfigMap{}, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			assert.Equal(t, c.want, ownerIndexValue(c.obj))
+		})
+	}
+}
 
 // TestDistinctByType is the dedup that lets SetupOwnerIndexes accept the same
 // type from several owners (e.g. a type owned by both the agent translator and

@@ -9,6 +9,7 @@ import (
 	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	pkgtranslator "github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -66,4 +67,30 @@ func TestGetOwnedResourceTypes_Composition(t *testing.T) {
 	assert.Contains(t, counts, reflect.TypeFor[*corev1.ConfigMap](), "translator type must be present")
 	assert.Contains(t, counts, reflect.TypeFor[*corev1.Secret](), "plugin-only type must be present")
 	assert.Equal(t, 2, counts[reflect.TypeFor[*corev1.ConfigMap]()], "overlapping type appears once per owning source")
+}
+
+// manifestRMSPlugin appends a fixed set of objects to outputs.Manifest.
+type manifestRMSPlugin struct{ manifest []client.Object }
+
+func (p *manifestRMSPlugin) ProcessRemoteMCPServer(_ context.Context, _ *v1alpha2.RemoteMCPServer, outputs *pkgtranslator.RemoteMCPServerOutputs) error {
+	outputs.Manifest = append(outputs.Manifest, p.manifest...)
+	return nil
+}
+
+func (p *manifestRMSPlugin) GetOwnedResourceTypes() []client.Object { return nil }
+
+// TestReconcileRemoteMCPServerPlugins_NilManifestObject ensures a plugin that
+// appends a nil object fails the reconcile with a clear error instead of
+// panicking in SetControllerReference.
+func TestReconcileRemoteMCPServerPlugins_NilManifestObject(t *testing.T) {
+	r := &kagentReconciler{
+		remoteMCPServerPlugins: []pkgtranslator.RemoteMCPServerPlugin{
+			&manifestRMSPlugin{manifest: []client.Object{nil}},
+		},
+	}
+	server := &v1alpha2.RemoteMCPServer{}
+
+	err := r.reconcileRemoteMCPServerPlugins(context.Background(), server)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nil object")
 }

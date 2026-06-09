@@ -158,6 +158,20 @@ func distinctByType(objs []client.Object) []client.Object {
 	return out
 }
 
+// ownerIndexValue is the owner-index key function: it maps an owned object to
+// its controller-owner UID, or nil when there is no controller owner. The key
+// is the owner UID (unique cluster-wide), so FindOwnedObjects matches an owner's
+// children by UID alone — no need to filter on the owner's Kind. Objects owned
+// by an unrelated controller are still indexed but never match our queries,
+// since their owner UID differs.
+func ownerIndexValue(rawObj client.Object) []string {
+	owner := metav1.GetControllerOf(rawObj)
+	if owner == nil {
+		return nil
+	}
+	return []string{string(owner.UID)}
+}
+
 // SetupOwnerIndexes sets up caching and indexing of owned resources.
 //
 // ownedTypes may contain the same Go type more than once (e.g. a type owned by
@@ -177,21 +191,7 @@ func SetupOwnerIndexes(mgr ctrl.Manager, ownedTypes []client.Object) error {
 			return err
 		}
 
-		if err := mgr.GetFieldIndexer().IndexField(context.Background(), resource, ownerIndexKey, func(rawObj client.Object) []string {
-			owner := metav1.GetControllerOf(rawObj)
-			if owner == nil {
-				return nil
-			}
-
-			// This is an optimisation to avoid indexing every owned object,
-			// only those owned by Agent or SandboxAgent will be indexed. It may need to be
-			// adjusted in future if other controllers start owning resources.
-			if owner.Kind != "Agent" && owner.Kind != "SandboxAgent" {
-				return nil
-			}
-
-			return []string{string(owner.UID)}
-		}); err != nil {
+		if err := mgr.GetFieldIndexer().IndexField(context.Background(), resource, ownerIndexKey, ownerIndexValue); err != nil {
 			return err
 		}
 	}
