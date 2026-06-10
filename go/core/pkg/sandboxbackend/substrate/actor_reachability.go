@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agent-substrate/substrate/proto/ateapipb"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
 const (
