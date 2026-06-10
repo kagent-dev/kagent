@@ -567,6 +567,23 @@ async def test_streaming_with_no_content_chunks_returns_safety_finish_reason(ope
         assert final_response.finish_reason == types.FinishReason.SAFETY
         assert final_response.content.parts[0].text == "Response blocked by content policy."
 
+    # An empty stream truncated by length keeps MAX_TOKENS instead of being marked SAFETY.
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+
+        async def mock_length_stream_gen_func(*args, **kwargs):
+            async def gen():
+                yield MockChunk(finish_reason="length")
+
+            return gen()
+
+        mock_client.chat.completions.create.side_effect = mock_length_stream_gen_func
+
+        stream_results = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=True)]
+
+        final_response = stream_results[-1]
+        assert final_response.finish_reason == types.FinishReason.MAX_TOKENS
+        assert final_response.content.parts[0].text == ""
+
 
 # ============================================================================
 # SSL/TLS Configuration Tests
@@ -988,6 +1005,8 @@ class TestConvertOpenAIResponseToLlmResponse:
 
         assert llm_response.finish_reason == types.FinishReason.SAFETY
         assert llm_response.content.parts[0].text == "Response blocked by content policy."
+        assert llm_response.usage_metadata is not None
+        assert llm_response.usage_metadata.total_token_count == 8
 
     def test_preserves_thought_signature_from_openai_tool_call_response(self):
         response = self._MockResponse(

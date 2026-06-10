@@ -38,6 +38,9 @@ from ._token_source import GDCHTokenSource
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
 
+# Emitted when a guardrail or content filter blocks a response, leaving no content to surface.
+_CONTENT_BLOCKED_PLACEHOLDER = "Response blocked by content policy."
+
 
 def _convert_role_to_openai(role: Optional[str]) -> str:
     """Convert google.genai role to OpenAI role."""
@@ -316,12 +319,22 @@ def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionTool
 
 def _convert_openai_response_to_llm_response(response: ChatCompletion) -> LlmResponse:
     """Convert OpenAI response to LlmResponse."""
+    # Handle usage metadata
+    usage_metadata = None
+    if hasattr(response, "usage") and response.usage:
+        usage_metadata = types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=response.usage.prompt_tokens,
+            candidates_token_count=response.usage.completion_tokens,
+            total_token_count=response.usage.total_tokens,
+        )
+
     if not response.choices:
         return LlmResponse(
             content=types.Content(
                 role="model",
-                parts=[types.Part.from_text(text="Response blocked by content policy.")],
+                parts=[types.Part.from_text(text=_CONTENT_BLOCKED_PLACEHOLDER)],
             ),
+            usage_metadata=usage_metadata,
             finish_reason=types.FinishReason.SAFETY,
         )
     choice = response.choices[0]
@@ -353,15 +366,6 @@ def _convert_openai_response_to_llm_response(response: ChatCompletion) -> LlmRes
                 parts.append(part)
 
     content = types.Content(role="model", parts=parts)
-
-    # Handle usage metadata
-    usage_metadata = None
-    if hasattr(response, "usage") and response.usage:
-        usage_metadata = types.GenerateContentResponseUsageMetadata(
-            prompt_token_count=response.usage.prompt_tokens,
-            candidates_token_count=response.usage.completion_tokens,
-            total_token_count=response.usage.total_tokens,
-        )
 
     # Handle finish reason
     finish_reason = types.FinishReason.STOP
@@ -593,8 +597,12 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
                 # Guardrail or content filter can produce zero content/tool chunks.
                 # An empty parts list causes downstream IndexError; emit a placeholder.
                 if not final_parts:
-                    final_parts.append(types.Part.from_text(text="Response blocked by content policy."))
-                    final_reason = types.FinishReason.SAFETY
+                    if final_reason == types.FinishReason.MAX_TOKENS:
+                        # Truncated by length before any content; not a safety block.
+                        final_parts.append(types.Part.from_text(text=""))
+                    else:
+                        final_parts.append(types.Part.from_text(text=_CONTENT_BLOCKED_PLACEHOLDER))
+                        final_reason = types.FinishReason.SAFETY
 
                 # Always yield final response to signal completion and valid metadata
                 final_content = types.Content(role="model", parts=final_parts)
