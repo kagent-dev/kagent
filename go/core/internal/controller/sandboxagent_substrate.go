@@ -17,7 +17,7 @@ import (
 const sandboxAgentSubstrateFinalizer = "kagent.dev/sandbox-agent-substrate-cleanup"
 
 func sandboxAgentUsesSubstrate(sa *v1alpha2.SandboxAgent) bool {
-	return sa != nil && v1alpha2.AgentSandboxPlatform(&sa.Spec) == v1alpha2.SandboxPlatformSubstrate
+	return sa != nil && v1alpha2.AgentSandboxPlatform(sa) == v1alpha2.SandboxPlatformSubstrate
 }
 
 func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Context, sa *v1alpha2.SandboxAgent) (ctrl.Result, error) {

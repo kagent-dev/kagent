@@ -19,7 +19,7 @@ import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
 import { buildSandboxCRDraft } from "@/lib/openClawSandboxForm";
-import { buildSandboxConfigFromForm } from "@/lib/sandboxAgentForm";
+import { buildSandboxConfigFromForm, buildSandboxPlatformFromForm } from "@/lib/sandboxAgentForm";
 
 function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
   if (agentFormData.sandboxPlatform === "substrate") {
@@ -239,6 +239,9 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
 }
 
 function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxAgent {
+  const sandbox = buildSandboxConfigFromForm(agentFormData);
+  const platform = buildSandboxPlatformFromForm(agentFormData);
+
   if (agentFormData.byoImage?.trim()) {
     return {
       apiVersion: "kagent.dev/v1alpha2",
@@ -250,7 +253,8 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
       spec: {
         type: "BYO",
         description: agentFormData.description,
-        sandbox: buildSandboxConfigFromForm(agentFormData),
+        platform,
+        sandbox,
         byo: {
           deployment: {
             image: agentFormData.byoImage || "",
@@ -392,7 +396,9 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
     spec.skills = skills;
   }
 
-  const sandbox = buildSandboxConfigFromForm(agentFormData);
+  if (platform) {
+    spec.platform = platform;
+  }
   if (sandbox) {
     spec.sandbox = sandbox;
   }

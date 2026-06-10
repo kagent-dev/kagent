@@ -531,7 +531,7 @@ func (h *SessionsHandler) lookupSubstrateSandboxAgent(ctx context.Context, agent
 		}
 		return nil, false, err
 	}
-	if v1alpha2.AgentSandboxPlatform(&sa.Spec) != v1alpha2.SandboxPlatformSubstrate {
+	if v1alpha2.AgentSandboxPlatform(sa) != v1alpha2.SandboxPlatformSubstrate {
 		return nil, false, nil
 	}
 	return sa, true, nil

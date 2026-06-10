@@ -97,8 +97,8 @@ func (a *adkApiTranslator) CompileAgent(
 	if runInSandbox && a.sandboxBackend == nil {
 		return nil, fmt.Errorf("sandbox backend is not configured")
 	}
-	if runInSandbox && v1alpha2.AgentSandboxPlatform(spec) == v1alpha2.SandboxPlatformSubstrate {
-		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(spec); err != nil {
+	if runInSandbox && v1alpha2.AgentSandboxPlatform(agent) == v1alpha2.SandboxPlatformSubstrate {
+		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(agent.(*v1alpha2.SandboxAgent)); err != nil {
 			return nil, NewValidationError("%s", err.Error())
 		}
 	}

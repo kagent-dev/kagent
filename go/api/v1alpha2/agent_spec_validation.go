@@ -3,8 +3,8 @@ package v1alpha2
 import "fmt"
 
 const (
-	substrateSandboxSkillsUnsupportedMsg        = "spec.skills is not supported when spec.sandbox.platform is substrate"
-	substrateSandboxPythonRuntimeUnsupportedMsg = "spec.declarative.runtime must be \"go\" when spec.sandbox.platform is substrate"
+	substrateSandboxSkillsUnsupportedMsg        = "spec.skills is not supported when spec.platform is substrate"
+	substrateSandboxPythonRuntimeUnsupportedMsg = "spec.declarative.runtime must be \"go\" when spec.platform is substrate"
 )
 
 // AgentSpecHasSkills reports whether the spec configures any skill sources.
@@ -18,10 +18,11 @@ func AgentSpecHasSkills(spec *AgentSpec) bool {
 
 // ValidateSubstrateSandboxAgentSpec rejects substrate sandbox configurations that kagent
 // does not support yet (for example declarative skills on Agent Substrate).
-func ValidateSubstrateSandboxAgentSpec(spec *AgentSpec) error {
-	if spec == nil || AgentSandboxPlatform(spec) != SandboxPlatformSubstrate {
+func ValidateSubstrateSandboxAgentSpec(agent *SandboxAgent) error {
+	if agent == nil || AgentSandboxPlatform(agent) != SandboxPlatformSubstrate {
 		return nil
 	}
+	spec := agent.GetAgentSpec()
 	if AgentSpecHasSkills(spec) {
 		return fmt.Errorf("%s", substrateSandboxSkillsUnsupportedMsg)
 	}

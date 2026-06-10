@@ -1,5 +1,6 @@
 import {
   buildSandboxConfigFromForm,
+  buildSandboxPlatformFromForm,
   defaultDeclarativeRuntimeForSandboxPlatform,
   defaultSandboxPlatform,
   isSingleSessionSandboxAgent,
@@ -14,8 +15,7 @@ import type { AgentResponse } from "@/types";
 describe("sandboxFieldsFromApiSpec", () => {
   it("maps substrate sandbox spec to form fields", () => {
     expect(
-      sandboxFieldsFromApiSpec({
-        platform: "substrate",
+      sandboxFieldsFromApiSpec("substrate", {
         substrate: {
           workerPoolRef: { name: "pool-a" },
           snapshotsConfig: { location: "gs://bucket/snapshots" },
@@ -58,7 +58,6 @@ describe("buildSandboxConfigFromForm", () => {
         substrateSnapshotsLocation: " gs://snap ",
       }),
     ).toEqual({
-      platform: "substrate",
       substrate: {
         workerPoolRef: { name: "wp" },
         snapshotsConfig: { location: "gs://snap" },
@@ -68,9 +67,22 @@ describe("buildSandboxConfigFromForm", () => {
 
   it("includes empty substrate object when optional fields are unset", () => {
     expect(buildSandboxConfigFromForm({ ...base, sandboxPlatform: "substrate" })).toEqual({
-      platform: "substrate",
       substrate: {},
     });
+  });
+});
+
+describe("buildSandboxPlatformFromForm", () => {
+  const base: AgentFormData = {
+    name: "demo",
+    namespace: "default",
+    description: "d",
+    tools: [],
+  };
+
+  it("emits substrate platform only when selected", () => {
+    expect(buildSandboxPlatformFromForm({ ...base, sandboxPlatform: "substrate" })).toBe("substrate");
+    expect(buildSandboxPlatformFromForm({ ...base, sandboxPlatform: "agent-sandbox" })).toBeUndefined();
   });
 });
 
@@ -87,12 +99,12 @@ describe("defaultSandboxPlatform", () => {
 describe("substrate sandbox chat helpers", () => {
   const substrateSandbox = {
     workloadMode: "sandbox",
-    agent: { spec: { sandbox: { platform: "substrate" } } },
+    agent: { spec: { platform: "substrate" } },
   } as AgentResponse;
 
   const agentSandbox = {
     workloadMode: "sandbox",
-    agent: { spec: { sandbox: { platform: "agent-sandbox" } } },
+    agent: { spec: { platform: "agent-sandbox" } },
   } as AgentResponse;
 
   const deployment = {

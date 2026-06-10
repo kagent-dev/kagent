@@ -180,8 +180,10 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 			APIVersion: v1alpha2.GroupVersion.String(),
 			Kind:       "AgentHarness",
 			Metadata:   *sb.ObjectMeta.DeepCopy(),
-			Spec: v1alpha2.AgentSpec{
-				Description: desc,
+			Spec: v1alpha2.SandboxAgentSpec{
+				AgentSpec: v1alpha2.AgentSpec{
+					Description: desc,
+				},
 			},
 		},
 		DeploymentReady: ready,
@@ -331,13 +333,14 @@ func (h *AgentsHandler) buildTranslator(kubeClient client.Client) agent_translat
 }
 
 func (h *AgentsHandler) validateAgentObject(ctx context.Context, agent v1alpha2.AgentObject) error {
-	spec := agent.GetAgentSpec()
-	if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(spec); err != nil {
-		return errors.NewBadRequestError(err.Error(), err)
+	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
+		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
+			return errors.NewBadRequestError(err.Error(), err)
+		}
 	}
 
 	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox && h.SandboxBackend != nil &&
-		v1alpha2.AgentSandboxPlatform(spec) != v1alpha2.SandboxPlatformSubstrate {
+		v1alpha2.AgentSandboxPlatform(agent) != v1alpha2.SandboxPlatformSubstrate {
 		if err := sandboxbackend.EnsureAgentSandboxAPIsRegistered(ctx, h.KubeClient); err != nil {
 			return errors.NewBadRequestError(err.Error(), err)
 		}
@@ -601,7 +604,17 @@ func (h *AgentsHandler) handleUpdateAgentObject(
 		return
 	}
 
-	*existing.GetAgentSpec() = *incoming.GetAgentSpec()
+	switch existingTyped := existing.(type) {
+	case *v1alpha2.SandboxAgent:
+		incomingTyped, ok := incoming.(*v1alpha2.SandboxAgent)
+		if !ok {
+			w.RespondWithError(errors.NewBadRequestError("Invalid SandboxAgent request body", nil))
+			return
+		}
+		existingTyped.Spec = *incomingTyped.Spec.DeepCopy()
+	default:
+		*existing.GetAgentSpec() = *incoming.GetAgentSpec()
+	}
 
 	if err := h.validateAgentObject(r.Context(), existing); err != nil {
 		w.RespondWithError(err)

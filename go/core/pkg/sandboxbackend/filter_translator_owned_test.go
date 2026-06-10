@@ -63,8 +63,8 @@ func TestFilterTranslatorOwnedTypesForList(t *testing.T) {
 		allWithSubstrate := append(allTypes, &atev1alpha1.ActorTemplate{})
 		sa := &v1alpha2.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-			Spec: v1alpha2.AgentSpec{
-				Sandbox: &v1alpha2.SandboxConfig{Platform: v1alpha2.SandboxPlatformSubstrate},
+			Spec: v1alpha2.SandboxAgentSpec{
+				Platform: v1alpha2.SandboxPlatformSubstrate,
 			},
 		}
 		out, err := sandboxbackend.FilterTranslatorOwnedTypesForList(cl, sa, allWithSubstrate, routing)
@@ -89,8 +89,8 @@ func TestFilterTranslatorOwnedTypesForList(t *testing.T) {
 		allWithSubstrate := append(allTypes, &atev1alpha1.ActorTemplate{})
 		sa := &v1alpha2.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-			Spec: v1alpha2.AgentSpec{
-				Sandbox: &v1alpha2.SandboxConfig{Platform: v1alpha2.SandboxPlatformAgentSandbox},
+			Spec: v1alpha2.SandboxAgentSpec{
+				Platform: v1alpha2.SandboxPlatformAgentSandbox,
 			},
 		}
 		out, err := sandboxbackend.FilterTranslatorOwnedTypesForList(cl, sa, allWithSubstrate, routing)

@@ -54,10 +54,12 @@ func TestBuildSubstrateKagentContainerCommand(t *testing.T) {
 	t.Parallel()
 
 	sa := &v1alpha2.SandboxAgent{
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
-				Runtime: v1alpha2.DeclarativeRuntime_Go,
+		Spec: v1alpha2.SandboxAgentSpec{
+			AgentSpec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					Runtime: v1alpha2.DeclarativeRuntime_Go,
+				},
 			},
 		},
 	}

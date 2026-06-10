@@ -1,13 +1,13 @@
 import type { AgentFormData } from "@/components/AgentsProvider";
 import type { AgentResponse, SandboxConfig, SandboxPlatform } from "@/types";
 
-export function sandboxFieldsFromApiSpec(sandbox?: SandboxConfig): {
+export function sandboxFieldsFromApiSpec(platform?: SandboxPlatform, sandbox?: SandboxConfig): {
   sandboxPlatform: SandboxPlatform;
   substrateWorkerPoolRefName: string;
   substrateSnapshotsLocation: string;
 } {
   return {
-    sandboxPlatform: sandbox?.platform === "substrate" ? "substrate" : "agent-sandbox",
+    sandboxPlatform: platform === "substrate" ? "substrate" : "agent-sandbox",
     substrateWorkerPoolRefName: sandbox?.substrate?.workerPoolRef?.name?.trim() ?? "",
     substrateSnapshotsLocation: sandbox?.substrate?.snapshotsConfig?.location?.trim() ?? "",
   };
@@ -29,9 +29,12 @@ export function buildSandboxConfigFromForm(agentFormData: AgentFormData): Sandbo
   }
 
   return {
-    platform: "substrate",
     substrate,
   };
+}
+
+export function buildSandboxPlatformFromForm(agentFormData: AgentFormData): SandboxPlatform | undefined {
+  return agentFormData.sandboxPlatform === "substrate" ? "substrate" : undefined;
 }
 
 /** Default sandbox platform for new agents when substrate is available on the cluster. */
@@ -45,7 +48,7 @@ export function isSubstrateSandboxAgent(
 ): boolean {
   return (
     agent?.workloadMode === "sandbox" &&
-    agent?.agent?.spec?.sandbox?.platform === "substrate"
+    agent?.agent?.spec?.platform === "substrate"
   );
 }
 

@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// RoutingBackend delegates to agent-sandbox or Agent Substrate based on spec.sandbox.platform.
+// RoutingBackend delegates to agent-sandbox or Agent Substrate based on spec.platform.
 type RoutingBackend struct {
 	AgentSandbox Backend
 	Substrate    Backend
@@ -27,7 +27,7 @@ func (r *RoutingBackend) backendFor(agent v1alpha2.AgentObject) (Backend, error)
 	if r == nil {
 		return nil, fmt.Errorf("routing sandbox backend is nil")
 	}
-	if v1alpha2.AgentSandboxPlatform(agent.GetAgentSpec()) == v1alpha2.SandboxPlatformSubstrate {
+	if v1alpha2.AgentSandboxPlatform(agent) == v1alpha2.SandboxPlatformSubstrate {
 		if r.Substrate == nil {
 			return nil, fmt.Errorf("substrate sandbox backend is not configured")
 		}

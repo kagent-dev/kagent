@@ -47,7 +47,6 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentSpec defines the desired state of Agent.
             properties:
               allowedNamespaces:
                 description: |-
@@ -10952,6 +10951,14 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              platform:
+                default: agent-sandbox
+                description: Platform selects the sandbox control plane. Defaults
+                  to agent-sandbox.
+                enum:
+                - agent-sandbox
+                - substrate
+                type: string
               sandbox:
                 description: |-
                   Sandbox configures sandboxed execution behavior shared across runtimes.
@@ -10971,14 +10978,6 @@ spec:
                           type: string
                         type: array
                     type: object
-                  platform:
-                    default: agent-sandbox
-                    description: Platform selects the sandbox control plane. Defaults
-                      to agent-sandbox.
-                    enum:
-                    - agent-sandbox
-                    - substrate
-                    type: string
                   substrate:
                     description: Substrate is optional substrate-specific settings
                       when platform is substrate.
@@ -11012,10 +11011,6 @@ spec:
                         type: object
                     type: object
                 type: object
-                x-kubernetes-validations:
-                - message: spec.sandbox.substrate may only be set when platform is
-                    substrate
-                  rule: '!has(self.substrate) || self.platform == ''substrate'''
               skills:
                 description: |-
                   Skills to load into the agent. They will be pulled from the specified container images.
@@ -11341,6 +11336,12 @@ spec:
                 type: string
             type: object
             x-kubernetes-validations:
+            - message: spec.skills is not supported when spec.platform is substrate
+              rule: '!has(self.skills) || self.platform != ''substrate'''
+            - message: spec.sandbox.substrate may only be set when spec.platform is
+                substrate
+              rule: '!has(self.sandbox) || !has(self.sandbox.substrate) || self.platform
+                == ''substrate'''
             - message: type must be specified
               rule: has(self.type)
             - message: type must be either Declarative or BYO
@@ -11349,10 +11350,6 @@ spec:
                 must be specified if type is BYO
               rule: (self.type == 'Declarative' && has(self.declarative)) || (self.type
                 == 'BYO' && has(self.byo))
-            - message: spec.skills is not supported when spec.sandbox.platform is
-                substrate
-              rule: '!has(self.skills) || !has(self.sandbox) || self.sandbox.platform
-                != ''substrate'''
           status:
             description: AgentStatus defines the observed state of Agent.
             properties:

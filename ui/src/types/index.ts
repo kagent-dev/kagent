@@ -275,7 +275,7 @@ export interface SkillForAgent {
   gitRefs?: GitRepo[];
 }
 
-/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). Spec matches Agent.spec (AgentSpec). */
+/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). */
 export interface SandboxAgent {
   apiVersion?: string;
   kind?: string;
@@ -291,7 +291,6 @@ export interface SandboxSubstrateSpec {
 }
 
 export interface SandboxConfig {
-  platform?: SandboxPlatform;
   substrate?: SandboxSubstrateSpec;
   network?: { allowedDomains?: string[] };
 }
@@ -302,6 +301,7 @@ export interface AgentSpec {
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
+  platform?: SandboxPlatform;
   sandbox?: SandboxConfig;
 }
 

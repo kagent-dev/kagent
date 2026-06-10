@@ -19,16 +19,16 @@ func TestValidateSandboxPlatform(t *testing.T) {
 
 	substrateSA := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-		Spec: v1alpha2.AgentSpec{
-			Sandbox: &v1alpha2.SandboxConfig{Platform: v1alpha2.SandboxPlatformSubstrate},
+		Spec: v1alpha2.SandboxAgentSpec{
+			Platform: v1alpha2.SandboxPlatformSubstrate,
 		},
 	}
 	require.NoError(t, sandboxbackend.ValidateSandboxPlatform(routing, substrateSA))
 
 	k8sSA := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"},
-		Spec: v1alpha2.AgentSpec{
-			Sandbox: &v1alpha2.SandboxConfig{Platform: v1alpha2.SandboxPlatformAgentSandbox},
+		Spec: v1alpha2.SandboxAgentSpec{
+			Platform: v1alpha2.SandboxPlatformAgentSandbox,
 		},
 	}
 	require.NoError(t, sandboxbackend.ValidateSandboxPlatform(routing, k8sSA))

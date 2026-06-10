@@ -71,7 +71,7 @@ function rowTypeLabel(item: AgentResponse): string {
     return "Agent harness";
   }
   if (item.workloadMode === "sandbox") {
-    if (item.agent.spec?.sandbox?.platform === "substrate") {
+    if (item.agent.spec?.platform === "substrate") {
       return "Substrate sandbox";
     }
     return "Sandbox";

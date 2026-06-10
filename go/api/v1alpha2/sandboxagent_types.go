@@ -32,9 +32,20 @@ type SandboxAgent struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +optional
-	Spec AgentSpec `json:"spec,omitempty"`
+	Spec SandboxAgentSpec `json:"spec,omitempty"`
 	// +optional
 	Status AgentStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="!has(self.skills) || self.platform != 'substrate'",message="spec.skills is not supported when spec.platform is substrate"
+// +kubebuilder:validation:XValidation:rule="!has(self.sandbox) || !has(self.sandbox.substrate) || self.platform == 'substrate'",message="spec.sandbox.substrate may only be set when spec.platform is substrate"
+type SandboxAgentSpec struct {
+	AgentSpec `json:",inline"`
+
+	// Platform selects the sandbox control plane. Defaults to agent-sandbox.
+	// +optional
+	// +kubebuilder:default=agent-sandbox
+	Platform SandboxPlatform `json:"platform,omitempty"`
 }
 
 // +kubebuilder:object:root=true

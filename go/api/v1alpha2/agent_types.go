@@ -50,7 +50,6 @@ const (
 // +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
 // +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
 // +kubebuilder:validation:XValidation:message="declarative must be specified if type is Declarative, or byo must be specified if type is BYO",rule="(self.type == 'Declarative' && has(self.declarative)) || (self.type == 'BYO' && has(self.byo))"
-// +kubebuilder:validation:XValidation:rule="!has(self.skills) || !has(self.sandbox) || self.sandbox.platform != 'substrate'",message="spec.skills is not supported when spec.sandbox.platform is substrate"
 type AgentSpec struct {
 	// +kubebuilder:default=Declarative
 	// +optional
@@ -254,13 +253,7 @@ type SandboxSubstrateSpec struct {
 }
 
 // SandboxConfig configures sandboxed execution behavior.
-// +kubebuilder:validation:XValidation:rule="!has(self.substrate) || self.platform == 'substrate'",message="spec.sandbox.substrate may only be set when platform is substrate"
 type SandboxConfig struct {
-	// Platform selects the sandbox control plane. Defaults to agent-sandbox.
-	// +optional
-	// +kubebuilder:default=agent-sandbox
-	Platform SandboxPlatform `json:"platform,omitempty"`
-
 	// Substrate is optional substrate-specific settings when platform is substrate.
 	// +optional
 	Substrate *SandboxSubstrateSpec `json:"substrate,omitempty"`
@@ -271,12 +264,13 @@ type SandboxConfig struct {
 	Network *NetworkConfig `json:"network,omitempty"`
 }
 
-// AgentSandboxPlatform returns the effective sandbox platform for an agent spec.
-func AgentSandboxPlatform(spec *AgentSpec) SandboxPlatform {
-	if spec == nil || spec.Sandbox == nil || spec.Sandbox.Platform == "" {
+// AgentSandboxPlatform returns the effective sandbox platform for an agent.
+func AgentSandboxPlatform(agent AgentObject) SandboxPlatform {
+	sa, ok := agent.(*SandboxAgent)
+	if !ok || sa == nil || sa.Spec.Platform == "" {
 		return SandboxPlatformAgentSandbox
 	}
-	return spec.Sandbox.Platform
+	return sa.Spec.Platform
 }
 
 // EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python).
@@ -296,7 +290,7 @@ func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
 func EffectiveDeclarativeRuntimeForAgent(agent AgentObject) DeclarativeRuntime {
 	spec := agent.GetAgentSpec()
 	if agent.GetWorkloadMode() == WorkloadModeSandbox &&
-		AgentSandboxPlatform(spec) == SandboxPlatformSubstrate &&
+		AgentSandboxPlatform(agent) == SandboxPlatformSubstrate &&
 		spec != nil &&
 		spec.Type == AgentType_Declarative {
 		return DeclarativeRuntime_Go
