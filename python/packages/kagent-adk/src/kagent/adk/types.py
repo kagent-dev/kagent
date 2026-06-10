@@ -349,6 +349,16 @@ class EmbeddingConfig(BaseModel):
     provider: str
     base_url: str | None = None
 
+    # TLS/SSL configuration mirrors BaseLLM so the embedding client honours the
+    # same ModelConfig.spec.tls as the chat path. The Go controller serialises
+    # the disable-verify flag as "tls_insecure_skip_verify"; accept both names.
+    tls_disable_verify: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("tls_disable_verify", "tls_insecure_skip_verify"),
+    )
+    tls_ca_cert_path: str | None = None
+    tls_disable_system_cas: bool | None = None
+
 
 class MemoryConfig(BaseModel):
     """Memory configuration. Its presence signals that memory is enabled."""
