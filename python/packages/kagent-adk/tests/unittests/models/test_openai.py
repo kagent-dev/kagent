@@ -530,18 +530,18 @@ async def test_streaming_usage_metadata_propagation(openai_llm, llm_request):
 async def test_streaming_with_no_content_chunks_returns_safety_finish_reason(openai_llm, llm_request):
     """A stream where every chunk is filtered (e.g. by a guardrail) should not raise IndexError."""
 
-    class MockDelta:
+    class EmptyContentDelta:
         role = "assistant"
         tool_calls = None
         content = None
 
-    class MockChunkChoice:
+    class EmptyContentChunkChoice:
         def __init__(self, finish_reason=None):
-            self.delta = MockDelta()
+            self.delta = EmptyContentDelta()
             self.finish_reason = finish_reason
             self.index = 0
 
-    class MockChunk:
+    class EmptyContentChunk:
         id = "chatcmpl-test"
         created = 1234567890
         model = "gpt-3.5-turbo"
@@ -549,13 +549,13 @@ async def test_streaming_with_no_content_chunks_returns_safety_finish_reason(ope
         usage = None
 
         def __init__(self, finish_reason=None):
-            self.choices = [MockChunkChoice(finish_reason)]
+            self.choices = [EmptyContentChunkChoice(finish_reason)]
 
     with mock.patch.object(openai_llm, "_client") as mock_client:
 
         async def mock_stream_gen_func(*args, **kwargs):
             async def gen():
-                yield MockChunk(finish_reason="content_filter")
+                yield EmptyContentChunk(finish_reason="content_filter")
 
             return gen()
 
@@ -572,7 +572,7 @@ async def test_streaming_with_no_content_chunks_returns_safety_finish_reason(ope
 
         async def mock_length_stream_gen_func(*args, **kwargs):
             async def gen():
-                yield MockChunk(finish_reason="length")
+                yield EmptyContentChunk(finish_reason="length")
 
             return gen()
 
