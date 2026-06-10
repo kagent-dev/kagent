@@ -246,7 +246,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               };
               const sandboxFields =
                 agentResponse.workloadMode === "sandbox"
-                  ? sandboxFieldsFromApiSpec(agent.spec?.platform, agent.spec?.sandbox)
+                  ? sandboxFieldsFromApiSpec(agent.spec?.platform, agent.spec?.substrate)
                   : {};
               const isSubstrateSandbox =
                 agentResponse.workloadMode === "sandbox" &&

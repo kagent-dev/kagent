@@ -13313,38 +13313,6 @@ spec:
                           type: string
                         type: array
                     type: object
-                  substrate:
-                    description: Substrate is optional substrate-specific settings
-                      when platform is substrate.
-                    properties:
-                      snapshotsConfig:
-                        description: |-
-                          SnapshotsConfig configures actor memory snapshots.
-                          Defaults to gs://ate-snapshots/<namespace>/<agentname> when unset.
-                        properties:
-                          location:
-                            description: |-
-                              Location is the GCS URI prefix for golden and incremental snapshots.
-                              Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
-                            pattern: ^gs://
-                            type: string
-                        required:
-                        - location
-                        type: object
-                      workerPoolRef:
-                        description: WorkerPoolRef references an existing ate.dev
-                          WorkerPool.
-                        properties:
-                          apiGroup:
-                            type: string
-                          kind:
-                            type: string
-                          name:
-                            type: string
-                        required:
-                        - name
-                        type: object
-                    type: object
                 type: object
               skills:
                 description: |-

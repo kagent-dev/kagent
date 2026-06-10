@@ -254,10 +254,6 @@ type SandboxSubstrateSpec struct {
 
 // SandboxConfig configures sandboxed execution behavior.
 type SandboxConfig struct {
-	// Substrate is optional substrate-specific settings when platform is substrate.
-	// +optional
-	Substrate *SandboxSubstrateSpec `json:"substrate,omitempty"`
-
 	// Network configures outbound network access for sandboxed execution paths.
 	// When unset or when allowedDomains is empty, outbound access is denied by default.
 	// +optional

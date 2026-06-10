@@ -1,24 +1,24 @@
 import type { AgentFormData } from "@/components/AgentsProvider";
-import type { AgentResponse, SandboxConfig, SandboxPlatform } from "@/types";
+import type { AgentResponse, SandboxPlatform, SandboxSubstrateSpec } from "@/types";
 
-export function sandboxFieldsFromApiSpec(platform?: SandboxPlatform, sandbox?: SandboxConfig): {
+export function sandboxFieldsFromApiSpec(platform?: SandboxPlatform, substrate?: SandboxSubstrateSpec): {
   sandboxPlatform: SandboxPlatform;
   substrateWorkerPoolRefName: string;
   substrateSnapshotsLocation: string;
 } {
   return {
     sandboxPlatform: platform === "substrate" ? "substrate" : "agent-sandbox",
-    substrateWorkerPoolRefName: sandbox?.substrate?.workerPoolRef?.name?.trim() ?? "",
-    substrateSnapshotsLocation: sandbox?.substrate?.snapshotsConfig?.location?.trim() ?? "",
+    substrateWorkerPoolRefName: substrate?.workerPoolRef?.name?.trim() ?? "",
+    substrateSnapshotsLocation: substrate?.snapshotsConfig?.location?.trim() ?? "",
   };
 }
 
-export function buildSandboxConfigFromForm(agentFormData: AgentFormData): SandboxConfig | undefined {
+export function buildSandboxSubstrateFromForm(agentFormData: AgentFormData): SandboxSubstrateSpec | undefined {
   if (agentFormData.sandboxPlatform !== "substrate") {
     return undefined;
   }
 
-  const substrate: NonNullable<SandboxConfig["substrate"]> = {};
+  const substrate: SandboxSubstrateSpec = {};
   const wp = agentFormData.substrateWorkerPoolRefName?.trim();
   if (wp) {
     substrate.workerPoolRef = { name: wp };
@@ -28,9 +28,7 @@ export function buildSandboxConfigFromForm(agentFormData: AgentFormData): Sandbo
     substrate.snapshotsConfig = { location: loc };
   }
 
-  return {
-    substrate,
-  };
+  return substrate;
 }
 
 export function buildSandboxPlatformFromForm(agentFormData: AgentFormData): SandboxPlatform | undefined {

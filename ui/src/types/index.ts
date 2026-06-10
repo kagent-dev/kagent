@@ -306,7 +306,6 @@ export interface SandboxSubstrateSpec {
 }
 
 export interface SandboxConfig {
-  substrate?: SandboxSubstrateSpec;
   network?: { allowedDomains?: string[] };
 }
 
@@ -317,6 +316,7 @@ export interface AgentSpec {
   description: string;
   skills?: SkillForAgent;
   platform?: SandboxPlatform;
+  substrate?: SandboxSubstrateSpec;
   sandbox?: SandboxConfig;
 }
 

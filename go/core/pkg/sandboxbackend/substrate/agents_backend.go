@@ -46,8 +46,8 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 		return nil, fmt.Errorf("substrate lifecycle is not configured")
 	}
 	var workerPoolRef *v1alpha2.TypedLocalReference
-	if sub := sa.Spec.Sandbox; sub != nil && sub.Substrate != nil {
-		workerPoolRef = sub.Substrate.WorkerPoolRef
+	if sa.Spec.Substrate != nil {
+		workerPoolRef = sa.Spec.Substrate.WorkerPoolRef
 	}
 	wpKey, err := b.Lifecycle.resolveWorkerPoolRefFor(ctx, sa.Namespace, workerPoolRef)
 	if err != nil {

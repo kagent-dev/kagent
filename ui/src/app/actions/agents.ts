@@ -18,8 +18,8 @@ import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
-import { buildAgentHarnessCRDraft } from "@/lib/agentHarnessForm";
-import { buildSandboxConfigFromForm, buildSandboxPlatformFromForm } from "@/lib/sandboxAgentForm";
+import { buildSandboxCRDraft } from "@/lib/openClawSandboxForm";
+import { buildSandboxPlatformFromForm, buildSandboxSubstrateFromForm } from "@/lib/sandboxAgentForm";
 
 function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
   if (agentFormData.sandboxPlatform === "substrate") {
@@ -235,7 +235,7 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
 }
 
 function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxAgent {
-  const sandbox = buildSandboxConfigFromForm(agentFormData);
+  const substrate = buildSandboxSubstrateFromForm(agentFormData);
   const platform = buildSandboxPlatformFromForm(agentFormData);
   const kind = agentFormData.type || "Declarative";
 
@@ -251,7 +251,7 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
         type: "BYO",
         description: agentFormData.description,
         platform,
-        sandbox,
+        substrate,
         byo: {
           deployment: {
             image: agentFormData.byoImage || "",
@@ -396,8 +396,8 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
   if (platform) {
     spec.platform = platform;
   }
-  if (sandbox) {
-    spec.sandbox = sandbox;
+  if (substrate) {
+    spec.substrate = substrate;
   }
 
   return {

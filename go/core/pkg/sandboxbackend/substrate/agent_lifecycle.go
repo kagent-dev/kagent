@@ -143,8 +143,8 @@ func sandboxAgentSnapshotsLocation(sa *v1alpha2.SandboxAgent) string {
 		return substrateSnapshotsLocationFor("", "", "")
 	}
 	loc := ""
-	if sub := sa.Spec.Sandbox; sub != nil && sub.Substrate != nil && sub.Substrate.SnapshotsConfig != nil {
-		loc = sub.Substrate.SnapshotsConfig.Location
+	if sa.Spec.Substrate != nil && sa.Spec.Substrate.SnapshotsConfig != nil {
+		loc = sa.Spec.Substrate.SnapshotsConfig.Location
 	}
 	return substrateSnapshotsLocationFor(sa.Namespace, sa.Name, loc)
 }

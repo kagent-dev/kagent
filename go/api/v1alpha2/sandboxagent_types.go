@@ -38,7 +38,7 @@ type SandboxAgent struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.skills) || self.platform != 'substrate'",message="spec.skills is not supported when spec.platform is substrate"
-// +kubebuilder:validation:XValidation:rule="!has(self.sandbox) || !has(self.sandbox.substrate) || self.platform == 'substrate'",message="spec.sandbox.substrate may only be set when spec.platform is substrate"
+// +kubebuilder:validation:XValidation:rule="!has(self.substrate) || self.platform == 'substrate'",message="spec.substrate may only be set when spec.platform is substrate"
 type SandboxAgentSpec struct {
 	AgentSpec `json:",inline"`
 
@@ -46,6 +46,10 @@ type SandboxAgentSpec struct {
 	// +optional
 	// +kubebuilder:default=agent-sandbox
 	Platform SandboxPlatform `json:"platform,omitempty"`
+
+	// Substrate is optional substrate-specific settings when platform is substrate.
+	// +optional
+	Substrate *SandboxSubstrateSpec `json:"substrate,omitempty"`
 }
 
 // +kubebuilder:object:root=true
