@@ -1,6 +1,6 @@
 module github.com/kagent-dev/kagent/go
 
-go 1.26.2
+go 1.26.3
 
 require (
 	// core dependencies
@@ -416,10 +416,10 @@ require (
 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20260209203927-2842357ff358 // indirect
 	golang.org/x/mod v0.36.0 // indirect
-	golang.org/x/net v0.54.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/term v0.43.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
@@ -449,3 +449,5 @@ require (
 )
 
 tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
+
+replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.6

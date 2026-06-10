@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

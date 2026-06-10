@@ -52,7 +52,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
