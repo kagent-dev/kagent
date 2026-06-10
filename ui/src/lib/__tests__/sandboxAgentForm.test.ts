@@ -1,6 +1,6 @@
 import {
-  buildSandboxConfigFromForm,
   buildSandboxPlatformFromForm,
+  buildSandboxSubstrateFromForm,
   defaultDeclarativeRuntimeForSandboxPlatform,
   defaultSandboxPlatform,
   isSingleSessionSandboxAgent,
@@ -16,10 +16,8 @@ describe("sandboxFieldsFromApiSpec", () => {
   it("maps substrate sandbox spec to form fields", () => {
     expect(
       sandboxFieldsFromApiSpec("substrate", {
-        substrate: {
-          workerPoolRef: { name: "pool-a" },
-          snapshotsConfig: { location: "gs://bucket/snapshots" },
-        },
+        workerPoolRef: { name: "pool-a" },
+        snapshotsConfig: { location: "gs://bucket/snapshots" },
       }),
     ).toEqual({
       sandboxPlatform: "substrate",
@@ -37,7 +35,7 @@ describe("sandboxFieldsFromApiSpec", () => {
   });
 });
 
-describe("buildSandboxConfigFromForm", () => {
+describe("buildSandboxSubstrateFromForm", () => {
   const base: AgentFormData = {
     name: "demo",
     namespace: "default",
@@ -46,29 +44,25 @@ describe("buildSandboxConfigFromForm", () => {
   };
 
   it("omits sandbox when platform is agent-sandbox", () => {
-    expect(buildSandboxConfigFromForm({ ...base, sandboxPlatform: "agent-sandbox" })).toBeUndefined();
+    expect(buildSandboxSubstrateFromForm({ ...base, sandboxPlatform: "agent-sandbox" })).toBeUndefined();
   });
 
-  it("builds substrate sandbox config from form fields", () => {
+  it("builds substrate config from form fields", () => {
     expect(
-      buildSandboxConfigFromForm({
+      buildSandboxSubstrateFromForm({
         ...base,
         sandboxPlatform: "substrate",
         substrateWorkerPoolRefName: " wp ",
         substrateSnapshotsLocation: " gs://snap ",
       }),
     ).toEqual({
-      substrate: {
-        workerPoolRef: { name: "wp" },
-        snapshotsConfig: { location: "gs://snap" },
-      },
+      workerPoolRef: { name: "wp" },
+      snapshotsConfig: { location: "gs://snap" },
     });
   });
 
   it("includes empty substrate object when optional fields are unset", () => {
-    expect(buildSandboxConfigFromForm({ ...base, sandboxPlatform: "substrate" })).toEqual({
-      substrate: {},
-    });
+    expect(buildSandboxSubstrateFromForm({ ...base, sandboxPlatform: "substrate" })).toEqual({});
   });
 });
 
