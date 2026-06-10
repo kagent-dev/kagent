@@ -154,14 +154,14 @@ func pinImageRef(image string) (string, error) {
 
 // actorTemplateEnvFromPodEnv converts pod env vars into ActorTemplate env vars.
 // Substrate ActorTemplates only support literal values, secretKeyRef, and configMapKeyRef.
-func actorTemplateEnvFromPodEnv(env []corev1.EnvVar, namespace, name string) []atev1alpha1.EnvVar {
+func actorTemplateEnvFromPodEnv(env []corev1.EnvVar) []atev1alpha1.EnvVar {
 	out := make([]atev1alpha1.EnvVar, 0, len(env))
 	seen := make(map[string]struct{}, len(env))
 	for _, e := range env {
 		if e.Name == "" {
 			continue
 		}
-		sanitized := sanitizeActorTemplateEnvVar(e, namespace, name)
+		sanitized := sanitizeActorTemplateEnvVar(e)
 		if sanitized == nil {
 			continue
 		}
@@ -174,7 +174,7 @@ func actorTemplateEnvFromPodEnv(env []corev1.EnvVar, namespace, name string) []a
 	return out
 }
 
-func sanitizeActorTemplateEnvVar(e corev1.EnvVar, namespace, name string) *atev1alpha1.EnvVar {
+func sanitizeActorTemplateEnvVar(e corev1.EnvVar) *atev1alpha1.EnvVar {
 	if e.Value != "" {
 		return &atev1alpha1.EnvVar{
 			Name:      e.Name,

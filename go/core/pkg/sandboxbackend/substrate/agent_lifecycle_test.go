@@ -36,11 +36,11 @@ func TestActorTemplateEnvFromPodEnv(t *testing.T) {
 		},
 	}
 
-	got := actorTemplateEnvFromPodEnv(env, "kagent", "my-agent")
-	require.Len(t, got, 3)
-	require.Equal(t, "ok", got[0].Value)
-	require.Equal(t, "kagent", got[1].Value)
-	require.NotNil(t, got[2].ValueFrom.SecretKeyRef)
+	got := actorTemplateEnvFromPodEnv(env)
+	require.Len(t, got, 2)
+	require.NotNil(t, got[0].Value)
+	require.Equal(t, "ok", *got[0].Value)
+	require.NotNil(t, got[1].ValueFrom.SecretKeyRef)
 }
 
 func TestBuildSubstrateGoKagentCommand(t *testing.T) {
