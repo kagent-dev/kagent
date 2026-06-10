@@ -154,8 +154,8 @@ func pinImageRef(image string) (string, error) {
 
 // actorTemplateEnvFromPodEnv converts pod env vars into ActorTemplate env vars.
 // Substrate ActorTemplates only support literal values, secretKeyRef, and configMapKeyRef.
-func actorTemplateEnvFromPodEnv(env []corev1.EnvVar, namespace, name string) []corev1.EnvVar {
-	out := make([]corev1.EnvVar, 0, len(env))
+func actorTemplateEnvFromPodEnv(env []corev1.EnvVar, namespace, name string) []atev1alpha1.EnvVar {
+	out := make([]atev1alpha1.EnvVar, 0, len(env))
 	seen := make(map[string]struct{}, len(env))
 	for _, e := range env {
 		if e.Name == "" {
@@ -174,39 +174,24 @@ func actorTemplateEnvFromPodEnv(env []corev1.EnvVar, namespace, name string) []c
 	return out
 }
 
-func sanitizeActorTemplateEnvVar(e corev1.EnvVar, namespace, name string) *corev1.EnvVar {
+func sanitizeActorTemplateEnvVar(e corev1.EnvVar, namespace, name string) *atev1alpha1.EnvVar {
 	if e.Value != "" {
-		copy := e
-		copy.ValueFrom = nil
-		return &copy
-	}
-	if e.ValueFrom == nil {
-		return nil
+		return &atev1alpha1.EnvVar{
+			Name:      e.Name,
+			ValueFrom: nil,
+			Value:     &e.Value,
+		}
 	}
 	if ref := e.ValueFrom.SecretKeyRef; ref != nil {
-		return &corev1.EnvVar{
+		return &atev1alpha1.EnvVar{
 			Name: e.Name,
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: ref.DeepCopy(),
+			ValueFrom: &atev1alpha1.EnvVarSource{
+				SecretKeyRef: &atev1alpha1.SecretKeySelector{
+					Name:     ref.Name,
+					Key:      ref.Key,
+					Optional: ref.Optional,
+				},
 			},
-		}
-	}
-	if ref := e.ValueFrom.ConfigMapKeyRef; ref != nil {
-		return &corev1.EnvVar{
-			Name: e.Name,
-			ValueFrom: &corev1.EnvVarSource{
-				ConfigMapKeyRef: ref.DeepCopy(),
-			},
-		}
-	}
-	if ref := e.ValueFrom.FieldRef; ref != nil {
-		switch ref.FieldPath {
-		case "metadata.namespace":
-			return &corev1.EnvVar{Name: e.Name, Value: namespace}
-		case "metadata.name":
-			return &corev1.EnvVar{Name: e.Name, Value: name}
-		default:
-			return nil
 		}
 	}
 	return nil

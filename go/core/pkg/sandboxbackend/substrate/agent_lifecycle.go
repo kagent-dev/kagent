@@ -49,7 +49,6 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			Containers: []atev1alpha1.Container{{
 				Name:    defaultKagentContainer,
 				Image:   image,
-				Ports:   substrateKagentContainerPorts(),
 				Command: command,
 				Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...), sa.Namespace, sa.Name),
 			}},
