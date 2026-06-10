@@ -73,7 +73,6 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 				{
 					Name:  defaultOpenClawContainer,
 					Image: workloadImage,
-					Ports: []corev1.ContainerPort{{ContainerPort: 80}},
 					Command: []string{
 						"/bin/sh",
 						"-c",
