@@ -316,6 +316,14 @@ def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionTool
 
 def _convert_openai_response_to_llm_response(response: ChatCompletion) -> LlmResponse:
     """Convert OpenAI response to LlmResponse."""
+    if not response.choices:
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part.from_text(text="Response blocked by content policy.")],
+            ),
+            finish_reason=types.FinishReason.SAFETY,
+        )
     choice = response.choices[0]
     message = choice.message
 
@@ -581,6 +589,12 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
                     final_reason = types.FinishReason.SAFETY
                 elif finish_reason == "tool_calls":
                     final_reason = types.FinishReason.STOP  # Tool calls is a normal completion
+
+                # Guardrail or content filter can produce zero content/tool chunks.
+                # An empty parts list causes downstream IndexError; emit a placeholder.
+                if not final_parts:
+                    final_parts.append(types.Part.from_text(text="Response blocked by content policy."))
+                    final_reason = types.FinishReason.SAFETY
 
                 # Always yield final response to signal completion and valid metadata
                 final_content = types.Content(role="model", parts=final_parts)

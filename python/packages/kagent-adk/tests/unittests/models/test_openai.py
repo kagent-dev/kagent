@@ -526,6 +526,48 @@ async def test_streaming_usage_metadata_propagation(openai_llm, llm_request):
         assert final_response.usage_metadata.total_token_count == 15
 
 
+@pytest.mark.asyncio
+async def test_streaming_with_no_content_chunks_returns_safety_finish_reason(openai_llm, llm_request):
+    """A stream where every chunk is filtered (e.g. by a guardrail) should not raise IndexError."""
+
+    class MockDelta:
+        role = "assistant"
+        tool_calls = None
+        content = None
+
+    class MockChunkChoice:
+        def __init__(self, finish_reason=None):
+            self.delta = MockDelta()
+            self.finish_reason = finish_reason
+            self.index = 0
+
+    class MockChunk:
+        id = "chatcmpl-test"
+        created = 1234567890
+        model = "gpt-3.5-turbo"
+        object = "chat.completion.chunk"
+        usage = None
+
+        def __init__(self, finish_reason=None):
+            self.choices = [MockChunkChoice(finish_reason)]
+
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+
+        async def mock_stream_gen_func(*args, **kwargs):
+            async def gen():
+                yield MockChunk(finish_reason="content_filter")
+
+            return gen()
+
+        mock_client.chat.completions.create.side_effect = mock_stream_gen_func
+
+        stream_results = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=True)]
+
+        final_response = stream_results[-1]
+        assert final_response.finish_reason == types.FinishReason.SAFETY
+        assert final_response.content.parts[0].text == "Response blocked by content policy."
+
+
 # ============================================================================
 # SSL/TLS Configuration Tests
 # ============================================================================
@@ -932,6 +974,20 @@ class TestConvertOpenAIResponseToLlmResponse:
         def __init__(self, message):
             self.choices = [TestConvertOpenAIResponseToLlmResponse._MockChoice(message)]
             self.usage = TestConvertOpenAIResponseToLlmResponse._MockUsage()
+
+    class _MockEmptyChoicesResponse:
+        def __init__(self):
+            self.choices = []
+            self.usage = TestConvertOpenAIResponseToLlmResponse._MockUsage()
+
+    def test_empty_choices_returns_safety_finish_reason(self):
+        """A response with no choices (e.g. blocked by a guardrail) should not raise IndexError."""
+        response = self._MockEmptyChoicesResponse()
+
+        llm_response = _convert_openai_response_to_llm_response(response)
+
+        assert llm_response.finish_reason == types.FinishReason.SAFETY
+        assert llm_response.content.parts[0].text == "Response blocked by content policy."
 
     def test_preserves_thought_signature_from_openai_tool_call_response(self):
         response = self._MockResponse(
