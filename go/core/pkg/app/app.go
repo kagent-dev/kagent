@@ -156,6 +156,7 @@ type Config struct {
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
+		AteAPITokenFile            string
 		AtenetRouterURL            string
 		Insecure                   bool
 		DialTimeout                time.Duration
@@ -227,6 +228,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.DurationVar(&cfg.Openshell.CallTimeout, "openshell-call-timeout", 30*time.Second, "Per-RPC timeout for OpenShell gateway calls.")
 
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
+	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
 	commandLine.StringVar(&cfg.Substrate.AtenetRouterURL, "substrate-atenet-router-url", "", "HTTP URL for Substrate atenet-router (Envoy). Defaults to http://atenet-router.ate-system.svc:80 when unset.")
 	commandLine.BoolVar(&cfg.Substrate.Insecure, "substrate-ate-api-insecure", false, "Dial ate-api without TLS (local dev only).")
 	commandLine.DurationVar(&cfg.Substrate.DialTimeout, "substrate-dial-timeout", 10*time.Second, "Timeout for the initial dial to ate-api.")
@@ -862,6 +864,7 @@ func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *sub
 func substrateAppConfig(cfg *Config) substrate.Config {
 	sc := substrate.Config{
 		AteAPIEndpoint: cfg.Substrate.AteAPIEndpoint,
+		TokenFile:      cfg.Substrate.AteAPITokenFile,
 		Insecure:       cfg.Substrate.Insecure,
 		DialTimeout:    cfg.Substrate.DialTimeout,
 		CallTimeout:    cfg.Substrate.CallTimeout,

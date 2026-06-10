@@ -265,6 +265,7 @@ controller:
     ateApiEndpoint: ""
     atenetRouterURL: ""
     ateApiInsecure: false
+    ateApiTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
     # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
     ateApiServer:
       namespace: ate-system
