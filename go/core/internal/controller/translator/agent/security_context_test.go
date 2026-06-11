@@ -275,10 +275,10 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 	assert.Equal(t, int64(3000), *containerSecurityContext.RunAsGroup)
 }
 
-// TestSecurityContext_SkillsDefaultPrivilegedSandbox verifies that when skills are
-// configured and the user has NOT set any securityContext (i.e., no PSS restriction),
-// the controller sets Privileged=true so that srt/bubblewrap can fully sandbox the BashTool.
-func TestSecurityContext_SkillsDefaultPrivilegedSandbox(t *testing.T) {
+// TestSecurityContext_SkillsNoPrivileged verifies that skills alone do NOT set Privileged=true.
+// Skills are loaded by the init container; the main container does not need elevated privileges
+// for skill loading. Only the BashTool sandbox (cfg.GetExecuteCode()) needs Privileged=true.
+func TestSecurityContext_SkillsNoPrivileged(t *testing.T) {
 	ctx := context.Background()
 
 	agent := &v1alpha2.Agent{
@@ -294,7 +294,6 @@ func TestSecurityContext_SkillsDefaultPrivilegedSandbox(t *testing.T) {
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
 				ModelConfig:   "test-model",
-				// No Deployment.SecurityContext set — default behaviour
 			},
 		},
 	}
@@ -339,11 +338,10 @@ func TestSecurityContext_SkillsDefaultPrivilegedSandbox(t *testing.T) {
 	podTemplate := &deployment.Spec.Template
 
 	containerSecurityContext := podTemplate.Spec.Containers[0].SecurityContext
-	require.NotNil(t, containerSecurityContext, "SecurityContext should be created for sandbox")
-	// Without an explicit AllowPrivilegeEscalation=false constraint, skills trigger Privileged=true
-	// so that srt/bubblewrap can use kernel namespaces for full BashTool sandboxing.
-	require.NotNil(t, containerSecurityContext.Privileged, "Privileged should be set when no securityContext restriction")
-	assert.True(t, *containerSecurityContext.Privileged, "Privileged should be true for skills without PSS restrictions")
+	if containerSecurityContext != nil {
+		assert.True(t, containerSecurityContext.Privileged == nil || !*containerSecurityContext.Privileged,
+			"skills alone must not set Privileged=true")
+	}
 }
 
 // TestSecurityContext_SkillsPSSRestricted verifies that when a user explicitly sets
