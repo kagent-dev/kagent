@@ -15,6 +15,7 @@ import {
   defaultSandboxPlatform,
   sandboxFieldsFromApiSpec,
   skillsSupportedForSandboxPlatform,
+  substrateSupportedForAgentType,
 } from "@/lib/sandboxAgentForm";
 import { ModelConfig, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
@@ -158,7 +159,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       return;
     }
     setState((prev) => {
-      if (!prev.runInSandbox || prev.sandboxPlatform === "substrate") {
+      if (
+        !prev.runInSandbox ||
+        prev.sandboxPlatform === "substrate" ||
+        !substrateSupportedForAgentType(prev.agentType)
+      ) {
         return prev;
       }
       return {
@@ -676,6 +681,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     setState((prev) => ({
                       ...prev,
                       agentType: next,
+                      // BYO agents are not supported on Agent Substrate.
+                      ...(!substrateSupportedForAgentType(next) && prev.sandboxPlatform === "substrate"
+                        ? { sandboxPlatform: "agent-sandbox" as const }
+                        : {}),
                       errors: { ...prev.errors, type: undefined },
                     }));
                     validateField("type", val);
@@ -703,7 +712,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                           ...prev,
                           runInSandbox: !!checked,
                           ...(checked
-                            ? { sandboxPlatform: defaultSandboxPlatform(substrateEnabled) }
+                            ? {
+                                sandboxPlatform: defaultSandboxPlatform(
+                                  substrateEnabled && substrateSupportedForAgentType(prev.agentType)
+                                ),
+                              }
                             : {}),
                         }))
                       }
@@ -724,11 +737,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 </div>
               </FieldRoot>
 
-              {state.runInSandbox && substrateEnabled && (
+              {state.runInSandbox && substrateEnabled && substrateSupportedForAgentType(state.agentType) && (
                 <FieldRoot>
                   <FieldLabel>Sandbox platform</FieldLabel>
                   <FieldHint>
-                    Agent Substrate runs declarative and BYO agents as ate.dev actors using the Go ADK
+                    Agent Substrate runs declarative agents as ate.dev actors using the Go ADK
                     runtime. Skills are not supported on substrate yet. A new substrate actor is started
                     for each chat session.
                   </FieldHint>

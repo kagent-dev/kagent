@@ -80,7 +80,18 @@ func findKagentContainer(containers []corev1.Container) *corev1.Container {
 // Substrate runs Command directly (no shell). Config is materialized from secret-backed
 // env vars at startup via MaterializeFromEnv in the Go ADK entrypoint.
 func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent) ([]string, []corev1.EnvVar) {
-	return buildSubstrateGoKagentCommand(), kagentAgentSecretEnv(sa)
+	// KAGENT_NAME / KAGENT_NAMESPACE are normally injected by the translator pod
+	// template, but KAGENT_NAMESPACE uses a Downward API fieldRef which Substrate
+	// ActorTemplates do not support (it gets dropped by sanitizeActorTemplateEnvVar).
+	// Without it the Go ADK derives a wrong app name, and the controller rejects
+	// session callbacks with "Session does not belong to this agent". Set both as
+	// literals here; they are prepended before the pod env so they win deduplication.
+	env := []corev1.EnvVar{
+		{Name: "KAGENT_NAME", Value: sa.Name},
+		{Name: "KAGENT_NAMESPACE", Value: sa.Namespace},
+	}
+	env = append(env, kagentAgentSecretEnv(sa)...)
+	return buildSubstrateGoKagentCommand(), env
 }
 
 func substrateKagentContainerPorts() []corev1.ContainerPort {
@@ -91,6 +102,12 @@ func substrateKagentContainerPorts() []corev1.ContainerPort {
 	}}
 }
 
+// buildSubstrateGoKagentCommand returns the explicit command for the declarative
+// Go ADK image. Substrate's atelet copies Command verbatim into the OCI spec's
+// Process.Args with no fallback to the image entrypoint, so an empty command
+// makes `runsc create` fail with "Spec.Process.Arg must be defined". BYO agents
+// are rejected for the substrate platform by validation, so only the declarative
+// entrypoint is needed here.
 func buildSubstrateGoKagentCommand() []string {
 	return []string{
 		defaultGoEntrypoint,

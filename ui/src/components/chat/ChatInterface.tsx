@@ -21,7 +21,7 @@ import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
 import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
-import { getAgent, waitForSandboxAgentReady } from "@/app/actions/agents";
+import { getAgentWithResolvedKind, waitForSandboxAgentReady } from "@/app/actions/agents";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
@@ -370,7 +370,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setCurrentInputMessage(userMessageText);
     }
   };
-  
+
   const consumeStream = async (stream: AsyncIterable<unknown>) => {
     let timeoutTimer: NodeJS.Timeout | null = null;
     let streamActive = true;
@@ -465,7 +465,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         try {
           if (substrateSandbox) {
             // ActorTemplate readiness only; per-session actors resume on the A2A request.
-            const agentRes = await getAgent(selectedAgentName, selectedNamespace);
+            const agentRes = await getAgentWithResolvedKind(selectedAgentName, selectedNamespace);
             if (!agentRes.data?.deploymentReady) {
               throw new Error("Sandbox agent is still starting. Wait a moment and try again.");
             }

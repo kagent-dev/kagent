@@ -18,7 +18,7 @@ import { AgentFormData } from "@/components/AgentsProvider";
 import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
-import { buildSandboxCRDraft } from "@/lib/openClawSandboxForm";
+import { buildAgentHarnessCRDraft } from "@/lib/agentHarnessForm";
 import { buildSandboxPlatformFromForm, buildSandboxSubstrateFromForm } from "@/lib/sandboxAgentForm";
 
 function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
@@ -250,8 +250,9 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
       spec: {
         type: "BYO",
         description: agentFormData.description,
-        platform,
-        substrate,
+        // BYO agents are not supported on Agent Substrate.
+        platform: undefined,
+        substrate: undefined,
         byo: {
           deployment: {
             image: agentFormData.byoImage || "",

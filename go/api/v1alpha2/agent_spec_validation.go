@@ -5,6 +5,7 @@ import "fmt"
 const (
 	substrateSandboxSkillsUnsupportedMsg        = "spec.skills is not supported when spec.platform is substrate"
 	substrateSandboxPythonRuntimeUnsupportedMsg = "spec.declarative.runtime must be \"go\" when spec.platform is substrate"
+	substrateSandboxBYOUnsupportedMsg           = "BYO agents are not supported when spec.platform is substrate"
 )
 
 // AgentSpecHasSkills reports whether the spec configures any skill sources.
@@ -23,6 +24,9 @@ func ValidateSubstrateSandboxAgentSpec(agent *SandboxAgent) error {
 		return nil
 	}
 	spec := agent.GetAgentSpec()
+	if spec.Type == AgentType_BYO {
+		return fmt.Errorf("%s", substrateSandboxBYOUnsupportedMsg)
+	}
 	if AgentSpecHasSkills(spec) {
 		return fmt.Errorf("%s", substrateSandboxSkillsUnsupportedMsg)
 	}

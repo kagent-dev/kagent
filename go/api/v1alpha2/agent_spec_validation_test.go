@@ -53,6 +53,34 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxPythonRuntimeUnsupportedMsg)
 	})
 
+	t.Run("rejects BYO agents on substrate platform", func(t *testing.T) {
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				Platform: SandboxPlatformSubstrate,
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO:  &BYOAgentSpec{},
+				},
+			},
+		}
+		err := ValidateSubstrateSandboxAgentSpec(agent)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), substrateSandboxBYOUnsupportedMsg)
+	})
+
+	t.Run("allows BYO agents on agent-sandbox platform", func(t *testing.T) {
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				Platform: SandboxPlatformAgentSandbox,
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO:  &BYOAgentSpec{},
+				},
+			},
+		}
+		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
+	})
+
 	t.Run("allows go runtime on substrate platform", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{

@@ -39,6 +39,7 @@ type SandboxAgent struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.skills) || self.platform != 'substrate'",message="spec.skills is not supported when spec.platform is substrate"
 // +kubebuilder:validation:XValidation:rule="!has(self.substrate) || self.platform == 'substrate'",message="spec.substrate may only be set when spec.platform is substrate"
+// +kubebuilder:validation:XValidation:rule="!has(self.type) || self.type != 'BYO' || self.platform != 'substrate'",message="BYO agents are not supported when spec.platform is substrate"
 type SandboxAgentSpec struct {
 	AgentSpec `json:",inline"`
 

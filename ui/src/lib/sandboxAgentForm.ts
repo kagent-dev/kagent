@@ -40,6 +40,11 @@ export function defaultSandboxPlatform(substrateEnabled: boolean): SandboxPlatfo
   return substrateEnabled ? "substrate" : "agent-sandbox";
 }
 
+/** BYO agents cannot run on Agent Substrate; only declarative agents are supported. */
+export function substrateSupportedForAgentType(agentType: string | undefined): boolean {
+  return agentType !== "BYO";
+}
+
 /** Substrate sandbox agents get a dedicated actor per chat session. */
 export function isSubstrateSandboxAgent(
   agent: Pick<AgentResponse, "workloadMode" | "agent"> | null | undefined

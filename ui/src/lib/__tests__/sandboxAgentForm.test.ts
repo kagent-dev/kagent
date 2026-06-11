@@ -8,6 +8,7 @@ import {
   sandboxChatMode,
   sandboxFieldsFromApiSpec,
   skillsSupportedForSandboxPlatform,
+  substrateSupportedForAgentType,
 } from "@/lib/sandboxAgentForm";
 import type { AgentFormData } from "@/components/AgentsProvider";
 import type { AgentResponse } from "@/types";
@@ -129,6 +130,16 @@ describe("defaultDeclarativeRuntimeForSandboxPlatform", () => {
   it("defaults substrate sandbox agents to Go runtime", () => {
     expect(defaultDeclarativeRuntimeForSandboxPlatform("substrate")).toBe("go");
     expect(defaultDeclarativeRuntimeForSandboxPlatform("agent-sandbox")).toBe("python");
+  });
+});
+
+describe("substrateSupportedForAgentType", () => {
+  it("disallows substrate for BYO agents", () => {
+    expect(substrateSupportedForAgentType("BYO")).toBe(false);
+  });
+  it("allows substrate for declarative agents", () => {
+    expect(substrateSupportedForAgentType("Declarative")).toBe(true);
+    expect(substrateSupportedForAgentType(undefined)).toBe(true);
   });
 });
 
