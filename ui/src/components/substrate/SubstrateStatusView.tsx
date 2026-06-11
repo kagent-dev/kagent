@@ -5,6 +5,7 @@ import Link from "next/link";
 import { RefreshCw, AlertCircle, Cpu, FileStack, Users, Boxes } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import type {
   SubstrateActorEntry,
@@ -15,6 +16,14 @@ import type {
 } from "@/types";
 import { cn } from "@/lib/utils";
 
+export const SUBSTRATE_REFRESH_INTERVAL_OPTIONS = [
+  { label: "Off", valueMs: 0 },
+  { label: "2 seconds", valueMs: 2000 },
+  { label: "5 seconds", valueMs: 5000 },
+  { label: "10 seconds", valueMs: 10000 },
+  { label: "30 seconds", valueMs: 30000 },
+] as const;
+
 type SubstrateStatusViewProps = {
   status: SubstrateStatusResponse | null;
   namespace: string;
@@ -22,6 +31,8 @@ type SubstrateStatusViewProps = {
   isLoading: boolean;
   loadError: string | null;
   onRefresh: () => Promise<void>;
+  refreshIntervalMs: number;
+  onRefreshIntervalChange: (intervalMs: number) => void;
 };
 
 function statusTone(label: string): "ok" | "warn" | "idle" | "busy" | "neutral" {
@@ -239,6 +250,14 @@ function WorkersTable({ rows, enabled }: { rows: SubstrateWorkerEntry[]; enabled
   );
 }
 
+function formatRefreshIntervalLabel(intervalMs: number): string {
+  if (intervalMs <= 0) return "Off";
+  const match = SUBSTRATE_REFRESH_INTERVAL_OPTIONS.find((o) => o.valueMs === intervalMs);
+  if (match) return match.label;
+  if (intervalMs % 1000 === 0) return `${intervalMs / 1000} seconds`;
+  return `${intervalMs} ms`;
+}
+
 export function SubstrateStatusView({
   status,
   namespace,
@@ -246,6 +265,8 @@ export function SubstrateStatusView({
   isLoading,
   loadError,
   onRefresh,
+  refreshIntervalMs,
+  onRefreshIntervalChange,
 }: SubstrateStatusViewProps) {
   const summary = useMemo(() => {
     if (!status) return null;
@@ -266,6 +287,9 @@ export function SubstrateStatusView({
     void onRefresh();
   }, [onRefresh]);
 
+  const refreshSelectValue = String(refreshIntervalMs);
+  const hasPresetInterval = SUBSTRATE_REFRESH_INTERVAL_OPTIONS.some((o) => o.valueMs === refreshIntervalMs);
+
   return (
     <div className="space-y-10">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -283,10 +307,35 @@ export function SubstrateStatusView({
             placeholder="All watched namespaces"
           />
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading} className="gap-2 shrink-0">
-          <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
-          Refresh
-        </Button>
+        <div className="flex flex-wrap items-end gap-2 shrink-0">
+          <div className="w-[9.5rem]">
+            <label htmlFor="substrate-refresh-interval" className="text-xs font-medium text-muted-foreground mb-1.5 block">
+              Auto-refresh
+            </label>
+            <Select
+              value={refreshSelectValue}
+              onValueChange={(value) => onRefreshIntervalChange(Number(value))}
+            >
+              <SelectTrigger id="substrate-refresh-interval" className="h-9">
+                <SelectValue placeholder="Auto-refresh">{formatRefreshIntervalLabel(refreshIntervalMs)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {SUBSTRATE_REFRESH_INTERVAL_OPTIONS.map((option) => (
+                  <SelectItem key={option.valueMs} value={String(option.valueMs)}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+                {!hasPresetInterval ? (
+                  <SelectItem value={refreshSelectValue}>{formatRefreshIntervalLabel(refreshIntervalMs)}</SelectItem>
+                ) : null}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading} className="gap-2 h-9">
+            <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {loadError ? (
