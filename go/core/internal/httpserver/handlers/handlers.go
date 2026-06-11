@@ -61,6 +61,7 @@ func NewHandlers(
 	agentHarnessGateway *AgentHarnessGatewayConfig,
 	substrateAteClient *substrate.Client,
 	mcpEgressPlaintext bool,
+	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend,
 ) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
@@ -80,7 +81,7 @@ func NewHandlers(
 		ModelConfig:         NewModelConfigHandler(base),
 		Model:               NewModelHandler(base),
 		ModelProviderConfig: NewModelProviderConfigHandler(base, rcnclr),
-		Sessions:            NewSessionsHandler(base),
+		Sessions:            NewSessionsHandler(base, substrateSandboxActorBackend),
 		Agents:              NewAgentsHandler(base),
 		Tools:               NewToolsHandler(base),
 		ToolServers:         NewToolServersHandler(base),

@@ -22,6 +22,8 @@ type BuildInput struct {
 type Backend interface {
 	BuildSandbox(ctx context.Context, in BuildInput) ([]client.Object, error)
 	GetOwnedResourceTypes() []client.Object
+	// OwnedResourceTypesFor returns owned types for the agent's sandbox platform (for reconcile lists).
+	OwnedResourceTypesFor(agent v1alpha2.AgentObject) ([]client.Object, error)
 
 	// ComputeReady reflects implementation-specific status into condition pieces for Agent.status.
 	ComputeReady(ctx context.Context, cl client.Client, nn types.NamespacedName) (status metav1.ConditionStatus, reason, message string)

@@ -246,6 +246,53 @@ describe('createMessageHandlers test', () => {
     expect((emitted[2].metadata as any).originalType).toBe('ToolCallSummaryMessage');
   });
 
+  test('Go ADK streaming flow: partial chunks stream, non-partial artifact emits message, empty sentinel ignored', () => {
+    const emitted: Message[] = [];
+    let streamingContent = '';
+    const handlers = createMessageHandlers({
+      setMessages: (updater) => {
+        const next = updater(emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: (updater) => { streamingContent = updater(streamingContent); },
+      agentContext: { namespace: 'kagent', agentName: 'testagent' },
+    });
+
+    // Partial token chunks (adk_partial: true, no lastChunk) accumulate streaming content
+    for (const text of ['I am', ' a simple agent.']) {
+      handlers.handleMessageEvent({
+        kind: 'artifact-update', contextId: 'ctx', taskId: 'task',
+        metadata: { adk_partial: true },
+        artifact: { metadata: { adk_partial: true }, parts: [{ kind: 'text', text, metadata: { adk_partial: true } }] }
+      } as any);
+    }
+    expect(streamingContent).toBe('I am a simple agent.');
+    expect(emitted.length).toBe(0);
+
+    // Complete non-partial artifact (adk_partial: false, no lastChunk) emits the final message
+    handlers.handleMessageEvent({
+      kind: 'artifact-update', contextId: 'ctx', taskId: 'task',
+      metadata: { adk_partial: false },
+      artifact: { parts: [{ kind: 'text', text: 'I am a simple agent.' }] }
+    } as any);
+    expect(streamingContent).toBe('');
+    expect(emitted.length).toBe(1);
+    expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
+    expect((emitted[0].parts[0] as any).text).toBe('I am a simple agent.');
+
+    // Empty data-part sentinel with lastChunk must not render "{}"
+    handlers.handleMessageEvent({
+      kind: 'artifact-update', contextId: 'ctx', taskId: 'task', lastChunk: true,
+      metadata: { adk_partial: true },
+      artifact: { metadata: { adk_partial: true }, parts: [{ kind: 'data', data: {}, metadata: { adk_partial: true } }] }
+    } as any);
+    const textMessages = emitted.filter(m => (m.metadata as any).originalType === 'TextMessage');
+    expect(textMessages.length).toBe(1);
+    expect(textMessages.some(m => (m.parts[0] as any).text === '{}')).toBe(false);
+  });
+
   test('each invocation keeps its own token stats and session total accumulates correctly', () => {
     const emitted: Message[] = [];
     let capturedSessionTotal = { total: 0, prompt: 0, completion: 0 };
