@@ -84,6 +84,9 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 	if config.BaseUrl != "" {
 		opts = append(opts, option.WithBaseURL(config.BaseUrl))
 	}
+	if config.MaxRetries != nil {
+		opts = append(opts, option.WithMaxRetries(*config.MaxRetries))
+	}
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err
@@ -122,6 +125,9 @@ func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger
 		option.WithBaseURL(strings.TrimSuffix(azureEndpoint, "/") + "/"),
 		option.WithQueryAdd("api-version", apiVersion),
 		option.WithMiddleware(azurePathRewriteMiddleware()),
+	}
+	if config.MaxRetries != nil {
+		opts = append(opts, option.WithMaxRetries(*config.MaxRetries))
 	}
 
 	if !config.APIKeyPassthrough {

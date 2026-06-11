@@ -228,6 +228,35 @@ type DeclarativeAgentSpec struct {
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
+
+	// Reliability configures self-healing and observability behaviors for the
+	// agent runtime, such as reflect-and-retry on failed tool calls, model call
+	// caps, and debug logging.
+	// +optional
+	Reliability *ReliabilityConfig `json:"reliability,omitempty"`
+}
+
+// ReliabilityConfig configures self-healing and observability behaviors for the agent runtime.
+type ReliabilityConfig struct {
+	// ToolRetries is the maximum number of consecutive failures for a tool call
+	// before the agent stops retrying it. When set, failed tool calls are followed
+	// by structured reflection guidance injected into the model context so the
+	// agent can self-correct instead of repeating the same failing call.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=10
+	ToolRetries *int `json:"toolRetries,omitempty"`
+	// MaxLLMCalls caps the total number of model calls per request (cost safety
+	// rail). When the cap is exceeded the run stops with a clear error instead
+	// of looping. If unset, the runtime default applies (500).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxLLMCalls *int `json:"maxLLMCalls,omitempty"`
+	// DebugLogging enables verbose runtime logging of every LLM
+	// request/response and tool call to the agent pod logs.
+	// Useful for debugging agent behavior; off by default.
+	// +optional
+	DebugLogging bool `json:"debugLogging,omitempty"`
 }
 
 // SandboxPlatform selects the control plane for sandboxed agents.

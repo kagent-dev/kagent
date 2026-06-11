@@ -628,6 +628,26 @@ spec:
                 - Bedrock
                 - SAPAICore
                 type: string
+              retry:
+                description: |-
+                  Retry configures automatic retries of failed LLM HTTP requests
+                  (e.g. 429 rate limits, transient 5xx errors, timeouts) with
+                  exponential backoff, handled by the provider SDK.
+                properties:
+                  attempts:
+                    description: |-
+                      Attempts is the maximum number of retry attempts after the initial
+                      request fails. Retried errors include rate limits (429), request
+                      timeouts (408), and transient server errors (5xx); backoff between
+                      attempts is exponential. Set to 0 to disable retries entirely.
+                      Supported for the OpenAI, AzureOpenAI, Anthropic, and Gemini providers;
+                      ignored by other providers.
+                    maximum: 20
+                    minimum: 0
+                    type: integer
+                required:
+                - attempts
+                type: object
               sapAICore:
                 description: SAP AI Core-specific configuration
                 properties:

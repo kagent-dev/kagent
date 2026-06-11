@@ -20,6 +20,10 @@ class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
 
     api_key_passthrough: Optional[bool] = None
 
+    # Max retry attempts for failed HTTP requests (429, 408, transient 5xx).
+    # Mapped to the Anthropic SDK's max_retries (exponential backoff). None = SDK default (2).
+    max_retries: Optional[int] = None
+
     _api_key: Optional[str] = None
     base_url: Optional[str] = None
     extra_headers: Optional[dict[str, str]] = None
@@ -51,6 +55,8 @@ class KAgentAnthropicLlm(KAgentTLSMixin, AnthropicLlm):
             kwargs["base_url"] = self.base_url
         if self.extra_headers:
             kwargs["default_headers"] = self.extra_headers
+        if self.max_retries is not None:
+            kwargs["max_retries"] = self.max_retries
 
         # Use the httpx.AsyncClient with SSL configuration if present
         http_client = self._create_http_client()

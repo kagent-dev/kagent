@@ -20,9 +20,14 @@ def _get_user_id(request: RequestContext) -> str:
 def convert_a2a_request_to_adk_run_args(
     request: RequestContext,
     stream: bool = False,
+    max_llm_calls: int | None = None,
 ) -> dict[str, Any]:
     if not request.message:
         raise ValueError("Request message cannot be None")
+
+    run_config_kwargs: dict[str, Any] = {"streaming_mode": StreamingMode.SSE if stream else StreamingMode.NONE}
+    if max_llm_calls is not None:
+        run_config_kwargs["max_llm_calls"] = max_llm_calls
 
     return {
         "user_id": _get_user_id(request),
@@ -31,5 +36,5 @@ def convert_a2a_request_to_adk_run_args(
             role="user",
             parts=[convert_a2a_part_to_genai_part(part) for part in request.message.parts],
         ),
-        "run_config": RunConfig(streaming_mode=StreamingMode.SSE if stream else StreamingMode.NONE),
+        "run_config": RunConfig(**run_config_kwargs),
     }

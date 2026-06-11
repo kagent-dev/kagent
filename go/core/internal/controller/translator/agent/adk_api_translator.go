@@ -310,14 +310,19 @@ func deriveTLSFields(tlsConfig *v1alpha2.TLSConfig) (*bool, *string, *bool) {
 	return insecureSkipVerify, caCertPath, disableSystemCAs
 }
 
-// populateTLSFields writes the derived TLS fields onto an adk.BaseModel.
-// Used by every model-provider branch in translateBaseModel — each provider
-// embeds BaseModel, so this single call replaces the explicit three-field
+// populateBaseModelFields writes the provider-agnostic ModelConfig fields
+// (TLS and retry) onto an adk.BaseModel.
+// Used by every model-provider branch in translateModel — each provider
+// embeds BaseModel, so this single call replaces the explicit per-field
 // assignment at each site. The MCP-connection params (StreamableHTTPConnectionParams,
-// SseConnectionParams) carry the same three fields but do not embed BaseModel;
+// SseConnectionParams) carry the same three TLS fields but do not embed BaseModel;
 // those callers assign through deriveTLSFields directly.
-func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) {
-	baseModel.TLSInsecureSkipVerify, baseModel.TLSCACertPath, baseModel.TLSDisableSystemCAs = deriveTLSFields(tlsConfig)
+func populateBaseModelFields(baseModel *adk.BaseModel, spec *v1alpha2.ModelConfigSpec) {
+	baseModel.TLSInsecureSkipVerify, baseModel.TLSCACertPath, baseModel.TLSDisableSystemCAs = deriveTLSFields(spec.TLS)
+	if spec.Retry != nil {
+		attempts := spec.Retry.Attempts
+		baseModel.MaxRetries = &attempts
+	}
 }
 
 // addTLSConfiguration mounts a CA Secret as a per-Secret read-only volume on
@@ -471,8 +476,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&openai.BaseModel, model.Spec.TLS)
+		// Populate shared fields (TLS, retry) in BaseModel
+		populateBaseModelFields(&openai.BaseModel, &model.Spec)
 		// Populate TokenExchange fields (OpenAI-specific)
 		addTokenExchangeConfiguration(openai, modelDeploymentData, &model.Spec)
 		openai.APIKeyPassthrough = model.Spec.APIKeyPassthrough
@@ -529,8 +534,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+		// Populate shared fields (TLS, retry) in BaseModel
+		populateBaseModelFields(&anthropic.BaseModel, &model.Spec)
 		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.Anthropic != nil {
@@ -587,8 +592,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
+		// Populate shared fields (TLS, retry) in BaseModel
+		populateBaseModelFields(&azureOpenAI.BaseModel, &model.Spec)
 		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return azureOpenAI, modelDeploymentData, secretHashBytes, nil
@@ -632,8 +637,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		// Populate shared fields (TLS, retry) in BaseModel
+		populateBaseModelFields(&gemini.BaseModel, &model.Spec)
 		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return gemini, modelDeploymentData, secretHashBytes, nil
@@ -673,8 +678,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
+		// Populate shared fields (TLS, retry) in BaseModel
+		populateBaseModelFields(&anthropic.BaseModel, &model.Spec)
 		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return anthropic, modelDeploymentData, secretHashBytes, nil
@@ -697,8 +702,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			},
 			Options: model.Spec.Ollama.Options,
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
+		// Populate shared fields (TLS, retry) in BaseModel
+		populateBaseModelFields(&ollama.BaseModel, &model.Spec)
 		ollama.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return ollama, modelDeploymentData, secretHashBytes, nil
@@ -720,8 +725,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Headers: model.Spec.DefaultHeaders,
 			},
 		}
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		// Populate shared fields (TLS, retry) in BaseModel
+		populateBaseModelFields(&gemini.BaseModel, &model.Spec)
 		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil {
@@ -808,8 +813,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			AdditionalModelRequestFields: additionalFields,
 		}
 
-		// Populate TLS fields in BaseModel
-		populateTLSFields(&bedrock.BaseModel, model.Spec.TLS)
+		// Populate shared fields (TLS, retry) in BaseModel
+		populateBaseModelFields(&bedrock.BaseModel, &model.Spec)
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, secretHashBytes, nil
@@ -858,7 +863,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			AuthUrl:       model.Spec.SAPAICore.AuthURL,
 		}
 
-		populateTLSFields(&sapAICore.BaseModel, model.Spec.TLS)
+		populateBaseModelFields(&sapAICore.BaseModel, &model.Spec)
 		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return sapAICore, modelDeploymentData, secretHashBytes, nil

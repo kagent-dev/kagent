@@ -187,6 +187,19 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		}
 	}
 
+	// Translate reliability configuration (reflect-and-retry on tool failures,
+	// LLM call cap, debug logging).
+	if r := spec.Declarative.Reliability; r != nil && (r.ToolRetries != nil || r.MaxLLMCalls != nil || r.DebugLogging) {
+		cfg.Reliability = &adk.ReliabilityConfig{
+			ToolRetries: r.ToolRetries,
+			MaxLLMCalls: r.MaxLLMCalls,
+		}
+		if r.DebugLogging {
+			debugLogging := true
+			cfg.Reliability.DebugLogging = &debugLogging
+		}
+	}
+
 	// Translate context management configuration
 	if spec.Declarative.Context != nil {
 		contextCfg := &adk.AgentContextConfig{}

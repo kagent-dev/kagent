@@ -203,6 +203,14 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       base.spec!.declarative!.context = agentFormData.context;
     }
 
+    if (agentFormData.toolRetries || agentFormData.maxLLMCalls || agentFormData.debugLogging) {
+      base.spec!.declarative!.reliability = {
+        toolRetries: agentFormData.toolRetries,
+        maxLLMCalls: agentFormData.maxLLMCalls,
+        debugLogging: agentFormData.debugLogging || undefined,
+      };
+    }
+
     const trimmedSA = agentFormData.serviceAccountName?.trim();
     if (trimmedSA) {
       base.spec!.declarative!.deployment = {
@@ -371,6 +379,14 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
 
   if (agentFormData.context) {
     decl.context = agentFormData.context;
+  }
+
+  if (agentFormData.toolRetries || agentFormData.maxLLMCalls || agentFormData.debugLogging) {
+    decl.reliability = {
+      toolRetries: agentFormData.toolRetries,
+      maxLLMCalls: agentFormData.maxLLMCalls,
+      debugLogging: agentFormData.debugLogging || undefined,
+    };
   }
 
   const trimmedSA = agentFormData.serviceAccountName?.trim();

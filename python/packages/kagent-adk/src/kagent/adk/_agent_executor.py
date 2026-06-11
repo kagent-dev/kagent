@@ -64,6 +64,8 @@ class A2aAgentExecutorConfig(BaseModel):
     """Configuration for the KAgent A2aAgentExecutor."""
 
     stream: bool = False
+    # Cap on the total number of model calls per request (None = ADK default).
+    max_llm_calls: int | None = None
 
 
 def _kagent_request_converter(request, _part_converter=None):
@@ -209,7 +211,8 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
 
         # Convert the a2a request to ADK run args
         stream = self._kagent_config.stream if self._kagent_config is not None else False
-        run_args = convert_a2a_request_to_adk_run_args(context, stream=stream)
+        max_llm_calls = self._kagent_config.max_llm_calls if self._kagent_config is not None else None
+        run_args = convert_a2a_request_to_adk_run_args(context, stream=stream, max_llm_calls=max_llm_calls)
 
         # Prepare span attributes.
         span_attributes = {}
@@ -250,9 +253,22 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
 
-                # Check if this is a LiteLLM JSON parsing error (common with Ollama models that don't support function calling)
                 error_message = str(e)
-                if (
+
+                # LLM call cap (reliability.maxLLMCalls) exceeded — surface a clear,
+                # user-facing message instead of the raw exception text.
+                from google.adk.agents.invocation_context import LlmCallsLimitExceededError
+
+                if isinstance(e, LlmCallsLimitExceededError):
+                    max_calls = self._kagent_config.max_llm_calls if self._kagent_config is not None else None
+                    limit = f" {max_calls}" if max_calls is not None else ""
+                    error_message = (
+                        f"Agent stopped: exceeded the configured limit of{limit} model calls for a single request. "
+                        "This safety rail prevents runaway loops. If the task legitimately needs more model calls, "
+                        "increase reliability.maxLLMCalls on the agent."
+                    )
+                # Check if this is a LiteLLM JSON parsing error (common with Ollama models that don't support function calling)
+                elif (
                     "JSONDecodeError" in error_message
                     or "Unterminated string" in error_message
                     or "APIConnectionError" in error_message
