@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
-	"github.com/agent-substrate/substrate/proto/ateapipb"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"

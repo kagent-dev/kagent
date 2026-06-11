@@ -1322,11 +1322,13 @@ func Test_AdkApiTranslator_SandboxAgent_defaultEmitsSandbox(t *testing.T) {
 	}
 	sa := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "ag1", Namespace: "sandbox-ns"},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
-				SystemMessage: "You are a sandboxed agent",
-				ModelConfig:   "m1",
+		Spec: v1alpha2.SandboxAgentSpec{
+			AgentSpec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "You are a sandboxed agent",
+					ModelConfig:   "m1",
+				},
 			},
 		},
 	}
@@ -1372,12 +1374,14 @@ func Test_AdkApiTranslator_SandboxAgent_BYOEmitsSandbox(t *testing.T) {
 	cmd := "/app/run"
 	sa := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "byo-sb", Namespace: "sandbox-ns"},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_BYO,
-			BYO: &v1alpha2.BYOAgentSpec{
-				Deployment: &v1alpha2.ByoDeploymentSpec{
-					Image: "example.com/agent:1",
-					Cmd:   &cmd,
+		Spec: v1alpha2.SandboxAgentSpec{
+			AgentSpec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_BYO,
+				BYO: &v1alpha2.BYOAgentSpec{
+					Deployment: &v1alpha2.ByoDeploymentSpec{
+						Image: "example.com/agent:1",
+						Cmd:   &cmd,
+					},
 				},
 			},
 		},

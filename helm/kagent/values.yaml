@@ -265,6 +265,9 @@ controller:
     ateApiEndpoint: ""
     atenetRouterURL: ""
     ateApiInsecure: false
+    ateApiTokenFile: /var/run/secrets/tokens/ate-api/token
+    ateApiTokenAudience: api.ate-system.svc
+    ateApiTokenExpirationSeconds: 3600
     # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
     ateApiServer:
       namespace: ate-system

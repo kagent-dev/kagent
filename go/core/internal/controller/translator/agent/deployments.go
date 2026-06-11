@@ -172,11 +172,8 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		spec = *specRef.Declarative.Deployment
 	}
 
-	// Determine runtime (defaults to python if not set)
-	runtime := v1alpha2.DeclarativeRuntime_Python
-	if specRef.Declarative.Runtime != "" {
-		runtime = specRef.Declarative.Runtime
-	}
+	// Determine runtime (defaults to python if not set; substrate SandboxAgents use Go).
+	runtime := v1alpha2.EffectiveDeclarativeRuntimeForAgent(agent)
 
 	// Get registry
 	registry := DefaultImageConfig.Registry

@@ -8,6 +8,8 @@ import (
 	"crypto/x509"
 	"math/big"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -47,6 +49,41 @@ func TestDial_tlsSkipVerifyReachesReady(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Close())
+}
+
+func TestBearerTokenFile(t *testing.T) {
+	t.Run("reads and trims token", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "token")
+		require.NoError(t, os.WriteFile(path, []byte(" test-token\n"), 0o600))
+
+		creds := bearerTokenFile{path: path, requireTLS: true}
+		md, err := creds.GetRequestMetadata(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, "Bearer test-token", md["authorization"])
+		require.True(t, creds.RequireTransportSecurity())
+	})
+
+	t.Run("allows insecure transport when configured", func(t *testing.T) {
+		creds := bearerTokenFile{requireTLS: false}
+		require.False(t, creds.RequireTransportSecurity())
+	})
+
+	t.Run("rejects empty token", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "token")
+		require.NoError(t, os.WriteFile(path, []byte(" \n"), 0o600))
+
+		_, err := bearerTokenFile{path: path}.GetRequestMetadata(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "is empty")
+	})
+
+	t.Run("wraps read errors", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing")
+
+		_, err := bearerTokenFile{path: path}.GetRequestMetadata(context.Background())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "read bearer token file")
+	})
 }
 
 func newTestTLSCert(t *testing.T) tls.Certificate {

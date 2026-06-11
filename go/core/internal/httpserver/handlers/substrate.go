@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
-	"github.com/agent-substrate/substrate/proto/ateapipb"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -141,6 +141,8 @@ func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace strin
 		}
 		if harness := strings.TrimSpace(tmpl.Labels[substrate.HarnessLabelKey]); harness != "" {
 			entry.HarnessName = harness
+		} else if agentName := substrate.SandboxAgentNameFromLabels(tmpl.Labels); agentName != "" {
+			entry.HarnessName = agentName
 		}
 		if ref := tmpl.Spec.WorkerPoolRef; ref.Name != "" {
 			wpNS := ref.Namespace

@@ -25,16 +25,32 @@ import (
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether the sandbox workload is ready."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether configuration was accepted."
-// SandboxAgent declares an agent that runs in an isolated sandbox (agent-sandbox Sandbox CR).
+// SandboxAgent declares an agent that runs in an isolated sandbox (agent-sandbox or Agent Substrate).
 type SandboxAgent struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +optional
-	Spec AgentSpec `json:"spec,omitempty"`
+	Spec SandboxAgentSpec `json:"spec,omitempty"`
 	// +optional
 	Status AgentStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="!has(self.skills) || self.platform != 'substrate'",message="spec.skills is not supported when spec.platform is substrate"
+// +kubebuilder:validation:XValidation:rule="!has(self.substrate) || self.platform == 'substrate'",message="spec.substrate may only be set when spec.platform is substrate"
+// +kubebuilder:validation:XValidation:rule="!has(self.type) || self.type != 'BYO' || self.platform != 'substrate'",message="BYO agents are not supported when spec.platform is substrate"
+type SandboxAgentSpec struct {
+	AgentSpec `json:",inline"`
+
+	// Platform selects the sandbox control plane. Defaults to agent-sandbox.
+	// +optional
+	// +kubebuilder:default=agent-sandbox
+	Platform SandboxPlatform `json:"platform,omitempty"`
+
+	// Substrate is optional substrate-specific settings when platform is substrate.
+	// +optional
+	Substrate *SandboxSubstrateSpec `json:"substrate,omitempty"`
 }
 
 // +kubebuilder:object:root=true

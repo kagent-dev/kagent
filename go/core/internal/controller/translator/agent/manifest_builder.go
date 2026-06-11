@@ -494,7 +494,7 @@ func buildPodTemplate(
 	}
 	podTemplateAnnotations[configHashAnnotation] = fmt.Sprintf("%d", configHash)
 
-	probeConf := getRuntimeProbeConfig(agentRuntime(manifestCtx.agent.GetAgentSpec()))
+	probeConf := getRuntimeProbeConfig(agentRuntime(manifestCtx.agent))
 
 	var cmd []string
 	if dep.Cmd != "" {
@@ -548,12 +548,8 @@ func buildPodTemplate(
 	}
 }
 
-func agentRuntime(spec *v1alpha2.AgentSpec) v1alpha2.DeclarativeRuntime {
-	runtime := v1alpha2.DeclarativeRuntime_Python
-	if spec.Type == v1alpha2.AgentType_Declarative && spec.Declarative != nil && spec.Declarative.Runtime != "" {
-		runtime = spec.Declarative.Runtime
-	}
-	return runtime
+func agentRuntime(agent v1alpha2.AgentObject) v1alpha2.DeclarativeRuntime {
+	return v1alpha2.EffectiveDeclarativeRuntimeForAgent(agent)
 }
 
 func (a *adkApiTranslator) buildWorkloadObjects(

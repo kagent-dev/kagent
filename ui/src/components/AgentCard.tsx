@@ -213,6 +213,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
         <DeleteButton
           agentName={agent.metadata.name}
           namespace={agent.metadata.namespace || ''}
+          kubernetesKind={agent.kind}
           onDeleted={onAgentsChanged}
           externalOpen={deleteOpen}
           onExternalOpenChange={setDeleteOpen}

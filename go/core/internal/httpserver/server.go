@@ -62,21 +62,22 @@ var defaultModelConfig = types.NamespacedName{
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	Router              *mux.Router
-	BindAddr            string
-	KubeClient          ctrl_client.Client
-	A2AHandler          a2a.A2AHandlerMux
-	MCPHandler          *mcp.MCPHandler
-	WatchedNamespaces   []string
-	DbClient            dbpkg.Client
-	Authenticator       auth.AuthProvider
-	Authorizer          auth.Authorizer
-	ProxyURL            string
-	Reconciler          reconciler.KagentReconciler
-	SandboxBackend      sandboxbackend.Backend
-	AgentHarnessGateway *handlers.AgentHarnessGatewayConfig
-	SubstrateAteClient  *substrate.Client
-	MCPEgressPlaintext  bool
+	Router                       *mux.Router
+	BindAddr                     string
+	KubeClient                   ctrl_client.Client
+	A2AHandler                   a2a.A2AHandlerMux
+	MCPHandler                   *mcp.MCPHandler
+	WatchedNamespaces            []string
+	DbClient                     dbpkg.Client
+	Authenticator                auth.AuthProvider
+	Authorizer                   auth.Authorizer
+	ProxyURL                     string
+	Reconciler                   reconciler.KagentReconciler
+	SandboxBackend               sandboxbackend.Backend
+	AgentHarnessGateway          *handlers.AgentHarnessGatewayConfig
+	SubstrateAteClient           *substrate.Client
+	MCPEgressPlaintext           bool
+	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -107,6 +108,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 			config.AgentHarnessGateway,
 			config.SubstrateAteClient,
 			config.MCPEgressPlaintext,
+			config.SubstrateSandboxActorBackend,
 		),
 		authenticator: config.Authenticator,
 	}, nil
@@ -268,9 +270,10 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
 
-	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleListSandboxAgents)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathAgentHarnesses, adaptHandler(s.handlers.Agents.HandleCreateAgentHarness)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgentHarness)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgentHarness)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetSandboxAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleUpdateSandboxAgent)).Methods(http.MethodPut)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteSandboxAgent)).Methods(http.MethodDelete)
