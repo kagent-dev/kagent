@@ -94,14 +94,6 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent) ([]string, 
 	return buildSubstrateGoKagentCommand(), env
 }
 
-func substrateKagentContainerPorts() []corev1.ContainerPort {
-	return []corev1.ContainerPort{{
-		Name:          "http",
-		ContainerPort: substrateKagentListenPort,
-		Protocol:      corev1.ProtocolTCP,
-	}}
-}
-
 // buildSubstrateGoKagentCommand returns the explicit command for the declarative
 // Go ADK image. Substrate's atelet copies Command verbatim into the OCI spec's
 // Process.Args with no fallback to the image entrypoint, so an empty command

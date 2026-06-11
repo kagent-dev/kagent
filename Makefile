@@ -84,7 +84,7 @@ LDFLAGS := -X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSI
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.10.4
-TOOLS_NODE_VERSION ?= 24.13.0
+TOOLS_NODE_VERSION ?= 24
 TOOLS_PYTHON_VERSION ?= 3.13
 
 # build args

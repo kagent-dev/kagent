@@ -3,7 +3,7 @@ import { AGENT_HARNESS_MESSENGER_BACKENDS } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { generateId } from "@/lib/utils";
 
-/** Matches Kubernetes validation: channels only when backend is openclaw or nemoclaw. */
+/** Matches Kubernetes validation: channels are supported for AgentHarness backends. */
 export function agentHarnessBackendSupportsMessengerChannels(b: AgentHarnessCrBackend): boolean {
   return (AGENT_HARNESS_MESSENGER_BACKENDS as readonly AgentHarnessCrBackend[]).includes(b);
 }
@@ -363,28 +363,32 @@ export function buildAgentHarnessCRDraft(args: {
           appToken: app,
         };
         if (isClawHarnessBackend(backend)) {
+          const openclaw: Record<string, unknown> = {};
           if (ch.channelAccess !== "open") {
-            slack.channelAccess = ch.channelAccess;
+            openclaw.channelAccess = ch.channelAccess;
           }
           if (ch.channelAccess === "allowlist") {
-            slack.allowlistChannels = trimSplitList(ch.allowlistChannels);
+            openclaw.allowlistChannels = trimSplitList(ch.allowlistChannels);
           }
           if (!ch.interactiveReplies) {
-            slack.interactiveReplies = false;
+            openclaw.interactiveReplies = false;
           }
+          slack.openclaw = openclaw;
         } else {
+          const hermes: Record<string, unknown> = {};
           const allowedSlack = trimSplitList(ch.allowedSlackUserIDs);
           if (allowedSlack.length > 0) {
-            slack.allowedUserIDs = allowedSlack;
+            hermes.allowedUserIDs = allowedSlack;
           }
           const homeChannel = ch.slackHomeChannel.trim();
           if (homeChannel) {
-            slack.homeChannel = homeChannel;
+            hermes.homeChannel = homeChannel;
             const homeName = ch.slackHomeChannelName.trim();
             if (homeName) {
-              slack.homeChannelName = homeName;
+              hermes.homeChannelName = homeName;
             }
           }
+          slack.hermes = hermes;
         }
         base.slack = slack;
       }

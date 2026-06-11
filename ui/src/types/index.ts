@@ -266,13 +266,14 @@ export type AgentType = "Declarative" | "BYO" | "AgentHarness";
  */
 export type AgentHarnessCrBackend = "openclaw" | "nemoclaw" | "hermes";
 /**
- * Subset that supports OpenClaw-style messenger channels (CR validation + channel form).
+ * Backends that support messenger channels (CR validation + channel form).
  */
-export type AgentHarnessMessengerBackend = Extract<AgentHarnessCrBackend, "openclaw" | "nemoclaw">;
+export type AgentHarnessMessengerBackend = AgentHarnessCrBackend;
 
 export const AGENT_HARNESS_MESSENGER_BACKENDS: readonly AgentHarnessMessengerBackend[] = [
   "openclaw",
   "nemoclaw",
+  "hermes",
 ];
 
 /** Single Git repository source for skills. */

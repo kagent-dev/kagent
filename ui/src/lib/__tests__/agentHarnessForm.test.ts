@@ -233,13 +233,11 @@ describe("agentHarnessForm allowedDomains", () => {
       });
       expect("error" in draft).toBe(false);
       if ("error" in draft) return;
-      const channels = draft.spec.channels as { slack: Record<string, unknown> }[];
-      expect(channels[0].slack.allowedUserIDs).toEqual(["U01234567", "U89ABCDEF"]);
-      expect(channels[0].slack.homeChannel).toBe("C01234567890");
-      expect(channels[0].slack.homeChannelName).toBe("general");
-      expect(channels[0].slack).not.toHaveProperty("channelAccess");
-      expect(channels[0].slack).not.toHaveProperty("allowlistChannels");
-      expect(channels[0].slack).not.toHaveProperty("interactiveReplies");
+      const channels = draft.spec.channels as { slack: { hermes: Record<string, unknown> } }[];
+      expect(channels[0].slack.hermes.allowedUserIDs).toEqual(["U01234567", "U89ABCDEF"]);
+      expect(channels[0].slack.hermes.homeChannel).toBe("C01234567890");
+      expect(channels[0].slack.hermes.homeChannelName).toBe("general");
+      expect(channels[0].slack).not.toHaveProperty("openclaw");
     });
   });
 });

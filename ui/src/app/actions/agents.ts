@@ -642,7 +642,7 @@ export async function getAgents(opts: { namespace?: string } = {}): Promise<Base
     const path = opts.namespace ? `/agents?namespace=${encodeURIComponent(opts.namespace)}` : `/agents`;
     const { data } = await fetchApi<BaseResponse<AgentResponse[]>>(path);
 
-    const sortedData = data?.sort((a, b) => {
+    const sortedData = (data ?? []).sort((a, b) => {
       const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name);
       const bRef = k8sRefUtils.toRef(b.agent.metadata.namespace || "", b.agent.metadata.name);
       return aRef.localeCompare(bRef);
