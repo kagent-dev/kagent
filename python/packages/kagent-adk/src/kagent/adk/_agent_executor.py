@@ -261,9 +261,13 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
 
                 if isinstance(e, LlmCallsLimitExceededError):
                     max_calls = self._kagent_config.max_llm_calls if self._kagent_config is not None else None
-                    limit = f" {max_calls}" if max_calls is not None else ""
+                    limit = (
+                        f"the configured limit of {max_calls}"
+                        if max_calls is not None
+                        else "the runtime default limit on"
+                    )
                     error_message = (
-                        f"Agent stopped: exceeded the configured limit of{limit} model calls for a single request. "
+                        f"Agent stopped: exceeded {limit} model calls for a single request. "
                         "This safety rail prevents runaway loops. If the task legitimately needs more model calls, "
                         "increase reliability.maxLLMCalls on the agent."
                     )

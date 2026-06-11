@@ -49,7 +49,9 @@ class TestKAgentReflectAndRetryToolPlugin:
         plugin = KAgentReflectAndRetryToolPlugin(max_retries=2, throw_exception_if_retry_exceeded=False)
         result = {"content": [{"type": "text", "text": "applied"}], "isError": False}
         assert await plugin.extract_error_from_result(tool=None, tool_args={}, tool_context=None, result=result) is None
-        assert await plugin.extract_error_from_result(tool=None, tool_args={}, tool_context=None, result="plain") is None
+        assert (
+            await plugin.extract_error_from_result(tool=None, tool_args={}, tool_context=None, result="plain") is None
+        )
 
     @pytest.mark.asyncio
     async def test_exception_path_still_handled(self):

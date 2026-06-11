@@ -786,16 +786,26 @@ function ModelPageContent() {
 
           <Card>
             <CardHeader
+              role="button"
+              tabIndex={0}
+              aria-expanded={isAdvancedSectionExpanded}
+              aria-controls="model-advanced-fields"
               className="flex flex-row items-center justify-between cursor-pointer"
               onClick={() => setIsAdvancedSectionExpanded(!isAdvancedSectionExpanded)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setIsAdvancedSectionExpanded(!isAdvancedSectionExpanded);
+                }
+              }}
             >
               <CardTitle>Advanced</CardTitle>
               {isAdvancedSectionExpanded
-                ? <ChevronDown className="h-5 w-5" />
-                : <ChevronRight className="h-5 w-5" />}
+                ? <ChevronDown className="h-5 w-5" aria-hidden />
+                : <ChevronRight className="h-5 w-5" aria-hidden />}
             </CardHeader>
             {isAdvancedSectionExpanded && (
-              <CardContent className="space-y-4">
+              <CardContent id="model-advanced-fields" className="space-y-4">
                 <div className="space-y-1">
                   <label htmlFor="retry-attempts" className="text-sm font-medium text-gray-800">Retry attempts</label>
                   <Input

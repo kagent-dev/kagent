@@ -60,6 +60,12 @@ interface AgentPageContentProps {
   agentNamespace: string | null;
 }
 
+/** Parses a form field into a positive integer, returning undefined for empty/invalid input (avoids NaN in payloads). */
+function parseOptionalPositiveInt(value: string): number | undefined {
+  const parsed = parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
 
 # Instructions
@@ -527,10 +533,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               }
             : undefined,
         context: useDeclarativeAgentFields ? state.contextConfig : undefined,
-        toolRetries:
-          useDeclarativeAgentFields && state.toolRetries ? parseInt(state.toolRetries, 10) : undefined,
-        maxLLMCalls:
-          useDeclarativeAgentFields && state.maxLLMCalls ? parseInt(state.maxLLMCalls, 10) : undefined,
+        toolRetries: useDeclarativeAgentFields ? parseOptionalPositiveInt(state.toolRetries) : undefined,
+        maxLLMCalls: useDeclarativeAgentFields ? parseOptionalPositiveInt(state.maxLLMCalls) : undefined,
         debugLogging: useDeclarativeAgentFields ? state.debugLogging : undefined,
         declarativeRuntime: useDeclarativeAgentFields ? state.declarativeRuntime : undefined,
         byoImage: state.byoImage,
