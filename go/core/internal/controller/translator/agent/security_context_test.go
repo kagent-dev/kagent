@@ -275,9 +275,7 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 	assert.Equal(t, int64(3000), *containerSecurityContext.RunAsGroup)
 }
 
-// TestSecurityContext_SkillsNoPrivileged verifies that skills alone do NOT set Privileged=true.
-// Skills are loaded by the init container; the main container does not need elevated privileges
-// for skill loading. Only the BashTool sandbox (cfg.GetExecuteCode()) needs Privileged=true.
+// TestSecurityContext_SkillsNoPrivileged verifies that skills alone do not produce any security context.
 func TestSecurityContext_SkillsNoPrivileged(t *testing.T) {
 	ctx := context.Background()
 
@@ -337,18 +335,10 @@ func TestSecurityContext_SkillsNoPrivileged(t *testing.T) {
 	require.NotNil(t, deployment)
 	podTemplate := &deployment.Spec.Template
 
-	containerSecurityContext := podTemplate.Spec.Containers[0].SecurityContext
-	if containerSecurityContext != nil {
-		assert.True(t, containerSecurityContext.Privileged == nil || !*containerSecurityContext.Privileged,
-			"skills alone must not set Privileged=true")
-	}
+	assert.Nil(t, podTemplate.Spec.Containers[0].SecurityContext, "skills must not set a security context")
 }
 
-// TestSecurityContext_SkillsPSSRestricted verifies that when a user explicitly sets
-// AllowPrivilegeEscalation=false (PSS Restricted profile), adding skills does NOT
-// force Privileged=true — which Kubernetes rejects as an invalid combination.
-// srt (Anthropic Sandbox Runtime) falls back to unprivileged user-namespace sandboxing
-// on modern kernels (EKS, GKE) that have unprivileged_userns_clone enabled.
+// TestSecurityContext_SkillsPSSRestricted verifies that AllowPrivilegeEscalation=false is preserved and skills do not override it.
 func TestSecurityContext_SkillsPSSRestricted(t *testing.T) {
 	ctx := context.Background()
 
