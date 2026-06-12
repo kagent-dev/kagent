@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/template"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
@@ -29,7 +30,7 @@ type openClawStartupScriptData struct {
 
 // buildOpenClawActorStartup returns the ateom workload startup script and container env for OpenClaw on Substrate.
 // When spec.modelConfigRef is set, openclaw.json includes models/agents/channels like the OpenShell bootstrap path.
-func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.AgentHarness) (script string, env []corev1.EnvVar, err error) {
+func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.AgentHarness) (script string, env []atev1alpha1.EnvVar, err error) {
 	if ah == nil {
 		return "", nil, fmt.Errorf("AgentHarness is required")
 	}
@@ -71,7 +72,7 @@ func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.
 	if err != nil {
 		return "", nil, err
 	}
-	return script, containerEnv, nil
+	return script, actorTemplateEnvFromPodEnv(containerEnv), nil
 }
 
 func openClawControlUIBasePath(ah *v1alpha2.AgentHarness) string {

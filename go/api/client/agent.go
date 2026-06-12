@@ -79,7 +79,27 @@ func (c *agentClient) CreateAgent(ctx context.Context, request *v1alpha2.Agent) 
 
 // GetAgent retrieves a specific agent
 func (c *agentClient) GetAgent(ctx context.Context, agentRef string) (*api.StandardResponse[*api.AgentResponse], error) {
+	list, err := c.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	kind := ""
+	for _, row := range list.Data {
+		ns := row.Agent.Metadata.Namespace
+		name := row.Agent.Metadata.Name
+		ref := fmt.Sprintf("%s/%s", ns, name)
+		if ref == agentRef || name == agentRef {
+			kind = row.Agent.Kind
+			break
+		}
+	}
 	path := fmt.Sprintf("/api/agents/%s", agentRef)
+	switch kind {
+	case "SandboxAgent":
+		path = fmt.Sprintf("/api/sandboxagents/%s", agentRef)
+	case "AgentHarness":
+		path = fmt.Sprintf("/api/agentharnesses/%s", agentRef)
+	}
 	resp, err := c.client.Get(ctx, path, "")
 	if err != nil {
 		return nil, err

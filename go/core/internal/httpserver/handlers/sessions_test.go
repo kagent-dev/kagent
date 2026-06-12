@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -42,6 +43,8 @@ func TestSessionsHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
 	err := v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
+	err = v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
 
 	setupHandler := func(t *testing.T) (*handlers.SessionsHandler, database.Client, *mockErrorResponseWriter) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -52,7 +55,7 @@ func TestSessionsHandler(t *testing.T) {
 			DatabaseService:    dbClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
 		}
-		handler := handlers.NewSessionsHandler(base)
+		handler := handlers.NewSessionsHandler(base, nil)
 		responseRecorder := newMockErrorResponseWriter()
 		return handler, dbClient, responseRecorder
 	}
@@ -156,6 +159,8 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, "test-session", *response.Data.Name)
 			assert.Equal(t, userID, response.Data.UserID)
 			assert.NotEmpty(t, response.Data.ID)
+			assert.False(t, response.Data.CreatedAt.IsZero())
+			assert.False(t, response.Data.UpdatedAt.IsZero())
 		})
 
 		t.Run("MissingUserID", func(t *testing.T) {
@@ -252,6 +257,43 @@ func TestSessionsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusConflict, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("SubstrateSandboxAgentAllowsMultipleSessions", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			userID := "test-user"
+			agentRef := utils.ConvertToPythonIdentifier("kagent/test-substrate-agent")
+
+			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha2.SandboxAgent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-substrate-agent",
+					Namespace: "kagent",
+				},
+				Spec: v1alpha2.SandboxAgentSpec{
+					Platform: v1alpha2.SandboxPlatformSubstrate,
+				},
+			}).Build()
+			handler.KubeClient = kubeClient
+
+			require.NoError(t, dbClient.StoreAgent(context.Background(), &database.Agent{
+				ID:           agentRef,
+				WorkloadType: v1alpha2.WorkloadModeSandbox,
+			}))
+			createTestSession(t, dbClient, "existing-session", "other-user", agentRef)
+
+			sessionReq := api.SessionRequest{
+				AgentRef: &agentRef,
+				Name:     new("second-session"),
+			}
+
+			jsonBody, _ := json.Marshal(sessionReq)
+			req := httptest.NewRequest("POST", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, userID)
+
+			handler.HandleCreateSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusCreated, responseRecorder.Code)
 		})
 	})
 

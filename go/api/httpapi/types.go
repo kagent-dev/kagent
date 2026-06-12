@@ -76,11 +76,11 @@ type UpdateModelConfigRequest struct {
 // Agent types
 
 type AgentResource struct {
-	APIVersion string               `json:"apiVersion,omitempty"`
-	Kind       string               `json:"kind,omitempty"`
-	Metadata   metav1.ObjectMeta    `json:"metadata,omitempty"`
-	Spec       v1alpha2.AgentSpec   `json:"spec,omitempty"`
-	Status     v1alpha2.AgentStatus `json:"status,omitempty"`
+	APIVersion string                    `json:"apiVersion,omitempty"`
+	Kind       string                    `json:"kind,omitempty"`
+	Metadata   metav1.ObjectMeta         `json:"metadata,omitempty"`
+	Spec       v1alpha2.SandboxAgentSpec `json:"spec,omitempty"`
+	Status     v1alpha2.AgentStatus      `json:"status,omitempty"`
 }
 
 func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
@@ -125,8 +125,10 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 		Kind:       kind,
 		Metadata:   metadata,
 	}
-	if spec != nil {
-		res.Spec = *spec.DeepCopy()
+	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
+		res.Spec = *sa.Spec.DeepCopy()
+	} else if spec != nil {
+		res.Spec.AgentSpec = *spec.DeepCopy()
 	}
 	if status != nil {
 		res.Status = *status.DeepCopy()

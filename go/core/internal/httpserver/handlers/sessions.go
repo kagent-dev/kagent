@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
@@ -13,17 +15,23 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // SessionsHandler handles session-related requests
 type SessionsHandler struct {
 	*Base
+	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
 }
 
 // NewSessionsHandler creates a new SessionsHandler
-func NewSessionsHandler(base *Base) *SessionsHandler {
-	return &SessionsHandler{Base: base}
+func NewSessionsHandler(base *Base, substrateSandboxActorBackend *substrate.SandboxAgentActorBackend) *SessionsHandler {
+	return &SessionsHandler{
+		Base:                         base,
+		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
+	}
 }
 
 // RunRequest represents a run creation request
@@ -133,15 +141,24 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
+	isSubstrateSandbox := false
 	if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
-		existing, lerr := h.DatabaseService.ListSessionsForAgentAllUsers(r.Context(), agent.ID)
-		if lerr != nil {
-			w.RespondWithError(errors.NewInternalServerError("Failed to list sessions for agent", lerr))
+		var lookupErr error
+		_, isSubstrateSandbox, lookupErr = h.lookupSubstrateSandboxAgent(r.Context(), *sessionRequest.AgentRef)
+		if lookupErr != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to inspect sandbox agent", lookupErr))
 			return
 		}
-		if len(existing) > 0 {
-			w.RespondWithError(errors.NewConflictError("Sandbox agents support only one chat session", fmt.Errorf("a session already exists for this agent")))
-			return
+		if !isSubstrateSandbox {
+			existing, lerr := h.DatabaseService.ListSessionsForAgentAllUsers(r.Context(), agent.ID)
+			if lerr != nil {
+				w.RespondWithError(errors.NewInternalServerError("Failed to list sessions for agent", lerr))
+				return
+			}
+			if len(existing) > 0 {
+				w.RespondWithError(errors.NewConflictError("Sandbox agents support only one chat session", fmt.Errorf("a session already exists for this agent")))
+				return
+			}
 		}
 	}
 
@@ -162,8 +179,14 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	log.Info("Successfully created session", "sessionID", session.ID)
-	data := api.NewResponse(session, "Successfully created session", false)
+	stored, err := h.DatabaseService.GetSession(r.Context(), id, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to load created session", err))
+		return
+	}
+
+	log.Info("Successfully created session", "sessionID", stored.ID)
+	data := api.NewResponse(stored, "Successfully created session", false)
 	RespondWithJSON(w, http.StatusCreated, data)
 }
 
@@ -306,9 +329,29 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("session_id", sessionID)
 
+	var substrateCleanup *v1alpha2.SandboxAgent
+	if h.SubstrateSandboxActorBackend != nil {
+		session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+		if getErr == nil && session.AgentID != nil {
+			if agent, agentErr := h.DatabaseService.GetAgent(r.Context(), *session.AgentID); agentErr == nil &&
+				agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
+				agentRef := utils.ConvertToKubernetesIdentifier(*session.AgentID)
+				if sa, isSubstrate, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), agentRef); lookupErr == nil && isSubstrate {
+					substrateCleanup = sa
+				}
+			}
+		}
+	}
+
 	if err := h.DatabaseService.DeleteSession(r.Context(), sessionID, userID); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete session", err))
 		return
+	}
+
+	if substrateCleanup != nil {
+		if _, err := h.SubstrateSandboxActorBackend.DeleteSandboxAgentSessionActor(r.Context(), substrateCleanup, sessionID); err != nil {
+			log.Error(err, "failed to delete substrate session actor", "sessionID", sessionID)
+		}
 	}
 
 	log.Info("Successfully deleted session")
@@ -468,4 +511,28 @@ func getUserIDOrAgentUser(r *http.Request) (string, error) {
 		return getUserID(r)
 	}
 	return "", fmt.Errorf("no user or agent in principal")
+}
+
+func (h *SessionsHandler) lookupSubstrateSandboxAgent(ctx context.Context, agentRef string) (*v1alpha2.SandboxAgent, bool, error) {
+	ref := strings.TrimSpace(agentRef)
+	if ref == "" {
+		return nil, false, nil
+	}
+	// Agent refs from the DB / Go ADK use ConvertToPythonIdentifier (e.g. kagent__NS__my-agent).
+	k8sRef := utils.ConvertToKubernetesIdentifier(ref)
+	nn, err := utils.ParseRefString(k8sRef, "")
+	if err != nil {
+		return nil, false, nil
+	}
+	sa := &v1alpha2.SandboxAgent{}
+	if err := h.KubeClient.Get(ctx, nn, sa); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	if v1alpha2.AgentSandboxPlatform(sa) != v1alpha2.SandboxPlatformSubstrate {
+		return nil, false, nil
+	}
+	return sa, true, nil
 }

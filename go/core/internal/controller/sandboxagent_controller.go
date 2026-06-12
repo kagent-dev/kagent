@@ -18,29 +18,41 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
 var (
 	sandboxAgentControllerLog = ctrl.Log.WithName("sandboxagent-controller")
 )
 
-// SandboxAgentController reconciles SandboxAgent objects.
+// SandboxAgentController reconciles SandboxAgent objects for both agent-sandbox and
+// Agent Substrate platforms. Platform-specific workload objects are selected by the
+// sandbox routing backend; substrate delete cleanup is handled in this controller.
 type SandboxAgentController struct {
-	Scheme        *runtime.Scheme
-	Reconciler    reconciler.KagentReconciler
-	AdkTranslator agent_translator.AdkApiTranslator
+	Client                client.Client
+	Scheme                *runtime.Scheme
+	Reconciler            reconciler.KagentReconciler
+	AdkTranslator         agent_translator.AdkApiTranslator
+	SubstrateLifecycle    *substrate.Lifecycle
+	SubstrateActorBackend *substrate.SandboxAgentActorBackend
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=sandboxagents,verbs=get;list;watch;create;update;patch;delete
@@ -53,24 +65,55 @@ type SandboxAgentController struct {
 // +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes/finalizers,verbs=update
+// +kubebuilder:rbac:groups=ate.dev,resources=actortemplates,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=ate.dev,resources=actortemplates/status,verbs=get
 
 func (r *SandboxAgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = ctrl.LoggerFrom(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileKagentSandboxAgent(ctx, req)
+	var sa v1alpha2.SandboxAgent
+	if err := r.Client.Get(ctx, req.NamespacedName, &sa); err != nil {
+		if apierrors.IsNotFound(err) {
+			if recErr := r.Reconciler.ReconcileKagentSandboxAgent(ctx, req); recErr != nil {
+				return ctrl.Result{}, recErr
+			}
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, fmt.Errorf("get SandboxAgent: %w", err)
+	}
+
+	if sandboxAgentUsesSubstrate(&sa) && r.SubstrateLifecycle != nil {
+		if res, err := r.reconcileSubstrateSandboxAgent(ctx, &sa); err != nil || !res.IsZero() {
+			return res, err
+		}
+	}
+
+	if err := r.Reconciler.ReconcileKagentSandboxAgent(ctx, req); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *SandboxAgentController) SetupWithManager(mgr ctrl.Manager) error {
+	if r.Client == nil {
+		r.Client = mgr.GetClient()
+	}
+
 	build := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{
 			NeedLeaderElection: new(true),
 		}).
-		For(&v1alpha2.SandboxAgent{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.LabelChangedPredicate{})))
+		For(&v1alpha2.SandboxAgent{}, builder.WithPredicates(sandboxAgentPrimaryPredicate()))
 
 	var err error
 	build, err = addOwnedResourceWatches(build, mgr, r.AdkTranslator.GetOwnedResourceTypes())
 	if err != nil {
 		return err
+	}
+	if r.SubstrateLifecycle != nil {
+		build = build.Watches(
+			&atev1alpha1.ActorTemplate{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueSandboxAgentForSubstrateResource),
+		)
 	}
 	build, err = addCommonAgentWatches(build, mgr, agentWatchFinders{
 		modelConfig:     r.sandboxAgentDependencyFinder("failed to list sandboxagents for ModelConfig watch", usesModelConfig),
@@ -84,6 +127,25 @@ func (r *SandboxAgentController) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return build.Named("sandboxagent").Complete(r)
+}
+
+func sandboxAgentPrimaryPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return true },
+		DeleteFunc: func(event.DeleteEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return true
+			}
+			if e.ObjectNew.GetGeneration() != e.ObjectOld.GetGeneration() {
+				return true
+			}
+			if !reflect.DeepEqual(e.ObjectNew.GetLabels(), e.ObjectOld.GetLabels()) {
+				return true
+			}
+			return e.ObjectOld.GetDeletionTimestamp().IsZero() && !e.ObjectNew.GetDeletionTimestamp().IsZero()
+		},
+	}
 }
 
 func (r *SandboxAgentController) sandboxAgentDependencyFinder(errMsg string, pred agentDependencyPredicate) dependentRefFinder {

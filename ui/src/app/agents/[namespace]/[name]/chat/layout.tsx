@@ -7,20 +7,24 @@ import { CSSProperties, ReactNode } from "react";
 
 async function getData(agentName: string, namespace: string) {
   try {
-    const [agentResponse, agentsResponse, serversResponse] = await Promise.all([
-      getAgent(agentName, namespace),
-      getAgents(),
-      getServers(),
-    ]);
+    const [agentsResponse, serversResponse] = await Promise.all([getAgents(), getServers()]);
 
-    if (agentResponse.error || !agentResponse.data) {
-      return { error: agentResponse.error || "Agent not found" };
-    }
     if (agentsResponse.error || !agentsResponse.data) {
       return { error: agentsResponse.error || "Failed to fetch agents" };
     }
     if (serversResponse.error || !serversResponse.data) {
       return { error: serversResponse.error || "Failed to fetch servers" };
+    }
+
+    const row = agentsResponse.data.find(
+      (a) =>
+        a.agent.metadata?.name === agentName &&
+        (a.agent.metadata?.namespace || "") === namespace
+    );
+    const agentResponse = await getAgent(agentName, namespace, row?.agent.kind);
+
+    if (agentResponse.error || !agentResponse.data) {
+      return { error: agentResponse.error || "Agent not found" };
     }
 
     const currentAgent = agentResponse.data;

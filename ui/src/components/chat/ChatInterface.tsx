@@ -19,12 +19,15 @@ import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
-import { waitForSandboxAgentReady } from "@/app/actions/agents";
+import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
+import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
+import { getAgentWithResolvedKind, waitForSandboxAgentReady } from "@/app/actions/agents";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
-import { useChatRunInSandbox } from "@/components/chat/ChatAgentContext";
+import { formatA2AClientError } from "@/lib/a2aErrors";
+import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
 import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
@@ -43,6 +46,7 @@ interface ChatInterfaceProps {
 
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
   const runInSandbox = useChatRunInSandbox();
+  const substrateSandbox = useChatSubstrateSandbox();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
@@ -280,7 +284,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
           const newSessionResponse = await createSession({
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
-            name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
+            name: deriveSessionTitle(userMessageText),
           });
 
           if (newSessionResponse.error || !newSessionResponse.data) {
@@ -292,7 +296,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           }
 
           currentSessionId = newSessionResponse.data.id;
-          setSession(newSessionResponse.data);
+          setSession(normalizeSessionTimestamps(newSessionResponse.data));
 
           // Update URL without triggering navigation or component reload
           const newUrl = `/agents/${selectedNamespace}/${selectedAgentName}/chat/${currentSessionId}`;
@@ -303,7 +307,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           const newSessionEvent = new CustomEvent('new-session-created', {
             detail: {
               agentRef: `${selectedNamespace}/${selectedAgentName}`,
-              session: newSessionResponse.data
+              session: normalizeSessionTimestamps(newSessionResponse.data),
             }
           });
           window.dispatchEvent(newSessionEvent);
@@ -314,6 +318,37 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           setCurrentInputMessage(userMessageText);
           isCreatingSessionRef.current = false;
           return;
+        }
+      }
+
+      if (
+        currentSessionId &&
+        storedMessages.length === 0 &&
+        isPlaceholderSessionTitle(session?.name)
+      ) {
+        const title = deriveSessionTitle(userMessageText);
+        if (title) {
+          try {
+            const renameResponse = await createSession({
+              id: currentSessionId,
+              agent_ref: `${selectedNamespace}/${selectedAgentName}`,
+              name: title,
+            });
+            if (!renameResponse.error && renameResponse.data) {
+              const updatedSession = normalizeSessionTimestamps(renameResponse.data, new Date());
+              setSession(updatedSession);
+              window.dispatchEvent(
+                new CustomEvent("new-session-created", {
+                  detail: {
+                    agentRef: `${selectedNamespace}/${selectedAgentName}`,
+                    session: updatedSession,
+                  },
+                }),
+              );
+            }
+          } catch (error) {
+            console.error("Error updating session title:", error);
+          }
         }
       }
 
@@ -335,7 +370,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setCurrentInputMessage(userMessageText);
     }
   };
-  
+
   const consumeStream = async (stream: AsyncIterable<unknown>) => {
     let timeoutTimer: NodeJS.Timeout | null = null;
     let streamActive = true;
@@ -423,15 +458,25 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (runInSandbox && sid) {
         let loadingToast: string | number | undefined;
         const slowToast = setTimeout(() => {
-          loadingToast = toast.loading("Starting sandbox workload…");
+          loadingToast = toast.loading(
+            substrateSandbox ? "Starting chat session…" : "Starting sandbox workload…",
+          );
         }, 600);
         try {
-          const ready = await waitForSandboxAgentReady(selectedAgentName, selectedNamespace);
+          if (substrateSandbox) {
+            // ActorTemplate readiness only; per-session actors resume on the A2A request.
+            const agentRes = await getAgentWithResolvedKind(selectedAgentName, selectedNamespace);
+            if (!agentRes.data?.deploymentReady) {
+              throw new Error("Sandbox agent is still starting. Wait a moment and try again.");
+            }
+          } else {
+            const ready = await waitForSandboxAgentReady(selectedAgentName, selectedNamespace);
+            if (!ready.ok) {
+              throw new Error(ready.error ?? "Sandbox workload not ready");
+            }
+          }
           clearTimeout(slowToast);
           if (loadingToast !== undefined) toast.dismiss(loadingToast);
-          if (!ready.ok) {
-            throw new Error(ready.error ?? "Sandbox workload not ready");
-          }
         } catch (waitErr) {
           clearTimeout(slowToast);
           if (loadingToast !== undefined) toast.dismiss(loadingToast);
@@ -453,7 +498,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (error instanceof Error && error.name === "AbortError") {
         setChatStatus("ready");
       } else {
-        toast.error(`${opts?.errorLabel || "Request failed"}: ${error instanceof Error ? error.message : "Unknown error"}`);
+        toast.error(`${opts?.errorLabel || "Request failed"}: ${formatA2AClientError(error instanceof Error ? error.message : "Unknown error")}`);
         setChatStatus("error");
         opts?.onError?.();
       }

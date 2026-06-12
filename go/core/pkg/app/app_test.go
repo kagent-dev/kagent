@@ -264,6 +264,21 @@ func TestDatabaseUrlFileFlag(t *testing.T) {
 	assert.Equal(t, "/etc/credentials/db-url", cfg.Database.UrlFile)
 }
 
+func TestSubstrateAteAPITokenFileFlag(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	cfg := Config{}
+	cfg.SetFlags(fs)
+
+	f := fs.Lookup("substrate-ate-api-token-file")
+	assert.NotNil(t, f, "substrate-ate-api-token-file flag should be registered")
+	assert.Equal(t, "", f.DefValue, "default should be empty string")
+
+	t.Setenv("SUBSTRATE_ATE_API_TOKEN_FILE", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+	assert.Equal(t, "/var/run/secrets/kubernetes.io/serviceaccount/token", cfg.Substrate.AteAPITokenFile)
+}
+
 func TestDefaultAgentBindHostFlag(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	cfg := Config{}

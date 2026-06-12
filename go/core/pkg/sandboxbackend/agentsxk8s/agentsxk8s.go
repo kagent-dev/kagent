@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,6 +29,10 @@ func (b *Backend) GetOwnedResourceTypes() []client.Object {
 	return []client.Object{
 		&agentsandboxv1.Sandbox{},
 	}
+}
+
+func (b *Backend) OwnedResourceTypesFor(_ v1alpha2.AgentObject) ([]client.Object, error) {
+	return b.GetOwnedResourceTypes(), nil
 }
 
 func (b *Backend) BuildSandbox(_ context.Context, in sandboxbackend.BuildInput) ([]client.Object, error) {
