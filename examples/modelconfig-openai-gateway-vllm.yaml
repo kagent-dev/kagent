@@ -1,0 +1,49 @@
+# OpenAI-compatible gateway (Bifrost / LiteLLM) fronting self-hosted vLLM
+#
+# End-to-end guide: docs/user-guide/openai-compatible-gateway-vllm.md
+#
+# vLLM must be started with tool calling enabled, for example:
+#   vllm serve Qwen/Qwen2.5-7B-Instruct \
+#     --enable-auto-tool-choice \
+#     --tool-call-parser hermes
+#
+# Use the gateway routing model ID in spec.model (often provider-prefixed),
+# not necessarily the bare Hugging Face name vLLM serves internally.
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gateway-api-key
+  namespace: kagent
+type: Opaque
+stringData:
+  key: sk-gateway-example  # replace with your gateway API key
+
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: qwen-vllm-via-gateway
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: vllm/Qwen/Qwen2.5-7B-Instruct
+  apiKeySecret: gateway-api-key
+  apiKeySecretKey: key
+  openAI:
+    baseUrl: http://litellm.kagent.svc.cluster.local:4000/v1
+
+---
+# Example agent referencing the ModelConfig
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: qwen-assistant
+  namespace: kagent
+spec:
+  type: Declarative
+  description: Assistant backed by vLLM through an OpenAI-compatible gateway
+  declarative:
+    systemMessage: You are a helpful assistant.
+    modelConfig: qwen-vllm-via-gateway
