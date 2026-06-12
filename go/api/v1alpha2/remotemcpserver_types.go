@@ -39,6 +39,7 @@ const (
 // RemoteMCPServerSpec defines the desired state of RemoteMCPServer.
 //
 // +kubebuilder:validation:XValidation:message="spec.tls must be unset when spec.url has http:// scheme: a TLS opinion contradicts a plaintext URL. Either drop spec.tls, or use https:// / a scheme-less URL.",rule="!self.url.startsWith('http://') || !has(self.tls)"
+// +kubebuilder:validation:XValidation:message="spec.allowedNamespaces must not permit cross-namespace access (from: All or from: Selector) when spec.tls.caCertSecretRef is set: a pinned CA Secret is mounted onto the consuming agent's pod and Kubernetes resolves it in the agent's namespace, not this RemoteMCPServer's. Use from: Same (the default), or remove the CA Secret reference.",rule="!(has(self.allowedNamespaces) && has(self.allowedNamespaces.from) && (self.allowedNamespaces.from == 'All' || self.allowedNamespaces.from == 'Selector') && has(self.tls) && has(self.tls.caCertSecretRef) && size(self.tls.caCertSecretRef) > 0)"
 type RemoteMCPServerSpec struct {
 	// +required
 	Description string `json:"description"`
@@ -63,6 +64,13 @@ type RemoteMCPServerSpec struct {
 	// This follows the Gateway API pattern for cross-namespace route attachments.
 	// If not specified, only Agents in the same namespace can reference this RemoteMCPServer.
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
+	//
+	// A cross-namespace-permitting value (from: All or from: Selector) is
+	// mutually exclusive with spec.tls.caCertSecretRef (enforced by a spec-level
+	// XValidation rule): a pinned CA Secret is mounted onto the consuming agent's
+	// pod by bare name and Kubernetes resolves it in the agent's namespace, not
+	// this RemoteMCPServer's, so a CA-pinning RemoteMCPServer cannot be referenced
+	// cross-namespace. from: Same (the default) is always allowed.
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
 
