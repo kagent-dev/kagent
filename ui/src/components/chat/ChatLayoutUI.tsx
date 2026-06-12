@@ -108,17 +108,18 @@ export default function ChatLayoutUI({
         agentSessions={sessions}
         isLoadingSessions={isLoadingSessions}
       />
-      <main className="w-full max-w-6xl mx-auto px-4">
-        <ChatAgentProvider
-          agentType={currentAgent.agent.spec.type}
-          runInSandbox={currentAgent.workloadMode === "sandbox"}
-          substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
-        >
-          {children}
-        </ChatAgentProvider>
+      <main className="flex min-h-svh min-w-0 flex-1 flex-col overflow-x-hidden px-4">
+        <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-1 flex-col">
+          <ChatAgentProvider
+            agentType={currentAgent.agent.spec.type}
+            runInSandbox={currentAgent.workloadMode === "sandbox"}
+            substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
+          >
+            {children}
+          </ChatAgentProvider>
+        </div>
       </main>
       <AgentDetailsSidebar
-        selectedAgentName={agentName}
         currentAgent={currentAgent}
         allTools={convertedTools}
       />
