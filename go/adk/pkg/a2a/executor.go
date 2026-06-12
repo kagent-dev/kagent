@@ -183,7 +183,14 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		inboundMessage = resumeMessage
 	}
 
-	// 6. Convert inbound message to *genai.Content using kagent a2aPartConverter.
+	// 6. Guard inbound file size (defense in depth; the UI also enforces this),
+	// then convert inbound message to *genai.Content using kagent a2aPartConverter.
+	if err := checkInboundFileSizes(inboundMessage, MaxArtifactBytes()); err != nil {
+		errMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: err.Error()})
+		failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
+		failed.Final = true
+		return queue.Write(ctx, failed)
+	}
 	content, err := messageToGenAIContent(ctx, inboundMessage)
 	if err != nil {
 		return fmt.Errorf("inbound message conversion failed: %w", err)
@@ -234,6 +241,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	if e.stream {
 		runConfig.StreamingMode = adkagent.StreamingModeSSE
 	}
+	// Persist inbound user uploads as artifacts so tools/agents can reference
+	// them later (in addition to passing them inline to the model).
+	runConfig.SaveInputBlobsAsArtifacts = true
 
 	// State tracked across the event loop.
 	var (
@@ -260,6 +270,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 		// Build per-event metadata (inherits baseMeta + adds invocation_id, usage etc.).
 		eventMeta := buildEventMeta(baseMeta, adkEvent)
+
+		// Surface artifacts the agent/tools saved during this event as A2A
+		// artifact events (FileParts). Errors are logged and skipped.
+		if len(adkEvent.Actions.ArtifactDelta) > 0 {
+			e.emitArtifacts(ctx, reqCtx, queue, userID, sessionID, adkEvent.Actions.ArtifactDelta, eventMeta)
+		}
 
 		// Convert GenAI parts → A2A parts (with kagent stamping).
 		if adkEvent.Content == nil || len(adkEvent.Content.Parts) == 0 {

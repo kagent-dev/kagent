@@ -351,6 +351,11 @@ ui:
     # Path to redirect users to when they click "Sign in with SSO" on the login page
     # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
     ssoRedirectPath: "/oauth2/start"
+  # -- Nginx configuration for the UI sidecar.
+  nginx:
+    # -- client_max_body_size: max allowed size of the client request body. Increase
+    # to allow large chat messages/attachments (set to 0 to disable the limit).
+    clientMaxBodySize: 50m
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
   # -- Additional request headers (beyond Authorization) the UI proxy will forward
   # to the backend. Names are case-insensitive. Hop-by-hop headers (Connection,

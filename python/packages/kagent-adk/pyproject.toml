@@ -38,6 +38,7 @@ dependencies = [
   "boto3>=1.28.57",
   "ollama >=0.3.6",  # Ollama SDK
   "numpy>=2.2.6",
+  "markitdown[docx,pptx,xlsx,pdf]>=0.1.1",  # extract text from uploaded PDF/Office docs for the model
 ]
 
 [tool.uv.sources]

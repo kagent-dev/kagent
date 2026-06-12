@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/agent"
+	adkartifact "google.golang.org/adk/artifact"
 	"google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
@@ -57,9 +58,10 @@ func runAgent(t *testing.T, agentCfg *adk.AgentConfig, prompt string) string {
 
 	sessionService := adksession.InMemoryService()
 	r, err := runner.New(runner.Config{
-		AppName:        "test",
-		Agent:          adkAgent,
-		SessionService: sessionService,
+		AppName:         "test",
+		Agent:           adkAgent,
+		SessionService:  sessionService,
+		ArtifactService: adkartifact.InMemoryService(),
 	})
 	require.NoError(t, err)
 

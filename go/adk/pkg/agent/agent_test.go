@@ -322,6 +322,62 @@ Use the script in scripts/convert.py.
 	}
 }
 
+// TestBuildAgentTools_RegistersLoadArtifactsTool verifies that every agent's
+// tool list includes the built-in load_artifacts tool (AC5).
+func TestBuildAgentTools_RegistersLoadArtifactsTool(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *adk.AgentConfig
+	}{
+		{name: "minimal", config: &adk.AgentConfig{}},
+		{name: "with memory", config: &adk.AgentConfig{Memory: &adk.MemoryConfig{TTLDays: 1}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
+
+			tools, err := buildAgentTools(tt.config, nil, nil, logr.Discard())
+			if err != nil {
+				t.Fatalf("buildAgentTools() error = %v", err)
+			}
+
+			found := false
+			for _, tool := range tools {
+				if tool.Name() == "load_artifacts" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Error("expected load_artifacts tool to be registered")
+			}
+		})
+	}
+}
+
+// TestBuildAgentTools_RegistersSaveArtifactTool verifies that every agent's tool
+// list includes the save_artifact tool so agents can produce files from chat.
+func TestBuildAgentTools_RegistersSaveArtifactTool(t *testing.T) {
+	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
+
+	tools, err := buildAgentTools(&adk.AgentConfig{}, nil, nil, logr.Discard())
+	if err != nil {
+		t.Fatalf("buildAgentTools() error = %v", err)
+	}
+
+	found := false
+	for _, tool := range tools {
+		if tool.Name() == "save_artifact" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected save_artifact tool to be registered")
+	}
+}
+
 // TestAgentConfigFieldUsage is a smoke test that ensures AgentConfig structures
 // used by agents exercise all relevant fields. This test acts as a canary: if a
 // new field is added to AgentConfig but not reflected in this test configuration,

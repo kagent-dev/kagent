@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
@@ -220,6 +221,35 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 			t.Errorf("len(messages) = %d, want 1", len(msgs))
 		}
 	})
+}
+
+func TestGenaiContentsToOpenAIMessages_NonImageFileBecomesText(t *testing.T) {
+	contents := []*genai.Content{{
+		Role: string(genai.RoleUser),
+		Parts: []*genai.Part{
+			{Text: "explain attached invoice"},
+			{InlineData: &genai.Blob{
+				Data:        []byte("vendor,amount\nAcme,42"),
+				MIMEType:    "text/csv",
+				DisplayName: "invoice.csv",
+			}},
+		},
+	}}
+
+	msgs, _ := genaiContentsToOpenAIMessages(contents, nil)
+	if len(msgs) != 1 {
+		t.Fatalf("len(messages) = %d, want 1", len(msgs))
+	}
+	if msgs[0].OfUser == nil {
+		t.Fatalf("expected a user message, got %+v", msgs[0])
+	}
+	content := msgs[0].OfUser.Content.OfString.Value
+	if !strings.Contains(content, "explain attached invoice") {
+		t.Errorf("message missing user text, got %q", content)
+	}
+	if !strings.Contains(content, "invoice.csv") || !strings.Contains(content, "Acme,42") {
+		t.Errorf("message missing extracted file contents, got %q", content)
+	}
 }
 
 func TestApplyOpenAIConfig(t *testing.T) {
