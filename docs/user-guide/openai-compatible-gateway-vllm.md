@@ -58,7 +58,7 @@ metadata:
   namespace: kagent
 type: Opaque
 stringData:
-  key: sk-gateway-example   # replace with your gateway key, or any placeholder if auth is disabled
+  key: REPLACE_WITH_GATEWAY_API_KEY   # replace with your gateway key, or any placeholder if auth is disabled
 ---
 apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
@@ -126,4 +126,4 @@ See [`examples/modelconfig-openai-gateway-vllm.yaml`](../../examples/modelconfig
 - [BYO OpenAI-compatible model](https://kagent.dev/docs/kagent/supported-providers/byo-openai) — secrets, base URL, TLS
 - [ModelConfig TLS examples](../../examples/modelconfig-with-tls.yaml) — LiteLLM with custom CA certificates
 - [vLLM tool calling](https://docs.vllm.ai/en/latest/features/tool_calling.html) — parser flags by model family
-- [Issue #959](https://github.com/kagent-dev/kagent/issues/959) — native vLLM `ModelConfig` provider (future)
+- [Issue #959](https://github.com/kagent-dev/kagent/issues/959) — a native vLLM `ModelConfig` provider was proposed and closed as not planned; the OpenAI-compatible gateway pattern in this guide is the supported approach

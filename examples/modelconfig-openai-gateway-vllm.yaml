@@ -18,7 +18,7 @@ metadata:
   namespace: kagent
 type: Opaque
 stringData:
-  key: sk-gateway-example  # replace with your gateway API key
+  key: REPLACE_WITH_GATEWAY_API_KEY  # not a real key; replace before applying
 
 ---
 apiVersion: kagent.dev/v1alpha2
