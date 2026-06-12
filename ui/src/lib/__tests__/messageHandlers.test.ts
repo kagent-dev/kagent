@@ -7,10 +7,13 @@ import {
   createMessage,
   normalizeToolResultToText,
   getMetadataValue,
+  extractFileParts,
+  isFilePart,
   type ToolResponseData,
   type ADKMetadata,
   createMessageHandlers,
 } from '@/lib/messageHandlers';
+import type { FilePart } from '@a2a-js/sdk';
 import type { TokenStats } from '@/types';
 
 describe('messageHandlers helpers', () => {
@@ -527,6 +530,100 @@ describe('subagent_session_id propagation', () => {
     expect(meta.originalType).toBe('ToolCallExecutionEvent');
     expect(meta.toolResultData).toHaveLength(1);
     expect(meta.toolResultData![0].subagent_session_id).toBe('sess-history-456');
+  });
+});
+
+describe('file parts (uploads/artifacts)', () => {
+  const filePart: FilePart = {
+    kind: 'file',
+    file: { name: 'report.csv', mimeType: 'text/csv', bytes: 'YSxiLGMK' },
+  };
+
+  test('isFilePart identifies file parts', () => {
+    expect(isFilePart(filePart)).toBe(true);
+    expect(isFilePart({ kind: 'text', text: 'hi' })).toBe(false);
+  });
+
+  test('extractFileParts returns only file parts', () => {
+    const parts = [{ kind: 'text', text: 'hi' }, filePart] as any;
+    const out = extractFileParts(parts);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toEqual(filePart);
+  });
+
+  test('createMessage attaches file parts alongside text', () => {
+    const msg = createMessage('see attached', 'agent', { fileParts: [filePart] });
+    expect(msg.parts).toHaveLength(2);
+    expect(msg.parts[0]).toEqual({ kind: 'text', text: 'see attached' });
+    expect(msg.parts[1]).toEqual(filePart);
+  });
+
+  test('artifact-update preserves file parts on the rendered message', () => {
+    const emitted: Message[] = [];
+    const handlers = createMessageHandlers({
+      setMessages: (updater) => {
+        const next = updater(emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: () => {},
+      setChatStatus: () => {},
+      agentContext: { namespace: 'kagent', agentName: 'testagent' },
+    });
+
+    const artifactEvent: any = {
+      kind: 'artifact-update', contextId: 'ctx', taskId: 'task', lastChunk: true,
+      artifact: { parts: [filePart] },
+    };
+    handlers.handleMessageEvent(artifactEvent);
+
+    const withFile = emitted.find(m => m.parts?.some(isFilePart));
+    expect(withFile).toBeDefined();
+    const fp = withFile!.parts!.find(isFilePart) as FilePart;
+    expect(fp.file.name).toBe('report.csv');
+  });
+
+  test('extractMessagesFromTasks surfaces agent-produced file artifacts on reload', () => {
+    const tasks: any = [
+      {
+        id: 'task1',
+        contextId: 'ctx',
+        history: [
+          { kind: 'message', messageId: 'm1', role: 'agent', parts: [{ kind: 'text', text: 'here is your file' }] },
+        ],
+        artifacts: [
+          { artifactId: 'a1', name: 'report.csv', parts: [filePart] },
+        ],
+      },
+    ];
+    const out = extractMessagesFromTasks(tasks);
+    const withFile = out.find(m => m.parts?.some(isFilePart));
+    expect(withFile).toBeDefined();
+    const fp = withFile!.parts!.find(isFilePart) as FilePart;
+    expect(fp.file.name).toBe('report.csv');
+  });
+
+  test('extractMessagesFromTasks dedupes the same artifact file across tasks', () => {
+    const tasks: any = [
+      { id: 't1', contextId: 'ctx', history: [], artifacts: [{ artifactId: 'a1', parts: [filePart] }] },
+      { id: 't2', contextId: 'ctx', history: [], artifacts: [{ artifactId: 'a1', parts: [filePart] }] },
+    ];
+    const out = extractMessagesFromTasks(tasks);
+    const withFile = out.filter(m => m.parts?.some(isFilePart));
+    expect(withFile).toHaveLength(1);
+  });
+
+  test('extractMessagesFromTasks keeps distinct artifacts that share name+size', () => {
+    // Two different artifacts (different artifactId) whose files happen to have
+    // the same name and byte length must not collapse into one on reload.
+    const tasks: any = [
+      { id: 't1', contextId: 'ctx', history: [], artifacts: [{ artifactId: 'a1', parts: [filePart] }] },
+      { id: 't2', contextId: 'ctx', history: [], artifacts: [{ artifactId: 'a2', parts: [filePart] }] },
+    ];
+    const out = extractMessagesFromTasks(tasks);
+    const withFile = out.filter(m => m.parts?.some(isFilePart));
+    expect(withFile).toHaveLength(2);
   });
 });
 
