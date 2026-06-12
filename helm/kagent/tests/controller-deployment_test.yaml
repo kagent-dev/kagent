@@ -77,6 +77,49 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8083
 
+  - it: should set substrate ate-api env vars and projected token when substrate is enabled
+    template: controller-deployment.yaml
+    set:
+      controller:
+        substrate:
+          enabled: true
+          ateApiEndpoint: "dns:///api.ate-system.svc:443"
+          ateApiTokenFile: "/custom/token"
+          ateApiTokenAudience: "custom-api"
+          ateApiTokenExpirationSeconds: 7200
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SUBSTRATE_ATE_API_ENDPOINT
+            value: "dns:///api.ate-system.svc:443"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SUBSTRATE_ATE_API_TOKEN_FILE
+            value: "/custom/token"
+      - equal:
+          path: spec.template.spec.volumes[0].name
+          value: substrate-ate-api-token
+      - equal:
+          path: spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.audience
+          value: custom-api
+      - equal:
+          path: spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.expirationSeconds
+          value: 7200
+      - equal:
+          path: spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.path
+          value: token
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].name
+          value: substrate-ate-api-token
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /custom
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].readOnly
+          value: true
+
   - it: should set A2A_BASE_URL with computed default value
     template: controller-configmap.yaml
     asserts:

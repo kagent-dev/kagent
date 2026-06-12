@@ -2,6 +2,7 @@
 import { getBackendUrl } from "./utils";
 import { v4 as uuidv4 } from 'uuid';
 import { MessageSendParams } from '@a2a-js/sdk';
+import { formatA2AClientError } from './a2aErrors';
 
 export interface A2AJsonRpcRequest {
   jsonrpc: "2.0";
@@ -66,7 +67,7 @@ export class KagentA2AClient {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("❌ Proxy request failed:", errorText);
-      throw new Error(`A2A proxy request failed: ${response.status} ${response.statusText} - ${errorText}`);
+      throw new Error(formatA2AClientError(errorText || `${response.status} ${response.statusText}`));
     }
 
     if (!response.body) {
@@ -112,7 +113,7 @@ export class KagentA2AClient {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Resubscribe failed: ${response.status} ${response.statusText} - ${errorText}`);
+      throw new Error(formatA2AClientError(errorText || `${response.status} ${response.statusText}`));
     }
 
     if (!response.body) {

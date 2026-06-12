@@ -258,7 +258,23 @@ export interface McpServerTool extends TypedLocalReference {
   requireApproval?: string[];
 }
 
-export type AgentType = "Declarative" | "BYO" | "Sandbox" | "OpenClawSandbox";
+export type AgentType = "Declarative" | "BYO" | "AgentHarness";
+
+/**
+ * AgentHarness.spec.backend (go/api/v1alpha2/agentharness_types.go).
+ * Single source of truth for backend strings — forms, API payloads, and helpers should use this.
+ */
+export type AgentHarnessCrBackend = "openclaw" | "nemoclaw" | "hermes";
+/**
+ * Backends that support messenger channels (CR validation + channel form).
+ */
+export type AgentHarnessMessengerBackend = AgentHarnessCrBackend;
+
+export const AGENT_HARNESS_MESSENGER_BACKENDS: readonly AgentHarnessMessengerBackend[] = [
+  "openclaw",
+  "nemoclaw",
+  "hermes",
+];
 
 /** Single Git repository source for skills. */
 export interface GitRepo {
@@ -275,12 +291,23 @@ export interface SkillForAgent {
   gitRefs?: GitRepo[];
 }
 
-/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). Spec matches Agent.spec (AgentSpec). */
+/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). */
 export interface SandboxAgent {
   apiVersion?: string;
   kind?: string;
   metadata: ResourceMetadata;
   spec: AgentSpec;
+}
+
+export type SandboxPlatform = "agent-sandbox" | "substrate";
+
+export interface SandboxSubstrateSpec {
+  workerPoolRef?: { name: string; namespace?: string };
+  snapshotsConfig?: { location: string };
+}
+
+export interface SandboxConfig {
+  network?: { allowedDomains?: string[] };
 }
 
 export interface AgentSpec {
@@ -289,6 +316,9 @@ export interface AgentSpec {
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
+  platform?: SandboxPlatform;
+  substrate?: SandboxSubstrateSpec;
+  sandbox?: SandboxConfig;
 }
 
 export interface DeclarativeDeploymentSpec {

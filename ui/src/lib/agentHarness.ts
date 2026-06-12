@@ -26,8 +26,8 @@ export function getAgentHarnessRuntime(item: AgentResponse): "openshell" | "subs
 }
 
 /**
- * When this agent row represents an agent harness, returns the AgentHarness CR backend discriminator (e.g. openclaw vs nemoclaw).
- * Use {@link isAgentHarness} for a simple boolean check.
+ * When this agent row represents an OpenClaw/NemoClaw harness, returns spec.backend.
+ * Other AgentHarness backends (e.g. openshell-only rows) are not classified here.
  */
 export function getAgentHarnessBackend(item: AgentResponse): AgentHarnessBackend | undefined {
   if (!isHarnessListRow(item)) {

@@ -17,6 +17,7 @@ import {
   isValidSkillContainerImage,
   newEmptyGitSkillRow,
   validateDeclarativeAgentSkills,
+  validateSubstrateSandboxSkillsConflict,
   type GitSkillFormRow,
 } from "../agentSkillsForm";
 
@@ -380,6 +381,34 @@ describe("agentSkillsForm", () => {
           ],
           skillsGitAuthSecretName: "",
         }),
+      ).toBeUndefined();
+    });
+  });
+
+  describe("validateSubstrateSandboxSkillsConflict", () => {
+    it("rejects skills when sandbox platform is substrate", () => {
+      expect(
+        validateSubstrateSandboxSkillsConflict(
+          {
+            skillRefs: ["ghcr.io/org/skill:v1"],
+            skillGitRepos: [],
+            skillsGitAuthSecretName: "",
+          },
+          "substrate",
+        ),
+      ).toMatch(/not supported for Agent Substrate/);
+    });
+
+    it("allows empty skills on substrate", () => {
+      expect(
+        validateSubstrateSandboxSkillsConflict(
+          {
+            skillRefs: [""],
+            skillGitRepos: [newEmptyGitSkillRow()],
+            skillsGitAuthSecretName: "",
+          },
+          "substrate",
+        ),
       ).toBeUndefined();
     });
   });

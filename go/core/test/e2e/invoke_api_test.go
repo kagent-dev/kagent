@@ -556,7 +556,9 @@ func generateSandboxAgent(modelConfigName string, tools []*v1alpha2.Tool, opts A
 	agent := generateAgent(modelConfigName, tools, opts)
 	return &v1alpha2.SandboxAgent{
 		ObjectMeta: agent.ObjectMeta,
-		Spec:       agent.Spec,
+		Spec: v1alpha2.SandboxAgentSpec{
+			AgentSpec: agent.Spec,
+		},
 	}
 }
 

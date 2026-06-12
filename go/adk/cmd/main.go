@@ -81,6 +81,11 @@ func main() {
 
 	kagentURL := os.Getenv("KAGENT_URL")
 
+	if err := config.MaterializeFromEnv(configDir); err != nil {
+		logger.Error(err, "Failed to materialize agent config from environment", "configDir", configDir)
+		os.Exit(1)
+	}
+
 	agentConfig, agentCard, err := config.LoadAgentConfigs(configDir)
 	if err != nil {
 		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
