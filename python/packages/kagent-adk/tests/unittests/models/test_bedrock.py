@@ -7,6 +7,7 @@ import pytest
 
 from kagent.adk.models._bedrock import (
     KAgentBedrockLlm,
+    _cache_point_block,
     _convert_content_to_converse_messages,
     _convert_tools_to_converse,
     _get_bedrock_client,
@@ -312,3 +313,92 @@ class TestKAgentBedrockLlm:
         result = _create_llm_from_model_config(config)
         assert isinstance(result, KAgentBedrockLlm)
         assert result.model == "meta.llama3-8b-instruct-v1:0"
+
+    def test_create_llm_forwards_prompt_caching_and_ttl(self):
+        from kagent.adk.types import Bedrock, _create_llm_from_model_config
+
+        config = Bedrock(
+            type="bedrock",
+            model="us.anthropic.claude-sonnet-4-20250514-v1:0",
+            prompt_caching=True,
+            cache_ttl="1h",
+        )
+        result = _create_llm_from_model_config(config)
+        assert isinstance(result, KAgentBedrockLlm)
+        assert result.prompt_caching is True
+        assert result.cache_ttl == "1h"
+
+
+class TestCachePointBlock:
+    def test_default_omits_ttl(self):
+        assert _cache_point_block() == {"cachePoint": {"type": "default"}}
+
+    def test_five_minutes_omits_ttl(self):
+        # "5m" is Bedrock's default cache window; we leave ttl unset so the
+        # marker stays compatible with every prompt-caching model.
+        assert _cache_point_block("5m") == {"cachePoint": {"type": "default"}}
+
+    def test_one_hour_sets_ttl(self):
+        assert _cache_point_block("1h") == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+    def test_returns_fresh_dict_each_call(self):
+        first = _cache_point_block()
+        second = _cache_point_block()
+        assert first is not second
+        first["cachePoint"]["type"] = "mutated"
+        assert second["cachePoint"]["type"] == "default"
+
+
+class TestPromptCachingInsertion:
+    async def _run_converse(self, llm, request):
+        mock_client = mock.MagicMock()
+        mock_client.converse.return_value = {
+            "output": {"message": {"role": "assistant", "content": [{"text": "ok"}]}},
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2},
+        }
+
+        async def fake_to_thread(fn, **kwargs):
+            return fn(**kwargs)
+
+        with (
+            mock.patch("kagent.adk.models._bedrock._get_bedrock_client", return_value=mock_client),
+            mock.patch("kagent.adk.models._bedrock.asyncio.to_thread", side_effect=fake_to_thread),
+        ):
+            _ = [r async for r in llm.generate_content_async(request)]
+        return mock_client.converse.call_args.kwargs
+
+    def _request_with_system(self):
+        request = mock.MagicMock()
+        request.model = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        request.contents = []
+        request.config = mock.MagicMock()
+        request.config.system_instruction = "you are a helpful agent"
+        request.config.tools = None
+        request.config.temperature = None
+        request.config.max_output_tokens = None
+        request.config.top_p = None
+        request.config.stop_sequences = None
+        return request
+
+    @pytest.mark.asyncio
+    async def test_no_cache_point_when_disabled(self):
+        llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
+        kwargs = await self._run_converse(llm, self._request_with_system())
+        assert all("cachePoint" not in block for block in kwargs["system"])
+
+    @pytest.mark.asyncio
+    async def test_system_cache_point_default_ttl(self):
+        llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0", prompt_caching=True)
+        kwargs = await self._run_converse(llm, self._request_with_system())
+        assert kwargs["system"][-1] == {"cachePoint": {"type": "default"}}
+
+    @pytest.mark.asyncio
+    async def test_system_cache_point_one_hour_ttl(self):
+        llm = KAgentBedrockLlm(
+            model="us.anthropic.claude-sonnet-4-20250514-v1:0",
+            prompt_caching=True,
+            cache_ttl="1h",
+        )
+        kwargs = await self._run_converse(llm, self._request_with_system())
+        assert kwargs["system"][-1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
