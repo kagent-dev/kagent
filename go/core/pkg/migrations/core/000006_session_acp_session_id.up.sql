@@ -1,0 +1,1 @@
+ALTER TABLE session ADD COLUMN IF NOT EXISTS acp_session_id TEXT;

@@ -59,7 +59,10 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 	script, env, err := p.buildOpenClawActorStartup(context.Background(), ah)
 	require.NoError(t, err)
 	require.Contains(t, script, "base64 -d")
-	require.Contains(t, script, "openclaw gateway run --port 80")
+	require.Contains(t, script, "openclaw-gateway-ensure")
+	require.Contains(t, script, "exec /usr/local/bin/acp-shim")
+	require.Contains(t, script, "--listen :80")
+	require.NotContains(t, script, "--passthrough")
 
 	var foundKey bool
 	for _, e := range env {
@@ -74,6 +77,22 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 		foundKey = true
 	}
 	require.True(t, foundKey, "expected OPENAI_API_KEY secretKeyRef in container env")
+
+	var foundShimToken, foundGatewayPort bool
+	for _, e := range env {
+		switch e.Name {
+		case "ACP_SHIM_TOKEN":
+			require.NotNil(t, e.Value)
+			require.Equal(t, "some-token", *e.Value)
+			foundShimToken = true
+		case "OPENCLAW_GATEWAY_PORT":
+			require.NotNil(t, e.Value)
+			require.Equal(t, "18789", *e.Value)
+			foundGatewayPort = true
+		}
+	}
+	require.True(t, foundShimToken, "expected ACP_SHIM_TOKEN in container env")
+	require.True(t, foundGatewayPort, "expected OPENCLAW_GATEWAY_PORT in container env")
 
 	// Decode embedded JSON from the base64 line in the startup script.
 	var payload string
@@ -94,12 +113,12 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &root))
 	gw := root["gateway"].(map[string]any)
 	require.Equal(t, "lan", gw["bind"])
-	require.Equal(t, float64(80), gw["port"])
+	require.Equal(t, float64(18789), gw["port"])
 	auth := gw["auth"].(map[string]any)
 	require.Equal(t, "token", auth["mode"])
 	require.Equal(t, "some-token", auth["token"])
-	controlUI := gw["controlUi"].(map[string]any)
-	require.Equal(t, "/api/agentharnesses/kagent/peterj-claw/gateway", controlUI["basePath"])
+	_, hasControlUI := gw["controlUi"]
+	require.False(t, hasControlUI, "controlUi should not be emitted")
 	_, hasModels := root["models"]
 	require.False(t, hasModels, "substrate bootstrap should omit models unless ModelConfig sets an explicit baseUrl")
 	require.Contains(t, root, "agents")

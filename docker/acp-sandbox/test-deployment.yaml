@@ -1,0 +1,94 @@
+# Standalone test deployment for the acp-shim openclaw image.
+#
+# This bypasses the AgentHarness controller entirely (the harness runtimes
+# don't yet know about the shim — that's EP implementation work) and runs
+# the image as a plain Deployment so the shim can be exercised end to end:
+#
+#   docker build -f docker/acp-sandbox/Dockerfile --target openclaw \
+#       -t acp-sandbox-openclaw:dev go/
+#   kind load docker-image acp-sandbox-openclaw:dev --name <cluster>
+#   kubectl apply -f docker/acp-sandbox/test-deployment.yaml
+#   kubectl -n kagent port-forward svc/acp-shim-test 9000:9000
+#
+# Then connect with websocat:
+#
+#   websocat "ws://localhost:9000/acp?access_token=dev-token"
+#   {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: acp-shim-test-token
+  namespace: kagent
+stringData:
+  token: dev-token
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: acp-shim-test
+  namespace: kagent
+  labels:
+    app: acp-shim-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: acp-shim-test
+  template:
+    metadata:
+      labels:
+        app: acp-shim-test
+    spec:
+      containers:
+        - name: openclaw
+          image: acp-sandbox-openclaw:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: acp
+              containerPort: 9000
+          env:
+            # OpenClaw needs at least one model provider to do useful work;
+            # for shim transport testing, initialize/session plumbing is
+            # enough.
+            - name: OPENCLAW_GATEWAY_PORT
+              value: "18789"
+          envFrom:
+            # Model provider API keys for real prompts. Same env-var contract
+            # the harness uses (openclaw.DefaultAPIKeyEnvVar: <PROVIDER>_API_KEY).
+            # Create with:
+            #   kubectl -n kagent create secret generic openclaw-provider-keys \
+            #     --from-literal=OPENAI_API_KEY=sk-...
+            # then: kubectl -n kagent rollout restart deployment/acp-shim-test
+            - secretRef:
+                name: openclaw-provider-keys
+                optional: true
+          volumeMounts:
+            - name: acp-token
+              mountPath: /var/run/acp
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: acp
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: acp-token
+          secret:
+            secretName: acp-shim-test-token
+            items:
+              - key: token
+                path: token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: acp-shim-test
+  namespace: kagent
+spec:
+  selector:
+    app: acp-shim-test
+  ports:
+    - name: acp
+      port: 9000
+      targetPort: acp

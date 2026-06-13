@@ -1,0 +1,3 @@
+atelet:
+  extraArgs:
+    - --localhost-registry-replacement=kind-registry:5000

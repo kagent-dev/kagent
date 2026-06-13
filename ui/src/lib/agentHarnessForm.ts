@@ -1,5 +1,5 @@
 import type { AgentHarnessCrBackend, ValueSource } from "@/types";
-import { AGENT_HARNESS_MESSENGER_BACKENDS } from "@/types";
+import { AGENT_HARNESS_MESSENGER_BACKENDS, AGENT_HARNESS_SUBSTRATE_ONLY_BACKENDS } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { generateId } from "@/lib/utils";
 
@@ -9,12 +9,17 @@ export function agentHarnessBackendSupportsMessengerChannels(b: AgentHarnessCrBa
 }
 
 export function isClawHarnessBackend(backend: AgentHarnessCrBackend | undefined): boolean {
-  return backend === "openclaw" || backend === "nemoclaw";
+  return backend === "openclaw";
+}
+
+/** Backends that only run on the Agent Substrate runtime. */
+export function isSubstrateOnlyHarnessBackend(backend: AgentHarnessCrBackend | undefined): boolean {
+  return backend !== undefined && AGENT_HARNESS_SUBSTRATE_ONLY_BACKENDS.includes(backend);
 }
 
 export type AgentHarnessChannelFormType = "telegram" | "slack";
 
-export type HarnessRuntimeForm = "openshell" | "substrate";
+export type HarnessRuntimeForm = "substrate";
 
 export interface AgentHarnessChannelRow {
   id: string;
@@ -66,34 +71,26 @@ export function newAgentHarnessChannelRow(): AgentHarnessChannelRow {
 
 export interface AgentHarnessFormSlice {
   backend: AgentHarnessCrBackend;
-  /** Harness control plane: OpenShell (default) or Agent Substrate. */
+  /** Harness control plane: Agent Substrate. */
   runtime: HarnessRuntimeForm;
   substrateWorkerPoolRefName: string;
   substrateGatewayToken: string;
   /** GCS snapshot prefix (gs://bucket/path/) — required for generated templates. */
   substrateSnapshotsLocation: string;
-  /** Optional override for Sandbox.spec.image (OpenShell VM template image). Empty → controller default. */
+  /** Optional override for the sandbox container image. Empty → controller default. */
   image: string;
   channels: AgentHarnessChannelRow[];
-  /**
-   * Free-text DNS host list (newline / comma / space separated) that maps to
-   * `AgentHarness.spec.network.allowedDomains`. Each host opens an L7 REST endpoint
-   * allowing all HTTP methods and paths in the OpenShell sandbox policy; the
-   * controller merges these with baseline + channel fragments.
-   */
-  allowedDomains: string;
 }
 
 export function defaultAgentHarnessFormSlice(): AgentHarnessFormSlice {
   return {
     backend: "openclaw",
-    runtime: "openshell",
+    runtime: "substrate",
     substrateWorkerPoolRefName: "",
     substrateGatewayToken: "",
     substrateSnapshotsLocation: "gs://ate-snapshots/kagent/",
     image: "",
     channels: [],
-    allowedDomains: "",
   };
 }
 
@@ -104,48 +101,8 @@ function trimSplitList(raw: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * Hostname / glob shape gate for allowedDomains rows. Mirrors what the controller's
- * `NormalizeAllowedDomainHost` will end up storing: bare DNS names, optional `*` /
- * `**` glob labels, no schemes, no paths, no whitespace.
- */
-const ALLOWED_DOMAIN_LABEL_RE = /^(\*\*?|[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)$/;
-
-function isPlausibleAllowedDomainHost(raw: string): boolean {
-  const s = raw.trim();
-  if (!s || s.length > 253) {
-    return false;
-  }
-  if (/[\s/]/.test(s) || s.includes("://")) {
-    return false;
-  }
-  const labels = s.split(".");
-  if (labels.length === 0) {
-    return false;
-  }
-  return labels.every((label) => ALLOWED_DOMAIN_LABEL_RE.test(label));
-}
-
-/**
- * Splits the textarea contents, dedupes (case-insensitive) and preserves first-seen order.
- * Caller decides whether to send `spec.network.allowedDomains` based on the result length.
- */
-export function parseAllowedDomainsList(raw: string): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const entry of trimSplitList(raw)) {
-    const key = entry.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    out.push(entry);
-  }
-  return out;
-}
-
 /** Where to show a harness validation message and which element to focus. */
-export type AgentHarnessSectionErrorKind = "allowedDomains" | "channels" | "general";
+export type AgentHarnessSectionErrorKind = "channels" | "general";
 
 export interface AgentHarnessFormValidationError {
   message: string;
@@ -192,17 +149,11 @@ export function validateAgentHarnessForm(args: {
   if (!mr) {
     return agentHarnessValidationFail("general", "Please select a model config for this AgentHarness.");
   }
-  if (args.harness.runtime === "substrate" && !args.harness.substrateGatewayToken.trim()) {
-    return agentHarnessValidationFail("general", "Substrate gateway token is required.");
-  }
-
-  for (const entry of trimSplitList(args.harness.allowedDomains)) {
-    if (!isPlausibleAllowedDomainHost(entry)) {
-      return agentHarnessValidationFail(
-        "allowedDomains",
-        `Allowed domain "${entry}" is not a valid hostname. Use bare DNS names like api.github.com (no scheme or path).`,
-      );
-    }
+  if (isSubstrateOnlyHarnessBackend(backend) && args.harness.runtime !== "substrate") {
+    return agentHarnessValidationFail(
+      "general",
+      "This harness type is only supported on the Agent Substrate runtime.",
+    );
   }
 
   const channelBackend = agentHarnessBackendSupportsMessengerChannels(backend);
@@ -218,7 +169,7 @@ export function validateAgentHarnessForm(args: {
     if (hasConfiguredChannel) {
       return agentHarnessValidationFail(
         "general",
-        "Messenger channels are only supported for OpenClaw and NemoClaw harness types today.",
+        "Messenger channels are not supported for this harness type.",
       );
     }
   }
@@ -397,7 +348,7 @@ export function buildAgentHarnessCRDraft(args: {
     }
   }
 
-  const runtime = args.harness.runtime?.trim() || "openshell";
+  const runtime = args.harness.runtime?.trim() || "substrate";
 
   const spec: Record<string, unknown> = {
     backend,
@@ -410,14 +361,15 @@ export function buildAgentHarnessCRDraft(args: {
     if (!snapshots) {
       return { error: "Substrate snapshots location (gs://…) is required." };
     }
-    const gatewayToken = args.harness.substrateGatewayToken?.trim();
-    if (!gatewayToken) {
-      return { error: "Substrate gateway token is required." };
-    }
     const substrate: Record<string, unknown> = {
-      gatewayToken,
       snapshotsConfig: { location: snapshots },
     };
+    // Optional: when omitted, the controller generates a random gateway token
+    // and stores it in a Secret named "<harness-name>-gateway-token".
+    const gatewayToken = args.harness.substrateGatewayToken?.trim();
+    if (gatewayToken) {
+      substrate.gatewayToken = gatewayToken;
+    }
     const wpName = args.harness.substrateWorkerPoolRefName?.trim();
     if (wpName) {
       substrate.workerPoolRef = {
@@ -439,11 +391,6 @@ export function buildAgentHarnessCRDraft(args: {
   const img = args.harness.image.trim();
   if (img) {
     spec.image = img;
-  }
-
-  const allowedDomains = parseAllowedDomainsList(args.harness.allowedDomains);
-  if (allowedDomains.length > 0) {
-    spec.network = { allowedDomains };
   }
 
   return {

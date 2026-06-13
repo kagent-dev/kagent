@@ -136,25 +136,17 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 	return res
 }
 
-// OpenshellAgentHarnessListEntry is set when this row is a kagent.dev/v1alpha2 AgentHarness (openshell backend),
-// merged into GET /api/agents for UI alongside Agent CRs.
-type OpenshellAgentHarnessListEntry struct {
-	Backend            v1alpha2.AgentHarnessBackendType `json:"backend"`
-	GatewaySandboxName string                           `json:"gatewaySandboxName"`
-	ModelConfigRef     string                           `json:"modelConfigRef,omitempty"`
-	BackendRefID       string                           `json:"backendRefId,omitempty"`
-	Endpoint           string                           `json:"endpoint,omitempty"`
-}
-
 // SubstrateAgentHarnessListEntry is set when runtime is substrate.
 type SubstrateAgentHarnessListEntry struct {
-	Backend        v1alpha2.AgentHarnessBackendType `json:"backend"`
-	Runtime        v1alpha2.AgentHarnessRuntime     `json:"runtime"`
-	ActorID        string                           `json:"actorId,omitempty"`
-	GatewayUIPath  string                           `json:"gatewayUIPath,omitempty"`
-	ModelConfigRef string                           `json:"modelConfigRef,omitempty"`
-	BackendRefID   string                           `json:"backendRefId,omitempty"`
-	Endpoint       string                           `json:"endpoint,omitempty"`
+	Backend v1alpha2.AgentHarnessBackendType `json:"backend"`
+	Runtime v1alpha2.AgentHarnessRuntime     `json:"runtime"`
+	ActorID string                           `json:"actorId,omitempty"`
+	// AcpPath is the server-side ACP WebSocket proxy path for chatting with
+	// the harness from the kagent UI.
+	AcpPath        string `json:"acpPath,omitempty"`
+	ModelConfigRef string `json:"modelConfigRef,omitempty"`
+	BackendRefID   string `json:"backendRefId,omitempty"`
+	Endpoint       string `json:"endpoint,omitempty"`
 }
 
 type AgentResponse struct {
@@ -169,7 +161,6 @@ type AgentResponse struct {
 	DeploymentReady       bool                            `json:"deploymentReady"`
 	Accepted              bool                            `json:"accepted"`
 	WorkloadMode          v1alpha2.WorkloadMode           `json:"workloadMode,omitempty"`
-	OpenshellAgentHarness *OpenshellAgentHarnessListEntry `json:"openshellAgentHarness,omitempty"`
 	SubstrateAgentHarness *SubstrateAgentHarnessListEntry `json:"substrateAgentHarness,omitempty"`
 }
 
@@ -181,6 +172,10 @@ type SessionRequest struct {
 	Name     *string                 `json:"name,omitempty"`
 	ID       *string                 `json:"id,omitempty"`
 	Source   *database.SessionSource `json:"source,omitempty"`
+	// AcpSessionID binds an AgentHarness chat session to an ACP session inside
+	// the harness's shared substrate actor. Set via PATCH when the chat first
+	// runs session/new so reopening the chat resumes the same ACP session.
+	AcpSessionID *string `json:"acp_session_id,omitempty"`
 }
 
 // Run types

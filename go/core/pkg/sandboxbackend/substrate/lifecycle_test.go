@@ -129,6 +129,7 @@ func TestEnsureActorTemplateDoesNotUpdateWhenDesiredStateMatches(t *testing.T) {
 			UID:       "00000000-0000-0000-0000-000000000001",
 		},
 		Spec: v1alpha2.AgentHarnessSpec{
+			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
 			Runtime: v1alpha2.AgentHarnessRuntimeSubstrate,
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
 				GatewayToken: "test-token",

@@ -23,7 +23,7 @@ const (
 
 var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
-// ClawBackend implements AsyncBackend for OpenClaw/NemoClaw on Agent Substrate.
+// ClawBackend implements AsyncBackend for OpenClaw on Agent Substrate.
 type ClawBackend struct {
 	client   *Client
 	backend  v1alpha2.AgentHarnessBackendType
@@ -32,7 +32,7 @@ type ClawBackend struct {
 
 var _ sandboxbackend.AsyncBackend = (*ClawBackend)(nil)
 
-// NewOpenClawBackend returns a substrate backend for openclaw/nemoclaw harness types.
+// NewOpenClawBackend returns a substrate backend for openclaw harness types.
 func NewOpenClawBackend(client *Client, backend v1alpha2.AgentHarnessBackendType, recorder record.EventRecorder) *ClawBackend {
 	return &ClawBackend{
 		client:   client,
@@ -163,7 +163,7 @@ func substrateConnectionEndpoint(namespace, name string, actor *ateapipb.Actor) 
 func validateSubstrateSpec(ah *v1alpha2.AgentHarness) error {
 	runtime := ah.Spec.Runtime
 	if runtime == "" {
-		runtime = v1alpha2.AgentHarnessRuntimeOpenshell
+		runtime = v1alpha2.AgentHarnessRuntimeSubstrate
 	}
 	if runtime != v1alpha2.AgentHarnessRuntimeSubstrate {
 		return fmt.Errorf("substrate backend called for runtime %q", runtime)

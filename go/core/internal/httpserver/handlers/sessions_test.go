@@ -269,9 +269,7 @@ func TestSessionsHandler(t *testing.T) {
 					Name:      "test-substrate-agent",
 					Namespace: "kagent",
 				},
-				Spec: v1alpha2.SandboxAgentSpec{
-					Platform: v1alpha2.SandboxPlatformSubstrate,
-				},
+				Spec: v1alpha2.SandboxAgentSpec{},
 			}).Build()
 			handler.KubeClient = kubeClient
 

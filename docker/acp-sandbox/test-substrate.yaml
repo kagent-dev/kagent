@@ -1,0 +1,110 @@
+# Standalone Substrate test for the acp-shim openclaw image.
+#
+# This runs the image as a real Substrate actor (gVisor microVM) instead of a
+# plain Deployment, bypassing the AgentHarness controller (manual ActorTemplate
+# + manual ate-api CreateActor). The shim listens on :80 because atenet-router
+# routes Host {actorID}.actors.resources.substrate.ate.dev to actor port 80.
+#
+# Substrate workers pull the image themselves while building the golden
+# snapshot, so a kind-local image tag is not visible to them — push the image
+# to a registry first (ttl.sh works for throwaway testing). Substrate also
+# requires digest-pinned image refs (changing the image invalidates
+# snapshots), so grab the digest from the push output:
+#
+#   docker build -f docker/acp-sandbox/Dockerfile --target openclaw \
+#       -t ttl.sh/kagent-acp-openclaw:4h go/
+#   docker push ttl.sh/kagent-acp-openclaw:4h     # prints the sha256 digest
+#   # update spec.containers[0].image below with @sha256:...
+#   kubectl apply -f docker/acp-sandbox/test-substrate.yaml
+#   kubectl -n kagent get actortemplate acp-shim-test -w   # wait Phase=Ready
+#
+# Create the actor via ate-api (gRPC reflection is enabled; auth is a
+# projected SA token with the api.ate-system.svc audience):
+#
+#   TOKEN=$(kubectl -n kagent create token kagent-controller --audience=api.ate-system.svc)
+#   kubectl -n ate-system port-forward svc/api 8443:443 &
+#   grpcurl -insecure -H "authorization: Bearer $TOKEN" \
+#     -d '{"actor_id":"acp-shim-dev","actor_template_namespace":"kagent","actor_template_name":"acp-shim-test"}' \
+#     localhost:8443 ateapi.Control/CreateActor
+#
+# Connect through atenet-router (Host-header routing):
+#
+#   kubectl -n ate-system port-forward svc/atenet-router 8080:80 &
+#   curl -s -H "Host: acp-shim-dev.actors.resources.substrate.ate.dev" \
+#     http://localhost:8080/healthz
+#   websocat -H "Host: acp-shim-dev.actors.resources.substrate.ate.dev" \
+#     "ws://localhost:8080/acp?access_token=dev-token"
+#
+# (Browsers can't set a Host header; the kagent controller's
+# /api/agentharnesses/{ns}/{name}/acp proxy handles that for the UI — this
+# manual websocat path is only for testing without the controller.)
+#
+# Cleanup:
+#   grpcurl ... -d '{"actor_id":"acp-shim-dev"}' localhost:8443 ateapi.Control/DeleteActor
+#   kubectl delete -f docker/acp-sandbox/test-substrate.yaml
+#
+# Notes / open items:
+#   - The token reaches the shim via the ACP_SHIM_TOKEN env var (secretKeyRef):
+#     ActorTemplate containers support env but not volume mounts.
+#   - The image runs as the unprivileged "agent" user; binding :80 relies on
+#     gVisor's netstack not enforcing privileged ports. If the actor logs an
+#     EACCES bind error this needs a root user or a routable high port.
+#   - pauseImage/runsc values mirror the kagent controller defaults
+#     (go/core/pkg/app/app.go) — the same ones its generated templates use.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: acp-shim-test-token
+  namespace: kagent
+stringData:
+  token: dev-token
+---
+apiVersion: ate.dev/v1alpha1
+kind: ActorTemplate
+metadata:
+  name: acp-shim-test
+  namespace: kagent
+  labels:
+    app: acp-shim-test
+spec:
+  pauseImage: gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da
+  runsc:
+    amd64:
+      url: gs://gvisor/releases/nightly/2026-05-19/x86_64/runsc
+      sha256Hash: a397be1abc2420d26bce6c70e6e2ff96c73aaaab929756c56f5e2089ea842b63
+    arm64:
+      url: gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc
+      sha256Hash: 1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9
+  workerPoolRef:
+    name: kagent-default
+    namespace: kagent
+  snapshotsConfig:
+    location: gs://ate-snapshots/kagent/acp-shim-test
+  containers:
+    - name: openclaw
+      # Must be digest-pinned (substrate rejects mutable tags) and pullable
+      # by the workers — push first, then paste the digest from the push.
+      image: ttl.sh/kagent-acp-openclaw@sha256:f8c7b73253dd00098d3f2cb2c3a3d7585fa549daadeefdacd563362e4d40c7e6
+      # Same launcher as the plain-Deployment test, but the shim binds :80
+      # (the atenet-router target port) instead of :9000.
+      command:
+        - /usr/local/bin/openclaw-acp-entrypoint
+        - --listen
+        - ":80"
+      env:
+        - name: ACP_SHIM_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: acp-shim-test-token
+              key: token
+        - name: OPENCLAW_GATEWAY_PORT
+          value: "18789"
+        # Model provider key for real prompts (optional for transport tests).
+        # kubectl -n kagent create secret generic openclaw-provider-keys \
+        #   --from-literal=OPENAI_API_KEY=sk-...
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kagent-openai
+              key: OPENAI_API_KEY
+              optional: true

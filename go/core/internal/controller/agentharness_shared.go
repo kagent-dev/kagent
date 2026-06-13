@@ -24,7 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 )
 
 const (
@@ -53,23 +52,6 @@ func reconcileBackendUnavailable(ctx context.Context, kube client.Client, ah *v1
 	return ctrl.Result{}, nil
 }
 
-func postReadyBootstrapPending(ah *v1alpha2.AgentHarness) bool {
-	cond := meta.FindStatusCondition(ah.Status.Conditions, v1alpha2.AgentHarnessConditionTypeBootstrapReady)
-	return cond == nil || cond.ObservedGeneration != ah.Generation || cond.Status != metav1.ConditionTrue
-}
-
-func maybePostReadyBootstrap(ctx context.Context, key client.ObjectKey, ah *v1alpha2.AgentHarness, h sandboxbackend.Handle, async sandboxbackend.AsyncBackend) error {
-	if !postReadyBootstrapPending(ah) {
-		return nil
-	}
-	if err := async.OnAgentHarnessReady(ctx, ah, h); err != nil {
-		return err
-	}
-	ctrl.LoggerFrom(ctx).WithValues("agentHarness", key.String()).Info(
-		"recorded post-ready bootstrap for AgentHarness generation", "generation", ah.Generation)
-	return nil
-}
-
 func patchAgentHarnessStatus(ctx context.Context, kube client.Client, ah *v1alpha2.AgentHarness) error {
 	var current v1alpha2.AgentHarness
 	if err := kube.Get(ctx, client.ObjectKeyFromObject(ah), &current); err != nil {
@@ -89,7 +71,7 @@ func patchAgentHarnessStatus(ctx context.Context, kube client.Client, ah *v1alph
 
 func effectiveAgentHarnessRuntime(ah *v1alpha2.AgentHarness) v1alpha2.AgentHarnessRuntime {
 	if ah.Spec.Runtime == "" {
-		return v1alpha2.AgentHarnessRuntimeOpenshell
+		return v1alpha2.AgentHarnessRuntimeSubstrate
 	}
 	return ah.Spec.Runtime
 }

@@ -16,11 +16,22 @@ type gatewaySection struct {
 	Bind      string            `json:"bind"`
 	Auth      gatewayAuth       `json:"auth"`
 	Port      int               `json:"port"`
+	Remote    *gatewayRemote    `json:"remote,omitempty"`
 	ControlUi *controlUiSection `json:"controlUi,omitempty"`
 }
 
 type gatewayAuth struct {
 	Mode  string `json:"mode"`
+	Token string `json:"token,omitempty"`
+}
+
+// gatewayRemote carries the URL and token in-sandbox clients (openclaw acp)
+// use when connecting to a token-auth gateway. Both must be set together:
+// `openclaw acp` only applies remote.token when it also resolves the
+// gateway URL from remote.url (an explicit --url flag bypasses the config
+// token entirely).
+type gatewayRemote struct {
+	URL   string `json:"url,omitempty"`
 	Token string `json:"token,omitempty"`
 }
 

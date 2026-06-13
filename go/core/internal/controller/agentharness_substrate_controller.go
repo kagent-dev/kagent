@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/events"
@@ -39,25 +38,30 @@ const (
 // +kubebuilder:rbac:groups=ate.dev,resources=actortemplates,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ate.dev,resources=actortemplates/status,verbs=get
 
+// AgentHarnessSessionActorCleaner deletes the substrate actors spun from an
+// AgentHarness's generated ActorTemplate. Implemented by
+// *substrate.AgentHarnessSessionActorBackend.
+type AgentHarnessSessionActorCleaner interface {
+	DeleteAllAgentHarnessActors(ctx context.Context, ah *v1alpha2.AgentHarness) (bool, error)
+}
+
 // SubstrateAgentHarnessController reconciles AgentHarness resources that use the
 // Substrate runtime.
 type SubstrateAgentHarnessController struct {
-	Client             client.Client
-	Recorder           events.EventRecorder
-	OpenClawBackend    sandboxbackend.AsyncBackend
-	NemoClawBackend    sandboxbackend.AsyncBackend
+	Client   client.Client
+	Recorder events.EventRecorder
+	// Backends maps the harness backend type to its substrate AsyncBackend.
+	Backends           map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 	SubstrateLifecycle substrate.AgentHarnessLifecycle
+	// SessionActorBackend manages the per-session actors spun from the
+	// harness's generated ActorTemplate. The controller uses it only to clean
+	// up session actors on delete; session actors are created on demand by the
+	// HTTP gateway when a chat connects.
+	SessionActorBackend AgentHarnessSessionActorCleaner
 }
 
 func (r *SubstrateAgentHarnessController) backendFor(ah *v1alpha2.AgentHarness) sandboxbackend.AsyncBackend {
-	switch ah.Spec.Backend {
-	case v1alpha2.AgentHarnessBackendOpenClaw:
-		return r.OpenClawBackend
-	case v1alpha2.AgentHarnessBackendNemoClaw:
-		return r.NemoClawBackend
-	default:
-		return nil
-	}
+	return r.Backends[ah.Spec.Backend]
 }
 
 func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -124,82 +128,20 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 		}
 		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
 	}
-	if err := r.Client.Get(ctx, req.NamespacedName, &ah); err != nil {
-		return ctrl.Result{}, fmt.Errorf("reload AgentHarness after substrate lifecycle reconciliation: %w", err)
-	}
 
-	return r.reconcileBackend(ctx, req, &ah, backend, log)
-}
-
-func (r *SubstrateAgentHarnessController) reconcileBackend(ctx context.Context, req ctrl.Request, ah *v1alpha2.AgentHarness, backend sandboxbackend.AsyncBackend, log logr.Logger) (ctrl.Result, error) {
-	res, err := backend.EnsureAgentHarness(ctx, ah)
-	if err != nil {
-		log.Error(err, "EnsureAgentHarness failed")
-		setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse,
-			"EnsureFailed", err.Error())
-		setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
-			"EnsureFailed", err.Error())
-		if perr := patchAgentHarnessStatus(ctx, r.Client, ah); perr != nil {
-			return ctrl.Result{}, perr
-		}
-		return ctrl.Result{}, err
-	}
-
-	ah.Status.BackendRef = &v1alpha2.AgentHarnessStatusRef{
-		Backend: ah.Spec.Backend,
-		ID:      res.Handle.ID,
-	}
-	if res.Endpoint != "" {
-		ah.Status.Connection = &v1alpha2.AgentHarnessConnection{Endpoint: res.Endpoint}
-	}
-	setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue,
-		"AgentHarnessAccepted", "backend accepted sandbox request")
-
-	st, reason, msg := backend.GetStatus(ctx, res.Handle)
-	pending := postReadyBootstrapPending(ah)
-	if st == metav1.ConditionTrue && pending {
-		setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeActorReady, st, reason, msg)
-		setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeBootstrapReady, metav1.ConditionFalse,
-			"BootstrapPending",
-			"waiting for post-ready bootstrap (OnAgentHarnessReady) to finish")
-		setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
-			"BootstrapPending",
-			"gateway sandbox is ready; waiting for post-ready bootstrap (OnAgentHarnessReady) to finish")
-	} else {
-		setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeActorReady, st, reason, msg)
-		if pending {
-			setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeBootstrapReady, metav1.ConditionFalse,
-				"ActorNotReady", "waiting for actor before post-ready bootstrap")
-		}
-		setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeReady, st, reason, msg)
-	}
+	// The AgentHarness is a template: once its generated ActorTemplate golden
+	// snapshot is Ready, the harness is Ready. We do NOT create a persistent
+	// actor here. Each chat session gets its own actor, created on demand by the
+	// HTTP gateway (AgentHarnessSessionActorBackend) when a chat connects.
+	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue,
+		"AgentHarnessAccepted", "ActorTemplate golden snapshot is ready")
+	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue,
+		"TemplateReady", "session actors are created on demand per chat session")
+	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionTrue,
+		"TemplateReady", "AgentHarness template is ready; chat sessions spawn their own actors")
 	ah.Status.ObservedGeneration = ah.Generation
-
-	if err := patchAgentHarnessStatus(ctx, r.Client, ah); err != nil {
+	if err := patchAgentHarnessStatus(ctx, r.Client, &ah); err != nil {
 		return ctrl.Result{}, err
-	}
-
-	if st != metav1.ConditionTrue {
-		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
-	}
-	if pending {
-		if err := maybePostReadyBootstrap(ctx, client.ObjectKeyFromObject(ah), ah, res.Handle, backend); err != nil {
-			log.Error(err, "post-ready sandbox bootstrap failed")
-			return ctrl.Result{}, err
-		}
-		var latest v1alpha2.AgentHarness
-		if err := r.Client.Get(ctx, req.NamespacedName, &latest); err != nil {
-			return ctrl.Result{}, fmt.Errorf("get AgentHarness after bootstrap: %w", err)
-		}
-		st2, reason2, msg2 := backend.GetStatus(ctx, res.Handle)
-		setAgentHarnessCondition(&latest, v1alpha2.AgentHarnessConditionTypeActorReady, st2, reason2, msg2)
-		setAgentHarnessCondition(&latest, v1alpha2.AgentHarnessConditionTypeBootstrapReady, metav1.ConditionTrue,
-			"BootstrapComplete", "post-ready bootstrap completed")
-		setAgentHarnessCondition(&latest, v1alpha2.AgentHarnessConditionTypeReady, st2, reason2, msg2)
-		latest.Status.ObservedGeneration = latest.Generation
-		if err := r.Client.Status().Update(ctx, &latest); err != nil {
-			return ctrl.Result{}, fmt.Errorf("update AgentHarness status after bootstrap: %w", err)
-		}
 	}
 	return ctrl.Result{}, nil
 }
@@ -218,30 +160,27 @@ func (r *SubstrateAgentHarnessController) reconcileDelete(ctx context.Context, a
 		return ctrl.Result{}, fmt.Errorf("substrate cleanup timed out for AgentHarness %s", ah.Name)
 	}
 
-	if ah.Status.BackendRef != nil {
-		actorID := ah.Status.BackendRef.ID
-		if actorID != "" {
-			backend := r.backendFor(ah)
-			actorDone := true
-			var err error
-			if backend != nil {
-				actorDone, err = backend.DeleteAgentHarness(ctx, sandboxbackend.Handle{ID: actorID})
+	// Delete every actor belonging to this harness: the legacy single actor (if
+	// any harness still has one recorded) plus all per-session actors spun from
+	// the generated ActorTemplate.
+	if r.SessionActorBackend != nil {
+		actorsDone, err := r.SessionActorBackend.DeleteAllAgentHarnessActors(ctx, ah)
+		if err != nil {
+			if r.Recorder != nil {
+				r.Recorder.Eventf(ah, nil, "Warning", "AgentHarnessDeleteFailed", "DeleteAgentHarnessActors", "%s", err.Error())
 			}
-			if err != nil {
-				if r.Recorder != nil {
-					r.Recorder.Eventf(ah, nil, "Warning", "AgentHarnessDeleteFailed", "DeleteAgentHarness", "%s", err.Error())
-				}
-				return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
-			}
-			if !actorDone {
-				setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeActorReady,
-					metav1.ConditionFalse, "ActorDeleting", fmt.Sprintf("waiting for substrate actor %q deletion", actorID))
-				if err := patchAgentHarnessStatus(ctx, r.Client, ah); err != nil {
-					return ctrl.Result{}, err
-				}
-				return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
-			}
+			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
 		}
+		if !actorsDone {
+			setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeActorReady,
+				metav1.ConditionFalse, "ActorDeleting", "waiting for substrate session actors deletion")
+			if err := patchAgentHarnessStatus(ctx, r.Client, ah); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
+		}
+	}
+	if ah.Status.BackendRef != nil {
 		ah.Status.BackendRef = nil
 		if err := patchAgentHarnessStatus(ctx, r.Client, ah); err != nil {
 			return ctrl.Result{}, err

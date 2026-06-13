@@ -1,0 +1,87 @@
+// Command acp-shim exposes a stdio ACP agent over a WebSocket endpoint.
+//
+// It is the in-sandbox half of kagent's ACP integration: Substrate's only
+// ingress is the network, so this shim listens for a single WebSocket client
+// (the kagent A2A↔ACP bridge), spawns the configured agent subprocess, and
+// pumps frames — one WebSocket text frame per newline-delimited JSON-RPC
+// line — without ever parsing the protocol. The child command after "--" is
+// the only per-backend configuration.
+//
+// Usage:
+//
+//	acp-shim --listen :9000 --token-file /var/run/acp/token -- hermes acp
+//	acp-shim --child-policy per-connection -- gemini --experimental-acp
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/kagent-dev/kagent/go/core/pkg/acpshim"
+)
+
+func main() {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+
+	cfg := &acpshim.Config{}
+	var policy string
+	flag.StringVar(&cfg.ListenAddr, "listen", ":9000", "address to serve the WebSocket endpoint on")
+	flag.StringVar(&cfg.TokenFile, "token-file", "", "path to bearer token file used to authenticate clients (empty disables auth)")
+	flag.StringVar(&cfg.ChildDir, "workdir", "", "working directory for the agent process")
+	flag.StringVar(&policy, "child-policy", string(acpshim.ChildPolicyLongLived), "child lifecycle policy: long-lived or per-connection")
+	flag.DurationVar(&cfg.GracePeriod, "grace", 5*time.Second, "SIGTERM-to-SIGKILL grace period when stopping the agent")
+	flag.DurationVar(&cfg.ReconnectGrace, "reconnect-grace", 0, "how long a long-lived agent survives after the client disconnects (0 = forever)")
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [flags] -- <agent command> [args...]\n\nFlags:\n", os.Args[0])
+		flag.PrintDefaults()
+	}
+	flag.Parse()
+
+	cfg.Policy = acpshim.ChildPolicy(policy)
+	cfg.ChildArgv = flag.Args()
+	// Env-var fallbacks so the agent command can be baked into an image
+	// without overriding the entrypoint.
+	if len(cfg.ChildArgv) == 0 {
+		if v := os.Getenv("ACP_SHIM_CHILD"); v != "" {
+			cfg.ChildArgv = []string{"/bin/sh", "-c", v}
+		}
+	}
+	if cfg.TokenFile == "" {
+		cfg.TokenFile = os.Getenv("ACP_SHIM_TOKEN_FILE")
+	}
+	// Substrate ActorTemplate containers support env (incl. secretKeyRef)
+	// but not volume mounts, so allow passing the token directly. A literal
+	// token wins over the token file (the base image bakes in a default
+	// ACP_SHIM_TOKEN_FILE that only exists when a Secret is mounted).
+	if cfg.Token == "" {
+		cfg.Token = os.Getenv("ACP_SHIM_TOKEN")
+	}
+
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("acp-shim: %v", err)
+	}
+
+	srv := acpshim.NewServer(cfg)
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		log.Printf("acp-shim: received %s, shutting down", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.GracePeriod+5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("acp-shim: shutdown error: %v", err)
+		}
+	}()
+
+	if err := srv.ListenAndServe(); err != nil {
+		log.Fatalf("acp-shim: %v", err)
+	}
+}

@@ -10,49 +10,23 @@ import (
 
 // GatewayBootstrapConfig describes the gateway section of openclaw.json for a harness runtime.
 type GatewayBootstrapConfig struct {
-	Port      int
-	Bind      string // loopback | lan
-	AuthMode  string // none | token
-	Token     string // required when AuthMode is token
-	ControlUI *ControlUIBootstrapConfig
+	Port     int
+	Bind     string // loopback | lan
+	AuthMode string // none | token
+	Token    string // required when AuthMode is token
 }
 
-// ControlUIBootstrapConfig maps to gateway.controlUi in openclaw.json.
-type ControlUIBootstrapConfig struct {
-	BasePath                     string
-	AllowedOrigins               []string
-	DangerouslyDisableDeviceAuth bool
-}
-
-// OpenshellGatewayBootstrap is the default gateway profile for OpenShell sandboxes.
-func OpenshellGatewayBootstrap(port int) GatewayBootstrapConfig {
-	return GatewayBootstrapConfig{Port: port, Bind: "loopback", AuthMode: "none"}
-}
-
-// SubstrateGatewayBootstrap is the gateway profile for Agent Substrate actors (port 80, token auth, proxied Control UI).
-func SubstrateGatewayBootstrap(token string, port int, controlUIBasePath string) GatewayBootstrapConfig {
+// SubstrateGatewayBootstrap is the gateway profile for Agent Substrate actors
+// (token auth, loopback-only). The gateway has no Control UI: kagent reaches
+// the actor solely through the acp-shim's /acp WebSocket, so the gateway is a
+// private in-sandbox detail the `openclaw acp` child connects to.
+func SubstrateGatewayBootstrap(token string, port int) GatewayBootstrapConfig {
 	return GatewayBootstrapConfig{
 		Port:     port,
 		Bind:     "lan",
 		AuthMode: "token",
 		Token:    strings.TrimSpace(token),
-		ControlUI: &ControlUIBootstrapConfig{
-			BasePath:                     normalizeControlUIBasePath(controlUIBasePath),
-			AllowedOrigins:               []string{"*"},
-			DangerouslyDisableDeviceAuth: true,
-		},
 	}
-}
-
-func normalizeControlUIBasePath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" || path == "/" {
-		return ""
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	return strings.TrimRight(path, "/")
 }
 
 // BuildGatewayOnlyBootstrapJSON returns a minimal openclaw.json with gateway settings only (no models/channels).
@@ -138,12 +112,14 @@ func buildGatewaySection(gw GatewayBootstrapConfig) gatewaySection {
 	}
 	if authMode == "token" {
 		section.Auth.Token = gw.Token
-	}
-	if gw.ControlUI != nil {
-		section.ControlUi = &controlUiSection{
-			BasePath:                     normalizeControlUIBasePath(gw.ControlUI.BasePath),
-			AllowedOrigins:               gw.ControlUI.AllowedOrigins,
-			DangerouslyDisableDeviceAuth: gw.ControlUI.DangerouslyDisableDeviceAuth,
+		// openclaw acp (the in-sandbox ACP bridge) authenticates to a
+		// token-auth gateway via gateway.remote.{url,token}. The URL must be
+		// in the config too: when --url is passed on the command line the CLI
+		// ignores remote.token (verified against OpenClaw 2026.5.27), so the
+		// in-sandbox client is launched without --url and resolves both here.
+		section.Remote = &gatewayRemote{
+			URL:   fmt.Sprintf("ws://127.0.0.1:%d", port),
+			Token: gw.Token,
 		}
 	}
 	return section

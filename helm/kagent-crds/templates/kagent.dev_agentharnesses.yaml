@@ -38,8 +38,8 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          AgentHarness is a generic remote execution environment provisioned by a backend
-          (e.g. OpenShell) and addressable by exec/SSH.
+          AgentHarness is a generic remote execution environment provisioned by a
+          backend (OpenClaw or Hermes) running on Agent Substrate.
         properties:
           apiVersion:
             description: |-
@@ -71,7 +71,6 @@ spec:
                 description: Backend selects the control plane to use. Required.
                 enum:
                 - openclaw
-                - nemoclaw
                 - hermes
                 type: string
               channels:
@@ -203,8 +202,8 @@ spec:
                               exclusive
                             rule: '!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))'
                         openclaw:
-                          description: OpenClaw configures OpenClaw/NemoClaw-specific
-                            Slack routing.
+                          description: OpenClaw configures OpenClaw-specific Slack
+                            routing.
                           properties:
                             allowlistChannels:
                               description: AllowlistChannels is required when channelAccess
@@ -492,8 +491,8 @@ spec:
               image:
                 description: |-
                   Image is the container image to run in the harness VM, if the backend
-                  supports per-resource images. Backends openclaw and nemoclaw pin the image
-                  to the NemoClaw sandbox base when this field is empty; backend hermes pins
+                  supports per-resource images. Backend openclaw pins the image
+                  to the OpenClaw sandbox base when this field is empty; backend hermes pins
                   to the Hermes sandbox base image when empty.
                 type: string
               modelConfigRef:
@@ -502,24 +501,11 @@ spec:
                   The controller registers the gateway provider and, after the harness is Ready,
                   writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
                 type: string
-              network:
-                description: |-
-                  Network controls outbound access from the harness. When unset,
-                  backend defaults apply.
-                properties:
-                  allowedDomains:
-                    description: AllowedDomains is a list of DNS names the harness
-                      may reach.
-                    items:
-                      type: string
-                    type: array
-                type: object
               runtime:
-                default: openshell
+                default: substrate
                 description: Runtime selects the harness provisioning stack. Defaults
-                  to openshell when unset.
+                  to substrate when unset.
                 enum:
-                - openshell
                 - substrate
                 type: string
               substrate:
@@ -528,6 +514,9 @@ spec:
                   gatewayToken:
                     description: |-
                       GatewayToken is the OpenClaw gateway Bearer token for this harness.
+                      Optional: when neither gatewayToken nor gatewayTokenSecretRef is set, the
+                      controller generates a random token and stores it in a Secret named
+                      "<harness-name>-gateway-token" (key "token"), which can be retrieved later.
                       Prefer gatewayTokenSecretRef for production secrets.
                     minLength: 1
                     type: string
@@ -574,15 +563,13 @@ spec:
                     - name
                     type: object
                   workloadImage:
-                    description: WorkloadImage overrides the default nemoclaw/openclaw
-                      sandbox image in the ActorTemplate.
+                    description: WorkloadImage overrides the default openclaw sandbox
+                      image in the ActorTemplate.
                     type: string
                 type: object
                 x-kubernetes-validations:
-                - message: Exactly one of gatewayToken or gatewayTokenSecretRef must
-                    be specified
-                  rule: (has(self.gatewayToken) && !has(self.gatewayTokenSecretRef))
-                    || (!has(self.gatewayToken) && has(self.gatewayTokenSecretRef))
+                - message: Specify at most one of gatewayToken or gatewayTokenSecretRef
+                  rule: '!(has(self.gatewayToken) && has(self.gatewayTokenSecretRef))'
             required:
             - backend
             type: object
@@ -590,8 +577,8 @@ spec:
             - message: slack backend-specific settings must match spec.backend
               rule: '!has(self.channels) || self.channels.all(c, c.type != ''slack''
                 || (has(c.slack) && ((self.backend == ''hermes'' && has(c.slack.hermes)
-                && !has(c.slack.openclaw)) || ((self.backend == ''openclaw'' || self.backend
-                == ''nemoclaw'') && has(c.slack.openclaw) && !has(c.slack.hermes)))))'
+                && !has(c.slack.openclaw)) || (self.backend == ''openclaw'' && has(c.slack.openclaw)
+                && !has(c.slack.hermes)))))'
             - message: spec.substrate may only be set when runtime is substrate
               rule: '!has(self.substrate) || self.runtime == ''substrate'''
             - message: spec.substrate is required when runtime is substrate
@@ -610,7 +597,6 @@ spec:
                       environment. Additional backends may be added in the future.
                     enum:
                     - openclaw
-                    - nemoclaw
                     - hermes
                     type: string
                   id:

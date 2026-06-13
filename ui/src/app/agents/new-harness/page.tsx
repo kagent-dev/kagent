@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
   defaultAgentHarnessFormSlice,
+  isSubstrateOnlyHarnessBackend,
   type AgentHarnessFormSlice,
 } from "@/lib/agentHarnessForm";
 import type { AgentHarnessCrBackend, ModelConfig } from "@/types";
@@ -24,13 +25,13 @@ import { AgentHarnessFields } from "@/components/agent-form/AgentHarnessFields";
 import type { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";
 import { PageHeader } from "@/components/layout/PageHeader";
+import HermesLogo from "@/components/hermes-logo";
+import OpenClawLogo from "@/components/openclaw-logo";
 
 const HARNESS_OPTIONS = [
-  { value: "nemoclaw-openclaw", label: "NemoClaw (OpenClaw)", backend: "openclaw" as const },
-  { value: "hermes", label: "Hermes", backend: "hermes" as const },
+  { value: "openclaw", label: "OpenClaw", backend: "openclaw" as const, Icon: OpenClawLogo },
+  { value: "hermes", label: "Hermes", backend: "hermes" as const, Icon: HermesLogo },
 ] as const;
-
-const HERMES_DEFAULT_IMAGE = "ghcr.io/nvidia/nemoclaw/hermes-sandbox-base:latest";
 
 function harnessBackendForType(
   harnessType: (typeof HARNESS_OPTIONS)[number]["value"],
@@ -82,10 +83,10 @@ function AgentHarnessPageContent() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [formDirty]);
 
-  const harnessFormWithBackend = (): AgentHarnessFormSlice => ({
+  const harnessFormWithBackend = useCallback((): AgentHarnessFormSlice => ({
     ...state.harnessForm,
     backend: harnessBackendForType(state.harnessType),
-  });
+  }), [state.harnessForm, state.harnessType]);
 
   const validateForm = () => {
     const formData: Partial<AgentFormData> = {
@@ -139,11 +140,17 @@ function AgentHarnessPageContent() {
           ...prev.errors,
           [fieldName]: valueForField,
         };
-        nextErrors.agentHarness = fieldErrors.agentHarness;
+        // Only refresh the harness-level error when the model field itself is
+        // being validated. Otherwise blurring an unrelated field (e.g. the agent
+        // name) would surface the "select a model config" harness error before
+        // the user has tried to create the harness.
+        if (fieldName === "model") {
+          nextErrors.agentHarness = fieldErrors.agentHarness;
+        }
         return { ...prev, errors: nextErrors };
       });
     },
-    [state.harnessForm, state.harnessType, validateAgentData],
+    [harnessFormWithBackend, validateAgentData],
   );
 
   const handleSaveAgent = async () => {
@@ -263,12 +270,13 @@ function AgentHarnessPageContent() {
                     onValueChange={(val) => {
                       const harnessType = val as FormState["harnessType"];
                       setState((prev) => {
+                        const backend = harnessBackendForType(harnessType);
                         const nextHarnessForm = {
                           ...prev.harnessForm,
-                          backend: harnessBackendForType(harnessType),
+                          backend,
                         };
-                        if (harnessType === "hermes" && !prev.harnessForm.image.trim()) {
-                          nextHarnessForm.image = HERMES_DEFAULT_IMAGE;
+                        if (isSubstrateOnlyHarnessBackend(backend)) {
+                          nextHarnessForm.runtime = "substrate";
                         }
                         return { ...prev, harnessType, harnessForm: nextHarnessForm };
                       });
@@ -281,7 +289,10 @@ function AgentHarnessPageContent() {
                     <SelectContent>
                       {HARNESS_OPTIONS.map((opt) => (
                         <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
+                          <span className="flex items-center gap-2">
+                            {opt.Icon ? <opt.Icon className="w-4 h-4" /> : null}
+                            {opt.label}
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
