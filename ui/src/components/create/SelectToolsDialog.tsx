@@ -1,16 +1,45 @@
 import { useState, useMemo, useRef, useLayoutEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Search, Filter, ChevronDown, ChevronRight, AlertCircle, PlusCircle, XCircle, FunctionSquare, LucideIcon } from "lucide-react";
+import {
+  Search,
+  Filter,
+  ChevronDown,
+  ChevronRight,
+  AlertCircle,
+  PlusCircle,
+  XCircle,
+  FunctionSquare,
+  LucideIcon,
+} from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import type { AgentResponse, Tool, ToolsResponse } from "@/types";
 import ProviderFilter from "./ProviderFilter";
 import Link from "next/link";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseCategory, getToolResponseIdentifier, getToolIdentifier, isAgentTool, isAgentResponse, isMcpTool, toolResponseToAgentTool, groupMcpToolsByServer, serverNamesMatch } from "@/lib/toolUtils";
+import {
+  getToolResponseDisplayName,
+  getToolResponseDescription,
+  getToolResponseCategory,
+  getToolResponseIdentifier,
+  getToolIdentifier,
+  isAgentTool,
+  isAgentResponse,
+  isMcpTool,
+  toolResponseToAgentTool,
+  groupMcpToolsByServer,
+  serverNamesMatch,
+} from "@/lib/toolUtils";
 import { toast } from "sonner";
 import KagentLogo from "../kagent-logo";
 import { k8sRefUtils } from "@/lib/k8sUtils";
@@ -29,10 +58,10 @@ interface SelectToolsDialogProps {
   currentAgentNamespace: string;
 }
 
-
-
 // Helper function to get display info for a tool or agent
-const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
+const getItemDisplayInfo = (
+  item: ToolsResponse | AgentResponse,
+): {
   displayName: string;
   description?: string;
   identifier: string;
@@ -41,18 +70,20 @@ const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
   iconColor: string;
   isAgent: boolean;
 } => {
-
   if (isAgentResponse(item)) {
     const agentResp = item as AgentResponse;
-    const displayName = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
+    const displayName = k8sRefUtils.toRef(
+      agentResp.agent.metadata.namespace || "",
+      agentResp.agent.metadata.name,
+    );
     return {
       displayName,
       description: agentResp.agent.spec.description,
       identifier: `agent-${displayName}`,
-      providerText: "Agent",
+      providerText: agentResp.agent.kind || "Agent",
       Icon: KagentLogo,
       iconColor: "text-green-500",
-      isAgent: true
+      isAgent: true,
     };
   } else {
     const tool = item as ToolsResponse;
@@ -63,19 +94,32 @@ const getItemDisplayInfo = (item: ToolsResponse | AgentResponse): {
       providerText: getToolResponseCategory(tool),
       Icon: FunctionSquare,
       iconColor: "text-blue-400",
-      isAgent: false
+      isAgent: false,
     };
   }
 };
 
-export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOpenChange, availableTools, selectedTools, onToolsSelected, availableAgents, loadingAgents, currentAgentNamespace }) => {
+export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({
+  open,
+  onOpenChange,
+  availableTools,
+  selectedTools,
+  onToolsSelected,
+  availableAgents,
+  loadingAgents,
+  currentAgentNamespace,
+}) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [localSelectedTools, setLocalSelectedTools] = useState<Tool[]>([]);
   const [categories, setCategories] = useState<Set<string>>(new Set());
-  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(
+    new Set(),
+  );
   const [showFilters, setShowFilters] = useState(false);
-  const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
-  
+  const [expandedCategories, setExpandedCategories] = useState<{
+    [key: string]: boolean;
+  }>({});
+
   // Track previous open state to detect when dialog just opened
   const wasOpenRef = useRef(open);
 
@@ -90,11 +134,11 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
       const uniqueCategories = new Set<string>();
       const categoryCollapseState: { [key: string]: boolean } = {};
-      
+
       availableTools.forEach((tool) => {
-          const category = getToolResponseCategory(tool);
-          uniqueCategories.add(category);
-          categoryCollapseState[category] = true;
+        const category = getToolResponseCategory(tool);
+        uniqueCategories.add(category);
+        categoryCollapseState[category] = true;
       });
 
       if (availableAgents.length > 0) {
@@ -112,7 +156,11 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
   const actualSelectedCount = useMemo(() => {
     return localSelectedTools.reduce((acc, tool) => {
-      if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
+      if (
+        tool.mcpServer &&
+        tool.mcpServer.toolNames &&
+        tool.mcpServer.toolNames.length > 0
+      ) {
         return acc + tool.mcpServer.toolNames.length;
       }
       return acc + 1;
@@ -134,31 +182,47 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       const toolDescription = getToolResponseDescription(tool).toLowerCase();
       const toolProvider = server.server_name?.toLowerCase() || "";
 
-      const matchesSearch = toolName.includes(searchLower) || toolDescription.includes(searchLower) || toolProvider.includes(searchLower);
+      const matchesSearch =
+        toolName.includes(searchLower) ||
+        toolDescription.includes(searchLower) ||
+        toolProvider.includes(searchLower);
 
       const toolCategory = getToolResponseCategory(tool);
-      const matchesCategory = selectedCategories.size === 0 || selectedCategories.has(toolCategory);
+      const matchesCategory =
+        selectedCategories.size === 0 || selectedCategories.has(toolCategory);
       return matchesSearch && matchesCategory;
     });
 
-    const agentCategorySelected = selectedCategories.size === 0 || selectedCategories.has("Agents");
-    const agents = agentCategorySelected ? availableAgents.filter(agentResp => {
-        const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name).toLowerCase();
-        const agentDesc = agentResp.agent.spec.description?.toLowerCase();
-        return agentRef.includes(searchLower) || (agentDesc && agentDesc.includes(searchLower));
-      })
-    : [];
+    const agentCategorySelected =
+      selectedCategories.size === 0 || selectedCategories.has("Agents");
+    const agents = agentCategorySelected
+      ? availableAgents.filter((agentResp) => {
+          const agentRef = k8sRefUtils
+            .toRef(
+              agentResp.agent.metadata.namespace || "",
+              agentResp.agent.metadata.name,
+            )
+            .toLowerCase();
+          const agentDesc = agentResp.agent.spec.description?.toLowerCase();
+          return (
+            agentRef.includes(searchLower) ||
+            (agentDesc && agentDesc.includes(searchLower))
+          );
+        })
+      : [];
 
     return { tools, agents };
   }, [availableTools, availableAgents, searchTerm, selectedCategories]);
 
   const groupedAvailableItems = useMemo(() => {
-    const groups: { [key: string]: Array< ToolsResponse | AgentResponse> } = {};
-    
+    const groups: { [key: string]: Array<ToolsResponse | AgentResponse> } = {};
+
     const sortedTools = [...filteredAvailableItems.tools].sort((a, b) => {
-      return getToolResponseDisplayName(a.tool).localeCompare(getToolResponseDisplayName(b.tool));
+      return getToolResponseDisplayName(a.tool).localeCompare(
+        getToolResponseDisplayName(b.tool),
+      );
     });
-    
+
     sortedTools.forEach(({ tool }) => {
       const category = getToolResponseCategory(tool);
       if (!groups[category]) {
@@ -169,15 +233,27 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
     if (filteredAvailableItems.agents.length > 0) {
       groups["Agents"] = filteredAvailableItems.agents.sort((a, b) => {
-        const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name)
-        const bRef = k8sRefUtils.toRef(b.agent.metadata.namespace || "", b.agent.metadata.name)
-        return aRef.localeCompare(bRef)
+        const aRef = k8sRefUtils.toRef(
+          a.agent.metadata.namespace || "",
+          a.agent.metadata.name,
+        );
+        const bRef = k8sRefUtils.toRef(
+          b.agent.metadata.namespace || "",
+          b.agent.metadata.name,
+        );
+        return aRef.localeCompare(bRef);
       });
     }
-    
-    return Object.entries(groups).sort(([catA], [catB]) => catA.localeCompare(catB))
-           .reduce((acc, [key, value]) => { acc[key] = value; return acc; }, {} as typeof groups);
-           
+
+    return Object.entries(groups)
+      .sort(([catA], [catB]) => catA.localeCompare(catB))
+      .reduce(
+        (acc, [key, value]) => {
+          acc[key] = value;
+          return acc;
+        },
+        {} as typeof groups,
+      );
   }, [filteredAvailableItems]);
 
   const isItemSelected = (item: ToolsResponse | AgentResponse): boolean => {
@@ -188,13 +264,13 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       // variables with the agent to which the tool is being added
       const itemNamespace = agentResp.agent.metadata.namespace || "";
       const itemName = agentResp.agent.metadata.name;
-      
-      return localSelectedTools.some(tool => {
+
+      return localSelectedTools.some((tool) => {
         if (!isAgentTool(tool)) return false;
-        
+
         const toolName = tool.agent?.name;
         const toolNamespace = tool.agent?.namespace;
-        
+
         // Match by name and namespace
         if (toolNamespace) {
           return toolNamespace === itemNamespace && toolName === itemName;
@@ -205,14 +281,17 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       });
     } else {
       const toolItem = item as ToolsResponse;
-      
-      return localSelectedTools.some(tool => {
+
+      return localSelectedTools.some((tool) => {
         if (!isMcpTool(tool)) return false;
         const mcpTool = tool as Tool;
-        
-        const serverMatch = serverNamesMatch(mcpTool.mcpServer?.name || "", toolItem.server_name);
+
+        const serverMatch = serverNamesMatch(
+          mcpTool.mcpServer?.name || "",
+          toolItem.server_name,
+        );
         const toolIdMatch = mcpTool.mcpServer?.toolNames?.includes(toolItem.id);
-        
+
         return serverMatch && toolIdMatch;
       });
     }
@@ -233,55 +312,65 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
       const agentResp = item as AgentResponse;
       const agentNamespace = agentResp.agent.metadata.namespace || "";
       const agentName = agentResp.agent.metadata.name;
-      
+
       toolToAdd = {
         type: "Agent",
         agent: {
           name: agentName,
           namespace: agentNamespace,
-          kind: "Agent",
+          kind: agentResp.agent.kind || "Agent",
           apiGroup: "kagent.dev",
-        }
+        },
       };
-      
-      setLocalSelectedTools(prev => [...prev, toolToAdd]);
+
+      setLocalSelectedTools((prev) => [...prev, toolToAdd]);
     } else {
       const tool = item as ToolsResponse;
-      
+
       const existingServerToolIndex = localSelectedTools.findIndex(
-        t => isMcpTool(t) && serverNamesMatch(t.mcpServer?.name || "", tool.server_name)
+        (t) =>
+          isMcpTool(t) &&
+          serverNamesMatch(t.mcpServer?.name || "", tool.server_name),
       );
 
       if (existingServerToolIndex >= 0) {
         const existingTool = localSelectedTools[existingServerToolIndex];
-        
+
         if (existingTool.mcpServer?.toolNames?.includes(tool.id)) {
           return;
         }
-        
+
         const updatedTool = {
           ...existingTool,
           mcpServer: {
             ...existingTool.mcpServer!,
-            toolNames: [...(existingTool.mcpServer!.toolNames || []), tool.id]
-          }
+            toolNames: [...(existingTool.mcpServer!.toolNames || []), tool.id],
+          },
         };
-        
-        setLocalSelectedTools(prev => 
-          prev.map((t, idx) => idx === existingServerToolIndex ? updatedTool : t)
+
+        setLocalSelectedTools((prev) =>
+          prev.map((t, idx) =>
+            idx === existingServerToolIndex ? updatedTool : t,
+          ),
         );
       } else {
         toolToAdd = toolResponseToAgentTool(tool, tool.server_name);
-        setLocalSelectedTools(prev => [...prev, toolToAdd]);
+        setLocalSelectedTools((prev) => [...prev, toolToAdd]);
       }
     }
   };
 
   const handleRemoveTool = (toolToRemove: Tool) => {
-    setLocalSelectedTools(prev => prev.filter(tool => tool !== toolToRemove));
+    setLocalSelectedTools((prev) =>
+      prev.filter((tool) => tool !== toolToRemove),
+    );
   };
 
-  const setRequireApprovalForMcpTool = (target: Tool, mcpToolName: string, requireApproval: boolean) => {
+  const setRequireApprovalForMcpTool = (
+    target: Tool,
+    mcpToolName: string,
+    requireApproval: boolean,
+  ) => {
     const targetId = getToolIdentifier(target);
     setLocalSelectedTools((prev) =>
       prev.map((t) => {
@@ -300,21 +389,23 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           ...t,
           mcpServer: {
             ...mcp,
-            ...(next.length > 0 ? { requireApproval: next } : { requireApproval: undefined }),
+            ...(next.length > 0
+              ? { requireApproval: next }
+              : { requireApproval: undefined }),
           },
         };
-      })
+      }),
     );
   };
 
   const handleSave = () => {
     const { groupedTools, errors } = groupMcpToolsByServer(localSelectedTools);
-    
+
     if (errors.length > 0) {
-      const errorList = errors.join('\n- ');
+      const errorList = errors.join("\n- ");
       toast.warning(`Tools skipped:\n- ${errorList}`);
     }
-    
+
     onToolsSelected(groupedTools);
     onOpenChange(false);
   };
@@ -348,9 +439,20 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
 
   const highlightMatch = (text: string, highlight: string) => {
     if (!highlight || !text) return text;
-    const parts = text.split(new RegExp(`(${highlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'));
+    const parts = text.split(
+      new RegExp(
+        `(${highlight.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&")})`,
+        "gi",
+      ),
+    );
     return parts.map((part, i) =>
-      part.toLowerCase() === highlight.toLowerCase() ? <mark key={i} className="bg-yellow-200 px-0 py-0 rounded">{part}</mark> : part
+      part.toLowerCase() === highlight.toLowerCase() ? (
+        <mark key={i} className="bg-yellow-200 px-0 py-0 rounded">
+          {part}
+        </mark>
+      ) : (
+        part
+      ),
     );
   };
 
@@ -360,8 +462,13 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
         <DialogHeader className="p-6 pb-4 border-b">
           <DialogTitle className="text-xl">Select Tools and Agents</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            You can use tools and agents to create your agent. The tools are grouped by category. You can select a tool by clicking on it. To add or manage tool servers, use{" "}
-            <Link href="/mcp" className="font-medium text-primary underline-offset-4 hover:underline">
+            You can use tools and agents to create your agent. The tools are
+            grouped by category. You can select a tool by clicking on it. To add
+            or manage tool servers, use{" "}
+            <Link
+              href="/mcp"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
               MCP and tools
             </Link>
             .
@@ -375,13 +482,23 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search tools..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 h-10" />
+                <Input
+                  placeholder="Search tools..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 pr-4 py-2 h-10"
+                />
               </div>
               {categories.size > 1 && (
-                 <Button variant="outline" size="icon" onClick={() => setShowFilters(!showFilters)} className={showFilters ? "bg-secondary" : ""}>
-                   <Filter className="h-4 w-4" />
-                 </Button>
-               )}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={showFilters ? "bg-secondary" : ""}
+                >
+                  <Filter className="h-4 w-4" />
+                </Button>
+              )}
             </div>
 
             {showFilters && categories.size > 1 && (
@@ -401,107 +518,207 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                   <p>Loading Agents...</p>
                 </div>
               )}
-              {!loadingAgents && Object.keys(groupedAvailableItems).length > 0 ? (
+              {!loadingAgents &&
+              Object.keys(groupedAvailableItems).length > 0 ? (
                 <div className="space-y-3">
-                  {Object.entries(groupedAvailableItems).map(([category, items]) => {
-                    const itemsSelectedInCategory = items.reduce((count, item) => {
-                      return count + (isItemSelected(item) ? 1 : 0);
-                    }, 0);
+                  {Object.entries(groupedAvailableItems).map(
+                    ([category, items]) => {
+                      const itemsSelectedInCategory = items.reduce(
+                        (count, item) => {
+                          return count + (isItemSelected(item) ? 1 : 0);
+                        },
+                        0,
+                      );
 
-                    return (
-                      <div key={category} className="border rounded-lg overflow-hidden bg-card">
+                      return (
                         <div
-                          className="flex items-center justify-between p-3 bg-secondary/50 cursor-pointer hover:bg-secondary/70"
-                          onClick={() => toggleCategory(category)}
+                          key={category}
+                          className="border rounded-lg overflow-hidden bg-card"
                         >
-                          <div className="flex items-center gap-2">
-                            {expandedCategories[category] ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                            <h3 className="font-semibold capitalize text-sm">{highlightMatch(category, searchTerm)}</h3>
-                            <Badge variant="secondary" className="font-mono text-xs">{items.length}</Badge>
+                          <div
+                            className="flex items-center justify-between p-3 bg-secondary/50 cursor-pointer hover:bg-secondary/70"
+                            onClick={() => toggleCategory(category)}
+                          >
+                            <div className="flex items-center gap-2">
+                              {expandedCategories[category] ? (
+                                <ChevronDown className="w-4 h-4" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4" />
+                              )}
+                              <h3 className="font-semibold capitalize text-sm">
+                                {highlightMatch(category, searchTerm)}
+                              </h3>
+                              <Badge
+                                variant="secondary"
+                                className="font-mono text-xs"
+                              >
+                                {items.length}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              {itemsSelectedInCategory > 0 && (
+                                <Badge variant="outline">
+                                  {itemsSelectedInCategory} selected
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            {itemsSelectedInCategory > 0 && (
-                               <Badge variant="outline">{itemsSelectedInCategory} selected</Badge>
-                            )}
-                          </div>
-                        </div>
 
-                        {expandedCategories[category] && (
-                          <div className="divide-y border-t">
-                            {items.map((item) => {
-                              const { displayName, description, identifier, providerText } = getItemDisplayInfo(item);
-                              const isSelected = isItemSelected(item);
-                              const isDisabled = !isSelected && isLimitReached;
+                          {expandedCategories[category] && (
+                            <div className="divide-y border-t">
+                              {items.map((item) => {
+                                const {
+                                  displayName,
+                                  description,
+                                  identifier,
+                                  providerText,
+                                } = getItemDisplayInfo(item);
+                                const isSelected = isItemSelected(item);
+                                const isDisabled =
+                                  !isSelected && isLimitReached;
 
-                              return (
-                                <div
-                                  key={identifier}
-                                  className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isDisabled ? 'opacity-50 cursor-not-allowed' : isSelected ? 'cursor-default' : 'cursor-pointer hover:bg-muted/50'}`}
-                                  onClick={() => !isDisabled && !isSelected && handleAddItem(item)}
-                                >
-                                  <div className="flex-1 overflow-hidden pr-2">
-                                    <p className="font-medium text-sm truncate overflow-hidden">{highlightMatch(displayName, searchTerm)}</p>
-                                    {description && <p className="text-xs text-muted-foreground">{highlightMatch(description, searchTerm)}</p>}
-                                    {providerText && <p className="text-xs text-muted-foreground/80 font-mono mt-1">{highlightMatch(providerText, searchTerm)}</p>}
-                                  </div>
-                                  {!isSelected && !isDisabled && (
-                                     <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 text-green-600 hover:text-green-700" >
-                                       <PlusCircle className="h-4 w-4"/>
-                                     </Button>
-                                   )}
-                                  {isSelected && (
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive/80" onClick={(e) => {
-                                      e.stopPropagation();
-                                      if ('agent' in item) {
-                                        const agentResp = item as AgentResponse;
-                                        const agentRef = k8sRefUtils.toRef(agentResp.agent.metadata.namespace || "", agentResp.agent.metadata.name);
-                                        const toolToRemove = localSelectedTools.find(tool => 
-                                          isAgentTool(tool) && (tool.agent?.name === agentRef || tool.agent?.name === agentResp.agent.metadata.name)
-                                        );
-                                        if (toolToRemove) handleRemoveTool(toolToRemove);
-                                      } else {
-                                        const tool = item as ToolsResponse;
-                                        const toolToRemove = localSelectedTools.find(t => {
-                                          if (!isMcpTool(t)) return false;
-                                          const mcpTool = t as Tool;
-                                          const serverMatch = serverNamesMatch(mcpTool.mcpServer?.name || "", tool.server_name);
-                                          const toolIdMatch = mcpTool.mcpServer?.toolNames?.includes(tool.id);
-                                          return serverMatch && toolIdMatch;
-                                        });
-                                        if (toolToRemove) {
-                                          const mcpTool = toolToRemove as Tool;
-                                          if (mcpTool.mcpServer?.toolNames?.length === 1) {
-                                            handleRemoveTool(toolToRemove);
+                                return (
+                                  <div
+                                    key={identifier}
+                                    className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isDisabled ? "opacity-50 cursor-not-allowed" : isSelected ? "cursor-default" : "cursor-pointer hover:bg-muted/50"}`}
+                                    onClick={() =>
+                                      !isDisabled &&
+                                      !isSelected &&
+                                      handleAddItem(item)
+                                    }
+                                  >
+                                    <div className="flex-1 overflow-hidden pr-2">
+                                      <p className="font-medium text-sm truncate overflow-hidden">
+                                        {highlightMatch(
+                                          displayName,
+                                          searchTerm,
+                                        )}
+                                      </p>
+                                      {description && (
+                                        <p className="text-xs text-muted-foreground">
+                                          {highlightMatch(
+                                            description,
+                                            searchTerm,
+                                          )}
+                                        </p>
+                                      )}
+                                      {providerText && (
+                                        <p className="text-xs text-muted-foreground/80 font-mono mt-1">
+                                          {highlightMatch(
+                                            providerText,
+                                            searchTerm,
+                                          )}
+                                        </p>
+                                      )}
+                                    </div>
+                                    {!isSelected && !isDisabled && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 opacity-0 group-hover:opacity-100 text-green-600 hover:text-green-700"
+                                      >
+                                        <PlusCircle className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                    {isSelected && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-destructive hover:text-destructive/80"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if ("agent" in item) {
+                                            const agentResp =
+                                              item as AgentResponse;
+                                            const agentRef = k8sRefUtils.toRef(
+                                              agentResp.agent.metadata
+                                                .namespace || "",
+                                              agentResp.agent.metadata.name,
+                                            );
+                                            const toolToRemove =
+                                              localSelectedTools.find(
+                                                (tool) =>
+                                                  isAgentTool(tool) &&
+                                                  (tool.agent?.name ===
+                                                    agentRef ||
+                                                    tool.agent?.name ===
+                                                      agentResp.agent.metadata
+                                                        .name),
+                                              );
+                                            if (toolToRemove)
+                                              handleRemoveTool(toolToRemove);
                                           } else {
-                                            const updatedTool = {
-                                              ...mcpTool,
-                                              mcpServer: {
-                                                ...mcpTool.mcpServer!,
-                                                toolNames: mcpTool.mcpServer!.toolNames!.filter(name => name !== tool.id)
+                                            const tool = item as ToolsResponse;
+                                            const toolToRemove =
+                                              localSelectedTools.find((t) => {
+                                                if (!isMcpTool(t)) return false;
+                                                const mcpTool = t as Tool;
+                                                const serverMatch =
+                                                  serverNamesMatch(
+                                                    mcpTool.mcpServer?.name ||
+                                                      "",
+                                                    tool.server_name,
+                                                  );
+                                                const toolIdMatch =
+                                                  mcpTool.mcpServer?.toolNames?.includes(
+                                                    tool.id,
+                                                  );
+                                                return (
+                                                  serverMatch && toolIdMatch
+                                                );
+                                              });
+                                            if (toolToRemove) {
+                                              const mcpTool =
+                                                toolToRemove as Tool;
+                                              if (
+                                                mcpTool.mcpServer?.toolNames
+                                                  ?.length === 1
+                                              ) {
+                                                handleRemoveTool(toolToRemove);
+                                              } else {
+                                                const updatedTool = {
+                                                  ...mcpTool,
+                                                  mcpServer: {
+                                                    ...mcpTool.mcpServer!,
+                                                    toolNames:
+                                                      mcpTool.mcpServer!.toolNames!.filter(
+                                                        (name) =>
+                                                          name !== tool.id,
+                                                      ),
+                                                  },
+                                                };
+                                                setLocalSelectedTools((prev) =>
+                                                  prev.map((t) =>
+                                                    t === toolToRemove
+                                                      ? updatedTool
+                                                      : t,
+                                                  ),
+                                                );
                                               }
-                                            };
-                                            setLocalSelectedTools(prev => prev.map(t => t === toolToRemove ? updatedTool : t));
+                                            }
                                           }
-                                        }
-                                      }
-                                    }}>
-                                       <XCircle className="h-4 w-4"/>
-                                     </Button>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                                        }}
+                                      >
+                                        <XCircle className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    },
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-[200px] text-center p-4 text-muted-foreground">
                   <Search className="h-10 w-10 mb-3 opacity-50" />
                   <p className="font-medium">No tools found</p>
-                  <p className="text-sm">Try adjusting your search or filters.</p>
+                  <p className="text-sm">
+                    Try adjusting your search or filters.
+                  </p>
                 </div>
               )}
             </ScrollArea>
@@ -510,8 +727,15 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
           {/* Right Panel: Selected Tools */}
           <div className="w-1/2 min-w-0 flex flex-col p-4 space-y-4">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-lg font-semibold">Selected ({actualSelectedCount}/{MAX_TOOLS_LIMIT})</h3>
-              <Button variant="ghost" size="sm" onClick={clearAllSelectedTools} disabled={actualSelectedCount === 0}>
+              <h3 className="text-lg font-semibold">
+                Selected ({actualSelectedCount}/{MAX_TOOLS_LIMIT})
+              </h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearAllSelectedTools}
+                disabled={actualSelectedCount === 0}
+              >
                 Clear All
               </Button>
             </div>
@@ -519,9 +743,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
             {isLimitReached && actualSelectedCount >= MAX_TOOLS_LIMIT && (
               <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2 text-amber-800 text-sm">
                 <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 flex-shrink-0" />
-                <div>
-                  Tool limit reached. Deselect a tool to add another.
-                </div>
+                <div>Tool limit reached. Deselect a tool to add another.</div>
               </div>
             )}
 
@@ -529,102 +751,146 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
               {localSelectedTools.length > 0 ? (
                 <div className="space-y-2 min-w-0 w-full max-w-full">
                   {localSelectedTools.flatMap((tool) => {
-                    if (tool.mcpServer && tool.mcpServer.toolNames && tool.mcpServer.toolNames.length > 0) {
-                      return tool.mcpServer.toolNames.map((toolName: string) => {
-                        const foundTool = availableTools.find(
-                          t => serverNamesMatch(t.server_name, tool.mcpServer?.name || "") && t.id === toolName
-                        );
-                        const specificDescription = foundTool?.description || "Description not available";
-                        
-                        // Show server name with namespace for consistency
-                        const serverName = tool.mcpServer?.name || "";
-                        const serverNamespace = tool.mcpServer?.namespace || currentAgentNamespace;
-                        const serverDisplayName = `${serverNamespace}/${serverName}`;
-                        const displayName = `${toolName} (${serverDisplayName})`;
-                        const approvalSet = new Set(tool.mcpServer?.requireApproval || []);
-                        const requiresApproval = approvalSet.has(toolName);
+                    if (
+                      tool.mcpServer &&
+                      tool.mcpServer.toolNames &&
+                      tool.mcpServer.toolNames.length > 0
+                    ) {
+                      return tool.mcpServer.toolNames.map(
+                        (toolName: string) => {
+                          const foundTool = availableTools.find(
+                            (t) =>
+                              serverNamesMatch(
+                                t.server_name,
+                                tool.mcpServer?.name || "",
+                              ) && t.id === toolName,
+                          );
+                          const specificDescription =
+                            foundTool?.description ||
+                            "Description not available";
 
-                        const approvalFieldId = `dialog-req-${getToolIdentifier(tool)}-${toolName}`.replace(
-                          /[^a-zA-Z0-9_-]/g,
-                          "_"
-                        );
+                          // Show server name with namespace for consistency
+                          const serverName = tool.mcpServer?.name || "";
+                          const serverNamespace =
+                            tool.mcpServer?.namespace || currentAgentNamespace;
+                          const serverDisplayName = `${serverNamespace}/${serverName}`;
+                          const displayName = `${toolName} (${serverDisplayName})`;
+                          const approvalSet = new Set(
+                            tool.mcpServer?.requireApproval || [],
+                          );
+                          const requiresApproval = approvalSet.has(toolName);
 
-                        return (
-                        <div
-                          key={`${tool.mcpServer?.name}-${toolName}`}
-                          className="flex w-full min-w-0 max-w-full flex-col gap-1.5 rounded-md border bg-muted/30 px-2.5 py-2"
-                        >
-                          <div className="flex min-w-0 items-start gap-2">
-                            <FunctionSquare className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium leading-tight" title={displayName}>
-                                <span className="line-clamp-2 break-words">{displayName}</span>
-                              </p>
-                              <p
-                                className="mt-0.5 text-xs leading-snug text-muted-foreground line-clamp-1 break-words"
-                                title={specificDescription}
-                              >
-                                {specificDescription}
-                              </p>
+                          const approvalFieldId =
+                            `dialog-req-${getToolIdentifier(tool)}-${toolName}`.replace(
+                              /[^a-zA-Z0-9_-]/g,
+                              "_",
+                            );
+
+                          return (
+                            <div
+                              key={`${tool.mcpServer?.name}-${toolName}`}
+                              className="flex w-full min-w-0 max-w-full flex-col gap-1.5 rounded-md border bg-muted/30 px-2.5 py-2"
+                            >
+                              <div className="flex min-w-0 items-start gap-2">
+                                <FunctionSquare className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
+                                <div className="min-w-0 flex-1">
+                                  <p
+                                    className="text-sm font-medium leading-tight"
+                                    title={displayName}
+                                  >
+                                    <span className="line-clamp-2 break-words">
+                                      {displayName}
+                                    </span>
+                                  </p>
+                                  <p
+                                    className="mt-0.5 text-xs leading-snug text-muted-foreground line-clamp-1 break-words"
+                                    title={specificDescription}
+                                  >
+                                    {specificDescription}
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 shrink-0 -mr-1 -mt-0.5"
+                                  onClick={() => {
+                                    const prevApproval =
+                                      tool.mcpServer?.requireApproval || [];
+                                    const newRequireApproval =
+                                      prevApproval.filter(
+                                        (n) => n !== toolName,
+                                      );
+                                    const updatedTool = {
+                                      ...tool,
+                                      mcpServer: {
+                                        ...tool.mcpServer!,
+                                        toolNames:
+                                          tool.mcpServer!.toolNames!.filter(
+                                            (name) => name !== toolName,
+                                          ),
+                                        ...(newRequireApproval.length > 0
+                                          ? {
+                                              requireApproval:
+                                                newRequireApproval,
+                                            }
+                                          : { requireApproval: undefined }),
+                                      },
+                                    };
+
+                                    if (
+                                      updatedTool.mcpServer.toolNames.length ===
+                                      0
+                                    ) {
+                                      handleRemoveTool(tool);
+                                    } else {
+                                      setLocalSelectedTools((prev) =>
+                                        prev.map((t) =>
+                                          t === tool ? updatedTool : t,
+                                        ),
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <XCircle className="h-4 w-4" />
+                                </Button>
+                              </div>
+                              <div className="flex min-w-0 items-center gap-2 border-t border-border/60 pt-1.5">
+                                <Switch
+                                  id={approvalFieldId}
+                                  checked={requiresApproval}
+                                  onCheckedChange={(checked) =>
+                                    setRequireApprovalForMcpTool(
+                                      tool,
+                                      toolName,
+                                      checked,
+                                    )
+                                  }
+                                />
+                                <Label
+                                  htmlFor={approvalFieldId}
+                                  className="min-w-0 cursor-pointer text-xs font-normal leading-snug"
+                                >
+                                  <span className="line-clamp-2 sm:line-clamp-1">
+                                    Require approval before this tool runs
+                                  </span>
+                                </Label>
+                              </div>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 shrink-0 -mr-1 -mt-0.5"
-                              onClick={() => {
-                                const prevApproval = tool.mcpServer?.requireApproval || [];
-                                const newRequireApproval = prevApproval.filter((n) => n !== toolName);
-                                const updatedTool = {
-                                  ...tool,
-                                  mcpServer: {
-                                    ...tool.mcpServer!,
-                                    toolNames: tool.mcpServer!.toolNames!.filter((name) => name !== toolName),
-                                    ...(newRequireApproval.length > 0
-                                      ? { requireApproval: newRequireApproval }
-                                      : { requireApproval: undefined }),
-                                  },
-                                };
-
-                                if (updatedTool.mcpServer.toolNames.length === 0) {
-                                  handleRemoveTool(tool);
-                                } else {
-                                  setLocalSelectedTools((prev) =>
-                                    prev.map((t) => (t === tool ? updatedTool : t))
-                                  );
-                                }
-                              }}
-                            >
-                              <XCircle className="h-4 w-4" />
-                            </Button>
-                          </div>
-                          <div className="flex min-w-0 items-center gap-2 border-t border-border/60 pt-1.5">
-                            <Switch
-                              id={approvalFieldId}
-                              checked={requiresApproval}
-                              onCheckedChange={(checked) =>
-                                setRequireApprovalForMcpTool(tool, toolName, checked)
-                              }
-                            />
-                            <Label
-                              htmlFor={approvalFieldId}
-                              className="min-w-0 cursor-pointer text-xs font-normal leading-snug"
-                            >
-                              <span className="line-clamp-2 sm:line-clamp-1">Require approval before this tool runs</span>
-                            </Label>
-                          </div>
-                        </div>
-                        );
-                      });
+                          );
+                        },
+                      );
                     } else {
                       const matchedAgent = isAgentTool(tool)
-                        ? availableAgents.find(a => {
+                        ? availableAgents.find((a) => {
                             const agentName = tool.agent?.name;
                             const agentNamespace = tool.agent?.namespace;
-                            
+
                             // Match by name and namespace (if namespace is specified)
                             if (agentNamespace) {
-                              return a.agent.metadata.namespace === agentNamespace && 
-                                     a.agent.metadata.name === agentName;
+                              return (
+                                a.agent.metadata.namespace === agentNamespace &&
+                                a.agent.metadata.name === agentName
+                              );
                             }
                             // If no namespace specified, match by name only
                             return a.agent.metadata.name === agentName;
@@ -632,19 +898,36 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                         : undefined;
 
                       const matchedTool = !isAgentTool(tool)
-                        ? availableTools.find(s => serverNamesMatch(s.server_name, tool.mcpServer?.name || ""))
+                        ? availableTools.find((s) =>
+                            serverNamesMatch(
+                              s.server_name,
+                              tool.mcpServer?.name || "",
+                            ),
+                          )
                         : undefined;
 
-                      const { displayName, description, Icon, iconColor } = getItemDisplayInfo(
-                        (matchedAgent as AgentResponse) || (matchedTool as ToolsResponse)
-                      );
-                      
-                      return [( 
-                        <div key={displayName} className="flex w-full min-w-0 max-w-full items-start gap-2 rounded-md border bg-muted/30 px-2.5 py-2">
-                          <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${iconColor}`} />
+                      const { displayName, description, Icon, iconColor } =
+                        getItemDisplayInfo(
+                          (matchedAgent as AgentResponse) ||
+                            (matchedTool as ToolsResponse),
+                        );
+
+                      return [
+                        <div
+                          key={displayName}
+                          className="flex w-full min-w-0 max-w-full items-start gap-2 rounded-md border bg-muted/30 px-2.5 py-2"
+                        >
+                          <Icon
+                            className={`mt-0.5 h-4 w-4 shrink-0 ${iconColor}`}
+                          />
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium leading-tight" title={displayName}>
-                              <span className="line-clamp-2 break-words">{displayName}</span>
+                            <p
+                              className="text-sm font-medium leading-tight"
+                              title={displayName}
+                            >
+                              <span className="line-clamp-2 break-words">
+                                {displayName}
+                              </span>
                             </p>
                             {description && (
                               <p
@@ -663,8 +946,8 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                           >
                             <XCircle className="h-4 w-4" />
                           </Button>
-                        </div>
-                      )];
+                        </div>,
+                      ];
                     }
                   })}
                 </div>
@@ -672,7 +955,9 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground">
                   <PlusCircle className="h-10 w-10 mb-3 opacity-50" />
                   <p className="font-medium">No tools selected</p>
-                  <p className="text-sm">Select tools or agents from the left panel.</p>
+                  <p className="text-sm">
+                    Select tools or agents from the left panel.
+                  </p>
                 </div>
               )}
             </ScrollArea>
@@ -686,8 +971,13 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({ open, onOp
               Select up to {MAX_TOOLS_LIMIT} tools for your agent.
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={handleCancel}>Cancel</Button>
-              <Button className="bg-violet-600 hover:bg-violet-700 text-white" onClick={handleSave}>
+              <Button variant="outline" onClick={handleCancel}>
+                Cancel
+              </Button>
+              <Button
+                className="bg-violet-600 hover:bg-violet-700 text-white"
+                onClick={handleSave}
+              >
                 Save Selection ({actualSelectedCount})
               </Button>
             </div>

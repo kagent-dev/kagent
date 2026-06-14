@@ -34,7 +34,7 @@ type tState struct {
 func (s *tState) with(agent v1alpha2.AgentObject) *tState {
 	visited := make([]string, len(s.visitedAgents), len(s.visitedAgents)+1)
 	copy(visited, s.visitedAgents)
-	visited = append(visited, utils.GetObjectRef(agent))
+	visited = append(visited, agentStateKey(agent))
 	return &tState{
 		depth:         s.depth + 1,
 		visitedAgents: visited,
@@ -43,6 +43,59 @@ func (s *tState) with(agent v1alpha2.AgentObject) *tState {
 
 func (t *tState) isVisited(agentName string) bool {
 	return slices.Contains(t.visitedAgents, agentName)
+}
+
+// agentObjectKind returns the Kubernetes kind backing an AgentObject.
+func agentObjectKind(agent v1alpha2.AgentObject) string {
+	switch agent.(type) {
+	case *v1alpha2.SandboxAgent:
+		return "SandboxAgent"
+	default:
+		return "Agent"
+	}
+}
+
+// agentStateKey is a kind-qualified identity used for cycle/self-reference checks.
+func agentStateKey(agent v1alpha2.AgentObject) string {
+	return agentObjectKind(agent) + "/" + utils.GetObjectRef(agent)
+}
+
+// getToolAgent resolves an Agent tool reference to its backing object, honoring
+// the reference Kind. An empty Kind defaults to Agent.
+func (a *adkApiTranslator) getToolAgent(
+	ctx context.Context,
+	ref *v1alpha2.TypedReference,
+	defaultNamespace string,
+) (v1alpha2.AgentObject, error) {
+	key := ref.NamespacedName(defaultNamespace)
+	fetchAgent := func(obj v1alpha2.AgentObject) (v1alpha2.AgentObject, error) {
+		return obj, a.kube.Get(ctx, key, obj)
+	}
+
+	switch ref.Kind {
+	case "", "Agent":
+		return fetchAgent(&v1alpha2.Agent{})
+	case "SandboxAgent":
+		return fetchAgent(&v1alpha2.SandboxAgent{})
+
+	default:
+		return nil, fmt.Errorf("unsupported agent tool kind %q for agent %s", ref.Kind, key)
+	}
+}
+
+// sandboxA2APathPrefix mirrors httpserver.APIPathA2ASandboxes (not imported to
+// avoid an import cycle). Sandbox agents have no stable Service, so A2A calls
+// to them are proxied through the controller.
+const sandboxA2APathPrefix = "/api/a2a-sandboxes"
+
+// toolAgentURL returns the A2A URL a parent agent should use to call a sub-agent.
+func toolAgentURL(agent v1alpha2.AgentObject) string {
+	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
+		return fmt.Sprintf("http://%s.%s:8083%s/%s/%s",
+			utils.GetControllerName(), utils.GetResourceNamespace(),
+			sandboxA2APathPrefix, agent.GetNamespace(), agent.GetName())
+	}
+	return fmt.Sprintf("http://%s.%s:8080", agent.GetName(), agent.GetNamespace())
 }
 
 func TranslateAgent(
@@ -118,7 +171,7 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 	agentRef := utils.GetObjectRef(agent)
 	spec := agent.GetAgentSpec()
 
-	if state.isVisited(agentRef) {
+	if state.isVisited(agentStateKey(agent)) {
 		return fmt.Errorf("cycle detected in agent tool chain: %s -> %s", agentRef, agentRef)
 	}
 
@@ -138,16 +191,13 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 				return fmt.Errorf("tool must have an agent reference")
 			}
 
-			agentRef := tool.Agent.NamespacedName(agent.GetNamespace())
-
-			if agentRef.Namespace == agent.GetNamespace() && agentRef.Name == agent.GetName() {
-				return fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
-			}
-
-			toolAgent := &v1alpha2.Agent{}
-			err := a.kube.Get(ctx, agentRef, toolAgent)
+			toolAgent, err := a.getToolAgent(ctx, tool.Agent, agent.GetNamespace())
 			if err != nil {
 				return err
+			}
+
+			if agentStateKey(toolAgent) == agentStateKey(agent) {
+				return fmt.Errorf("agent tool cannot be used to reference itself, %s", utils.GetObjectRef(toolAgent))
 			}
 
 			err = a.validateAgent(ctx, toolAgent, state.with(agent))
@@ -271,21 +321,19 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 				secretHashBytes = append(secretHashBytes, toolHashBytes...)
 			}
 		case tool.Agent != nil:
-			agentRef := tool.Agent.NamespacedName(agent.GetNamespace())
-
-			if agentRef.Namespace == agent.GetNamespace() && agentRef.Name == agent.GetName() {
-				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", agentRef)
-			}
-
-			toolAgent := &v1alpha2.Agent{}
-			err := a.kube.Get(ctx, agentRef, toolAgent)
+			toolAgent, err := a.getToolAgent(ctx, tool.Agent, agent.GetNamespace())
 			if err != nil {
 				return nil, nil, nil, err
 			}
 
-			switch toolAgent.Spec.Type {
+			if agentStateKey(toolAgent) == agentStateKey(agent) {
+				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", utils.GetObjectRef(toolAgent))
+			}
+
+			toolSpec := toolAgent.GetAgentSpec()
+			switch toolSpec.Type {
 			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
-				originalURL := fmt.Sprintf("http://%s.%s:8080", toolAgent.Name, toolAgent.Namespace)
+				originalURL := toolAgentURL(toolAgent)
 
 				targetURL := originalURL
 				if a.globalProxyURL != "" {
@@ -299,10 +347,10 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
 					Url:         targetURL,
 					Headers:     headers,
-					Description: toolAgent.Spec.Description,
+					Description: toolSpec.Description,
 				})
 			default:
-				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolAgent.Spec.Type)
+				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolSpec.Type)
 			}
 
 		default:
