@@ -178,10 +178,17 @@ func main() {
 		logger.Info("Memory service enabled", "appName", appName)
 	}
 
-	runnerConfig, subagentSessionIDs, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService)
+	runnerConfig, subagentSessionIDs, compactionCfg, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService)
 	if err != nil {
 		logger.Error(err, "Failed to create Google ADK Runner config")
 		os.Exit(1)
+	}
+	if compactionCfg != nil {
+		logger.Info("Compaction enabled",
+			"interval", compactionCfg.CompactionInterval,
+			"overlap", compactionCfg.OverlapSize,
+			"tokenThreshold", compactionCfg.TokenThreshold,
+		)
 	}
 
 	stream := agentConfig.GetStream()
@@ -192,6 +199,7 @@ func main() {
 		Stream:             stream,
 		AppName:            appName,
 		Logger:             logger,
+		CompactionConfig:   compactionCfg,
 	})
 
 	// Build the agent card.

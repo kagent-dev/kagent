@@ -451,3 +451,5 @@ require (
 tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 
 replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.6
+
+replace google.golang.org/adk => github.com/QuentinBisson/adk-go v0.0.0-20260615220632-534ff82e2630

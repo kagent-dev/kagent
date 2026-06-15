@@ -63,6 +63,17 @@ func (s *localSession) appendEvent(event *adksession.Event) error {
 	return nil
 }
 
+// ReplaceEvents atomically replaces the in-memory event slice.
+// Used by the compactor when it needs to trim the in-memory cache after
+// persisting a compaction marker via AppendEvent.
+func (s *localSession) ReplaceEvents(newEvents []*adksession.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	snap := make([]*adksession.Event, len(newEvents))
+	copy(snap, newEvents)
+	s.events = snap
+}
+
 // events implements adksession.Events.
 type events []*adksession.Event
 
