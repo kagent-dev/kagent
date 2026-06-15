@@ -175,13 +175,13 @@ def create_ssl_context(
 
         >>> # Use only custom CA certificate
         >>> ctx = create_ssl_context(
-        ...     disable_verify=False, ca_cert_path="/etc/ssl/certs/custom/ca.crt", disable_system_cas=True
+        ...     disable_verify=False, ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt", disable_system_cas=True
         ... )
         >>> assert isinstance(ctx, ssl.SSLContext)
 
         >>> # Use system CAs plus custom CA
         >>> ctx = create_ssl_context(
-        ...     disable_verify=False, ca_cert_path="/etc/ssl/certs/custom/ca.crt", disable_system_cas=False
+        ...     disable_verify=False, ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt", disable_system_cas=False
         ... )
         >>> assert isinstance(ctx, ssl.SSLContext)
     """

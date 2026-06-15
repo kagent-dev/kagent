@@ -11,10 +11,11 @@ from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAU
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
+from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
@@ -141,18 +142,93 @@ def _convert_ollama_options(options: dict[str, str] | None) -> dict[str, Any]:
     return converted
 
 
-class HttpMcpServerConfig(BaseModel):
+def _build_tls_httpx_client_factory(
+    *,
+    disable_verify: bool,
+    ca_cert_path: str | None,
+    disable_system_cas: bool,
+) -> Callable[..., httpx.AsyncClient]:
+    ssl_ctx = create_ssl_context(
+        disable_verify=disable_verify,
+        ca_cert_path=ca_cert_path,
+        disable_system_cas=disable_system_cas,
+    )
+
+    def _factory(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        kwargs: dict[str, Any] = {
+            "follow_redirects": True,
+            "verify": ssl_ctx,
+        }
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        else:
+            kwargs["timeout"] = httpx.Timeout(30, read=300)
+        if headers is not None:
+            kwargs["headers"] = headers
+        if auth is not None:
+            kwargs["auth"] = auth
+        return httpx.AsyncClient(**kwargs)
+
+    return _factory
+
+
+class _McpTlsMixin(BaseModel):
+    tls_insecure_skip_verify: bool | None = None
+    tls_ca_cert_path: str | None = None
+    tls_disable_system_cas: bool | None = None
+    tools: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_tls_from_params(cls, values: Any) -> Any:
+        if isinstance(values, dict) and isinstance(values.get("params"), dict):
+            params = values["params"]
+            for key in ("tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas"):
+                if key in params and key not in values:
+                    values[key] = params[key]
+        return values
+
+    @field_validator("tools", mode="before")
+    @classmethod
+    def _coerce_tools(cls, v: object) -> list:
+        return v or []
+
+    def _apply_tls_to_params(self, params: Any) -> None:
+        if (
+            self.tls_insecure_skip_verify is None
+            and self.tls_ca_cert_path is None
+            and self.tls_disable_system_cas is None
+        ):
+            return
+        factory = _build_tls_httpx_client_factory(
+            disable_verify=self.tls_insecure_skip_verify or False,
+            ca_cert_path=self.tls_ca_cert_path,
+            disable_system_cas=self.tls_disable_system_cas or False,
+        )
+        if hasattr(params, "httpx_client_factory"):
+            params.httpx_client_factory = factory
+        else:
+            logger.warning(
+                "TLS configuration ignored on %s: google-adk does not expose "
+                "httpx_client_factory on this params type — upgrade to >= 1.28.1.",
+                type(params).__name__,
+            )
+
+
+class HttpMcpServerConfig(_McpTlsMixin):
     params: StreamableHTTPConnectionParams
-    tools: list[str] = Field(default_factory=list)
-    allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
-    require_approval: list[str] | None = None  # Tools requiring human approval before execution
+    allowed_headers: list[str] | None = None
+    require_approval: list[str] | None = None
 
 
-class SseMcpServerConfig(BaseModel):
+class SseMcpServerConfig(_McpTlsMixin):
     params: SseConnectionParams
-    tools: list[str] = Field(default_factory=list)
-    allowed_headers: list[str] | None = None  # Headers to forward from A2A request to MCP calls
-    require_approval: list[str] | None = None  # Tools requiring human approval before execution
+    allowed_headers: list[str] | None = None
+    require_approval: list[str] | None = None
 
 
 class RemoteAgentConfig(BaseModel):
@@ -240,6 +316,16 @@ class Bedrock(BaseLLM):
     # additionalModelRequestFields in the Converse API. Use this for provider-specific
     # options outside the standard InferenceConfiguration block.
     additional_model_request_fields: dict | None = None
+    # prompt_caching enables Bedrock prompt caching: a CachePoint marker is
+    # appended to the end of the Converse request's system content array and
+    # toolConfig.tools array. Bedrock caches the prefix across requests in the
+    # same region; cached portion is billed at a reduced rate on hit.
+    prompt_caching: bool = False
+    # cache_ttl selects the cache retention window when prompt_caching is on:
+    # "5m" (default) for Bedrock's standard 5-minute cache, or "1h" for
+    # extended-TTL caching. "1h" is supported on fewer models and billed at a
+    # higher cache-write rate, so it is not strictly better than "5m".
+    cache_ttl: Literal["5m", "1h"] | None = None
     type: Literal["bedrock"]
 
 
@@ -317,6 +403,10 @@ class AgentConfig(BaseModel):
             sts_header_provider = sts_integration.header_provider
         if self.http_tools:
             for http_tool in self.http_tools:  # add http tools
+                # Install a TLS-aware httpx_client_factory on the params
+                # before constructing the toolset, so every MCP session
+                # the session manager opens trusts the configured CA.
+                http_tool._apply_tls_to_params(http_tool.params)
                 # Create header provider combining STS and allowed headers for this tool
                 tool_header_provider = create_header_provider(
                     allowed_headers=http_tool.allowed_headers,
@@ -333,6 +423,7 @@ class AgentConfig(BaseModel):
                     tools_requiring_approval.update(http_tool.require_approval)
         if self.sse_tools:
             for sse_tool in self.sse_tools:  # add sse tools
+                sse_tool._apply_tls_to_params(sse_tool.params)
                 # Create header provider combining STS and allowed headers for this tool
                 tool_header_provider = create_header_provider(
                     allowed_headers=sse_tool.allowed_headers,
@@ -607,6 +698,8 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             extra_headers=extra_headers,
             additional_model_request_fields=model_config.additional_model_request_fields,
+            prompt_caching=model_config.prompt_caching,
+            cache_ttl=model_config.cache_ttl,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "sap_ai_core":
@@ -631,6 +724,23 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     raise ValueError(f"Invalid model type: {model_config.type}")
 
 
+_KAGENT_TOOL_NAME_WARNING = (
+    "\n\nIMPORTANT: When referencing any tools or agents that were used,"
+    " you MUST preserve their exact registered names including any"
+    " namespace prefixes (for example: 'kagent__default__agent_name')."
+    " Never shorten, abbreviate, or rephrase tool or agent names."
+)
+
+_KAGENT_COMPACTION_PROMPT = (
+    "The following is a conversation history between a user and an AI"
+    " agent. Please summarize the conversation, focusing on key"
+    " information and decisions made, as well as any unresolved"
+    " questions or tasks. The summary should be concise and capture the"
+    " essence of the interaction.\n\n"
+    "{conversation_history}"
+) + _KAGENT_TOOL_NAME_WARNING
+
+
 def build_adk_context_configs(
     context_config: ContextConfig,
 ) -> tuple:
@@ -652,7 +762,8 @@ def build_adk_context_configs(
 
             summarizer = LlmEventSummarizer(
                 llm=_create_llm_from_model_config(comp.summarizer_model),
-                prompt_template=comp.prompt_template,
+                prompt_template=(comp.prompt_template if comp.prompt_template else _KAGENT_COMPACTION_PROMPT)
+                + (str() if not comp.prompt_template else _KAGENT_TOOL_NAME_WARNING),
             )
 
         events_compaction_config = EventsCompactionConfig(

@@ -61,6 +61,24 @@ _SOURCE_SUBAGENT = "agent"
 _HEADERS_STATE_KEY = "headers"
 _EXTRA_HEADERS_CONTEXT_KEY = "_a2a_extra_headers"
 
+# Conversation-lineage headers propagated on outbound A2A calls so a remote
+# agent can correlate this turn with the originating chat conversation —
+# useful when downstream code keys per-conversation state (sessions, sandbox
+# pods, cache entries) on a stable identifier across A2A hops.
+#
+# `x-kagent-parent-context-id` is the immediate caller's A2A context_id
+# (the session id of the agent that ran this tool). It changes with every
+# hop in a chain of A2A calls.
+#
+# `x-kagent-root-context-id` is the top-of-chain context_id — the agent at
+# the start of the chain (typically the user-facing chat agent). It stays
+# stable across every hop and across every turn of the same conversation,
+# so downstream agents can use it to key state that should outlive a single
+# A2A call (e.g. claim a per-conversation worker pod that survives between
+# turns).
+PARENT_CONTEXT_ID_HEADER = "x-kagent-parent-context-id"
+ROOT_CONTEXT_ID_HEADER = "x-kagent-root-context-id"
+
 
 class _SubagentInterceptor(ClientCallInterceptor):
     """
@@ -217,11 +235,63 @@ class KAgentRemoteA2ATool(BaseTool):
 
     def _build_call_context(self, tool_context: ToolContext) -> ClientCallContext:
         state: dict[str, Any] = {_USER_ID_CONTEXT_KEY: tool_context.session.user_id}
+
+        # Derive conversation lineage so the remote agent can correlate this
+        # turn with the originating chat conversation. See the header constant
+        # docstrings at the top of this module for the parent/root semantics.
+        lineage_headers = self._build_lineage_headers(tool_context)
+
         if self._header_provider:
             extra_headers = self._header_provider(tool_context)
             if extra_headers:
-                state[_EXTRA_HEADERS_CONTEXT_KEY] = extra_headers
+                # Merge caller-supplied headers on top of lineage so a custom
+                # provider can override the defaults if it really wants to,
+                # but the typical case (no custom provider) just gets lineage.
+                lineage_headers.update(extra_headers)
+
+        if lineage_headers:
+            state[_EXTRA_HEADERS_CONTEXT_KEY] = lineage_headers
         return ClientCallContext(state=state)
+
+    def _build_lineage_headers(self, tool_context: ToolContext) -> dict[str, str]:
+        """Compute the parent/root context_id headers for an outbound A2A call.
+
+        - ``x-kagent-parent-context-id`` is set to this agent's own current
+          session id (the immediate caller of the remote agent).
+        - ``x-kagent-root-context-id`` is forwarded unchanged when we were
+          ourselves called by an upstream agent that set it. If no upstream
+          root header is present we are the top of the chain, so our own
+          session id becomes the root.
+
+        Returns an empty dict when no session id can be resolved (e.g. tests
+        that pass a stub tool_context); the outbound request then matches
+        existing behavior.
+        """
+        parent_context_id: Optional[str] = None
+        inbound_headers: dict[str, Any] = {}
+
+        # ToolContext exposes `.session` (the ADK session for the current
+        # invocation). The session id IS the A2A context_id for kagent agents,
+        # per the request_converter that maps `request.context_id` to
+        # `session_id` in kagent.adk.converters.request_converter.
+        session = getattr(tool_context, "session", None)
+        if session is not None:
+            parent_context_id = getattr(session, "id", None)
+            state = getattr(session, "state", None)
+            if isinstance(state, dict):
+                hdrs = state.get(_HEADERS_STATE_KEY)
+                if isinstance(hdrs, dict):
+                    inbound_headers = hdrs
+
+        if not parent_context_id:
+            return {}
+
+        root_context_id = inbound_headers.get(ROOT_CONTEXT_ID_HEADER) or parent_context_id
+
+        return {
+            PARENT_CONTEXT_ID_HEADER: str(parent_context_id),
+            ROOT_CONTEXT_ID_HEADER: str(root_context_id),
+        }
 
     async def run_async(self, *, args: dict[str, Any], tool_context: ToolContext) -> Any:
         """Execute the remote agent tool.

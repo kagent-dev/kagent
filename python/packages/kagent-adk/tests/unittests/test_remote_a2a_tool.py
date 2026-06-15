@@ -1,6 +1,6 @@
 """Tests for KAgentRemoteA2ATool."""
 
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -37,10 +37,17 @@ _DEFAULT_USER_ID = "admin@kagent.dev"
 
 
 class _MockSession:
-    """Minimal session mock providing user_id."""
+    """Minimal session mock providing user_id, id, and state."""
 
-    def __init__(self, user_id: str = _DEFAULT_USER_ID):
+    def __init__(
+        self,
+        user_id: str = _DEFAULT_USER_ID,
+        session_id: str | None = None,
+        state: dict[str, Any] | None = None,
+    ):
         self.user_id = user_id
+        self.id = session_id
+        self.state = state if state is not None else {}
 
 
 class MockToolContext:
@@ -50,11 +57,13 @@ class MockToolContext:
         self,
         tool_confirmation: ToolConfirmation | None = None,
         user_id: str = _DEFAULT_USER_ID,
+        session_id: str | None = None,
+        session_state: dict[str, Any] | None = None,
     ):
         self.state: dict[str, Any] = {}
         self.function_call_id = "outer_fc_1"
         self.tool_confirmation = tool_confirmation
-        self.session = _MockSession(user_id)
+        self.session = _MockSession(user_id, session_id=session_id, state=session_state)
         self._confirmations: dict[str, ToolConfirmation] = {}
 
     def request_confirmation(self, *, hint: str = "", payload: dict | None = None) -> None:
@@ -109,12 +118,17 @@ async def _async_yield(*items) -> AsyncIterator:
         yield item
 
 
-def _make_tool(*, httpx_client: httpx.AsyncClient | None = None) -> KAgentRemoteA2ATool:
+def _make_tool(
+    *,
+    httpx_client: httpx.AsyncClient | None = None,
+    header_provider: Callable[[Any], dict[str, str]] | None = None,
+) -> KAgentRemoteA2ATool:
     return KAgentRemoteA2ATool(
         name="k8s_agent",
         description="K8s subagent",
         agent_card_url="http://k8s-agent/.well-known/agent.json",
         httpx_client=httpx_client,
+        header_provider=header_provider,
     )
 
 
@@ -487,3 +501,130 @@ class TestToolsetLifecycle:
         assert isinstance(tools[0], KAgentRemoteA2ATool)
         assert tools[0].name == "my_agent"
         await mock_client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Conversation lineage header tests
+# ---------------------------------------------------------------------------
+
+
+class TestLineageHeaderPropagation:
+    """Tests for the parent/root context_id headers built by
+    ``KAgentRemoteA2ATool._build_call_context``.
+
+    The lineage headers let a remote A2A peer correlate this turn with the
+    originating chat conversation. ``x-kagent-parent-context-id`` is always
+    the immediate caller's session id; ``x-kagent-root-context-id`` is
+    forwarded unchanged from the upstream caller when present, or stamped
+    with the immediate caller's own id when this agent is the root of the
+    chain.
+    """
+
+    def _build_state(self, tool: KAgentRemoteA2ATool, ctx: MockToolContext) -> dict[str, Any]:
+        return tool._build_call_context(ctx).state
+
+    def test_root_agent_stamps_own_id_as_root_and_parent(self):
+        """An agent at the top of the chain (no inbound lineage headers) sets
+        both parent and root to its own session id."""
+        tool = _make_tool()
+        ctx = MockToolContext(session_id="chat-1", session_state={"headers": {}})
+
+        state = self._build_state(tool, ctx)
+        extras = state.get("_a2a_extra_headers", {})
+
+        assert extras.get("x-kagent-parent-context-id") == "chat-1"
+        assert extras.get("x-kagent-root-context-id") == "chat-1"
+
+    def test_mid_chain_forwards_root_and_overrides_parent(self):
+        """An agent in the middle of an A2A chain forwards the root header
+        unchanged from the inbound request and replaces parent with its own
+        session id."""
+        tool = _make_tool()
+        ctx = MockToolContext(
+            session_id="router-2",
+            session_state={
+                "headers": {
+                    "x-kagent-parent-context-id": "chat-1",
+                    "x-kagent-root-context-id": "chat-1",
+                }
+            },
+        )
+
+        state = self._build_state(tool, ctx)
+        extras = state.get("_a2a_extra_headers", {})
+
+        assert extras.get("x-kagent-parent-context-id") == "router-2"
+        assert extras.get("x-kagent-root-context-id") == "chat-1"
+
+    def test_inbound_parent_only_does_not_seed_root(self):
+        """An inbound parent header alone is not used to derive root: both
+        lineage headers are introduced together, so a request carrying only a
+        parent header is not a real upstream root. Root falls back to our own
+        session id instead."""
+        tool = _make_tool()
+        ctx = MockToolContext(
+            session_id="router-2",
+            session_state={"headers": {"x-kagent-parent-context-id": "ignored-1"}},
+        )
+
+        state = self._build_state(tool, ctx)
+        extras = state.get("_a2a_extra_headers", {})
+
+        assert extras.get("x-kagent-parent-context-id") == "router-2"
+        assert extras.get("x-kagent-root-context-id") == "router-2"
+
+    def test_no_session_id_emits_no_lineage_headers(self):
+        """When the caller cannot resolve a session id (e.g. a stub
+        ToolContext), the outbound request gets no lineage headers — matches
+        pre-feature behavior so this change is non-breaking for callers that
+        don't yet plumb session ids."""
+        tool = _make_tool()
+        ctx = MockToolContext(session_id=None, session_state={"headers": {}})
+
+        state = self._build_state(tool, ctx)
+        extras = state.get("_a2a_extra_headers")
+
+        assert extras is None or (
+            "x-kagent-parent-context-id" not in extras and "x-kagent-root-context-id" not in extras
+        )
+
+    def test_header_provider_overrides_lineage(self):
+        """A constructor-supplied header_provider can override lineage
+        headers — escape hatch for custom propagation logic."""
+        tool = _make_tool(header_provider=lambda _ctx: {"x-kagent-root-context-id": "forced"})
+        ctx = MockToolContext(session_id="router-2", session_state={"headers": {}})
+
+        state = self._build_state(tool, ctx)
+        extras = state.get("_a2a_extra_headers", {})
+
+        assert extras.get("x-kagent-parent-context-id") == "router-2"
+        assert extras.get("x-kagent-root-context-id") == "forced"
+
+    async def test_lineage_headers_reach_outbound_http(self):
+        """End-to-end: lineage headers built by _build_call_context flow
+        through _SubagentInterceptor onto the outbound HTTP request."""
+        from a2a.client.middleware import ClientCallContext
+
+        tool = _make_tool()
+        ctx = MockToolContext(
+            session_id="router-2",
+            session_state={
+                "headers": {
+                    "x-kagent-root-context-id": "chat-1",
+                }
+            },
+        )
+        call_ctx = tool._build_call_context(ctx)
+
+        interceptor = _SubagentInterceptor()
+        _, http_kwargs = await interceptor.intercept(
+            method_name="message/send",
+            request_payload={},
+            http_kwargs={},
+            agent_card=None,
+            context=ClientCallContext(state=call_ctx.state),
+        )
+        headers = http_kwargs.get("headers", {})
+
+        assert headers.get("x-kagent-parent-context-id") == "router-2"
+        assert headers.get("x-kagent-root-context-id") == "chat-1"

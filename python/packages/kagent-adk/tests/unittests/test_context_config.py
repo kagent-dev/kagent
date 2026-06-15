@@ -24,6 +24,14 @@ def _make_agent_config_json(**context_kwargs) -> str:
     return json.dumps(config)
 
 
+def _get_prompt_template(summarizer):
+    """Use public attribute if available, fall back to private (resilient across google-adk versions)."""
+    pub = getattr(summarizer, "prompt_template", None)
+    if pub is not None:
+        return pub
+    return getattr(summarizer, "_prompt_template", None)
+
+
 class TestContextConfigParsing:
     def test_no_context_config(self):
         config = AgentConfig.model_validate_json(_make_agent_config_json())
@@ -159,3 +167,52 @@ class TestBuildAdkContextConfigs:
         events_cfg, cache_cfg = build_adk_context_configs(config)
         assert events_cfg is None
         assert cache_cfg is None
+
+    def test_summarizer_uses_kagent_default_prompt_when_none_provided(self):
+        """When no prompt_template is given, the kagent default that preserves
+        tool names should be used instead of the ADK default."""
+        from kagent.adk.types import _KAGENT_COMPACTION_PROMPT
+
+        config = ContextConfig(
+            compaction=ContextCompressionSettings(
+                compaction_interval=5,
+                overlap_size=2,
+                summarizer_model=OpenAI(type="openai", model="gpt-4o-mini"),
+            )
+        )
+        events_cfg, _ = build_adk_context_configs(config)
+        assert events_cfg is not None
+        assert events_cfg.summarizer is not None
+        assert _get_prompt_template(events_cfg.summarizer) == _KAGENT_COMPACTION_PROMPT
+        assert "{conversation_history}" in _KAGENT_COMPACTION_PROMPT
+
+    def test_summarizer_respects_custom_prompt_template(self):
+        """A user-supplied prompt_template should have tool name warning appended."""
+        from kagent.adk.types import _KAGENT_TOOL_NAME_WARNING
+
+        custom = "My custom prompt: {conversation_history}"
+        config = ContextConfig(
+            compaction=ContextCompressionSettings(
+                compaction_interval=5,
+                overlap_size=2,
+                summarizer_model=OpenAI(type="openai", model="gpt-4o-mini"),
+                prompt_template=custom,
+            )
+        )
+        events_cfg, _ = build_adk_context_configs(config)
+        assert _get_prompt_template(events_cfg.summarizer) == custom + _KAGENT_TOOL_NAME_WARNING
+
+    def test_summarizer_preserves_empty_string_prompt_template(self):
+        """An empty string prompt_template should fall back to the kagent default."""
+        from kagent.adk.types import _KAGENT_COMPACTION_PROMPT
+
+        config = ContextConfig(
+            compaction=ContextCompressionSettings(
+                compaction_interval=5,
+                overlap_size=2,
+                summarizer_model=OpenAI(type="openai", model="gpt-4o-mini"),
+                prompt_template="",
+            )
+        )
+        events_cfg, _ = build_adk_context_configs(config)
+        assert _get_prompt_template(events_cfg.summarizer) == _KAGENT_COMPACTION_PROMPT

@@ -304,6 +304,8 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Model:                        modelName,
 			Region:                       region,
 			AdditionalModelRequestFields: m.AdditionalModelRequestFields,
+			PromptCaching:                m.PromptCaching,
+			CacheTTL:                     m.CacheTTL,
 		}
 		return models.NewBedrockModelWithLogger(ctx, cfg, log)
 

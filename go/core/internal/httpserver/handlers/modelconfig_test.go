@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -724,6 +725,128 @@ func TestModelConfigHandler(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, corev1.SecretTypeTLS, unchangedSecret.Type)
 			assert.Equal(t, "original", string(unchangedSecret.Data["credentials.json"]))
+
+			// Companion-secret failure must leave the ModelConfig Spec
+			// untouched. Companion writes run before the Spec Update so
+			// a partial failure can't leave the operator with a Spec
+			// referencing secrets that weren't written.
+			unchangedConfig := &v1alpha2.ModelConfig{}
+			err = kubeClient.Get(context.Background(), ctrl_client.ObjectKey{Namespace: "default", Name: "test-config"}, unchangedConfig)
+			require.NoError(t, err)
+			assert.Equal(t, "gpt-3.5-turbo", unchangedConfig.Spec.Model)
+		})
+
+		t.Run("SweepDeletesOwnedSecretNoLongerReferenced", func(t *testing.T) {
+			handler, kubeClient, responseRecorder := setupHandler()
+
+			config := &v1alpha2.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-config", Namespace: "default", UID: types.UID("test-config-uid")},
+				Spec: v1alpha2.ModelConfigSpec{
+					Model:    "gpt-4",
+					Provider: v1alpha2.ModelProviderOpenAI,
+					TLS:      &v1alpha2.TLSConfig{CACertSecretRef: "ca-v1", CACertSecretKey: "ca.crt"},
+				},
+			}
+			err := kubeClient.Create(context.Background(), config)
+			require.NoError(t, err)
+
+			oldCASecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ca-v1",
+					Namespace: "default",
+					OwnerReferences: []metav1.OwnerReference{{
+						APIVersion: v1alpha2.GroupVersion.Identifier(),
+						Kind:       "ModelConfig",
+						Name:       "test-config",
+						UID:        types.UID("test-config-uid"),
+					}},
+				},
+				Type: corev1.SecretTypeOpaque,
+				Data: map[string][]byte{"ca.crt": []byte("OLD-CA-PEM")},
+			}
+			err = kubeClient.Create(context.Background(), oldCASecret)
+			require.NoError(t, err)
+
+			reqBody := api.UpdateModelConfigRequest{
+				Spec: v1alpha2.ModelConfigSpec{
+					Model:    "gpt-4",
+					Provider: v1alpha2.ModelProviderOpenAI,
+					TLS:      &v1alpha2.TLSConfig{CACertSecretRef: "ca-v2", CACertSecretKey: "ca.crt"},
+				},
+				Secrets: []api.SecretMaterial{
+					{Name: "ca-v2", Key: "ca.crt", Value: "NEW-CA-PEM"},
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/modelconfigs/default/test-config", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
+			req.Header.Set("Content-Type", "application/json")
+			router := mux.NewRouter()
+			router.HandleFunc("/api/modelconfigs/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateModelConfig(responseRecorder, r)
+			}).Methods("PUT")
+			router.ServeHTTP(responseRecorder, req)
+			assert.Equal(t, http.StatusOK, responseRecorder.Code, responseRecorder.Body.String())
+
+			// New secret exists with new bytes.
+			newCASecret := &corev1.Secret{}
+			err = kubeClient.Get(context.Background(), ctrl_client.ObjectKey{Namespace: "default", Name: "ca-v2"}, newCASecret)
+			require.NoError(t, err)
+			assert.Equal(t, "NEW-CA-PEM", string(newCASecret.Data["ca.crt"]))
+
+			// Old owned secret is swept.
+			staleCASecret := &corev1.Secret{}
+			err = kubeClient.Get(context.Background(), ctrl_client.ObjectKey{Namespace: "default", Name: "ca-v1"}, staleCASecret)
+			require.True(t, apierrors.IsNotFound(err), "expected ca-v1 to be deleted, got: %v", err)
+		})
+
+		t.Run("SweepLeavesExternallyOwnedSecretAlone", func(t *testing.T) {
+			handler, kubeClient, responseRecorder := setupHandler()
+
+			config := &v1alpha2.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-config", Namespace: "default", UID: types.UID("test-config-uid")},
+				Spec: v1alpha2.ModelConfigSpec{
+					Model:           "gpt-4",
+					Provider:        v1alpha2.ModelProviderOpenAI,
+					APIKeySecret:    "external-key",
+					APIKeySecretKey: "api-key",
+				},
+			}
+			err := kubeClient.Create(context.Background(), config)
+			require.NoError(t, err)
+
+			externalSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "external-key", Namespace: "default"},
+				Type:       corev1.SecretTypeOpaque,
+				Data:       map[string][]byte{"api-key": []byte("preserve-me")},
+			}
+			err = kubeClient.Create(context.Background(), externalSecret)
+			require.NoError(t, err)
+
+			reqBody := api.UpdateModelConfigRequest{
+				Spec: v1alpha2.ModelConfigSpec{
+					Model:           "gpt-4",
+					Provider:        v1alpha2.ModelProviderOpenAI,
+					APIKeySecret:    "different-external-key",
+					APIKeySecretKey: "api-key",
+				},
+			}
+			jsonBody, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest("PUT", "/api/modelconfigs/default/test-config", bytes.NewBuffer(jsonBody))
+			req = setUser(req, "test-user")
+			req.Header.Set("Content-Type", "application/json")
+			router := mux.NewRouter()
+			router.HandleFunc("/api/modelconfigs/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateModelConfig(responseRecorder, r)
+			}).Methods("PUT")
+			router.ServeHTTP(responseRecorder, req)
+			assert.Equal(t, http.StatusOK, responseRecorder.Code, responseRecorder.Body.String())
+
+			// Externally-managed secret survives the sweep.
+			preservedSecret := &corev1.Secret{}
+			err = kubeClient.Get(context.Background(), ctrl_client.ObjectKey{Namespace: "default", Name: "external-key"}, preservedSecret)
+			require.NoError(t, err)
+			assert.Equal(t, "preserve-me", string(preservedSecret.Data["api-key"]))
 		})
 
 		t.Run("InvalidJSON", func(t *testing.T) {

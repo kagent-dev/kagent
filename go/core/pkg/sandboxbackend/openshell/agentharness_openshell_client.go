@@ -129,9 +129,9 @@ func (c *AgentHarnessOpenShellClient) GetSandboxStatus(ctx context.Context, h sa
 }
 
 // DeleteAgentHarnessSandbox deletes the OpenShell sandbox; NotFound is success.
-func (c *AgentHarnessOpenShellClient) DeleteAgentHarnessSandbox(ctx context.Context, h sandboxbackend.Handle) error {
+func (c *AgentHarnessOpenShellClient) DeleteAgentHarnessSandbox(ctx context.Context, h sandboxbackend.Handle) (bool, error) {
 	if h.ID == "" {
-		return nil
+		return true, nil
 	}
 	ctx, cancel := c.CallCtx(ctx)
 	defer cancel()
@@ -139,17 +139,17 @@ func (c *AgentHarnessOpenShellClient) DeleteAgentHarnessSandbox(ctx context.Cont
 
 	osCli := c.openShell()
 	if osCli == nil {
-		return fmt.Errorf("openshell: OpenShell client is required")
+		return false, fmt.Errorf("openshell: OpenShell client is required")
 	}
 
 	_, err := osCli.DeleteSandbox(ctx, &openshellv1.DeleteSandboxRequest{Name: h.ID})
 	if err == nil {
-		return nil
+		return true, nil
 	}
 	if status.Code(err) == codes.NotFound {
-		return nil
+		return true, nil
 	}
-	return fmt.Errorf("openshell DeleteSandbox %s: %w", h.ID, err)
+	return false, fmt.Errorf("openshell DeleteSandbox %s: %w", h.ID, err)
 }
 
 // ExecSandboxID resolves metadata.id for ExecSandbox RPCs.

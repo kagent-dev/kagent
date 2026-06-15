@@ -13,7 +13,7 @@ import (
 	openshellv1 "github.com/kagent-dev/kagent/go/api/openshell/gen/openshellv1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -304,14 +304,20 @@ func TestDeleteSandbox(t *testing.T) {
 	r, err := b.EnsureAgentHarness(context.Background(), sampleClawSandbox())
 	require.NoError(t, err)
 
-	require.NoError(t, b.DeleteAgentHarness(context.Background(), r.Handle))
+	done, err := b.DeleteAgentHarness(context.Background(), r.Handle)
+	require.NoError(t, err)
+	require.True(t, done)
 	require.Equal(t, 1, fg.deleteCalls)
 
-	require.NoError(t, b.DeleteAgentHarness(context.Background(), r.Handle))
+	done, err = b.DeleteAgentHarness(context.Background(), r.Handle)
+	require.NoError(t, err)
+	require.True(t, done)
 	require.Equal(t, 2, fg.deleteCalls)
 
 	before := fg.deleteCalls
-	require.NoError(t, b.DeleteAgentHarness(context.Background(), sandboxbackend.Handle{}))
+	done, err = b.DeleteAgentHarness(context.Background(), sandboxbackend.Handle{})
+	require.NoError(t, err)
+	require.True(t, done)
 	require.Equal(t, before, fg.deleteCalls)
 }
 

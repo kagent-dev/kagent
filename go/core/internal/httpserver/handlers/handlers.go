@@ -8,10 +8,14 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
 // Handlers holds all the HTTP handler components
 type Handlers struct {
+	KubeClient          client.Client
+	AgentHarnessGateway *AgentHarnessGatewayConfig
+
 	Health              *HealthHandler
 	ModelConfig         *ModelConfigHandler
 	Model               *ModelHandler
@@ -29,6 +33,7 @@ type Handlers struct {
 	Checkpoints         *CheckpointsHandler
 	CrewAI              *CrewAIHandler
 	CurrentUser         *CurrentUserHandler
+	Substrate           *SubstrateHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -40,10 +45,24 @@ type Base struct {
 	ProxyURL           string
 	WatchedNamespaces  []string
 	SandboxBackend     sandboxbackend.Backend
+	MCPEgressPlaintext bool
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
-func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedName, dbService database.Client, watchedNamespaces []string, authorizer auth.Authorizer, proxyURL string, rcnclr reconciler.KagentReconciler, sandboxBackend sandboxbackend.Backend) *Handlers {
+func NewHandlers(
+	kubeClient client.Client,
+	defaultModelConfig types.NamespacedName,
+	dbService database.Client,
+	watchedNamespaces []string,
+	authorizer auth.Authorizer,
+	proxyURL string,
+	rcnclr reconciler.KagentReconciler,
+	sandboxBackend sandboxbackend.Backend,
+	agentHarnessGateway *AgentHarnessGatewayConfig,
+	substrateAteClient *substrate.Client,
+	mcpEgressPlaintext bool,
+	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend,
+) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
 		DefaultModelConfig: defaultModelConfig,
@@ -52,14 +71,17 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		ProxyURL:           proxyURL,
 		WatchedNamespaces:  watchedNamespaces,
 		SandboxBackend:     sandboxBackend,
+		MCPEgressPlaintext: mcpEgressPlaintext,
 	}
 
 	return &Handlers{
+		KubeClient:          kubeClient,
+		AgentHarnessGateway: agentHarnessGateway,
 		Health:              NewHealthHandler(),
 		ModelConfig:         NewModelConfigHandler(base),
 		Model:               NewModelHandler(base),
 		ModelProviderConfig: NewModelProviderConfigHandler(base, rcnclr),
-		Sessions:            NewSessionsHandler(base),
+		Sessions:            NewSessionsHandler(base, substrateSandboxActorBackend),
 		Agents:              NewAgentsHandler(base),
 		Tools:               NewToolsHandler(base),
 		ToolServers:         NewToolServersHandler(base),
@@ -72,5 +94,6 @@ func NewHandlers(kubeClient client.Client, defaultModelConfig types.NamespacedNa
 		Checkpoints:         NewCheckpointsHandler(base),
 		CrewAI:              NewCrewAIHandler(base),
 		CurrentUser:         NewCurrentUserHandler(),
+		Substrate:           NewSubstrateHandler(base, substrateAteClient),
 	}
 }

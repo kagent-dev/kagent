@@ -37,6 +37,58 @@ func IsKnownAgentHarnessBackend(b AgentHarnessBackendType) bool {
 	}
 }
 
+// AgentHarnessRuntime selects which control plane provisions the harness VM.
+// +kubebuilder:validation:Enum=openshell;substrate
+type AgentHarnessRuntime string
+
+const (
+	AgentHarnessRuntimeOpenshell AgentHarnessRuntime = "openshell"
+	AgentHarnessRuntimeSubstrate AgentHarnessRuntime = "substrate"
+)
+
+// AgentHarnessSubstrateSnapshotsConfig points at a GCS prefix for actor memory snapshots.
+// Substrate currently expects a gs:// location (see Agent Substrate SnapshotsConfig).
+type AgentHarnessSubstrateSnapshotsConfig struct {
+	// Location is the GCS URI prefix for golden and incremental snapshots.
+	// Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
+	// +required
+	// +kubebuilder:validation:Pattern=`^gs://`
+	Location string `json:"location"`
+}
+
+// AgentHarnessSubstrateSpec configures Agent Substrate (WorkerPool + ActorTemplate + Actor).
+//
+// kagent generates a per-harness ActorTemplate and creates an Actor from it. WorkerPool
+// capacity is referenced from workerPoolRef or the controller default; it is not
+// created or deleted by the AgentHarness controller.
+// +kubebuilder:validation:XValidation:rule="(has(self.gatewayToken) && !has(self.gatewayTokenSecretRef)) || (!has(self.gatewayToken) && has(self.gatewayTokenSecretRef))",message="Exactly one of gatewayToken or gatewayTokenSecretRef must be specified"
+type AgentHarnessSubstrateSpec struct {
+	// WorkerPoolRef references an existing ate.dev WorkerPool in the harness namespace.
+	// When unset, the controller uses its configured default WorkerPool.
+	// +optional
+	WorkerPoolRef *TypedLocalReference `json:"workerPoolRef,omitempty"`
+
+	// SnapshotsConfig configures actor memory snapshots. Defaults to
+	// gs://ate-snapshots/<namespace>/<agentharnessname> when unset.
+	// +optional
+	SnapshotsConfig *AgentHarnessSubstrateSnapshotsConfig `json:"snapshotsConfig,omitempty"`
+
+	// WorkloadImage overrides the default nemoclaw/openclaw sandbox image in the ActorTemplate.
+	// +optional
+	WorkloadImage string `json:"workloadImage,omitempty"`
+
+	// GatewayToken is the OpenClaw gateway Bearer token for this harness.
+	// Prefer gatewayTokenSecretRef for production secrets.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	GatewayToken string `json:"gatewayToken,omitempty"`
+
+	// GatewayTokenSecretRef references a Secret key holding the OpenClaw gateway Bearer token.
+	// The Secret must contain a "token" key.
+	// +optional
+	GatewayTokenSecretRef *TypedLocalReference `json:"gatewayTokenSecretRef,omitempty"`
+}
+
 // AgentHarnessChannelType selects a messenger integration for OpenClaw harness VMs.
 // +kubebuilder:validation:Enum=telegram;slack
 type AgentHarnessChannelType string
@@ -153,10 +205,21 @@ type AgentHarnessChannel struct {
 // in. The backend is responsible for provisioning an environment that stays
 // ready to accept incoming commands.
 // +kubebuilder:validation:XValidation:rule="!has(self.channels) || self.channels.all(c, c.type != 'slack' || (has(c.slack) && ((self.backend == 'hermes' && has(c.slack.hermes) && !has(c.slack.openclaw)) || ((self.backend == 'openclaw' || self.backend == 'nemoclaw') && has(c.slack.openclaw) && !has(c.slack.hermes)))))",message="slack backend-specific settings must match spec.backend"
+// +kubebuilder:validation:XValidation:rule="!has(self.substrate) || self.runtime == 'substrate'",message="spec.substrate may only be set when runtime is substrate"
+// +kubebuilder:validation:XValidation:rule="self.runtime != 'substrate' || has(self.substrate)",message="spec.substrate is required when runtime is substrate"
 type AgentHarnessSpec struct {
 	// Backend selects the control plane to use. Required.
 	// +required
 	Backend AgentHarnessBackendType `json:"backend"`
+
+	// Runtime selects the harness provisioning stack. Defaults to openshell when unset.
+	// +optional
+	// +kubebuilder:default=openshell
+	Runtime AgentHarnessRuntime `json:"runtime,omitempty"`
+
+	// Substrate is required when runtime is substrate.
+	// +optional
+	Substrate *AgentHarnessSubstrateSpec `json:"substrate,omitempty"`
 
 	// Description is a short human-readable summary shown in the UI (e.g. agents list).
 	// +optional
@@ -234,13 +297,17 @@ type AgentHarnessStatus struct {
 
 // AgentHarnessConditionType enumerates the condition types an AgentHarness may report.
 const (
-	AgentHarnessConditionTypeReady    = "Ready"
-	AgentHarnessConditionTypeAccepted = "Accepted"
+	AgentHarnessConditionTypeReady              = "Ready"
+	AgentHarnessConditionTypeAccepted           = "Accepted"
+	AgentHarnessConditionTypeActorTemplateReady = "ActorTemplateReady"
+	AgentHarnessConditionTypeActorReady         = "ActorReady"
+	AgentHarnessConditionTypeBootstrapReady     = "BootstrapReady"
 )
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=agentharnesses,singular=agentharness,shortName=ahr,categories=kagent
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Runtime",type="string",JSONPath=".spec.runtime"
 // +kubebuilder:printcolumn:name="Backend",type="string",JSONPath=".spec.backend"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="ID",type="string",JSONPath=".status.backendRef.id"

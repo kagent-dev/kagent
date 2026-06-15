@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"time"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/pgvector/pgvector-go"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 type Agent struct {
@@ -32,16 +32,16 @@ type Event struct {
 	Data string `json:"data"` // JSON-serialized protocol.Message
 }
 
-func (m *Event) Parse() (protocol.Message, error) {
-	var data protocol.Message
+func (m *Event) Parse() (a2a.Message, error) {
+	var data a2a.Message
 	if err := json.Unmarshal([]byte(m.Data), &data); err != nil {
-		return protocol.Message{}, err
+		return a2a.Message{}, err
 	}
 	return data, nil
 }
 
-func ParseMessages(messages []Event) ([]*protocol.Message, error) {
-	result := make([]*protocol.Message, 0, len(messages))
+func ParseMessages(messages []Event) ([]*a2a.Message, error) {
+	result := make([]*a2a.Message, 0, len(messages))
 	for _, message := range messages {
 		parsed, err := message.Parse()
 		if err != nil {
@@ -77,24 +77,25 @@ type Session struct {
 }
 
 type Task struct {
-	ID        string     `json:"id"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
-	Data      string     `json:"data"` // JSON-serialized task data
-	SessionID string     `json:"session_id"`
+	ID              string     `json:"id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
+	Data            string     `json:"data"` // JSON-serialized task data
+	ProtocolVersion *string    `json:"protocol_version,omitempty"`
+	SessionID       string     `json:"session_id"`
 }
 
-func (t *Task) Parse() (protocol.Task, error) {
-	var data protocol.Task
+func (t *Task) Parse() (a2a.Task, error) {
+	var data a2a.Task
 	if err := json.Unmarshal([]byte(t.Data), &data); err != nil {
-		return protocol.Task{}, err
+		return a2a.Task{}, err
 	}
 	return data, nil
 }
 
-func ParseTasks(tasks []Task) ([]*protocol.Task, error) {
-	result := make([]*protocol.Task, 0, len(tasks))
+func ParseTasks(tasks []Task) ([]*a2a.Task, error) {
+	result := make([]*a2a.Task, 0, len(tasks))
 	for _, task := range tasks {
 		parsed, err := task.Parse()
 		if err != nil {
@@ -106,12 +107,13 @@ func ParseTasks(tasks []Task) ([]*protocol.Task, error) {
 }
 
 type PushNotification struct {
-	ID        string     `json:"id"`
-	TaskID    string     `json:"task_id"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	DeletedAt *time.Time `json:"deleted_at,omitempty"`
-	Data      string     `json:"data"` // JSON-serialized push notification config
+	ID              string     `json:"id"`
+	TaskID          string     `json:"task_id"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
+	Data            string     `json:"data"` // JSON-serialized push notification config
+	ProtocolVersion *string    `json:"protocol_version,omitempty"`
 }
 
 // FeedbackIssueType represents the category of feedback issue
