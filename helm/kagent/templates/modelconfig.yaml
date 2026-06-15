@@ -26,6 +26,10 @@ spec:
   defaultHeaders:
     {{- toYaml $model.defaultHeaders | nindent 4 }}
   {{- end }}
+  {{- if $model.tls }}
+  tls:
+    {{- toYaml $model.tls | nindent 4 }}
+  {{- end }}
   {{- if $model.config }}
   {{ $dot.Values.providers.default }}:
   {{- toYaml $model.config | nindent 4 }}
