@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
+	//lint:ignore SA1019 kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
 	"google.golang.org/adk/server/adka2a"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"

@@ -3,6 +3,7 @@ package a2a
 import (
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	adkagent "google.golang.org/adk/agent"
+	//lint:ignore SA1019 kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
 	"google.golang.org/adk/server/adka2a"
 )
 
