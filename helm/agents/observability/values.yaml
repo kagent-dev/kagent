@@ -16,7 +16,7 @@ resources:
 
 compaction: {}
 
-# -- Optional Prometheus server URL (e.g. "http://prometheus:9090"). When set, it is injected
-# into the agent's system message so the agent knows which Prometheus endpoint to use.
-prometheus:
-  url: ""
+# -- Optional Grafana datasource name for Prometheus (e.g. "Prometheus"). When set, the agent
+# uses this datasource name for all Prometheus queries instead of discovering it at runtime.
+grafana:
+  prometheusDatasourceName: ""
