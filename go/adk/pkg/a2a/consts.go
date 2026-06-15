@@ -1,9 +1,6 @@
 package a2a
 
-import (
-	//lint:ignore SA1019 kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
-	"google.golang.org/adk/server/adka2a"
-)
+import "google.golang.org/adk/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
 
 const (
 	StateKeySessionName = "session_name"
