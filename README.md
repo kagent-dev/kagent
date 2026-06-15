@@ -33,7 +33,7 @@
 **kagent** is a Kubernetes native framework for building AI agents. Kubernetes is the most popular orchestration platform for running workloads, and **kagent** makes it easy to build, deploy and manage AI agents in Kubernetes. The **kagent** framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
 <div align="center">
-  <img src="img/hero.png" alt="Autogen Framework" width="500">
+  <img src="img/kagent-agents-ui.gif" alt="Kagent Agents UI" width="800">
 </div>
 
 ---
@@ -68,7 +68,7 @@
 
 ### Core Concepts
 
-- **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent". 
+- **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent".
 - **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other [custom providers and models](https://kagent.dev/docs/kagent/supported-providers/custom-models) accessible via AI gateways. Providers are represented by the ModelConfig resource.
 - **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana, Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
 - **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools.
