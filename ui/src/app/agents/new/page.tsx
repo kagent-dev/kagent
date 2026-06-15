@@ -822,7 +822,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               )}
 
               <FieldRoot>
-                <FieldLabel htmlFor="agent-desc">Description (optional)</FieldLabel>
+                <FieldLabel htmlFor="agent-desc">Description</FieldLabel>
                 <FieldHint>Internal note only; not sent to the model as instructions.</FieldHint>
                 <Textarea
                   id="agent-desc"
