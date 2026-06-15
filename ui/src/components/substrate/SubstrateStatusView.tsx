@@ -124,7 +124,9 @@ function WorkerPoolsTable({ rows }: { rows: SubstrateWorkerPoolEntry[] }) {
 
 function ActorTemplatesTable({ rows }: { rows: SubstrateActorTemplateEntry[] }) {
   if (rows.length === 0) {
-    return <EmptyRow message="No ActorTemplates yet. They appear when you create a Substrate Agent Harness." />;
+    return (
+      <EmptyRow message="No ActorTemplates yet. They appear when you create a Substrate Agent Harness or a Sandbox workload agent with platform=substrate." />
+    );
   }
   return (
     <div className="overflow-x-auto">

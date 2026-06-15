@@ -27,7 +27,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: SandboxAgent declares an agent that runs in an isolated sandbox
-          (agent-sandbox Sandbox CR).
+          (agent-sandbox or Agent Substrate).
         properties:
           apiVersion:
             description: |-
@@ -47,7 +47,6 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentSpec defines the desired state of Agent.
             properties:
               allowedNamespaces:
                 description: |-
@@ -10952,6 +10951,14 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              platform:
+                default: agent-sandbox
+                description: Platform selects the sandbox control plane. Defaults
+                  to agent-sandbox.
+                enum:
+                - agent-sandbox
+                - substrate
+                type: string
               sandbox:
                 description: |-
                   Sandbox configures sandboxed execution behavior shared across runtimes.
@@ -11288,6 +11295,37 @@ spec:
                     minItems: 1
                     type: array
                 type: object
+              substrate:
+                description: Substrate is optional substrate-specific settings when
+                  platform is substrate.
+                properties:
+                  snapshotsConfig:
+                    description: |-
+                      SnapshotsConfig configures actor memory snapshots.
+                      Defaults to gs://ate-snapshots/<namespace>/<agentname> when unset.
+                    properties:
+                      location:
+                        description: |-
+                          Location is the GCS URI prefix for golden and incremental snapshots.
+                          Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
+                        pattern: ^gs://
+                        type: string
+                    required:
+                    - location
+                    type: object
+                  workerPoolRef:
+                    description: WorkerPoolRef references an existing ate.dev WorkerPool.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
               type:
                 default: Declarative
                 description: AgentType represents the agent type
@@ -11297,6 +11335,12 @@ spec:
                 type: string
             type: object
             x-kubernetes-validations:
+            - message: spec.skills is not supported when spec.platform is substrate
+              rule: '!has(self.skills) || self.platform != ''substrate'''
+            - message: spec.substrate may only be set when spec.platform is substrate
+              rule: '!has(self.substrate) || self.platform == ''substrate'''
+            - message: BYO agents are not supported when spec.platform is substrate
+              rule: '!has(self.type) || self.type != ''BYO'' || self.platform != ''substrate'''
             - message: type must be specified
               rule: has(self.type)
             - message: type must be either Declarative or BYO

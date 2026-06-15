@@ -1,44 +1,44 @@
-# OpenClaw on Agent Substrate
+# kagent agents and agentharness on substrate
+
+Follow these instructions to install substrate on a kind cluster. This feature allows you to run AgentHarness (OpenClaw) and declerative Go agents in substrate.
+
 
 ## 1. Install Substrate on your Kind cluster
 
-You can clone the kagent fork of substrate [here](https://github.com/kagent-dev/substrate).
+This assumes you've configured kind cluster using `make create-kind-cluster`.
 
-These instructions use a Kind cluster called `kind` (`KIND_CLUSTER_NAME=kind`).
+Create the substrate-values.yaml file:
 
-```bash
-cd substrate
-
-./hack/create-kind-cluster.sh
-./hack/install-ate-kind.sh --deploy-ate-system
+```yaml
+atelet:
+  extraArgs:
+    - --localhost-registry-replacement=kind-registry:5000
 ```
 
-`--deploy-ate-system` installs the **control plane only** (ate-api, ate-controller, atelet, atenet, …). Your registry catalog will show `ateapi-*`, `atelet-*`, etc., but **not** ateom until you build it.
-
-Build and push **ateom-gvisor** (required for the WorkerPool `ateomImage`):
+Then install substrate and kagent:
 
 ```bash
-# build the ateom-gvisor image from the substrate repo root
-export KO_DOCKER_REPO=localhost:5001
-export KO_DEFAULTPLATFORMS=linux/$(go env GOARCH)
-./hack/run-tool.sh ko build -B ./cmd/ateom-gvisor
-```
+export ATEOM_VERSION=v0.0.6
 
-## kagent AgentHarness with substrate runtime
+helm upgrade --install substrate-crds \
+  oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds
 
-kagent generates a per-harness `ActorTemplate` and uses an existing `WorkerPool`.
+helm upgrade --install substrate \
+  oci://ghcr.io/kagent-dev/substrate/helm/substrate \
+  --namespace ate-system \
+  --create-namespace -f substrate-values.yaml
 
-Install kagent (Substrate must already be running in the cluster):
-
-```bash
-export KIND_CLUSTER_NAME=kind
 make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.enabled=true \
   --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
   --set controller.substrate.ateApiInsecure=true \
   --set substrateWorkerPool.create=true \
-  --set substrateWorkerPool.ateomImage=localhost:5001/ateom-gvisor:latest"
+  --set substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:${ATEOM_VERSION}"
 ```
+
+## kagent AgentHarness with substrate runtime
+
+kagent generates a per-harness `ActorTemplate` and uses an existing `WorkerPool`.
 
 The generated `ActorTemplate` uses `controller.substrate.pauseImage`, `controller.substrate.runscAMD64URL`, `controller.substrate.runscAMD64SHA256`, `controller.substrate.runscARM64URL`, and `controller.substrate.runscARM64SHA256` from the Helm values Override them with `--set` or a values file when you need to pin a different gVisor build.
 

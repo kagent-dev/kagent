@@ -3,9 +3,7 @@ package substrate
 import (
 	"context"
 	"fmt"
-	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -37,25 +35,9 @@ func (p *Lifecycle) EnsureGeneratedTemplate(ctx context.Context, ah *v1alpha2.Ag
 }
 
 func (p *Lifecycle) resolveWorkerPoolRef(ctx context.Context, ah *v1alpha2.AgentHarness) (types.NamespacedName, error) {
-	if p == nil || p.Client == nil {
-		return types.NamespacedName{}, fmt.Errorf("substrate lifecycle kubernetes client is required")
+	var explicit *v1alpha2.TypedLocalReference
+	if sub := ah.Spec.Substrate; sub != nil {
+		explicit = sub.WorkerPoolRef
 	}
-	key := p.Defaults.DefaultWorkerPool
-	if sub := ah.Spec.Substrate; sub != nil && sub.WorkerPoolRef != nil {
-		if name := strings.TrimSpace(sub.WorkerPoolRef.Name); name != "" {
-			key = types.NamespacedName{Namespace: ah.Namespace, Name: name}
-		}
-	}
-	if key.Name == "" {
-		return types.NamespacedName{}, fmt.Errorf("spec.substrate.workerPoolRef is required when no default substrate WorkerPool is configured")
-	}
-	if key.Namespace == "" {
-		key.Namespace = ah.Namespace
-	}
-
-	var wp atev1alpha1.WorkerPool
-	if err := p.Client.Get(ctx, key, &wp); err != nil {
-		return types.NamespacedName{}, fmt.Errorf("get WorkerPool %s: %w", key, err)
-	}
-	return key, nil
+	return p.resolveWorkerPoolRefFor(ctx, ah.Namespace, explicit)
 }

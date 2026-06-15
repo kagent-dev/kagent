@@ -999,8 +999,13 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
           continue;
         }
 
+        // Skip empty data parts (e.g. the lastChunk sentinel emitted by the Go ADK executor).
+        if (!data || (typeof data === "object" && Object.keys(data).length === 0)) {
+          continue;
+        }
+
         try {
-          artifactText += JSON.stringify(data || "");
+          artifactText += JSON.stringify(data);
         } catch {
           artifactText += String(data);
         }
@@ -1056,7 +1061,52 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       if (handlers.setChatStatus) {
         handlers.setChatStatus("ready");
       }
+      return;
     }
+
+    // Non-lastChunk artifact updates: the Go ADK executor streams responses as
+    // artifact-update events stamped with adk_partial (true for token chunks,
+    // false for the complete message), with lastChunk only on a final empty sentinel.
+    const partialFlag = getMetadataValue<boolean>(adkMetadata as Record<string, unknown>, "partial");
+
+    if (partialFlag === true) {
+      // Streaming token chunk — accumulate into the live streaming view.
+      if (artifactText) {
+        handlers.setIsStreaming(true);
+        handlers.setStreamingContent(prevContent => prevContent + artifactText);
+        if (handlers.setChatStatus) {
+          handlers.setChatStatus("generating_response");
+        }
+      }
+      return;
+    }
+
+    if (partialFlag === false) {
+      // Complete (non-partial) artifact — emit it as the final message.
+      handlers.setIsStreaming(false);
+      handlers.setStreamingContent(() => "");
+
+      const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+      if (artifactText) {
+        const displayMessage = createMessage(
+          artifactText,
+          source,
+          {
+            originalType: "TextMessage",
+            contextId: artifactUpdate.contextId,
+            taskId: artifactUpdate.taskId,
+            additionalMetadata: { ...(turnStats && { tokenStats: turnStats }) }
+          }
+        );
+        handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
+      }
+
+      if (convertedMessages.length > 0) {
+        handlers.setMessages(prevMessages => [...prevMessages, ...convertedMessages]);
+      }
+    }
+    // partialFlag === undefined: no partial stamping (Python executor flow) — only
+    // lastChunk artifacts carry final content there, so nothing to do here.
   };
 
   const handleA2AMessage = (message: Message) => {

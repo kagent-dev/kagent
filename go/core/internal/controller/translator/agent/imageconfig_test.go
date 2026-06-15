@@ -15,6 +15,26 @@ func TestImageConfigImage(t *testing.T) {
 	require.Equal(t, "cr.kagent.dev/kagent-dev/kagent/app:v1.0.0", cfg.Image())
 }
 
+func TestImageConfigPinnedImage(t *testing.T) {
+	cfg := ImageConfig{
+		Registry:   "localhost:5001",
+		Repository: "kagent-dev/kagent/app",
+		Tag:        "v1.0.0",
+		Digest:     "sha256:abc123",
+	}
+	require.Equal(t, "localhost:5001/kagent-dev/kagent/app@sha256:abc123", cfg.PinnedImage())
+	require.Equal(t, "localhost:5001/kagent-dev/kagent/app:v1.0.0", cfg.Image())
+}
+
+func TestImageConfigPinnedImageWithoutDigest(t *testing.T) {
+	cfg := ImageConfig{
+		Registry:   "cr.kagent.dev",
+		Repository: "kagent-dev/kagent/app",
+		Tag:        "v1.0.0",
+	}
+	require.Equal(t, cfg.Image(), cfg.PinnedImage())
+}
+
 func TestResolveGoRuntimeImageWithDigest(t *testing.T) {
 	originalBase := GoADKImageDigest
 	originalFull := GoADKFullImageDigest

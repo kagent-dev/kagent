@@ -84,7 +84,7 @@ LDFLAGS := -X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSI
 
 #tools versions
 TOOLS_UV_VERSION ?= 0.10.4
-TOOLS_NODE_VERSION ?= 24.13.0
+TOOLS_NODE_VERSION ?= 24
 TOOLS_PYTHON_VERSION ?= 3.13
 
 # build args
@@ -564,4 +564,3 @@ prune-images: ## Remove old kagent images and dangling images from the local dae
 	$(CONTAINER_RUNTIME) images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | \
 	grep -v ":$(VERSION) " | grep kagent | grep -v '<none>' | awk '{print $$2}' | xargs -r $(CONTAINER_RUNTIME) rmi || :
 	$(CONTAINER_RUNTIME) images --filter dangling=true -q | xargs -r $(CONTAINER_RUNTIME) rmi || :
-
