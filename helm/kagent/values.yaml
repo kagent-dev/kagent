@@ -426,6 +426,13 @@ providers:
     apiKeySecretRef: kagent-openai
     apiKeySecretKey: OPENAI_API_KEY
     # apiKey: ""
+    # Optional TLS settings for the generated ModelConfig.
+    # This same block can be used under any provider.
+    # tls:
+    #   disableVerify: false
+    #   caCertSecretRef: ""
+    #   caCertSecretKey: ""
+    #   disableSystemCAs: false
   ollama:
     provider: Ollama
     model: "llama3.2"
