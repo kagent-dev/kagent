@@ -37,9 +37,9 @@ export function AppInitializer({ children }: { children: React.ReactNode }) {
 
   // Don't show the wizard on the login page
   if (isOnboarding && pathname !== '/login') {
-    return <main className="flex-1 min-h-0 overflow-y-auto w-full mx-auto">
-      <OnboardingWizard onOnboardingComplete={handleOnboardingComplete} onSkip={handleSkipWizard} />;
-    </main>
+    return <div className="flex-1 min-h-0 overflow-y-auto w-full mx-auto">
+      <OnboardingWizard onOnboardingComplete={handleOnboardingComplete} onSkip={handleSkipWizard} />
+    </div>
   }
 
   return <>{children}</>;
