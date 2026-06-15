@@ -41,11 +41,7 @@ func (noMatchKubeClient) List(_ context.Context, _ client.ObjectList, _ ...clien
 func TestHandleGetSubstrateStatus_SubstrateNotConfigured(t *testing.T) {
 	t.Parallel()
 
-	scheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	fakeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-	base := &handlers.Base{KubeClient: fakeClient, Authorizer: &auth.NoopAuthorizer{}}
+	base := &handlers.Base{KubeClient: noMatchKubeClient{}, Authorizer: &auth.NoopAuthorizer{}}
 	h := handlers.NewSubstrateHandler(base, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/substrate/status?namespace=kagent", nil)
@@ -63,7 +59,6 @@ func TestHandleGetSubstrateStatus_SubstrateNotConfigured(t *testing.T) {
 	require.Empty(t, wrapped.Data.Actors)
 	require.Empty(t, wrapped.Data.Workers)
 }
-
 
 type stubAteControl struct {
 	ateapipb.ControlClient

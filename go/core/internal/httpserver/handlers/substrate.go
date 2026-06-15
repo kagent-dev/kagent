@@ -73,9 +73,7 @@ func (h *SubstrateHandler) HandleGetSubstrateStatus(w ErrorResponseWriter, r *ht
 			resp.WorkerPools = append(resp.WorkerPools, wpEntries...)
 			resp.ActorTemplates = append(resp.ActorTemplates, tmplEntries...)
 		}
-	}
 
-	if h.AteClient != nil {
 		actors, workers, ateErr := h.listAteAPIState(r.Context(), namespaces)
 		resp.Actors = actors
 		resp.Workers = workers
