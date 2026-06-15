@@ -53,7 +53,7 @@ func MakeStripConfirmationPartsCallback() llmagent.BeforeModelCallback {
 // tools in the approval set behind request_confirmation / ToolConfirmation.
 // Port of kagent-adk/src/kagent/adk/_approval.py:make_approval_callback().
 func MakeApprovalCallback(toolsRequiringApproval map[string]bool) llmagent.BeforeToolCallback {
-	return func(ctx tool.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
+	return func(ctx agent.ToolContext, t tool.Tool, args map[string]any) (map[string]any, error) {
 		toolName := t.Name()
 
 		// No approval needed for this tool.
