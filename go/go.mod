@@ -47,7 +47,7 @@ require (
 	go.uber.org/goleak v1.3.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/text v0.37.0
-	google.golang.org/adk v1.2.0
+	google.golang.org/adk v1.4.0
 	google.golang.org/genai v1.57.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	gopkg.in/yaml.v3 v3.0.1
@@ -451,5 +451,3 @@ require (
 tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 
 replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.6
-
-replace google.golang.org/adk => github.com/QuentinBisson/adk-go v0.0.0-20260615220632-534ff82e2630

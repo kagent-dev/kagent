@@ -1,6 +1,7 @@
 package compaction
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -20,6 +21,13 @@ var (
 	t5 = t0.Add(5 * time.Second)
 	t6 = t0.Add(6 * time.Second)
 )
+
+func makeCompactionMarkerEvent(startTS, endTS time.Time, summaryText string) *adksession.Event {
+	return buildCompactionEvent(context.Background(), &genai.Content{
+		Role:  "model",
+		Parts: []*genai.Part{{Text: summaryText}},
+	}, startTS, endTS)
+}
 
 func makeEvent(ts time.Time, invocationID string) *adksession.Event {
 	return &adksession.Event{
@@ -85,19 +93,13 @@ func TestFindWatermark_None(t *testing.T) {
 }
 
 func TestFindWatermark_Single(t *testing.T) {
-	ev := makeEvent(t5, "comp1")
-	ev.Actions.Compaction = &adksession.EventCompaction{
-		StartTimestamp: t0,
-		EndTimestamp:   t3,
-	}
-	require.Equal(t, t3, findWatermark([]*adksession.Event{makeEvent(t0, "inv1"), ev}))
+	marker := makeCompactionMarkerEvent(t0, t3, "summary")
+	require.Equal(t, t3, findWatermark([]*adksession.Event{makeEvent(t0, "inv1"), marker}))
 }
 
 func TestFindWatermark_MultiplePicksLatest(t *testing.T) {
-	c1 := makeEvent(t4, "comp1")
-	c1.Actions.Compaction = &adksession.EventCompaction{EndTimestamp: t2}
-	c2 := makeEvent(t5, "comp2")
-	c2.Actions.Compaction = &adksession.EventCompaction{EndTimestamp: t3}
+	c1 := makeCompactionMarkerEvent(t0, t2, "summary1")
+	c2 := makeCompactionMarkerEvent(t0, t3, "summary2")
 	require.Equal(t, t3, findWatermark([]*adksession.Event{makeEvent(t0, "inv1"), c1, c2}))
 }
 

@@ -84,19 +84,27 @@ func CreateRunnerConfig(
 		}
 	}
 
+	compactionCfg, err := buildCompactionConfig(ctx, agentConfig, log)
+	if err != nil {
+		return runner.Config{}, nil, nil, fmt.Errorf("failed to build compaction config: %w", err)
+	}
+
+	// Wrap the session service so the runner receives a compacted event view.
+	// The executor's raw KAgentSessionService is kept unwrapped so MaybeCompact
+	// can read and write real marker events.
+	runnerSessionService := adkSessionService
+	if compactionCfg != nil {
+		runnerSessionService = compaction.NewCompactingService(adkSessionService, agentNameFromAppName(appName))
+	}
+
 	cfg := runner.Config{
 		AppName:        appName,
 		Agent:          adkAgent,
-		SessionService: adkSessionService,
+		SessionService: runnerSessionService,
 		MemoryService:  runnerMemory,
 		PluginConfig: runner.PluginConfig{
 			Plugins: adkPlugins,
 		},
-	}
-
-	compactionCfg, err := buildCompactionConfig(ctx, agentConfig, log)
-	if err != nil {
-		return runner.Config{}, nil, nil, fmt.Errorf("failed to build compaction config: %w", err)
 	}
 
 	return cfg, subagentSessionIDs, compactionCfg, nil

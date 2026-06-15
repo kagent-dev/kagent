@@ -3,6 +3,7 @@ package compaction
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,8 +15,9 @@ import (
 )
 
 const (
-	compactionAuthor     = "compaction"
-	noInvocationSentinel = "\x00no_invocation"
+	compactionAuthor         = "compaction"
+	compactionInvocationBase = "compaction_"
+	noInvocationSentinel     = "\x00no_invocation"
 
 	defaultCompactionInterval = 5
 	defaultOverlapSize        = 2
@@ -82,7 +84,8 @@ func (c *Compactor) MaybeCompact(
 	}
 
 	// Sliding window: count new invocations since the last compaction watermark.
-	invocations := groupByInvocation(allEvents)
+	nonMarkers := filterCompactionMarkers(allEvents)
+	invocations := groupByInvocation(nonMarkers)
 	watermark := findWatermark(allEvents)
 
 	window, ok := decideSlidingWindow(invocations, watermark, c.cfg)
@@ -140,9 +143,9 @@ func (c *Compactor) compactTokenThreshold(
 	allEvents []*adksession.Event,
 	log logr.Logger,
 ) error {
-	windowEvents := allEvents
-	if c.cfg.EventRetentionSize > 0 && len(allEvents) > c.cfg.EventRetentionSize {
-		windowEvents = allEvents[:len(allEvents)-c.cfg.EventRetentionSize]
+	windowEvents := filterCompactionMarkers(allEvents)
+	if c.cfg.EventRetentionSize > 0 && len(windowEvents) > c.cfg.EventRetentionSize {
+		windowEvents = windowEvents[:len(windowEvents)-c.cfg.EventRetentionSize]
 	}
 
 	windowEvents = longestSelfContainedPrefix(windowEvents)
@@ -215,16 +218,99 @@ func (c *Compactor) summarize(ctx context.Context, events []*adksession.Event) (
 	}, nil
 }
 
+// BuildCompactedEventList returns a new event list with compacted ranges
+// replaced by synthetic summary events. Compaction marker events are always
+// removed from the output. Subsumed compactions are silently dropped.
+//
+// Called by compactingService.Get before the runner sees the session, so
+// buildContentsDefault never processes marker events.
+func BuildCompactedEventList(agentName string, events []*adksession.Event) []*adksession.Event {
+	type compactionRange struct {
+		startNano, endNano int64
+		content            *genai.Content
+		markerEv           *adksession.Event
+	}
+
+	var ranges []compactionRange
+	for _, ev := range events {
+		if !isCompactionMarker(ev) {
+			continue
+		}
+		parsed, ok := parseCompactionInvocationID(ev.InvocationID)
+		if !ok {
+			continue
+		}
+		ranges = append(ranges, compactionRange{
+			startNano: parsed[0],
+			endNano:   parsed[1],
+			content:   ev.Content,
+			markerEv:  ev,
+		})
+	}
+	if len(ranges) == 0 {
+		return events
+	}
+
+	// Remove subsumed ranges.
+	active := make([]compactionRange, 0, len(ranges))
+	for _, r := range ranges {
+		subsumed := false
+		for _, r2 := range ranges {
+			if r2.markerEv == r.markerEv {
+				continue
+			}
+			if r2.startNano <= r.startNano && r2.endNano >= r.endNano {
+				subsumed = true
+				break
+			}
+		}
+		if !subsumed {
+			active = append(active, r)
+		}
+	}
+
+	// Sort by start time (insertion sort; range count is typically small).
+	for i := 1; i < len(active); i++ {
+		for j := i; j > 0 && active[j].startNano < active[j-1].startNano; j-- {
+			active[j], active[j-1] = active[j-1], active[j]
+		}
+	}
+
+	injected := make([]bool, len(active))
+	result := make([]*adksession.Event, 0, len(events))
+	for _, ev := range events {
+		if isCompactionMarker(ev) {
+			continue
+		}
+		nano := ev.Timestamp.UnixNano()
+		inRange := -1
+		for i, r := range active {
+			if nano >= r.startNano && nano <= r.endNano {
+				inRange = i
+				break
+			}
+		}
+		if inRange >= 0 {
+			if !injected[inRange] && active[inRange].content != nil {
+				summaryEv := adksession.NewEvent(fmt.Sprintf("compacted_%d", active[inRange].startNano))
+				summaryEv.Author = agentName
+				summaryEv.Timestamp = time.Unix(0, active[inRange].startNano).UTC()
+				summaryEv.Content = active[inRange].content
+				result = append(result, summaryEv)
+				injected[inRange] = true
+			}
+			continue
+		}
+		result = append(result, ev)
+	}
+	return result
+}
+
 // decideSlidingWindow returns the invocation groups to compact based on a
 // watermark-based count of new invocations. Returns (nil, false) when the
 // trigger condition is not met.
-//
-// Watermark = EndTimestamp of the most recent compaction event (zero if none).
-// New invocations = those with max event timestamp strictly after the watermark.
-// Trigger when len(new) >= CompactionInterval.
-// Window = invocations[max(0, firstNewIdx-OverlapSize) : len-OverlapSize].
 func decideSlidingWindow(invocations []invocationGroup, watermark time.Time, cfg *Config) ([]invocationGroup, bool) {
-	firstNewIdx := len(invocations) // sentinel: no new invocations found
+	firstNewIdx := len(invocations)
 	for i, inv := range invocations {
 		if watermark.IsZero() || maxTimestamp(inv.events).After(watermark) {
 			firstNewIdx = i
@@ -236,12 +322,10 @@ func decideSlidingWindow(invocations []invocationGroup, watermark time.Time, cfg
 		return nil, false
 	}
 
-	// Reach back OverlapSize into already-compacted invocations for context.
 	windowStart := firstNewIdx - cfg.OverlapSize
 	if windowStart < 0 {
 		windowStart = 0
 	}
-	// Keep last OverlapSize new invocations as a recent-context tail.
 	windowEnd := len(invocations) - cfg.OverlapSize
 	if windowEnd <= windowStart {
 		return nil, false
@@ -249,37 +333,63 @@ func decideSlidingWindow(invocations []invocationGroup, watermark time.Time, cfg
 	return invocations[windowStart:windowEnd], true
 }
 
-// findWatermark returns the latest EndTimestamp seen in any compaction event,
-// or zero time when no compaction event exists.
+// findWatermark returns the latest end timestamp encoded in any compaction
+// marker event's InvocationID, or zero time when no marker exists.
 func findWatermark(events []*adksession.Event) time.Time {
 	var watermark time.Time
 	for _, ev := range events {
-		if ev.Actions.Compaction != nil {
-			if ts := ev.Actions.Compaction.EndTimestamp; ts.After(watermark) {
-				watermark = ts
-			}
+		if !isCompactionMarker(ev) {
+			continue
+		}
+		parsed, ok := parseCompactionInvocationID(ev.InvocationID)
+		if !ok {
+			continue
+		}
+		if end := time.Unix(0, parsed[1]).UTC(); end.After(watermark) {
+			watermark = end
 		}
 	}
 	return watermark
 }
 
-// buildCompactionEvent creates an event that marks a compacted range.
-// The event carries the summary in Actions.Compaction; its Content is nil.
-func buildCompactionEvent(ctx context.Context, content *genai.Content, startTS, endTS time.Time) *adksession.Event {
-	invID := "compaction_" + startTS.UTC().Format("20060102T150405Z")
-	e := adksession.NewEventWithContext(ctx, invID)
-	e.Author = compactionAuthor
-	e.Actions.Compaction = &adksession.EventCompaction{
-		StartTimestamp:   startTS,
-		EndTimestamp:     endTS,
-		CompactedContent: content,
+// buildCompactionEvent creates a compaction marker event.
+// Summary is stored as Content. Start and end timestamps are encoded in
+// InvocationID as "compaction_<startNano>_<endNano>".
+// buildContentsDefault never sees this event: compactingService.Get applies
+// BuildCompactedEventList before the runner loads the session.
+func buildCompactionEvent(_ context.Context, content *genai.Content, startTS, endTS time.Time) *adksession.Event {
+	invID := fmt.Sprintf("%s%d_%d", compactionInvocationBase, startTS.UnixNano(), endTS.UnixNano())
+	ev := adksession.NewEvent(invID)
+	ev.Author = compactionAuthor
+	ev.Timestamp = endTS
+	ev.Content = content
+	return ev
+}
+
+// isCompactionMarker reports whether ev is a compaction marker event.
+func isCompactionMarker(ev *adksession.Event) bool {
+	return ev.Author == compactionAuthor &&
+		strings.HasPrefix(ev.InvocationID, compactionInvocationBase)
+}
+
+// parseCompactionInvocationID parses "compaction_<startNano>_<endNano>"
+// and returns [startNano, endNano].
+func parseCompactionInvocationID(invID string) ([2]int64, bool) {
+	rest := strings.TrimPrefix(invID, compactionInvocationBase)
+	idx := strings.LastIndex(rest, "_")
+	if idx < 0 {
+		return [2]int64{}, false
 	}
-	return e
+	startNano, err1 := strconv.ParseInt(rest[:idx], 10, 64)
+	endNano, err2 := strconv.ParseInt(rest[idx+1:], 10, 64)
+	if err1 != nil || err2 != nil {
+		return [2]int64{}, false
+	}
+	return [2]int64{startNano, endNano}, true
 }
 
 // longestSelfContainedPrefix returns the longest prefix of events that ends
 // at a point where no function call is open and no tool confirmation is pending.
-// This prevents compacting through an in-flight tool exchange.
 func longestSelfContainedPrefix(events []*adksession.Event) []*adksession.Event {
 	openCalls := map[string]bool{}
 	safeIdx := 0
@@ -327,6 +437,17 @@ func groupByInvocation(events []*adksession.Event) []invocationGroup {
 		}
 	}
 	return groups
+}
+
+// filterCompactionMarkers returns events with compaction markers removed.
+func filterCompactionMarkers(events []*adksession.Event) []*adksession.Event {
+	out := make([]*adksession.Event, 0, len(events))
+	for _, ev := range events {
+		if !isCompactionMarker(ev) {
+			out = append(out, ev)
+		}
+	}
+	return out
 }
 
 func maxTimestamp(events []*adksession.Event) time.Time {
@@ -413,8 +534,7 @@ func FromAgentConfig(agentCfg *adkapiconfig.AgentConfig) (*Config, error) {
 }
 
 // SummarizerModelName returns the model name configured for summarization,
-// or "" when none is set. Used by adapter.go to decide whether to build a
-// dedicated summarizer LLM or fall back to the agent's own model.
+// or "" when none is set.
 func SummarizerModelName(agentCfg *adkapiconfig.AgentConfig) string {
 	if agentCfg == nil || agentCfg.ContextConfig == nil || agentCfg.ContextConfig.Compaction == nil {
 		return ""
