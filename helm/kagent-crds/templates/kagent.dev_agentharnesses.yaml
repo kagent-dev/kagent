@@ -19,6 +19,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.runtime
+      name: Runtime
+      type: string
     - jsonPath: .spec.backend
       name: Backend
       type: string
@@ -511,6 +514,75 @@ spec:
                       type: string
                     type: array
                 type: object
+              runtime:
+                default: openshell
+                description: Runtime selects the harness provisioning stack. Defaults
+                  to openshell when unset.
+                enum:
+                - openshell
+                - substrate
+                type: string
+              substrate:
+                description: Substrate is required when runtime is substrate.
+                properties:
+                  gatewayToken:
+                    description: |-
+                      GatewayToken is the OpenClaw gateway Bearer token for this harness.
+                      Prefer gatewayTokenSecretRef for production secrets.
+                    minLength: 1
+                    type: string
+                  gatewayTokenSecretRef:
+                    description: |-
+                      GatewayTokenSecretRef references a Secret key holding the OpenClaw gateway Bearer token.
+                      The Secret must contain a "token" key.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  snapshotsConfig:
+                    description: |-
+                      SnapshotsConfig configures actor memory snapshots. Defaults to
+                      gs://ate-snapshots/<namespace>/<agentharnessname> when unset.
+                    properties:
+                      location:
+                        description: |-
+                          Location is the GCS URI prefix for golden and incremental snapshots.
+                          Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
+                        pattern: ^gs://
+                        type: string
+                    required:
+                    - location
+                    type: object
+                  workerPoolRef:
+                    description: |-
+                      WorkerPoolRef references an existing ate.dev WorkerPool in the harness namespace.
+                      When unset, the controller uses its configured default WorkerPool.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  workloadImage:
+                    description: WorkloadImage overrides the default nemoclaw/openclaw
+                      sandbox image in the ActorTemplate.
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: Exactly one of gatewayToken or gatewayTokenSecretRef must
+                    be specified
+                  rule: (has(self.gatewayToken) && !has(self.gatewayTokenSecretRef))
+                    || (!has(self.gatewayToken) && has(self.gatewayTokenSecretRef))
             required:
             - backend
             type: object
@@ -520,6 +592,10 @@ spec:
                 || (has(c.slack) && ((self.backend == ''hermes'' && has(c.slack.hermes)
                 && !has(c.slack.openclaw)) || ((self.backend == ''openclaw'' || self.backend
                 == ''nemoclaw'') && has(c.slack.openclaw) && !has(c.slack.hermes)))))'
+            - message: spec.substrate may only be set when runtime is substrate
+              rule: '!has(self.substrate) || self.runtime == ''substrate'''
+            - message: spec.substrate is required when runtime is substrate
+              rule: self.runtime != 'substrate' || has(self.substrate)
           status:
             description: AgentHarnessStatus is the observed state of an AgentHarness.
             properties:

@@ -77,6 +77,49 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8083
 
+  - it: should set substrate ate-api env vars and projected token when substrate is enabled
+    template: controller-deployment.yaml
+    set:
+      controller:
+        substrate:
+          enabled: true
+          ateApiEndpoint: "dns:///api.ate-system.svc:443"
+          ateApiTokenFile: "/custom/token"
+          ateApiTokenAudience: "custom-api"
+          ateApiTokenExpirationSeconds: 7200
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SUBSTRATE_ATE_API_ENDPOINT
+            value: "dns:///api.ate-system.svc:443"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SUBSTRATE_ATE_API_TOKEN_FILE
+            value: "/custom/token"
+      - equal:
+          path: spec.template.spec.volumes[0].name
+          value: substrate-ate-api-token
+      - equal:
+          path: spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.audience
+          value: custom-api
+      - equal:
+          path: spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.expirationSeconds
+          value: 7200
+      - equal:
+          path: spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.path
+          value: token
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].name
+          value: substrate-ate-api-token
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /custom
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].readOnly
+          value: true
+
   - it: should set A2A_BASE_URL with computed default value
     template: controller-configmap.yaml
     asserts:
@@ -109,6 +152,23 @@ tests:
     asserts:
       - notExists:
           path: data.PROXY_URL
+
+  - it: should default MCP_EGRESS_PLAINTEXT to false
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.MCP_EGRESS_PLAINTEXT
+          value: "false"
+
+  - it: should set MCP_EGRESS_PLAINTEXT to true when enabled
+    template: controller-configmap.yaml
+    set:
+      controller:
+        mcpEgressPlaintext: true
+    asserts:
+      - equal:
+          path: data.MCP_EGRESS_PLAINTEXT
+          value: "true"
 
   - it: should use custom loglevel when set
     template: controller-configmap.yaml
@@ -567,3 +627,152 @@ tests:
           value: 60
       - notExists:
           path: spec.template.spec.containers[0].readinessProbe.httpGet
+
+  - it: should not expose metrics container port by default
+    template: controller-deployment.yaml
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 1
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+
+  - it: should not set metrics env vars by default
+    template: controller-deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+          any: true
+
+  - it: should expose metrics container port when enabled
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 8443
+            protocol: TCP
+
+  - it: should set metrics env vars when enabled
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+            value: ":8443"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+            value: "true"
+
+  - it: should reflect insecure serving in env
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.secureServing: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+            value: "false"
+
+  - it: should derive metrics container port from bindAddress
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: ":9443"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+            value: ":9443"
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9443
+            protocol: TCP
+
+  - it: should derive metrics container port from a host-qualified bindAddress
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "127.0.0.1:9443"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9443
+            protocol: TCP
+
+  - it: should derive metrics container port from a bracketed IPv6 bindAddress
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "[::1]:9443"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+            containerPort: 9443
+            protocol: TCP
+
+  - it: should not gain metrics wiring when bindAddress disables metrics
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "0"
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_SECURE
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: metrics
+
+  - it: should let controller.env override the chart-supplied metrics env
+    template: controller-deployment.yaml
+    set:
+      controller.metrics.enabled: true
+      controller.env:
+        - name: METRICS_BIND_ADDRESS
+          value: "0"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+            value: ":8443"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: METRICS_BIND_ADDRESS
+            value: "0"

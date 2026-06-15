@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Button } from "./ui/button";
 import KAgentLogoWithText from "./kagent-logo-text";
 import KagentLogo from "./kagent-logo";
-import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText, Cable } from "lucide-react";
+import { Plus, Menu, X, ChevronDown, Brain, Server, Eye, Hammer, HomeIcon, ScrollText, Cable, Layers } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { UserMenu } from "./UserMenu";
 import {
@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { SubstrateFeatureGate } from "@/components/SubstrateFeatureGate";
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -131,6 +132,14 @@ export function Header() {
                     Prompt Library
                   </Link>
                 </DropdownMenuItem>
+                <SubstrateFeatureGate>
+                  <DropdownMenuItem asChild>
+                    <Link href="/substrate" className="gap-2 cursor-pointer w-full">
+                      <Layers className="h-4 w-4" />
+                      Substrate
+                    </Link>
+                  </DropdownMenuItem>
+                </SubstrateFeatureGate>
               </DropdownMenuContent>
             </DropdownMenu>
 
@@ -194,6 +203,14 @@ export function Header() {
                       Prompt Library
                     </Link>
                   </DropdownMenuItem>
+                  <SubstrateFeatureGate>
+                    <DropdownMenuItem asChild onClick={handleMobileLinkClick}>
+                      <Link href="/substrate" className="gap-2 cursor-pointer w-full">
+                        <Layers className="h-4 w-4" />
+                        Substrate
+                      </Link>
+                    </DropdownMenuItem>
+                  </SubstrateFeatureGate>
                 </DropdownMenuContent>
               </DropdownMenu>
 

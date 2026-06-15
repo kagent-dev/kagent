@@ -3,9 +3,9 @@ package openshell_test
 import (
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/hermes"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 )
 
 func TestResolveSSHRemoteCommand(t *testing.T) {

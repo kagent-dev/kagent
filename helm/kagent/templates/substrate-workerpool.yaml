@@ -1,0 +1,15 @@
+{{- if and .Values.controller.substrate.enabled .Values.substrateWorkerPool.create }}
+{{- if not .Values.substrateWorkerPool.ateomImage }}
+{{- fail "substrateWorkerPool.ateomImage is required when substrateWorkerPool.create=true" }}
+{{- end }}
+apiVersion: ate.dev/v1alpha1
+kind: WorkerPool
+metadata:
+  name: {{ .Values.substrateWorkerPool.name | quote }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.substrateWorkerPool.replicas }}
+  ateomImage: {{ .Values.substrateWorkerPool.ateomImage | quote }}
+{{- end }}

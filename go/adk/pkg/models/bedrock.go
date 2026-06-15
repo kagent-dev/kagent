@@ -77,6 +77,33 @@ type BedrockConfig struct {
 	Temperature                  *float64
 	TopP                         *float64
 	AdditionalModelRequestFields map[string]any
+	// PromptCaching, when true, appends a default CachePoint block at the
+	// end of the Converse request's system content array and the end of
+	// the toolConfig.tools array. Bedrock caches up to and including those markers
+	// across requests in the same region; cached prefix is billed at a
+	// reduced rate. The marker is silently ignored by Bedrock for models
+	// that do not support prompt caching.
+	PromptCaching bool
+	// CacheTTL selects the cache retention window when PromptCaching is on.
+	// "" or "5m" uses Bedrock's default 5-minute cache (broadest model
+	// support); "1h" opts into extended-TTL caching. See bedrockCachePointBlock.
+	CacheTTL string
+}
+
+// bedrockCachePointBlock builds a Converse CachePoint marker honoring the
+// configured cache TTL.
+//
+// An empty or "5m" ttl leaves the SDK Ttl field unset: Bedrock then applies its
+// standard 5-minute sliding cache, which is supported by every prompt-caching
+// model. Only "1h" sets the Ttl explicitly, opting into extended-TTL caching —
+// supported on fewer models and billed at a higher cache-write rate, so it is
+// not a free upgrade over 5m.
+func bedrockCachePointBlock(cacheTTL string) types.CachePointBlock {
+	block := types.CachePointBlock{Type: types.CachePointTypeDefault}
+	if cacheTTL == string(types.CacheTTLOneHour) {
+		block.Ttl = types.CacheTTLOneHour
+	}
+	return block
 }
 
 // BedrockModel implements model.LLM for Amazon Bedrock using the Converse API.
@@ -151,7 +178,7 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 		var toolConfig *types.ToolConfiguration
 		nameMap := make(map[string]string)
 		if req.Config != nil && len(req.Config.Tools) > 0 {
-			tools, nm := convertGenaiToolsToBedrock(req.Config.Tools)
+			tools, nm := convertGenaiToolsToBedrock(req.Config.Tools, m.Config.PromptCaching, m.Config.CacheTTL)
 			nameMap = nm
 			if len(tools) > 0 {
 				toolConfig = &types.ToolConfiguration{
@@ -171,26 +198,25 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 		// is written with the sanitized name Bedrock already knows about.
 		messages, systemInstruction := convertGenaiContentsToBedrockMessages(req.Contents, nameMap)
 
-		// Build inference config
-		var inferenceConfig *types.InferenceConfiguration
-		if m.Config.MaxTokens != nil || m.Config.Temperature != nil || m.Config.TopP != nil {
-			inferenceConfig = &types.InferenceConfiguration{}
-			if m.Config.MaxTokens != nil {
-				inferenceConfig.MaxTokens = aws.Int32(int32(*m.Config.MaxTokens))
-			}
-			if m.Config.Temperature != nil {
-				inferenceConfig.Temperature = aws.Float32(float32(*m.Config.Temperature))
-			}
-			if m.Config.TopP != nil {
-				inferenceConfig.TopP = aws.Float32(float32(*m.Config.TopP))
-			}
-		}
+		// temperature/top_p must not be sent when thinking is active. https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-extended-thinking.html
+		_, thinkingEnabled := m.Config.AdditionalModelRequestFields["thinking"]
+		inferenceConfig := buildInferenceConfig(m.Config, thinkingEnabled)
 
 		// Build system prompt
 		var systemPrompt []types.SystemContentBlock
 		if systemInstruction != "" {
 			systemPrompt = append(systemPrompt, &types.SystemContentBlockMemberText{
 				Value: systemInstruction,
+			})
+		}
+		// If prompt caching is enabled, mark the end of the system content
+		// as a cache breakpoint. Bedrock caches everything up to and including
+		// this point for ~5 minutes; subsequent requests with the same prefix
+		// hit the cache. Skipped for empty systems — caching nothing is a no-op
+		// that wastes a marker.
+		if m.Config.PromptCaching && len(systemPrompt) > 0 {
+			systemPrompt = append(systemPrompt, &types.SystemContentBlockMemberCachePoint{
+				Value: bedrockCachePointBlock(m.Config.CacheTTL),
 			})
 		}
 
@@ -248,6 +274,10 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 	toolCalls := make(map[int32]*streamingToolCall)
 	var completedToolCalls []*genai.Part
 
+	// https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-extended-thinking.html
+	reasoningBlocks := make(map[int32]*streamingReasoningBlock)
+	var completedThinkingParts []*genai.Part
+
 	// Get the event stream and read events from the channel
 	stream := output.GetStream()
 	defer stream.Close()
@@ -295,10 +325,22 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 				if tc, ok := toolCalls[blockIdx]; ok && delta.Value.Input != nil {
 					tc.InputJSON += aws.ToString(delta.Value.Input)
 				}
+
+			case *types.ContentBlockDeltaMemberReasoningContent:
+				if _, ok := reasoningBlocks[blockIdx]; !ok {
+					reasoningBlocks[blockIdx] = &streamingReasoningBlock{}
+				}
+				rb := reasoningBlocks[blockIdx]
+				switch inner := delta.Value.(type) {
+				case *types.ReasoningContentBlockDeltaMemberText:
+					rb.Text.WriteString(inner.Value)
+				case *types.ReasoningContentBlockDeltaMemberSignature:
+					rb.Signature = inner.Value
+				}
 			}
 		}
 
-		// Handle content block stop (tool use complete)
+		// Handle content block stop (tool use or thinking block complete)
 		if stop, ok := event.(*types.ConverseStreamOutputMemberContentBlockStop); ok {
 			blockIdx := aws.ToInt32(stop.Value.ContentBlockIndex)
 			if tc, ok := toolCalls[blockIdx]; ok {
@@ -316,7 +358,18 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 					Args: args,
 				}
 				completedToolCalls = append(completedToolCalls, &genai.Part{FunctionCall: functionCall})
-				delete(toolCalls, blockIdx) // Clean up
+				delete(toolCalls, blockIdx)
+			}
+			if rb, ok := reasoningBlocks[blockIdx]; ok {
+				part := &genai.Part{
+					Thought: true,
+					Text:    rb.Text.String(),
+				}
+				if rb.Signature != "" {
+					part.ThoughtSignature = []byte(rb.Signature)
+				}
+				completedThinkingParts = append(completedThinkingParts, part)
+				delete(reasoningBlocks, blockIdx)
 			}
 		}
 
@@ -337,8 +390,9 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 		}
 	}
 
-	// Build final response
+	// thinking parts first; block order must match what Bedrock returned.
 	finalParts := []*genai.Part{}
+	finalParts = append(finalParts, completedThinkingParts...)
 	text := aggregatedText.String()
 	if text != "" {
 		finalParts = append(finalParts, &genai.Part{Text: text})
@@ -364,6 +418,11 @@ type streamingToolCall struct {
 	ID        string
 	Name      string
 	InputJSON string // Accumulated JSON input
+}
+
+type streamingReasoningBlock struct {
+	Text      strings.Builder
+	Signature string
 }
 
 // parseArgs parses the accumulated JSON input into a map
@@ -403,6 +462,20 @@ func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string,
 	parts := []*genai.Part{}
 	if message, ok := output.Output.(*types.ConverseOutputMemberMessage); ok {
 		for _, block := range message.Value.Content {
+			// https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-extended-thinking.html
+			if reasoningBlock, ok := block.(*types.ContentBlockMemberReasoningContent); ok {
+				if textBlock, ok := reasoningBlock.Value.(*types.ReasoningContentBlockMemberReasoningText); ok {
+					part := &genai.Part{
+						Thought: true,
+						Text:    aws.ToString(textBlock.Value.Text),
+					}
+					if textBlock.Value.Signature != nil {
+						part.ThoughtSignature = []byte(aws.ToString(textBlock.Value.Signature))
+					}
+					parts = append(parts, part)
+				}
+				continue
+			}
 			// Handle text content
 			if textBlock, ok := block.(*types.ContentBlockMemberText); ok {
 				parts = append(parts, &genai.Part{Text: textBlock.Value})
@@ -473,6 +546,15 @@ func documentToMap(doc document.Interface) map[string]any {
 	return result
 }
 
+const historyToolResultMaxLen = 2000
+
+func truncateToolResult(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + fmt.Sprintf("\n... [truncated, %d chars omitted]", len(s)-maxLen)
+}
+
 // convertGenaiContentsToBedrockMessages converts genai.Content to Bedrock Converse API message format.
 // nameMap is the original->sanitized tool name map produced by convertGenaiToolsToBedrock.
 // Any FunctionCall found in the conversation history is written with the sanitized name so
@@ -486,16 +568,39 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 	idMap := make(map[string]string)
 	idCounter := 0
 
-	for _, content := range contents {
+	// Bedrock only requires thinking blocks in the last assistant turn before tool results.
+	// Sending them in earlier turns causes token counts to compound across long sessions.
+	// Truncate tool results in all turns except the most recent one carrying them.
+	lastThinkingIdx, lastToolResultIdx := -1, -1
+	for i, c := range contents {
+		if c == nil {
+			continue
+		}
+		for _, p := range c.Parts {
+			if p == nil {
+				continue
+			}
+			if p.Thought && (c.Role == "model" || c.Role == "assistant") {
+				lastThinkingIdx = i
+			}
+			if p.FunctionResponse != nil && c.Role == "user" {
+				lastToolResultIdx = i
+			}
+		}
+	}
+
+	for i, content := range contents {
 		if content == nil || len(content.Parts) == 0 {
 			continue
 		}
 
-		// Determine role
 		role := types.ConversationRoleUser
 		if content.Role == "model" || content.Role == "assistant" {
 			role = types.ConversationRoleAssistant
 		}
+
+		emitThinking := i == lastThinkingIdx
+		truncateTools := i != lastToolResultIdx
 
 		var contentBlocks []types.ContentBlock
 
@@ -504,9 +609,26 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 				continue
 			}
 
-			// Handle text
+			// Thought parts also carry Text; check Thought first. https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-extended-thinking.html
+			if part.Thought {
+				if !emitThinking {
+					continue
+				}
+				reasoningText := &types.ReasoningTextBlock{
+					Text: aws.String(part.Text),
+				}
+				if len(part.ThoughtSignature) > 0 {
+					reasoningText.Signature = aws.String(string(part.ThoughtSignature))
+				}
+				contentBlocks = append(contentBlocks, &types.ContentBlockMemberReasoningContent{
+					Value: &types.ReasoningContentBlockMemberReasoningText{
+						Value: *reasoningText,
+					},
+				})
+				continue
+			}
+
 			if part.Text != "" {
-				// Check if this is a system message
 				if content.Role == "system" {
 					systemInstruction = part.Text
 					continue
@@ -536,10 +658,11 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 				continue
 			}
 
-			// Handle function response (tool result in Bedrock terminology)
 			if part.FunctionResponse != nil {
-				// Extract response content
 				result := extractFunctionResponseContent(part.FunctionResponse.Response)
+				if truncateTools {
+					result = truncateToolResult(result, historyToolResultMaxLen)
+				}
 				toolResult := types.ToolResultBlock{
 					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionResponse.ID, idMap, &idCounter)),
 					Content: []types.ToolResultContentBlock{
@@ -568,7 +691,13 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 // It sanitizes tool names to satisfy Bedrock's [a-zA-Z0-9_-]+ constraint and
 // returns the original->sanitized name mapping so callers can apply it to
 // conversation history and reverse it when restoring names from responses.
-func convertGenaiToolsToBedrock(tools []*genai.Tool) ([]types.Tool, map[string]string) {
+//
+// When promptCaching is true, a CachePoint marker is appended after the
+// last tool spec — Bedrock then caches the entire (typically large) tool
+// definitions array, billing the prefix at a reduced rate on cache hits. The
+// cacheTTL argument selects the retention window for that marker (see
+// bedrockCachePointBlock).
+func convertGenaiToolsToBedrock(tools []*genai.Tool, promptCaching bool, cacheTTL string) ([]types.Tool, map[string]string) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
@@ -625,6 +754,17 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) ([]types.Tool, map[string]s
 		}
 	}
 
+	// If prompt caching is enabled, append a CachePoint at the END of the
+	// tool list. Bedrock caches the entire tool definitions array up to
+	// this marker; this is usually the biggest single chunk of static
+	// prefix in an agent conversation and benefits most from caching.
+	// Skipped when there are no tools — a cache marker by itself is a no-op.
+	if promptCaching && len(bedrockTools) > 0 {
+		bedrockTools = append(bedrockTools, &types.ToolMemberCachePoint{
+			Value: bedrockCachePointBlock(cacheTTL),
+		})
+	}
+
 	return bedrockTools, nameMap
 }
 
@@ -640,4 +780,26 @@ func bedrockStopReasonToGenai(reason types.StopReason) genai.FinishReason {
 	default:
 		return genai.FinishReasonStop
 	}
+}
+
+// buildInferenceConfig constructs the Bedrock InferenceConfiguration from a
+// BedrockConfig. When thinking is enabled, temperature and top_p must be
+// omitted per the Bedrock extended-thinking API contract.
+func buildInferenceConfig(cfg *BedrockConfig, thinkingEnabled bool) *types.InferenceConfiguration {
+	if cfg.MaxTokens == nil && (thinkingEnabled || (cfg.Temperature == nil && cfg.TopP == nil)) {
+		return nil
+	}
+	ic := &types.InferenceConfiguration{}
+	if cfg.MaxTokens != nil {
+		ic.MaxTokens = aws.Int32(int32(*cfg.MaxTokens))
+	}
+	if !thinkingEnabled {
+		if cfg.Temperature != nil {
+			ic.Temperature = aws.Float32(float32(*cfg.Temperature))
+		}
+		if cfg.TopP != nil {
+			ic.TopP = aws.Float32(float32(*cfg.TopP))
+		}
+	}
+	return ic
 }

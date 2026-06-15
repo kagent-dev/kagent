@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/hermes"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell/openclaw"
 )
 
 // ResolveSSHRemoteCommand decides whether to run an interactive shell or a harness CLI.

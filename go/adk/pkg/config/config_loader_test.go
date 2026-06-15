@@ -76,6 +76,52 @@ func TestLoadAgentConfig_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestMaterializeFromEnv(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	t.Setenv("KAGENT_CONFIG_JSON", `{"model":{"type":"openai","model":"gpt-4","api_key":"k"},"instruction":"hi"}`)
+	t.Setenv("KAGENT_AGENT_CARD_JSON", `{"name":"test-agent","version":"1.0.0"}`)
+	t.Setenv("KAGENT_SRT_SETTINGS_JSON", `{"skills":[]}`)
+
+	if err := MaterializeFromEnv(tmpDir); err != nil {
+		t.Fatalf("MaterializeFromEnv() error = %v", err)
+	}
+
+	config, err := LoadAgentConfig(filepath.Join(tmpDir, "config.json"))
+	if err != nil {
+		t.Fatalf("LoadAgentConfig() error = %v", err)
+	}
+	if config.Instruction != "hi" {
+		t.Fatalf("instruction = %q, want hi", config.Instruction)
+	}
+
+	card, err := LoadAgentCard(filepath.Join(tmpDir, "agent-card.json"))
+	if err != nil {
+		t.Fatalf("LoadAgentCard() error = %v", err)
+	}
+	if card.Name != "test-agent" {
+		t.Fatalf("card name = %q, want test-agent", card.Name)
+	}
+
+	srtData, err := os.ReadFile(filepath.Join(tmpDir, srtSettingsFile))
+	if err != nil {
+		t.Fatalf("read srt settings: %v", err)
+	}
+	if string(srtData) != `{"skills":[]}` {
+		t.Fatalf("srt settings = %q", string(srtData))
+	}
+}
+
+func TestMaterializeFromEnv_SkipsUnset(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := MaterializeFromEnv(tmpDir); err != nil {
+		t.Fatalf("MaterializeFromEnv() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected no config.json when env unset, stat err = %v", err)
+	}
+}
+
 func TestLoadAgentCard(t *testing.T) {
 	cardJSON := `{
 		"name": "test-agent",

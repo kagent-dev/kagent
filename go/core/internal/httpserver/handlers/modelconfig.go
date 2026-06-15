@@ -1,26 +1,22 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
-	stderrors "errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"strings"
 
-	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+
+	api "github.com/kagent-dev/kagent/go/api/httpapi"
 )
 
 // ModelConfigHandler handles ModelConfiguration requests
@@ -190,8 +186,13 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 		}
 	}
 
-	if err := createOrUpdateCompanionSecrets(r.Context(), h.KubeClient, modelConfig, req.Secrets); err != nil {
+	if err := createOrUpdateCompanionSecrets(r.Context(), h.KubeClient, modelConfig, modelConfigGVK, req.Secrets); err != nil {
 		log.Error(err, "Failed to create or update companion secrets")
+		// Close the partial-failure window: the ModelConfig is in K8s
+		// but its companion Secrets aren't. The operator's retry would
+		// otherwise hit AlreadyExists on the ModelConfig without a hint
+		// that the prior attempt half-succeeded.
+		rollbackOwnerOnCompanionSecretFailure(r.Context(), h.KubeClient, modelConfig, log)
 		w.RespondWithError(companionSecretAPIError(err))
 		return
 	}
@@ -254,18 +255,24 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		return
 	}
 
-	// Inline apiKey: auto-set secret refs and create/update the secret.
+	// Capture Secret names referenced by the PRE-update Spec so we can
+	// sweep companion Secrets the operator transitioned away from
+	// (e.g. renamed Spec.TLS.CACertSecretRef from ca-v1 to ca-v2).
+	oldRefs := referencedSecretNames(modelConfig.Spec)
+
+	// Inline apiKey: auto-set secret refs (the materialization happens
+	// below, after the secret writes complete).
 	if req.APIKey != nil && *req.APIKey != "" && req.Spec.APIKeySecret == "" && req.Spec.Provider != v1alpha2.ModelProviderOllama {
 		req.Spec.APIKeySecret = configName
 		req.Spec.APIKeySecretKey = fmt.Sprintf("%s_API_KEY", strings.ToUpper(string(req.Spec.Provider)))
 	}
-	modelConfig.Spec = req.Spec
-	if err := h.KubeClient.Update(r.Context(), modelConfig); err != nil {
-		log.Error(err, "Failed to update ModelConfig resource")
-		w.RespondWithError(errors.NewInternalServerError("Failed to update ModelConfig", err))
-		return
-	}
 
+	// Write secrets before flipping the Spec so a partial failure
+	// leaves the ModelConfig referencing its prior (still-valid)
+	// layout. Owner references on these Secrets bind to the existing
+	// ModelConfig UID; if the Spec Update below fails, the new
+	// Secrets become owned-but-unreferenced and are GC'd whenever
+	// the ModelConfig is eventually deleted.
 	if req.APIKey != nil && *req.APIKey != "" && req.Spec.Provider != v1alpha2.ModelProviderOllama {
 		log.V(1).Info("Updating API key secret")
 		if err := createOrUpdateSecretWithOwnerReference(
@@ -280,10 +287,38 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 		log.V(1).Info("Successfully updated API key secret")
 	}
 
-	if err := createOrUpdateCompanionSecrets(r.Context(), h.KubeClient, modelConfig, req.Secrets); err != nil {
+	if err := createOrUpdateCompanionSecrets(r.Context(), h.KubeClient, modelConfig, modelConfigGVK, req.Secrets); err != nil {
 		log.Error(err, "Failed to create or update companion secrets")
 		w.RespondWithError(companionSecretAPIError(err))
 		return
+	}
+
+	modelConfig.Spec = req.Spec
+	if err := h.KubeClient.Update(r.Context(), modelConfig); err != nil {
+		log.Error(err, "Failed to update ModelConfig resource")
+		w.RespondWithError(errors.NewInternalServerError("Failed to update ModelConfig", err))
+		return
+	}
+
+	// Sweep companion Secrets the new Spec no longer references. Only
+	// touches Secrets owned by this ModelConfig — externally-managed
+	// Secrets are skipped via the OwnerRef check inside the helper.
+	// Best-effort: a failed delete is logged but does not fail the PUT
+	// (the rename succeeded; an orphan Secret is recoverable, an
+	// already-rolled-back PUT is not).
+	newRefs := referencedSecretNames(modelConfig.Spec)
+	reqNames := map[string]struct{}{}
+	for _, s := range req.Secrets {
+		reqNames[s.Name] = struct{}{}
+	}
+	for name := range oldRefs {
+		if _, kept := newRefs[name]; kept {
+			continue
+		}
+		if _, kept := reqNames[name]; kept {
+			continue
+		}
+		deleteStaleOwnedSecret(r.Context(), h.KubeClient, modelConfig, modelConfigGVK, name, log)
 	}
 
 	log.Info("Successfully updated ModelConfig")
@@ -350,107 +385,7 @@ func validateAPIKeySecretRef(apiKeySecret, apiKeySecretKey string, provider v1al
 	return nil
 }
 
-func validateSecretMaterials(secrets []api.SecretMaterial) error {
-	for _, secret := range secrets {
-		if errs := validation.IsDNS1123Subdomain(secret.Name); len(errs) > 0 {
-			return fmt.Errorf("invalid secret name %q: %s", secret.Name, strings.Join(errs, "; "))
-		}
-		if errs := validation.IsConfigMapKey(secret.Key); len(errs) > 0 {
-			return fmt.Errorf("invalid key %q for secret %q: %s", secret.Key, secret.Name, strings.Join(errs, "; "))
-		}
-	}
-	return nil
-}
-
-var errInvalidCompanionSecret = stderrors.New("invalid companion secret")
-
-// companionSecretAPIError returns an API error for companion secret validation errors.
-func companionSecretAPIError(err error) *errors.APIError {
-	if stderrors.Is(err, errInvalidCompanionSecret) {
-		return errors.NewBadRequestError(err.Error(), err)
-	}
-	return errors.NewInternalServerError("Failed to create or update companion secrets", err)
-}
-
-func createOrUpdateCompanionSecrets(ctx context.Context, kubeClient client.Client, owner *v1alpha2.ModelConfig, secrets []api.SecretMaterial) error {
-	// Group secrets by name and key.
-	secretsByName := map[string]map[string][]byte{}
-	for _, secret := range secrets {
-		if _, ok := secretsByName[secret.Name]; !ok {
-			secretsByName[secret.Name] = map[string][]byte{}
-		}
-		secretsByName[secret.Name][secret.Key] = []byte(secret.Value)
-	}
-
-	namespace := owner.GetNamespace()
-	for name, data := range secretsByName {
-		existingSecret := &corev1.Secret{}
-		// Get the existing secret by name and namespace.
-		err := kubeClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, existingSecret)
-		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return fmt.Errorf("failed to get companion secret %s/%s: %w", namespace, name, err)
-			}
-
-			// Create the secret if it doesn't exist.
-			secret := &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            name,
-					Namespace:       namespace,
-					OwnerReferences: []metav1.OwnerReference{modelConfigOwnerReference(owner)},
-				},
-				Type: corev1.SecretTypeOpaque,
-				Data: data,
-			}
-			if err := kubeClient.Create(ctx, secret); err != nil {
-				return fmt.Errorf("failed to create companion secret %s/%s: %w", namespace, name, err)
-			}
-			continue
-		}
-
-		if existingSecret.Type != corev1.SecretTypeOpaque {
-			return fmt.Errorf("%w: companion secret %s/%s must be type %q, got %q", errInvalidCompanionSecret, namespace, name, corev1.SecretTypeOpaque, existingSecret.Type)
-		}
-		if !isOwnedByModelConfig(existingSecret, owner) {
-			return fmt.Errorf("%w: companion secret %s/%s is not managed by ModelConfig %s/%s", errInvalidCompanionSecret, namespace, name, owner.GetNamespace(), owner.GetName())
-		}
-
-		if existingSecret.Data == nil {
-			existingSecret.Data = map[string][]byte{}
-		}
-		maps.Copy(existingSecret.Data, data)
-		if err := kubeClient.Update(ctx, existingSecret); err != nil {
-			return fmt.Errorf("failed to update companion secret %s/%s: %w", namespace, name, err)
-		}
-	}
-
-	return nil
-}
-
-// modelConfigOwnerReference returns the owner reference for the model config.
-func modelConfigOwnerReference(owner *v1alpha2.ModelConfig) metav1.OwnerReference {
-	controller := true
-	return metav1.OwnerReference{
-		APIVersion: v1alpha2.GroupVersion.Identifier(),
-		Kind:       "ModelConfig",
-		Name:       owner.GetName(),
-		UID:        owner.GetUID(),
-		Controller: &controller,
-	}
-}
-
-// isOwnedByModelConfig checks if the secret is owned by the model config.
-func isOwnedByModelConfig(secret *corev1.Secret, owner *v1alpha2.ModelConfig) bool {
-	for _, ownerRef := range secret.GetOwnerReferences() {
-		if ownerRef.APIVersion != v1alpha2.GroupVersion.Identifier() ||
-			ownerRef.Kind != "ModelConfig" ||
-			ownerRef.Name != owner.GetName() {
-			continue
-		}
-		if owner.GetUID() != "" && ownerRef.UID != owner.GetUID() {
-			continue
-		}
-		return true
-	}
-	return false
-}
+// modelConfigGVK is passed to companion-secret helpers so the
+// OwnerReference and isOwnedBy check use the right Kind for this
+// resource.
+var modelConfigGVK = v1alpha2.GroupVersion.WithKind("ModelConfig")
