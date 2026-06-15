@@ -187,6 +187,16 @@ controller:
     repository: kagent-dev/kagent/skills-init
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
+  # -- The image used for the Go (ADK) runtime agent.
+  # Each field is optional: when empty, the controller falls back to the corresponding
+  # agentImage value (registry/pullPolicy) or derives the repository from
+  # agentImage.repository by replacing the last path segment with "golang-adk".
+  # Note: tag is not configurable here — Go runtime images are digest-pinned at
+  # controller build time.
+  goAgentImage:
+    registry: ""
+    repository: "" # empty => derived from agentImage.repository
+    pullPolicy: ""
   # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
   # internally. These values have no effect and will be removed in a future release.
   streaming: null

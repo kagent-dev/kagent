@@ -20,6 +20,15 @@ data:
   SKILLS_INIT_IMAGE_REGISTRY: {{ .Values.controller.skillsInitImage.registry | default .Values.registry | quote }}
   SKILLS_INIT_IMAGE_REPOSITORY: {{ .Values.controller.skillsInitImage.repository | quote }}
   SKILLS_INIT_IMAGE_TAG: {{ coalesce .Values.controller.skillsInitImage.tag .Values.tag .Chart.Version | quote }}
+  {{- with .Values.controller.goAgentImage.registry }}
+  GO_IMAGE_REGISTRY: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.controller.goAgentImage.repository }}
+  GO_IMAGE_REPOSITORY: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.controller.goAgentImage.pullPolicy }}
+  GO_IMAGE_PULL_POLICY: {{ . | quote }}
+  {{- end }}
   LEADER_ELECT: {{ include "kagent.leaderElectionEnabled" . | quote }}
   # OpenTelemetry Configuration
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}

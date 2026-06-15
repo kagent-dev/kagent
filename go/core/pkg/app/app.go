@@ -218,6 +218,9 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Registry, "go-image-registry", agent_translator.DefaultGoImageConfig.Registry, "The registry to use for the Go (ADK) runtime agent image. When empty, falls back to --image-registry.")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Repository, "go-image-repository", agent_translator.DefaultGoImageConfig.Repository, "The repository to use for the Go (ADK) runtime agent image. When empty, derived from --image-repository by replacing the last path segment with \"golang-adk\".")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.PullPolicy, "go-image-pull-policy", agent_translator.DefaultGoImageConfig.PullPolicy, "The pull policy to use for the Go (ADK) runtime agent image. When empty, falls back to --image-pull-policy.")
 
 	commandLine.StringVar(&cfg.Openshell.GatewayURL, "openshell-gateway-url", "", "gRPC target for the OpenShell sandbox gateway (e.g. dns:///openshell.openshell.svc:443). When empty, the Sandbox controller is disabled.")
 	commandLine.StringVar(&cfg.Openshell.Token, "openshell-token", "", "Static bearer token for the OpenShell gateway. Prefer --openshell-token-file for secrets.")

@@ -81,28 +81,24 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 }
 
 // getRuntimeImageRepository returns the image repository for a given runtime.
-// It respects DefaultImageConfig.Repository for the Python runtime, and derives
-// the Go runtime repository by replacing the last path segment with "golang-adk".
-// This ensures custom repository configurations (e.g., --image-repository flag) work correctly.
+// For the Go runtime: returns DefaultGoImageConfig.Repository when set; otherwise derives
+// it from DefaultImageConfig.Repository by replacing the last path segment with "golang-adk".
+// For the Python runtime (and default): returns DefaultImageConfig.Repository.
 func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
 	switch runtime {
 	case v1alpha2.DeclarativeRuntime_Go:
-		// Derive Go runtime repository from the default Python repository
-		// by replacing the last segment (typically "app") with "golang-adk".
-		// This respects any custom repository configuration.
+		if DefaultGoImageConfig.Repository != "" {
+			return DefaultGoImageConfig.Repository
+		}
 		pythonRepo := DefaultImageConfig.Repository
 		lastSlash := strings.LastIndex(pythonRepo, "/")
 		if lastSlash == -1 {
-			// No slash found, repository is just the image name
 			return "golang-adk"
 		}
-		baseRepo := pythonRepo[:lastSlash]
-		return baseRepo + "/golang-adk"
+		return pythonRepo[:lastSlash] + "/golang-adk"
 	case v1alpha2.DeclarativeRuntime_Python:
-		// Use the configured Python repository as-is
 		return DefaultImageConfig.Repository
 	default:
-		// Default to Python (should never happen due to enum validation)
 		return DefaultImageConfig.Repository
 	}
 }
@@ -175,8 +171,21 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 	// Determine runtime (defaults to python if not set; substrate SandboxAgents use Go).
 	runtime := v1alpha2.EffectiveDeclarativeRuntimeForAgent(agent)
 
-	// Get registry
-	registry := DefaultImageConfig.Registry
+	// Resolve base registry and pull policy; Go runtime uses DefaultGoImageConfig fields
+	// when set, falling back to DefaultImageConfig for any unset field.
+	baseRegistry := DefaultImageConfig.Registry
+	basePullPolicy := DefaultImageConfig.PullPolicy
+	if runtime == v1alpha2.DeclarativeRuntime_Go {
+		if DefaultGoImageConfig.Registry != "" {
+			baseRegistry = DefaultGoImageConfig.Registry
+		}
+		if DefaultGoImageConfig.PullPolicy != "" {
+			basePullPolicy = DefaultGoImageConfig.PullPolicy
+		}
+	}
+
+	// Per-agent spec overrides take precedence over all defaults.
+	registry := baseRegistry
 	if spec.ImageRegistry != "" {
 		registry = spec.ImageRegistry
 	}
@@ -198,7 +207,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		}
 	}
 
-	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
+	imagePullPolicy := corev1.PullPolicy(basePullPolicy)
 	if spec.ImagePullPolicy != "" {
 		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
@@ -486,4 +487,280 @@ func TestRuntime_CustomRepositoryPath_WithSkillsUsesFullTag(t *testing.T) {
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "my-registry.com/custom/golang-adk", "Image should use custom repository with golang-adk")
 	assert.Contains(t, container.Image, "@sha256:test-go-full", "Go runtime with skills should use digest-pinned golang-adk-full image")
+}
+
+// withGoImageConfig sets DefaultGoImageConfig for the duration of a test and restores it
+// via t.Cleanup.
+func withGoImageConfig(t *testing.T, cfg translator.ImageConfig) {
+	t.Helper()
+	original := translator.DefaultGoImageConfig
+	translator.DefaultGoImageConfig = cfg
+	t.Cleanup(func() { translator.DefaultGoImageConfig = original })
+}
+
+// TestRuntime_GoImageConfig_FlatRepository tests that DefaultGoImageConfig.Repository is
+// used verbatim, enabling flat-name registry layouts where the last-segment derivation
+// would produce the wrong name (e.g. "kagent-golang-adk" instead of ".../golang-adk").
+func TestRuntime_GoImageConfig_FlatRepository(t *testing.T) {
+	withGoRuntimeDigests(t)
+	withGoImageConfig(t, translator.ImageConfig{Repository: "kagent-golang-adk"})
+
+	ctx := context.Background()
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "flat-repo-agent", Namespace: "test"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Go,
+				SystemMessage: "test",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model", Namespace: "test"},
+		Spec:       v1alpha2.ModelConfigSpec{Provider: "OpenAI", Model: "gpt-4o"},
+	}
+
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(agent, modelConfig).Build()
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: "test", Name: "test-model"}, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment)
+
+	img := deployment.Spec.Template.Spec.Containers[0].Image
+	assert.Contains(t, img, "kagent-golang-adk@", "Image should use the explicit flat repository")
+	assert.NotContains(t, img, "/golang-adk@", "Derived path must not appear when repository is explicitly set")
+	assert.Contains(t, img, "@sha256:test-go-base")
+}
+
+// TestRuntime_GoImageConfig_ExplicitRegistry tests that DefaultGoImageConfig.Registry is
+// applied to the Go runtime while leaving the Python runtime's registry unaffected.
+func TestRuntime_GoImageConfig_ExplicitRegistry(t *testing.T) {
+	withGoRuntimeDigests(t)
+	withPythonRuntimeDigest(t)
+	withGoImageConfig(t, translator.ImageConfig{Registry: "my.registry.io"})
+
+	ctx := context.Background()
+	goAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "go-agent", Namespace: "test"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Go,
+				SystemMessage: "go",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+	pythonAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "python-agent", Namespace: "test"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Python,
+				SystemMessage: "python",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model", Namespace: "test"},
+		Spec:       v1alpha2.ModelConfigSpec{Provider: "OpenAI", Model: "gpt-4o"},
+	}
+
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(goAgent, pythonAgent, modelConfig).Build()
+	tn := types.NamespacedName{Namespace: "test", Name: "test-model"}
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, tn, nil, "", nil)
+
+	goResult, err := translator.TranslateAgent(ctx, translatorInstance, goAgent)
+	require.NoError(t, err)
+	pythonResult, err := translator.TranslateAgent(ctx, translatorInstance, pythonAgent)
+	require.NoError(t, err)
+
+	goImage, pythonImage := "", ""
+	for _, obj := range goResult.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			goImage = dep.Spec.Template.Spec.Containers[0].Image
+			break
+		}
+	}
+	for _, obj := range pythonResult.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			pythonImage = dep.Spec.Template.Spec.Containers[0].Image
+			break
+		}
+	}
+
+	assert.Contains(t, goImage, "my.registry.io/", "Go image should use the explicit Go registry")
+	assert.NotContains(t, pythonImage, "my.registry.io/", "Python image must not use the Go-specific registry")
+}
+
+// TestRuntime_GoImageConfig_FlatRepository_WithSkillsUsesFullDigest verifies that the
+// golang-adk-full digest is still selected when DefaultGoImageConfig.Repository is set
+// explicitly and the agent uses skills (which requires the full image).
+func TestRuntime_GoImageConfig_FlatRepository_WithSkillsUsesFullDigest(t *testing.T) {
+	withGoRuntimeDigests(t)
+	withGoImageConfig(t, translator.ImageConfig{Repository: "kagent-golang-adk"})
+
+	ctx := context.Background()
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "flat-repo-skills-agent", Namespace: "test"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Go,
+				SystemMessage: "test",
+				ModelConfig:   "test-model",
+			},
+			Skills: &v1alpha2.SkillForAgent{Refs: []string{"example.com/skill:latest"}},
+		},
+	}
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model", Namespace: "test"},
+		Spec:       v1alpha2.ModelConfigSpec{Provider: "OpenAI", Model: "gpt-4o"},
+	}
+
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(agent, modelConfig).Build()
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: "test", Name: "test-model"}, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment)
+
+	img := deployment.Spec.Template.Spec.Containers[0].Image
+	assert.Contains(t, img, "kagent-golang-adk", "Image should use the explicit repository")
+	assert.Contains(t, img, "@sha256:test-go-full", "Skills agent should use the full digest")
+}
+
+// TestRuntime_GoImageConfig_EmptyFallsBackToDerivation ensures backward compatibility:
+// when DefaultGoImageConfig is all-empty the Go runtime image is derived exactly as before.
+func TestRuntime_GoImageConfig_EmptyFallsBackToDerivation(t *testing.T) {
+	withGoRuntimeDigests(t)
+	withGoImageConfig(t, translator.ImageConfig{}) // all empty
+
+	ctx := context.Background()
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "go-fallback-agent", Namespace: "test"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Go,
+				SystemMessage: "test",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model", Namespace: "test"},
+		Spec:       v1alpha2.ModelConfigSpec{Provider: "OpenAI", Model: "gpt-4o"},
+	}
+
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(agent, modelConfig).Build()
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: "test", Name: "test-model"}, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment)
+
+	img := deployment.Spec.Template.Spec.Containers[0].Image
+	assert.Contains(t, img, "golang-adk", "Fallback should still produce the derived golang-adk repository")
+	assert.Contains(t, img, "@sha256:test-go-base")
+}
+
+// TestRuntime_GoImageConfig_ExplicitPullPolicy tests that DefaultGoImageConfig.PullPolicy
+// is applied to the Go runtime and does not affect the Python runtime.
+func TestRuntime_GoImageConfig_ExplicitPullPolicy(t *testing.T) {
+	withGoRuntimeDigests(t)
+	withPythonRuntimeDigest(t)
+	withGoImageConfig(t, translator.ImageConfig{PullPolicy: "Always"})
+
+	ctx := context.Background()
+	goAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "go-pullpolicy-agent", Namespace: "test"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Go,
+				SystemMessage: "test",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+	pythonAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "python-pullpolicy-agent", Namespace: "test"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Python,
+				SystemMessage: "test",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model", Namespace: "test"},
+		Spec:       v1alpha2.ModelConfigSpec{Provider: "OpenAI", Model: "gpt-4o"},
+	}
+
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(goAgent, pythonAgent, modelConfig).Build()
+	tn := types.NamespacedName{Namespace: "test", Name: "test-model"}
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, tn, nil, "", nil)
+
+	goResult, err := translator.TranslateAgent(ctx, translatorInstance, goAgent)
+	require.NoError(t, err)
+	pythonResult, err := translator.TranslateAgent(ctx, translatorInstance, pythonAgent)
+	require.NoError(t, err)
+
+	goPullPolicy, pythonPullPolicy := corev1.PullPolicy(""), corev1.PullPolicy("")
+	for _, obj := range goResult.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			goPullPolicy = dep.Spec.Template.Spec.Containers[0].ImagePullPolicy
+			break
+		}
+	}
+	for _, obj := range pythonResult.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			pythonPullPolicy = dep.Spec.Template.Spec.Containers[0].ImagePullPolicy
+			break
+		}
+	}
+
+	assert.Equal(t, corev1.PullAlways, goPullPolicy, "Go runtime should use the explicit pull policy")
+	assert.NotEqual(t, corev1.PullAlways, pythonPullPolicy, "Python runtime must not inherit the Go-specific pull policy")
 }
