@@ -43,8 +43,11 @@ func materializeEnvToFile(envKey, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create directory for %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	return nil
 }
