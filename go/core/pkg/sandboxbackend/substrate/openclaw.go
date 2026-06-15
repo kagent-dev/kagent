@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/agent-substrate/substrate/proto/ateapipb"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"google.golang.org/grpc/codes"

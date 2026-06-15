@@ -1,0 +1,18 @@
+{{- if include "kagent.controller.metricsEnabled" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kagent.fullname" . }}-controller-metrics
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.controller.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.controller.metrics.service.type }}
+  ports:
+    - name: {{ ternary "https" "http-metrics" .Values.controller.metrics.secureServing }}
+      port: {{ .Values.controller.metrics.service.port }}
+      targetPort: {{ include "kagent.controller.metricsPort" . | int }}
+      protocol: TCP
+  selector:
+    {{- include "kagent.controller.selectorLabels" . | nindent 4 }}
+{{- end }}

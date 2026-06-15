@@ -1,4 +1,4 @@
-import type { OpenClawSandboxFormValidationError } from "@/lib/openClawSandboxForm";
+import type { AgentHarnessFormValidationError } from "@/lib/agentHarnessForm";
 
 export interface AgentFormValidationErrors {
   name?: string;
@@ -14,5 +14,5 @@ export interface AgentFormValidationErrors {
   memoryTtl?: string;
   serviceAccountName?: string;
   promptSources?: string;
-  openClawSandbox?: OpenClawSandboxFormValidationError;
+  agentHarness?: AgentHarnessFormValidationError;
 }

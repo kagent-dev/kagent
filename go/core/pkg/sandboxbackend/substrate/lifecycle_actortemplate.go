@@ -6,10 +6,11 @@ import (
 	"maps"
 	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -72,7 +73,6 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 				{
 					Name:  defaultOpenClawContainer,
 					Image: workloadImage,
-					Ports: []corev1.ContainerPort{{ContainerPort: 80}},
 					Command: []string{
 						"/bin/sh",
 						"-c",
@@ -106,9 +106,17 @@ func mergeLabels(existing, desired map[string]string) map[string]string {
 	return merged
 }
 
+// ActorTemplateReady reports whether the ActorTemplate golden snapshot is ready.
+func (p *Lifecycle) ActorTemplateReady(ctx context.Context, key types.NamespacedName) (bool, error) {
+	return p.actorTemplateReady(ctx, key)
+}
+
 func (p *Lifecycle) actorTemplateReady(ctx context.Context, key types.NamespacedName) (bool, error) {
 	var tmpl atev1alpha1.ActorTemplate
 	if err := p.Client.Get(ctx, key, &tmpl); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
 		return false, fmt.Errorf("get ActorTemplate %s: %w", key, err)
 	}
 	return tmpl.Status.Phase == atev1alpha1.PhaseReady, nil

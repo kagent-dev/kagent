@@ -78,6 +78,7 @@ func NewValidationError(format string, args ...any) error {
 type ImageConfig struct {
 	Registry   string `json:"registry,omitempty"`
 	Tag        string `json:"tag,omitempty"`
+	Digest     string `json:"digest,omitempty"` // OCI manifest digest (sha256:...), set at link time
 	PullPolicy string `json:"pullPolicy,omitempty"`
 	PullSecret string `json:"pullSecret,omitempty"`
 	Repository string `json:"repository,omitempty"`
@@ -88,6 +89,25 @@ func (c ImageConfig) Image() string {
 	return fmt.Sprintf("%s/%s:%s", c.Registry, c.Repository, c.Tag)
 }
 
+// PinnedImage returns registry/repository@sha256:... when Digest is set, otherwise Image().
+func (c ImageConfig) PinnedImage() string {
+	if digest := normalizeImageDigest(c.Digest); digest != "" {
+		return fmt.Sprintf("%s/%s@%s", c.Registry, c.Repository, digest)
+	}
+	return c.Image()
+}
+
+func normalizeImageDigest(digest string) string {
+	digest = strings.TrimSpace(digest)
+	if digest == "" {
+		return ""
+	}
+	if strings.HasPrefix(digest, "sha256:") {
+		return digest
+	}
+	return "sha256:" + strings.TrimPrefix(digest, "sha256:")
+}
+
 var DefaultImageConfig = ImageConfig{
 	Registry:   "cr.kagent.dev",
 	Tag:        version.Get().Version,
@@ -95,6 +115,12 @@ var DefaultImageConfig = ImageConfig{
 	PullSecret: "",
 	Repository: "kagent-dev/kagent/app",
 }
+
+// PythonADKImageDigest, GoADKImageDigest, and GoADKFullImageDigest are set at
+// controller link time from the pushed runtime image manifest digests.
+var PythonADKImageDigest string
+var GoADKImageDigest string
+var GoADKFullImageDigest string
 
 // DefaultSkillsInitImageConfig is the image config for the skills-init container
 // that clones skill repositories from Git and pulls OCI skill images.
@@ -780,6 +806,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			},
 			Region:                       model.Spec.Bedrock.Region,
 			AdditionalModelRequestFields: additionalFields,
+			PromptCaching:                model.Spec.Bedrock.PromptCaching,
+			CacheTTL:                     model.Spec.Bedrock.CacheTTL,
 		}
 
 		// Populate TLS fields in BaseModel

@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -72,14 +73,48 @@ func defaultRunscConfig(d LifecycleDefaults) atev1alpha1.RunscConfig {
 
 func substrateSnapshotsLocation(ah *v1alpha2.AgentHarness) string {
 	if ah == nil {
-		return defaultSubstrateSnapshotsLocation("", "")
+		return substrateSnapshotsLocationFor("", "", "")
 	}
+	loc := ""
 	if sub := ah.Spec.Substrate; sub != nil && sub.SnapshotsConfig != nil {
-		if loc := strings.TrimSpace(sub.SnapshotsConfig.Location); loc != "" {
-			return loc
+		loc = sub.SnapshotsConfig.Location
+	}
+	return substrateSnapshotsLocationFor(ah.Namespace, ah.Name, loc)
+}
+
+func substrateSnapshotsLocationFor(namespace, name, explicitLocation string) string {
+	if loc := strings.TrimSpace(explicitLocation); loc != "" {
+		return loc
+	}
+	return defaultSubstrateSnapshotsLocation(namespace, name)
+}
+
+func (p *Lifecycle) resolveWorkerPoolRefFor(
+	ctx context.Context,
+	namespace string,
+	explicit *v1alpha2.TypedLocalReference,
+) (types.NamespacedName, error) {
+	if p == nil || p.Client == nil {
+		return types.NamespacedName{}, fmt.Errorf("substrate lifecycle kubernetes client is required")
+	}
+	key := p.Defaults.DefaultWorkerPool
+	if explicit != nil {
+		if name := strings.TrimSpace(explicit.Name); name != "" {
+			key = types.NamespacedName{Namespace: namespace, Name: name}
 		}
 	}
-	return defaultSubstrateSnapshotsLocation(ah.Namespace, ah.Name)
+	if key.Name == "" {
+		return types.NamespacedName{}, fmt.Errorf("substrate workerPoolRef is required when no default WorkerPool is configured")
+	}
+	if key.Namespace == "" {
+		key.Namespace = namespace
+	}
+
+	var wp atev1alpha1.WorkerPool
+	if err := p.Client.Get(ctx, key, &wp); err != nil {
+		return types.NamespacedName{}, fmt.Errorf("get WorkerPool %s: %w", key, err)
+	}
+	return key, nil
 }
 
 func defaultSubstrateSnapshotsLocation(namespace, name string) string {
@@ -115,4 +150,49 @@ func pinImageRef(image string) (string, error) {
 		return "", fmt.Errorf("workload image %q must be pinned with a digest (@sha256:...)", image)
 	}
 	return image, nil
+}
+
+// actorTemplateEnvFromPodEnv converts pod env vars into ActorTemplate env vars.
+// Substrate ActorTemplates only support literal values, secretKeyRef, and configMapKeyRef.
+func actorTemplateEnvFromPodEnv(env []corev1.EnvVar) []atev1alpha1.EnvVar {
+	out := make([]atev1alpha1.EnvVar, 0, len(env))
+	seen := make(map[string]struct{}, len(env))
+	for _, e := range env {
+		if e.Name == "" {
+			continue
+		}
+		sanitized := sanitizeActorTemplateEnvVar(e)
+		if sanitized == nil {
+			continue
+		}
+		if _, ok := seen[sanitized.Name]; ok {
+			continue
+		}
+		seen[sanitized.Name] = struct{}{}
+		out = append(out, *sanitized)
+	}
+	return out
+}
+
+func sanitizeActorTemplateEnvVar(e corev1.EnvVar) *atev1alpha1.EnvVar {
+	if e.Value != "" {
+		return &atev1alpha1.EnvVar{
+			Name:      e.Name,
+			ValueFrom: nil,
+			Value:     &e.Value,
+		}
+	}
+	if ref := e.ValueFrom.SecretKeyRef; ref != nil {
+		return &atev1alpha1.EnvVar{
+			Name: e.Name,
+			ValueFrom: &atev1alpha1.EnvVarSource{
+				SecretKeyRef: &atev1alpha1.SecretKeySelector{
+					Name:     ref.Name,
+					Key:      ref.Key,
+					Optional: ref.Optional,
+				},
+			},
+		}
+	}
+	return nil
 }

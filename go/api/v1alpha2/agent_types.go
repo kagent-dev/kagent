@@ -26,8 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 // AgentType represents the agent type
@@ -232,12 +230,68 @@ type DeclarativeAgentSpec struct {
 	Context *ContextConfig `json:"context,omitempty"`
 }
 
+// SandboxPlatform selects the control plane for sandboxed agents.
+// +kubebuilder:validation:Enum=agent-sandbox;substrate
+type SandboxPlatform string
+
+const (
+	SandboxPlatformAgentSandbox SandboxPlatform = "agent-sandbox"
+	SandboxPlatformSubstrate    SandboxPlatform = "substrate"
+)
+
+// SandboxSubstrateSpec configures Agent Substrate for a SandboxAgent.
+// WorkerPool capacity is referenced from workerPoolRef or the controller default.
+type SandboxSubstrateSpec struct {
+	// WorkerPoolRef references an existing ate.dev WorkerPool.
+	// +optional
+	WorkerPoolRef *TypedLocalReference `json:"workerPoolRef,omitempty"`
+
+	// SnapshotsConfig configures actor memory snapshots.
+	// Defaults to gs://ate-snapshots/<namespace>/<agentname> when unset.
+	// +optional
+	SnapshotsConfig *AgentHarnessSubstrateSnapshotsConfig `json:"snapshotsConfig,omitempty"`
+}
+
 // SandboxConfig configures sandboxed execution behavior.
 type SandboxConfig struct {
 	// Network configures outbound network access for sandboxed execution paths.
 	// When unset or when allowedDomains is empty, outbound access is denied by default.
 	// +optional
 	Network *NetworkConfig `json:"network,omitempty"`
+}
+
+// AgentSandboxPlatform returns the effective sandbox platform for an agent.
+func AgentSandboxPlatform(agent AgentObject) SandboxPlatform {
+	sa, ok := agent.(*SandboxAgent)
+	if !ok || sa == nil || sa.Spec.Platform == "" {
+		return SandboxPlatformAgentSandbox
+	}
+	return sa.Spec.Platform
+}
+
+// EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python).
+func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
+	if spec == nil {
+		return DeclarativeRuntime_Python
+	}
+	runtime := DeclarativeRuntime_Python
+	if spec.Declarative != nil && spec.Declarative.Runtime != "" {
+		runtime = spec.Declarative.Runtime
+	}
+	return runtime
+}
+
+// EffectiveDeclarativeRuntimeForAgent returns the runtime for a reconciled agent object.
+// Substrate SandboxAgents always use Go; regular Agents honor spec.declarative.runtime.
+func EffectiveDeclarativeRuntimeForAgent(agent AgentObject) DeclarativeRuntime {
+	spec := agent.GetAgentSpec()
+	if agent.GetWorkloadMode() == WorkloadModeSandbox &&
+		AgentSandboxPlatform(agent) == SandboxPlatformSubstrate &&
+		spec != nil &&
+		spec.Type == AgentType_Declarative {
+		return DeclarativeRuntime_Go
+	}
+	return EffectiveDeclarativeRuntime(spec)
 }
 
 // NetworkConfig configures outbound network access for sandboxed execution paths.
@@ -557,7 +611,33 @@ type A2AConfig struct {
 	Skills []AgentSkill `json:"skills,omitempty"`
 }
 
-type AgentSkill server.AgentSkill
+// AgentSkill describes a specific capability or function of the agent.
+type AgentSkill struct {
+	// ID is the unique identifier for the skill.
+	// +optional
+	ID string `json:"id,omitempty"`
+	// Name is the human-readable name of the skill.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name"`
+	// Description is an optional detailed description of the skill.
+	// +optional
+	Description string `json:"description,omitempty"`
+	// Tags are optional tags for categorization.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Tags []string `json:"tags,omitempty"`
+	// Examples are optional usage examples.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Examples []string `json:"examples,omitempty"`
+	// InputModes are the supported input MIME types for this skill, overriding the agent's defaults.
+	// +optional
+	InputModes []string `json:"inputModes,omitempty"`
+	// OutputModes are the supported output MIME types for this skill, overriding the agent's defaults.
+	// +optional
+	OutputModes []string `json:"outputModes,omitempty"`
+}
 
 const (
 	AgentConditionTypeAccepted            = "Accepted"

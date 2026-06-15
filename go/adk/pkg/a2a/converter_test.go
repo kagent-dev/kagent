@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"google.golang.org/adk/server/adka2a"
+	"google.golang.org/adk/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
 	"google.golang.org/genai"
 )
 
@@ -107,9 +107,15 @@ func TestConvertDataPartToGenAI_UnknownType(t *testing.T) {
 		Metadata: map[string]any{"kagent_type": "unknown_type"},
 	}
 
-	_, err := convertDataPartToGenAI(dp, "kagent_type")
-	if err == nil {
-		t.Fatal("expected error for unknown part type")
+	part, err := convertDataPartToGenAI(dp, "kagent_type")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if part == nil || part.InlineData == nil {
+		t.Fatalf("expected unknown DataPart to fall back to InlineData, got %#v", part)
+	}
+	if part.InlineData.MIMEType != "text/plain" {
+		t.Errorf("mime type = %q, want text/plain", part.InlineData.MIMEType)
 	}
 }
 

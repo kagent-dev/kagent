@@ -15,12 +15,13 @@ ORDER BY created_at ASC;
 
 -- name: UpsertTask :exec
 WITH upserted_task AS (
-INSERT INTO task (id, data, session_id, created_at, updated_at)
-VALUES ($1, $2, $3, NOW(), NOW())
+INSERT INTO task (id, data, session_id, protocol_version, created_at, updated_at)
+VALUES ($1, $2, $3, $4, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
-    data       = EXCLUDED.data,
-    session_id = EXCLUDED.session_id,
-    updated_at = NOW()
+    data             = EXCLUDED.data,
+    session_id       = EXCLUDED.session_id,
+    protocol_version = EXCLUDED.protocol_version,
+    updated_at       = NOW()
 RETURNING session_id
 )
 UPDATE session
