@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
-	"github.com/agent-substrate/substrate/proto/ateapipb"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"

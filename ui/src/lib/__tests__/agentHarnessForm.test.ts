@@ -1,32 +1,32 @@
 import { describe, expect, it } from "@jest/globals";
 import {
-  buildSandboxCRDraft,
-  defaultOpenClawSandboxFormSlice,
-  newOpenClawChannelRow,
+  buildAgentHarnessCRDraft,
+  defaultAgentHarnessFormSlice,
+  newAgentHarnessChannelRow,
   parseAllowedDomainsList,
-  validateOpenClawSandboxForm,
-} from "../openClawSandboxForm";
+  validateAgentHarnessForm,
+} from "../agentHarnessForm";
 
 function withAllowedDomains(allowedDomains: string) {
-  return { ...defaultOpenClawSandboxFormSlice(), allowedDomains };
+  return { ...defaultAgentHarnessFormSlice(), allowedDomains };
 }
 
-describe("validateOpenClawSandboxForm sections", () => {
+describe("validateAgentHarnessForm sections", () => {
   it("tags missing model as general", () => {
     expect(
-      validateOpenClawSandboxForm({
-        openClaw: defaultOpenClawSandboxFormSlice(),
+      validateAgentHarnessForm({
+        harness: defaultAgentHarnessFormSlice(),
         modelRef: "",
       }),
     ).toEqual({
       section: "general",
-      message: "Please select a model config for this sandbox.",
+      message: "Please select a model config for this AgentHarness.",
     });
   });
 
   it("tags allowed domain failures as allowedDomains", () => {
-    const r = validateOpenClawSandboxForm({
-      openClaw: withAllowedDomains("https://api.github.com"),
+    const r = validateAgentHarnessForm({
+      harness: withAllowedDomains("https://api.github.com"),
       modelRef: "ns/m1",
     });
     expect(r?.section).toBe("allowedDomains");
@@ -34,8 +34,8 @@ describe("validateOpenClawSandboxForm sections", () => {
   });
 
   it("tags missing substrate gateway token as general", () => {
-    const r = validateOpenClawSandboxForm({
-      openClaw: { ...defaultOpenClawSandboxFormSlice(), runtime: "substrate" },
+    const r = validateAgentHarnessForm({
+      harness: { ...defaultAgentHarnessFormSlice(), runtime: "substrate" },
       modelRef: "ns/m1",
     });
     expect(r?.section).toBe("general");
@@ -43,12 +43,12 @@ describe("validateOpenClawSandboxForm sections", () => {
   });
 
   it("tags channel credential failures as channels", () => {
-    const row = newOpenClawChannelRow();
+    const row = newAgentHarnessChannelRow();
     row.name = "slack1";
     row.channelType = "slack";
     row.botToken = "";
-    const r = validateOpenClawSandboxForm({
-      openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
+    const r = validateAgentHarnessForm({
+      harness: { ...defaultAgentHarnessFormSlice(), channels: [row] },
       modelRef: "ns/m1",
     });
     expect(r?.section).toBe("channels");
@@ -56,16 +56,16 @@ describe("validateOpenClawSandboxForm sections", () => {
   });
 
   it("rejects duplicate channel binding names", () => {
-    const row = newOpenClawChannelRow();
+    const row = newAgentHarnessChannelRow();
     row.name = "dup";
     row.channelType = "telegram";
     row.botToken = "token-a";
-    const row2 = newOpenClawChannelRow();
+    const row2 = newAgentHarnessChannelRow();
     row2.name = "dup";
     row2.channelType = "telegram";
     row2.botToken = "token-b";
-    const r = validateOpenClawSandboxForm({
-      openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row, row2] },
+    const r = validateAgentHarnessForm({
+      harness: { ...defaultAgentHarnessFormSlice(), channels: [row, row2] },
       modelRef: "ns/m1",
     });
     expect(r?.section).toBe("channels");
@@ -73,15 +73,15 @@ describe("validateOpenClawSandboxForm sections", () => {
   });
 
   it("requires Slack allowlist channels when backend is unset (defaults to openclaw)", () => {
-    const row = newOpenClawChannelRow();
+    const row = newAgentHarnessChannelRow();
     row.name = "slack1";
     row.channelType = "slack";
     row.botToken = "xoxb-test";
     row.appToken = "xapp-test";
     row.channelAccess = "allowlist";
     row.allowlistChannels = "";
-    const r = validateOpenClawSandboxForm({
-      openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
+    const r = validateAgentHarnessForm({
+      harness: { ...defaultAgentHarnessFormSlice(), channels: [row] },
       modelRef: "ns/m1",
     });
     expect(r?.section).toBe("channels");
@@ -89,7 +89,7 @@ describe("validateOpenClawSandboxForm sections", () => {
   });
 });
 
-describe("openClawSandboxForm allowedDomains", () => {
+describe("agentHarnessForm allowedDomains", () => {
   describe("parseAllowedDomainsList", () => {
     it("returns an empty list for empty / whitespace input", () => {
       expect(parseAllowedDomainsList("")).toEqual([]);
@@ -116,18 +116,18 @@ describe("openClawSandboxForm allowedDomains", () => {
     });
   });
 
-  describe("validateOpenClawSandboxForm", () => {
+  describe("validateAgentHarnessForm", () => {
     it("accepts an empty allowedDomains list", () => {
-      const result = validateOpenClawSandboxForm({
-        openClaw: withAllowedDomains(""),
+      const result = validateAgentHarnessForm({
+        harness: withAllowedDomains(""),
         modelRef: "ns/m1",
       });
       expect(result).toBeUndefined();
     });
 
     it("accepts plain hosts and glob labels", () => {
-      const result = validateOpenClawSandboxForm({
-        openClaw: withAllowedDomains("api.github.com\n*.slack.com\nregistry.npmjs.org"),
+      const result = validateAgentHarnessForm({
+        harness: withAllowedDomains("api.github.com\n*.slack.com\nregistry.npmjs.org"),
         modelRef: "ns/m1",
       });
       expect(result).toBeUndefined();
@@ -139,8 +139,8 @@ describe("openClawSandboxForm allowedDomains", () => {
       ["..", "empty labels"],
       ["-bad.example.com", "bad label start"],
     ])("rejects malformed entry %p (%s)", (entry) => {
-      const result = validateOpenClawSandboxForm({
-        openClaw: withAllowedDomains(entry),
+      const result = validateAgentHarnessForm({
+        harness: withAllowedDomains(entry),
         modelRef: "ns/m1",
       });
       expect(result?.section).toBe("allowedDomains");
@@ -148,14 +148,14 @@ describe("openClawSandboxForm allowedDomains", () => {
     });
   });
 
-  describe("buildSandboxCRDraft", () => {
+  describe("buildAgentHarnessCRDraft", () => {
     it("omits spec.network when allowedDomains is empty", () => {
-      const draft = buildSandboxCRDraft({
+      const draft = buildAgentHarnessCRDraft({
         name: "h1",
         namespace: "ns",
         description: "",
         modelRef: "m1",
-        openClaw: withAllowedDomains(""),
+        harness: withAllowedDomains(""),
       });
       expect("error" in draft).toBe(false);
       if ("error" in draft) return;
@@ -163,12 +163,12 @@ describe("openClawSandboxForm allowedDomains", () => {
     });
 
     it("writes spec.network.allowedDomains preserving order and deduping", () => {
-      const draft = buildSandboxCRDraft({
+      const draft = buildAgentHarnessCRDraft({
         name: "h1",
         namespace: "ns",
         description: "",
         modelRef: "m1",
-        openClaw: withAllowedDomains("api.github.com\nregistry.npmjs.org\napi.github.com\n*.slack.com"),
+        harness: withAllowedDomains("api.github.com\nregistry.npmjs.org\napi.github.com\n*.slack.com"),
       });
       expect("error" in draft).toBe(false);
       if ("error" in draft) return;
@@ -178,12 +178,12 @@ describe("openClawSandboxForm allowedDomains", () => {
     });
 
     it("targets the AgentHarness CR with the openclaw backend", () => {
-      const draft = buildSandboxCRDraft({
+      const draft = buildAgentHarnessCRDraft({
         name: "h1",
         namespace: "ns",
         description: "",
         modelRef: "m1",
-        openClaw: withAllowedDomains("api.github.com"),
+        harness: withAllowedDomains("api.github.com"),
       });
       expect("error" in draft).toBe(false);
       if ("error" in draft) return;
@@ -193,13 +193,13 @@ describe("openClawSandboxForm allowedDomains", () => {
     });
 
     it("writes substrate config without creating a WorkerPool", () => {
-      const draft = buildSandboxCRDraft({
+      const draft = buildAgentHarnessCRDraft({
         name: "h1",
         namespace: "ns",
         description: "",
         modelRef: "m1",
-        openClaw: {
-          ...defaultOpenClawSandboxFormSlice(),
+        harness: {
+          ...defaultAgentHarnessFormSlice(),
           runtime: "substrate",
           substrateGatewayToken: "tok",
           substrateWorkerPoolRefName: "default-wp",
@@ -216,7 +216,7 @@ describe("openClawSandboxForm allowedDomains", () => {
     });
 
     it("writes Hermes slack allowedUserIDs and home channel fields", () => {
-      const row = newOpenClawChannelRow();
+      const row = newAgentHarnessChannelRow();
       row.name = "slack-main";
       row.channelType = "slack";
       row.botToken = "xoxb-test";
@@ -224,23 +224,20 @@ describe("openClawSandboxForm allowedDomains", () => {
       row.allowedSlackUserIDs = "U01234567 U89ABCDEF";
       row.slackHomeChannel = "C01234567890";
       row.slackHomeChannelName = "general";
-      const draft = buildSandboxCRDraft({
+      const draft = buildAgentHarnessCRDraft({
         name: "h1",
         namespace: "ns",
         description: "",
         modelRef: "m1",
-        backend: "hermes",
-        openClaw: { ...defaultOpenClawSandboxFormSlice(), channels: [row] },
+        harness: { ...defaultAgentHarnessFormSlice(), backend: "hermes", channels: [row] },
       });
       expect("error" in draft).toBe(false);
       if ("error" in draft) return;
-      const channels = draft.spec.channels as { slack: Record<string, unknown> }[];
-      expect(channels[0].slack.allowedUserIDs).toEqual(["U01234567", "U89ABCDEF"]);
-      expect(channels[0].slack.homeChannel).toBe("C01234567890");
-      expect(channels[0].slack.homeChannelName).toBe("general");
-      expect(channels[0].slack).not.toHaveProperty("channelAccess");
-      expect(channels[0].slack).not.toHaveProperty("allowlistChannels");
-      expect(channels[0].slack).not.toHaveProperty("interactiveReplies");
+      const channels = draft.spec.channels as { slack: { hermes: Record<string, unknown> } }[];
+      expect(channels[0].slack.hermes.allowedUserIDs).toEqual(["U01234567", "U89ABCDEF"]);
+      expect(channels[0].slack.hermes.homeChannel).toBe("C01234567890");
+      expect(channels[0].slack.hermes.homeChannelName).toBe("general");
+      expect(channels[0].slack).not.toHaveProperty("openclaw");
     });
   });
 });

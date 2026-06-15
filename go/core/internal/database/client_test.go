@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // TestConcurrentAgentUpserts verifies that concurrent StoreAgent calls
@@ -325,7 +325,7 @@ func TestStoreTaskTouchesSessionActivity(t *testing.T) {
 	require.NoError(t, err)
 	time.Sleep(10 * time.Millisecond)
 
-	err = client.StoreTask(ctx, &protocol.Task{
+	err = client.StoreTask(ctx, &a2a.Task{
 		ID:        "task-1",
 		ContextID: sessionID,
 	})

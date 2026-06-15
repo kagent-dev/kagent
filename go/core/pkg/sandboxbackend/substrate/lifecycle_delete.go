@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/api/v1alpha1"
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -65,4 +65,20 @@ func HarnessNameFromLabels(labels map[string]string) string {
 		return ""
 	}
 	return strings.TrimSpace(labels[HarnessLabelKey])
+}
+
+// CleanupSandboxAgentTemplate removes external Substrate actors tied to a generated SandboxAgent ActorTemplate.
+func (p *Lifecycle) CleanupSandboxAgentTemplate(ctx context.Context, sa *v1alpha2.SandboxAgent) (bool, error) {
+	if sa == nil || p == nil || p.Client == nil {
+		return true, nil
+	}
+	tmplKey := types.NamespacedName{Namespace: sa.Namespace, Name: SandboxAgentActorTemplateName(sa)}
+	goldenID, err := p.goldenActorID(ctx, tmplKey)
+	if err != nil {
+		return false, err
+	}
+	if goldenID == "" {
+		return true, nil
+	}
+	return deleteGoldenActor(ctx, p.AteClient, goldenID)
 }

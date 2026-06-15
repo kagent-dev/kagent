@@ -12,12 +12,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
 import { cn } from "@/lib/utils";
 import type {
-  AgentHarnessSandboxBackend,
-  OpenClawChannelRow,
-  OpenClawSandboxFormSlice,
-  OpenClawSandboxFormValidationError,
-} from "@/lib/openClawSandboxForm";
-import { isClawHarnessBackend, newOpenClawChannelRow } from "@/lib/openClawSandboxForm";
+  AgentHarnessChannelRow,
+  AgentHarnessFormSlice,
+  AgentHarnessFormValidationError,
+} from "@/lib/agentHarnessForm";
+import { isClawHarnessBackend, newAgentHarnessChannelRow } from "@/lib/agentHarnessForm";
+import type { AgentHarnessCrBackend } from "@/types";
 import { useSubstrateEnabled } from "@/contexts/SubstrateFeaturesContext";
 
 const OPENCLAW_DOCS_ROOT = "https://docs.openclaw.ai";
@@ -48,8 +48,8 @@ function ChannelTypeSetupHints({
   channelType,
   harnessBackend,
 }: {
-  channelType: OpenClawChannelRow["channelType"];
-  harnessBackend?: AgentHarnessSandboxBackend;
+  channelType: AgentHarnessChannelRow["channelType"];
+  harnessBackend?: AgentHarnessCrBackend;
 }) {
   const clawSlack = isClawHarnessBackend(harnessBackend);
   switch (channelType) {
@@ -136,25 +136,24 @@ function ChannelTypeSetupHints({
   }
 }
 
-interface OpenClawSandboxFieldsProps {
-  value: OpenClawSandboxFormSlice;
-  onChange: (next: OpenClawSandboxFormSlice) => void;
+interface AgentHarnessFieldsProps {
+  value: AgentHarnessFormSlice;
+  onChange: (next: AgentHarnessFormSlice) => void;
   disabled: boolean;
-  harnessBackend?: AgentHarnessSandboxBackend;
-  /** From {@link validateOpenClawSandboxForm}; includes `section` for placement + focus. */
-  validationError?: OpenClawSandboxFormValidationError;
+  /** From {@link validateAgentHarnessForm}; includes `section` for placement + focus. */
+  validationError?: AgentHarnessFormValidationError;
 }
 
-export function OpenClawSandboxFields({
+export function AgentHarnessFields({
   value,
   onChange,
   disabled,
-  harnessBackend,
   validationError,
-}: OpenClawSandboxFieldsProps) {
+}: AgentHarnessFieldsProps) {
   const substrateEnabled = useSubstrateEnabled();
+  const harnessBackend = value.backend;
   const clawBackend = isClawHarnessBackend(harnessBackend);
-  const set = (patch: Partial<OpenClawSandboxFormSlice>) => onChange({ ...value, ...patch });
+  const set = (patch: Partial<AgentHarnessFormSlice>) => onChange({ ...value, ...patch });
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const section = validationError?.section ?? null;
 
@@ -165,14 +164,14 @@ export function OpenClawSandboxFields({
   }, [substrateEnabled, value.runtime]);
 
   return (
-    <div id="section-openclaw-sandbox" className="space-y-8">
+    <div id="section-agent-harness-sandbox" className="space-y-8">
       <FieldError>
         {section === "general" ? validationError?.message : null}
       </FieldError>
 
       {substrateEnabled ? (
         <FormSection
-          id="section-openclaw-runtime"
+          id="section-agent-harness-runtime"
           title="Runtime"
           description="OpenShell provisions a VM via the OpenShell gateway. Substrate generates an ActorTemplate and uses an existing WorkerPool."
         >
@@ -238,7 +237,7 @@ export function OpenClawSandboxFields({
       ) : null}
 
       <FormSection
-        id="section-openclaw-channels"
+        id="section-agent-harness-channels"
         title="Channels integrations"
         description="Optional channel accounts: pick a provider, then credentials (inline or a Kubernetes Secret key in this namespace)."
       >
@@ -254,7 +253,7 @@ export function OpenClawSandboxFields({
               variant="outline"
               size="sm"
               disabled={disabled}
-              onClick={() => set({ channels: [...value.channels, newOpenClawChannelRow()] })}
+              onClick={() => set({ channels: [...value.channels, newAgentHarnessChannelRow()] })}
             >
               <Plus className="mr-1 h-4 w-4" aria-hidden />
               Add channel
@@ -309,7 +308,7 @@ export function OpenClawSandboxFields({
                       value={ch.channelType}
                       onValueChange={(v) => {
                         const channels = value.channels.map((c) =>
-                          c.id === ch.id ? { ...c, channelType: v as OpenClawChannelRow["channelType"] } : c,
+                          c.id === ch.id ? { ...c, channelType: v as AgentHarnessChannelRow["channelType"] } : c,
                         );
                         set({ channels });
                       }}
@@ -530,7 +529,7 @@ export function OpenClawSandboxFields({
                         value={ch.channelAccess}
                         onValueChange={(v) => {
                           const channels = value.channels.map((c) =>
-                            c.id === ch.id ? { ...c, channelAccess: v as OpenClawChannelRow["channelAccess"] } : c,
+                            c.id === ch.id ? { ...c, channelAccess: v as AgentHarnessChannelRow["channelAccess"] } : c,
                           );
                           set({ channels });
                         }}
@@ -666,13 +665,13 @@ export function OpenClawSandboxFields({
       </FormSection>
 
       <FormSection
-        id="section-openclaw-network"
+        id="section-agent-harness-network"
         title="Network"
         description="Restrict outbound HTTP(S) traffic from the harness to a list of allowed domains. Each entry allows all HTTP methods (GET, POST, PUT, DELETE, …) and all paths on that host."
       >
         <FieldError>{section === "allowedDomains" ? validationError?.message : null}</FieldError>
         <FieldRoot>
-          <FieldLabel htmlFor="agent-field-openclaw-allowed-domains">Allowed domains</FieldLabel>
+          <FieldLabel htmlFor="agent-field-agent-harness-allowed-domains">Allowed domains</FieldLabel>
           <FieldHint>
             One host per line (commas and spaces also work). Use bare DNS names like{" "}
             <span className="font-mono">api.github.com</span> or glob labels like{" "}
@@ -680,7 +679,7 @@ export function OpenClawSandboxFields({
             channel-derived egress policies.
           </FieldHint>
           <Textarea
-            id="agent-field-openclaw-allowed-domains"
+            id="agent-field-agent-harness-allowed-domains"
             name="allowedDomains"
             value={value.allowedDomains}
             onChange={(e) => set({ allowedDomains: e.target.value })}
@@ -715,12 +714,12 @@ export function OpenClawSandboxFields({
           <CollapsibleContent>
             <div className="space-y-5 p-5">
               <FieldRoot>
-                <FieldLabel htmlFor="agent-field-openclaw-image">Image override</FieldLabel>
+                <FieldLabel htmlFor="agent-field-agent-harness-image">Image override</FieldLabel>
                 <FieldHint>
                   Overrides the container image for the sandbox VM.
                 </FieldHint>
                 <Input
-                  id="agent-field-openclaw-image"
+                  id="agent-field-agent-harness-image"
                   value={value.image}
                   onChange={(e) => set({ image: e.target.value })}
                   className="font-mono text-sm"

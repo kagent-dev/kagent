@@ -198,7 +198,7 @@ func TestConvertGenaiToolsToBedrock(t *testing.T) {
 			},
 		}}}}
 
-		bt1, nm1 := convertGenaiToolsToBedrock(tools)
+		bt1, nm1 := convertGenaiToolsToBedrock(tools, false, "")
 		schema := extractSchema(t, bt1, nm1)
 
 		props := schema["properties"].(map[string]any)
@@ -226,7 +226,7 @@ func TestConvertGenaiToolsToBedrock(t *testing.T) {
 			},
 		}}}}
 
-		bt2, nm2 := convertGenaiToolsToBedrock(tools)
+		bt2, nm2 := convertGenaiToolsToBedrock(tools, false, "")
 		schema := extractSchema(t, bt2, nm2)
 		props, ok := schema["properties"].(map[string]any)
 		if !ok || len(props) == 0 {
@@ -247,7 +247,7 @@ func TestConvertGenaiToolsToBedrock(t *testing.T) {
 			ParametersJsonSchema: s,
 		}}}}
 
-		bt3, nm3 := convertGenaiToolsToBedrock(tools)
+		bt3, nm3 := convertGenaiToolsToBedrock(tools, false, "")
 		schema := extractSchema(t, bt3, nm3)
 		props, ok := schema["properties"].(map[string]any)
 		if !ok || len(props) == 0 {
@@ -402,7 +402,7 @@ func TestConvertGenaiToolsToBedrockSanitizesNames(t *testing.T) {
 		{Name: "filesystem:read_file", Description: "Read a file"},
 	}}}
 
-	bedrockTools, nameMap := convertGenaiToolsToBedrock(tools)
+	bedrockTools, nameMap := convertGenaiToolsToBedrock(tools, false, "")
 	if len(bedrockTools) != 2 {
 		t.Fatalf("expected 2 tools, got %d", len(bedrockTools))
 	}
@@ -671,4 +671,78 @@ func TestBuildInferenceConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConvertGenaiToolsToBedrockPromptCaching(t *testing.T) {
+	tools := []*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{
+		{Name: "get_weather", Description: "lookup weather"},
+		{Name: "list_pods", Description: "list pods"},
+	}}}
+
+	t.Run("disabled: no cache marker appended", func(t *testing.T) {
+		out, _ := convertGenaiToolsToBedrock(tools, false, "")
+		if len(out) != 2 {
+			t.Fatalf("expected 2 tools, got %d", len(out))
+		}
+		for i, tool := range out {
+			if _, ok := tool.(*types.ToolMemberCachePoint); ok {
+				t.Fatalf("did not expect a CachePoint at index %d when caching disabled", i)
+			}
+		}
+	})
+
+	t.Run("enabled: cache marker appended at the END of the tool list", func(t *testing.T) {
+		out, _ := convertGenaiToolsToBedrock(tools, true, "")
+		if len(out) != 3 {
+			t.Fatalf("expected 3 entries (2 tools + 1 CachePoint), got %d", len(out))
+		}
+		// The first two must remain ToolSpec entries (order preserved).
+		for i := range 2 {
+			if _, ok := out[i].(*types.ToolMemberToolSpec); !ok {
+				t.Fatalf("entry %d: expected ToolMemberToolSpec, got %T", i, out[i])
+			}
+		}
+		// The trailing entry must be a CachePoint with type=default.
+		cp, ok := out[2].(*types.ToolMemberCachePoint)
+		if !ok {
+			t.Fatalf("trailing entry: expected ToolMemberCachePoint, got %T", out[2])
+		}
+		if cp.Value.Type != types.CachePointTypeDefault {
+			t.Errorf("expected CachePointType=default, got %v", cp.Value.Type)
+		}
+		// Default (empty) TTL must leave Ttl unset so Bedrock applies its
+		// standard 5-minute cache (broadest model support).
+		if cp.Value.Ttl != "" {
+			t.Errorf("expected unset Ttl for default cache, got %q", cp.Value.Ttl)
+		}
+	})
+
+	t.Run(`cacheTTL "5m": Ttl left unset (default 5-minute cache)`, func(t *testing.T) {
+		out, _ := convertGenaiToolsToBedrock(tools, true, "5m")
+		cp, ok := out[len(out)-1].(*types.ToolMemberCachePoint)
+		if !ok {
+			t.Fatalf("trailing entry: expected ToolMemberCachePoint, got %T", out[len(out)-1])
+		}
+		if cp.Value.Ttl != "" {
+			t.Errorf("expected unset Ttl for 5m, got %q", cp.Value.Ttl)
+		}
+	})
+
+	t.Run(`cacheTTL "1h": Ttl set to extended-TTL caching`, func(t *testing.T) {
+		out, _ := convertGenaiToolsToBedrock(tools, true, "1h")
+		cp, ok := out[len(out)-1].(*types.ToolMemberCachePoint)
+		if !ok {
+			t.Fatalf("trailing entry: expected ToolMemberCachePoint, got %T", out[len(out)-1])
+		}
+		if cp.Value.Ttl != types.CacheTTLOneHour {
+			t.Errorf("expected Ttl=%q, got %q", types.CacheTTLOneHour, cp.Value.Ttl)
+		}
+	})
+
+	t.Run("enabled but no tools: no cache marker (skipped)", func(t *testing.T) {
+		out, _ := convertGenaiToolsToBedrock(nil, true, "")
+		if len(out) != 0 {
+			t.Fatalf("expected empty slice for no tools, got %d entries", len(out))
+		}
+	})
 }

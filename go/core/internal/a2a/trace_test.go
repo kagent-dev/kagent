@@ -7,67 +7,11 @@ import (
 	"testing"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
-	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/types"
 )
-
-// mockHTTPReqHandler captures the request passed to Handle for inspection.
-type mockHTTPReqHandler struct {
-	capturedReq *http.Request
-}
-
-func (m *mockHTTPReqHandler) Handle(_ context.Context, _ *http.Client, req *http.Request) (*http.Response, error) {
-	m.capturedReq = req
-	return &http.Response{StatusCode: http.StatusOK}, nil
-}
-
-func TestTraceInjectHandler_InjectsHeader(t *testing.T) {
-	const rawTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-
-	ctx := propagation.TraceContext{}.Extract(
-		context.Background(),
-		propagation.MapCarrier{"traceparent": rawTraceparent},
-	)
-
-	mock := &mockHTTPReqHandler{}
-	h := &traceInjectHandler{next: mock}
-
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	if _, err := h.Handle(ctx, nil, req); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	got := mock.capturedReq.Header.Get("traceparent")
-	if got == "" {
-		t.Fatal("expected traceparent header on outgoing request, got none")
-	}
-
-	// The injected header must carry the same trace ID as the incoming context.
-	outCtx := propagation.TraceContext{}.Extract(context.Background(), propagation.HeaderCarrier(mock.capturedReq.Header))
-	wantTraceID := trace.SpanContextFromContext(ctx).TraceID()
-	gotTraceID := trace.SpanContextFromContext(outCtx).TraceID()
-	if wantTraceID != gotTraceID {
-		t.Errorf("trace ID: want %s, got %s", wantTraceID, gotTraceID)
-	}
-}
-
-func TestTraceInjectHandler_NoHeaderWhenNoTrace(t *testing.T) {
-	mock := &mockHTTPReqHandler{}
-	h := &traceInjectHandler{next: mock}
-
-	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	if _, err := h.Handle(context.Background(), nil, req); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if got := mock.capturedReq.Header.Get("traceparent"); got != "" {
-		t.Errorf("expected no traceparent header, got %q", got)
-	}
-}
 
 func TestA2ATracingMiddleware_SetsGenAIAttributes(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()

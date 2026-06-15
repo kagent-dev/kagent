@@ -1,6 +1,8 @@
 # Build artifacts
 ./bin/
 bin/
+.cache/
+**/.cache/
 
 # Test files
 *_test.go

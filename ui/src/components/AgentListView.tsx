@@ -17,7 +17,7 @@ import {
 import { countAgentToolBindings } from "@/lib/countAgentTools";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Lock, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
 import {
   agentHarnessIcon,
   agentHarnessTypeLabel,
@@ -29,6 +29,8 @@ import {
   isSubstrateHarnessRow,
   openshellTerminalHref,
 } from "@/lib/openshellSandboxAgents";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { SandboxPlatform } from "@/types";
 
 interface AgentListViewProps {
   agentResponse: AgentResponse[];
@@ -50,27 +52,65 @@ function compareNumbers(a: number, b: number, dir: SortDir): number {
   return dir === "asc" ? d : -d;
 }
 
-function typeLabel(type: string | undefined): string {
+function baseTypeLabel(type: string | undefined): string {
   switch (type) {
     case "BYO":
       return "BYO";
-    case "Sandbox":
-      return "Sandbox";
     case "Declarative":
     default:
       return "Declarative";
   }
 }
 
-function rowTypeLabel(item: AgentResponse): string {
+function sandboxPlatformLabel(platform: SandboxPlatform | undefined): string {
+  switch (platform) {
+    case "substrate":
+      return "Substrate";
+    case "agent-sandbox":
+      return "Agent Sandbox";
+    default:
+      return "Sandbox";
+  }
+}
+
+function SandboxBadge({ platform }: { platform: SandboxPlatform | undefined }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex items-center" aria-label={`Sandbox: ${sandboxPlatformLabel(platform)}`}>
+          <Lock className="h-3.5 w-3.5 text-muted-foreground/70 hover:text-muted-foreground transition-colors" />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{sandboxPlatformLabel(platform)}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function RowTypeCell({ item }: { item: AgentResponse }) {
   const harnessBackend = getAgentHarnessBackend(item);
   if (harnessBackend) {
-    return agentHarnessTypeLabel(harnessBackend);
+    return <span>{agentHarnessTypeLabel(harnessBackend)}</span>;
   }
   if (isOpenshellSandboxRow(item)) {
-    return "Agent harness";
+    return <span>Agent harness</span>;
   }
-  return typeLabel(item.agent.spec?.type);
+  if (item.workloadMode === "sandbox") {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        {baseTypeLabel(item.agent.spec?.type)}
+        <SandboxBadge platform={item.agent.spec?.platform} />
+      </span>
+    );
+  }
+  return <span>{baseTypeLabel(item.agent.spec?.type)}</span>;
+}
+
+function rowTypeSortKey(item: AgentResponse): string {
+  const harnessBackend = getAgentHarnessBackend(item);
+  if (harnessBackend) return agentHarnessTypeLabel(harnessBackend);
+  if (isOpenshellSandboxRow(item)) return "Agent harness";
+  if (item.workloadMode === "sandbox") return `${baseTypeLabel(item.agent.spec?.type)} (sandbox)`;
+  return baseTypeLabel(item.agent.spec?.type);
 }
 
 function getStatusInfo(accepted: boolean, deploymentReady: boolean) {
@@ -116,7 +156,12 @@ function ProviderModelCell({ item }: { item: AgentResponse }) {
     return (
       <div className="flex min-w-0 max-w-xs flex-col gap-1">
         <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Image</span>
-        <span className="text-sm [overflow-wrap:anywhere] text-muted-foreground">{byoImage || "—"}</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="truncate text-xs text-muted-foreground max-w-[14rem] block">{byoImage || "—"}</span>
+          </TooltipTrigger>
+          {byoImage && <TooltipContent side="bottom" className="max-w-sm break-all font-mono text-xs">{byoImage}</TooltipContent>}
+        </Tooltip>
       </div>
     );
   }
@@ -146,7 +191,7 @@ function sortAgents(items: AgentResponse[], key: SortKey, dir: SortDir): AgentRe
         return compareStrings(s(a), s(b), dir);
       }
       case "type": {
-        return compareStrings(rowTypeLabel(A), rowTypeLabel(B), dir);
+        return compareStrings(rowTypeSortKey(A), rowTypeSortKey(B), dir);
       }
       case "providerModel": {
         return compareStrings(providerModelText(A), providerModelText(B), dir);
@@ -338,7 +383,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
         </div>
       </td>
       <td className="px-3 py-3.5 align-middle text-sm text-foreground" title="Agent type">
-        {rowTypeLabel(item)}
+        <RowTypeCell item={item} />
       </td>
       <td className="px-3 py-3.5 align-middle" title={providerTitle}>
         <ProviderModelCell item={item} />
@@ -407,6 +452,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
           <DeleteButton
             agentName={name}
             namespace={namespace}
+            kubernetesKind={agent.kind}
             onDeleted={onAgentsChanged}
             externalOpen={deleteOpen}
             onExternalOpenChange={setDeleteOpen}
