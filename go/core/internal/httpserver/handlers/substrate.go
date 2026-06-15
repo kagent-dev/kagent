@@ -62,15 +62,17 @@ func (h *SubstrateHandler) HandleGetSubstrateStatus(w ErrorResponseWriter, r *ht
 		Workers:        []api.SubstrateWorkerEntry{},
 	}
 
-	for _, ns := range namespaces {
-		wpEntries, tmplEntries, err := h.listSubstrateCRs(r.Context(), ns)
-		if err != nil {
-			log.Error(err, "list substrate CRs", "namespace", ns)
-			w.RespondWithError(errors.NewInternalServerError("Failed to list substrate resources from Kubernetes", err))
-			return
+	if h.AteClient != nil {
+		for _, ns := range namespaces {
+			wpEntries, tmplEntries, err := h.listSubstrateCRs(r.Context(), ns)
+			if err != nil {
+				log.Error(err, "list substrate CRs", "namespace", ns)
+				w.RespondWithError(errors.NewInternalServerError("Failed to list substrate resources from Kubernetes", err))
+				return
+			}
+			resp.WorkerPools = append(resp.WorkerPools, wpEntries...)
+			resp.ActorTemplates = append(resp.ActorTemplates, tmplEntries...)
 		}
-		resp.WorkerPools = append(resp.WorkerPools, wpEntries...)
-		resp.ActorTemplates = append(resp.ActorTemplates, tmplEntries...)
 	}
 
 	if h.AteClient != nil {
