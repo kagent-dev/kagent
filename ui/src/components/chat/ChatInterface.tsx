@@ -274,6 +274,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     try {
       let currentSessionId = session?.id || sessionId;
+      // Track whether we just created a session in this invocation. If so, the
+      // rename block below must be skipped: the title was already set at creation
+      // time, and session React state hasn't yet re-rendered (so session?.name
+      // is still null, which would make isPlaceholderSessionTitle return true
+      // incorrectly and queue a redundant — potentially hanging — POST /sessions).
+      let justCreatedSession = false;
 
       // If there's no session, create one
       if (!currentSessionId) {
@@ -311,6 +317,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             }
           });
           window.dispatchEvent(newSessionEvent);
+          justCreatedSession = true;
         } catch (error) {
           console.error("Error creating session:", error);
           toast.error("Error creating session");
@@ -322,6 +329,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       }
 
       if (
+        !justCreatedSession &&
         currentSessionId &&
         storedMessages.length === 0 &&
         isPlaceholderSessionTitle(session?.name)
