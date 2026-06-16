@@ -11306,7 +11306,7 @@ spec:
                     properties:
                       location:
                         description: |-
-                          Location is the GCS URI prefix for golden and incremental snapshots.
+                          location is the GCS URI prefix for golden and incremental snapshots.
                           Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
                         pattern: ^gs://
                         type: string
