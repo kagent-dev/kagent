@@ -1,6 +1,6 @@
 ---
-#if route crd exists
-{{- if .Capabilities.APIVersions.Has "route.openshift.io/v1" }}
+#if route crd exists and the route is enabled
+{{- if and (.Capabilities.APIVersions.Has "route.openshift.io/v1") .Values.ui.route.enabled }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
