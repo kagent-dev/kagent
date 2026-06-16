@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	skillruntime "github.com/kagent-dev/kagent/go/adk/pkg/skills"
+	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 )
@@ -121,7 +122,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	skillsTool, err := functiontool.New(functiontool.Config{
 		Name:        "skills",
 		Description: skillruntime.GenerateSkillsToolDescription(discoveredSkills),
-	}, func(ctx tool.Context, in skillsInput) (string, error) {
+	}, func(ctx adkagent.ToolContext, in skillsInput) (string, error) {
 		skillName := strings.TrimSpace(in.Command)
 		if skillName == "" {
 			return "Error: No skill name provided", nil
@@ -146,7 +147,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	readFileTool, err := functiontool.New(functiontool.Config{
 		Name:        "read_file",
 		Description: readFileDescription,
-	}, func(ctx tool.Context, in readFileInput) (string, error) {
+	}, func(ctx adkagent.ToolContext, in readFileInput) (string, error) {
 		path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, in.FilePath)
 		if err != nil {
 			return fmt.Sprintf("Error reading file %s: %v", strings.TrimSpace(in.FilePath), err), nil
@@ -165,7 +166,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	writeFileTool, err := functiontool.New(functiontool.Config{
 		Name:        "write_file",
 		Description: writeFileDescription,
-	}, func(ctx tool.Context, in writeFileInput) (string, error) {
+	}, func(ctx adkagent.ToolContext, in writeFileInput) (string, error) {
 		path, err := resolveWritePath(ctx.SessionID(), absSkillsDir, in.FilePath)
 		if err != nil {
 			return fmt.Sprintf("Error writing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
@@ -183,7 +184,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	editFileTool, err := functiontool.New(functiontool.Config{
 		Name:        "edit_file",
 		Description: editFileDescription,
-	}, func(ctx tool.Context, in editFileInput) (string, error) {
+	}, func(ctx adkagent.ToolContext, in editFileInput) (string, error) {
 		path, err := resolveEditPath(ctx.SessionID(), absSkillsDir, in.FilePath)
 		if err != nil {
 			return fmt.Sprintf("Error editing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
@@ -201,7 +202,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	bashTool, err := functiontool.New(functiontool.Config{
 		Name:        "bash",
 		Description: bashDescription,
-	}, func(ctx tool.Context, in bashInput) (string, error) {
+	}, func(ctx adkagent.ToolContext, in bashInput) (string, error) {
 		command := strings.TrimSpace(in.Command)
 		if command == "" {
 			return "Error: No command provided", nil

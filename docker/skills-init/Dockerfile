@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     go build -a -trimpath -ldflags "$LDFLAGS" -o /skills-init ./core/cmd/skills-init
 
 ### Stage 1: runtime
-FROM alpine:3.23
+FROM alpine:3.24
 
 ARG PYTHON_UID=1001
 ARG PYTHON_GID=1001
