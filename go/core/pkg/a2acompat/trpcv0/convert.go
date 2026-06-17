@@ -60,6 +60,7 @@ func ToLegacyTask(task *a2av1.Task) (*trpc.Task, error) {
 
 	result := &trpc.Task{
 		ID:        string(task.ID),
+		Kind:      trpc.KindTask,
 		ContextID: task.ContextID,
 		Metadata:  task.Metadata,
 		Status: trpc.TaskStatus{
