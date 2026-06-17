@@ -36,7 +36,7 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxSkillsUnsupportedMsg)
 	})
 
-	t.Run("rejects python runtime on substrate platform", func(t *testing.T) {
+	t.Run("allows python runtime on substrate platform", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
 				Platform: SandboxPlatformSubstrate,
@@ -48,24 +48,36 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 				},
 			},
 		}
-		err := ValidateSubstrateSandboxAgentSpec(agent)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), substrateSandboxPythonRuntimeUnsupportedMsg)
+		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
 	})
 
-	t.Run("rejects BYO agents on substrate platform", func(t *testing.T) {
+	t.Run("rejects BYO agents without an explicit command on substrate platform", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
 				Platform: SandboxPlatformSubstrate,
 				AgentSpec: AgentSpec{
 					Type: AgentType_BYO,
-					BYO:  &BYOAgentSpec{},
+					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest"}},
 				},
 			},
 		}
 		err := ValidateSubstrateSandboxAgentSpec(agent)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), substrateSandboxBYOUnsupportedMsg)
+		require.Contains(t, err.Error(), substrateSandboxBYOMissingCommandMsg)
+	})
+
+	t.Run("allows BYO agents with an explicit command on substrate platform", func(t *testing.T) {
+		cmd := "/app"
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				Platform: SandboxPlatformSubstrate,
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
+				},
+			},
+		}
+		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
 	})
 
 	t.Run("allows BYO agents on agent-sandbox platform", func(t *testing.T) {

@@ -58,7 +58,7 @@ export function ByoDeploymentFields({
   imagePullSecrets: string[];
   envPairs: EnvPair[];
   serviceAccountName: string;
-  errors: Pick<AgentFormValidationErrors, "model" | "serviceAccountName">;
+  errors: Pick<AgentFormValidationErrors, "model" | "serviceAccountName" | "byoCmd">;
   disabled: boolean;
   onByoImageChange: (v: string) => void;
   onByoCmdChange: (v: string) => void;
@@ -110,7 +110,10 @@ export function ByoDeploymentFields({
             onChange={(e) => onByoCmdChange(e.target.value)}
             placeholder="/app/start"
             disabled={disabled}
+            className={errors.byoCmd ? "border-destructive" : ""}
+            aria-invalid={!!errors.byoCmd}
           />
+          <FieldError>{errors.byoCmd}</FieldError>
         </FieldRoot>
         <FieldRoot>
           <FieldLabel>Args (space-separated)</FieldLabel>

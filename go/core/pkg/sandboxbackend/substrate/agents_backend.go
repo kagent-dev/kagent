@@ -30,8 +30,14 @@ func (b *AgentsBackend) GetOwnedResourceTypes() []client.Object {
 	return []client.Object{&atev1alpha1.ActorTemplate{}}
 }
 
+// OwnedResourceTypesFor returns no types: substrate ActorTemplates are intentionally excluded
+// from the reconciler's generic prune so a config change does not delete the currently-serving
+// template. Their lifecycle is managed explicitly (blue-green) in the SandboxAgent controller —
+// the old template is retired only after the new golden is Ready. ActorTemplate remains in
+// GetOwnedResourceTypes for watches, and owner-reference GC still removes all templates when the
+// SandboxAgent itself is deleted.
 func (b *AgentsBackend) OwnedResourceTypesFor(_ v1alpha2.AgentObject) ([]client.Object, error) {
-	return b.GetOwnedResourceTypes(), nil
+	return nil, nil
 }
 
 func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.BuildInput) ([]client.Object, error) {
@@ -71,12 +77,14 @@ func (b *AgentsBackend) ComputeReady(ctx context.Context, cl client.Client, nn t
 	if b.Lifecycle == nil {
 		return metav1.ConditionUnknown, "SubstrateLifecycleNotConfigured", "substrate lifecycle is not configured"
 	}
-	tmplKey := types.NamespacedName{Namespace: nn.Namespace, Name: SandboxAgentActorTemplateName(sa)}
-	ready, err := b.Lifecycle.actorTemplateReady(ctx, tmplKey)
+	tmpl, err := ResolveCurrentActorTemplate(ctx, cl, nn.Namespace, sa.Name)
 	if err != nil {
-		return metav1.ConditionUnknown, "ActorTemplateGetFailed", err.Error()
+		return metav1.ConditionUnknown, "ActorTemplateListFailed", err.Error()
 	}
-	if !ready {
+	if tmpl == nil {
+		return metav1.ConditionFalse, "ActorTemplateNotFound", "ActorTemplate has not been generated yet"
+	}
+	if tmpl.Status.Phase != atev1alpha1.PhaseReady {
 		return metav1.ConditionFalse, "ActorTemplateNotReady", "ActorTemplate golden snapshot is not ready"
 	}
 	return metav1.ConditionTrue, "ActorTemplateReady", "ActorTemplate golden snapshot is ready"

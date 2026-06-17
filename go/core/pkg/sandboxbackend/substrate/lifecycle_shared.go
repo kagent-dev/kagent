@@ -133,11 +133,65 @@ func actorTemplateName(ah *v1alpha2.AgentHarness) string {
 }
 
 func truncateDNS1123(s string) string {
+	return truncateDNS1123To(s, 63)
+}
+
+func truncateDNS1123To(s string, max int) string {
 	s = strings.ToLower(strings.ReplaceAll(s, "_", "-"))
-	if len(s) > 63 {
-		s = strings.TrimRight(s[:63], "-")
+	if len(s) > max {
+		s = strings.TrimRight(s[:max], "-")
 	}
 	return s
+}
+
+// ResolveCurrentActorTemplate returns the ActorTemplate a SandboxAgent should currently serve
+// from: the newest non-terminating template whose golden snapshot is Ready. This is the
+// blue-green pivot — during a config change the new template builds while this keeps returning
+// the previous Ready template, so chat and readiness stay on the working golden with no downtime
+// and flip atomically once the new golden is Ready. Falls back to the newest template when none
+// is Ready yet (the very first build). Returns (nil, nil) when no template exists.
+func ResolveCurrentActorTemplate(ctx context.Context, kube client.Client, namespace, agentName string) (*atev1alpha1.ActorTemplate, error) {
+	templates, err := listSandboxAgentActorTemplates(ctx, kube, namespace, agentName)
+	if err != nil {
+		return nil, err
+	}
+	var newestReady, newest *atev1alpha1.ActorTemplate
+	for i := range templates {
+		t := templates[i]
+		if newest == nil || t.CreationTimestamp.After(newest.CreationTimestamp.Time) {
+			newest = t
+		}
+		if t.Status.Phase == atev1alpha1.PhaseReady {
+			if newestReady == nil || t.CreationTimestamp.After(newestReady.CreationTimestamp.Time) {
+				newestReady = t
+			}
+		}
+	}
+	if newestReady != nil {
+		return newestReady, nil
+	}
+	return newest, nil
+}
+
+// listSandboxAgentActorTemplates returns the non-terminating generated ActorTemplates for an agent.
+func listSandboxAgentActorTemplates(ctx context.Context, kube client.Client, namespace, agentName string) ([]*atev1alpha1.ActorTemplate, error) {
+	if kube == nil {
+		return nil, fmt.Errorf("kubernetes client is required")
+	}
+	list := &atev1alpha1.ActorTemplateList{}
+	if err := kube.List(ctx, list,
+		client.InNamespace(namespace),
+		client.MatchingLabels{SandboxAgentLabelKey: agentName},
+	); err != nil {
+		return nil, fmt.Errorf("list ActorTemplates for %s/%s: %w", namespace, agentName, err)
+	}
+	out := make([]*atev1alpha1.ActorTemplate, 0, len(list.Items))
+	for i := range list.Items {
+		if list.Items[i].DeletionTimestamp.IsZero() {
+			out = append(out, &list.Items[i])
+		}
+	}
+	return out, nil
 }
 
 // pinImageRef ensures image refs satisfy Substrate ActorTemplate validation (must contain "@").

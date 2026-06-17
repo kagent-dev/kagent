@@ -282,16 +282,10 @@ func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
 }
 
 // EffectiveDeclarativeRuntimeForAgent returns the runtime for a reconciled agent object.
-// Substrate SandboxAgents always use Go; regular Agents honor spec.declarative.runtime.
+// All agents (including substrate SandboxAgents) honor spec.declarative.runtime, defaulting
+// to Python when unset.
 func EffectiveDeclarativeRuntimeForAgent(agent AgentObject) DeclarativeRuntime {
-	spec := agent.GetAgentSpec()
-	if agent.GetWorkloadMode() == WorkloadModeSandbox &&
-		AgentSandboxPlatform(agent) == SandboxPlatformSubstrate &&
-		spec != nil &&
-		spec.Type == AgentType_Declarative {
-		return DeclarativeRuntime_Go
-	}
-	return EffectiveDeclarativeRuntime(spec)
+	return EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 }
 
 // NetworkConfig configures outbound network access for sandboxed execution paths.

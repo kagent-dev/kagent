@@ -57,7 +57,7 @@ func TestFilterTranslatorOwnedTypesForList(t *testing.T) {
 		require.Len(t, out, len(allTypes))
 	})
 
-	t.Run("substrate SandboxAgent drops agent-sandbox GVKs", func(t *testing.T) {
+	t.Run("substrate SandboxAgent drops agent-sandbox GVKs and ActorTemplate from prune", func(t *testing.T) {
 		require.NoError(t, atev1alpha1.AddToScheme(scheme))
 		routing := sandboxbackend.NewRoutingBackend(agentsxk8s.New(), substrate.NewAgentsBackend(nil, nil))
 		allWithSubstrate := append(allTypes, &atev1alpha1.ActorTemplate{})
@@ -69,18 +69,16 @@ func TestFilterTranslatorOwnedTypesForList(t *testing.T) {
 		}
 		out, err := sandboxbackend.FilterTranslatorOwnedTypesForList(cl, sa, allWithSubstrate, routing)
 		require.NoError(t, err)
-		require.Len(t, out, 3)
-		var sawSandbox, sawActorTemplate bool
+		// Substrate manages ActorTemplate lifecycle itself (blue-green), so it is excluded from the
+		// generic prune list along with the agent-sandbox Sandbox GVK — leaving only the generic
+		// Deployment + ConfigMap types.
+		require.Len(t, out, 2)
 		for _, o := range out {
-			if _, ok := o.(*agentsandboxv1.Sandbox); ok {
-				sawSandbox = true
-			}
-			if _, ok := o.(*atev1alpha1.ActorTemplate); ok {
-				sawActorTemplate = true
-			}
+			_, isSandbox := o.(*agentsandboxv1.Sandbox)
+			require.False(t, isSandbox, "substrate agents must not list agent-sandbox Sandbox resources")
+			_, isActorTemplate := o.(*atev1alpha1.ActorTemplate)
+			require.False(t, isActorTemplate, "ActorTemplate must be excluded from generic prune (managed via blue-green)")
 		}
-		require.False(t, sawSandbox, "substrate agents must not list agent-sandbox Sandbox resources")
-		require.True(t, sawActorTemplate)
 	})
 
 	t.Run("agent-sandbox SandboxAgent keeps Sandbox GVK only", func(t *testing.T) {

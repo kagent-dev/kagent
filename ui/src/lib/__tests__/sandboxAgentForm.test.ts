@@ -127,18 +127,16 @@ describe("substrate sandbox chat helpers", () => {
 });
 
 describe("defaultDeclarativeRuntimeForSandboxPlatform", () => {
-  it("defaults substrate sandbox agents to Go runtime", () => {
+  it("defaults substrate sandbox agents to Go runtime (still selectable)", () => {
     expect(defaultDeclarativeRuntimeForSandboxPlatform("substrate")).toBe("go");
     expect(defaultDeclarativeRuntimeForSandboxPlatform("agent-sandbox")).toBe("python");
   });
 });
 
 describe("substrateSupportedForAgentType", () => {
-  it("disallows substrate for BYO agents", () => {
-    expect(substrateSupportedForAgentType("BYO")).toBe(false);
-  });
-  it("allows substrate for declarative agents", () => {
+  it("allows substrate for declarative and BYO agents", () => {
     expect(substrateSupportedForAgentType("Declarative")).toBe(true);
+    expect(substrateSupportedForAgentType("BYO")).toBe(true);
     expect(substrateSupportedForAgentType(undefined)).toBe(true);
   });
 });

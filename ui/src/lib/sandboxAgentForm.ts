@@ -40,9 +40,12 @@ export function defaultSandboxPlatform(substrateEnabled: boolean): SandboxPlatfo
   return substrateEnabled ? "substrate" : "agent-sandbox";
 }
 
-/** BYO agents cannot run on Agent Substrate; only declarative agents are supported. */
+/**
+ * Agent Substrate supports declarative (Python/Go) and BYO agents. AgentHarness has its own
+ * substrate runtime and is configured elsewhere.
+ */
 export function substrateSupportedForAgentType(agentType: string | undefined): boolean {
-  return agentType !== "BYO";
+  return agentType === "Declarative" || agentType === "BYO" || agentType === undefined;
 }
 
 /** Substrate sandbox agents get a dedicated actor per chat session. */
@@ -62,7 +65,10 @@ export function isSingleSessionSandboxAgent(
   return agent?.workloadMode === "sandbox" && !isSubstrateSandboxAgent(agent);
 }
 
-/** Default ADK runtime for sandbox agents. Substrate uses Go only. */
+/**
+ * Default ADK runtime for sandbox agents. Substrate supports both Python and Go; it defaults to
+ * Go (faster cold start, the original substrate runtime) but the runtime remains selectable.
+ */
 export function defaultDeclarativeRuntimeForSandboxPlatform(
   sandboxPlatform: SandboxPlatform | undefined
 ): "go" | "python" {

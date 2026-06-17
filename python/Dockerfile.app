@@ -1,6 +1,9 @@
 ARG KAGENT_ADK_VERSION=latest
 ARG DOCKER_REGISTRY=ghcr.io
 ARG DOCKER_REPO=kagent-dev/kagent
+# The base runtime is selected by tag: KAGENT_ADK_VERSION=<version> for the distroless slim
+# base, or <version>-full for the base that includes the sandbox runtime. The app image just
+# overrides the entrypoint to serve declarative agents.
 FROM $DOCKER_REGISTRY/$DOCKER_REPO/kagent-adk:$KAGENT_ADK_VERSION
 
 # Offline mode

@@ -58,13 +58,17 @@ func (r *RoutingBackend) GetOwnedResourceTypes() []client.Object {
 	return out
 }
 
-// OwnedResourceTypesFor returns owned-resource types for the agent's sandbox platform.
+// OwnedResourceTypesFor returns the owned-resource types the reconciler should prune for the
+// agent's sandbox platform. It delegates to the platform backend's per-agent method (NOT
+// GetOwnedResourceTypes, which is the broader watch set) so a platform can watch a type without
+// having it generically pruned — substrate uses this to manage ActorTemplate lifecycle itself
+// (blue-green: keep the old template serving until the new golden is Ready).
 func (r *RoutingBackend) OwnedResourceTypesFor(agent v1alpha2.AgentObject) ([]client.Object, error) {
 	b, err := r.backendFor(agent)
 	if err != nil {
 		return nil, err
 	}
-	return b.GetOwnedResourceTypes(), nil
+	return b.OwnedResourceTypesFor(agent)
 }
 
 func (r *RoutingBackend) ComputeReady(ctx context.Context, cl client.Client, nn types.NamespacedName) (metav1.ConditionStatus, string, string) {

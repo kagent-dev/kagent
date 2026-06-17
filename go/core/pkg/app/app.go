@@ -557,7 +557,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		if atenetRouterURL == "" {
 			atenetRouterURL = substrate.DefaultAtenetRouterURL
 		}
-		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient, atenetRouterURL)
+		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient, mgr.GetClient(), atenetRouterURL)
 		agentsSubstrate := substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
 		extensionCfg.SandboxBackend = sandboxbackend.NewRoutingBackend(extensionCfg.SandboxBackend, agentsSubstrate)
 	}

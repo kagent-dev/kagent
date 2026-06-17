@@ -60,14 +60,18 @@ SKILLS_INIT_IMAGE_NAME ?= skills-init
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
+APP_FULL_IMAGE_TAG ?= $(VERSION)-full
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
+KAGENT_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
 SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+APP_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_FULL_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
+KAGENT_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_FULL_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 GOLANG_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_FULL_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
@@ -197,12 +201,14 @@ build-all: buildx-create
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-skills-init build-golang-adk build-golang-adk-full build-app build-controller
+build: buildx-create build-ui build-skills-init build-golang-adk build-golang-adk-full build-app build-app-full build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
+	@echo "App Full Image: $(APP_FULL_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
+	@echo "Kagent ADK Full Image: $(KAGENT_ADK_FULL_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
 	@echo "Golang ADK Full Image: $(GOLANG_ADK_FULL_IMG)"
 	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
@@ -230,7 +236,9 @@ build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
 	@echo app=$(APP_IMG)
+	@echo app-full=$(APP_FULL_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
+	@echo kagent-adk-full=$(KAGENT_ADK_FULL_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
 	@echo golang-adk-full=$(GOLANG_ADK_FULL_IMG)
 	@echo skills-init=$(SKILLS_INIT_IMG)
@@ -242,10 +250,11 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 
 .PHONY: build-controller
 build-controller: ## Build and push the controller image (embeds agent runtime digests via scripts/controller-digest-ldflags.sh)
-build-controller: buildx-create controller-manifests build-app build-golang-adk build-golang-adk-full
+build-controller: buildx-create controller-manifests build-app build-app-full build-golang-adk build-golang-adk-full
 	@set -e; \
 	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
 		APP_IMG=$(APP_IMG) \
+		APP_FULL_IMG=$(APP_FULL_IMG) \
 		GOLANG_ADK_IMG=$(GOLANG_ADK_IMG) \
 		GOLANG_ADK_FULL_IMG=$(GOLANG_ADK_FULL_IMG) \
 		./scripts/controller-digest-ldflags.sh); \
@@ -268,10 +277,22 @@ build-kagent-adk: buildx-create
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
 .PHONY: build-app
-build-app: ## Build and push the app image (depends on kagent-adk)
+build-app: ## Build and push the app image (distroless slim; depends on kagent-adk)
 build-app: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
 	$(DOCKER_PUSH) $(APP_IMG)
+
+.PHONY: build-kagent-adk-full
+build-kagent-adk-full: ## Build and push the full Python kagent ADK image (includes sandbox runtime)
+build-kagent-adk-full: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_FULL_IMG) -f python/Dockerfile.full ./python
+	$(DOCKER_PUSH) $(KAGENT_ADK_FULL_IMG)
+
+.PHONY: build-app-full
+build-app-full: ## Build and push the full app image (sandbox runtime; depends on kagent-adk-full)
+build-app-full: buildx-create build-kagent-adk-full
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_FULL_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_FULL_IMG) -f python/Dockerfile.app ./python
+	$(DOCKER_PUSH) $(APP_FULL_IMG)
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
