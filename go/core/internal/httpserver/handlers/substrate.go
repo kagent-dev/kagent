@@ -13,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -55,25 +56,28 @@ func (h *SubstrateHandler) HandleGetSubstrateStatus(w ErrorResponseWriter, r *ht
 	}
 
 	resp := api.SubstrateStatusResponse{
-		Enabled:        h.AteClient != nil,
 		WorkerPools:    []api.SubstrateWorkerPoolEntry{},
 		ActorTemplates: []api.SubstrateActorTemplateEntry{},
 		Actors:         []api.SubstrateActorEntry{},
 		Workers:        []api.SubstrateWorkerEntry{},
 	}
 
-	if h.AteClient != nil {
-		for _, ns := range namespaces {
-			wpEntries, tmplEntries, err := h.listSubstrateCRs(r.Context(), ns)
-			if err != nil {
-				log.Error(err, "list substrate CRs", "namespace", ns)
-				w.RespondWithError(errors.NewInternalServerError("Failed to list substrate resources from Kubernetes", err))
-				return
-			}
-			resp.WorkerPools = append(resp.WorkerPools, wpEntries...)
-			resp.ActorTemplates = append(resp.ActorTemplates, tmplEntries...)
+	crdsPresent := false
+	for _, ns := range namespaces {
+		wpEntries, tmplEntries, found, err := h.listSubstrateCRs(r.Context(), ns)
+		if err != nil {
+			log.Error(err, "list substrate CRs", "namespace", ns)
+			w.RespondWithError(errors.NewInternalServerError("Failed to list substrate resources from Kubernetes", err))
+			return
 		}
+		if found {
+			crdsPresent = true
+		}
+		resp.WorkerPools = append(resp.WorkerPools, wpEntries...)
+		resp.ActorTemplates = append(resp.ActorTemplates, tmplEntries...)
+	}
 
+	if h.AteClient != nil {
 		actors, workers, ateErr := h.listAteAPIState(r.Context(), namespaces)
 		resp.Actors = actors
 		resp.Workers = workers
@@ -82,6 +86,8 @@ func (h *SubstrateHandler) HandleGetSubstrateStatus(w ErrorResponseWriter, r *ht
 			log.Error(ateErr, "list ate-api state")
 		}
 	}
+
+	resp.Enabled = crdsPresent || h.AteClient != nil
 
 	slices.SortStableFunc(resp.WorkerPools, compareWorkerPool)
 	slices.SortStableFunc(resp.ActorTemplates, compareActorTemplate)
@@ -102,7 +108,7 @@ func (h *SubstrateHandler) substrateNamespaces(requested string) ([]string, erro
 	return []string{""}, nil
 }
 
-func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace string) ([]api.SubstrateWorkerPoolEntry, []api.SubstrateActorTemplateEntry, error) {
+func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace string) ([]api.SubstrateWorkerPoolEntry, []api.SubstrateActorTemplateEntry, bool, error) {
 	var listOpts []client.ListOption
 	if namespace != "" {
 		listOpts = append(listOpts, client.InNamespace(namespace))
@@ -110,11 +116,17 @@ func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace strin
 
 	wpList := &atev1alpha1.WorkerPoolList{}
 	if err := h.KubeClient.List(ctx, wpList, listOpts...); err != nil {
-		return nil, nil, err
+		if apimeta.IsNoMatchError(err) {
+			return nil, nil, false, nil
+		}
+		return nil, nil, false, err
 	}
 	tmplList := &atev1alpha1.ActorTemplateList{}
 	if err := h.KubeClient.List(ctx, tmplList, listOpts...); err != nil {
-		return nil, nil, err
+		if apimeta.IsNoMatchError(err) {
+			return nil, nil, false, nil
+		}
+		return nil, nil, false, err
 	}
 
 	workerPools := make([]api.SubstrateWorkerPoolEntry, 0, len(wpList.Items))
@@ -154,7 +166,7 @@ func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace strin
 		templates = append(templates, entry)
 	}
 
-	return workerPools, templates, nil
+	return workerPools, templates, true, nil
 }
 
 func (h *SubstrateHandler) listAteAPIState(ctx context.Context, namespaces []string) ([]api.SubstrateActorEntry, []api.SubstrateWorkerEntry, error) {
