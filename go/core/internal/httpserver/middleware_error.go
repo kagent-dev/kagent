@@ -58,22 +58,26 @@ func (w *errorResponseWriter) RespondWithError(err error) {
 		err = errors.New("unknown error")
 	}
 
+	var underlying error
 	if apiErr, ok := err.(*apierrors.APIError); ok {
 		statusCode = apiErr.Code
 		message = apiErr.Message
-
-		if apiErr.Err != nil {
-			err = apiErr.Err
-		}
+		underlying = apiErr.Err
+	} else {
+		underlying = err
 	}
 
-	if !errors.Is(err, pgx.ErrNoRows) {
-		log.Error(err, message)
+	if underlying != nil && !errors.Is(underlying, pgx.ErrNoRows) {
+		log.Error(underlying, message)
 	} else {
 		log.Info(message)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]string{"error": message + ": " + err.Error()}) //nolint:errcheck
+	errMsg := message
+	if underlying != nil {
+		errMsg = message + ": " + underlying.Error()
+	}
+	json.NewEncoder(w).Encode(map[string]string{"error": errMsg}) //nolint:errcheck
 }
