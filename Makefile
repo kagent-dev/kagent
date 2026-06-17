@@ -138,7 +138,7 @@ KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($
 
 # Substrate
 SUBSTRATE_ENABLED ?= false
-SUBSTRATE_VERSION ?= 0.0.6
+SUBSTRATE_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go/go.mod) # Substrate version defaults to the replace target in go.mod
 
 HELM_ACTION=upgrade --install
 
