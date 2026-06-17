@@ -37,6 +37,19 @@ const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
 // Task states that mean the session is busy (used by the cross-tab send guard).
 const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
 
+const SEND_GUARD_EXCLUDED_ORIGINAL_TYPES = new Set([
+  "ToolApprovalRequest",
+  "AskUserRequest",
+  "ToolCallSummaryMessage",
+]);
+
+function countSendGuardComparableMessages(messages: Message[]): number {
+  return messages.filter(message => {
+    const meta = message.metadata as ADKMetadata | undefined;
+    return !meta?.originalType || !SEND_GUARD_EXCLUDED_ORIGINAL_TYPES.has(meta.originalType);
+  }).length;
+}
+
 interface ChatInterfaceProps {
   selectedAgentName: string;
   selectedNamespace: string;
@@ -225,12 +238,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     // the full context before their next message goes out.
     const guardSessionId = session?.id || sessionId;
     if (guardSessionId) {
-      // Compare only non-approval messages to avoid false negatives when
-      // storedMessages includes appended ToolApprovalRequest / AskUserRequest entries.
-      const localMessageCount = storedMessages.filter(m => {
-        const meta = m.metadata as ADKMetadata | undefined;
-        return meta?.originalType !== "ToolApprovalRequest" && meta?.originalType !== "AskUserRequest";
-      }).length;
+      // Compare against all messages already visible in this tab. Completed
+      // same-tab stream messages remain in streamingMessages until the next
+      // send promotes them, so excluding them causes a false stale-message block.
+      const localMessageCount = countSendGuardComparableMessages(allMessages);
       const guardResult = await checkAndSyncSessionBeforeAction(guardSessionId, {
         localMessageCount,
         messages: {
@@ -625,8 +636,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     if (opts.localMessageCount !== undefined) {
-      const dbMessages = extractMessagesFromTasks(tasksCheck.data);
-      if (dbMessages.length > opts.localMessageCount) {
+      const dbMessageCount = countSendGuardComparableMessages(extractMessagesFromTasks(tasksCheck.data));
+      if (dbMessageCount > opts.localMessageCount) {
         await reloadSessionFromDB();
         toast.info(opts.messages.staleOrChanged);
         return "blocked";
