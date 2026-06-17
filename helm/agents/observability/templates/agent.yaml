@@ -26,7 +26,7 @@ spec:
 
       ## Prometheus Datasource
 
-      Call get_datasource with name "{{ .prometheusDatasourceName }}" once to get the datasource UID. Use that UID for all Prometheus tool calls (query_prometheus, list_prometheus_metric_names, list_prometheus_label_names, list_prometheus_label_values, list_prometheus_metric_metadata).
+      Before making any Prometheus tool call, you must first call get_datasource with name "{{ .prometheusDatasourceName }}" to resolve the datasource UID. Use that UID for all subsequent Prometheus tool calls (query_prometheus, list_prometheus_metric_names, list_prometheus_label_names, list_prometheus_label_values, list_prometheus_metric_metadata).
       {{- end }}{{- end }}
 
       {{ `{{include "builtin/kubernetes-context"}}` }}
