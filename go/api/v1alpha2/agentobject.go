@@ -41,7 +41,7 @@ func (a *SandboxAgent) GetAgentSpec() *AgentSpec {
 	if a == nil {
 		return nil
 	}
-	return &a.Spec
+	return &a.Spec.AgentSpec
 }
 
 func (a *SandboxAgent) GetAgentStatus() *AgentStatus {

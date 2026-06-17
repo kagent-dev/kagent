@@ -1,22 +1,25 @@
-import type { ValueSource } from "@/types";
+import type { AgentHarnessCrBackend, ValueSource } from "@/types";
+import { AGENT_HARNESS_MESSENGER_BACKENDS } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { generateId } from "@/lib/utils";
 
-/** Default Sandbox CR backend when the harness form does not specify one. */
-const SANDBOX_BACKEND_OPENCLAW = "openclaw" as const;
-
-function resolveSandboxBackend(backend?: AgentHarnessSandboxBackend): AgentHarnessSandboxBackend {
-  return backend ?? SANDBOX_BACKEND_OPENCLAW;
+/** Matches Kubernetes validation: channels are supported for AgentHarness backends. */
+export function agentHarnessBackendSupportsMessengerChannels(b: AgentHarnessCrBackend): boolean {
+  return (AGENT_HARNESS_MESSENGER_BACKENDS as readonly AgentHarnessCrBackend[]).includes(b);
 }
 
-export type AgentHarnessSandboxBackend = "openclaw" | "nemoclaw" | "hermes";
+export function isClawHarnessBackend(backend: AgentHarnessCrBackend | undefined): boolean {
+  return backend === "openclaw" || backend === "nemoclaw";
+}
 
-export type SandboxChannelFormType = "telegram" | "slack";
+export type AgentHarnessChannelFormType = "telegram" | "slack";
 
-export interface OpenClawChannelRow {
+export type HarnessRuntimeForm = "openshell" | "substrate";
+
+export interface AgentHarnessChannelRow {
   id: string;
   name: string;
-  channelType: SandboxChannelFormType;
+  channelType: AgentHarnessChannelFormType;
   botTokenSource: "inline" | "secret";
   botToken: string;
   botSecretName: string;
@@ -38,7 +41,7 @@ export interface OpenClawChannelRow {
   interactiveReplies: boolean;
 }
 
-export function newOpenClawChannelRow(): OpenClawChannelRow {
+export function newAgentHarnessChannelRow(): AgentHarnessChannelRow {
   return {
     id: generateId(),
     name: "",
@@ -61,13 +64,8 @@ export function newOpenClawChannelRow(): OpenClawChannelRow {
   };
 }
 
-export function isClawHarnessBackend(backend: AgentHarnessSandboxBackend | undefined): boolean {
-  return backend === "openclaw" || backend === "nemoclaw";
-}
-
-export type HarnessRuntimeForm = "openshell" | "substrate";
-
-export interface OpenClawSandboxFormSlice {
+export interface AgentHarnessFormSlice {
+  backend: AgentHarnessCrBackend;
   /** Harness control plane: OpenShell (default) or Agent Substrate. */
   runtime: HarnessRuntimeForm;
   substrateWorkerPoolRefName: string;
@@ -76,7 +74,7 @@ export interface OpenClawSandboxFormSlice {
   substrateSnapshotsLocation: string;
   /** Optional override for Sandbox.spec.image (OpenShell VM template image). Empty → controller default. */
   image: string;
-  channels: OpenClawChannelRow[];
+  channels: AgentHarnessChannelRow[];
   /**
    * Free-text DNS host list (newline / comma / space separated) that maps to
    * `AgentHarness.spec.network.allowedDomains`. Each host opens an L7 REST endpoint
@@ -86,8 +84,9 @@ export interface OpenClawSandboxFormSlice {
   allowedDomains: string;
 }
 
-export function defaultOpenClawSandboxFormSlice(): OpenClawSandboxFormSlice {
+export function defaultAgentHarnessFormSlice(): AgentHarnessFormSlice {
   return {
+    backend: "openclaw",
     runtime: "openshell",
     substrateWorkerPoolRefName: "",
     substrateGatewayToken: "",
@@ -145,18 +144,18 @@ export function parseAllowedDomainsList(raw: string): string[] {
   return out;
 }
 
-/** Where to show a harness OpenClaw validation message and which element to focus. */
-export type OpenClawSandboxSectionErrorKind = "allowedDomains" | "channels" | "general";
+/** Where to show a harness validation message and which element to focus. */
+export type AgentHarnessSectionErrorKind = "allowedDomains" | "channels" | "general";
 
-export interface OpenClawSandboxFormValidationError {
+export interface AgentHarnessFormValidationError {
   message: string;
-  section: OpenClawSandboxSectionErrorKind;
+  section: AgentHarnessSectionErrorKind;
 }
 
-function openClawValidationFail(
-  section: OpenClawSandboxSectionErrorKind,
+function agentHarnessValidationFail(
+  section: AgentHarnessSectionErrorKind,
   message: string,
-): OpenClawSandboxFormValidationError {
+): AgentHarnessFormValidationError {
   return { section, message };
 }
 
@@ -182,32 +181,50 @@ function credentialFromRow(
   return { valueFrom: { type: "Secret", name: n, key: k } };
 }
 
-/** Client-side validation for OpenClaw Sandbox CR create. */
-export function validateOpenClawSandboxForm(args: {
-  openClaw: OpenClawSandboxFormSlice;
+/** Client-side validation for AgentHarness CR create. */
+export function validateAgentHarnessForm(args: {
+  harness: AgentHarnessFormSlice;
   modelRef: string | undefined;
-  backend?: AgentHarnessSandboxBackend;
-}): OpenClawSandboxFormValidationError | undefined {
-  const clawBackend = isClawHarnessBackend(resolveSandboxBackend(args.backend));
+}): AgentHarnessFormValidationError | undefined {
+  const backend = args.harness.backend;
+  const clawBackend = isClawHarnessBackend(backend);
   const mr = (args.modelRef || "").trim();
   if (!mr) {
-    return openClawValidationFail("general", "Please select a model config for this sandbox.");
+    return agentHarnessValidationFail("general", "Please select a model config for this AgentHarness.");
   }
-  if (args.openClaw.runtime === "substrate" && !args.openClaw.substrateGatewayToken.trim()) {
-    return openClawValidationFail("general", "Substrate gateway token is required.");
+  if (args.harness.runtime === "substrate" && !args.harness.substrateGatewayToken.trim()) {
+    return agentHarnessValidationFail("general", "Substrate gateway token is required.");
   }
 
-  for (const entry of trimSplitList(args.openClaw.allowedDomains)) {
+  for (const entry of trimSplitList(args.harness.allowedDomains)) {
     if (!isPlausibleAllowedDomainHost(entry)) {
-      return openClawValidationFail(
+      return agentHarnessValidationFail(
         "allowedDomains",
         `Allowed domain "${entry}" is not a valid hostname. Use bare DNS names like api.github.com (no scheme or path).`,
       );
     }
   }
 
+  const channelBackend = agentHarnessBackendSupportsMessengerChannels(backend);
+  if (!channelBackend && args.harness.channels.length > 0) {
+    const hasConfiguredChannel = args.harness.channels.some(
+      (ch) =>
+        ch.name.trim() ||
+        ch.botToken.trim() ||
+        ch.appToken.trim() ||
+        (ch.botTokenSource === "secret" && (ch.botSecretName || ch.botSecretKey)) ||
+        (ch.appTokenSource === "secret" && (ch.appSecretName || ch.appSecretKey)),
+    );
+    if (hasConfiguredChannel) {
+      return agentHarnessValidationFail(
+        "general",
+        "Messenger channels are only supported for OpenClaw and NemoClaw harness types today.",
+      );
+    }
+  }
+
   const seenChannelNames = new Set<string>();
-  for (const ch of args.openClaw.channels) {
+  for (const ch of args.harness.channels) {
     const cn = ch.name.trim();
     if (!cn) {
       if (
@@ -216,12 +233,12 @@ export function validateOpenClawSandboxForm(args: {
         (ch.botTokenSource === "secret" && (ch.botSecretName || ch.botSecretKey)) ||
         (ch.appTokenSource === "secret" && (ch.appSecretName || ch.appSecretKey))
       ) {
-        return openClawValidationFail("channels", "Each channel with tokens configured needs a binding name.");
+        return agentHarnessValidationFail("channels", "Each channel with tokens configured needs a binding name.");
       }
       continue;
     }
     if (seenChannelNames.has(cn)) {
-      return openClawValidationFail(
+      return agentHarnessValidationFail(
         "channels",
         `Duplicate channel binding name "${cn}". Each channel needs a unique name.`,
       );
@@ -236,7 +253,7 @@ export function validateOpenClawSandboxForm(args: {
       `Channel "${cn}" bot token`,
     );
     if ("error" in bot) {
-      return openClawValidationFail("channels", bot.error);
+      return agentHarnessValidationFail("channels", bot.error);
     }
 
     if (ch.channelType === "slack") {
@@ -248,7 +265,7 @@ export function validateOpenClawSandboxForm(args: {
         `Channel "${cn}" Slack app token`,
       );
       if ("error" in app) {
-        return openClawValidationFail("channels", app.error);
+        return agentHarnessValidationFail("channels", app.error);
       }
     }
 
@@ -256,7 +273,7 @@ export function validateOpenClawSandboxForm(args: {
       if (ch.channelAccess === "allowlist") {
         const list = trimSplitList(ch.allowlistChannels);
         if (list.length === 0) {
-          return openClawValidationFail(
+          return agentHarnessValidationFail(
             "channels",
             `Channel "${cn}": allowlist mode requires at least one channel ID.`,
           );
@@ -268,14 +285,14 @@ export function validateOpenClawSandboxForm(args: {
   return undefined;
 }
 
-export interface SandboxCRDraft {
+export interface AgentHarnessCRDraft {
   apiVersion: string;
   kind: "AgentHarness";
   metadata: { name: string; namespace: string };
   spec: Record<string, unknown>;
 }
 
-function modelConfigRefForSandbox(agentNamespace: string, modelRef: string): string {
+function modelConfigRefForHarness(agentNamespace: string, modelRef: string): string {
   const t = modelRef.trim();
   if (!t) {
     return "";
@@ -290,93 +307,97 @@ function modelConfigRefForSandbox(agentNamespace: string, modelRef: string): str
   return t;
 }
 
-export function buildSandboxCRDraft(args: {
+export function buildAgentHarnessCRDraft(args: {
   name: string;
   namespace: string;
   description: string;
   modelRef: string;
-  openClaw: OpenClawSandboxFormSlice;
-  backend?: AgentHarnessSandboxBackend;
-}): SandboxCRDraft | { error: string } {
-  const modelConfigRef = modelConfigRefForSandbox(args.namespace.trim(), args.modelRef);
-
+  harness: AgentHarnessFormSlice;
+}): AgentHarnessCRDraft | { error: string } {
+  const modelConfigRef = modelConfigRefForHarness(args.namespace.trim(), args.modelRef);
+  const backend = args.harness.backend;
   const channels: Record<string, unknown>[] = [];
 
-  for (const ch of args.openClaw.channels) {
-    const cn = ch.name.trim();
-    if (!cn) {
-      continue;
-    }
+  if (agentHarnessBackendSupportsMessengerChannels(backend)) {
+    for (const ch of args.harness.channels) {
+      const cn = ch.name.trim();
+      if (!cn) {
+        continue;
+      }
 
-    const bot = credentialFromRow(
-      ch.botTokenSource,
-      ch.botToken,
-      ch.botSecretName,
-      ch.botSecretKey,
-      `Channel "${cn}" bot token`,
-    );
-    if ("error" in bot) {
-      return { error: bot.error };
-    }
-
-    const base: Record<string, unknown> = {
-      name: cn,
-      type: ch.channelType,
-    };
-
-    if (ch.channelType === "telegram") {
-      const allowed = trimSplitList(ch.allowedUserIDs);
-      base.telegram = {
-        botToken: bot,
-        ...(allowed.length > 0 ? { allowedUserIDs: allowed } : {}),
-      };
-    } else if (ch.channelType === "slack") {
-      const app = credentialFromRow(
-        ch.appTokenSource,
-        ch.appToken,
-        ch.appSecretName,
-        ch.appSecretKey,
-        `Channel "${cn}" Slack app token`,
+      const bot = credentialFromRow(
+        ch.botTokenSource,
+        ch.botToken,
+        ch.botSecretName,
+        ch.botSecretKey,
+        `Channel "${cn}" bot token`,
       );
-      if ("error" in app) {
-        return { error: app.error };
+      if ("error" in bot) {
+        return { error: bot.error };
       }
-      const slack: Record<string, unknown> = {
-        botToken: bot,
-        appToken: app,
-      };
-      if (isClawHarnessBackend(resolveSandboxBackend(args.backend))) {
-        if (ch.channelAccess !== "open") {
-          slack.channelAccess = ch.channelAccess;
-        }
-        if (ch.channelAccess === "allowlist") {
-          slack.allowlistChannels = trimSplitList(ch.allowlistChannels);
-        }
-        if (!ch.interactiveReplies) {
-          slack.interactiveReplies = false;
-        }
-      } else {
-        const allowedSlack = trimSplitList(ch.allowedSlackUserIDs);
-        if (allowedSlack.length > 0) {
-          slack.allowedUserIDs = allowedSlack;
-        }
-        const homeChannel = ch.slackHomeChannel.trim();
-        if (homeChannel) {
-          slack.homeChannel = homeChannel;
-          const homeName = ch.slackHomeChannelName.trim();
-          if (homeName) {
-            slack.homeChannelName = homeName;
-          }
-        }
-      }
-      base.slack = slack;
-    }
 
-    channels.push(base);
+      const base: Record<string, unknown> = {
+        name: cn,
+        type: ch.channelType,
+      };
+
+      if (ch.channelType === "telegram") {
+        const allowed = trimSplitList(ch.allowedUserIDs);
+        base.telegram = {
+          botToken: bot,
+          ...(allowed.length > 0 ? { allowedUserIDs: allowed } : {}),
+        };
+      } else if (ch.channelType === "slack") {
+        const app = credentialFromRow(
+          ch.appTokenSource,
+          ch.appToken,
+          ch.appSecretName,
+          ch.appSecretKey,
+          `Channel "${cn}" Slack app token`,
+        );
+        if ("error" in app) {
+          return { error: app.error };
+        }
+        const slack: Record<string, unknown> = {
+          botToken: bot,
+          appToken: app,
+        };
+        if (isClawHarnessBackend(backend)) {
+          const openclaw: Record<string, unknown> = {};
+          if (ch.channelAccess !== "open") {
+            openclaw.channelAccess = ch.channelAccess;
+          }
+          if (ch.channelAccess === "allowlist") {
+            openclaw.allowlistChannels = trimSplitList(ch.allowlistChannels);
+          }
+          if (!ch.interactiveReplies) {
+            openclaw.interactiveReplies = false;
+          }
+          slack.openclaw = openclaw;
+        } else {
+          const hermes: Record<string, unknown> = {};
+          const allowedSlack = trimSplitList(ch.allowedSlackUserIDs);
+          if (allowedSlack.length > 0) {
+            hermes.allowedUserIDs = allowedSlack;
+          }
+          const homeChannel = ch.slackHomeChannel.trim();
+          if (homeChannel) {
+            hermes.homeChannel = homeChannel;
+            const homeName = ch.slackHomeChannelName.trim();
+            if (homeName) {
+              hermes.homeChannelName = homeName;
+            }
+          }
+          slack.hermes = hermes;
+        }
+        base.slack = slack;
+      }
+
+      channels.push(base);
+    }
   }
 
-  const backend = resolveSandboxBackend(args.backend);
-  const runtime = args.openClaw.runtime?.trim() || "openshell";
+  const runtime = args.harness.runtime?.trim() || "openshell";
 
   const spec: Record<string, unknown> = {
     backend,
@@ -385,11 +406,11 @@ export function buildSandboxCRDraft(args: {
   };
 
   if (runtime === "substrate") {
-    const snapshots = args.openClaw.substrateSnapshotsLocation?.trim();
+    const snapshots = args.harness.substrateSnapshotsLocation?.trim();
     if (!snapshots) {
       return { error: "Substrate snapshots location (gs://…) is required." };
     }
-    const gatewayToken = args.openClaw.substrateGatewayToken?.trim();
+    const gatewayToken = args.harness.substrateGatewayToken?.trim();
     if (!gatewayToken) {
       return { error: "Substrate gateway token is required." };
     }
@@ -397,7 +418,7 @@ export function buildSandboxCRDraft(args: {
       gatewayToken,
       snapshotsConfig: { location: snapshots },
     };
-    const wpName = args.openClaw.substrateWorkerPoolRefName?.trim();
+    const wpName = args.harness.substrateWorkerPoolRefName?.trim();
     if (wpName) {
       substrate.workerPoolRef = {
         name: wpName,
@@ -415,12 +436,12 @@ export function buildSandboxCRDraft(args: {
     spec.channels = channels;
   }
 
-  const img = args.openClaw.image.trim();
+  const img = args.harness.image.trim();
   if (img) {
     spec.image = img;
   }
 
-  const allowedDomains = parseAllowedDomainsList(args.openClaw.allowedDomains);
+  const allowedDomains = parseAllowedDomainsList(args.harness.allowedDomains);
   if (allowedDomains.length > 0) {
     spec.network = { allowedDomains };
   }

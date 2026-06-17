@@ -82,7 +82,7 @@ export function ByoDeploymentFields({
     <div className="space-y-6">
       <FieldRoot>
         <FieldLabel>Container image</FieldLabel>
-        <FieldHint>Image the workload runs. For Sandbox with a custom image, this is required.</FieldHint>
+        <FieldHint>Container image the workload runs (required for BYO).</FieldHint>
         <Input
           id="agent-field-byo-image"
           name="byoImage"

@@ -39,7 +39,7 @@ describe("DeleteButton", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
-      expect(mockDeleteAgent).toHaveBeenCalledWith("test-agent", "kagent");
+      expect(mockDeleteAgent).toHaveBeenCalledWith("test-agent", "kagent", undefined);
     });
     await waitFor(() => expect(onDeleted).toHaveBeenCalledTimes(1));
   });
@@ -63,7 +63,7 @@ describe("DeleteButton", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
-      expect(mockDeleteAgent).toHaveBeenCalledWith("test-agent", "kagent");
+      expect(mockDeleteAgent).toHaveBeenCalledWith("test-agent", "kagent", undefined);
     });
     await waitFor(() => expect(consoleError).toHaveBeenCalled());
     expect(onDeleted).not.toHaveBeenCalled();

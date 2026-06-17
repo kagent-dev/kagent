@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AgentPage from "@/app/agents/new/page";
+import { SubstrateFeaturesTestProvider } from "@/contexts/SubstrateFeaturesContext";
 
 jest.mock("next/navigation", () => ({
   useRouter: jest.fn(),
@@ -69,7 +70,11 @@ describe("new agent namespace query", () => {
   it("initializes the editable namespace from ?namespace= in create mode", async () => {
     mockUseSearchParams.mockReturnValue(new URLSearchParams("namespace=%20kagent%20"));
 
-    render(<AgentPage />);
+    render(
+      <SubstrateFeaturesTestProvider enabled={false}>
+        <AgentPage />
+      </SubstrateFeaturesTestProvider>,
+    );
 
     expect(await screen.findByTestId("namespace-value")).toHaveTextContent(
       "kagent",
