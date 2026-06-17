@@ -3,15 +3,18 @@ package a2a
 import (
 	"strings"
 
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 )
 
 // ExtractText extracts the text content from a message.
-func ExtractText(message protocol.Message) string {
+func ExtractText(message *a2atype.Message) string {
+	if message == nil {
+		return ""
+	}
 	builder := strings.Builder{}
 	for _, part := range message.Parts {
-		if textPart, ok := part.(*protocol.TextPart); ok {
-			builder.WriteString(textPart.Text)
+		if part != nil {
+			builder.WriteString(part.Text())
 		}
 	}
 	return builder.String()

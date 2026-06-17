@@ -77,6 +77,33 @@ type BedrockConfig struct {
 	Temperature                  *float64
 	TopP                         *float64
 	AdditionalModelRequestFields map[string]any
+	// PromptCaching, when true, appends a default CachePoint block at the
+	// end of the Converse request's system content array and the end of
+	// the toolConfig.tools array. Bedrock caches up to and including those markers
+	// across requests in the same region; cached prefix is billed at a
+	// reduced rate. The marker is silently ignored by Bedrock for models
+	// that do not support prompt caching.
+	PromptCaching bool
+	// CacheTTL selects the cache retention window when PromptCaching is on.
+	// "" or "5m" uses Bedrock's default 5-minute cache (broadest model
+	// support); "1h" opts into extended-TTL caching. See bedrockCachePointBlock.
+	CacheTTL string
+}
+
+// bedrockCachePointBlock builds a Converse CachePoint marker honoring the
+// configured cache TTL.
+//
+// An empty or "5m" ttl leaves the SDK Ttl field unset: Bedrock then applies its
+// standard 5-minute sliding cache, which is supported by every prompt-caching
+// model. Only "1h" sets the Ttl explicitly, opting into extended-TTL caching —
+// supported on fewer models and billed at a higher cache-write rate, so it is
+// not a free upgrade over 5m.
+func bedrockCachePointBlock(cacheTTL string) types.CachePointBlock {
+	block := types.CachePointBlock{Type: types.CachePointTypeDefault}
+	if cacheTTL == string(types.CacheTTLOneHour) {
+		block.Ttl = types.CacheTTLOneHour
+	}
+	return block
 }
 
 // BedrockModel implements model.LLM for Amazon Bedrock using the Converse API.
@@ -151,7 +178,7 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 		var toolConfig *types.ToolConfiguration
 		nameMap := make(map[string]string)
 		if req.Config != nil && len(req.Config.Tools) > 0 {
-			tools, nm := convertGenaiToolsToBedrock(req.Config.Tools)
+			tools, nm := convertGenaiToolsToBedrock(req.Config.Tools, m.Config.PromptCaching, m.Config.CacheTTL)
 			nameMap = nm
 			if len(tools) > 0 {
 				toolConfig = &types.ToolConfiguration{
@@ -180,6 +207,16 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 		if systemInstruction != "" {
 			systemPrompt = append(systemPrompt, &types.SystemContentBlockMemberText{
 				Value: systemInstruction,
+			})
+		}
+		// If prompt caching is enabled, mark the end of the system content
+		// as a cache breakpoint. Bedrock caches everything up to and including
+		// this point for ~5 minutes; subsequent requests with the same prefix
+		// hit the cache. Skipped for empty systems — caching nothing is a no-op
+		// that wastes a marker.
+		if m.Config.PromptCaching && len(systemPrompt) > 0 {
+			systemPrompt = append(systemPrompt, &types.SystemContentBlockMemberCachePoint{
+				Value: bedrockCachePointBlock(m.Config.CacheTTL),
 			})
 		}
 
@@ -654,7 +691,13 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 // It sanitizes tool names to satisfy Bedrock's [a-zA-Z0-9_-]+ constraint and
 // returns the original->sanitized name mapping so callers can apply it to
 // conversation history and reverse it when restoring names from responses.
-func convertGenaiToolsToBedrock(tools []*genai.Tool) ([]types.Tool, map[string]string) {
+//
+// When promptCaching is true, a CachePoint marker is appended after the
+// last tool spec — Bedrock then caches the entire (typically large) tool
+// definitions array, billing the prefix at a reduced rate on cache hits. The
+// cacheTTL argument selects the retention window for that marker (see
+// bedrockCachePointBlock).
+func convertGenaiToolsToBedrock(tools []*genai.Tool, promptCaching bool, cacheTTL string) ([]types.Tool, map[string]string) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
@@ -709,6 +752,17 @@ func convertGenaiToolsToBedrock(tools []*genai.Tool) ([]types.Tool, map[string]s
 			}
 			bedrockTools = append(bedrockTools, bedrockTool)
 		}
+	}
+
+	// If prompt caching is enabled, append a CachePoint at the END of the
+	// tool list. Bedrock caches the entire tool definitions array up to
+	// this marker; this is usually the biggest single chunk of static
+	// prefix in an agent conversation and benefits most from caching.
+	// Skipped when there are no tools — a cache marker by itself is a no-op.
+	if promptCaching && len(bedrockTools) > 0 {
+		bedrockTools = append(bedrockTools, &types.ToolMemberCachePoint{
+			Value: bedrockCachePointBlock(cacheTTL),
+		})
 	}
 
 	return bedrockTools, nameMap

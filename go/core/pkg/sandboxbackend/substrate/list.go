@@ -3,7 +3,7 @@ package substrate
 import (
 	"context"
 
-	"github.com/agent-substrate/substrate/proto/ateapipb"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
 // ListActors returns all actors reflected in ate-api.

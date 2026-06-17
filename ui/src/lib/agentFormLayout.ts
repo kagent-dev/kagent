@@ -1,39 +1,25 @@
 import type { AgentType } from "@/types";
 
-/** Sandbox create flow + non-empty image → BYO-shaped sandbox workload. */
-export function isSandboxByoImageChosen(
-  agentType: AgentType,
-  byoImage: string | undefined | null,
-): boolean {
-  return agentType === "Sandbox" && !!byoImage?.trim();
-}
+/** Declarative vs BYO on the standard Agent / SandboxAgent form (not OpenClaw harness). */
+export type AgentFormWorkloadKind = Extract<AgentType, "Declarative" | "BYO">;
 
 /** Model, tools, prompts (and related) sections. */
-export function formUsesDeclarativeSections(
-  agentType: AgentType,
-  byoImage: string | undefined | null,
-): boolean {
-  if (agentType === "OpenClawSandbox") {
+export function formUsesDeclarativeSections(agentType: AgentType): boolean {
+  if (agentType === "AgentHarness") {
     return false;
   }
-  return agentType === "Declarative" || (agentType === "Sandbox" && !isSandboxByoImageChosen(agentType, byoImage));
+  return agentType === "Declarative";
 }
 
 /** Container image and deployment-style fields. */
-export function formUsesByoSections(
-  agentType: AgentType,
-  byoImage: string | undefined | null,
-): boolean {
-  if (agentType === "OpenClawSandbox") {
+export function formUsesByoSections(agentType: AgentType): boolean {
+  if (agentType === "AgentHarness") {
     return false;
   }
-  return agentType === "BYO" || isSandboxByoImageChosen(agentType, byoImage);
+  return agentType === "BYO";
 }
 
-/** Create-agent form type from GET /agents response (SandboxAgent → form "Sandbox"). */
-export function formAgentTypeFromApi(
-  specType: AgentType,
-  workloadMode: "deployment" | "sandbox" | undefined,
-): AgentType {
-  return workloadMode === "sandbox" ? "Sandbox" : specType;
+/** Maps API agent spec type to the create/edit form workload kind. */
+export function formWorkloadKindFromApi(specType: AgentType): AgentFormWorkloadKind {
+  return specType === "BYO" ? "BYO" : "Declarative";
 }

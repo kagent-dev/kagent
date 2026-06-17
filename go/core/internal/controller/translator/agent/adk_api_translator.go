@@ -23,6 +23,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/kagent-dev/kagent/go/core/pkg/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
@@ -77,6 +78,7 @@ func NewValidationError(format string, args ...any) error {
 type ImageConfig struct {
 	Registry   string `json:"registry,omitempty"`
 	Tag        string `json:"tag,omitempty"`
+	Digest     string `json:"digest,omitempty"` // OCI manifest digest (sha256:...), set at link time
 	PullPolicy string `json:"pullPolicy,omitempty"`
 	PullSecret string `json:"pullSecret,omitempty"`
 	Repository string `json:"repository,omitempty"`
@@ -87,6 +89,25 @@ func (c ImageConfig) Image() string {
 	return fmt.Sprintf("%s/%s:%s", c.Registry, c.Repository, c.Tag)
 }
 
+// PinnedImage returns registry/repository@sha256:... when Digest is set, otherwise Image().
+func (c ImageConfig) PinnedImage() string {
+	if digest := normalizeImageDigest(c.Digest); digest != "" {
+		return fmt.Sprintf("%s/%s@%s", c.Registry, c.Repository, digest)
+	}
+	return c.Image()
+}
+
+func normalizeImageDigest(digest string) string {
+	digest = strings.TrimSpace(digest)
+	if digest == "" {
+		return ""
+	}
+	if strings.HasPrefix(digest, "sha256:") {
+		return digest
+	}
+	return "sha256:" + strings.TrimPrefix(digest, "sha256:")
+}
+
 var DefaultImageConfig = ImageConfig{
 	Registry:   "cr.kagent.dev",
 	Tag:        version.Get().Version,
@@ -94,6 +115,12 @@ var DefaultImageConfig = ImageConfig{
 	PullSecret: "",
 	Repository: "kagent-dev/kagent/app",
 }
+
+// PythonADKImageDigest, GoADKImageDigest, and GoADKFullImageDigest are set at
+// controller link time from the pushed runtime image manifest digests.
+var PythonADKImageDigest string
+var GoADKImageDigest string
+var GoADKFullImageDigest string
 
 // DefaultSkillsInitImageConfig is the image config for the skills-init container
 // that clones skill repositories from Git and pulls OCI skill images.
@@ -168,10 +195,10 @@ func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
 type TranslatorPlugin = translator.TranslatorPlugin
 
 func NewAdkApiTranslator(kube client.Client, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend) AdkApiTranslator {
-	return NewAdkApiTranslatorWithWatchedNamespaces(kube, nil, defaultModelConfig, plugins, globalProxyURL, sandboxBackend)
+	return NewAdkApiTranslatorWithWatchedNamespaces(kube, nil, defaultModelConfig, plugins, globalProxyURL, sandboxBackend, false)
 }
 
-func NewAdkApiTranslatorWithWatchedNamespaces(kube client.Client, watchedNamespaces []string, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend) AdkApiTranslator {
+func NewAdkApiTranslatorWithWatchedNamespaces(kube client.Client, watchedNamespaces []string, defaultModelConfig types.NamespacedName, plugins []TranslatorPlugin, globalProxyURL string, sandboxBackend sandboxbackend.Backend, mcpEgressPlaintext bool) AdkApiTranslator {
 	return &adkApiTranslator{
 		kube:               kube,
 		watchedNamespaces:  watchedNamespaces,
@@ -179,6 +206,7 @@ func NewAdkApiTranslatorWithWatchedNamespaces(kube client.Client, watchedNamespa
 		plugins:            plugins,
 		globalProxyURL:     globalProxyURL,
 		sandboxBackend:     sandboxBackend,
+		mcpEgressPlaintext: mcpEgressPlaintext,
 	}
 }
 
@@ -189,6 +217,12 @@ type adkApiTranslator struct {
 	plugins            []TranslatorPlugin
 	globalProxyURL     string
 	sandboxBackend     sandboxbackend.Backend
+	// mcpEgressPlaintext, when true, makes the tool translation emit an
+	// external RemoteMCPServer's URL in plaintext form (egress.RewriteURL)
+	// instead of verbatim. The controller's tool-discovery dial calls the same
+	// egress.RewriteURL on the same RMS, so the agent and the controller probe
+	// the same endpoint when the egress feature is on.
+	mcpEgressPlaintext bool
 }
 
 // GetOwnedResourceTypes returns all the resource types that may be created for an agent.
@@ -218,44 +252,111 @@ func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 
 const (
 	googleCredsVolumeName = "google-creds"
-	tlsCACertVolumeName   = "tls-ca-cert"
-	tlsCACertMountPath    = "/etc/ssl/certs/custom"
+	tlsCAVolumePrefix     = "tls-ca-"
+	tlsCAMountRoot        = "/etc/ssl/certs/custom"
+	maxDNS1123LabelLen    = 63
 	gdchCredsVolumeName   = "gdch-creds"
 	gdchCredsMountPath    = "/gdch-creds"
 )
 
-// populateTLSFields populates TLS configuration fields in the BaseModel
-// from the ModelConfig TLS spec.
-func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) {
-	if tlsConfig == nil {
-		return
-	}
+// dns1123LabelRE matches RFC 1123 labels (lowercase alphanumeric + dashes,
+// must start and end with alphanumeric). K8s volume names require this
+// grammar — but K8s Secret names follow the looser DNS_SUBDOMAIN grammar
+// (dots allowed, up to 253 chars), so a literal Secret name like
+// `corp.ca` or cert-manager-style `mcp.example.com-tls` would fail volume
+// name validation if embedded verbatim. tlsCAPaths hashes the name when
+// it would violate this regex (or the length limit) for that reason.
+var dns1123LabelRE = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
-	// Set TLS configuration fields in BaseModel
-	baseModel.TLSInsecureSkipVerify = &tlsConfig.DisableVerify
-	baseModel.TLSDisableSystemCAs = &tlsConfig.DisableSystemCAs
-
-	// Set CA cert path if Secret and key are both specified
-	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
-		certPath := fmt.Sprintf("%s/%s", tlsCACertMountPath, tlsConfig.CACertSecretKey)
-		baseModel.TLSCACertPath = &certPath
+// tlsCAPaths returns deterministic volume name, mount path, and cert file
+// path for the given Secret reference. Per-Secret naming lets multiple TLS
+// sources (chat ModelConfig + embedding ModelConfig + RemoteMCPServers) on
+// the same agent pod coexist without colliding when their
+// modelDeploymentData entries get merged (mergeDeploymentData dedupes by
+// (Name, MountPath) for VolumeMounts and by Name for Volumes).
+func tlsCAPaths(secretName, key string) (volumeName, mountPath, certPath string) {
+	candidate := tlsCAVolumePrefix + secretName
+	id := secretName
+	if len(candidate) > maxDNS1123LabelLen || !dns1123LabelRE.MatchString(candidate) {
+		h := sha256.Sum256([]byte(secretName))
+		id = hex.EncodeToString(h[:])[:8]
 	}
+	volumeName = tlsCAVolumePrefix + id
+	mountPath = path.Join(tlsCAMountRoot, id)
+	certPath = path.Join(mountPath, key)
+	return
 }
 
-// addTLSConfiguration adds TLS certificate volume mounts to modelDeploymentData
-// when TLS configuration is present in the ModelConfig.
-// Note: TLS configuration fields are now included in agent config JSON via BaseModel,
-// so this function only handles volume mounting.
+// deriveTLSFields turns a v1alpha2.TLSConfig into the three pointer fields
+// that every TLS-aware adk wire type carries (BaseModel,
+// StreamableHTTPConnectionParams, SseConnectionParams). Returns nils for
+// nil or all-zero configs so the caller can assign-through to all three
+// fields in a single statement. Emitting explicit `false` booleans on
+// an empty struct would flip the Python runtime out of its no-op
+// short-circuit and silently swap google-adk's default httpx client for
+// kagent's, which has the same SSL behavior but different
+// timeout/redirect defaults.
+func deriveTLSFields(tlsConfig *v1alpha2.TLSConfig) (*bool, *string, *bool) {
+	if tlsConfig.IsEmpty() {
+		return nil, nil, nil
+	}
+	insecureSkipVerify := &tlsConfig.DisableVerify
+	disableSystemCAs := &tlsConfig.DisableSystemCAs
+	var caCertPath *string
+	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
+		_, _, p := tlsCAPaths(tlsConfig.CACertSecretRef, tlsConfig.CACertSecretKey)
+		caCertPath = &p
+	}
+	return insecureSkipVerify, caCertPath, disableSystemCAs
+}
+
+// populateTLSFields writes the derived TLS fields onto an adk.BaseModel.
+// Used by every model-provider branch in translateBaseModel — each provider
+// embeds BaseModel, so this single call replaces the explicit three-field
+// assignment at each site. The MCP-connection params (StreamableHTTPConnectionParams,
+// SseConnectionParams) carry the same three fields but do not embed BaseModel;
+// those callers assign through deriveTLSFields directly.
+func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) {
+	baseModel.TLSInsecureSkipVerify, baseModel.TLSCACertPath, baseModel.TLSDisableSystemCAs = deriveTLSFields(tlsConfig)
+}
+
+// addTLSConfiguration mounts a CA Secret as a per-Secret read-only volume on
+// modelDeploymentData. Safe to call multiple times for the same agent with
+// the same OR different TLSConfigs:
+//   - different Secrets produce different volume names + paths and accumulate.
+//   - the same Secret referenced from multiple sources (e.g. several RMSs
+//     pointing at one shared corp-CA bundle) is idempotent — we skip the
+//     append if a volume with the same name is already present, because the
+//     RemoteMCPServer path (translateRemoteMCPServerTarget) appends directly to the
+//     already-merged modelDeploymentData rather than through
+//     mergeDeploymentData.
+//
+// Spec validation (Secret exists, named key present) is the reconciler's
+// job for both ModelConfig and RemoteMCPServer — see the TLS branches of
+// ReconcileKagentModelConfig and ReconcileKagentRemoteMCPServer. The
+// translator trusts that the Status has already surfaced any
+// misconfiguration; mounting an absent key here would crash the agent at
+// startup, but the operator gets the early signal on the resource's own
+// Accepted condition.
 func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha2.TLSConfig) {
 	if tlsConfig == nil {
 		return
 	}
 
-	// Add Secret volume mount if both CA certificate Secret and key are specified
+	// A CA bundle requires both the Secret name and the key within it; with
+	// either missing there is no file to mount (system-trust or disableVerify
+	// paths set neither and fall through as a no-op).
 	if tlsConfig.CACertSecretRef != "" && tlsConfig.CACertSecretKey != "" {
-		// Add volume from Secret
+		volumeName, mountPath, _ := tlsCAPaths(tlsConfig.CACertSecretRef, tlsConfig.CACertSecretKey)
+
+		for _, v := range modelDeploymentData.Volumes {
+			if v.Name == volumeName {
+				return
+			}
+		}
+
 		modelDeploymentData.Volumes = append(modelDeploymentData.Volumes, corev1.Volume{
-			Name: tlsCACertVolumeName,
+			Name: volumeName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName:  tlsConfig.CACertSecretRef,
@@ -264,10 +365,9 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 			},
 		})
 
-		// Add volume mount
 		modelDeploymentData.VolumeMounts = append(modelDeploymentData.VolumeMounts, corev1.VolumeMount{
-			Name:      tlsCACertVolumeName,
-			MountPath: tlsCACertMountPath,
+			Name:      volumeName,
+			MountPath: mountPath,
 			ReadOnly:  true,
 		})
 	}
@@ -301,7 +401,7 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName:  spec.APIKeySecret,
-					DefaultMode: new(int32(0444)),
+					DefaultMode: new(int32(0444)), // Read-only for all users
 				},
 			},
 		})
@@ -434,7 +534,16 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		if model.Spec.Anthropic != nil {
-			anthropic.BaseUrl = model.Spec.Anthropic.BaseURL
+			spec := model.Spec.Anthropic
+			anthropic.BaseUrl = spec.BaseURL
+			anthropic.Temperature = utils.ParseStringToFloat64(spec.Temperature)
+			anthropic.TopP = utils.ParseStringToFloat64(spec.TopP)
+			if spec.MaxTokens > 0 {
+				anthropic.MaxTokens = &spec.MaxTokens
+			}
+			if spec.TopK > 0 {
+				anthropic.TopK = &spec.TopK
+			}
 		}
 		return anthropic, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAzureOpenAI:
@@ -477,6 +586,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model:   model.Spec.AzureOpenAI.DeploymentName,
 				Headers: model.Spec.DefaultHeaders,
 			},
+			Temperature: utils.ParseStringToFloat64(model.Spec.AzureOpenAI.Temperature),
+			TopP:        utils.ParseStringToFloat64(model.Spec.AzureOpenAI.TopP),
+			MaxTokens:   model.Spec.AzureOpenAI.MaxTokens,
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
@@ -613,7 +725,6 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
-
 		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil {
@@ -698,6 +809,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			},
 			Region:                       model.Spec.Bedrock.Region,
 			AdditionalModelRequestFields: additionalFields,
+			PromptCaching:                model.Spec.Bedrock.PromptCaching,
+			CacheTTL:                     model.Spec.Bedrock.CacheTTL,
 		}
 
 		// Populate TLS fields in BaseModel
@@ -759,7 +872,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	}
 }
 
-func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.StreamableHTTPConnectionParams, error) {
+func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.StreamableHTTPConnectionParams, error) {
 	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
@@ -767,13 +880,17 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, serv
 	// Agent headers override tool headers
 	maps.Copy(headers, agentHeaders)
 
-	// If proxy is configured, use proxy URL and set header for Gateway API routing
+	// Proxy and egress are mutually exclusive (decided by the caller): a proxy
+	// URL routes through the Gateway API; an egress rewrite downgrades the URL
+	// to plaintext so traffic egresses to a TLS-originating proxy.
 	targetURL := server.Spec.URL
 	if proxyURL != "" {
 		targetURL, headers, err = applyProxyURL(targetURL, proxyURL, headers)
 		if err != nil {
 			return nil, err
 		}
+	} else if egressRewrite {
+		targetURL = egress.RewriteURL(server)
 	}
 
 	params := &adk.StreamableHTTPConnectionParams{
@@ -789,11 +906,12 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, serv
 	if server.Spec.TerminateOnClose != nil {
 		params.TerminateOnClose = server.Spec.TerminateOnClose
 	}
+	params.TLSInsecureSkipVerify, params.TLSCACertPath, params.TLSDisableSystemCAs = deriveTLSFields(server.Spec.TLS)
 
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string) (*adk.SseConnectionParams, error) {
+func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.SseConnectionParams, error) {
 	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
@@ -801,13 +919,17 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1a
 	// Agent headers override tool headers
 	maps.Copy(headers, agentHeaders)
 
-	// If proxy is configured, use proxy URL and set header for Gateway API routing
+	// Proxy and egress are mutually exclusive (decided by the caller): a proxy
+	// URL routes through the Gateway API; an egress rewrite downgrades the URL
+	// to plaintext so traffic egresses to a TLS-originating proxy.
 	targetURL := server.Spec.URL
 	if proxyURL != "" {
 		targetURL, headers, err = applyProxyURL(targetURL, proxyURL, headers)
 		if err != nil {
 			return nil, err
 		}
+	} else if egressRewrite {
+		targetURL = egress.RewriteURL(server)
 	}
 
 	params := &adk.SseConnectionParams{
@@ -820,10 +942,11 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1a
 	if server.Spec.SseReadTimeout != nil {
 		params.SseReadTimeout = new(server.Spec.SseReadTimeout.Seconds())
 	}
+	params.TLSInsecureSkipVerify, params.TLSCACertPath, params.TLSDisableSystemCAs = deriveTLSFields(server.Spec.TLS)
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, agentNamespace string, toolServer *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) error {
+func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, agentNamespace string, toolServer *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) ([]byte, error) {
 	gvk := toolServer.GroupKind()
 
 	switch gvk {
@@ -846,15 +969,15 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 
 		err := a.kube.Get(ctx, mcpServerRef, mcpServer)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		remoteMcpServer, err := ConvertMCPServerToRemoteMCPServer(mcpServer)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, remoteMcpServer, toolServer, agentHeaders, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, mdd, remoteMcpServer, toolServer, agentHeaders, proxyURL, false)
 
 	case schema.GroupKind{
 		Group: "",
@@ -870,17 +993,23 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 
 		err := a.kube.Get(ctx, remoteMcpServerRef, remoteMcpServer)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		// RemoteMCPServer uses user-supplied URLs, but if the URL points to an internal k8s service,
-		// apply proxy to route through the gateway
+		// RemoteMCPServer uses user-supplied URLs. An internal k8s URL routes
+		// through the gateway proxy; otherwise, when the egress gate is on, the
+		// external upstream is rewritten to its plaintext form so traffic
+		// egresses to a TLS-originating proxy. The two are mutually exclusive:
+		// proxy wins for internal URLs.
 		proxyURL := ""
+		egressRewrite := false
 		if a.globalProxyURL != "" && a.isInternalK8sURL(ctx, remoteMcpServer.Spec.URL, agentNamespace) {
 			proxyURL = a.globalProxyURL
+		} else if a.mcpEgressPlaintext {
+			egressRewrite = true
 		}
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, remoteMcpServer, toolServer, agentHeaders, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, mdd, remoteMcpServer, toolServer, agentHeaders, proxyURL, egressRewrite)
 	case schema.GroupKind{
 		Group: "",
 		Kind:  "Service",
@@ -895,26 +1024,26 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 
 		err := a.kube.Get(ctx, svcRef, svc)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		remoteMcpServer, err := ConvertServiceToRemoteMCPServer(svc)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		return a.translateRemoteMCPServerTarget(ctx, agent, remoteMcpServer, toolServer, agentHeaders, proxyURL)
+		return a.translateRemoteMCPServerTarget(ctx, agent, mdd, remoteMcpServer, toolServer, agentHeaders, proxyURL, false)
 	default:
-		return fmt.Errorf("unknown tool server type: %s", gvk)
+		return nil, fmt.Errorf("unknown tool server type: %s", gvk)
 	}
 }
 
-func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, remoteMcpServer *v1alpha2.RemoteMCPServer, mcpServerTool *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) error {
+func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, remoteMcpServer *v1alpha2.RemoteMCPServer, mcpServerTool *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string, egressRewrite bool) ([]byte, error) {
 	switch remoteMcpServer.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
-		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
+		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL, egressRewrite)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		agent.SseTools = append(agent.SseTools, adk.SseMcpServerConfig{
 			Params:          *tool,
@@ -923,9 +1052,9 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			RequireApproval: mcpServerTool.RequireApproval,
 		})
 	default:
-		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL)
+		tool, err := a.translateStreamableHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL, egressRewrite)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		agent.HttpTools = append(agent.HttpTools, adk.HttpMcpServerConfig{
 			Params:          *tool,
@@ -934,7 +1063,31 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			RequireApproval: mcpServerTool.RequireApproval,
 		})
 	}
-	return nil
+	// Mount the CA Secret on the agent pod when the RemoteMCPServer pins a TLS bundle.
+	// Converters that synthesize RMSs from in-cluster MCPServer/Service
+	// references don't set Spec.TLS, so this is a no-op for those. Returns
+	// the controller-resolved TLS Secret hash so callers can mix it into
+	// the agent's config hash — that's the signal that drives a rollout
+	// when the CA Secret rotates in place (same Secret name, new PEM).
+	addTLSConfiguration(mdd, remoteMcpServer.Spec.TLS)
+	return remoteMCPServerSecretHashBytes(remoteMcpServer), nil
+}
+
+// remoteMCPServerSecretHashBytes returns the hex-decoded bytes of the
+// RMS's Status.SecretHash so the agent translator can fold them into the
+// agent's config hash. Returns nil (no contribution, no error) when the
+// status hash is empty or malformed — the controller is responsible for
+// keeping Status.SecretHash in sync, and a transient missing/garbage
+// value should not block agent translation.
+func remoteMCPServerSecretHashBytes(remoteMcpServer *v1alpha2.RemoteMCPServer) []byte {
+	if remoteMcpServer == nil || remoteMcpServer.Status.SecretHash == "" {
+		return nil
+	}
+	decoded, err := hex.DecodeString(remoteMcpServer.Status.SecretHash)
+	if err != nil {
+		return nil
+	}
+	return decoded
 }
 
 // Helper functions
@@ -1044,9 +1197,13 @@ func mergeDeploymentData(dst, src *modelDeploymentData) {
 		}
 	}
 	for _, sm := range src.VolumeMounts {
+		// Dedupe by (Name, MountPath). MountPath-only dedupe would silently
+		// drop a mount from a different Volume that happened to choose the
+		// same path; matching on both lets kubelet surface the conflict
+		// loudly instead.
 		found := false
 		for _, m := range dst.VolumeMounts {
-			if m.MountPath == sm.MountPath {
+			if m.Name == sm.Name && m.MountPath == sm.MountPath {
 				found = true
 				break
 			}

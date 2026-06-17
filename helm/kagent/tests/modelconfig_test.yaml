@@ -89,6 +89,29 @@ tests:
           path: spec.model
           value: "gpt-4-turbo"
 
+  - it: should render provider tls configuration
+    set:
+      providers:
+        openAI:
+          tls:
+            disableVerify: true
+            caCertSecretRef: custom-ca
+            caCertSecretKey: ca.crt
+            disableSystemCAs: true
+    asserts:
+      - equal:
+          path: spec.tls.disableVerify
+          value: true
+      - equal:
+          path: spec.tls.caCertSecretRef
+          value: custom-ca
+      - equal:
+          path: spec.tls.caCertSecretKey
+          value: ca.crt
+      - equal:
+          path: spec.tls.disableSystemCAs
+          value: true
+
   - it: should have correct labels
     asserts:
       - equal:
@@ -113,4 +136,4 @@ tests:
     asserts:
       - equal:
           path: metadata.namespace
-          value: custom-namespace 
+          value: custom-namespace

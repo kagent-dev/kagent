@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
-	"github.com/agent-substrate/substrate/proto/ateapipb"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
@@ -34,6 +36,12 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(credentials.NewTLS(ateAPITLSConfig(cfg.Insecure))),
 	}
+	if cfg.TokenFile != "" {
+		opts = append(opts, grpc.WithPerRPCCredentials(bearerTokenFile{
+			path:       cfg.TokenFile,
+			requireTLS: !cfg.Insecure,
+		}))
+	}
 
 	conn, err := grpc.NewClient(cfg.AteAPIEndpoint, opts...)
 	if err != nil {
@@ -52,6 +60,25 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 		cfg:           cfg,
 	}, nil
 }
+
+type bearerTokenFile struct {
+	path       string
+	requireTLS bool
+}
+
+func (b bearerTokenFile) GetRequestMetadata(_ context.Context, _ ...string) (map[string]string, error) {
+	raw, err := os.ReadFile(b.path)
+	if err != nil {
+		return nil, fmt.Errorf("read bearer token file %q: %w", b.path, err)
+	}
+	token := strings.TrimSpace(string(raw))
+	if token == "" {
+		return nil, fmt.Errorf("bearer token file %q is empty", b.path)
+	}
+	return map[string]string{"authorization": "Bearer " + token}, nil
+}
+
+func (b bearerTokenFile) RequireTransportSecurity() bool { return b.requireTLS }
 
 func ateAPITLSConfig(insecure bool) *tls.Config {
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}

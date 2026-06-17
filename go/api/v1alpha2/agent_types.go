@@ -26,8 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
 
 // AgentType represents the agent type
@@ -57,8 +55,15 @@ type AgentSpec struct {
 	// +optional
 	Type AgentType `json:"type,omitempty"`
 
+	// BYO configures a "bring your own" agent backed by a user-provided
+	// container image. Kagent deploys the image and expects it to serve the
+	// agent over the A2A protocol on port 8080.
+	// Required if type is BYO.
 	// +optional
 	BYO *BYOAgentSpec `json:"byo,omitempty"`
+	// Declarative configures an agent that is fully described by this resource
+	// (model, instructions, tools) and runs on one of kagent's built-in runtimes.
+	// Required if type is Declarative.
 	// +optional
 	Declarative *DeclarativeAgentSpec `json:"declarative,omitempty"`
 
@@ -225,12 +230,68 @@ type DeclarativeAgentSpec struct {
 	Context *ContextConfig `json:"context,omitempty"`
 }
 
+// SandboxPlatform selects the control plane for sandboxed agents.
+// +kubebuilder:validation:Enum=agent-sandbox;substrate
+type SandboxPlatform string
+
+const (
+	SandboxPlatformAgentSandbox SandboxPlatform = "agent-sandbox"
+	SandboxPlatformSubstrate    SandboxPlatform = "substrate"
+)
+
+// SandboxSubstrateSpec configures Agent Substrate for a SandboxAgent.
+// WorkerPool capacity is referenced from workerPoolRef or the controller default.
+type SandboxSubstrateSpec struct {
+	// WorkerPoolRef references an existing ate.dev WorkerPool.
+	// +optional
+	WorkerPoolRef *TypedLocalReference `json:"workerPoolRef,omitempty"`
+
+	// SnapshotsConfig configures actor memory snapshots.
+	// Defaults to gs://ate-snapshots/<namespace>/<agentname> when unset.
+	// +optional
+	SnapshotsConfig *AgentHarnessSubstrateSnapshotsConfig `json:"snapshotsConfig,omitempty"`
+}
+
 // SandboxConfig configures sandboxed execution behavior.
 type SandboxConfig struct {
 	// Network configures outbound network access for sandboxed execution paths.
 	// When unset or when allowedDomains is empty, outbound access is denied by default.
 	// +optional
 	Network *NetworkConfig `json:"network,omitempty"`
+}
+
+// AgentSandboxPlatform returns the effective sandbox platform for an agent.
+func AgentSandboxPlatform(agent AgentObject) SandboxPlatform {
+	sa, ok := agent.(*SandboxAgent)
+	if !ok || sa == nil || sa.Spec.Platform == "" {
+		return SandboxPlatformAgentSandbox
+	}
+	return sa.Spec.Platform
+}
+
+// EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python).
+func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
+	if spec == nil {
+		return DeclarativeRuntime_Python
+	}
+	runtime := DeclarativeRuntime_Python
+	if spec.Declarative != nil && spec.Declarative.Runtime != "" {
+		runtime = spec.Declarative.Runtime
+	}
+	return runtime
+}
+
+// EffectiveDeclarativeRuntimeForAgent returns the runtime for a reconciled agent object.
+// Substrate SandboxAgents always use Go; regular Agents honor spec.declarative.runtime.
+func EffectiveDeclarativeRuntimeForAgent(agent AgentObject) DeclarativeRuntime {
+	spec := agent.GetAgentSpec()
+	if agent.GetWorkloadMode() == WorkloadModeSandbox &&
+		AgentSandboxPlatform(agent) == SandboxPlatformSubstrate &&
+		spec != nil &&
+		spec.Type == AgentType_Declarative {
+		return DeclarativeRuntime_Go
+	}
+	return EffectiveDeclarativeRuntime(spec)
 }
 
 // NetworkConfig configures outbound network access for sandboxed execution paths.
@@ -334,47 +395,64 @@ type DeclarativeDeploymentSpec struct {
 }
 
 type BYOAgentSpec struct {
-	// Trust relationship to the agent.
+	// Deployment configures the Kubernetes Deployment created for the BYO agent container.
 	// +optional
 	Deployment *ByoDeploymentSpec `json:"deployment,omitempty"`
 }
 
 type ByoDeploymentSpec struct {
+	// Image is the container image of the BYO agent.
+	// The image is expected to serve the agent over the A2A protocol on port 8080.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	Image string `json:"image,omitempty"`
+	// Cmd overrides the container entrypoint (the container's command).
 	// +optional
 	Cmd *string `json:"cmd,omitempty"`
+	// Args are the arguments passed to the container entrypoint.
 	// +optional
 	Args []string `json:"args,omitempty"`
+	// workingDir sets the container working directory. Defaults to the image WORKDIR when omitted.
+	// +optional
+	WorkingDir *string `json:"workingDir,omitempty"`
 
 	SharedDeploymentSpec `json:",inline"`
 }
 
 // +kubebuilder:validation:XValidation:message="serviceAccountName and serviceAccountConfig are mutually exclusive",rule="!(has(self.serviceAccountName) && has(self.serviceAccountConfig))"
 type SharedDeploymentSpec struct {
+	// Replicas is the number of desired agent pods. Defaults to 1.
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
+	// ImagePullSecrets are references to secrets in the agent's namespace
+	// used for pulling the agent container image.
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+	// Volumes are additional volumes added to the agent pod.
 	// +optional
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
+	// VolumeMounts are additional volume mounts added to the agent container.
 	// +optional
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// Labels are additional labels added to the agent pods.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+	// Annotations are additional annotations added to the agent pods.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
+	// Env are additional environment variables set on the agent container.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 	// +optional
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	// Tolerations applied to the agent pods.
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// NodeSelector restricts the nodes the agent pods can be scheduled on.
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// +optional
@@ -399,8 +477,10 @@ type SharedDeploymentSpec struct {
 }
 
 type ServiceAccountConfig struct {
+	// Labels are additional labels added to the created ServiceAccount.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+	// Annotations are additional annotations added to the created ServiceAccount.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -531,7 +611,33 @@ type A2AConfig struct {
 	Skills []AgentSkill `json:"skills,omitempty"`
 }
 
-type AgentSkill server.AgentSkill
+// AgentSkill describes a specific capability or function of the agent.
+type AgentSkill struct {
+	// ID is the unique identifier for the skill.
+	// +optional
+	ID string `json:"id,omitempty"`
+	// Name is the human-readable name of the skill.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	Name string `json:"name"`
+	// Description is an optional detailed description of the skill.
+	// +optional
+	Description string `json:"description,omitempty"`
+	// Tags are optional tags for categorization.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Tags []string `json:"tags,omitempty"`
+	// Examples are optional usage examples.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Examples []string `json:"examples,omitempty"`
+	// InputModes are the supported input MIME types for this skill, overriding the agent's defaults.
+	// +optional
+	InputModes []string `json:"inputModes,omitempty"`
+	// OutputModes are the supported output MIME types for this skill, overriding the agent's defaults.
+	// +optional
+	OutputModes []string `json:"outputModes,omitempty"`
+}
 
 const (
 	AgentConditionTypeAccepted            = "Accepted"

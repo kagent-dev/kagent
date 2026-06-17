@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"maps"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
@@ -19,8 +22,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 )
+
+// configHashAnnotation is set on the agent pod template so a change to
+// the serialized config Secret (including tool URLs and ModelConfig/RMS
+// Secret rotations folded in via Status hashes) rolls the pod.
+const configHashAnnotation = "kagent.dev/config-hash"
 
 type manifestContext struct {
 	agent          v1alpha2.AgentObject
@@ -73,7 +80,7 @@ func (a *adkApiTranslator) BuildManifest(
 	outputs := &AgentOutputs{}
 	manifestCtx := newManifestContext(agent, inputs.Deployment)
 
-	configSecret, err := a.buildConfigSecret(manifestCtx, inputs.Config, inputs.Sandbox, inputs.AgentCard, inputs.SecretHashBytes)
+	configSecret, err := a.buildConfigSecret(ctx, manifestCtx, inputs.Config, inputs.Sandbox, inputs.AgentCard, inputs.SecretHashBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -154,10 +161,11 @@ func (m manifestContext) objectMeta() metav1.ObjectMeta {
 }
 
 func (a *adkApiTranslator) buildConfigSecret(
+	ctx context.Context,
 	manifestCtx manifestContext,
 	cfg *adk.AgentConfig,
 	sandboxCfg *v1alpha2.SandboxConfig,
-	card *server.AgentCard,
+	card *a2a.AgentCard,
 	modelConfigSecretHashBytes []byte,
 ) (*configSecretInputs, error) {
 	cfgJSON := ""
@@ -175,11 +183,17 @@ func (a *adkApiTranslator) buildConfigSecret(
 		cfgJSON = string(bCfg)
 	}
 	if card != nil {
-		bCard, err := json.Marshal(card)
+		// TODO(0.11.0): use the v1 agent card producer once managed runtimes no longer need legacy top-level fields.
+		producer := a2av0.NewStaticAgentCardProducer(card)
+		jsonProducer, ok := producer.(a2asrv.AgentCardJSONProducer)
+		if !ok {
+			return nil, fmt.Errorf("compat agent card producer does not support JSON serialization")
+		}
+		cardJSON, err := jsonProducer.CardJSON(ctx)
 		if err != nil {
 			return nil, err
 		}
-		agentCard = string(bCard)
+		agentCard = string(cardJSON)
 	}
 	if needsSRTSettings(manifestCtx.agent, sandboxCfg) {
 		bSRTSettings, err := buildSRTSettingsJSON(sandboxCfg)
@@ -478,13 +492,18 @@ func buildPodTemplate(
 	if podTemplateAnnotations == nil {
 		podTemplateAnnotations = map[string]string{}
 	}
-	podTemplateAnnotations["kagent.dev/config-hash"] = fmt.Sprintf("%d", configHash)
+	podTemplateAnnotations[configHashAnnotation] = fmt.Sprintf("%d", configHash)
 
-	probeConf := getRuntimeProbeConfig(agentRuntime(manifestCtx.agent.GetAgentSpec()))
+	probeConf := getRuntimeProbeConfig(agentRuntime(manifestCtx.agent))
 
 	var cmd []string
 	if dep.Cmd != "" {
 		cmd = []string{dep.Cmd}
+	}
+
+	var workingDir string
+	if dep.WorkingDir != nil {
+		workingDir = *dep.WorkingDir
 	}
 
 	return corev1.PodTemplateSpec{
@@ -503,6 +522,7 @@ func buildPodTemplate(
 				ImagePullPolicy: dep.ImagePullPolicy,
 				Command:         cmd,
 				Args:            dep.Args,
+				WorkingDir:      workingDir,
 				Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
 				Resources:       dep.Resources,
 				Env:             runtimeInputs.envVars,
@@ -528,12 +548,8 @@ func buildPodTemplate(
 	}
 }
 
-func agentRuntime(spec *v1alpha2.AgentSpec) v1alpha2.DeclarativeRuntime {
-	runtime := v1alpha2.DeclarativeRuntime_Python
-	if spec.Type == v1alpha2.AgentType_Declarative && spec.Declarative != nil && spec.Declarative.Runtime != "" {
-		runtime = spec.Declarative.Runtime
-	}
-	return runtime
+func agentRuntime(agent v1alpha2.AgentObject) v1alpha2.DeclarativeRuntime {
+	return v1alpha2.EffectiveDeclarativeRuntimeForAgent(agent)
 }
 
 func (a *adkApiTranslator) buildWorkloadObjects(

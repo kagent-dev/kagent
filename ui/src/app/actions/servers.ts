@@ -18,7 +18,7 @@ export async function getServers(): Promise<BaseResponse<ToolServerResponse[]>> 
 
     return {
       message: "MCP servers fetched successfully",
-      data: response.data,
+      data: response.data ?? [],
     };  
   } catch (error) {
     return createErrorResponse<ToolServerResponse[]>(error, "Error getting MCP servers");
