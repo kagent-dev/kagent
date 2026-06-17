@@ -144,6 +144,9 @@ func assertForwardDataTaskFixture(t *testing.T, task a2av1.Task) {
 
 func assertBackwardTaskFixture(t *testing.T, got *trpc.Task) {
 	t.Helper()
+	if got.Kind != trpc.KindTask {
+		t.Fatalf("task kind = %q, want %q", got.Kind, trpc.KindTask)
+	}
 	if got.ID != "task-v1-rich" {
 		t.Fatalf("task ID = %q", got.ID)
 	}
