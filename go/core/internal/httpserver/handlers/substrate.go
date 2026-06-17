@@ -13,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	"k8s.io/apimachinery/pkg/api/meta"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -110,10 +111,16 @@ func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace strin
 
 	wpList := &atev1alpha1.WorkerPoolList{}
 	if err := h.KubeClient.List(ctx, wpList, listOpts...); err != nil {
+		if meta.IsNoMatchError(err) {
+			return nil, nil, nil
+		}
 		return nil, nil, err
 	}
 	tmplList := &atev1alpha1.ActorTemplateList{}
 	if err := h.KubeClient.List(ctx, tmplList, listOpts...); err != nil {
+		if meta.IsNoMatchError(err) {
+			return nil, nil, nil
+		}
 		return nil, nil, err
 	}
 
