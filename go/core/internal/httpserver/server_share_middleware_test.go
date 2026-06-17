@@ -98,6 +98,21 @@ func TestShareTokenMiddleware(t *testing.T) {
 			wantShareCtx: false,
 		},
 		{
+			// Revocation deletes the session_share row; subsequent lookups return an error,
+			// so revoked tokens are rejected immediately — no grace period.
+			name: "revoked token returns 403",
+			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
+				return nil, errors.New("no rows in result set")
+			},
+			buildReq: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r.Header.Set("X-Share-Token", "revoked-token")
+				return withUser(r, "visitor-id")
+			},
+			wantStatus:   http.StatusForbidden,
+			wantShareCtx: false,
+		},
+		{
 			name: "valid read-only token with GET passes through with ShareContext",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
 				return okShare, nil

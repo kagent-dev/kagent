@@ -316,5 +316,27 @@ func TestSessionSharesHandler(t *testing.T) {
 			require.NoError(t, err)
 			assert.Len(t, shares, 1, "share must not be deleted by a non-owner")
 		})
+
+		t.Run("RevokedTokenIsRejected", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			userID := "user-a"
+			sessionID := "test-session-1"
+			token := "test-token-revoke"
+
+			createTestSession(t, dbClient, sessionID, userID)
+			createTestShare(t, dbClient, token, sessionID, userID, true)
+
+			req := httptest.NewRequest("DELETE", "/api/sessions/"+sessionID+"/shares/"+token, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID, "token": token})
+			req = setUser(req, userID)
+
+			handler.HandleDeleteSessionShare(responseRecorder, req)
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+
+			// The middleware rejects requests by calling GetSessionShareByToken. Verify the
+			// revoked token no longer resolves — any subsequent request carrying it gets 403.
+			_, err := dbClient.GetSessionShareByToken(context.Background(), token)
+			assert.Error(t, err, "revoked token must not be found; middleware would return 403")
+		})
 	})
 }
