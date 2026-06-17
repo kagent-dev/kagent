@@ -586,6 +586,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model:   model.Spec.AzureOpenAI.DeploymentName,
 				Headers: model.Spec.DefaultHeaders,
 			},
+			Temperature: utils.ParseStringToFloat64(model.Spec.AzureOpenAI.Temperature),
+			TopP:        utils.ParseStringToFloat64(model.Spec.AzureOpenAI.TopP),
+			MaxTokens:   model.Spec.AzureOpenAI.MaxTokens,
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
