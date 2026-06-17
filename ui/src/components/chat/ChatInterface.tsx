@@ -38,16 +38,20 @@ const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
 const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
 
 const SEND_GUARD_EXCLUDED_ORIGINAL_TYPES = new Set([
-  "ToolApprovalRequest",
-  "AskUserRequest",
-  "ToolCallSummaryMessage",
+  "ToolApprovalRequest", // HITL approval UI duplicates the pending backend task state.
+  "AskUserRequest", // ask_user UI duplicates the pending backend task state.
+  "ToolCallSummaryMessage", // UI-only marker that closes tool calls; not a backend chat turn.
 ]);
 
 function countSendGuardComparableMessages(messages: Message[]): number {
-  return messages.filter(message => {
+  let count = 0;
+  for (const message of messages) {
     const meta = message.metadata as ADKMetadata | undefined;
-    return !meta?.originalType || !SEND_GUARD_EXCLUDED_ORIGINAL_TYPES.has(meta.originalType);
-  }).length;
+    if (!meta?.originalType || !SEND_GUARD_EXCLUDED_ORIGINAL_TYPES.has(meta.originalType)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 interface ChatInterfaceProps {

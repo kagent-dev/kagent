@@ -75,6 +75,10 @@ const mockToastInfo = toast.info as jest.MockedFunction<typeof toast.info>;
 
 const staleToastMessage = "New messages loaded — please review before sending";
 
+function mockBackendTasks(tasks: Task[]) {
+  mockGetSessionTasks.mockResolvedValue({ data: tasks });
+}
+
 function textMessage(messageId: string, role: "user" | "agent", text: string, contextId = "session-1", taskId = "task-1"): Message {
   return {
     kind: "message",
@@ -166,17 +170,7 @@ describe("ChatInterface send guard", () => {
   });
 
   it("does not block the next send when completed same-tab stream messages are already visible", async () => {
-    mockGetSessionTasks
-      .mockResolvedValueOnce({ data: [completedTask("task-initial", initialTurn)] })
-      .mockResolvedValueOnce({ data: [completedTask("task-initial", initialTurn)] })
-      .mockResolvedValueOnce({ data: [
-        completedTask("task-initial", initialTurn),
-        completedTask("task-streamed", sameTabTurn),
-      ] })
-      .mockResolvedValue({ data: [
-        completedTask("task-initial", initialTurn),
-        completedTask("task-streamed", sameTabTurn),
-      ] });
+    mockBackendTasks([completedTask("task-initial", initialTurn)]);
     mockSendMessageStream
       .mockResolvedValueOnce(streamOf(completedStatusEvent("same tab answer")))
       .mockResolvedValueOnce(streamOf(completedStatusEvent("next answer", "session-1", "task-next")));
@@ -189,6 +183,10 @@ describe("ChatInterface send guard", () => {
     await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("same tab answer")).toBeInTheDocument();
 
+    mockBackendTasks([
+      completedTask("task-initial", initialTurn),
+      completedTask("task-streamed", sameTabTurn),
+    ]);
     await sendText("next question");
 
     await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(2));
@@ -196,19 +194,7 @@ describe("ChatInterface send guard", () => {
   });
 
   it("still blocks after a same-tab stream when the backend also has an unseen cross-tab message", async () => {
-    mockGetSessionTasks
-      .mockResolvedValueOnce({ data: [completedTask("task-initial", initialTurn)] })
-      .mockResolvedValueOnce({ data: [completedTask("task-initial", initialTurn)] })
-      .mockResolvedValueOnce({ data: [
-        completedTask("task-initial", initialTurn),
-        completedTask("task-streamed", sameTabTurn),
-        completedTask("task-external", externalTurn),
-      ] })
-      .mockResolvedValue({ data: [
-        completedTask("task-initial", initialTurn),
-        completedTask("task-streamed", sameTabTurn),
-        completedTask("task-external", externalTurn),
-      ] });
+    mockBackendTasks([completedTask("task-initial", initialTurn)]);
     mockSendMessageStream
       .mockResolvedValueOnce(streamOf(completedStatusEvent("same tab answer")));
 
@@ -220,6 +206,11 @@ describe("ChatInterface send guard", () => {
     await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("same tab answer")).toBeInTheDocument();
 
+    mockBackendTasks([
+      completedTask("task-initial", initialTurn),
+      completedTask("task-streamed", sameTabTurn),
+      completedTask("task-external", externalTurn),
+    ]);
     await sendText("should review cross-tab first");
 
     await waitFor(() => expect(mockToastInfo).toHaveBeenCalledWith(staleToastMessage));
@@ -227,21 +218,16 @@ describe("ChatInterface send guard", () => {
   });
 
   it("still blocks when the backend has a cross-tab message not visible locally", async () => {
-    mockGetSessionTasks
-      .mockResolvedValueOnce({ data: [completedTask("task-initial", initialTurn)] })
-      .mockResolvedValueOnce({ data: [
-        completedTask("task-initial", initialTurn),
-        completedTask("task-external", externalTurn),
-      ] })
-      .mockResolvedValue({ data: [
-        completedTask("task-initial", initialTurn),
-        completedTask("task-external", externalTurn),
-      ] });
+    mockBackendTasks([completedTask("task-initial", initialTurn)]);
 
     renderExistingSession();
 
     expect(await screen.findByText("initial answer")).toBeInTheDocument();
 
+    mockBackendTasks([
+      completedTask("task-initial", initialTurn),
+      completedTask("task-external", externalTurn),
+    ]);
     await sendText("should review first");
 
     await waitFor(() => expect(mockToastInfo).toHaveBeenCalledWith(staleToastMessage));
