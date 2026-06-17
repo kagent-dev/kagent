@@ -17,12 +17,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Badge } from "@/components/ui/badge";
 
 interface AgentDetailsSidebarProps {
-  selectedAgentName: string;
   currentAgent: AgentResponse;
   allTools: ToolsResponse[];
 }
 
-export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools }: AgentDetailsSidebarProps) {
+export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSidebarProps) {
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
@@ -233,28 +232,47 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
   // Declarative agents (including SandboxAgent with declarative spec) share model-backed config.
   const isDeclarativeLikeAgent = selectedTeam?.agent.spec.type === "Declarative";
 
+  const agentNamespace = selectedTeam.agent.metadata.namespace ?? "";
+  const agentName = selectedTeam.agent.metadata.name ?? "";
+  const agentRef = `${agentNamespace}/${agentName}`;
+  const editHref = `/agents/new?${new URLSearchParams({
+    edit: "true",
+    name: agentName,
+    namespace: agentNamespace,
+  }).toString()}`;
+
   return (
     <>
       <Sidebar side={"right"} collapsible="offcanvas">
-        <SidebarHeader>Agent Details</SidebarHeader>
+        <SidebarHeader className="flex flex-row items-center justify-between gap-2">
+          <span className="text-sm font-semibold leading-none">Agent Details</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            asChild
+            aria-label={`Edit agent ${agentRef}`}
+          >
+            <Link href={editHref}>
+              <Edit className="h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </SidebarHeader>
         <SidebarContent>
           <ScrollArea>
             <SidebarGroup>
-              <div className="flex items-center justify-between px-2 mb-1">
-                <SidebarGroupLabel className="font-bold mb-0 p-0">
-                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
-                </SidebarGroupLabel>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  asChild
-                  aria-label={`Edit agent ${selectedTeam?.agent.metadata.namespace}/${selectedTeam?.agent.metadata.name}`}
+              <div className="min-w-0 px-2 mb-1">
+                <SidebarGroupLabel
+                  className="font-bold mb-0 block w-full truncate p-0"
+                  title={selectedTeam?.model ? `${agentRef} (${selectedTeam.model})` : agentRef}
                 >
-                  <Link href={`/agents/new?edit=true&name=${selectedAgentName}&namespace=${currentAgent.agent.metadata.namespace}`}>
-                    <Edit className="h-3.5 w-3.5" />
-                  </Link>
-                </Button>
+                  {agentRef}
+                </SidebarGroupLabel>
+                {selectedTeam?.model && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground" title={selectedTeam.model}>
+                    {selectedTeam.model}
+                  </p>
+                )}
               </div>
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>
