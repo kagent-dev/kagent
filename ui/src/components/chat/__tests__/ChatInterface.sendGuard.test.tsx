@@ -8,6 +8,7 @@ import { checkSessionExists, createSession, getSessionTasks } from "@/app/action
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { toast } from "sonner";
 import ChatInterface from "@/components/chat/ChatInterface";
+import type { Session } from "@/types";
 
 jest.mock("@/app/actions/sessions", () => ({
   checkSessionExists: jest.fn(),
@@ -123,19 +124,26 @@ async function* streamOf(...events: unknown[]): AsyncIterable<unknown> {
   }
 }
 
+function sessionFixture(overrides: Partial<Session> = {}): Session {
+  return {
+    id: "session-1",
+    name: "Existing chat",
+    agent_id: "kagent__NS__test-agent",
+    user_id: "user-1",
+    created_at: "2026-03-07T10:00:00Z",
+    updated_at: "2026-03-07T10:05:00Z",
+    deleted_at: "",
+    ...overrides,
+  };
+}
+
 function renderExistingSession() {
   return render(
     <ChatInterface
       selectedAgentName="test-agent"
       selectedNamespace="kagent"
       sessionId="session-1"
-      selectedSession={{
-        id: "session-1",
-        name: "Existing chat",
-        agent_ref: "kagent/test-agent",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }}
+      selectedSession={sessionFixture()}
     />,
   );
 }
