@@ -70,6 +70,16 @@ var (
 		ComponentAgentRuntime,
 	)
 
+	KagentPropagateTokenOverridesStaticHeaders = RegisterBoolVar(
+		"KAGENT_PROPAGATE_TOKEN_OVERRIDES_STATIC",
+		false,
+		"When true, a forwarded (KAGENT_PROPAGATE_TOKEN) or STS-exchanged Authorization "+
+			"takes precedence over a static Authorization header configured on the MCP server. "+
+			"Use when a gateway requires a static M2M token for tool discovery but must receive "+
+			"the end-user token on tool calls. Default false preserves static-header precedence.",
+		ComponentAgentRuntime,
+	)
+
 	StsWellKnownURI = RegisterStringVar(
 		"STS_WELL_KNOWN_URI",
 		"",

@@ -65,17 +65,18 @@ func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]str
 // mcpServerParams groups connection parameters for an MCP server,
 // reducing parameter sprawl across createTransport / initializeToolSet.
 type mcpServerParams struct {
-	URL                   string
-	Headers               map[string]string
-	AllowedHeaders        []string              // header names to forward from incoming request
-	PropagateToken        bool                  // when true, Authorization is forwarded independently of AllowedHeaders
-	HeaderProvider        DynamicHeaderProvider // optional per-request headers derived from invocation context (e.g., STS exchanged access tokens)
-	ServerType            string                // "http" or "sse"
-	Timeout               *float64
-	SseReadTimeout        *float64
-	TLSInsecureSkipVerify *bool
-	TLSCACertPath         *string
-	TLSDisableSystemCAs   *bool
+	URL                              string
+	Headers                          map[string]string
+	AllowedHeaders                   []string              // header names to forward from incoming request
+	PropagateToken                   bool                  // when true, Authorization is forwarded independently of AllowedHeaders
+	OverrideStaticWithForwardedToken bool                  // when true, a forwarded/STS Authorization takes precedence over a static Authorization
+	HeaderProvider                   DynamicHeaderProvider // optional per-request headers derived from invocation context (e.g., STS exchanged access tokens)
+	ServerType                       string                // "http" or "sse"
+	Timeout                          *float64
+	SseReadTimeout                   *float64
+	TLSInsecureSkipVerify            *bool
+	TLSCACertPath                    *string
+	TLSDisableSystemCAs              *bool
 }
 
 // CreateToolsets creates toolsets from all configured HTTP and SSE MCP servers,
@@ -86,6 +87,11 @@ type mcpServerParams struct {
 // independently of AllowedHeaders, mirroring the Python ADKTokenPropagationPlugin
 // behaviour triggered by KAGENT_PROPAGATE_TOKEN.
 //
+// When overrideStaticWithForwardedToken is true, a forwarded or STS-exchanged
+// Authorization takes precedence over a static Authorization configured on the
+// server (KAGENT_PROPAGATE_TOKEN_OVERRIDES_STATIC). Default false keeps static
+// headers at the highest precedence.
+//
 // Optional headerProvider can be used to inject per-request headers
 // derived from invocation context (e.g., STS exchanged access tokens).
 func CreateToolsets(
@@ -93,6 +99,7 @@ func CreateToolsets(
 	httpTools []adk.HttpMcpServerConfig,
 	sseTools []adk.SseMcpServerConfig,
 	propagateToken bool,
+	overrideStaticWithForwardedToken bool,
 	headerProvider DynamicHeaderProvider,
 ) []tool.Toolset {
 	log := logr.FromContextOrDiscard(ctx)
@@ -101,17 +108,18 @@ func CreateToolsets(
 	log.Info("Processing HTTP MCP tools", "httpToolsCount", len(httpTools))
 	for i, httpTool := range httpTools {
 		params := mcpServerParams{
-			URL:                   httpTool.Params.Url,
-			Headers:               httpTool.Params.Headers,
-			AllowedHeaders:        httpTool.AllowedHeaders,
-			PropagateToken:        propagateToken,
-			HeaderProvider:        headerProvider,
-			ServerType:            "http",
-			Timeout:               httpTool.Params.Timeout,
-			SseReadTimeout:        httpTool.Params.SseReadTimeout,
-			TLSInsecureSkipVerify: httpTool.Params.TLSInsecureSkipVerify,
-			TLSCACertPath:         httpTool.Params.TLSCACertPath,
-			TLSDisableSystemCAs:   httpTool.Params.TLSDisableSystemCAs,
+			URL:                              httpTool.Params.Url,
+			Headers:                          httpTool.Params.Headers,
+			AllowedHeaders:                   httpTool.AllowedHeaders,
+			PropagateToken:                   propagateToken,
+			OverrideStaticWithForwardedToken: overrideStaticWithForwardedToken,
+			HeaderProvider:                   headerProvider,
+			ServerType:                       "http",
+			Timeout:                          httpTool.Params.Timeout,
+			SseReadTimeout:                   httpTool.Params.SseReadTimeout,
+			TLSInsecureSkipVerify:            httpTool.Params.TLSInsecureSkipVerify,
+			TLSCACertPath:                    httpTool.Params.TLSCACertPath,
+			TLSDisableSystemCAs:              httpTool.Params.TLSDisableSystemCAs,
 		}
 		ts, err := addToolset(ctx, log, params, httpTool.Tools, "HTTP", i+1)
 		if err != nil {
@@ -123,17 +131,18 @@ func CreateToolsets(
 	log.Info("Processing SSE MCP tools", "sseToolsCount", len(sseTools))
 	for i, sseTool := range sseTools {
 		params := mcpServerParams{
-			URL:                   sseTool.Params.Url,
-			Headers:               sseTool.Params.Headers,
-			AllowedHeaders:        sseTool.AllowedHeaders,
-			PropagateToken:        propagateToken,
-			HeaderProvider:        headerProvider,
-			ServerType:            "sse",
-			Timeout:               sseTool.Params.Timeout,
-			SseReadTimeout:        sseTool.Params.SseReadTimeout,
-			TLSInsecureSkipVerify: sseTool.Params.TLSInsecureSkipVerify,
-			TLSCACertPath:         sseTool.Params.TLSCACertPath,
-			TLSDisableSystemCAs:   sseTool.Params.TLSDisableSystemCAs,
+			URL:                              sseTool.Params.Url,
+			Headers:                          sseTool.Params.Headers,
+			AllowedHeaders:                   sseTool.AllowedHeaders,
+			PropagateToken:                   propagateToken,
+			OverrideStaticWithForwardedToken: overrideStaticWithForwardedToken,
+			HeaderProvider:                   headerProvider,
+			ServerType:                       "sse",
+			Timeout:                          sseTool.Params.Timeout,
+			SseReadTimeout:                   sseTool.Params.SseReadTimeout,
+			TLSInsecureSkipVerify:            sseTool.Params.TLSInsecureSkipVerify,
+			TLSCACertPath:                    sseTool.Params.TLSCACertPath,
+			TLSDisableSystemCAs:              sseTool.Params.TLSDisableSystemCAs,
 		}
 		ts, err := addToolset(ctx, log, params, sseTool.Tools, "SSE", i+1)
 		if err != nil {
@@ -227,11 +236,12 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 	var httpTransport http.RoundTripper = baseTransport
 	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken || params.HeaderProvider != nil {
 		httpTransport = &headerRoundTripper{
-			base:           baseTransport,
-			headers:        params.Headers,
-			allowedHeaders: params.AllowedHeaders,
-			propagateToken: params.PropagateToken,
-			headerProvider: params.HeaderProvider,
+			base:                             baseTransport,
+			headers:                          params.Headers,
+			allowedHeaders:                   params.AllowedHeaders,
+			propagateToken:                   params.PropagateToken,
+			overrideStaticWithForwardedToken: params.OverrideStaticWithForwardedToken,
+			headerProvider:                   params.HeaderProvider,
 		}
 	}
 
@@ -257,24 +267,41 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 }
 
 // headerRoundTripper wraps an http.RoundTripper to add custom headers to all
-// requests. It supports four sources of headers, applied in this order so that
-// higher-priority sources win on collision:
+// requests. By default static headers configured on the MCP server spec have the
+// highest precedence; sources are applied in this order so higher-priority ones
+// win on collision:
 //  1. propagateToken: when true, Authorization is read from the incoming A2A
 //     CallContext and forwarded unconditionally (independent of allowedHeaders).
 //  2. allowedHeaders: explicit per-header forwarding from the A2A CallContext.
 //  3. headerProvider: runtime headers derived from ADK context, such as STS tokens.
 //  4. headers: static key/value pairs configured on the MCP server spec (highest
-//     priority — always wins).
+//     priority — wins by default).
+//
+// When overrideStaticWithForwardedToken is set, static headers are applied first
+// (as defaults) and the forwarded/STS sources are applied last, so a propagated
+// or STS-exchanged Authorization wins over a static one. This supports gateways
+// that require a static M2M token for tool discovery but must receive the
+// end-user token on tool calls.
 type headerRoundTripper struct {
-	base           http.RoundTripper
-	headers        map[string]string
-	allowedHeaders []string // header names (case-insensitive) to forward from A2A context
-	propagateToken bool     // when true, Authorization is forwarded independently
-	headerProvider DynamicHeaderProvider
+	base                             http.RoundTripper
+	headers                          map[string]string
+	allowedHeaders                   []string // header names (case-insensitive) to forward from A2A context
+	propagateToken                   bool     // when true, Authorization is forwarded independently
+	overrideStaticWithForwardedToken bool     // when true, forwarded/STS Authorization wins over static headers
+	headerProvider                   DynamicHeaderProvider
 }
 
 func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	req = req.Clone(req.Context())
+
+	// Static headers configured on the MCP server spec. Applied first (as
+	// defaults) only when forwarded/STS tokens are configured to win; otherwise
+	// they are applied last to retain the default highest-precedence behaviour.
+	if rt.overrideStaticWithForwardedToken {
+		for key, value := range rt.headers {
+			req.Header.Set(key, value)
+		}
+	}
 
 	// When KAGENT_PROPAGATE_TOKEN is set, forward Authorization from the incoming
 	// A2A request independently of allowedHeaders.
@@ -300,9 +327,12 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 		}
 	}
 
-	// Apply static headers last — they take precedence over all dynamic sources.
-	for key, value := range rt.headers {
-		req.Header.Set(key, value)
+	// Apply static headers last so they retain the default highest precedence,
+	// unless they were already applied first to let forwarded tokens win.
+	if !rt.overrideStaticWithForwardedToken {
+		for key, value := range rt.headers {
+			req.Header.Set(key, value)
+		}
 	}
 
 	return rt.base.RoundTrip(req)

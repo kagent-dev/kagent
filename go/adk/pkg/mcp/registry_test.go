@@ -396,3 +396,76 @@ func TestStaticHeaders_OverrideDynamic(t *testing.T) {
 		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer static")
 	}
 }
+
+// TestOverrideStatic_PropagatedTokenWinsOverStatic verifies that with
+// overrideStaticWithForwardedToken set, a token forwarded via propagateToken
+// takes precedence over a static Authorization header, while other static
+// headers still apply.
+func TestOverrideStatic_PropagatedTokenWinsOverStatic(t *testing.T) {
+	t.Parallel()
+	var capturedAuth, capturedStatic string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		capturedStatic = r.Header.Get("X-Static")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := a2aCtx(map[string][]string{
+		"Authorization": {"Bearer user-token"},
+	})
+
+	rt := &headerRoundTripper{
+		base:                             http.DefaultTransport,
+		headers:                          map[string]string{"Authorization": "Bearer static-m2m", "X-Static": "keep"},
+		propagateToken:                   true,
+		overrideStaticWithForwardedToken: true,
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer user-token" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer user-token")
+	}
+	if capturedStatic != "keep" {
+		t.Errorf("X-Static: got %q, want %q", capturedStatic, "keep")
+	}
+}
+
+// TestOverrideStatic_StaticAppliesWhenNoForwardedToken verifies that with
+// overrideStaticWithForwardedToken set, the static Authorization is still used
+// when no token is forwarded (e.g. an autonomous run with no inbound token).
+func TestOverrideStatic_StaticAppliesWhenNoForwardedToken(t *testing.T) {
+	t.Parallel()
+	var capturedAuth string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rt := &headerRoundTripper{
+		base:                             http.DefaultTransport,
+		headers:                          map[string]string{"Authorization": "Bearer static-m2m"},
+		propagateToken:                   true,
+		overrideStaticWithForwardedToken: true,
+	}
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer static-m2m" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer static-m2m")
+	}
+}
