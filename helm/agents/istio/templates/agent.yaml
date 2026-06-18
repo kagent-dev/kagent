@@ -232,9 +232,4 @@ spec:
       compaction: {{- toYaml .Values.compaction | nindent 8 }}
     {{- end }}
     deployment:
-      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      resources:
-        {{- toYaml .Values.resources | nindent 8 }}
+      {{- include "agent.deploymentSpec" . | nindent 6 }}
