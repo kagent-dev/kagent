@@ -157,6 +157,10 @@ async function sendText(text: string) {
   await user.click(screen.getByRole("button", { name: /send/i }));
 }
 
+function sentMessage(callIndex = 0): Message {
+  return (mockSendMessageStream.mock.calls[callIndex][2] as { message: Message }).message;
+}
+
 describe("ChatInterface send guard", () => {
   const initialTurn = [
     textMessage("initial-user", "user", "initial user", "session-1", "task-initial"),
@@ -193,7 +197,10 @@ describe("ChatInterface send guard", () => {
 
     mockBackendTasks([
       completedTask("task-initial", initialTurn),
-      completedTask("task-streamed", sameTabTurn),
+      completedTask("task-streamed", [
+        textMessage(sentMessage().messageId, "user", "same tab question", "session-1", "task-streamed"),
+        textMessage("same-tab-agent", "agent", "same tab answer", "session-1", "task-streamed"),
+      ]),
     ]);
     await sendText("next question");
 
@@ -243,6 +250,32 @@ describe("ChatInterface send guard", () => {
       completedTask("task-external", externalTurn),
     ]);
     await sendText("should review backend first");
+
+    await waitFor(() => expect(mockToastInfo).toHaveBeenCalledWith(staleToastMessage));
+    expect(mockSendMessageStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks when local-only streaming messages share text and role with an unseen backend turn", async () => {
+    mockBackendTasks([completedTask("task-initial", initialTurn)]);
+    mockSendMessageStream
+      .mockResolvedValueOnce(streamOf(completedStatusEvent("duplicate answer", "session-1", "task-streamed")));
+
+    renderExistingSession();
+
+    expect(await screen.findByText("initial answer")).toBeInTheDocument();
+
+    await sendText("duplicate question");
+    await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("duplicate answer")).toBeInTheDocument();
+
+    mockBackendTasks([
+      completedTask("task-initial", initialTurn),
+      completedTask("task-unseen", [
+        textMessage("unseen-user", "user", "duplicate question", "session-1", "task-unseen"),
+        textMessage("unseen-agent", "agent", "duplicate answer", "session-1", "task-unseen"),
+      ]),
+    ]);
+    await sendText("should review duplicate backend first");
 
     await waitFor(() => expect(mockToastInfo).toHaveBeenCalledWith(staleToastMessage));
     expect(mockSendMessageStream).toHaveBeenCalledTimes(1);

@@ -58,13 +58,42 @@ function countSendGuardComparableMessages(messages: Message[]): number {
   return count;
 }
 
-function getSendGuardMessageKey(message: Message): string {
+function getSendGuardMessageContentSignature(message: Message): string {
   const meta = message.metadata as ADKMetadata | undefined;
-  const text = message.parts
-    ?.map(part => part.kind === "text" ? part.text : "")
-    .join("") ?? "";
   const originalType = meta?.originalType === "TextMessage" ? "" : (meta?.originalType ?? "");
-  return [message.role, originalType, text].join("\u0000");
+  const partsSignature = message.parts
+    ?.map(part => part.kind === "text" ? `text:${part.text ?? ""}` : `${part.kind}:${JSON.stringify(part)}`)
+    .join("\u0001") ?? "";
+
+  return [
+    message.role,
+    originalType,
+    JSON.stringify(meta?.toolCallData ?? null),
+    JSON.stringify(meta?.toolResultData ?? null),
+    partsSignature,
+  ].join("\u0000");
+}
+
+function getSendGuardMessageKey(message: Message): string | undefined {
+  const contentSignature = getSendGuardMessageContentSignature(message);
+
+  if (message.role === "user" && message.messageId) {
+    return ["message", message.messageId].join("\u0000");
+  }
+
+  // Same-tab streamed agent display messages are locally re-created, so their
+  // messageId may differ from the backend history item. The task/context pair
+  // is the stable backend identity for those messages; the richer signature
+  // avoids counting unrelated messages in the same task.
+  if (message.contextId && message.taskId) {
+    return ["task", message.contextId, message.taskId, contentSignature].join("\u0000");
+  }
+
+  if (message.messageId) {
+    return ["message", message.messageId].join("\u0000");
+  }
+
+  return undefined;
 }
 
 function countBackendBackedComparableMessages(localMessages: Message[], backendMessages: Message[]): number {
@@ -72,6 +101,7 @@ function countBackendBackedComparableMessages(localMessages: Message[], backendM
   for (const message of backendMessages) {
     if (!isSendGuardComparableMessage(message)) continue;
     const key = getSendGuardMessageKey(message);
+    if (!key) continue;
     backendCounts.set(key, (backendCounts.get(key) ?? 0) + 1);
   }
 
@@ -79,6 +109,7 @@ function countBackendBackedComparableMessages(localMessages: Message[], backendM
   for (const message of localMessages) {
     if (!isSendGuardComparableMessage(message)) continue;
     const key = getSendGuardMessageKey(message);
+    if (!key) continue;
     const remaining = backendCounts.get(key) ?? 0;
     if (remaining > 0) {
       count += 1;
@@ -300,15 +331,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     pendingRejectionReasonsRef.current = {};
     pendingTurnStatsRef.current = undefined;
 
+    const messageId = uuidv4();
+
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
       kind: "message",
-      messageId: uuidv4(),
+      messageId,
       role: "user",
       parts: [{
         kind: "text",
         text: userMessageText
       }],
+      contextId: guardSessionId,
       metadata: {
         timestamp: Date.now()
       }
@@ -408,7 +442,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
       }
 
-      const messageId = uuidv4();
       const a2aMessage = createMessage(userMessageText, "user", {
         messageId,
         contextId: currentSessionId,
