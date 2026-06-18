@@ -84,7 +84,7 @@ The **rollback window** is how far back a rollback is supported: **one minor bac
 
 **Destructive changes must be declared, not silent.** An intentional contraction is allowed only with explicit reviewer sign-off confirming (1) the replacement shipped in the prior release and (2) no current code still reads the old structure — sqlc makes that second point checkable for Postgres, since the generated queries are greppable. Pre-rule contractions already in history are grandfathered; the rule binds going forward.
 
-> **Enforcement.** *Target — not yet enforced*: a static check extending `cross_track_test.go` will block undeclared destructive DDL at merge (see [Static Analysis Enforcement](#static-analysis-enforcement)).
+> **Enforcement.** `TestNoUndeclaredContractions` blocks undeclared contraction-class DDL at merge; an intentional contraction is allowlisted in `declaredContractions` for reviewer sign-off (see [Static Analysis Enforcement](#static-analysis-enforcement)).
 
 ### Schema-agnostic SQL
 
@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS eval_set (...);
 
 Schema is a deploy-time choice, fixed by the connection rather than the migration file. A hard-coded schema breaks any deployment that runs the track in a different schema (e.g. a connection that sets `?search_path=<schema>`). The core and vector migrations comply today (verified by inspection until the lint lands).
 
-> **Enforcement.** A static lint test rejecting the forbidden patterns across all migration files (*Target — not yet enforced*; see [Static Analysis Enforcement](#static-analysis-enforcement)).
+> **Enforcement.** `TestSchemaAgnosticSQL` rejects the forbidden patterns across all migration files (see [Static Analysis Enforcement](#static-analysis-enforcement)).
 
 ### Idempotency and cross-track safety
 
@@ -196,8 +196,8 @@ The policies above are enforced by static analysis tests in `go/core/pkg/migrati
 |------|-----------------|
 | `TestNoCrossTrackDDL` | No track may `ALTER TABLE` or `CREATE INDEX ON` a table owned by another track |
 | `TestMigrationGuards` | Up migrations must use `IF NOT EXISTS` on all `CREATE`/`ADD COLUMN`; down migrations must use `IF EXISTS` on all `DROP` statements |
-| Contraction guard *(target)* | Blocks undeclared destructive DDL — `DROP`/`RENAME` of shipped objects, type narrowing, new constraints on shipped tables (see [Backward compatibility and contraction](#backward-compatibility-and-contraction)) |
-| Schema-agnostic lint *(target)* | Rejects `CREATE SCHEMA`, schema-qualified DDL, `SET search_path`, and `ALTER ... SET SCHEMA` (see [Schema-agnostic SQL](#schema-agnostic-sql)) |
+| `TestNoUndeclaredContractions` | Blocks undeclared contraction-class DDL — `DROP`/`RENAME` of shipped objects, type narrowing, new constraints on shipped tables, `SET NOT NULL` on shipped columns — unless allowlisted in `declaredContractions` (see [Backward compatibility and contraction](#backward-compatibility-and-contraction)) |
+| `TestSchemaAgnosticSQL` | Rejects `CREATE SCHEMA`, schema-qualified DDL, `SET search_path`, and `ALTER ... SET SCHEMA` (see [Schema-agnostic SQL](#schema-agnostic-sql)) |
 
 **Adding a new track**: add the track directory name to the `tracks` slice in each test so the new track is covered by the same checks.
 
