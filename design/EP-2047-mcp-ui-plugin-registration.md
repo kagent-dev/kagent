@@ -14,8 +14,8 @@ namespace-aware — **without** the UI needing to know it is embedded and **with
 adding a new CRD. Registration is fully declarative: a single `RemoteMCPServer`
 resource with a `spec.ui` block is the entire contract.
 
-The full design (architecture diagram, postMessage protocol, proxy contract) lives
-in `specs/mcp-ui-registration/DESIGN.md`; this EP summarizes it.
+This EP describes the architecture, the host↔plugin postMessage protocol, and the
+reverse-proxy contract.
 
 ## Motivation
 
