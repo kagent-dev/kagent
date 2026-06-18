@@ -52,6 +52,7 @@ const (
 	APIPathCrewAI               = "/api/crewai"
 	APIPathAgentHarnessHarness  = "/api/agentharnesses/{namespace}/{name}/"
 	APIPathSubstrateStatus      = "/api/substrate/status"
+	APIPathPlugins              = "/api/plugins"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -263,6 +264,10 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleListToolServers)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{name}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
+
+	// Plugins (RemoteMCPServer web UIs): registry + reverse proxy to the server's web root.
+	s.router.HandleFunc(APIPathPlugins, adaptHandler(s.handlers.Plugins.HandleListPlugins)).Methods(http.MethodGet)
+	s.router.PathPrefix(handlers.PluginProxyPrefix + "/{pathPrefix}").Handler(http.HandlerFunc(s.handlers.Plugins.HandleProxy))
 
 	// Tool Server Types
 	s.router.HandleFunc(APIPathToolServerTypes, adaptHandler(s.handlers.ToolServerTypes.HandleListToolServerTypes)).Methods(http.MethodGet)
