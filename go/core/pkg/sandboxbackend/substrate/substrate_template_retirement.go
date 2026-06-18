@@ -12,9 +12,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-// RetireSupersededTemplates implements the blue-green half of config-change rollout: it deletes
-// a SandboxAgent's older ActorTemplates (and their golden actors) once a newer template is
-// serving, so the previous golden keeps answering traffic until the new one is Ready.
+// RetireSupersededTemplates performs the cleanup half of a config-change rollout: it deletes a
+// SandboxAgent's older ActorTemplates (and their golden actors) once a newer template is serving,
+// so the previous golden keeps answering traffic until the new one is Ready (the blue-green
+// resolution itself lives in ResolveCurrentActorTemplate).
 //
 // It keeps two templates: the newest (the desired/just-applied one, possibly still building) and
 // the active one (newest with a Ready golden, which chat resolves to). Every other template is
