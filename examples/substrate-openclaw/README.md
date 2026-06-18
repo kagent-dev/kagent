@@ -93,8 +93,8 @@ spec:
   pauseImage: gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da
   runsc:
     amd64:
-      url: gs://gvisor/releases/nightly/2026-05-19/x86_64/runsc
-      sha256Hash: a397be1abc2420d26bce6c70e6e2ff96c73aaaab929756c56f5e2089ea842b63
+      url: gs://gvisor/releases/nightly/2026-06-02/x86_64/runsc
+      sha256Hash: efd12935f6654c91a1389710eb8dfa4d12b6b9be00db87526dc2eb584ad00119
     arm64:
       url: gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc
       sha256Hash: 1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9
