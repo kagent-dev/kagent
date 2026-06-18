@@ -15,3 +15,7 @@ resources:
     memory: 1Gi
 
 compaction: {}
+
+podSecurityContext: {}
+
+securityContext: {}

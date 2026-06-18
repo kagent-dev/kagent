@@ -8,3 +8,7 @@ dependencies:
     version: ${KMCP_VERSION}
     repository: oci://ghcr.io/kagent-dev/kmcp/helm
     condition: kmcp.enabled
+  - name: substrate-crds
+    version: ${SUBSTRATE_VERSION}
+    repository: oci://ghcr.io/kagent-dev/substrate/helm
+    condition: substrate.enabled
