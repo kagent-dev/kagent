@@ -5,7 +5,8 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 ### STAGE 2: builder
 # Build the uv-managed standalone Python interpreter and the project venv on a full base
 # (debian-slim, digest-pinnable). Nothing from this stage ships except /python and the venv.
-FROM debian:12-slim AS builder
+# Digest = multi-arch index resolved via `docker buildx imagetools inspect debian:12-slim`.
+FROM debian:12-slim@sha256:96e378d7e6531ac9a15ad505478fcc2e69f371b10f5cdf87857c4b8188404716 AS builder
 ARG TOOLS_PYTHON_VERSION=3.13
 
 ENV LANG=C.UTF-8
@@ -65,7 +66,11 @@ RUN mkdir -p /staging/config
 # distroless/cc provides glibc + libstdc++ (required by the standalone CPython build) but no
 # shell or package manager. Agents that need in-container code execution / bash tools use the
 # "full" image (python/Dockerfile.full) instead.
-FROM gcr.io/distroless/cc-debian12:nonroot
+# Pinned by digest so rebuilds can't silently pull a different base. Distroless publishes no
+# version-numbered tags (only :nonroot/:latest/:debug), so a digest is the only way to pin tighter
+# than "Debian 12". Tag kept for readability; bump the digest via dependency tooling.
+# Digest = multi-arch index resolved via `docker buildx imagetools inspect gcr.io/distroless/cc-debian12:nonroot`.
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:b0ae8e989418b458e0f25489bc3be523718938a2b70864cc0f6a00af1ddbd985
 ARG VERSION
 
 ENV LANG=C.UTF-8
