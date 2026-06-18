@@ -19,3 +19,8 @@ compaction: {}
 podSecurityContext: {}
 
 securityContext: {}
+
+# -- Optional Grafana datasource name for Prometheus (e.g. "Prometheus"). When set, the agent
+# uses this datasource name for all Prometheus queries instead of discovering it at runtime.
+grafana:
+  prometheusDatasourceName: ""
