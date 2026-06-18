@@ -217,6 +217,29 @@ describe("ChatInterface send guard", () => {
     expect(mockSendMessageStream).toHaveBeenCalledTimes(1);
   });
 
+  it("does not let local-only streaming messages mask an unseen backend turn", async () => {
+    mockBackendTasks([completedTask("task-initial", initialTurn)]);
+    mockSendMessageStream
+      .mockResolvedValueOnce(streamOf(completedStatusEvent("local-only answer")));
+
+    renderExistingSession();
+
+    expect(await screen.findByText("initial answer")).toBeInTheDocument();
+
+    await sendText("local optimistic question");
+    await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("local-only answer")).toBeInTheDocument();
+
+    mockBackendTasks([
+      completedTask("task-initial", initialTurn),
+      completedTask("task-external", externalTurn),
+    ]);
+    await sendText("should review backend first");
+
+    await waitFor(() => expect(mockToastInfo).toHaveBeenCalledWith(staleToastMessage));
+    expect(mockSendMessageStream).toHaveBeenCalledTimes(1);
+  });
+
   it("still blocks when the backend has a cross-tab message not visible locally", async () => {
     mockBackendTasks([completedTask("task-initial", initialTurn)]);
 

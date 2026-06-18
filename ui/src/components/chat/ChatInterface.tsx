@@ -43,12 +43,46 @@ const SEND_GUARD_EXCLUDED_ORIGINAL_TYPES = new Set([
   "ToolCallSummaryMessage", // UI-only marker that closes tool calls; not a backend chat turn.
 ]);
 
+function isSendGuardComparableMessage(message: Message): boolean {
+  const meta = message.metadata as ADKMetadata | undefined;
+  return !meta?.originalType || !SEND_GUARD_EXCLUDED_ORIGINAL_TYPES.has(meta.originalType);
+}
+
 function countSendGuardComparableMessages(messages: Message[]): number {
   let count = 0;
   for (const message of messages) {
-    const meta = message.metadata as ADKMetadata | undefined;
-    if (!meta?.originalType || !SEND_GUARD_EXCLUDED_ORIGINAL_TYPES.has(meta.originalType)) {
+    if (isSendGuardComparableMessage(message)) {
       count += 1;
+    }
+  }
+  return count;
+}
+
+function getSendGuardMessageKey(message: Message): string {
+  const meta = message.metadata as ADKMetadata | undefined;
+  const text = message.parts
+    ?.map(part => part.kind === "text" ? part.text : "")
+    .join("") ?? "";
+  const originalType = meta?.originalType === "TextMessage" ? "" : (meta?.originalType ?? "");
+  return [message.role, originalType, text].join("\u0000");
+}
+
+function countBackendBackedComparableMessages(localMessages: Message[], backendMessages: Message[]): number {
+  const backendCounts = new Map<string, number>();
+  for (const message of backendMessages) {
+    if (!isSendGuardComparableMessage(message)) continue;
+    const key = getSendGuardMessageKey(message);
+    backendCounts.set(key, (backendCounts.get(key) ?? 0) + 1);
+  }
+
+  let count = 0;
+  for (const message of localMessages) {
+    if (!isSendGuardComparableMessage(message)) continue;
+    const key = getSendGuardMessageKey(message);
+    const remaining = backendCounts.get(key) ?? 0;
+    if (remaining > 0) {
+      count += 1;
+      backendCounts.set(key, remaining - 1);
     }
   }
   return count;
@@ -242,12 +276,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     // the full context before their next message goes out.
     const guardSessionId = session?.id || sessionId;
     if (guardSessionId) {
-      // Compare against all messages already visible in this tab. Completed
+      // Compare visible messages against the backend snapshot. Completed
       // same-tab stream messages remain in streamingMessages until the next
-      // send promotes them, so excluding them causes a false stale-message block.
-      const localMessageCount = countSendGuardComparableMessages(allMessages);
+      // send promotes them, but only backend-backed matches count as local.
       const guardResult = await checkAndSyncSessionBeforeAction(guardSessionId, {
-        localMessageCount,
+        localMessages: allMessages,
         messages: {
           inFlight: "This session is already being processed — reconnecting to live updates",
           inputRequired: "Session is awaiting your input — please review before sending",
@@ -588,6 +621,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     guardSessionId: string,
     opts: {
       expectedTaskId?: string;
+      localMessages?: Message[];
       localMessageCount?: number;
       messages: {
         inFlight: string;
@@ -639,9 +673,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       return "blocked";
     }
 
-    if (opts.localMessageCount !== undefined) {
-      const dbMessageCount = countSendGuardComparableMessages(extractMessagesFromTasks(tasksCheck.data));
-      if (dbMessageCount > opts.localMessageCount) {
+    if (opts.localMessages !== undefined || opts.localMessageCount !== undefined) {
+      const dbMessages = extractMessagesFromTasks(tasksCheck.data);
+      const dbMessageCount = countSendGuardComparableMessages(dbMessages);
+      const localMessageCount = opts.localMessages !== undefined
+        ? countBackendBackedComparableMessages(opts.localMessages, dbMessages)
+        : opts.localMessageCount;
+      if (localMessageCount !== undefined && dbMessageCount > localMessageCount) {
         await reloadSessionFromDB();
         toast.info(opts.messages.staleOrChanged);
         return "blocked";
