@@ -270,6 +270,7 @@ func AgentSandboxPlatform(agent AgentObject) SandboxPlatform {
 }
 
 // EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python).
+// All agents (including substrate SandboxAgents) honor spec.declarative.runtime.
 func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
 	if spec == nil {
 		return DeclarativeRuntime_Python
@@ -279,13 +280,6 @@ func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
 		runtime = spec.Declarative.Runtime
 	}
 	return runtime
-}
-
-// EffectiveDeclarativeRuntimeForAgent returns the runtime for a reconciled agent object.
-// All agents (including substrate SandboxAgents) honor spec.declarative.runtime, defaulting
-// to Python when unset.
-func EffectiveDeclarativeRuntimeForAgent(agent AgentObject) DeclarativeRuntime {
-	return EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 }
 
 // NetworkConfig configures outbound network access for sandboxed execution paths.

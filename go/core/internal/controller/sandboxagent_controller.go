@@ -80,7 +80,7 @@ func (r *SandboxAgentController) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("get SandboxAgent: %w", err)
 	}
 
-	if sandboxAgentUsesSubstrate(&sa) && r.SubstrateLifecycle != nil {
+	if sandboxAgentUsesSubstrate(&sa) && r.substrateConfigured() {
 		if res, err := r.reconcileSubstrateSandboxAgent(ctx, &sa); err != nil || !res.IsZero() {
 			return res, err
 		}
@@ -109,7 +109,7 @@ func (r *SandboxAgentController) SetupWithManager(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	if r.SubstrateLifecycle != nil {
+	if r.substrateConfigured() {
 		build = build.Watches(
 			&atev1alpha1.ActorTemplate{},
 			handler.EnqueueRequestsFromMapFunc(r.enqueueSandboxAgentForSubstrateResource),

@@ -7,6 +7,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -71,7 +72,7 @@ func TestBuildActorTemplateStampsConfigHash(t *testing.T) {
 		},
 	}
 	pod := corev1.PodTemplateSpec{
-		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{SandboxConfigHashAnnotation: "255"}},
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{consts.ConfigHashAnnotation: "255"}},
 		Spec: corev1.PodSpec{Containers: []corev1.Container{{
 			Name:  defaultKagentContainer,
 			Image: "registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111",
@@ -81,7 +82,7 @@ func TestBuildActorTemplateStampsConfigHash(t *testing.T) {
 	tmpl, err := p.buildSandboxAgentActorTemplate(sa, wpKey, pod)
 	require.NoError(t, err)
 	require.Equal(t, "py-agent-ff", tmpl.Name, "template name must carry the config-hash suffix")
-	require.Equal(t, "ff", tmpl.Annotations[SandboxConfigHashAnnotation])
+	require.Equal(t, "ff", tmpl.Annotations[consts.ConfigHashAnnotation])
 }
 
 func TestResolveCurrentActorTemplate(t *testing.T) {

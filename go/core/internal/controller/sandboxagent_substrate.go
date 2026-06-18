@@ -20,10 +20,18 @@ func sandboxAgentUsesSubstrate(sa *v1alpha2.SandboxAgent) bool {
 	return sa != nil && v1alpha2.AgentSandboxPlatform(sa) == v1alpha2.SandboxPlatformSubstrate
 }
 
+// substrateConfigured reports whether the substrate backend is wired. The lifecycle and actor
+// backend are constructed together (only when an ate-api endpoint is set), so they are
+// all-or-nothing; gating once here lets the substrate reconcile path and its helpers assume both
+// are present rather than nil-checking each dependency at every call site.
+func (r *SandboxAgentController) substrateConfigured() bool {
+	return r.SubstrateLifecycle != nil && r.SubstrateActorBackend != nil
+}
+
+// reconcileSubstrateSandboxAgent is only reached when substrateConfigured() is true (see
+// Reconcile), so SubstrateLifecycle and SubstrateActorBackend are guaranteed non-nil here and in
+// the helpers it calls.
 func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Context, sa *v1alpha2.SandboxAgent) (ctrl.Result, error) {
-	if r.SubstrateLifecycle == nil {
-		return ctrl.Result{}, fmt.Errorf("substrate sandbox backend is not configured")
-	}
 	if !sa.DeletionTimestamp.IsZero() {
 		return r.reconcileSubstrateSandboxAgentDelete(ctx, sa)
 	}
@@ -49,9 +57,6 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Cont
 // downtime. Returns true when nothing more remains to retire. Errors are logged, not surfaced, so a
 // transient ate-api failure doesn't wedge reconciliation.
 func (r *SandboxAgentController) reconcileSubstrateBlueGreen(ctx context.Context, sa *v1alpha2.SandboxAgent) bool {
-	if r.SubstrateLifecycle == nil {
-		return true
-	}
 	retireDone, err := r.SubstrateLifecycle.RetireSupersededTemplates(ctx, sa)
 	if err != nil {
 		sandboxAgentControllerLog.Info("retiring superseded substrate templates failed (will retry)",
@@ -61,12 +66,10 @@ func (r *SandboxAgentController) reconcileSubstrateBlueGreen(ctx context.Context
 
 	// Best-effort reap of stale session actors keyed to a previous config. Not required for
 	// correctness (config-hashed ids mean they're never reused), so failures don't requeue.
-	if r.SubstrateActorBackend != nil {
-		if active, err := substrate.ResolveCurrentActorTemplate(ctx, r.Client, sa.Namespace, sa.Name); err == nil && active != nil {
-			if _, err := r.SubstrateActorBackend.ReapStaleSessionActors(ctx, sa, active.Name); err != nil {
-				sandboxAgentControllerLog.Info("reap of stale substrate session actors failed (will retry)",
-					"sandboxagent", sa.Namespace+"/"+sa.Name, "err", err.Error())
-			}
+	if active, err := substrate.ResolveCurrentActorTemplate(ctx, r.Client, sa.Namespace, sa.Name); err == nil && active != nil {
+		if _, err := r.SubstrateActorBackend.ReapStaleSessionActors(ctx, sa, active.Name); err != nil {
+			sandboxAgentControllerLog.Info("reap of stale substrate session actors failed (will retry)",
+				"sandboxagent", sa.Namespace+"/"+sa.Name, "err", err.Error())
 		}
 	}
 	return retireDone
@@ -84,24 +87,16 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgentDelete(ctx contex
 		return r.removeSubstrateSandboxAgentFinalizer(ctx, sa)
 	}
 
-	if r.SubstrateActorBackend != nil {
-		done, err := r.SubstrateActorBackend.DeleteAllSandboxAgentActors(ctx, sa)
-		if err != nil {
-			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
-		}
-		if !done {
-			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
-		}
+	if done, err := r.SubstrateActorBackend.DeleteAllSandboxAgentActors(ctx, sa); err != nil {
+		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
+	} else if !done {
+		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
 	}
 
-	if r.SubstrateLifecycle != nil {
-		done, err := r.SubstrateLifecycle.CleanupSandboxAgentTemplate(ctx, sa)
-		if err != nil {
-			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
-		}
-		if !done {
-			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
-		}
+	if done, err := r.SubstrateLifecycle.CleanupSandboxAgentTemplate(ctx, sa); err != nil {
+		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
+	} else if !done {
+		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
 	}
 
 	return r.removeSubstrateSandboxAgentFinalizer(ctx, sa)

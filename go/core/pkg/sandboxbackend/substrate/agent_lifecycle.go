@@ -7,6 +7,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,16 +34,11 @@ const (
 	pythonRuntimeLibPath = "/usr/lib/kagent-libs"
 	pythonVenvPath       = "/.kagent/.venv"
 
-	// SandboxConfigHashAnnotation carries the rendered-config hash on the generated
-	// ActorTemplate. It mirrors the translator's "kagent.dev/config-hash" pod-template
-	// annotation (keep in sync). A golden snapshot is an immutable memory image, so a
-	// config change must produce a NEW ActorTemplate (substrate snapshots once and
-	// no-ops in PhaseReady); folding the hash into the template name does that, and the
-	// annotation lets the chat path/reaper key session actors to the active template.
-	SandboxConfigHashAnnotation = "kagent.dev/config-hash"
-
 	// sandboxAgentTemplateNameMaxBase reserves room in the 63-char DNS-1123 budget for
-	// the "-<hash>" suffix (hash is up to 16 hex chars).
+	// the "-<hash>" suffix (hash is up to 16 hex chars). A golden snapshot is an immutable
+	// memory image, so a config change must produce a NEW ActorTemplate (substrate snapshots
+	// once and no-ops in PhaseReady); folding the shared consts.ConfigHashAnnotation hash
+	// into the template name (and mirroring it as an annotation) is what achieves that.
 	sandboxAgentTemplateNameMaxBase = 46
 )
 
@@ -68,10 +64,10 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	// Folding it into the ActorTemplate name makes a config change create a new template
 	// (and thus a fresh golden snapshot) instead of mutating one substrate will never
 	// re-snapshot. The annotation carries the same hash for the chat path and reaper.
-	configHash := shortConfigHash(podTemplate.Annotations[SandboxConfigHashAnnotation])
+	configHash := shortConfigHash(podTemplate.Annotations[consts.ConfigHashAnnotation])
 	annotations := map[string]string{}
 	if configHash != "" {
-		annotations[SandboxConfigHashAnnotation] = configHash
+		annotations[consts.ConfigHashAnnotation] = configHash
 	}
 
 	desired := &atev1alpha1.ActorTemplate{
@@ -149,7 +145,7 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *
 	}
 
 	// Declarative: secret-backed config is materialized at startup.
-	runtime := v1alpha2.EffectiveDeclarativeRuntimeForAgent(sa)
+	runtime := v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec())
 	env = append(env, kagentAgentSecretEnv(sa)...)
 	if runtime == v1alpha2.DeclarativeRuntime_Python {
 		env = append(env, pythonRuntimeImageEnv()...)

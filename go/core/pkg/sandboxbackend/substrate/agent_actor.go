@@ -9,6 +9,7 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -189,7 +190,7 @@ func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1al
 	if tmpl == nil {
 		return "", "", fmt.Errorf("no ActorTemplate generated yet for SandboxAgent %s/%s", sa.Namespace, sa.Name)
 	}
-	hash := tmpl.Annotations[SandboxConfigHashAnnotation]
+	hash := tmpl.Annotations[consts.ConfigHashAnnotation]
 	return SandboxAgentSessionActorID(sa, hash, sessionID), tmpl.Name, nil
 }
 
