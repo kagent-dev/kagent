@@ -1,0 +1,189 @@
+# Default values for the kanban-mcp chart.
+# State lives in Postgres, so there is no persistence / PVC block.
+
+# -- Number of replicas. The server is stateless (all state is in Postgres),
+# but note that SSE clients connect to a single replica; a multi-replica setup
+# needs sticky sessions or a shared pub/sub (out of scope for v1).
+replicaCount: 1
+
+image:
+  # -- Container image repository.
+  repository: ghcr.io/kagent-dev/kanban-mcp
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- Image tag. Defaults to the chart appVersion when empty.
+  tag: ""
+
+# -- Image pull secrets for private registries.
+imagePullSecrets: []
+# -- Override the chart name.
+nameOverride: ""
+# -- Override the fully qualified app name.
+fullnameOverride: ""
+
+# Server configuration. These map to the kanban-mcp flags / env vars.
+config:
+  # -- Listen address (KANBAN_ADDR).
+  addr: ":8080"
+  # -- Transport: "http" (REST + SSE + MCP over HTTP) or "stdio". Use "http" in k8s.
+  transport: "http"
+  # -- Log level (KANBAN_LOG_LEVEL): debug | info | warn | error.
+  logLevel: "info"
+  # -- Serve the board UI in read-only mode (KANBAN_READONLY). When true the
+  # dashboard hides the "New Task" button.
+  readonly: true
+
+# Postgres connection. Provide exactly one of:
+#   - database.url           -> injected as KANBAN_DB_URL
+#   - database.existingSecret -> mounted as a file, path injected as KANBAN_DB_URL_FILE
+database:
+  # -- Direct Postgres connection URL, e.g.
+  # postgres://user:pass@host:5432/db?sslmode=disable
+  # Stored verbatim in a generated Secret. Prefer existingSecret in production.
+  url: ""
+  # -- Name of an existing Secret holding the connection URL. When set it takes
+  # precedence over database.url and is mounted as a file (KANBAN_DB_URL_FILE).
+  existingSecret: ""
+  # -- Key within existingSecret that holds the URL.
+  existingSecretKey: "url"
+
+service:
+  # -- Kubernetes Service type.
+  type: ClusterIP
+  # -- Service port.
+  port: 8080
+
+# -- Board definitions seeded into the database at startup (idempotent upsert via
+# KANBAN_BOARDS_FILE, rendered into a ConfigMap). Each board has its own ordered
+# column set; tasks on a board can only use that board's columns. A built-in
+# "default" board (the 7-stage workflow) always exists from the schema migration,
+# so this list is only for additional / per-agent boards. Leave empty to keep
+# just the default board.
+#
+# Each entry:
+#   key:         unique slug used to address the board (required)
+#   name:        display name (defaults to key)
+#   description: optional description
+#   scope:       "general" (shared) or "agent" (bound to an agent)
+#   owner:       owning agent name when scope is "agent"
+#   columns:     ordered list of column names (required, non-empty)
+#   subtasks:    optional ordered list of checklist subtask titles. When a Task is
+#                created on this board (via the dashboard "New Task" button or the
+#                MCP/REST API), these subtasks are auto-added to it. Leave empty
+#                for no template. Features are not affected (only Tasks have
+#                checklist subtasks).
+#
+# Example:
+# boards:
+#   - key: team
+#     name: Team Board
+#     scope: general
+#     columns: [Backlog, Todo, Doing, Review, Done]
+#     subtasks: [Write tests, Implement, Update docs]
+#   - key: my-agent
+#     name: My Agent
+#     scope: agent
+#     owner: my-agent
+#     columns: [Inbox, Working, Blocked, Done]
+boards:
+  - key: kubex
+    name: KubeX
+    description: KubeX board
+    scope: general
+    columns: [Backlog, Todo, Doing, Review, Done]
+  # - key: d1
+  #   name: D1
+  #   description: D1 board
+  #   scope: general
+  #   columns: [Backlog, Todo, Doing, Review, Done]
+  # - key: ms360-sdk  
+  #   name: MS360 SDK Upgrade
+  #   description: MS360 SDK Upgrade board
+  #   scope: general
+  #   columns: [Inbox, Validate, Planning, Working, Blocked, Approved, Done]
+  #   subtasks: [Analyze requirements, Implement change, Open pull request, Monitor CI]
+  # - key: adoption  
+  #   name: MS360 Adoption
+  #   description: MS360 Adoption board
+  #   scope: general
+  #   columns: [Inbox, Validate, Planning, Working, Blocked, Approved, Done]
+
+  - key: kagent
+    name: KAgent
+    description: KAgent Features board
+    scope: general
+    columns: [Inbox, Plan, Implement, Review, Done, Rejected]
+  - key: ai-sre
+    name: AI SRE
+    description: AI SRE incident response board
+    scope: general
+    columns: [Triage, Investigating, Identified, Mitigating, Monitoring, Resolved, Postmortem]
+
+# RemoteMCPServer registration. Creates a kagent.dev/v1alpha2 RemoteMCPServer so the
+# kagent controller discovers this server's MCP tools and the UI lists it as a plugin.
+# Requires the kagent CRDs to be installed in the cluster.
+remoteMCPServer:
+  # -- Create the RemoteMCPServer resource. Disable for standalone deployments.
+  enabled: true
+  # -- Human-readable description shown in kagent.
+  description: "Kanban board MCP server (tasks, board, attachments)"
+  # -- Client timeout the controller uses when connecting to spec.url.
+  timeout: 30s
+  # -- SSE read timeout.
+  sseReadTimeout: 5m0s
+  # -- Terminate the MCP session when the connection closes.
+  terminateOnClose: true
+  # spec.ui drives sidebar registration and the /_p/{pathPrefix}/ UI reverse proxy.
+  ui:
+    # -- Expose the embedded board UI as a kagent UI plugin.
+    enabled: true
+    # -- URL path segment for routing (/_p/{pathPrefix}/). Defaults to the resource name.
+    pathPrefix: "kanban"
+    # -- Sidebar label. Defaults to the resource name.
+    displayName: "Kanban Boards"
+    # -- lucide-react icon name.
+    icon: "kanban"
+    # -- Sidebar section: OVERVIEW | AGENTS | WORKFLOWS | KNOWLEDGE | EVALUATIONS | RESOURCES | ADMIN | PLUGINS.
+    section: "WORKFLOWS"
+    # -- Initial sub-path opened at the plugin root.
+    defaultPath: "/"
+    # -- Optional CSS injected into proxied HTML (e.g. to hide the board's own nav).
+    injectCSS: ""
+
+# Declarative kagent Agent that drives the kanban board via this server's MCP tools.
+# Requires the kagent CRDs, a ModelConfig, and remoteMCPServer.enabled=true so the
+# agent can reach the RemoteMCPServer registered by this chart.
+agent:
+  # -- Create the Agent resource.
+  enabled: true
+  # -- Human-readable description shown in kagent.
+  description: "A Kanban board agent that plans, tracks, and moves tasks across the board."
+  # -- Agent runtime: "python" or "go". Defaults to "python" when empty.
+  runtime: "go"
+  # -- ModelConfig resource the agent uses. Defaults to "default-model-config".
+  modelConfig: ""
+  # -- Board key this agent operates on. When set, the system prompt instructs the
+  # agent to pass this board to board-scoped tools (realizing a per-agent board).
+  # Empty means the agent uses the "default" board unless told otherwise.
+  board: ""
+  # -- Resource requests/limits for the agent deployment.
+  resources: {}
+
+# -- Resource requests/limits for the container.
+resources: {}
+
+# -- Pod-level securityContext.
+podSecurityContext: {}
+
+# -- Container-level securityContext.
+securityContext: {}
+
+# -- Extra pod annotations.
+podAnnotations: {}
+
+# -- Node selector.
+nodeSelector: {}
+# -- Tolerations.
+tolerations: []
+# -- Affinity.
+affinity: {}

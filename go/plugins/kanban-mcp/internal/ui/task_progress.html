@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kanban Task Progress</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #1f2328;
+      --muted: #57606a;
+      --border: #d0d7de;
+      --track: #eaeef2;
+      --accent: #2da44e;
+      --accent-mid: #bf8700;
+      --accent-low: #6e7781;
+      --chip-bg: #f3f4f6;
+      --danger: #cf222e;
+    }
+    [data-theme="dark"] {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #8b949e;
+      --border: #30363d;
+      --track: #21262d;
+      --accent: #3fb950;
+      --accent-mid: #d29922;
+      --accent-low: #6e7781;
+      --chip-bg: #21262d;
+      --danger: #f85149;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .card {
+      padding: 10px 12px;
+      max-width: 100%;
+    }
+    .head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .title { font-size: 14px; font-weight: 600; margin: 0; line-height: 1.25; }
+    .sub { color: var(--muted); font-size: 11px; margin: 0; }
+    .kind {
+      display: inline-block;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      padding: 1px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      margin-right: 6px;
+    }
+    button.refresh {
+      border: 1px solid var(--border);
+      background: var(--chip-bg);
+      color: var(--fg);
+      border-radius: 6px;
+      padding: 3px 9px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button.refresh:hover { border-color: var(--muted); }
+    button.refresh:disabled { opacity: .5; cursor: default; }
+    .bar-wrap { margin: 8px 0 4px; }
+    .bar-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 3px;
+    }
+    .bar-pct { font-weight: 600; color: var(--fg); }
+    .track {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--track);
+      overflow: hidden;
+    }
+    .fill {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--accent);
+      transition: width .35s ease;
+      min-width: 2px;
+    }
+    .chips { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 5px; }
+    .chip {
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: var(--chip-bg);
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    .chip.warn { color: var(--accent-mid); border-color: var(--accent-mid); }
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--muted);
+      margin: 10px 0 5px;
+    }
+    .cols { display: flex; flex-wrap: wrap; gap: 5px; }
+    .col {
+      flex: 1 1 80px;
+      min-width: 70px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 7px;
+      text-align: center;
+    }
+    .col .n { font-size: 15px; font-weight: 600; }
+    .col .s { font-size: 10px; color: var(--muted); }
+    .items { display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; }
+    .item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+    }
+    /* Child-task rows stack a header line over a per-task progress bar. */
+    .item.with-bar { flex-direction: column; align-items: stretch; gap: 4px; }
+    .item .it-head { display: flex; align-items: center; gap: 8px; }
+    .item .mark {
+      flex: 0 0 auto;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      display: grid; place-items: center;
+      font-size: 9px;
+      color: #fff;
+    }
+    .item.done .mark { background: var(--accent); border-color: var(--accent); }
+    .item .it-title { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item .it-status {
+      flex: 0 0 auto;
+      font-size: 11px;
+      color: var(--muted);
+      padding: 1px 7px;
+      border-radius: 999px;
+      background: var(--chip-bg);
+    }
+    .item .it-pct { flex: 0 0 auto; font-size: 11px; font-weight: 600; }
+    .empty { color: var(--muted); font-style: italic; padding: 2px 0; }
+    .error {
+      color: var(--danger);
+      border: 1px solid var(--danger);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .foot { margin-top: 8px; font-size: 10px; color: var(--muted); }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="error" class="error hidden"></div>
+    <div id="content" class="hidden">
+      <div class="head">
+        <div>
+          <h1 id="title" class="title"></h1>
+          <p id="sub" class="sub"></p>
+        </div>
+        <button id="refresh" class="refresh" type="button">Refresh</button>
+      </div>
+
+      <div class="chips" id="chips"></div>
+
+      <div class="bar-wrap">
+        <div class="bar-meta">
+          <span id="bar-label"></span>
+          <span id="bar-pct" class="bar-pct"></span>
+        </div>
+        <div class="track"><div id="fill" class="fill" style="width:0%"></div></div>
+      </div>
+
+      <div id="cols-section" class="hidden">
+        <div class="section-title">Child tasks by column</div>
+        <div id="cols" class="cols"></div>
+      </div>
+
+      <div id="items-section" class="hidden">
+        <div class="section-title" id="items-title"></div>
+        <div id="items" class="items"></div>
+      </div>
+
+      <div class="foot" id="foot"></div>
+    </div>
+    <div id="loading" class="sub">Loading task progress…</div>
+  </div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    var PROTOCOL_VERSION = "2026-01-26";
+    var REFRESH_TOOL = "refresh_task_progress";
+
+    // --- Minimal JSON-RPC 2.0 client over postMessage (MCP Apps transport) ---
+    var parentWindow = window.parent;
+    var nextId = 1;
+    var pending = {};          // id -> { resolve, reject }
+    var currentTaskId = null;  // last seen tool argument id
+    var initialized = false;
+
+    function post(msg) {
+      msg.jsonrpc = "2.0";
+      parentWindow.postMessage(msg, "*");
+    }
+
+    function request(method, params) {
+      var id = nextId++;
+      return new Promise(function (resolve, reject) {
+        pending[id] = { resolve: resolve, reject: reject };
+        post({ id: id, method: method, params: params || {} });
+      });
+    }
+
+    function notify(method, params) {
+      post({ method: method, params: params || {} });
+    }
+
+    function respond(id, result) {
+      post({ id: id, result: result || {} });
+    }
+
+    window.addEventListener("message", function (event) {
+      var data = event.data;
+      if (!data || typeof data !== "object" || data.jsonrpc !== "2.0") return;
+
+      // Response to one of our requests.
+      if (data.id !== undefined && (data.result !== undefined || data.error !== undefined)) {
+        var p = pending[data.id];
+        if (!p) return;
+        delete pending[data.id];
+        if (data.error) p.reject(new Error(data.error.message || "request failed"));
+        else p.resolve(data.result);
+        return;
+      }
+
+      // Request or notification from the host.
+      if (typeof data.method === "string") {
+        handleInbound(data);
+      }
+    });
+
+    function handleInbound(msg) {
+      switch (msg.method) {
+        case "ping":
+          if (msg.id !== undefined) respond(msg.id, {});
+          break;
+        case "ui/notifications/tool-input":
+        case "ui/notifications/tool-input-partial":
+          var args = msg.params && msg.params.arguments;
+          if (args && args.id !== undefined && args.id !== null) {
+            currentTaskId = args.id;
+          }
+          break;
+        case "ui/notifications/tool-result":
+          handleToolResult(msg.params);
+          break;
+        case "ui/notifications/host-context-changed":
+          applyHostContext(msg.params);
+          break;
+        default:
+          // Forward-compatibility: ack unknown host requests, ignore unknown notifications.
+          if (msg.id !== undefined) respond(msg.id, {});
+          break;
+      }
+    }
+
+    // --- Rendering -----------------------------------------------------------
+
+    function applyHostContext(ctx) {
+      if (!ctx) return;
+      if (ctx.theme === "dark" || ctx.theme === "light") {
+        document.documentElement.setAttribute("data-theme", ctx.theme);
+      }
+    }
+
+    // unwrap returns the TaskProgress object regardless of whether the host
+    // delivers it flat or inside the typed { progress: {...} } tool envelope (the
+    // go-sdk wraps the handler's TaskProgressOutput, so structuredContent is
+    // { "progress": { task_id, title, ... } }).
+    function unwrap(obj) {
+      if (obj && typeof obj === "object" && obj.progress && typeof obj.progress === "object") {
+        return obj.progress;
+      }
+      return obj;
+    }
+
+    function progressFromResult(result) {
+      if (!result) return null;
+      if (result.structuredContent) return unwrap(result.structuredContent);
+      // Fallback: try to parse JSON out of the first text content block.
+      if (Array.isArray(result.content)) {
+        for (var i = 0; i < result.content.length; i++) {
+          var block = result.content[i];
+          if (block && block.type === "text" && typeof block.text === "string") {
+            try { return unwrap(JSON.parse(block.text)); } catch (e) { /* not JSON */ }
+          }
+        }
+      }
+      return null;
+    }
+
+    function handleToolResult(result) {
+      if (result && result.isError) {
+        var text = "";
+        if (Array.isArray(result.content) && result.content[0] && result.content[0].text) {
+          text = result.content[0].text;
+        }
+        showError(text || "The tool returned an error.");
+        return;
+      }
+      var data = progressFromResult(result);
+      if (!data) {
+        showError("No progress data was returned.");
+        return;
+      }
+      if (data.task_id !== undefined && data.task_id !== null) {
+        currentTaskId = data.task_id;
+      }
+      render(data);
+    }
+
+    function el(id) { return document.getElementById(id); }
+
+    function clamp(n) { n = Number(n) || 0; return n < 0 ? 0 : n > 100 ? 100 : n; }
+
+    function fillColor(pct) {
+      if (pct >= 100) return "var(--accent)";
+      if (pct >= 40) return "var(--accent-mid)";
+      return "var(--accent-low)";
+    }
+
+    function showError(message) {
+      var e = el("error");
+      e.textContent = message;
+      e.classList.remove("hidden");
+      el("content").classList.add("hidden");
+      el("loading").classList.add("hidden");
+      reportSize();
+    }
+
+    function render(d) {
+      el("error").classList.add("hidden");
+      el("loading").classList.add("hidden");
+      el("content").classList.remove("hidden");
+
+      var isFeature = d.kind === "feature";
+      var pct = clamp(d.percent);
+
+      el("title").textContent = d.title || "(untitled)";
+
+      // Sub line mirrors the task detail view: "#<id> · <column>".
+      var idPart = "#" + (d.task_id != null ? d.task_id : "?");
+      var colPart = d.status || "—";
+      el("sub").textContent = idPart + "  ·  " + colPart;
+
+      // Chips: kind, assignee, labels, blocked flag.
+      var chips = el("chips");
+      chips.innerHTML = "";
+      chips.appendChild(makeChip((isFeature ? "Feature" : "Task"), "chip"));
+      if (d.assignee) chips.appendChild(makeChip("@" + d.assignee, "chip"));
+      if (d.user_input_needed) chips.appendChild(makeChip("Needs input", "chip warn"));
+      if (Array.isArray(d.labels)) {
+        d.labels.forEach(function (l) { chips.appendChild(makeChip(l, "chip")); });
+      }
+
+      // Progress bar.
+      var fill = el("fill");
+      fill.style.width = pct + "%";
+      fill.style.background = fillColor(pct);
+      el("bar-pct").textContent = pct + "%";
+      if (isFeature) {
+        el("bar-label").textContent = d.total_count > 0
+          ? (d.done_count + " of " + d.total_count + " child tasks in " + (d.board && d.board.done_column || "Done"))
+          : "No child tasks";
+      } else {
+        el("bar-label").textContent = d.total_count > 0
+          ? (d.done_count + " of " + d.total_count + " subtasks done")
+          : "No subtasks";
+      }
+
+      // Column breakdown (Feature) or checklist (Task).
+      renderColumns(isFeature ? d.columns : null);
+      renderItems(d, isFeature);
+
+      // Live-refresh feedback: show when the data was last updated. The widget
+      // polls every AUTO_REFRESH_MS, so this ticks visibly.
+      el("foot").textContent = "Updated " + new Date().toLocaleTimeString();
+      startAutoRefresh();
+      reportSize();
+    }
+
+    function makeChip(text, cls) {
+      var s = document.createElement("span");
+      s.className = cls;
+      s.textContent = text;
+      return s;
+    }
+
+    function renderColumns(columns) {
+      var section = el("cols-section");
+      var holder = el("cols");
+      if (!columns || !columns.length) {
+        section.classList.add("hidden");
+        return;
+      }
+      section.classList.remove("hidden");
+      holder.innerHTML = "";
+      columns.forEach(function (c) {
+        var box = document.createElement("div");
+        box.className = "col";
+        var n = document.createElement("div");
+        n.className = "n";
+        n.textContent = c.count;
+        var s = document.createElement("div");
+        s.className = "s";
+        s.textContent = c.status;
+        box.appendChild(n);
+        box.appendChild(s);
+        holder.appendChild(box);
+      });
+    }
+
+    function renderItems(d, isFeature) {
+      var section = el("items-section");
+      var holder = el("items");
+      var items = isFeature ? d.children : d.subtasks;
+      if (isFeature) {
+        el("items-title").textContent = "Child tasks";
+      } else {
+        var total = items ? items.length : 0;
+        var done = items ? items.filter(function (s) { return s.done; }).length : 0;
+        el("items-title").textContent = "Subtasks (" + done + "/" + total + ")";
+      }
+
+      if (!items || !items.length) {
+        if (isFeature) { section.classList.add("hidden"); return; }
+        section.classList.remove("hidden");
+        holder.innerHTML = '<div class="empty">No subtasks.</div>';
+        return;
+      }
+
+      section.classList.remove("hidden");
+      holder.innerHTML = "";
+      items.forEach(function (it) {
+        // Child tasks (Feature view) get an individual progress bar; checklist
+        // subtasks (Task view) keep the compact single-line done/not-done row.
+        var row = document.createElement("div");
+        row.className = "item" + (it.done ? " done" : "") + (isFeature ? " with-bar" : "");
+
+        var head = isFeature ? document.createElement("div") : row;
+        if (isFeature) head.className = "it-head";
+
+        var mark = document.createElement("span");
+        mark.className = "mark";
+        mark.textContent = it.done ? "✓" : "";
+        head.appendChild(mark);
+
+        var title = document.createElement("span");
+        title.className = "it-title";
+        title.textContent = it.title || "(untitled)";
+        title.title = it.title || "";
+        head.appendChild(title);
+
+        if (isFeature && it.status) {
+          var st = document.createElement("span");
+          st.className = "it-status";
+          st.textContent = it.status;
+          head.appendChild(st);
+        }
+
+        if (isFeature) {
+          var p = clamp(it.percent);
+
+          var pctEl = document.createElement("span");
+          pctEl.className = "it-pct";
+          pctEl.textContent = p + "%";
+          head.appendChild(pctEl);
+
+          row.appendChild(head);
+
+          var track = document.createElement("div");
+          track.className = "track";
+          var fill = document.createElement("div");
+          fill.className = "fill";
+          fill.style.width = p + "%";
+          fill.style.background = fillColor(p);
+          track.appendChild(fill);
+          row.appendChild(track);
+        }
+
+        holder.appendChild(row);
+      });
+    }
+
+    // --- Refresh -------------------------------------------------------------
+
+    // The widget re-fetches its data on a fixed interval so it stays live while
+    // open, in addition to the manual Refresh button.
+    var AUTO_REFRESH_MS = 5000;
+    var autoTimer = null;
+    var refreshing = false;
+
+    // refresh re-fetches progress for the current task. When manual is true it
+    // drives the button's busy state and surfaces errors; the silent auto-poll
+    // skips both so a transient failure doesn't replace the rendered widget.
+    function refresh(manual) {
+      if (currentTaskId === null || currentTaskId === undefined) return;
+      if (refreshing) return;
+      refreshing = true;
+      var btn = el("refresh");
+      if (manual) { btn.disabled = true; btn.textContent = "Refreshing…"; }
+      request("tools/call", { name: REFRESH_TOOL, arguments: { id: currentTaskId } })
+        .then(function (result) { handleToolResult(result); })
+        .catch(function (err) { if (manual) showError(err.message || "Refresh failed."); })
+        .then(function () {
+          refreshing = false;
+          btn.disabled = false;
+          btn.textContent = "Refresh";
+        });
+    }
+
+    function startAutoRefresh() {
+      if (autoTimer !== null) return;
+      autoTimer = setInterval(function () { refresh(false); }, AUTO_REFRESH_MS);
+    }
+
+    el("refresh").addEventListener("click", function () { refresh(true); });
+
+    // --- Auto-resize ---------------------------------------------------------
+
+    var lastH = 0, lastW = 0;
+    function reportSize() {
+      if (!initialized) return;
+      var h = Math.ceil(document.documentElement.getBoundingClientRect().height);
+      var w = Math.ceil(window.innerWidth);
+      if (h === lastH && w === lastW) return;
+      lastH = h; lastW = w;
+      notify("ui/notifications/size-changed", { width: w, height: h });
+    }
+    window.addEventListener("resize", reportSize);
+
+    // --- Handshake -----------------------------------------------------------
+
+    request("ui/initialize", {
+      appCapabilities: {},
+      appInfo: { name: "kanban-task-progress", version: "1.0.0" },
+      protocolVersion: PROTOCOL_VERSION
+    }).then(function (res) {
+      if (res && res.hostContext) applyHostContext(res.hostContext);
+      notify("ui/notifications/initialized");
+      initialized = true;
+      reportSize();
+    }).catch(function (err) {
+      showError("Failed to connect to host: " + (err.message || err));
+    });
+  })();
+  </script>
+</body>
+</html>

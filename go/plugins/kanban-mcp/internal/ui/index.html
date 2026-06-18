@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kanban Board</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --col-bg: #181b22;
+    --card-bg: #21262e;
+    --card-border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #2f81f7;
+    --primary: #7c3aed;        /* matches kagent UI --primary (violet) */
+    --primary-hover: #6d28d9;
+    --amber: #d29922;
+    --chip: #2d333b;
+  }
+  /* Light palette. The kagent UI host pushes the active theme via a
+     `kagent:context` postMessage (see the head script); standalone, we fall back
+     to the OS preference. --primary/--primary-hover (violet) read well on both
+     themes, so only the surface/text/accent tokens are overridden here. */
+  [data-theme="light"] {
+    --bg: #eef1f4;
+    --col-bg: #f6f8fa;
+    --card-bg: #ffffff;
+    --card-border: #d0d7de;
+    --text: #1f2328;
+    --muted: #57606a;
+    --accent: #0969da;
+    --amber: #bf8700;
+    --chip: #e3e8ee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+  header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--card-border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  #status { color: var(--muted); font-size: 12px; }
+  .header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  /* Primary "New Task" button, mirroring the kagent UI "New Agent" button
+     (kagent --primary is violet, hsl(262 83% 58%) ≈ #7c3aed). */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--primary);
+    color: #fff;
+    border: 1px solid var(--primary);
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .btn-primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+  .btn-primary .plus { font-size: 15px; line-height: 1; }
+  #tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--card-border);
+    background: var(--col-bg);
+    overflow-x: auto;
+    align-items: center;
+    position: sticky;
+    bottom: 0;
+  }
+  .tab {
+    background: var(--col-bg);
+    color: var(--muted);
+    border: 1px solid var(--card-border);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { background: var(--bg); color: var(--text); border-color: var(--accent); font-weight: 600; }
+  .tab .tab-scope { color: var(--muted); font-size: 10px; margin-left: 6px; font-weight: 400; }
+  .tab-add {
+    background: transparent;
+    border: 1px dashed var(--card-border);
+    color: var(--muted);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .tab-add:hover { color: var(--text); border-color: var(--accent); }
+  #board {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    overflow-x: auto;
+    align-items: flex-start;
+    flex: 1;
+  }
+  .column {
+    background: var(--col-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    min-width: 180px;
+    max-width: 320px;
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .column-header {
+    padding: 10px 12px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--card-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .column-count {
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 12px;
+  }
+  .column-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    padding: 10px;
+    cursor: pointer;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    line-height: 1.3;
+    /* Reserve up to 3 lines so card heights stay consistent, and clamp longer
+       titles to 3 lines with an ellipsis (full title shown via the title attr). */
+    min-height: calc(1.3em * 3);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .card-id { color: var(--muted); font-size: 11px; }
+  .card-id-link {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+    margin-right: 5px;
+    white-space: nowrap;
+  }
+  .card-id-link:hover { text-decoration: underline; }
+  .parent-link {
+    display: inline-block;
+    margin: 2px 0 10px;
+    color: var(--accent);
+    font-size: 12px;
+    text-decoration: none;
+  }
+  .parent-link:hover { text-decoration: underline; }
+  .badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; align-items: center; }
+  .badge {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .badge-assignee { background: var(--accent); color: #fff; }
+  .badge-hitl { background: var(--amber); color: #000; font-weight: 600; }
+  .badge-feature { background: #8957e5; color: #fff; font-weight: 600; }
+  .badge-task { background: #238636; color: #fff; font-weight: 600; }
+  .badge-parent { background: var(--chip); color: var(--muted); }
+  .badge-due { background: var(--chip); color: var(--text); }
+  .chip {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: var(--chip);
+    color: var(--text);
+  }
+  .meta { color: var(--muted); font-size: 11px; margin-top: 6px; display: flex; gap: 8px; }
+  .card-stats {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .card-stats .stat { display: inline-flex; align-items: center; gap: 5px; }
+  .card-stats .ring {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: conic-gradient(var(--accent) calc(var(--pct) * 1%), var(--chip) 0);
+    -webkit-mask: radial-gradient(circle 4.5px at center, transparent 98%, #000 100%);
+    mask: radial-gradient(circle 4.5px at center, transparent 98%, #000 100%);
+    flex: 0 0 auto;
+  }
+  .subtasks { margin-top: 6px; }
+  .subtask {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 2px 0;
+    color: var(--muted);
+  }
+  .subtask.done span.subtask-title { text-decoration: line-through; opacity: 0.6; }
+  .subtask input[type="checkbox"] { cursor: pointer; margin: 0; }
+  .subtask-title { flex: 1; }
+  .subtask-del {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 12px;
+  }
+  .subtask-del:hover { color: var(--text); }
+  .add-sub-form { display: flex; gap: 4px; margin-top: 6px; }
+  .add-sub-form input {
+    flex: 1;
+    min-width: 0;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 3px 6px;
+    font-size: 12px;
+  }
+  .pill {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--chip);
+    color: var(--text);
+  }
+  .card-actions { display: flex; gap: 4px; margin-top: 8px; }
+  button {
+    background: var(--chip);
+    color: var(--text);
+    border: 1px solid var(--card-border);
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .icon-btn {
+    font-size: 14px;
+    line-height: 1;
+    padding: 3px 9px;
+  }
+  .icon-btn.hitl-on {
+    background: var(--amber);
+    color: #000;
+    border-color: var(--amber);
+  }
+  .hidden { display: none !important; }
+  #detail-overlay, #create-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    overflow-y: auto;
+    padding: 40px 16px;
+    z-index: 100;
+  }
+  #detail-modal, #create-modal {
+    background: var(--col-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    max-width: 720px;
+    width: 100%;
+    padding: 20px;
+  }
+  .modal-header { display: flex; justify-content: space-between; align-items: flex-start; }
+  .modal-header h2 { margin: 0 0 8px; font-size: 18px; }
+  .modal-header-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .btn-danger { background: #b62324; color: #fff; border-color: #b62324; }
+  .btn-danger:hover { background: #da3633; border-color: #da3633; }
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-top: 20px;
+    padding-top: 12px;
+    border-top: 1px solid var(--card-border);
+  }
+  .delete-confirm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .delete-confirm-text { color: var(--muted); font-size: 12px; }
+  .attr-date {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 2px 6px;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  .attachment {
+    border: 1px solid var(--card-border);
+    border-radius: 6px;
+    margin-top: 10px;
+    overflow: hidden;
+  }
+  .attachment-head {
+    padding: 6px 10px;
+    background: var(--card-bg);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .attachment-body {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .attachment-body pre {
+    background: var(--bg);
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0;
+  }
+  .attachment-body code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .attachment-head .att-del {
+    float: right;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 2px;
+  }
+  .attachment-head .att-del:hover { color: var(--text); }
+  .att-dl { display: inline-block; }
+  .attr-key { font-weight: 600; color: var(--text); }
+  .attr-eq { color: var(--muted); margin: 0 4px; }
+  .attr-val { flex: 1; }
+  .upload-form { display: flex; gap: 4px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+  .upload-form input[type="file"] { color: var(--muted); font-size: 12px; max-width: 100%; }
+  .md h1 { font-size: 18px; }
+  .md h2 { font-size: 16px; }
+  .md h3 { font-size: 14px; }
+  .md a { color: var(--accent); }
+  .md code {
+    background: var(--bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  a { color: var(--accent); }
+  /* Create card popup */
+  #create-modal { max-width: 480px; }
+  .create-field { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+  .create-field label { font-size: 12px; color: var(--muted); }
+  .create-field input[type="text"],
+  .create-field textarea,
+  .create-field select {
+    width: 100%;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 6px 8px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .create-field textarea { resize: vertical; min-height: 64px; }
+  .kind-toggle { display: flex; gap: 0; }
+  .kind-toggle button {
+    flex: 1;
+    border-radius: 0;
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+  .kind-toggle button:first-child { border-radius: 4px 0 0 4px; }
+  .kind-toggle button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+  .kind-toggle button.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .create-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+</style>
+<script>
+  // Theme wiring. When embedded in the kagent UI the board runs in a
+  // reverse-proxied iframe; the host pushes its active theme via a
+  // `kagent:context` postMessage (PluginPage.sendContext) and re-sends it on
+  // every theme switch. We mirror the MCP Apps host-context behaviour by setting
+  // `data-theme` on <html>. Run early (head, before paint) to avoid a flash.
+  (function () {
+    var root = document.documentElement;
+    var hostThemeApplied = false;
+    function applyTheme(theme) {
+      if (theme === "light" || theme === "dark") root.setAttribute("data-theme", theme);
+    }
+    // Standalone fallback: follow the OS preference until the host sends its own
+    // theme. Defaults to dark (the board's historical look) when unknown.
+    var mq = window.matchMedia("(prefers-color-scheme: light)");
+    applyTheme(mq.matches ? "light" : "dark");
+    mq.addEventListener("change", function (e) {
+      if (!hostThemeApplied) applyTheme(e.matches ? "light" : "dark");
+    });
+    window.addEventListener("message", function (e) {
+      var d = e.data;
+      if (d && d.type === "kagent:context" && d.payload &&
+          (d.payload.theme === "light" || d.payload.theme === "dark")) {
+        hostThemeApplied = true;
+        applyTheme(d.payload.theme);
+      }
+    });
+    // Tell the host we're ready so it (re)sends context after the iframe loads.
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: "kagent:ready", payload: {} }, "*");
+    }
+  })();
+</script>
+</head>
+<body>
+  <header>
+    <h1>Kanban Board</h1>
+    <span id="status">connecting...</span>
+    <div class="header-actions">
+      <button id="new-task-btn" class="btn-primary" type="button">
+        <span class="plus">+</span> New Task
+      </button>
+    </div>
+  </header>
+  <div id="board"></div>
+  <div id="tabs"></div>
+
+  <div id="detail-overlay" class="hidden">
+    <div id="detail-modal"></div>
+  </div>
+
+  <div id="create-overlay" class="hidden">
+    <div id="create-modal"></div>
+  </div>
+
+<script>
+"use strict";
+
+// Read-only mode. The server (ui.Handler) rewrites this line to `true` when
+// started with --readonly / KANBAN_READONLY, which hides the "New Task" button.
+const READONLY = false;
+
+// Columns are board-defined (no global workflow). The active board's columns are
+// loaded from the board state and drive the rendered columns and Prev/Next order.
+let activeColumns = [];
+
+// Base path the UI is served under. When embedded in the kagent UI the page is
+// reverse-proxied at /_p/{prefix}/, so API/SSE requests must be resolved
+// relative to that prefix rather than the host root. We must tolerate the
+// prefix being served without a trailing slash (e.g. a proxy/cache that
+// normalizes "/_p/kanban/" to "/_p/kanban"): otherwise the prefix segment
+// would be mistaken for a document and stripped, breaking every API/SSE call.
+const BASE = (() => {
+  const p = window.location.pathname;
+  if (p.endsWith("/")) return p;                       // already a directory base
+  const last = p.slice(p.lastIndexOf("/") + 1);
+  // A dotted last segment is a document (e.g. index.html) → drop it; otherwise
+  // the path is a prefix root served without its trailing slash → add one.
+  return last.includes(".") ? p.slice(0, p.lastIndexOf("/") + 1) : p + "/";
+})();
+
+let currentBoard = { columns: [] };
+let openTaskId = null;
+
+// Multi-board state.
+let boards = [];                 // [{key,name,scope,owner,columns,...}]
+let activeBoardKey = null;       // currently selected board key
+let eventSource = null;          // active SSE connection (re-created per board)
+
+// ---- Date-attribute helpers ------------------------------------------------
+// Dates live as card attributes. These keys are shown as default date rows in
+// every card's detail view; create_date mirrors created_at (read-only) and
+// close_date is auto-managed by the server (read-only) when a card enters Done.
+const DEFAULT_DATE_ATTRS = ["create_date", "due_date", "close_date"];
+const READONLY_DATE_ATTRS = ["create_date", "close_date"];
+
+// isDateKey reports whether an attribute key should use a date input/format.
+function isDateKey(key) {
+  return String(key || "").toLowerCase().includes("date");
+}
+// dateStr extracts the YYYY-MM-DD part of a stored date string (date or RFC3339).
+function dateStr(value) {
+  return value ? String(value).slice(0, 10) : "";
+}
+// findCardInBoard locates a card by id within the current board snapshot, so we
+// can resolve e.g. a child Task's parent Feature title without an extra fetch.
+function findCardInBoard(id) {
+  for (const col of ((currentBoard && currentBoard.columns) || [])) {
+    for (const t of (col.tasks || [])) {
+      if (t.id === id) return t;
+    }
+  }
+  return null;
+}
+
+// attrValue returns the value of the named attribute on a card, or "" if absent.
+function attrValue(task, key) {
+  for (const a of (task.attributes || [])) {
+    if (a.key === key) return a.value;
+  }
+  return "";
+}
+
+// ---- HTML escaping ---------------------------------------------------------
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ---- API helpers -----------------------------------------------------------
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(BASE + path.replace(/^\//, ""), opts);
+  if (!res.ok && res.status !== 204) {
+    const txt = await res.text().catch(() => "");
+    throw new Error("HTTP " + res.status + ": " + txt);
+  }
+  if (res.status === 204) return null;
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("json") ? res.json() : null;
+}
+
+function adjacentStatus(status, dir) {
+  const i = activeColumns.indexOf(status);
+  if (i < 0) return null;
+  const j = i + dir;
+  if (j < 0 || j >= activeColumns.length) return null;
+  return activeColumns[j];
+}
+
+// ---- Mutations -------------------------------------------------------------
+async function moveTask(id, status) {
+  await api("PUT", "/api/tasks/" + id, { status });
+}
+async function toggleHITL(id, needed) {
+  await api("PUT", "/api/tasks/" + id, { user_input_needed: needed });
+}
+async function createCard(body) {
+  await api("POST", "/api/tasks", body);
+}
+async function addChildTask(featureId, title) {
+  await api("POST", "/api/tasks", { parent_id: featureId, title });
+}
+async function addSubtask(taskId, title) {
+  await api("POST", "/api/tasks/" + taskId + "/subtasks", { title });
+}
+async function toggleSubtask(id, done) {
+  await api("PUT", "/api/subtasks/" + id, { done });
+}
+async function deleteSubtask(id) {
+  await api("DELETE", "/api/subtasks/" + id);
+}
+async function deleteTask(id) {
+  await api("DELETE", "/api/tasks/" + id);
+}
+async function addFileAttachment(taskId, filename, contentB64) {
+  await api("POST", "/api/tasks/" + taskId + "/attachments", { type: "file", filename, content: contentB64 });
+}
+async function deleteAttachment(id) {
+  await api("DELETE", "/api/attachments/" + id);
+}
+async function setAttribute(taskId, key, value) {
+  await api("POST", "/api/tasks/" + taskId + "/attributes", { key, value });
+}
+async function deleteAttribute(taskId, key) {
+  await api("DELETE", "/api/tasks/" + taskId + "/attributes?key=" + encodeURIComponent(key));
+}
+async function createBoard(spec) {
+  return api("POST", "/api/boards", spec);
+}
+
+// ---- File attachment helpers ----------------------------------------------
+// File attachment content is uploaded base64-encoded; downloads are served by
+// the API (GET /api/attachments/{id}/download).
+function bytesToB64(bytes) {
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
+// ---- Rendering -------------------------------------------------------------
+function renderBoard(state) {
+  // Accept the board-state payload {board:{...,columns}, columns:[{status,tasks}]}.
+  currentBoard = state || { columns: [] };
+  const cols = currentBoard.columns || [];
+
+  // Derive the active column order from the board metadata when present, else from
+  // the returned column list (already in board order).
+  if (currentBoard.board && Array.isArray(currentBoard.board.columns)) {
+    activeColumns = currentBoard.board.columns.slice();
+  } else {
+    activeColumns = cols.map((c) => c.status);
+  }
+
+  const byStatus = {};
+  for (const col of cols) byStatus[col.status] = col.tasks || [];
+
+  const root = document.getElementById("board");
+  root.innerHTML = "";
+
+  activeColumns.forEach((status) => {
+    const tasks = byStatus[status] || [];
+    const col = document.createElement("div");
+    col.className = "column";
+
+    const head = document.createElement("div");
+    head.className = "column-header";
+    head.innerHTML = '<span>' + esc(status) + '</span><span class="column-count">' + tasks.length + '</span>';
+    col.appendChild(head);
+
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "column-body";
+    for (const t of tasks) bodyEl.appendChild(renderCard(t));
+    col.appendChild(bodyEl);
+
+    root.appendChild(col);
+  });
+
+  // Keep an open modal in sync after a re-render by re-fetching the full task
+  // (the board state omits Feature children and is otherwise a fresh snapshot).
+  if (openTaskId != null) {
+    refreshOpenDetail();
+  }
+}
+
+// renderSubtaskRow renders one checklist item with a toggle checkbox and a
+// delete control. Interactions stop propagation so they don't open the card.
+function renderSubtaskRow(st, withDelete) {
+  const row = document.createElement("div");
+  row.className = "subtask" + (st.done ? " done" : "");
+
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = !!st.done;
+  cb.addEventListener("click", (e) => e.stopPropagation());
+  cb.addEventListener("change", async (e) => {
+    e.stopPropagation();
+    try { await toggleSubtask(st.id, cb.checked); } catch (err) { console.error(err); }
+  });
+
+  const title = document.createElement("span");
+  title.className = "subtask-title";
+  title.textContent = st.title;
+
+  row.appendChild(cb);
+  row.appendChild(title);
+
+  if (withDelete) {
+    const del = document.createElement("button");
+    del.className = "subtask-del";
+    del.textContent = "✕";
+    del.title = "Delete item";
+    del.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try { await deleteSubtask(st.id); } catch (err) { console.error(err); }
+    });
+    row.appendChild(del);
+  }
+  return row;
+}
+
+function renderCard(task) {
+  const card = document.createElement("div");
+  card.className = "card";
+
+  const isFeature = task.kind === "feature";
+
+  let html = '<div class="card-title" title="' + esc(task.title) + '">'
+    + '<a class="card-id-link" data-detail-id="' + task.id + '" title="Open task #' + task.id + '">#' + task.id + '</a>'
+    + esc(task.title) + '</div>';
+
+  const badges = [];
+  badges.push(isFeature
+    ? '<span class="badge badge-feature">Feature</span>'
+    : '<span class="badge badge-task">Task</span>');
+  if (!isFeature && task.parent_id != null) {
+    badges.push('<span class="badge badge-parent">↳ #' + task.parent_id + '</span>');
+  }
+  if (task.assignee) badges.push('<span class="badge badge-assignee">@' + esc(task.assignee) + '</span>');
+  if (task.user_input_needed) badges.push('<span class="badge badge-hitl">HITL</span>');
+  const dueAttr = attrValue(task, "due_date");
+  if (dueAttr) {
+    badges.push('<span class="badge badge-due">\u{1F4C5} ' + esc(dateStr(dueAttr)) + '</span>');
+  }
+  for (const l of (task.labels || [])) badges.push('<span class="chip">' + esc(l) + '</span>');
+  if (badges.length) html += '<div class="badges">' + badges.join("") + '</div>';
+
+  const subs = task.subtasks || [];
+  const doneCount = subs.filter((s) => s.done).length;
+  const attCount = (task.attachments || []).length;
+
+  card.innerHTML = html;
+
+  // Open the task detail when the in-title id link is clicked (the whole card is
+  // also clickable, but the link is the explicit affordance).
+  const idLink = card.querySelector(".card-id-link");
+  if (idLink) {
+    idLink.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openDetail(task.id);
+    });
+  }
+
+  // Stats line (Tasks only): attachments, plus a "☑ done/total" count with a
+  // circular progress ring — all on one compact row.
+  if (attCount > 0 || subs.length > 0) {
+    const stats = document.createElement("div");
+    stats.className = "card-stats";
+
+    if (attCount > 0) {
+      const att = document.createElement("span");
+      att.className = "stat";
+      att.textContent = "\u{1F4CE} " + attCount; // paperclip
+      stats.appendChild(att);
+    }
+
+    if (subs.length > 0) {
+      const pct = Math.round((doneCount / subs.length) * 100);
+
+      const checklist = document.createElement("span");
+      checklist.className = "stat";
+
+      const ring = document.createElement("span");
+      ring.className = "ring";
+      ring.style.setProperty("--pct", pct);
+      ring.setAttribute("title", pct + "%");
+
+      const label = document.createElement("span");
+      label.textContent = "☑ " + doneCount + "/" + subs.length;
+
+      checklist.appendChild(ring);
+      checklist.appendChild(label);
+      stats.appendChild(checklist);
+    }
+
+    card.appendChild(stats);
+  }
+
+  // Actions: Prev / Next / HITL toggle.
+  const actions = document.createElement("div");
+  actions.className = "card-actions";
+
+  const prevStatus = adjacentStatus(task.status, -1);
+  const nextStatus = adjacentStatus(task.status, 1);
+
+  const prevBtn = document.createElement("button");
+  prevBtn.className = "icon-btn";
+  prevBtn.textContent = "←";
+  prevBtn.title = prevStatus ? "Move to " + prevStatus : "No previous column";
+  prevBtn.setAttribute("aria-label", "Move to previous column");
+  prevBtn.disabled = !prevStatus;
+  prevBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (prevStatus) { try { await moveTask(task.id, prevStatus); } catch (err) { console.error(err); } }
+  });
+
+  const nextBtn = document.createElement("button");
+  nextBtn.className = "icon-btn";
+  nextBtn.textContent = "→";
+  nextBtn.title = nextStatus ? "Move to " + nextStatus : "No next column";
+  nextBtn.setAttribute("aria-label", "Move to next column");
+  nextBtn.disabled = !nextStatus;
+  nextBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    if (nextStatus) { try { await moveTask(task.id, nextStatus); } catch (err) { console.error(err); } }
+  });
+
+  const hitlBtn = document.createElement("button");
+  hitlBtn.className = "icon-btn" + (task.user_input_needed ? " hitl-on" : "");
+  hitlBtn.textContent = task.user_input_needed ? "⚑" : "⚐";
+  hitlBtn.title = task.user_input_needed ? "Clear HITL" : "Set HITL";
+  hitlBtn.setAttribute("aria-label", task.user_input_needed ? "Clear HITL flag" : "Set HITL flag");
+  hitlBtn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try { await toggleHITL(task.id, !task.user_input_needed); } catch (err) { console.error(err); }
+  });
+
+  actions.appendChild(prevBtn);
+  actions.appendChild(hitlBtn);
+  actions.appendChild(nextBtn);
+  card.appendChild(actions);
+
+  card.addEventListener("click", () => openDetail(task.id));
+  return card;
+}
+
+// openDetail fetches the full task (with children + checklist + attachments,
+// which the flat board state does not carry for Features) and renders the modal.
+async function openDetail(id) {
+  openTaskId = id;
+  await refreshOpenDetail();
+}
+
+async function refreshOpenDetail() {
+  if (openTaskId == null) return;
+  try {
+    const t = await api("GET", "/api/tasks/" + openTaskId);
+    if (t) renderDetailModal(t);
+    else closeModal();
+  } catch (err) {
+    // The task was likely deleted; close the modal.
+    closeModal();
+  }
+}
+
+function closeModal() {
+  openTaskId = null;
+  document.getElementById("detail-overlay").classList.add("hidden");
+}
+
+function renderAttachment(att) {
+  const wrap = document.createElement("div");
+  wrap.className = "attachment";
+
+  const head = document.createElement("div");
+  head.className = "attachment-head";
+
+  const body = document.createElement("div");
+  body.className = "attachment-body";
+
+  // Delete control (top-right of the header), for any attachment row.
+  const del = document.createElement("button");
+  del.className = "att-del";
+  del.textContent = "✕";
+  del.title = "Delete attachment";
+  del.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try { await deleteAttachment(att.id); } catch (err) { console.error(err); }
+  });
+  head.appendChild(del);
+
+  if (att.type === "link") {
+    const label = document.createElement("span");
+    label.textContent = "link";
+    head.insertBefore(label, del);
+    const a = document.createElement("a");
+    a.href = att.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = att.title || att.url;
+    body.appendChild(a);
+  } else {
+    // file — a single download link served by the API (Content-Disposition).
+    const fn = att.filename || "file";
+
+    const label = document.createElement("span");
+    label.textContent = "file";
+    head.insertBefore(label, del);
+
+    const dl = document.createElement("a");
+    dl.className = "att-dl";
+    dl.href = BASE + "api/attachments/" + att.id + "/download";
+    dl.setAttribute("download", fn);
+    dl.textContent = fn;
+    body.appendChild(dl);
+  }
+
+  wrap.appendChild(head);
+  wrap.appendChild(body);
+  return wrap;
+}
+
+// makeAddForm builds a small inline "add" form. onSubmit receives the entered
+// title; the board re-renders via SSE after the mutation succeeds.
+function makeAddForm(placeholder, onSubmit) {
+  const form = document.createElement("form");
+  form.className = "add-sub-form";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = placeholder;
+  const btn = document.createElement("button");
+  btn.type = "submit";
+  btn.textContent = "Add";
+  form.appendChild(input);
+  form.appendChild(btn);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = input.value.trim();
+    if (!title) return;
+    input.value = "";
+    try { await onSubmit(title); } catch (err) { console.error(err); }
+  });
+  return form;
+}
+
+function renderDetailModal(task) {
+  const overlay = document.getElementById("detail-overlay");
+  const modal = document.getElementById("detail-modal");
+  modal.innerHTML = "";
+
+  const isFeatureCard = task.kind === "feature";
+
+  const header = document.createElement("div");
+  header.className = "modal-header";
+  header.innerHTML = '<div><h2>' + esc(task.title) + '</h2><div class="card-id">#' + task.id + ' &middot; ' + esc(task.status) + '</div></div>';
+
+  const headerActions = document.createElement("div");
+  headerActions.className = "modal-header-actions";
+
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "Close";
+  closeBtn.addEventListener("click", closeModal);
+
+  headerActions.appendChild(closeBtn);
+  header.appendChild(headerActions);
+  modal.appendChild(header);
+
+  // Child Task: link back to its parent Feature (#id: title). The title is
+  // resolved from the current board snapshot; if absent, the id alone still
+  // links through to the Feature's detail.
+  if (!isFeatureCard && task.parent_id != null) {
+    const parent = findCardInBoard(task.parent_id);
+    const parentLink = document.createElement("a");
+    parentLink.href = "#";
+    parentLink.className = "parent-link";
+    parentLink.textContent = "\u21B3 Feature #" + task.parent_id + (parent && parent.title ? ": " + parent.title : "");
+    parentLink.addEventListener("click", (e) => { e.preventDefault(); openDetail(task.parent_id); });
+    modal.appendChild(parentLink);
+  }
+
+  if (task.description) {
+    const desc = document.createElement("p");
+    desc.textContent = task.description;
+    modal.appendChild(desc);
+  }
+
+  const info = [];
+  if (task.assignee) info.push("Assignee: @" + task.assignee);
+  if (task.user_input_needed) info.push("HITL: needs input");
+  if ((task.labels || []).length) info.push("Labels: " + task.labels.join(", "));
+  if (info.length) {
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = info.join("  •  ");
+    modal.appendChild(meta);
+  }
+
+  const isFeature = task.kind === "feature";
+
+  if (isFeature) {
+    // Feature detail: list child Tasks with an add-task input.
+    const h = document.createElement("h3");
+    h.textContent = "Tasks (" + (task.children || []).length + ")";
+    modal.appendChild(h);
+    for (const child of (task.children || [])) {
+      const row = document.createElement("div");
+      row.className = "subtask";
+      const link = document.createElement("a");
+      link.href = "#";
+      link.textContent = "#" + child.id + " " + child.title;
+      link.addEventListener("click", (e) => { e.preventDefault(); openDetail(child.id); });
+      const pill = document.createElement("span");
+      pill.className = "pill";
+      pill.textContent = child.status;
+      row.appendChild(link);
+      row.appendChild(pill);
+      modal.appendChild(row);
+    }
+    modal.appendChild(makeAddForm("New task...", (title) => addChildTask(task.id, title)));
+  } else {
+    // Task detail: checklist with toggle checkboxes, delete, and an add input.
+    const h = document.createElement("h3");
+    const subs = task.subtasks || [];
+    const doneCount = subs.filter((s) => s.done).length;
+    h.textContent = "Subtasks (" + doneCount + "/" + subs.length + ")";
+    modal.appendChild(h);
+    for (const st of subs) {
+      modal.appendChild(renderSubtaskRow(st, true));
+    }
+    modal.appendChild(makeAddForm("New checklist item...", (title) => addSubtask(task.id, title)));
+  }
+
+  // Attributes (detail-only key/value pairs). The default date attributes are
+  // always shown first: create_date (read-only, from created_at), due_date
+  // (editable date picker), and close_date (read-only, auto-set on Done).
+  const attrs = task.attributes || [];
+  const attrByKey = {};
+  for (const a of attrs) attrByKey[a.key] = a;
+  const attrH = document.createElement("h3");
+  attrH.textContent = "Attributes";
+  modal.appendChild(attrH);
+
+  modal.appendChild(renderDateAttrRow(task.id, "create_date", dateStr(task.created_at), true));
+  modal.appendChild(renderDateAttrRow(task.id, "due_date", dateStr(attrByKey["due_date"] && attrByKey["due_date"].value), false));
+  modal.appendChild(renderDateAttrRow(task.id, "close_date", dateStr(attrByKey["close_date"] && attrByKey["close_date"].value), true));
+
+  for (const a of attrs) {
+    if (DEFAULT_DATE_ATTRS.includes(a.key)) continue;
+    modal.appendChild(renderAttributeRow(task.id, a));
+  }
+  modal.appendChild(makeAttributeForm(task.id));
+
+  const h2 = document.createElement("h3");
+  h2.textContent = "Attachments (" + (task.attachments || []).length + ")";
+  modal.appendChild(h2);
+  for (const att of (task.attachments || [])) {
+    modal.appendChild(renderAttachment(att));
+  }
+  modal.appendChild(makeFileUpload(task.id));
+
+  // Footer: destructive Delete pinned to the bottom-right with an inline
+  // confirm. We avoid window.confirm() because the board UI is served inside the
+  // kagent reverse-proxy iframe, where native modal dialogs are often blocked.
+  modal.appendChild(makeDeleteFooter(task, isFeatureCard));
+
+  overlay.classList.remove("hidden");
+}
+
+// makeDeleteFooter builds the bottom-right delete control for the detail modal.
+// The first click reveals an inline confirmation (Cancel / Confirm delete);
+// confirming calls DELETE and closes the modal. No native dialogs are used.
+function makeDeleteFooter(task, isFeatureCard) {
+  const footer = document.createElement("div");
+  footer.className = "modal-footer";
+
+  const delBtn = document.createElement("button");
+  delBtn.className = "btn-danger";
+  delBtn.textContent = "Delete";
+
+  const confirmWrap = document.createElement("span");
+  confirmWrap.className = "delete-confirm hidden";
+  const what = isFeatureCard ? "Feature" : "Task";
+  const extra = isFeatureCard ? " (and its child Tasks)" : "";
+  const prompt = document.createElement("span");
+  prompt.className = "delete-confirm-text";
+  prompt.textContent = "Delete this " + what + extra + "?";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.textContent = "Cancel";
+  const confirmBtn = document.createElement("button");
+  confirmBtn.className = "btn-danger";
+  confirmBtn.textContent = "Confirm delete";
+
+  delBtn.addEventListener("click", () => {
+    delBtn.classList.add("hidden");
+    confirmWrap.classList.remove("hidden");
+  });
+  cancelBtn.addEventListener("click", () => {
+    confirmWrap.classList.add("hidden");
+    delBtn.classList.remove("hidden");
+  });
+  confirmBtn.addEventListener("click", async () => {
+    confirmBtn.disabled = true;
+    try {
+      await deleteTask(task.id);
+      closeModal();
+    } catch (err) {
+      console.error(err);
+      confirmBtn.disabled = false;
+      prompt.textContent = "Delete failed: " + err.message;
+    }
+  });
+
+  confirmWrap.appendChild(prompt);
+  confirmWrap.appendChild(cancelBtn);
+  confirmWrap.appendChild(confirmBtn);
+  footer.appendChild(delBtn);
+  footer.appendChild(confirmWrap);
+  return footer;
+}
+
+// renderAttributeRow renders one key=value attribute with a delete control. When
+// the key contains "date" the value is shown/edited via a date picker; otherwise
+// it is plain text.
+function renderAttributeRow(taskId, a) {
+  const row = document.createElement("div");
+  row.className = "subtask";
+
+  const key = document.createElement("span");
+  key.className = "attr-key";
+  key.textContent = a.key;
+  const eq = document.createElement("span");
+  eq.className = "attr-eq";
+  eq.textContent = "=";
+
+  row.appendChild(key);
+  row.appendChild(eq);
+
+  if (isDateKey(a.key)) {
+    const input = document.createElement("input");
+    input.type = "date";
+    input.className = "attr-date";
+    input.value = dateStr(a.value);
+    input.addEventListener("change", async () => {
+      try {
+        if (input.value) await setAttribute(taskId, a.key, input.value);
+        else await deleteAttribute(taskId, a.key);
+      } catch (err) { console.error(err); }
+    });
+    row.appendChild(input);
+  } else {
+    const val = document.createElement("span");
+    val.className = "attr-val";
+    val.textContent = a.value;
+    row.appendChild(val);
+  }
+
+  const del = document.createElement("button");
+  del.className = "subtask-del";
+  del.textContent = "✕";
+  del.title = "Delete attribute";
+  del.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    try { await deleteAttribute(taskId, a.key); } catch (err) { console.error(err); }
+  });
+
+  row.appendChild(del);
+  return row;
+}
+
+// renderDateAttrRow renders a default date attribute row. Read-only rows
+// (create_date, close_date) show the formatted date (or "—"); the editable
+// due_date row uses a date picker that sets the attribute (or clears it when the
+// field is emptied).
+function renderDateAttrRow(taskId, key, value, readonly) {
+  const row = document.createElement("div");
+  row.className = "subtask";
+
+  const k = document.createElement("span");
+  k.className = "attr-key";
+  k.textContent = key;
+  const eq = document.createElement("span");
+  eq.className = "attr-eq";
+  eq.textContent = "=";
+  row.appendChild(k);
+  row.appendChild(eq);
+
+  if (readonly) {
+    const val = document.createElement("span");
+    val.className = "attr-val";
+    val.textContent = value || "—";
+    row.appendChild(val);
+  } else {
+    const input = document.createElement("input");
+    input.type = "date";
+    input.className = "attr-date";
+    input.value = value;
+    input.addEventListener("change", async () => {
+      try {
+        if (input.value) await setAttribute(taskId, key, input.value);
+        else await deleteAttribute(taskId, key);
+      } catch (err) { console.error(err); }
+    });
+    row.appendChild(input);
+  }
+  return row;
+}
+
+// makeAttributeForm builds the inline "add attribute" form (key + value).
+// Setting an existing key replaces its value (server-side upsert).
+function makeAttributeForm(taskId) {
+  const form = document.createElement("form");
+  form.className = "add-sub-form";
+  const keyIn = document.createElement("input");
+  keyIn.type = "text";
+  keyIn.placeholder = "key";
+  const valIn = document.createElement("input");
+  valIn.type = "text";
+  valIn.placeholder = "value";
+  // Keys containing "date" switch the value field to a date picker.
+  keyIn.addEventListener("input", () => {
+    const wantDate = isDateKey(keyIn.value);
+    if (wantDate && valIn.type !== "date") { valIn.type = "date"; valIn.value = ""; }
+    else if (!wantDate && valIn.type !== "text") { valIn.type = "text"; valIn.value = ""; }
+  });
+  const btn = document.createElement("button");
+  btn.type = "submit";
+  btn.textContent = "Set";
+  form.appendChild(keyIn);
+  form.appendChild(valIn);
+  form.appendChild(btn);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const key = keyIn.value.trim();
+    if (!key) return;
+    const value = valIn.value;
+    keyIn.value = "";
+    valIn.value = "";
+    try { await setAttribute(taskId, key, value); } catch (err) { console.error(err); }
+  });
+  return form;
+}
+
+// makeFileUpload builds a file picker that base64-encodes the chosen file in the
+// browser and posts it as a file attachment. The accept list mirrors the
+// server-side allowed extensions; the server validates again.
+function makeFileUpload(taskId) {
+  const wrap = document.createElement("div");
+  wrap.className = "upload-form";
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".md,.markdown,.html,.htm,.txt,.yaml,.yml,.csv,.pdf,.docx,.xlsx";
+  // Capture the chosen file as soon as it is picked. The detail modal re-renders
+  // on every SSE board_update (rebuilding this form), so reading input.files at
+  // click time can race and come back empty — leading to a silent no-op.
+  let pending = null;
+  input.addEventListener("change", () => {
+    pending = (input.files && input.files[0]) || null;
+  });
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = "Save";
+  btn.addEventListener("click", async () => {
+    const file = pending || (input.files && input.files[0]);
+    if (!file) {
+      window.alert("Choose a file first.");
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const buf = await file.arrayBuffer();
+      const b64 = bytesToB64(new Uint8Array(buf));
+      await addFileAttachment(taskId, file.name, b64);
+      pending = null;
+      input.value = "";
+      // Show the new attachment immediately rather than waiting on the SSE
+      // round-trip (which may be buffered behind the kagent reverse proxy).
+      await refreshOpenDetail();
+    } catch (err) {
+      console.error(err);
+      window.alert("Attach failed: " + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  wrap.appendChild(input);
+  wrap.appendChild(btn);
+  return wrap;
+}
+
+// Click outside the modal closes it.
+document.getElementById("detail-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "detail-overlay") closeModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  closeModal();
+  closeCreateModal();
+});
+
+// ---- Create card popup (header "+ New Task") -------------------------------
+function closeCreateModal() {
+  document.getElementById("create-overlay").classList.add("hidden");
+}
+
+function openCreateModal() {
+  const overlay = document.getElementById("create-overlay");
+  const modal = document.getElementById("create-modal");
+  modal.innerHTML = "";
+
+  const header = document.createElement("div");
+  header.className = "modal-header";
+  header.innerHTML = '<h2>Create card</h2>';
+  const closeBtn = document.createElement("button");
+  closeBtn.textContent = "Close";
+  closeBtn.addEventListener("click", closeCreateModal);
+  header.appendChild(closeBtn);
+  modal.appendChild(header);
+
+  const form = document.createElement("form");
+
+  let kind = "task"; // "feature" | "task" (standalone); Task is the default
+
+  // Kind toggle: Standalone Task (default) / Feature. Both are top-level cards
+  // (no parent); child Tasks are added from a Feature's detail view instead.
+  const kindField = document.createElement("div");
+  kindField.className = "create-field";
+  kindField.innerHTML = '<label>Kind</label>';
+  const toggle = document.createElement("div");
+  toggle.className = "kind-toggle";
+  const taskBtn = document.createElement("button");
+  taskBtn.type = "button";
+  taskBtn.textContent = "Standalone task";
+  taskBtn.className = "active";
+  const featBtn = document.createElement("button");
+  featBtn.type = "button";
+  featBtn.textContent = "Feature";
+  toggle.appendChild(taskBtn);
+  toggle.appendChild(featBtn);
+  kindField.appendChild(toggle);
+  form.appendChild(kindField);
+
+  const setKind = (k) => {
+    kind = k;
+    featBtn.classList.toggle("active", k === "feature");
+    taskBtn.classList.toggle("active", k === "task");
+  };
+  featBtn.addEventListener("click", () => setKind("feature"));
+  taskBtn.addEventListener("click", () => setKind("task"));
+
+  // Title (required).
+  const titleField = document.createElement("div");
+  titleField.className = "create-field";
+  titleField.innerHTML = '<label>Title</label>';
+  const titleIn = document.createElement("input");
+  titleIn.type = "text";
+  titleIn.placeholder = "Card title";
+  titleField.appendChild(titleIn);
+  form.appendChild(titleField);
+
+  // Description.
+  const descField = document.createElement("div");
+  descField.className = "create-field";
+  descField.innerHTML = '<label>Description</label>';
+  const descIn = document.createElement("textarea");
+  descIn.placeholder = "Optional description";
+  descField.appendChild(descIn);
+  form.appendChild(descField);
+
+  // Column (status).
+  const colField = document.createElement("div");
+  colField.className = "create-field";
+  colField.innerHTML = '<label>Column</label>';
+  const colSel = document.createElement("select");
+  for (const c of activeColumns) {
+    const opt = document.createElement("option");
+    opt.value = c;
+    opt.textContent = c;
+    colSel.appendChild(opt);
+  }
+  colField.appendChild(colSel);
+  form.appendChild(colField);
+
+  // Labels (comma-separated).
+  const labelField = document.createElement("div");
+  labelField.className = "create-field";
+  labelField.innerHTML = '<label>Labels</label>';
+  const labelIn = document.createElement("input");
+  labelIn.type = "text";
+  labelIn.placeholder = "comma, separated, labels";
+  labelField.appendChild(labelIn);
+  form.appendChild(labelField);
+
+  // Actions.
+  const actions = document.createElement("div");
+  actions.className = "create-actions";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", closeCreateModal);
+  const submitBtn = document.createElement("button");
+  submitBtn.type = "submit";
+  submitBtn.className = "btn-primary";
+  submitBtn.textContent = "Create";
+  actions.appendChild(cancelBtn);
+  actions.appendChild(submitBtn);
+  form.appendChild(actions);
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const title = titleIn.value.trim();
+    if (!title) { titleIn.focus(); return; }
+    const labels = labelIn.value.split(",").map((s) => s.trim()).filter(Boolean);
+    const body = {
+      board: activeBoardKey,
+      kind,
+      title,
+      description: descIn.value.trim(),
+      status: colSel.value,
+      labels,
+    };
+    try {
+      await createCard(body);
+      closeCreateModal();
+    } catch (err) {
+      console.error(err);
+      window.alert("Failed to create card: " + err.message);
+    }
+  });
+
+  modal.appendChild(form);
+  overlay.classList.remove("hidden");
+  titleIn.focus();
+}
+
+document.getElementById("create-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "create-overlay") closeCreateModal();
+});
+// In read-only mode the "New Task" button is hidden; otherwise it opens the
+// create-card popup.
+(() => {
+  const newTaskBtn = document.getElementById("new-task-btn");
+  if (READONLY) newTaskBtn.classList.add("hidden");
+  else newTaskBtn.addEventListener("click", openCreateModal);
+})();
+
+// ---- Boards (tabs) ---------------------------------------------------------
+function renderTabs() {
+  const root = document.getElementById("tabs");
+  root.innerHTML = "";
+
+  const sorted = [...boards].sort((a, b) => {
+    // Keep the built-in "default" board pinned first; sort the rest by name.
+    if (a.key === "default") return -1;
+    if (b.key === "default") return 1;
+    return (a.name || a.key).localeCompare(b.name || b.key);
+  });
+  for (const b of sorted) {
+    const tab = document.createElement("button");
+    tab.className = "tab" + (b.key === activeBoardKey ? " active" : "");
+    let label = esc(b.name || b.key);
+    if (b.scope === "agent" && b.owner) {
+      label += '<span class="tab-scope">@' + esc(b.owner) + '</span>';
+    }
+    tab.innerHTML = label;
+    tab.addEventListener("click", () => {
+      if (b.key !== activeBoardKey) selectBoard(b.key);
+    });
+    root.appendChild(tab);
+  }
+
+  const add = document.createElement("button");
+  add.className = "tab-add";
+  add.textContent = "+ Board";
+  add.addEventListener("click", promptCreateBoard);
+  root.appendChild(add);
+}
+
+async function loadBoards() {
+  try {
+    boards = (await api("GET", "/api/boards")) || [];
+  } catch (err) {
+    console.error("loading boards failed", err);
+    boards = [];
+  }
+  // Keep the current selection if it still exists; otherwise prefer "default",
+  // then the first board.
+  if (!boards.some((b) => b.key === activeBoardKey)) {
+    const def = boards.find((b) => b.key === "default");
+    activeBoardKey = def ? def.key : (boards[0] && boards[0].key) || "default";
+  }
+  renderTabs();
+}
+
+async function promptCreateBoard() {
+  const key = (window.prompt("New board key (slug):") || "").trim();
+  if (!key) return;
+  const colsRaw = (window.prompt("Columns (comma-separated):", "Todo, Doing, Done") || "").trim();
+  const columns = colsRaw.split(",").map((c) => c.trim()).filter(Boolean);
+  if (!columns.length) { window.alert("At least one column is required."); return; }
+  try {
+    await createBoard({ key, name: key, columns });
+    await loadBoards();
+    selectBoard(key);
+  } catch (err) {
+    console.error(err);
+    window.alert("Failed to create board: " + err.message);
+  }
+}
+
+function selectBoard(key) {
+  activeBoardKey = key;
+  renderTabs();
+  loadBoardState();
+  connectSSE();
+}
+
+// ---- Bootstrap + live updates ----------------------------------------------
+function setStatus(text) { document.getElementById("status").textContent = text; }
+
+async function loadBoardState() {
+  try {
+    const state = await api("GET", "/api/board?board=" + encodeURIComponent(activeBoardKey));
+    renderBoard(state);
+  } catch (err) {
+    console.error("board load failed", err);
+  }
+}
+
+function connectSSE() {
+  if (eventSource) { eventSource.close(); eventSource = null; }
+  const es = new EventSource(BASE + "events?board=" + encodeURIComponent(activeBoardKey));
+  eventSource = es;
+  const onData = (e) => {
+    try { renderBoard(JSON.parse(e.data)); setStatus("live"); }
+    catch (err) { console.error("bad SSE payload", err); }
+  };
+  // Server sends `event: snapshot` on connect and `event: board_update` on change.
+  es.addEventListener("snapshot", onData);
+  es.addEventListener("board_update", onData);
+  es.onopen = () => setStatus("live");
+  es.onerror = () => setStatus("reconnecting..."); // EventSource auto-retries.
+}
+
+async function init() {
+  await loadBoards();
+  await loadBoardState();
+  connectSSE();
+}
+
+init();
+</script>
+</body>
+</html>
