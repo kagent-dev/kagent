@@ -1,6 +1,3 @@
-// Package consts holds well-known constant keys (annotations, labels) shared across kagent's
-// core packages. They are defined once here so producers and consumers in different packages
-// cannot drift out of sync.
 package consts
 
 // ConfigHashAnnotation is the annotation key carrying the hash of an agent's rendered config,
