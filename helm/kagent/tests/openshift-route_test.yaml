@@ -1,0 +1,52 @@
+suite: test openshift ui route
+templates:
+  - openshift-route.yaml
+tests:
+  - it: should render the route when the openshift api is present and route is enabled
+    capabilities:
+      apiVersions:
+        - route.openshift.io/v1
+    asserts:
+      - isKind:
+          of: Route
+      - equal:
+          path: apiVersion
+          value: route.openshift.io/v1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ui
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+      - equal:
+          path: spec.to.kind
+          value: Service
+      - equal:
+          path: spec.to.name
+          value: RELEASE-NAME-ui
+      - equal:
+          path: spec.port.targetPort
+          value: 8080
+      - equal:
+          path: spec.tls.termination
+          value: edge
+      - equal:
+          path: spec.tls.insecureEdgeTerminationPolicy
+          value: Redirect
+      - hasDocuments:
+          count: 1
+
+  - it: should not render the route when ui.route.enabled is false even if the openshift api is present
+    capabilities:
+      apiVersions:
+        - route.openshift.io/v1
+    set:
+      ui.route.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render the route when the openshift api is absent
+    asserts:
+      - hasDocuments:
+          count: 0

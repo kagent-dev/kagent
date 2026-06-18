@@ -418,6 +418,12 @@ ui:
   #       path: /health
   #       port: http
   #     periodSeconds: 15
+  # -- Gates the OpenShift `Route` for the UI. Additionally conditional on the
+  # `route.openshift.io/v1` API being present, so it is a no-op off-OpenShift.
+  # Set to `false` to front the UI with your own Route/ingress or the bundled
+  # oauth2-proxy instead of the chart's edge-terminated Route.
+  route:
+    enabled: true
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
@@ -479,6 +485,13 @@ kmcp:
   nameOverride: "kmcp"
   fullnameOverride: "" # Override if desired
   namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
+
+# ==============================================================================
+# SUBSTRATE
+# ==============================================================================
+
+substrate:
+  enabled: false
 
 # ==============================================================================
 # BUILT-IN TOOLS
