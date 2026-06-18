@@ -3,7 +3,7 @@
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Message, Task, TaskStatusUpdateEvent } from "@a2a-js/sdk";
+import type { DataPart, Message, Task, TaskStatusUpdateEvent } from "@a2a-js/sdk";
 import { checkSessionExists, createSession, getSessionTasks } from "@/app/actions/sessions";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { toast } from "sonner";
@@ -114,6 +114,38 @@ function completedStatusEvent(text: string, contextId = "session-1", taskId = "t
       state: "completed",
       timestamp: new Date().toISOString(),
       message: textMessage(`assistant-${taskId}`, "agent", text, contextId, taskId),
+    },
+  } as TaskStatusUpdateEvent;
+}
+
+function toolCallMessage(messageId: string, contextId = "session-1", taskId = "task-tool", callId = "shared-call"): Message {
+  return {
+    kind: "message",
+    messageId,
+    role: "agent",
+    contextId,
+    taskId,
+    parts: [
+      {
+        kind: "data",
+        data: { id: callId, name: "kubectl_get_pods", args: { namespace: "default" } },
+        metadata: { adk_type: "function_call" },
+      } as DataPart,
+    ],
+    metadata: { timestamp: Date.now() },
+  } as Message;
+}
+
+function completedToolCallStatusEvent(contextId = "session-1", taskId = "task-streamed", callId = "shared-call"): TaskStatusUpdateEvent {
+  return {
+    kind: "status-update",
+    contextId,
+    taskId,
+    final: true,
+    status: {
+      state: "completed",
+      timestamp: new Date().toISOString(),
+      message: toolCallMessage(`tool-${taskId}`, contextId, taskId, callId),
     },
   } as TaskStatusUpdateEvent;
 }
@@ -276,6 +308,30 @@ describe("ChatInterface send guard", () => {
       ]),
     ]);
     await sendText("should review duplicate backend first");
+
+    await waitFor(() => expect(mockToastInfo).toHaveBeenCalledWith(staleToastMessage));
+    expect(mockSendMessageStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks when a local-only empty tool stream collides with an unseen backend data turn", async () => {
+    mockBackendTasks([completedTask("task-initial", initialTurn)]);
+    mockSendMessageStream
+      .mockResolvedValueOnce(streamOf(completedToolCallStatusEvent("session-1", "task-streamed", "shared-call")));
+
+    renderExistingSession();
+
+    expect(await screen.findByText("initial answer")).toBeInTheDocument();
+
+    await sendText("local tool question");
+    await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(1));
+
+    mockBackendTasks([
+      completedTask("task-initial", initialTurn),
+      completedTask("task-unseen-tool", [
+        toolCallMessage("backend-tool", "session-1", "task-unseen-tool", "shared-call"),
+      ]),
+    ]);
+    await sendText("should review tool turn first");
 
     await waitFor(() => expect(mockToastInfo).toHaveBeenCalledWith(staleToastMessage));
     expect(mockSendMessageStream).toHaveBeenCalledTimes(1);
