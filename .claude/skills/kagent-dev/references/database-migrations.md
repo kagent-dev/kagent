@@ -80,7 +80,7 @@ The last ❌ row is easy to miss: a migration — **or an out-of-band tool** —
 2. **Minor `X.Y` (deploy):** ship the code that uses the new structure.
 3. **Minor `X.(Y+1)` (contract):** drop the old column/table — safe because the furthest supported rollback from `X.(Y+1)` lands on minor `X.Y`, which already uses the new structure.
 
-The **rollback window** is the set of releases an operator may roll back to: **one minor back**. From a release `Major.Minor.Patch`, a rollback may move within the current minor (patches carry no schema changes) or to the previous minor — the previous minor is the furthest-back supported target. A contraction is therefore safe to merge only once its replacement shipped at or before the previous minor, so no supported rollback can land on code that predates it.
+The **rollback window** is how far back a rollback is supported: **one minor back**. From `Major.Minor.Patch`, an operator may roll back to an earlier release in the current minor, or to the previous minor — the previous minor is the furthest-back supported target. A contraction is therefore safe to merge only once its replacement shipped at or before the previous minor, so no supported rollback can land on code that predates it.
 
 **Destructive changes must be declared, not silent.** CI blocks destructive DDL by default. An intentional contraction is allowed only with explicit reviewer sign-off confirming (1) the replacement shipped in the prior release and (2) no current code still reads the old structure — sqlc makes that second point checkable for Postgres, since the generated queries are greppable. Pre-rule contractions already in history are grandfathered; the rule binds going forward.
 
@@ -213,13 +213,6 @@ Static analysis covers file *content*; round-trip tests cover *behavior* against
 **Previous-minor round-trip.** Seed a database at the previous minor's latest release with representative data, apply migrations up to `HEAD`, and assert the schema matches a clean `HEAD` install and the data survives; then reverse to the previous minor and assert the schema matches a clean previous-minor install and the data survives. This exercises every changed down file rather than only reviewing it.
 
 **Query-level backward compatibility.** Run the previous minor's database test suite against a `HEAD`-migrated schema, proving old code's queries run against the newer schema — the exact property [ahead-schema tolerance](#rollback-and-ahead-schema-tolerance) relies on.
-
-## Release-time gates
-
-Two checks belong in the release pipeline rather than at merge. Both are *Target — not yet enforced*.
-
-- **Patches are schema-free.** A patch release (`x.y.z`) carries no new migration files; schema changes ship in a minor release. CI diffs the migration directories against the base release tag. A patch is then schema-identical to its base, and stays boring for operators who chose stability.
-- **Prefix check.** A release may be cut from a branch only if its migration set is a *prefix* of `main`'s history — every file identical to main's copy, no branch-only migrations, no holes. Cherry-picking a later migration onto a base that lacks the ones before it would leave those permanently unapplied once the database records the higher version.
 
 ## Downstream Extension Model
 
