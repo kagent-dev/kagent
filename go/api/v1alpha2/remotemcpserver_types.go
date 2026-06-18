@@ -89,6 +89,55 @@ type RemoteMCPServerSpec struct {
 	// no equivalent rule, so a TLS block can sit alongside any baseUrl.
 	// +optional
 	TLS *TLSConfig `json:"tls,omitempty"`
+	// UI defines optional web UI metadata for this MCP server.
+	// When ui.enabled is true, the server's UI is accessible via /_p/{ui.pathPrefix}/ (proxy)
+	// and browser URL /plugins/{ui.pathPrefix} (Next.js wrapper with sidebar + iframe)
+	// +optional
+	UI *RemoteMCPServerUI `json:"ui,omitempty"`
+}
+
+// RemoteMCPServerUI defines optional web UI metadata for a RemoteMCPServer, used by
+// the kagent UI to surface the server's embedded web UI as a sidebar plugin and to
+// reverse-proxy it under /_p/{pathPrefix}/.
+type RemoteMCPServerUI struct {
+	// Enabled indicates this MCP server provides a web UI.
+	// +optional
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled,omitempty"`
+
+	// PathPrefix is the URL path segment used for routing: /_p/{pathPrefix}/
+	// Must be a valid URL path segment (lowercase alphanumeric + hyphens).
+	// Defaults to the RemoteMCPServer name if not specified.
+	// +optional
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9-]*[a-z0-9]$`
+	PathPrefix string `json:"pathPrefix,omitempty"`
+
+	// DisplayName is the human-readable name shown in the sidebar.
+	// Defaults to the RemoteMCPServer name if not specified.
+	// +optional
+	DisplayName string `json:"displayName,omitempty"`
+
+	// Icon is a lucide-react icon name (e.g., "kanban", "git-fork", "database").
+	// +optional
+	// +kubebuilder:default=puzzle
+	Icon string `json:"icon,omitempty"`
+
+	// Section is the sidebar section where this plugin appears.
+	// +optional
+	// +kubebuilder:default=RESOURCES
+	// +kubebuilder:validation:Enum=OVERVIEW;AGENTS;WORKFLOWS;KNOWLEDGE;EVALUATIONS;RESOURCES;ADMIN;PLUGINS
+	Section string `json:"section,omitempty"`
+
+	// DefaultPath is the initial path to redirect to when the plugin root is loaded.
+	// For example, "/namespaces/kagent" makes the plugin open at that path by default.
+	// +optional
+	DefaultPath string `json:"defaultPath,omitempty"`
+
+	// InjectCSS is custom CSS injected into proxied HTML responses to customize the plugin UI.
+	// For example, `[data-testid="navigation-header"] { display: none !important; }` hides the nav.
+	// +optional
+	InjectCSS string `json:"injectCSS,omitempty"`
 }
 
 var _ sql.Scanner = (*RemoteMCPServerSpec)(nil)
