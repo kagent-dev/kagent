@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Message, Task, TaskStatusUpdateEvent } from "@a2a-js/sdk";
 import { checkSessionExists, createSession, getSessionTasks } from "@/app/actions/sessions";
@@ -260,6 +260,30 @@ describe("ChatInterface send guard", () => {
       completedTask("task-external", externalTurn),
     ]);
     await sendText("should review first");
+
+    await waitFor(() => expect(mockToastInfo).toHaveBeenCalledWith(staleToastMessage));
+    expect(mockSendMessageStream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Cmd+Enter", { metaKey: true }],
+    ["Ctrl+Enter", { ctrlKey: true }],
+  ])("applies the stale-message send guard for %s", async (_shortcut, modifier) => {
+    const user = userEvent.setup();
+    mockBackendTasks([completedTask("task-initial", initialTurn)]);
+
+    renderExistingSession();
+
+    expect(await screen.findByText("initial answer")).toBeInTheDocument();
+
+    mockBackendTasks([
+      completedTask("task-initial", initialTurn),
+      completedTask("task-external", externalTurn),
+    ]);
+
+    const textbox = screen.getByRole("textbox");
+    await user.type(textbox, "should review first");
+    fireEvent.keyDown(textbox, { key: "Enter", code: "Enter", ...modifier });
 
     await waitFor(() => expect(mockToastInfo).toHaveBeenCalledWith(staleToastMessage));
     expect(mockSendMessageStream).not.toHaveBeenCalled();
