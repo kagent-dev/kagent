@@ -61,7 +61,9 @@ export default function PluginPage() {
         authToken: null,
       },
     };
-    iframe.contentWindow.postMessage(msg, "*");
+    // Plugins are reverse-proxied same-origin (/_p/...), so target our own
+    // origin rather than "*" to avoid leaking context to unexpected frames.
+    iframe.contentWindow.postMessage(msg, window.location.origin);
   }, [resolvedTheme, namespace]);
 
   // Send context to iframe on changes
@@ -72,12 +74,25 @@ export default function PluginPage() {
   // Listen for messages from iframe
   useEffect(() => {
     const handler = (event: MessageEvent<PluginMessage>) => {
+      // Plugins load same-origin via the /_p/ reverse proxy, so reject messages
+      // from any other origin (prevents foreign frames from driving navigation,
+      // resize, etc.).
+      if (event.origin !== window.location.origin) return;
       if (!event.data?.type?.startsWith("kagent:")) return;
 
       switch (event.data.type) {
         case "kagent:navigate": {
           const { href } = event.data.payload as { href: string };
-          window.location.href = href;
+          // Only allow same-origin navigation; this rejects javascript:/data:
+          // URLs (origin "null") and external redirects.
+          try {
+            const dest = new URL(href, window.location.origin);
+            if (dest.origin === window.location.origin) {
+              window.location.assign(dest.toString());
+            }
+          } catch {
+            // ignore malformed href
+          }
           break;
         }
         case "kagent:resize": {
