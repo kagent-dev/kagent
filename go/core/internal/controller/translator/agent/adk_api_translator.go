@@ -706,17 +706,19 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 		return ollama, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderGemini:
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name: env.GoogleAPIKey.Name(),
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: model.Spec.APIKeySecret,
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.GoogleAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
 					},
-					Key: model.Spec.APIKeySecretKey,
 				},
-			},
-		})
+			})
+		}
 		gemini := &adk.Gemini{
 			BaseModel: adk.BaseModel{
 				Model:   model.Spec.Model,
@@ -725,6 +727,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil {
