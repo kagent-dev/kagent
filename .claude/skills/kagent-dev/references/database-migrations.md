@@ -82,13 +82,13 @@ The last ❌ row is easy to miss: a migration — **or an out-of-band tool** —
 
 The **rollback window** is how far back a rollback is supported: **one minor back**. From `Major.Minor.Patch`, an operator may roll back to an earlier release in the current minor, or to the previous minor — the previous minor is the furthest-back supported target. A contraction is therefore safe to merge only once its replacement shipped at or before the previous minor, so no supported rollback can land on code that predates it.
 
-**Destructive changes must be declared, not silent.** CI blocks destructive DDL by default. An intentional contraction is allowed only with explicit reviewer sign-off confirming (1) the replacement shipped in the prior release and (2) no current code still reads the old structure — sqlc makes that second point checkable for Postgres, since the generated queries are greppable. Pre-rule contractions already in history are grandfathered; the rule binds going forward.
+**Destructive changes must be declared, not silent.** An intentional contraction is allowed only with explicit reviewer sign-off confirming (1) the replacement shipped in the prior release and (2) no current code still reads the old structure — sqlc makes that second point checkable for Postgres, since the generated queries are greppable. Pre-rule contractions already in history are grandfathered; the rule binds going forward.
 
-> **Enforcement.** Undeclared destructive DDL is caught at merge by static analysis (an extension of `cross_track_test.go`; see [Static Analysis Enforcement](#static-analysis-enforcement)).
+> **Enforcement.** *Target — not yet enforced*: a static check extending `cross_track_test.go` will block undeclared destructive DDL at merge (see [Static Analysis Enforcement](#static-analysis-enforcement)).
 
 ### Schema-agnostic SQL
 
-**Migration SQL must not name a schema.** The schema a migration lands in is chosen by the *connection*, not the file, so the same migration files apply into whatever schema the connection selects. The runner sets `search_path` on the connection (and creates the schema if it does not exist) before applying a track.
+**Migration SQL must not name a schema.** The schema a migration lands in is chosen by the *connection* (its `search_path` / `current_schema`), not the file, so the same migration files apply into whatever schema the connection selects.
 
 Forbidden in any migration file:
 
@@ -133,7 +133,7 @@ Files must follow `NNNNNN_description.up.sql` / `NNNNNN_description.down.sql` wi
 
 Every `.up.sql` must have a corresponding `.down.sql` that exactly reverses it. Down migrations are used for rollbacks and by automatic rollback on migration failure. They must be **idempotent** — the two-track rollback logic (roll back core if vector fails) may call them more than once in failure scenarios.
 
-A down file that never runs is a down file you cannot trust. Every migration is therefore exercised up → down → up so the reversal is proven, not assumed (see [Upgrade and rollback testing](#upgrade-and-rollback-testing)). There are no up-only migrations — a working down has shipped with every migration since the golang-migrate adoption.
+A down file that never runs is a down file you cannot trust. There are no up-only migrations — a working down has shipped with every migration since the golang-migrate adoption. Exercising every migration up → down → up against the real migration set, to prove the reversal rather than assume it, is a *Target — not yet enforced* (see [Upgrade and rollback testing](#upgrade-and-rollback-testing)).
 
 ## One Linear History
 
