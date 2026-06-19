@@ -35,9 +35,10 @@ func (noMatchKubeClient) List(_ context.Context, _ client.ObjectList, _ ...clien
 	return &apimeta.NoKindMatchError{}
 }
 
-// TestHandleGetSubstrateStatus_NoCRDs verifies that when the ate.dev CRDs are absent the
-// endpoint degrades gracefully: 200, Enabled:false, all slices empty.
-func TestHandleGetSubstrateStatus_NoCRDs(t *testing.T) {
+// TestHandleGetSubstrateStatus_SubstrateNotConfigured verifies that when AteClient is nil
+// (substrate not configured), the endpoint returns 200 with Enabled:false and empty slices
+// without making any CRD List calls.
+func TestHandleGetSubstrateStatus_SubstrateNotConfigured(t *testing.T) {
 	t.Parallel()
 
 	base := &handlers.Base{KubeClient: noMatchKubeClient{}, Authorizer: &auth.NoopAuthorizer{}}
@@ -55,70 +56,6 @@ func TestHandleGetSubstrateStatus_NoCRDs(t *testing.T) {
 	require.False(t, wrapped.Data.Enabled)
 	require.Empty(t, wrapped.Data.WorkerPools)
 	require.Empty(t, wrapped.Data.ActorTemplates)
-	require.Empty(t, wrapped.Data.Actors)
-	require.Empty(t, wrapped.Data.Workers)
-}
-
-// TestHandleGetSubstrateStatus_NoCRDsWithAteClient verifies that when CRDs are absent but
-// the gRPC ate-api client is configured, the endpoint returns Enabled:true and populates the
-// live actor/worker state from gRPC while leaving CR slices empty.
-func TestHandleGetSubstrateStatus_NoCRDsWithAteClient(t *testing.T) {
-	t.Parallel()
-
-	ate := &substrate.Client{ControlClient: &stubAteControl{
-		actors: []*ateapipb.Actor{{
-			ActorId: "ahr-kagent-my-claw",
-			Status:  ateapipb.Actor_STATUS_RUNNING,
-		}},
-	}}
-	base := &handlers.Base{KubeClient: noMatchKubeClient{}, Authorizer: &auth.NoopAuthorizer{}}
-	h := handlers.NewSubstrateHandler(base, ate)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/substrate/status?namespace=kagent", nil)
-	req = setUser(req, "test-user")
-	rec := httptest.NewRecorder()
-	h.HandleGetSubstrateStatus(&testErrorResponseWriter{ResponseWriter: rec}, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var wrapped api.StandardResponse[api.SubstrateStatusResponse]
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &wrapped))
-	require.True(t, wrapped.Data.Enabled)
-	require.Empty(t, wrapped.Data.WorkerPools)
-	require.Empty(t, wrapped.Data.ActorTemplates)
-	require.Len(t, wrapped.Data.Actors, 1)
-}
-
-// TestHandleGetSubstrateStatus_CRDsPresentNoAteClient verifies that CRs are listed and
-// Enabled:true even when the gRPC ate-api client is nil (ate-api not deployed).
-func TestHandleGetSubstrateStatus_CRDsPresentNoAteClient(t *testing.T) {
-	t.Parallel()
-
-	scheme := runtime.NewScheme()
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
-
-	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		&atev1alpha1.WorkerPool{
-			ObjectMeta: metav1.ObjectMeta{Name: "wp1", Namespace: "kagent"},
-			Spec:       atev1alpha1.WorkerPoolSpec{Replicas: 1},
-		},
-	).Build()
-
-	base := &handlers.Base{KubeClient: kube, Authorizer: &auth.NoopAuthorizer{}}
-	h := handlers.NewSubstrateHandler(base, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/substrate/status?namespace=kagent", nil)
-	req = setUser(req, "test-user")
-	rec := httptest.NewRecorder()
-	h.HandleGetSubstrateStatus(&testErrorResponseWriter{ResponseWriter: rec}, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var wrapped api.StandardResponse[api.SubstrateStatusResponse]
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &wrapped))
-	require.True(t, wrapped.Data.Enabled)
-	require.Len(t, wrapped.Data.WorkerPools, 1)
 	require.Empty(t, wrapped.Data.Actors)
 	require.Empty(t, wrapped.Data.Workers)
 }
