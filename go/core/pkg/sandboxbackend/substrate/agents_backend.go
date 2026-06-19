@@ -32,10 +32,11 @@ func (b *AgentsBackend) GetOwnedResourceTypes() []client.Object {
 
 // OwnedResourceTypesFor returns no types: substrate ActorTemplates are intentionally excluded
 // from the reconciler's generic prune so a config change does not delete the currently-serving
-// template. Their lifecycle is managed explicitly (blue-green) in the SandboxAgent controller —
-// the old template is retired only after the new golden is Ready. ActorTemplate remains in
-// GetOwnedResourceTypes for watches, and owner-reference GC still removes all templates when the
-// SandboxAgent itself is deleted.
+// template. A config change creates a new config-hashed template; superseded templates and their
+// (suspended) goldens are stateful and pin no workers, so they are retained — not retired — and
+// removed only when the SandboxAgent is deleted (DeleteAllSandboxAgentActors +
+// CleanupSandboxAgentTemplate, plus owner-reference GC of the template objects). ActorTemplate
+// remains in GetOwnedResourceTypes for watches.
 func (b *AgentsBackend) OwnedResourceTypesFor(_ v1alpha2.AgentObject) ([]client.Object, error) {
 	return nil, nil
 }

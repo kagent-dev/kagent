@@ -22,8 +22,9 @@ func wrapResumeActorError(actorID string, err error) error {
 	return fmt.Errorf("substrate ResumeActor %q: %w", actorID, err)
 }
 
-// wrapCreateActorError normalizes a CreateActor failure, surfacing ErrNoFreeWorkers (so the chat
-// path can buffer/retry) when the WorkerPool is at capacity.
+// wrapCreateActorError normalizes a CreateActor failure, surfacing the clean ErrNoFreeWorkers
+// (rather than an opaque gRPC FailedPrecondition) when the WorkerPool is at capacity so the chat
+// caller can return an actionable "no free workers" error.
 func wrapCreateActorError(actorID string, err error) error {
 	if err == nil {
 		return nil

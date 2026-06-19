@@ -62,7 +62,8 @@ func (r *RoutingBackend) GetOwnedResourceTypes() []client.Object {
 // agent's sandbox platform. It delegates to the platform backend's per-agent method (NOT
 // GetOwnedResourceTypes, which is the broader watch set) so a platform can watch a type without
 // having it generically pruned — substrate uses this to manage ActorTemplate lifecycle itself
-// (blue-green: keep the old template serving until the new golden is Ready).
+// (a config change adds a new config-hashed template and retains the previous one until the
+// SandboxAgent is deleted, so the prune must not remove the currently-serving template).
 func (r *RoutingBackend) OwnedResourceTypesFor(agent v1alpha2.AgentObject) ([]client.Object, error) {
 	b, err := r.backendFor(agent)
 	if err != nil {

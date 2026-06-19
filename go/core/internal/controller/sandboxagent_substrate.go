@@ -42,37 +42,13 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Cont
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	if !r.reconcileSubstrateBlueGreen(ctx, sa) {
-		// Retiring superseded templates / their goldens advances one ate-api step per pass;
-		// requeue until the rollout converges so old templates and goldens are cleaned up.
-		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
-	}
+	// A config change creates a new config-hashed ActorTemplate (applied via the translator's
+	// BuildSandbox path); the previous template, its golden, and any per-session actors are left
+	// in place. Superseded goldens and suspended session actors are stateful and pin no workers
+	// (a suspended actor frees its worker), so they are retained — not retired — and cleaned up
+	// only when the SandboxAgent itself is deleted (see reconcileSubstrateSandboxAgentDelete).
+	// ResolveCurrentActorTemplate keeps chat and readiness pointed at the newest Ready template.
 	return ctrl.Result{}, nil
-}
-
-// reconcileSubstrateBlueGreen drives the cleanup half of a config-change rollout: it retires
-// ActorTemplates superseded by a newer Ready one (deleting each old template with its now-Suspended
-// golden), and best-effort reaps stale per-session actors. The new template keeps serving the old
-// golden until its own golden is Ready (see ResolveCurrentActorTemplate), so this never causes
-// downtime. Returns true when nothing more remains to retire. Errors are logged, not surfaced, so a
-// transient ate-api failure doesn't wedge reconciliation.
-func (r *SandboxAgentController) reconcileSubstrateBlueGreen(ctx context.Context, sa *v1alpha2.SandboxAgent) bool {
-	retireDone, err := r.SubstrateLifecycle.RetireSupersededTemplates(ctx, sa)
-	if err != nil {
-		sandboxAgentControllerLog.Info("retiring superseded substrate templates failed (will retry)",
-			"sandboxagent", sa.Namespace+"/"+sa.Name, "err", err.Error())
-		return true
-	}
-
-	// Best-effort reap of stale session actors keyed to a previous config. Not required for
-	// correctness (config-hashed ids mean they're never reused), so failures don't requeue.
-	if active, err := substrate.ResolveCurrentActorTemplate(ctx, r.Client, sa.Namespace, sa.Name); err == nil && active != nil {
-		if _, err := r.SubstrateActorBackend.ReapStaleSessionActors(ctx, sa, active.Name); err != nil {
-			sandboxAgentControllerLog.Info("reap of stale substrate session actors failed (will retry)",
-				"sandboxagent", sa.Namespace+"/"+sa.Name, "err", err.Error())
-		}
-	}
-	return retireDone
 }
 
 func (r *SandboxAgentController) reconcileSubstrateSandboxAgentDelete(ctx context.Context, sa *v1alpha2.SandboxAgent) (ctrl.Result, error) {

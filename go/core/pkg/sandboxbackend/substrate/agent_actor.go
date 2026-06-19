@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -14,16 +13,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-const (
-	// ensureActorBufferTimeout caps how long a chat request waits for substrate worker capacity
-	// before giving up. During a config rollout the new golden's build can occupy the worker(s),
-	// so resuming/creating the session actor briefly returns "no free workers"; we buffer the
-	// request rather than fail it. Bounded so a genuinely stuck/zero-capacity pool still errors.
-	ensureActorBufferTimeout = 2 * time.Minute
-	ensureActorRetryInitial  = 500 * time.Millisecond
-	ensureActorRetryMax      = 4 * time.Second
 )
 
 // SandboxAgentActorBackend manages ate-api actors for SandboxAgent workloads.
@@ -47,14 +36,15 @@ func NewSandboxAgentActorBackend(client *Client, kube client.Client, atenetRoute
 	}
 }
 
-// EnsureSessionActor creates and resumes the per-session actor for a SandboxAgent chat.
+// EnsureSessionActor creates (or resumes) the per-session actor for a SandboxAgent chat and waits
+// for it to be reachable. It resolves the agent's current (newest Ready) ActorTemplate, so during
+// a config change requests keep landing on the previous Ready golden until the new one is Ready.
 //
-// During a config rollout the new golden's build can occupy the WorkerPool (especially a
-// single-replica pool), so the underlying ResumeActor/CreateActor briefly returns "no free
-// workers". Rather than failing the chat, this buffers the request: it retries with backoff
-// (re-resolving the current template each pass, so once the new golden is Ready the request lands
-// on it with the new config) until a worker frees, the caller's context is cancelled, or the
-// buffer timeout elapses. Other errors are returned immediately.
+// If the WorkerPool has no free worker, CreateActor/ResumeActor surface ErrNoFreeWorkers and this
+// returns it immediately (no buffering). On a single-replica pool the lone worker may be busy
+// building a new golden, so a config change can briefly make chat return "no free workers"; on a
+// multi-replica pool the spare workers keep serving the current golden, so a rollout does not hit
+// that error. Scaling the WorkerPool is the remedy for capacity pressure, not in-process retries.
 func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) (sandboxbackend.EnsureResult, error) {
 	if sa == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("SandboxAgent is required")
@@ -70,32 +60,6 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate actor backend called for platform %q", v1alpha2.AgentSandboxPlatform(sa))
 	}
 
-	bufferDeadline := time.Now().Add(ensureActorBufferTimeout)
-	backoff := ensureActorRetryInitial
-	for {
-		res, err := b.ensureSessionActorOnce(ctx, sa, sessionID)
-		if err == nil || !isNoFreeWorkersError(err) {
-			return res, err
-		}
-		if time.Now().After(bufferDeadline) {
-			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate worker capacity for %s/%s not available within %s: %w", sa.Namespace, sa.Name, ensureActorBufferTimeout, err)
-		}
-		timer := time.NewTimer(backoff)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return sandboxbackend.EnsureResult{}, fmt.Errorf("waiting for substrate worker capacity for %s/%s: %w", sa.Namespace, sa.Name, ctx.Err())
-		case <-timer.C:
-		}
-		if backoff *= 2; backoff > ensureActorRetryMax {
-			backoff = ensureActorRetryMax
-		}
-	}
-}
-
-// ensureSessionActorOnce performs a single create/resume/reachability attempt for the session's
-// actor against the currently-resolved template.
-func (b *SandboxAgentActorBackend) ensureSessionActorOnce(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) (sandboxbackend.EnsureResult, error) {
 	actorID, tmplName, err := b.sessionActorRef(ctx, sa, sessionID)
 	if err != nil {
 		return sandboxbackend.EnsureResult{}, err
@@ -192,43 +156,6 @@ func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1al
 	}
 	hash := tmpl.Annotations[consts.ConfigHashAnnotation]
 	return SandboxAgentSessionActorID(sa, hash, sessionID), tmpl.Name, nil
-}
-
-// ReapStaleSessionActors deletes this agent's per-session actors that were created from a
-// superseded ActorTemplate (before a config change). It only deletes SUSPENDED actors: a RUNNING
-// one may be mid-request, and kagent's transport suspends session actors after each request, so a
-// stale actor converges to SUSPENDED on its own — force-suspending it could cut a live response.
-// With config-hashed actor ids these actors are never addressed again, so this is storage hygiene,
-// not correctness, and is best-effort. (Superseded GOLDEN actors are handled by
-// Lifecycle.RetireSupersededTemplates, which removes them with their template once a newer
-// template is Ready.) Returns true when no stale suspended session actors remain.
-func (b *SandboxAgentActorBackend) ReapStaleSessionActors(ctx context.Context, sa *v1alpha2.SandboxAgent, activeTemplateName string) (bool, error) {
-	if b == nil || b.client == nil || sa == nil {
-		return true, nil
-	}
-	sessionPrefix := sandboxAgentActorPrefix(sa) + "-"
-	actors, err := b.client.ListActors(ctx)
-	if err != nil {
-		return false, fmt.Errorf("list substrate actors: %w", err)
-	}
-	allDone := true
-	for _, actor := range actors {
-		id := strings.TrimSpace(actor.GetActorId())
-		if id == "" || !strings.HasPrefix(id, sessionPrefix) {
-			continue // not a session actor of this agent
-		}
-		if actor.GetActorTemplateName() == activeTemplateName {
-			continue // belongs to the active template
-		}
-		done, err := deleteActorIfSuspended(ctx, b.client, id)
-		if err != nil {
-			return false, fmt.Errorf("delete stale session actor %q: %w", id, err)
-		}
-		if !done {
-			allDone = false
-		}
-	}
-	return allDone, nil
 }
 
 // DeleteAllSandboxAgentActors deletes legacy per-agent actors and all session actors for a SandboxAgent.
