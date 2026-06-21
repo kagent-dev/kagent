@@ -70,6 +70,7 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085
+	github.com/lestrrat-go/jwx/v2 v2.1.4
 	github.com/ollama/ollama v0.30.8
 	github.com/pgvector/pgvector-go/pgx v0.4.0
 	github.com/testcontainers/testcontainers-go v0.42.0
@@ -286,7 +287,6 @@ require (
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc v1.0.6 // indirect
 	github.com/lestrrat-go/iter v1.0.2 // indirect
-	github.com/lestrrat-go/jwx/v2 v2.1.4 // indirect
 	github.com/lestrrat-go/option v1.0.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect

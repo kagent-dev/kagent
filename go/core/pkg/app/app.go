@@ -124,6 +124,8 @@ type Config struct {
 	Auth struct {
 		Mode        string
 		UserIDClaim string
+		DexIssuer   string
+		DexClientID string
 	}
 	LeaderElection     bool
 	ProbeAddr          string
@@ -203,8 +205,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.StringVar(&cfg.Proxy.URL, "proxy-url", "", "Proxy URL for internally-built k8s URLs (e.g., http://proxy.kagent.svc.cluster.local:8080)")
 
-	commandLine.StringVar(&cfg.Auth.Mode, "auth-mode", "unsecure", "Authentication mode: unsecure or trusted-proxy")
-	commandLine.StringVar(&cfg.Auth.UserIDClaim, "auth-user-id-claim", "sub", "JWT claim name for user identity")
+	commandLine.StringVar(&cfg.Auth.Mode, "auth-mode", "unsecure", "Authentication mode: unsecure, trusted-proxy, or dex-oidc")
+	commandLine.StringVar(&cfg.Auth.UserIDClaim, "auth-user-id-claim", "email", "JWT claim name for user identity (default: email for dex-oidc, sub for trusted-proxy)")
+	commandLine.StringVar(&cfg.Auth.DexIssuer, "auth-dex-issuer", "", "Dex OIDC issuer URL (required for dex-oidc mode, e.g. https://dex.example.com)")
+	commandLine.StringVar(&cfg.Auth.DexClientID, "auth-dex-client-id", "", "Dex client ID whose tokens are accepted as audience (required for dex-oidc mode)")
 
 	commandLine.BoolVar(&cfg.MCPEgressPlaintext, "mcp-egress-plaintext", false,
 		"When set, rewrite RemoteMCPServer tool URLs and the controller's tool-discovery dial from https://host[:port] to http://host:<port-or-443> so MCP traffic egresses in plaintext to a TLS-originating proxy. Off by default.")

@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -33,7 +34,7 @@ import (
 func main() {
 	authorizer := &auth.NoopAuthorizer{}
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
-		authenticator, err := getAuthenticator(bootstrap.Config.Auth)
+		authenticator, err := getAuthenticator(bootstrap.Ctx, bootstrap.Config.Auth)
 		if err != nil {
 			return nil, err
 		}
@@ -46,13 +47,34 @@ func main() {
 	}, nil)
 }
 
-func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) (pkgauth.AuthProvider, error) {
+func getAuthenticator(ctx context.Context, authCfg struct {
+	Mode        string
+	UserIDClaim string
+	DexIssuer   string
+	DexClientID string
+}) (pkgauth.AuthProvider, error) {
 	switch authCfg.Mode {
 	case "trusted-proxy":
 		return auth.NewProxyAuthenticator(authCfg.UserIDClaim), nil
+	case "dex-oidc":
+		if authCfg.DexIssuer == "" {
+			return nil, fmt.Errorf("dex-oidc mode requires --auth-dex-issuer")
+		}
+		if authCfg.DexClientID == "" {
+			return nil, fmt.Errorf("dex-oidc mode requires --auth-dex-client-id")
+		}
+		userIDClaim := authCfg.UserIDClaim
+		if userIDClaim == "" {
+			userIDClaim = "email"
+		}
+		return auth.NewDexAuthenticator(ctx, auth.DexAuthenticatorConfig{
+			Issuer:      authCfg.DexIssuer,
+			ClientID:    authCfg.DexClientID,
+			UserIDClaim: userIDClaim,
+		})
 	case "unsecure":
 		return &auth.UnsecureAuthenticator{}, nil
 	default:
-		return nil, fmt.Errorf("unknown auth mode %q (valid modes: unsecure, trusted-proxy)", authCfg.Mode)
+		return nil, fmt.Errorf("unknown auth mode %q (valid modes: unsecure, trusted-proxy, dex-oidc)", authCfg.Mode)
 	}
 }
