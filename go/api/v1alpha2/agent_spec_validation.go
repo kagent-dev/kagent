@@ -1,6 +1,9 @@
 package v1alpha2
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 const (
 	substrateSandboxSkillsUnsupportedMsg = "spec.skills is not supported when spec.platform is substrate"
@@ -31,7 +34,9 @@ func ValidateSubstrateSandboxAgentSpec(agent *SandboxAgent) error {
 	}
 	if spec.Type == AgentType_BYO {
 		dep := spec.BYO
-		if dep == nil || dep.Deployment == nil || dep.Deployment.Cmd == nil || *dep.Deployment.Cmd == "" {
+		// Trim so a whitespace-only cmd is rejected like an empty one (substrate would treat it
+		// as no command, and the UI trims before validating — keep backend/UI aligned).
+		if dep == nil || dep.Deployment == nil || dep.Deployment.Cmd == nil || strings.TrimSpace(*dep.Deployment.Cmd) == "" {
 			return fmt.Errorf("%s", substrateSandboxBYOMissingCommandMsg)
 		}
 	}

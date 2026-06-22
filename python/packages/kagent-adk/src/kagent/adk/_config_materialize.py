@@ -48,4 +48,10 @@ def materialize_from_env(config_dir: str) -> None:
     for env_key, filename in _ENV_TO_CONFIG_FILE.items():
         if _materialize_env_to_file(env_key, os.path.join(config_dir, filename)):
             logger.info("Materialized %s from %s", filename, env_key)
-    _materialize_env_to_file(_KAGENT_TOKEN_ENV, _KAGENT_TOKEN_PATH)
+    # Best-effort: the token path (/var/run/secrets/tokens) may not exist or be writable for a
+    # nonroot runtime. A missing token only degrades authenticated callbacks, so log and continue
+    # rather than crash startup.
+    try:
+        _materialize_env_to_file(_KAGENT_TOKEN_ENV, _KAGENT_TOKEN_PATH)
+    except OSError as e:
+        logger.warning("Could not materialize %s to %s: %s", _KAGENT_TOKEN_ENV, _KAGENT_TOKEN_PATH, e)

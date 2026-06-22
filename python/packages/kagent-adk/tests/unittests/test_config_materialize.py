@@ -53,3 +53,29 @@ def test_partial_env_only_writes_present(tmp_path, monkeypatch):
     assert (config_dir / "config.json").exists()
     assert not (config_dir / "agent-card.json").exists()
     assert not (config_dir / "srt-settings.json").exists()
+
+
+def test_unwritable_token_path_does_not_crash(tmp_path, monkeypatch):
+    # A nonroot runtime may not be able to write the token path; that must degrade gracefully
+    # (log + continue), not crash startup, and config files must still be materialized.
+    monkeypatch.setenv("KAGENT_CONFIG_JSON", "{}")
+    monkeypatch.setenv("KAGENT_TOKEN", "tok")
+    monkeypatch.setattr(
+        "kagent.adk._config_materialize._KAGENT_TOKEN_PATH",
+        str(tmp_path / "ro" / "tokens" / "kagent-token"),
+    )
+
+    # Make the token's parent dir creation fail as if on a read-only mount.
+    real_makedirs = os.makedirs
+
+    def fake_makedirs(path, *args, **kwargs):
+        if "/ro/" in path or path.endswith("/ro"):
+            raise PermissionError("read-only file system")
+        return real_makedirs(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "makedirs", fake_makedirs)
+
+    config_dir = tmp_path / "config"
+    materialize_from_env(str(config_dir))  # must not raise
+
+    assert (config_dir / "config.json").exists()

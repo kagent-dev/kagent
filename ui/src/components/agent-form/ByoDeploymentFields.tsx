@@ -25,6 +25,7 @@ type EnvPair = {
 
 export function ByoDeploymentFields({
   byoImage,
+  commandRequired = false,
   byoCmd,
   byoArgs,
   replicas,
@@ -51,6 +52,8 @@ export function ByoDeploymentFields({
   serviceAccountInputId = "agent-field-service-account-byo",
 }: {
   byoImage: string;
+  /** When true (BYO on Agent Substrate), the command is required and the label reflects that. */
+  commandRequired?: boolean;
   byoCmd: string;
   byoArgs: string;
   replicas: string;
@@ -104,7 +107,13 @@ export function ByoDeploymentFields({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FieldRoot>
-          <FieldLabel>Command (optional)</FieldLabel>
+          <FieldLabel>{commandRequired ? "Command (required)" : "Command (optional)"}</FieldLabel>
+          {commandRequired && (
+            <FieldHint>
+              Required on Agent Substrate: it copies the command verbatim and does not fall back to
+              the image entrypoint.
+            </FieldHint>
+          )}
           <Input
             value={byoCmd}
             onChange={(e) => onByoCmdChange(e.target.value)}

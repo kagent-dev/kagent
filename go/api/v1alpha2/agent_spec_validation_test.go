@@ -66,6 +66,22 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxBYOMissingCommandMsg)
 	})
 
+	t.Run("rejects BYO agents with a whitespace-only command on substrate platform", func(t *testing.T) {
+		cmd := "   "
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				Platform: SandboxPlatformSubstrate,
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
+				},
+			},
+		}
+		err := ValidateSubstrateSandboxAgentSpec(agent)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), substrateSandboxBYOMissingCommandMsg)
+	})
+
 	t.Run("allows BYO agents with an explicit command on substrate platform", func(t *testing.T) {
 		cmd := "/app"
 		agent := &SandboxAgent{

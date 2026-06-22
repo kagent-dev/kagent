@@ -116,10 +116,12 @@ func TestBuildSubstrateKagentContainerCommandDeclarative(t *testing.T) {
 			}
 
 			// Substrate ignores the image's ENV, so the Python runtime image's
-			// LD_LIBRARY_PATH must be re-supplied or numpy fails to load libz.so.1.
+			// LD_LIBRARY_PATH and PATH must be re-supplied (or numpy fails to load
+			// libz.so.1, and bare-name console scripts aren't found).
 			if tc.wantLibEnv {
 				require.Equal(t, pythonRuntimeLibPath, envByName["LD_LIBRARY_PATH"])
 				require.Equal(t, "1", envByName["PYTHONUNBUFFERED"])
+				require.Contains(t, envByName["PATH"], pythonVenvPath+"/bin", "venv bin must be on PATH")
 			} else {
 				_, ok := envByName["LD_LIBRARY_PATH"]
 				require.False(t, ok, "Go declarative must not carry the Python runtime ENV")

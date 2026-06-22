@@ -36,6 +36,11 @@ const (
 	// pythonRuntimeImageEnv), so these are re-supplied via the ActorTemplate env.
 	pythonRuntimeLibPath = "/usr/lib/kagent-libs"
 	pythonVenvPath       = "/.kagent/.venv"
+	// pythonRuntimePath mirrors the image's `ENV PATH="/.kagent/.venv/bin:$PATH"`. Substrate
+	// builds the OCI Process.Env from a hardcoded PATH that does NOT include the venv bin, so any
+	// bare-name console-script execution (or locating the venv interpreter without an absolute
+	// path) would fail; re-supply it with the venv bin first, then the standard system dirs.
+	pythonRuntimePath = "/.kagent/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 	// sandboxAgentTemplateNameMaxBase reserves room in the 63-char DNS-1123 budget for
 	// the "-<hash>" suffix (hash is up to 16 hex chars). A golden snapshot is an immutable
@@ -183,6 +188,7 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *
 // Keep in sync with the final-stage ENV block of python/Dockerfile.
 func pythonRuntimeImageEnv() []corev1.EnvVar {
 	return []corev1.EnvVar{
+		{Name: "PATH", Value: pythonRuntimePath},
 		{Name: "LD_LIBRARY_PATH", Value: pythonRuntimeLibPath},
 		{Name: "VIRTUAL_ENV", Value: pythonVenvPath},
 		{Name: "PYTHONUNBUFFERED", Value: "1"},

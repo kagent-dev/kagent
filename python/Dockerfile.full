@@ -75,7 +75,9 @@ WORKDIR /.kagent
 
 ### STAGE 3: final (install project)
 FROM python-os AS builder
-ARG TOOLS_PYTHON_VERSION
+# Default kept here too: ARG defaults do not carry across stages, and this value is used below
+# in `uv venv --python=python$TOOLS_PYTHON_VERSION`, so an unset build-arg would break the build.
+ARG TOOLS_PYTHON_VERSION=3.13
 
 WORKDIR /.kagent
 ENV PATH=$PATH:/.kagent/bin:/.kagent/.venv/bin

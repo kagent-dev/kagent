@@ -918,6 +918,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               >
                 <ByoDeploymentFields
                   byoImage={state.byoImage}
+                  commandRequired={substrateSandboxAgent}
                   byoCmd={state.byoCmd}
                   byoArgs={state.byoArgs}
                   replicas={state.replicas}
