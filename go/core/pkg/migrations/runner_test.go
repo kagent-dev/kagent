@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -70,6 +71,12 @@ var failVectorWithDependencyFS = fstest.MapFS{
 	"vector/000001_bad_depends_on_core.down.sql": {Data: []byte(`ALTER TABLE shared_data DROP COLUMN IF EXISTS vec_col;`)},
 }
 
+// goodVectorFS has a valid vector migration.
+var goodVectorFS = fstest.MapFS{
+	"vector/000001_create.up.sql":   {Data: []byte(`CREATE EXTENSION IF NOT EXISTS vector; CREATE TABLE IF NOT EXISTS vec_test (id SERIAL PRIMARY KEY, embedding vector(3));`)},
+	"vector/000001_create.down.sql": {Data: []byte(`DROP TABLE IF EXISTS vec_test; DROP EXTENSION IF EXISTS vector;`)},
+}
+
 // mergeFS combines multiple MapFS values into one.
 func mergeFS(fsMaps ...fstest.MapFS) fstest.MapFS {
 	out := fstest.MapFS{}
@@ -77,6 +84,17 @@ func mergeFS(fsMaps ...fstest.MapFS) fstest.MapFS {
 		maps.Copy(out, m)
 	}
 	return out
+}
+
+// coreSource builds a core Source backed by fsys (subdir "core").
+func coreSource(fsys fstest.MapFS) Source {
+	return Source{Name: "core", TrackingTable: "schema_migrations", FS: fsys, Dir: "core"}
+}
+
+// vectorSource builds a vector Source backed by fsys (subdir "vector"), with the
+// pgvector precheck wired in to mirror BuiltinSources.
+func vectorSource(fsys fstest.MapFS) Source {
+	return Source{Name: "vector", TrackingTable: "vector_schema_migrations", FS: fsys, Dir: "vector", PreCheck: checkPgvector}
 }
 
 // trackVersion reads the current version from a golang-migrate tracking table.
@@ -128,12 +146,6 @@ func startTestDB(t *testing.T) string {
 	return connStr
 }
 
-// goodVectorFS has a valid vector migration.
-var goodVectorFS = fstest.MapFS{
-	"vector/000001_create.up.sql":   {Data: []byte(`CREATE EXTENSION IF NOT EXISTS vector; CREATE TABLE IF NOT EXISTS vec_test (id SERIAL PRIMARY KEY, embedding vector(3));`)},
-	"vector/000001_create.down.sql": {Data: []byte(`DROP TABLE IF EXISTS vec_test; DROP EXTENSION IF EXISTS vector;`)},
-}
-
 // startTestDBWithoutPgvector spins up a plain Postgres container (no pgvector)
 // and returns its connection string, registering cleanup with t.
 func startTestDBWithoutPgvector(t *testing.T) string {
@@ -168,29 +180,35 @@ func startTestDBWithoutPgvector(t *testing.T) string {
 // tableExists checks whether a table exists in the public schema.
 func tableExists(t *testing.T, connStr, table string) bool {
 	t.Helper()
+	return tableExistsInSchema(t, connStr, "public", table)
+}
+
+// tableExistsInSchema checks whether a table exists in the given schema.
+func tableExistsInSchema(t *testing.T, connStr, schema, table string) bool {
+	t.Helper()
 	db, err := sql.Open("pgx", connStr)
 	if err != nil {
-		t.Fatalf("tableExists: open db: %v", err)
+		t.Fatalf("tableExistsInSchema: open db: %v", err)
 	}
 	defer db.Close()
 	var exists bool
 	err = db.QueryRowContext(context.Background(),
-		"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)",
-		table).Scan(&exists)
+		"SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)",
+		schema, table).Scan(&exists)
 	if err != nil {
-		t.Fatalf("tableExists: query: %v", err)
+		t.Fatalf("tableExistsInSchema: query: %v", err)
 	}
 	return exists
 }
 
-// --- applyDir tests ---
+// --- applySource tests ---
 
-func TestApplyDir_HappyPath(t *testing.T) {
+func TestApplySource_HappyPath(t *testing.T) {
 	connStr := startTestDB(t)
 
-	prev, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations")
+	prev, err := applySource(context.Background(), connStr, coreSource(goodCoreFS))
 	if err != nil {
-		t.Fatalf("applyDir: %v", err)
+		t.Fatalf("applySource: %v", err)
 	}
 	if prev != 0 {
 		t.Errorf("prevVersion = %d, want 0", prev)
@@ -200,13 +218,13 @@ func TestApplyDir_HappyPath(t *testing.T) {
 	}
 }
 
-func TestApplyDir_NoOpWhenAlreadyAtLatest(t *testing.T) {
+func TestApplySource_NoOpWhenAlreadyAtLatest(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations"); err != nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(goodCoreFS)); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
-	prev, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations")
+	prev, err := applySource(context.Background(), connStr, coreSource(goodCoreFS))
 	if err != nil {
 		t.Fatalf("second apply: %v", err)
 	}
@@ -218,10 +236,10 @@ func TestApplyDir_NoOpWhenAlreadyAtLatest(t *testing.T) {
 	}
 }
 
-func TestApplyDir_NoRollbackWhenFirstMigrationFails(t *testing.T) {
+func TestApplySource_NoRollbackWhenFirstMigrationFails(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, failOnFirstCoreFS, "core", "schema_migrations"); err == nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(failOnFirstCoreFS)); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	// prevVersion was 0 so rollback is skipped to protect pre-existing data.
@@ -231,10 +249,10 @@ func TestApplyDir_NoRollbackWhenFirstMigrationFails(t *testing.T) {
 	}
 }
 
-func TestApplyDir_NoRollbackWhenLaterMigrationFails(t *testing.T) {
+func TestApplySource_NoRollbackWhenLaterMigrationFails(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations"); err == nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(failOnSecondCoreFS)); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	// Migration 1 succeeded, migration 2 failed. Rollback is skipped because
@@ -244,16 +262,16 @@ func TestApplyDir_NoRollbackWhenLaterMigrationFails(t *testing.T) {
 	}
 }
 
-func TestApplyDir_RollsBackToExistingVersion(t *testing.T) {
+func TestApplySource_RollsBackToExistingVersion(t *testing.T) {
 	connStr := startTestDB(t)
 
 	// Establish a baseline at version 1.
-	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations"); err != nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(oneCoreFS)); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
 	// Advance to version 2 — should fail and roll back to version 1, not 0.
-	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations"); err == nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(failOnSecondCoreFS)); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
@@ -261,15 +279,15 @@ func TestApplyDir_RollsBackToExistingVersion(t *testing.T) {
 	}
 }
 
-// TestApplyDir_RollsBackWithExistingVersion verifies that when migrations have
+// TestApplySource_RollsBackWithExistingVersion verifies that when migrations have
 // previously been applied (prevVersion > 0), rollback always happens on failure.
 // This ensures the rollback protection only affects the initial migration run
 // (prevVersion == 0), not subsequent upgrades.
-func TestApplyDir_RollsBackWithExistingVersion(t *testing.T) {
+func TestApplySource_RollsBackWithExistingVersion(t *testing.T) {
 	connStr := startTestDB(t)
 
 	// Establish a baseline at version 1.
-	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations"); err != nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(oneCoreFS)); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -279,7 +297,7 @@ func TestApplyDir_RollsBackWithExistingVersion(t *testing.T) {
 	}
 
 	// Advance to version 2 — should roll back because prevVersion > 0.
-	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations"); err == nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(failOnSecondCoreFS)); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
@@ -357,21 +375,21 @@ func TestMaxEmbeddedVersion(t *testing.T) {
 	}
 }
 
-// TestApplyDir_SucceedsWhenDBVersionAhead verifies that an older binary starting against
+// TestApplySource_SucceedsWhenDBVersionAhead verifies that an older binary starting against
 // a database that a newer binary has migrated does not crash-loop. It skips Up entirely
 // and returns success, leaving the schema unchanged. Safe rollback relies on the
 // expand-then-contract discipline in database-migrations.md and rolling back one release
 // at a time.
-func TestApplyDir_SucceedsWhenDBVersionAhead(t *testing.T) {
+func TestApplySource_SucceedsWhenDBVersionAhead(t *testing.T) {
 	connStr := startTestDB(t)
 
 	// Newer binary applies v1 and v2.
-	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations"); err != nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(goodCoreFS)); err != nil {
 		t.Fatalf("newer binary apply: %v", err)
 	}
 
 	// Older binary (max v1) starts against the v2 schema — must not error.
-	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations"); err != nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(oneCoreFS)); err != nil {
 		t.Fatalf("older binary apply against newer schema: %v", err)
 	}
 
@@ -381,14 +399,14 @@ func TestApplyDir_SucceedsWhenDBVersionAhead(t *testing.T) {
 	}
 }
 
-// TestApplyDir_DirtyStateNotMaskedByCompatibilityMode verifies that a dirty database
+// TestApplySource_DirtyStateNotMaskedByCompatibilityMode verifies that a dirty database
 // is not silently accepted by compatibility mode. If the DB is both dirty and ahead of
 // the binary's max known version, the dirty state must still be surfaced as an error.
-func TestApplyDir_DirtyStateNotMaskedByCompatibilityMode(t *testing.T) {
+func TestApplySource_DirtyStateNotMaskedByCompatibilityMode(t *testing.T) {
 	connStr := startTestDB(t)
 
 	// Apply v1 cleanly first so the tracking table exists.
-	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations"); err != nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(oneCoreFS)); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
@@ -404,7 +422,7 @@ func TestApplyDir_DirtyStateNotMaskedByCompatibilityMode(t *testing.T) {
 
 	// Older binary (max v1) starts: DB is at v2 dirty. Compatibility mode must NOT
 	// trigger — dirty state must be returned as an error so the operator can act.
-	_, err = applyDir(connStr, oneCoreFS, "core", "schema_migrations")
+	_, err = applySource(context.Background(), connStr, coreSource(oneCoreFS))
 	if err == nil {
 		t.Fatal("expected error for dirty database, got nil")
 	}
@@ -414,38 +432,38 @@ func TestApplyDir_DirtyStateNotMaskedByCompatibilityMode(t *testing.T) {
 	}
 }
 
-// --- rollbackDir tests ---
+// --- rollbackSource tests ---
 
-func TestRollbackDir_RollsBackToTarget(t *testing.T) {
+func TestRollbackSource_RollsBackToTarget(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations"); err != nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(goodCoreFS)); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
-	rollbackDir(connStr, goodCoreFS, "core", "schema_migrations", 0)
+	rollbackSource(context.Background(), connStr, coreSource(goodCoreFS), 0)
 
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 0 {
 		t.Errorf("version after rollback = %d, want 0", got)
 	}
 }
 
-func TestRollbackDir_PartialRollback(t *testing.T) {
+func TestRollbackSource_PartialRollback(t *testing.T) {
 	connStr := startTestDB(t)
 
-	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations"); err != nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(goodCoreFS)); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
 	// Roll back only one step (2 → 1).
-	rollbackDir(connStr, goodCoreFS, "core", "schema_migrations", 1)
+	rollbackSource(context.Background(), connStr, coreSource(goodCoreFS), 1)
 
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
 		t.Errorf("version after partial rollback = %d, want 1", got)
 	}
 }
 
-// --- cross-track rollback ---
+// --- cross-track rollback (per-source primitives) ---
 
 // TestCrossTrackRollback_CoreUnchangedWhenVectorFails covers the case where
 // core has no new migrations (ErrNoChange) and vector fails. Core should not
@@ -456,12 +474,12 @@ func TestCrossTrackRollback_CoreUnchangedWhenVectorFails(t *testing.T) {
 	combined := mergeFS(goodCoreFS, failVectorFS)
 
 	// Establish core at its latest version before the run.
-	if _, err := applyDir(connStr, combined, "core", "schema_migrations"); err != nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(combined)); err != nil {
 		t.Fatalf("setup core: %v", err)
 	}
 
-	// Core has no new migrations — applyDir returns ErrNoChange.
-	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations")
+	// Core has no new migrations — applySource returns ErrNoChange.
+	corePrev, err := applySource(context.Background(), connStr, coreSource(combined))
 	if err != nil {
 		t.Fatalf("core apply (no-op): %v", err)
 	}
@@ -470,12 +488,12 @@ func TestCrossTrackRollback_CoreUnchangedWhenVectorFails(t *testing.T) {
 	}
 
 	// Vector fails and self-rolls-back.
-	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations"); err == nil {
+	if _, err := applySource(context.Background(), connStr, vectorSource(combined)); err == nil {
 		t.Fatal("expected vector error, got nil")
 	}
 
 	// Cross-track rollback: core should be untouched since corePrev == current version.
-	rollbackDir(connStr, combined, "core", "schema_migrations", corePrev)
+	rollbackSource(context.Background(), connStr, coreSource(combined), corePrev)
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
 		t.Errorf("core version = %d, want 2 (should not have been downgraded)", got)
 	}
@@ -487,7 +505,7 @@ func TestCrossTrackRollback_CoreRolledBackWhenVectorFails(t *testing.T) {
 	combined := mergeFS(goodCoreFS, failVectorFS)
 
 	// Core succeeds.
-	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations")
+	corePrev, err := applySource(context.Background(), connStr, coreSource(combined))
 	if err != nil {
 		t.Fatalf("core apply: %v", err)
 	}
@@ -496,7 +514,7 @@ func TestCrossTrackRollback_CoreRolledBackWhenVectorFails(t *testing.T) {
 	}
 
 	// Vector fails. Self-rollback is skipped because vector prevVersion is 0.
-	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations"); err == nil {
+	if _, err := applySource(context.Background(), connStr, vectorSource(combined)); err == nil {
 		t.Fatal("expected vector error, got nil")
 	}
 	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 1 {
@@ -504,7 +522,7 @@ func TestCrossTrackRollback_CoreRolledBackWhenVectorFails(t *testing.T) {
 	}
 
 	// Cross-track rollback: core should be rolled back to its pre-run version.
-	rollbackDir(connStr, combined, "core", "schema_migrations", corePrev)
+	rollbackSource(context.Background(), connStr, coreSource(combined), corePrev)
 	if got := trackVersion(t, connStr, "schema_migrations"); got != corePrev {
 		t.Errorf("core version after cross-track rollback = %d, want %d", got, corePrev)
 	}
@@ -520,7 +538,7 @@ func TestCrossTrackRollback_IfExistsGuardsSafeOnVectorFailure(t *testing.T) {
 	combined := mergeFS(expandCoreFS, failVectorWithDependencyFS)
 
 	// Core succeeds (shared_data created with col_a and col_b).
-	corePrev, err := applyDir(connStr, combined, "core", "schema_migrations")
+	corePrev, err := applySource(context.Background(), connStr, coreSource(combined))
 	if err != nil {
 		t.Fatalf("core apply: %v", err)
 	}
@@ -529,7 +547,7 @@ func TestCrossTrackRollback_IfExistsGuardsSafeOnVectorFailure(t *testing.T) {
 	}
 
 	// Vector fails. Self-rollback is skipped because vector prevVersion is 0.
-	if _, err := applyDir(connStr, combined, "vector", "vector_schema_migrations"); err == nil {
+	if _, err := applySource(context.Background(), connStr, vectorSource(combined)); err == nil {
 		t.Fatal("expected vector error, got nil")
 	}
 	if got := trackVersion(t, connStr, "vector_schema_migrations"); got != 1 {
@@ -537,7 +555,7 @@ func TestCrossTrackRollback_IfExistsGuardsSafeOnVectorFailure(t *testing.T) {
 	}
 
 	// Cross-track rollback: core rolls back to its pre-run version.
-	rollbackDir(connStr, combined, "core", "schema_migrations", corePrev)
+	rollbackSource(context.Background(), connStr, coreSource(combined), corePrev)
 	if got := trackVersion(t, connStr, "schema_migrations"); got != corePrev {
 		t.Errorf("core version after cross-track rollback = %d, want %d", got, corePrev)
 	}
@@ -565,7 +583,7 @@ func TestRunUp_CoreAndVector(t *testing.T) {
 	connStr := startTestDB(t)
 	combined := mergeFS(goodCoreFS, goodVectorFS)
 
-	if err := RunUp(connStr, combined, true); err != nil {
+	if err := RunUp(context.Background(), connStr, []Source{coreSource(combined), vectorSource(combined)}); err != nil {
 		t.Fatalf("RunUp: %v", err)
 	}
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
@@ -580,7 +598,7 @@ func TestRunUp_CoreOnlyWhenVectorDisabled(t *testing.T) {
 	connStr := startTestDB(t)
 	combined := mergeFS(goodCoreFS, goodVectorFS)
 
-	if err := RunUp(connStr, combined, false); err != nil {
+	if err := RunUp(context.Background(), connStr, []Source{coreSource(combined)}); err != nil {
 		t.Fatalf("RunUp: %v", err)
 	}
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
@@ -588,18 +606,19 @@ func TestRunUp_CoreOnlyWhenVectorDisabled(t *testing.T) {
 	}
 	// Vector tracking table should not exist.
 	if tableExists(t, connStr, "vector_schema_migrations") {
-		t.Error("vector_schema_migrations should not exist when vectorEnabled=false")
+		t.Error("vector_schema_migrations should not exist when vector source is not registered")
 	}
 }
 
 func TestRunUp_FailsBeforeMigrationsWhenPgvectorMissing(t *testing.T) {
 	connStr := startTestDBWithoutPgvector(t)
 
-	err := RunUp(connStr, goodCoreFS, true)
+	err := RunUp(context.Background(), connStr, []Source{coreSource(goodCoreFS), vectorSource(goodCoreFS)})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	// Core migrations should NOT have run — no tracking table created.
+	// Core migrations should NOT have run — no tracking table created. The vector
+	// precheck runs up front, before any source is applied.
 	if tableExists(t, connStr, "schema_migrations") {
 		t.Error("schema_migrations should not exist — pgvector check should fail before any migrations")
 	}
@@ -612,7 +631,7 @@ func TestRunUp_SkipsCoreRollbackWhenVectorFailsOnFirstRun(t *testing.T) {
 	connStr := startTestDB(t) // pgvector available so checkPgvector passes
 	combined := mergeFS(goodCoreFS, failVectorFS)
 
-	err := RunUp(connStr, combined, true)
+	err := RunUp(context.Background(), connStr, []Source{coreSource(combined), vectorSource(combined)})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -622,18 +641,275 @@ func TestRunUp_SkipsCoreRollbackWhenVectorFailsOnFirstRun(t *testing.T) {
 	}
 }
 
+// TestRunUp_MultiSourceOrdering verifies sources apply in slice order: source "b"
+// references a table created by source "a", so it can only succeed if "a" ran first.
+func TestRunUp_MultiSourceOrdering(t *testing.T) {
+	connStr := startTestDB(t)
+
+	ordFS := fstest.MapFS{
+		"a/000001_a.up.sql":   {Data: []byte(`CREATE TABLE ord_a (id INT PRIMARY KEY);`)},
+		"a/000001_a.down.sql": {Data: []byte(`DROP TABLE IF EXISTS ord_a;`)},
+		"b/000001_b.up.sql":   {Data: []byte(`CREATE TABLE ord_b (id INT PRIMARY KEY, a_id INT REFERENCES ord_a(id));`)},
+		"b/000001_b.down.sql": {Data: []byte(`DROP TABLE IF EXISTS ord_b;`)},
+		"c/000001_c.up.sql":   {Data: []byte(`CREATE TABLE ord_c (id INT PRIMARY KEY);`)},
+		"c/000001_c.down.sql": {Data: []byte(`DROP TABLE IF EXISTS ord_c;`)},
+	}
+	sources := []Source{
+		{Name: "a", TrackingTable: "ord_a_migrations", FS: ordFS, Dir: "a"},
+		{Name: "b", TrackingTable: "ord_b_migrations", FS: ordFS, Dir: "b"},
+		{Name: "c", TrackingTable: "ord_c_migrations", FS: ordFS, Dir: "c"},
+	}
+
+	if err := RunUp(context.Background(), connStr, sources); err != nil {
+		t.Fatalf("RunUp: %v", err)
+	}
+	for _, table := range []string{"ord_a", "ord_b", "ord_c"} {
+		if !tableExists(t, connStr, table) {
+			t.Errorf("table %s should exist", table)
+		}
+	}
+	for _, tbl := range []string{"ord_a_migrations", "ord_b_migrations", "ord_c_migrations"} {
+		if got := trackVersion(t, connStr, tbl); got != 1 {
+			t.Errorf("%s version = %d, want 1", tbl, got)
+		}
+	}
+}
+
+// TestRunUp_CompensatingRollbackAcrossThreeSources verifies that when a later
+// source fails, previously-applied sources are rolled back to their pre-run
+// versions in reverse order — and that the prevVersion==0 guard skips a source
+// applied for the first time. Source "a" is fresh (prev 0, not compensated);
+// source "b" is pre-seeded at v1 (prev 1, rolled back); source "c" fails.
+func TestRunUp_CompensatingRollbackAcrossThreeSources(t *testing.T) {
+	connStr := startTestDB(t)
+
+	aFS := fstest.MapFS{
+		"a/000001_a.up.sql":   {Data: []byte(`CREATE TABLE comp_a (id INT PRIMARY KEY);`)},
+		"a/000001_a.down.sql": {Data: []byte(`DROP TABLE IF EXISTS comp_a;`)},
+	}
+	bV1FS := fstest.MapFS{
+		"b/000001_b.up.sql":   {Data: []byte(`CREATE TABLE comp_b (id INT PRIMARY KEY);`)},
+		"b/000001_b.down.sql": {Data: []byte(`DROP TABLE IF EXISTS comp_b;`)},
+	}
+	bFullFS := fstest.MapFS{
+		"b/000001_b.up.sql":          {Data: []byte(`CREATE TABLE comp_b (id INT PRIMARY KEY);`)},
+		"b/000001_b.down.sql":        {Data: []byte(`DROP TABLE IF EXISTS comp_b;`)},
+		"b/000002_b_addcol.up.sql":   {Data: []byte(`ALTER TABLE comp_b ADD COLUMN extra TEXT;`)},
+		"b/000002_b_addcol.down.sql": {Data: []byte(`ALTER TABLE comp_b DROP COLUMN IF EXISTS extra;`)},
+	}
+	cFS := fstest.MapFS{
+		"c/000001_bad.up.sql":   {Data: []byte(`ALTER TABLE no_such_table ADD COLUMN x TEXT;`)},
+		"c/000001_bad.down.sql": {Data: []byte(`SELECT 1;`)},
+	}
+
+	aSrc := Source{Name: "a", TrackingTable: "comp_a_migrations", FS: aFS, Dir: "a"}
+	bSrcFull := Source{Name: "b", TrackingTable: "comp_b_migrations", FS: bFullFS, Dir: "b"}
+	cSrc := Source{Name: "c", TrackingTable: "comp_c_migrations", FS: cFS, Dir: "c"}
+
+	// Pre-seed b at v1 so its prevVersion is > 0 during the run below.
+	if _, err := applySource(context.Background(), connStr, Source{Name: "b", TrackingTable: "comp_b_migrations", FS: bV1FS, Dir: "b"}); err != nil {
+		t.Fatalf("seed b: %v", err)
+	}
+
+	err := RunUp(context.Background(), connStr, []Source{aSrc, bSrcFull, cSrc})
+	if err == nil {
+		t.Fatal("expected error from failing source c, got nil")
+	}
+
+	// a: applied for the first time (prev 0) → compensation skipped → stays at v1.
+	if got := trackVersion(t, connStr, "comp_a_migrations"); got != 1 {
+		t.Errorf("comp_a version = %d, want 1 (prev==0 guard skips compensation)", got)
+	}
+	// b: prev was 1, advanced to 2, compensated back to 1.
+	if got := trackVersion(t, connStr, "comp_b_migrations"); got != 1 {
+		t.Errorf("comp_b version = %d, want 1 (rolled back to pre-run version)", got)
+	}
+}
+
+// TestRunUp_SchemaScopedSource verifies a Source with a non-empty Schema creates
+// the schema and lands both its objects and its tracking table there, not in public.
+func TestRunUp_SchemaScopedSource(t *testing.T) {
+	connStr := startTestDB(t)
+
+	schemaFS := fstest.MapFS{
+		"s/000001_create.up.sql":   {Data: []byte(`CREATE TABLE scoped_t (id INT PRIMARY KEY);`)},
+		"s/000001_create.down.sql": {Data: []byte(`DROP TABLE IF EXISTS scoped_t;`)},
+	}
+	src := Source{Name: "scoped", Schema: "myschema", TrackingTable: "schema_migrations", FS: schemaFS, Dir: "s"}
+
+	if err := RunUp(context.Background(), connStr, []Source{src}); err != nil {
+		t.Fatalf("RunUp: %v", err)
+	}
+
+	if !tableExistsInSchema(t, connStr, "myschema", "scoped_t") {
+		t.Error("scoped_t should exist in myschema")
+	}
+	if tableExistsInSchema(t, connStr, "public", "scoped_t") {
+		t.Error("scoped_t should NOT exist in public")
+	}
+	if !tableExistsInSchema(t, connStr, "myschema", "schema_migrations") {
+		t.Error("tracking table should exist in myschema")
+	}
+	if tableExistsInSchema(t, connStr, "public", "schema_migrations") {
+		t.Error("tracking table should NOT exist in public")
+	}
+}
+
+// TestRunUp_RejectsResolvedSchemaCollision verifies the runtime guard catches a
+// collision validateSources cannot: an unscoped source (Schema "") and an explicit
+// source naming the connection's current_schema() ("public" here) share one
+// tracking table once "" resolves, so RunUp must reject the set before applying
+// anything. validateSources alone passes them (distinct literal Schema keys).
+func TestRunUp_RejectsResolvedSchemaCollision(t *testing.T) {
+	connStr := startTestDB(t)
+
+	collide := []Source{
+		{Name: "implicit", Schema: "", TrackingTable: "schema_migrations", FS: goodCoreFS, Dir: "core"},
+		{Name: "explicit", Schema: "public", TrackingTable: "schema_migrations", FS: goodCoreFS, Dir: "core"},
+	}
+
+	// validateSources keys on the literal Schema, so it does NOT catch this.
+	if err := validateSources(collide); err != nil {
+		t.Fatalf("validateSources should pass on distinct literal schemas, got %v", err)
+	}
+
+	// RunUp resolves "" to current_schema() (public) and must reject.
+	err := RunUp(context.Background(), connStr, collide)
+	if err == nil {
+		t.Fatal("expected resolved-collision error, got nil")
+	}
+	if !strings.Contains(err.Error(), "resolve to the same tracking table") {
+		t.Errorf("error %q should describe a resolved tracking-table collision", err)
+	}
+	// Guard runs before any source applies — no tracking table created.
+	if tableExists(t, connStr, "schema_migrations") {
+		t.Error("schema_migrations should not exist — guard must fire before any source applies")
+	}
+}
+
+// TestRunUp_PreCheckRunsBeforeAnyApply verifies that a failing PreCheck on a later
+// source aborts the run before any earlier source is applied.
+func TestRunUp_PreCheckRunsBeforeAnyApply(t *testing.T) {
+	connStr := startTestDB(t)
+
+	preFS := fstest.MapFS{
+		"p/000001_create.up.sql":   {Data: []byte(`CREATE TABLE precheck_t (id INT PRIMARY KEY);`)},
+		"p/000001_create.down.sql": {Data: []byte(`DROP TABLE IF EXISTS precheck_t;`)},
+	}
+	first := Source{Name: "first", TrackingTable: "first_migrations", FS: preFS, Dir: "p"}
+	second := Source{Name: "second", TrackingTable: "second_migrations", FS: preFS, Dir: "p",
+		PreCheck: func(string) error { return fmt.Errorf("precheck boom") }}
+
+	err := RunUp(context.Background(), connStr, []Source{first, second})
+	if err == nil {
+		t.Fatal("expected error from failing precheck, got nil")
+	}
+	if tableExists(t, connStr, "precheck_t") {
+		t.Error("precheck_t should not exist — no source should apply when a precheck fails")
+	}
+	if tableExists(t, connStr, "first_migrations") {
+		t.Error("first_migrations tracking table should not exist — first source must not have applied")
+	}
+}
+
+func TestValidateSchemaName(t *testing.T) {
+	valid := []string{"a", "myschema", "tenant_1", "_x", "s123"}
+	for _, s := range valid {
+		if err := validateSchemaName(s); err != nil {
+			t.Errorf("validateSchemaName(%q) = %v, want nil", s, err)
+		}
+	}
+	// Uppercase is rejected: the name is used unquoted in search_path (which
+	// Postgres case-folds) and quoted in CREATE SCHEMA, so a mixed-case name
+	// would split across two schemas.
+	invalid := []string{"", "1abc", "has space", "a;b", `a"b`, "a-b", "a.b", "drop table", "ABC", "MySchema", strings.Repeat("x", 64)}
+	for _, s := range invalid {
+		if err := validateSchemaName(s); err == nil {
+			t.Errorf("validateSchemaName(%q) = nil, want error", s)
+		}
+	}
+}
+
+// --- container-free unit tests ---
+
+// TestValidateSources_RejectsDuplicateSchemaAndTable verifies the collision unit
+// is (Schema, TrackingTable): two sources sharing both are rejected, while the
+// same tracking-table name in different schemas, or different tables in the same
+// schema, are allowed.
+func TestValidateSources_RejectsDuplicateSchemaAndTable(t *testing.T) {
+	collide := []Source{
+		{Name: "a", Schema: "s1", TrackingTable: "schema_migrations", Dir: "a"},
+		{Name: "b", Schema: "s1", TrackingTable: "schema_migrations", Dir: "b"},
+	}
+	if err := validateSources(collide); err == nil {
+		t.Error("expected collision error for same (schema, tracking table), got nil")
+	}
+
+	ok := []Source{
+		// Same table name, different schema — fine.
+		{Name: "a", Schema: "s1", TrackingTable: "schema_migrations", Dir: "a"},
+		{Name: "b", Schema: "s2", TrackingTable: "schema_migrations", Dir: "b"},
+		// Different table, same (default) schema — fine.
+		{Name: "core", TrackingTable: "schema_migrations", Dir: "core"},
+		{Name: "vector", TrackingTable: "vector_schema_migrations", Dir: "vector"},
+	}
+	if err := validateSources(ok); err != nil {
+		t.Errorf("validateSources(distinct sources) = %v, want nil", err)
+	}
+
+	// An invalid schema name on any source is rejected up front, before any
+	// source applies (fail-fast).
+	badSchema := []Source{
+		{Name: "good", TrackingTable: "schema_migrations", Dir: "core"},
+		{Name: "bad", Schema: "MixedCase", TrackingTable: "schema_migrations", Dir: "x"},
+	}
+	if err := validateSources(badSchema); err == nil {
+		t.Error("expected error for invalid schema name on a later source, got nil")
+	}
+}
+
+// TestRunUp_EmptyAndNilSources verifies the no-op fast paths run no migration
+// logic and need no database.
+func TestRunUp_EmptyAndNilSources(t *testing.T) {
+	if err := RunUp(context.Background(), "postgres://invalid", nil); err != nil {
+		t.Errorf("RunUp(nil sources) = %v, want nil", err)
+	}
+	if err := RunUp(context.Background(), "postgres://invalid", []Source{}); err != nil {
+		t.Errorf("RunUp(empty sources) = %v, want nil", err)
+	}
+}
+
+// TestWithSearchPath verifies a URL-form DSN gains the search_path param and a
+// libpq keyword/value DSN is rejected rather than silently corrupted.
+func TestWithSearchPath(t *testing.T) {
+	got, err := withSearchPath("postgres://u:p@host:5432/db?sslmode=disable", "myschema")
+	if err != nil {
+		t.Fatalf("withSearchPath(url DSN) = %v, want nil", err)
+	}
+	if !strings.Contains(got, "search_path=myschema") {
+		t.Errorf("result %q missing search_path=myschema", got)
+	}
+	if !strings.Contains(got, "sslmode=disable") {
+		t.Errorf("result %q dropped existing sslmode param", got)
+	}
+
+	if _, err := withSearchPath("host=localhost dbname=foo user=bar", "myschema"); err == nil {
+		t.Error("withSearchPath(keyword/value DSN) = nil, want error")
+	}
+}
+
 // --- dirty state recovery tests ---
 
-// TestApplyDir_DirtyStateRecoveryOnRestart simulates a restart after a failed
+// TestApplySource_DirtyStateRecoveryOnRestart simulates a restart after a failed
 // migration left the database in a dirty state. On the second call, prevVersion
 // is > 0 (the dirty version), so rollback is enabled. The runner should clear
 // the dirty state and roll back to the last clean version.
-func TestApplyDir_DirtyStateRecoveryOnRestart(t *testing.T) {
+func TestApplySource_DirtyStateRecoveryOnRestart(t *testing.T) {
 	connStr := startTestDB(t)
 
 	// First run: apply version 1, then version 2 fails. prevVersion is 0, so
 	// rollback is skipped. Database left at version 2 dirty.
-	if _, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations"); err == nil {
+	if _, err := applySource(context.Background(), connStr, coreSource(failOnSecondCoreFS)); err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
@@ -643,7 +919,7 @@ func TestApplyDir_DirtyStateRecoveryOnRestart(t *testing.T) {
 	// Second run (simulating restart): prevVersion is now 2 (dirty). The runner
 	// should detect dirty state and attempt to clear it. mg.Up() will fail because
 	// the database is dirty, then rollbackToVersion clears dirty to version 1.
-	_, err := applyDir(connStr, failOnSecondCoreFS, "core", "schema_migrations")
+	_, err := applySource(context.Background(), connStr, coreSource(failOnSecondCoreFS))
 	if err == nil {
 		t.Fatal("expected error on second run, got nil")
 	}

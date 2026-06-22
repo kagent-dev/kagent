@@ -309,17 +309,11 @@ type ExtensionConfig struct {
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
 
-// MigrationRunner applies database migrations given the resolved connection URL.
-// vectorEnabled mirrors the --database-vector-enabled flag; custom runners can use it
-// to conditionally apply vector-specific migrations.
-// Returning a non-nil error causes the app to exit.
-//
-// Pass nil to Start to use the default migration runner (migrations.RunUp with migrations.FS).
-// Provide a custom runner to take over the migration process entirely.
-// Custom runners that want to include the built-in migrations can call migrations.RunUp directly.
-type MigrationRunner func(ctx context.Context, url string, vectorEnabled bool) error
-
-func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunner) {
+// Start boots the controller. extraSources registers additional migration
+// tracks beyond the built-in sources; they are applied after the built-in
+// (core, vector) tracks, in the order given. Pass nil to run only the built-in
+// migrations.
+func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Source) {
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
 
@@ -483,16 +477,11 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
-	// Use the built-in migration runner when none is provided.
-	if migrationRunner == nil {
-		migrationRunner = func(_ context.Context, url string, vectorEnabled bool) error {
-			return migrations.RunUp(url, migrations.FS, vectorEnabled)
-		}
-	}
-
 	// Run migrations before connecting; schema must exist before queries.
+	// Built-in sources run first, then any downstream-registered extras.
 	setupLog.Info("running database migrations")
-	if err := migrationRunner(ctx, dbURL, cfg.Database.VectorEnabled); err != nil {
+	sources := append(migrations.BuiltinSources(cfg.Database.VectorEnabled), extraSources...)
+	if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
 		setupLog.Error(err, "database migration failed")
 		os.Exit(1)
 	}
