@@ -538,6 +538,11 @@ proxy:
 
 k8s-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -546,6 +551,11 @@ k8s-agent:
       memory: 256Mi
 kgateway-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -554,6 +564,11 @@ kgateway-agent:
       memory: 256Mi
 istio-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -562,6 +577,11 @@ istio-agent:
       memory: 256Mi
 promql-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -570,6 +590,11 @@ promql-agent:
       memory: 256Mi
 observability-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -578,6 +603,11 @@ observability-agent:
       memory: 256Mi
 argo-rollouts-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -586,6 +616,11 @@ argo-rollouts-agent:
       memory: 256Mi
 helm-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -594,6 +629,11 @@ helm-agent:
       memory: 256Mi
 cilium-policy-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -602,6 +642,11 @@ cilium-policy-agent:
       memory: 256Mi
 cilium-manager-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -610,6 +655,11 @@ cilium-manager-agent:
       memory: 256Mi
 cilium-debug-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
