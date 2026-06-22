@@ -11,5 +11,5 @@ if [ ! -f "${HOME}/.openclaw/openclaw.json" ]; then
     printf '{"gateway":{"port":%s,"bind":"loopback","auth":{"mode":"none"}}}\n' \
         "${OPENCLAW_GATEWAY_PORT}" > "${HOME}/.openclaw/openclaw.json"
 fi
-/usr/local/bin/openclaw-gateway-ensure || true
-exec /usr/local/bin/acp-shim "$@" -- /usr/local/bin/openclaw-acp-child
+/usr/local/bin/openclaw-gateway-ensure.sh || true
+exec /usr/local/bin/acp-shim "$@" -- /usr/local/bin/openclaw-acp-child.sh

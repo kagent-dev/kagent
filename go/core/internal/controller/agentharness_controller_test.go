@@ -267,7 +267,6 @@ func newSubstrateHarness(namespace, name string) *v1alpha2.AgentHarness {
 			Finalizers: []string{agentHarnessFinalizer},
 		},
 		Spec: v1alpha2.AgentHarnessSpec{
-			Runtime: v1alpha2.AgentHarnessRuntimeSubstrate,
 			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
 				GatewayToken: "token",

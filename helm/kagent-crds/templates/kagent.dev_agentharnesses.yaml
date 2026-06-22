@@ -19,9 +19,6 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.runtime
-      name: Runtime
-      type: string
     - jsonPath: .spec.backend
       name: Backend
       type: string
@@ -501,15 +498,9 @@ spec:
                   The controller registers the gateway provider and, after the harness is Ready,
                   writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
                 type: string
-              runtime:
-                default: substrate
-                description: Runtime selects the harness provisioning stack. Defaults
-                  to substrate when unset.
-                enum:
-                - substrate
-                type: string
               substrate:
-                description: Substrate is required when runtime is substrate.
+                description: Substrate configures the Agent Substrate provisioning
+                  stack. Required.
                 properties:
                   gatewayToken:
                     description: |-
@@ -572,6 +563,7 @@ spec:
                   rule: '!(has(self.gatewayToken) && has(self.gatewayTokenSecretRef))'
             required:
             - backend
+            - substrate
             type: object
             x-kubernetes-validations:
             - message: slack backend-specific settings must match spec.backend
@@ -579,10 +571,8 @@ spec:
                 || (has(c.slack) && ((self.backend == ''hermes'' && has(c.slack.hermes)
                 && !has(c.slack.openclaw)) || (self.backend == ''openclaw'' && has(c.slack.openclaw)
                 && !has(c.slack.hermes)))))'
-            - message: spec.substrate may only be set when runtime is substrate
-              rule: '!has(self.substrate) || self.runtime == ''substrate'''
-            - message: spec.substrate is required when runtime is substrate
-              rule: self.runtime != 'substrate' || has(self.substrate)
+            - message: spec.substrate is required
+              rule: has(self.substrate)
           status:
             description: AgentHarnessStatus is the observed state of an AgentHarness.
             properties:

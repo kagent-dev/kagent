@@ -97,7 +97,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
     && rm -rf /var/lib/apt/lists/*
 # Persistent Hermes messaging gateway launcher (Slack/Telegram/...). See the
 # script header for the Substrate checkpoint/restore rationale.
-COPY --chmod=755 core/cmd/acp-shim/sandbox/hermes-gateway-ensure /usr/local/bin/hermes-gateway-ensure
+COPY --chmod=755 core/cmd/acp-shim/sandbox/hermes-gateway-ensure.sh /usr/local/bin/hermes-gateway-ensure.sh
 USER agent
 # [acp,all] pulls the ACP bridge + Slack/etc. extras. NOTE: hermes lazy-installs
 # each messaging platform's runtime lib on first `gateway run` via tools.lazy_deps
@@ -131,11 +131,11 @@ ARG OPENCLAW_VERSION=2026.5.27
 USER root
 RUN npm install -g "openclaw@${OPENCLAW_VERSION}"
 COPY --chmod=755 \
-    core/cmd/acp-shim/sandbox/openclaw-gateway-ensure \
-    core/cmd/acp-shim/sandbox/openclaw-acp-child \
-    core/cmd/acp-shim/sandbox/openclaw-acp-entrypoint \
+    core/cmd/acp-shim/sandbox/openclaw-gateway-ensure.sh \
+    core/cmd/acp-shim/sandbox/openclaw-acp-child.sh \
+    core/cmd/acp-shim/sandbox/openclaw-acp-entrypoint.sh \
     /usr/local/bin/
 USER agent
-ENTRYPOINT ["/usr/local/bin/openclaw-acp-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/openclaw-acp-entrypoint.sh"]
 CMD []
 

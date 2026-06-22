@@ -21,7 +21,7 @@ describe("validateAgentHarnessForm sections", () => {
 
   it("accepts a substrate harness without a gateway token (auto-generated)", () => {
     const r = validateAgentHarnessForm({
-      harness: { ...defaultAgentHarnessFormSlice(), runtime: "substrate" },
+      harness: { ...defaultAgentHarnessFormSlice() },
       modelRef: "ns/m1",
     });
     expect(r).toBeUndefined();
@@ -99,7 +99,6 @@ describe("agentHarnessForm build", () => {
         modelRef: "m1",
         harness: {
           ...defaultAgentHarnessFormSlice(),
-          runtime: "substrate",
           substrateGatewayToken: "tok",
           substrateWorkerPoolRefName: "default-wp",
         },

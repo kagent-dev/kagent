@@ -111,7 +111,7 @@ func TestBuildAcpStartupScript(t *testing.T) {
 	child := []string{"hermes", "acp"}
 
 	noGateway := buildAcpStartupScript("", child, false, acpshim.ChildPolicyLongLived)
-	if strings.Contains(noGateway, "hermes-gateway-ensure") {
+	if strings.Contains(noGateway, "hermes-gateway-ensure.sh") {
 		t.Fatalf("non-gateway script should not reference gateway: %q", noGateway)
 	}
 	if !strings.Contains(noGateway, "exec /usr/local/bin/acp-shim") {
@@ -134,11 +134,11 @@ func TestBuildAcpStartupScript(t *testing.T) {
 	// The gateway is launched only inside the acp-shim child wrapper (on the
 	// first post-restore connection), NOT pre-warmed before acp-shim — a
 	// snapshot-baked gateway restores with dead platform connections. So
-	// hermes-gateway-ensure must appear exactly once, inside the child shell.
-	if strings.Count(gateway, "hermes-gateway-ensure") != 1 {
+	// hermes-gateway-ensure.sh must appear exactly once, inside the child shell.
+	if strings.Count(gateway, "hermes-gateway-ensure.sh") != 1 {
 		t.Fatalf("expected exactly one (child-wrapper) gateway ensure, not a pre-warm: %q", gateway)
 	}
-	if strings.Contains(gateway, "hermes-gateway-ensure || true\nexec /usr/local/bin/acp-shim") {
+	if strings.Contains(gateway, "hermes-gateway-ensure.sh || true\nexec /usr/local/bin/acp-shim") {
 		t.Fatalf("gateway must not be pre-warmed before acp-shim: %q", gateway)
 	}
 	if !strings.Contains(gateway, "exec hermes acp") {

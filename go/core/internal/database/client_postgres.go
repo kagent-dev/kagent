@@ -83,11 +83,10 @@ func (c *postgresClient) DeleteAgent(ctx context.Context, agentID string) error 
 func (c *postgresClient) StoreSession(ctx context.Context, session *dbpkg.Session) error {
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
 		params := dbgen.UpsertSessionParams{
-			ID:           session.ID,
-			UserID:       session.UserID,
-			Name:         session.Name,
-			AgentID:      session.AgentID,
-			AcpSessionID: session.AcpSessionID,
+			ID:      session.ID,
+			UserID:  session.UserID,
+			Name:    session.Name,
+			AgentID: session.AgentID,
 		}
 		if session.Source != nil {
 			src := string(*session.Source)
@@ -732,7 +731,6 @@ func toSession(r dbgen.Session) *dbpkg.Session {
 		src := dbpkg.SessionSource(*r.Source)
 		s.Source = &src
 	}
-	s.AcpSessionID = r.AcpSessionID
 	return s
 }
 

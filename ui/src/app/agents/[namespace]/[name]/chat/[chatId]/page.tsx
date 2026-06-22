@@ -4,7 +4,6 @@ import { useSearchParams } from "next/navigation";
 import ChatInterface from "@/components/chat/ChatInterface";
 import AcpHarnessChat from "@/components/chat/AcpHarnessChat";
 import { getAgentWithResolvedKind } from "@/app/actions/agents";
-import { getSession } from "@/app/actions/sessions";
 import { Loader2 } from "lucide-react";
 
 export default function ChatPageView({ params }: { params: Promise<{ name: string; namespace: string; chatId: string }> }) {
@@ -16,7 +15,6 @@ export default function ChatPageView({ params }: { params: Promise<{ name: strin
   const isNew = searchParams.get("new") === "1";
   const [gate, setGate] = useState<"loading" | "ready">("loading");
   const [harnessAcpPath, setHarnessAcpPath] = useState<string | null>(null);
-  const [boundAcpSessionId, setBoundAcpSessionId] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -29,16 +27,9 @@ export default function ChatPageView({ params }: { params: Promise<{ name: strin
           const acpBase =
             substrateHarness.acpPath ||
             `/api/agentharnesses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/acp`;
+          // The kagent session id IS the ACP session id, so reopening this chat
+          // session/loads chatId directly inside the harness's shared actor.
           setHarnessAcpPath(`${acpBase}/${encodeURIComponent(chatId)}`);
-          // Reopened chats carry a bound ACP session id (set when the chat first
-          // ran session/new); load it so we resume the right conversation inside
-          // the harness's shared actor instead of guessing the most recent one.
-          if (!isNew) {
-            const sessionRes = await getSession(chatId);
-            if (!cancelled && sessionRes.data?.acp_session_id) {
-              setBoundAcpSessionId(sessionRes.data.acp_session_id);
-            }
-          }
         }
       } catch {
         /* fall through to the standard chat interface */
@@ -66,7 +57,10 @@ export default function ChatPageView({ params }: { params: Promise<{ name: strin
   }
 
   if (harnessAcpPath) {
-    return <AcpHarnessChat acpPath={harnessAcpPath} namespace={namespace} agentName={name} sessionId={chatId} boundAcpSessionId={boundAcpSessionId} autoConnect={!isNew} />;
+    // key={chatId} forces a clean remount when switching between chats via the
+    // sidebar, so the ACP hook never carries refs (bound session id, sockets)
+    // from a previously open chat into a different one.
+    return <AcpHarnessChat key={chatId} acpPath={harnessAcpPath} namespace={namespace} agentName={name} sessionId={chatId} autoConnect={!isNew} />;
   }
 
   return <ChatInterface selectedAgentName={name} selectedNamespace={namespace} sessionId={chatId} />;

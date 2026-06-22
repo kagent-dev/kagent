@@ -19,8 +19,6 @@ export function isSubstrateOnlyHarnessBackend(backend: AgentHarnessCrBackend | u
 
 export type AgentHarnessChannelFormType = "telegram" | "slack";
 
-export type HarnessRuntimeForm = "substrate";
-
 export interface AgentHarnessChannelRow {
   id: string;
   name: string;
@@ -71,8 +69,6 @@ export function newAgentHarnessChannelRow(): AgentHarnessChannelRow {
 
 export interface AgentHarnessFormSlice {
   backend: AgentHarnessCrBackend;
-  /** Harness control plane: Agent Substrate. */
-  runtime: HarnessRuntimeForm;
   substrateWorkerPoolRefName: string;
   substrateGatewayToken: string;
   /** GCS snapshot prefix (gs://bucket/path/) — required for generated templates. */
@@ -85,7 +81,6 @@ export interface AgentHarnessFormSlice {
 export function defaultAgentHarnessFormSlice(): AgentHarnessFormSlice {
   return {
     backend: "openclaw",
-    runtime: "substrate",
     substrateWorkerPoolRefName: "",
     substrateGatewayToken: "",
     substrateSnapshotsLocation: "gs://ate-snapshots/kagent/",
@@ -148,12 +143,6 @@ export function validateAgentHarnessForm(args: {
   const mr = (args.modelRef || "").trim();
   if (!mr) {
     return agentHarnessValidationFail("general", "Please select a model config for this AgentHarness.");
-  }
-  if (isSubstrateOnlyHarnessBackend(backend) && args.harness.runtime !== "substrate") {
-    return agentHarnessValidationFail(
-      "general",
-      "This harness type is only supported on the Agent Substrate runtime.",
-    );
   }
 
   const channelBackend = agentHarnessBackendSupportsMessengerChannels(backend);
@@ -348,15 +337,12 @@ export function buildAgentHarnessCRDraft(args: {
     }
   }
 
-  const runtime = args.harness.runtime?.trim() || "substrate";
-
   const spec: Record<string, unknown> = {
     backend,
-    runtime,
     modelConfigRef,
   };
 
-  if (runtime === "substrate") {
+  {
     const snapshots = args.harness.substrateSnapshotsLocation?.trim();
     if (!snapshots) {
       return { error: "Substrate snapshots location (gs://…) is required." };

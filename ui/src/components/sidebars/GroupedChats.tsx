@@ -174,7 +174,18 @@ export default function GroupedChats({
   }
 
   const handleNewChat = async () => {
-    if (provisionSessionOnNewChat || isHarness) {
+    // Substrate harness: actor-first ordering. Do NOT pre-create a DB session —
+    // its id must be the ACP session id that `session/new` returns. Open the
+    // bare chat page with ?new=1 so it starts a fresh chat idle; the first
+    // message runs `session/new`, and the chat hook then creates the DB session
+    // using that ACP id. (Pre-creating here would mint a random UUID that never
+    // matches the actor's ACP session, so the chat could not be stored/resumed.)
+    // The full page reload also guarantees the chat hook mounts with clean state.
+    if (isHarness) {
+      window.location.href = `/agents/${agentNamespace}/${agentName}/chat?new=1`;
+      return;
+    }
+    if (provisionSessionOnNewChat) {
       try {
         const created = await createSession({
           agent_ref: `${agentNamespace}/${agentName}`,
@@ -189,10 +200,7 @@ export default function GroupedChats({
             detail: { agentRef, session: created.data },
           })
         );
-        // Harness chats stay idle (no auto-connect, no spinner) until the user
-        // sends their first message; the ?new=1 marker signals that.
-        const suffix = isHarness ? "?new=1" : "";
-        window.location.href = `/agents/${agentNamespace}/${agentName}/chat/${created.data.id}${suffix}`;
+        window.location.href = `/agents/${agentNamespace}/${agentName}/chat/${created.data.id}`;
         return;
       } catch (error) {
         console.error("Error creating session:", error);

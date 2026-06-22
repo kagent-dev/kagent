@@ -9,7 +9,7 @@
 # time. This launcher never blocks or fails the acp child.
 set -u
 : "${HERMES_HOME:=${HOME}/.hermes}"
-log() { echo "hermes-gateway-ensure: $*" 1>&2; }
+log() { echo "hermes-gateway-ensure.sh: $*" 1>&2; }
 # No channel configured -> nothing to run.
 if [ -z "${SLACK_BOT_TOKEN:-}${TELEGRAM_BOT_TOKEN:-}" ]; then
   log "no SLACK_BOT_TOKEN/TELEGRAM_BOT_TOKEN in env; not starting gateway"

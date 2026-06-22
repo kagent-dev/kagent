@@ -22,7 +22,6 @@ func TestSubstrateSnapshotsLocationDefault(t *testing.T) {
 	ah := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "kagent", Name: "claw"},
 		Spec: v1alpha2.AgentHarnessSpec{
-			Runtime: v1alpha2.AgentHarnessRuntimeSubstrate,
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
 				GatewayToken: "test-token",
 			},
@@ -65,7 +64,6 @@ func TestResolveWorkerPoolRef(t *testing.T) {
 				TypeMeta:   metav1.TypeMeta{APIVersion: v1alpha2.GroupVersion.String(), Kind: "AgentHarness"},
 				ObjectMeta: metav1.ObjectMeta{Namespace: "kagent", Name: "claw"},
 				Spec: v1alpha2.AgentHarnessSpec{
-					Runtime:   v1alpha2.AgentHarnessRuntimeSubstrate,
 					Substrate: &v1alpha2.AgentHarnessSubstrateSpec{},
 				},
 			}
@@ -130,7 +128,6 @@ func TestEnsureActorTemplateDoesNotUpdateWhenDesiredStateMatches(t *testing.T) {
 		},
 		Spec: v1alpha2.AgentHarnessSpec{
 			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
-			Runtime: v1alpha2.AgentHarnessRuntimeSubstrate,
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
 				GatewayToken: "test-token",
 			},

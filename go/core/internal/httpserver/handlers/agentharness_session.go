@@ -134,13 +134,5 @@ func (h *Handlers) loadAgentHarnessSession(r *http.Request) (*v1alpha2.AgentHarn
 		return nil, "", errors.NewInternalServerError("Failed to load AgentHarness", err)
 	}
 
-	runtime := ah.Spec.Runtime
-	if runtime == "" {
-		runtime = v1alpha2.AgentHarnessRuntimeSubstrate
-	}
-	if runtime != v1alpha2.AgentHarnessRuntimeSubstrate {
-		return nil, "", errors.NewBadRequestError("session actors are only available for runtime=substrate", nil)
-	}
-
 	return &ah, sessionID, nil
 }

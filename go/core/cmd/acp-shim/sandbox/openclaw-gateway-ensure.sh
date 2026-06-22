@@ -17,5 +17,5 @@ while [ "$i" -lt 60 ]; do
     i=$((i+1))
     sleep 1
 done
-echo "openclaw-gateway-ensure: gateway did not come up on :${OPENCLAW_GATEWAY_PORT}" >&2
+echo "openclaw-gateway-ensure.sh: gateway did not come up on :${OPENCLAW_GATEWAY_PORT}" >&2
 exit 1

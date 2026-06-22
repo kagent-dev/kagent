@@ -25,8 +25,14 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
   const router = useRouter();
   const searchParams = useSearchParams();
   const apcSessionId = searchParams.get("sessionId") || undefined;
+  // The sidebar "New Chat" button lands here with ?new=1 to start a fresh
+  // harness chat actor-first (no pre-created session).
+  const wantNewHarnessChat = searchParams.get("new") === "1";
   const [gate, setGate] = useState<"loading" | "ready">("loading");
-  const [harnessSession, setHarnessSession] = useState<{ acpPath: string; sessionId?: string } | null>(null);
+  const [harnessSession, setHarnessSession] = useState<{ acpPath: string; sessionId?: string; isNew?: boolean } | null>(null);
+  // The harness's /acp WebSocket base, captured once we resolve the agent, so
+  // "New Chat" can open a fresh chat without a pre-created session.
+  const [harnessAcpBase, setHarnessAcpBase] = useState<string | null>(null);
   // Harness landing: user is on the bare /chat page with no session selected.
   // We don't create a session or start an actor here; the user picks an existing
   // chat from the sidebar or clicks "New Chat" (which creates + opens one).
@@ -50,9 +56,19 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
           const acpBase =
             substrateHarness.acpPath ||
             `/api/agentharnesses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/acp`;
+          setHarnessAcpBase(acpBase);
           // Existing chat opened via ?sessionId= (legacy ACP picker links).
           if (apcSessionId) {
             setHarnessSession({ acpPath: `${acpBase}/${encodeURIComponent(apcSessionId)}`, sessionId: apcSessionId });
+            setGate("ready");
+            return;
+          }
+          // "New Chat" from the sidebar lands here with ?new=1: start a fresh
+          // chat immediately (actor-first; no pre-created session) instead of
+          // showing the landing card. The first message runs session/new and
+          // creates the DB session keyed by the ACP id it returns.
+          if (wantNewHarnessChat) {
+            setHarnessSession({ acpPath: `${acpBase}/new`, isNew: true });
             setGate("ready");
             return;
           }
@@ -90,17 +106,15 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
     return () => {
       cancelled = true;
     };
-  }, [name, namespace, router, apcSessionId]);
+  }, [name, namespace, router, apcSessionId, wantNewHarnessChat]);
 
   const startNewHarnessChat = async () => {
-    const created = await createSession({ agent_ref: `${namespace}/${name}` });
-    if (created.error || !created.data) return;
-    // Navigate straight to the new chat. We deliberately don't dispatch
-    // new-session-created here: that synchronous parent re-render can drop the
-    // first router transition. The destination's pathname-keyed refreshSessions
-    // lists the new session in the sidebar. Stay idle until the first message;
-    // ?new=1 signals that.
-    window.location.href = `/agents/${namespace}/${name}/chat/${created.data.id}?new=1`;
+    if (!harnessAcpBase) return;
+    // Actor-first: don't pre-create a DB session. Open the chat idle; the first
+    // message runs session/new, and the ACP id it returns becomes the kagent
+    // session id (created then, with the URL swapped to /chat/{id}).
+    setHarnessLanding(false);
+    setHarnessSession({ acpPath: `${harnessAcpBase}/new`, isNew: true });
   };
 
   if (gate === "loading") {
@@ -126,8 +140,8 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
         namespace={namespace}
         agentName={name}
         sessionId={harnessSession.sessionId}
-        boundAcpSessionId={apcSessionId}
-        initialLoadSessionId={apcSessionId}
+        initialLoadSessionId={harnessSession.isNew ? undefined : apcSessionId}
+        autoConnect={harnessSession.isNew ? false : undefined}
       />
     );
   }

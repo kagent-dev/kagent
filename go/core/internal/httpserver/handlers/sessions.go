@@ -378,8 +378,8 @@ func (h *SessionsHandler) HandleRenameSession(w ErrorResponseWriter, r *http.Req
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
-	if sessionRequest.Name == nil && sessionRequest.AcpSessionID == nil {
-		w.RespondWithError(errors.NewBadRequestError("session name or acp_session_id is required", nil))
+	if sessionRequest.Name == nil {
+		w.RespondWithError(errors.NewBadRequestError("session name is required", nil))
 		return
 	}
 
@@ -391,9 +391,6 @@ func (h *SessionsHandler) HandleRenameSession(w ErrorResponseWriter, r *http.Req
 
 	if sessionRequest.Name != nil {
 		session.Name = sessionRequest.Name
-	}
-	if sessionRequest.AcpSessionID != nil {
-		session.AcpSessionID = sessionRequest.AcpSessionID
 	}
 	if err := h.DatabaseService.StoreSession(r.Context(), session); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to rename session", err))

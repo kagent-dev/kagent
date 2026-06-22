@@ -74,11 +74,6 @@ type Session struct {
 	// Source indicates how this session was created.
 	// SessionSourceUser = user-initiated, SessionSourceAgent = created by a parent agent's A2A call.
 	Source *SessionSource `json:"source,omitempty"`
-	// AcpSessionID binds this kagent session to an ACP session inside an
-	// AgentHarness's single shared substrate actor. It is set the first time a
-	// harness chat runs session/new and is replayed via session/load when the
-	// chat is reopened. Empty for non-harness sessions.
-	AcpSessionID *string `json:"acp_session_id,omitempty"`
 }
 
 type Task struct {

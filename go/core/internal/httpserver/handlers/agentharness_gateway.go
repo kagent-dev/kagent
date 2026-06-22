@@ -54,14 +54,6 @@ func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	runtime := ah.Spec.Runtime
-	if runtime == "" {
-		runtime = v1alpha2.AgentHarnessRuntimeSubstrate
-	}
-	if runtime != v1alpha2.AgentHarnessRuntimeSubstrate {
-		http.Error(w, "gateway proxy is only available for runtime=substrate", http.StatusBadRequest)
-		return
-	}
 	if h.AgentHarnessSessionActor == nil {
 		http.Error(w, "substrate session actor backend is not configured", http.StatusServiceUnavailable)
 		return

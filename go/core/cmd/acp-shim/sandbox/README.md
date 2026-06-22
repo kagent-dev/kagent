@@ -27,7 +27,7 @@ That "ensure it's up, idempotently" need is what these scripts encapsulate.
 
 | Script | Image | Role |
 |---|---|---|
-| [hermes-gateway-ensure](hermes-gateway-ensure) | hermes | Idempotently starts the Hermes messaging gateway. No-op unless a channel token (`SLACK_BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`) is set. Liveness via a PID file (`kill -0`). Fire-and-forget — never blocks the acp child. |
-| [openclaw-gateway-ensure](openclaw-gateway-ensure) | openclaw | Idempotently starts the OpenClaw gateway and waits (up to 60s) for it to accept connections. Liveness via an HTTP probe on `OPENCLAW_GATEWAY_PORT`. |
-| [openclaw-acp-child](openclaw-acp-child) | openclaw | The per-connection child the shim spawns: ensures the gateway, then `exec`s the `openclaw acp` bridge. |
-| [openclaw-acp-entrypoint](openclaw-acp-entrypoint) | openclaw | Container entrypoint: writes the gateway config, pre-warms the gateway (so the golden snapshot has a hot cache), then `exec`s the shim with the child wrapper. |
+| [hermes-gateway-ensure.sh](hermes-gateway-ensure.sh) | hermes | Idempotently starts the Hermes messaging gateway. No-op unless a channel token (`SLACK_BOT_TOKEN` / `TELEGRAM_BOT_TOKEN`) is set. Liveness via a PID file (`kill -0`). Fire-and-forget — never blocks the acp child. |
+| [openclaw-gateway-ensure.sh](openclaw-gateway-ensure.sh) | openclaw | Idempotently starts the OpenClaw gateway and waits (up to 60s) for it to accept connections. Liveness via an HTTP probe on `OPENCLAW_GATEWAY_PORT`. |
+| [openclaw-acp-child.sh](openclaw-acp-child.sh) | openclaw | The per-connection child the shim spawns: ensures the gateway, then `exec`s the `openclaw acp` bridge. |
+| [openclaw-acp-entrypoint.sh](openclaw-acp-entrypoint.sh) | openclaw | Container entrypoint: writes the gateway config, pre-warms the gateway (so the golden snapshot has a hot cache), then `exec`s the shim with the child wrapper. |

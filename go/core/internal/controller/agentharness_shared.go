@@ -40,10 +40,10 @@ const (
 // +kubebuilder:rbac:groups=kagent.dev,resources=agentharnesses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=agentharnesses/finalizers,verbs=update
 
-func reconcileBackendUnavailable(ctx context.Context, kube client.Client, ah *v1alpha2.AgentHarness, runtime v1alpha2.AgentHarnessRuntime) (ctrl.Result, error) {
+func reconcileBackendUnavailable(ctx context.Context, kube client.Client, ah *v1alpha2.AgentHarness) (ctrl.Result, error) {
 	setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse,
 		"BackendUnavailable",
-		fmt.Sprintf("no %s backend configured for %q", runtime, ah.Spec.Backend))
+		fmt.Sprintf("no substrate backend configured for %q", ah.Spec.Backend))
 	setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
 		"BackendUnavailable", "")
 	if err := patchAgentHarnessStatus(ctx, kube, ah); err != nil {
@@ -67,13 +67,6 @@ func patchAgentHarnessStatus(ctx context.Context, kube client.Client, ah *v1alph
 	}
 	*ah = current
 	return nil
-}
-
-func effectiveAgentHarnessRuntime(ah *v1alpha2.AgentHarness) v1alpha2.AgentHarnessRuntime {
-	if ah.Spec.Runtime == "" {
-		return v1alpha2.AgentHarnessRuntimeSubstrate
-	}
-	return ah.Spec.Runtime
 }
 
 func setAgentHarnessCondition(ah *v1alpha2.AgentHarness, t string, s metav1.ConditionStatus, reason, msg string) {
@@ -103,28 +96,4 @@ func agentHarnessPrimaryPredicate() predicate.Predicate {
 			return e.ObjectOld.GetDeletionTimestamp().IsZero() && !e.ObjectNew.GetDeletionTimestamp().IsZero()
 		},
 	}
-}
-
-func agentHarnessRuntimePredicate(runtime v1alpha2.AgentHarnessRuntime) predicate.Predicate {
-	primary := agentHarnessPrimaryPredicate()
-	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			return primary.Create(e) && agentHarnessObjectMatchesRuntime(e.Object, runtime)
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return primary.Delete(e) && agentHarnessObjectMatchesRuntime(e.Object, runtime)
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			return primary.Update(e) &&
-				(agentHarnessObjectMatchesRuntime(e.ObjectOld, runtime) || agentHarnessObjectMatchesRuntime(e.ObjectNew, runtime))
-		},
-	}
-}
-
-func agentHarnessObjectMatchesRuntime(obj client.Object, runtime v1alpha2.AgentHarnessRuntime) bool {
-	ah, ok := obj.(*v1alpha2.AgentHarness)
-	if !ok || ah == nil {
-		return false
-	}
-	return effectiveAgentHarnessRuntime(ah) == runtime
 }

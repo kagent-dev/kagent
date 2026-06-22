@@ -74,9 +74,6 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 		}
 		return ctrl.Result{}, fmt.Errorf("get AgentHarness: %w", err)
 	}
-	if effectiveAgentHarnessRuntime(&ah) != v1alpha2.AgentHarnessRuntimeSubstrate {
-		return ctrl.Result{}, nil
-	}
 
 	if !ah.DeletionTimestamp.IsZero() {
 		return r.reconcileDelete(ctx, &ah)
@@ -91,7 +88,7 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 
 	backend := r.backendFor(&ah)
 	if backend == nil {
-		return reconcileBackendUnavailable(ctx, r.Client, &ah, v1alpha2.AgentHarnessRuntimeSubstrate)
+		return reconcileBackendUnavailable(ctx, r.Client, &ah)
 	}
 
 	lifecycleState, err := r.SubstrateLifecycle.EnsureGeneratedTemplate(ctx, &ah)
@@ -223,7 +220,7 @@ func substrateDeleteTimedOut(ah *v1alpha2.AgentHarness) bool {
 func (r *SubstrateAgentHarnessController) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{NeedLeaderElection: new(true)}).
-		For(&v1alpha2.AgentHarness{}, builder.WithPredicates(agentHarnessRuntimePredicate(v1alpha2.AgentHarnessRuntimeSubstrate)))
+		For(&v1alpha2.AgentHarness{}, builder.WithPredicates(agentHarnessPrimaryPredicate()))
 	b = r.substrateWatches(b)
 	return b.Named("agentharness-substrate").Complete(r)
 }

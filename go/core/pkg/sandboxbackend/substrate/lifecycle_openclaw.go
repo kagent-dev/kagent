@@ -85,7 +85,7 @@ func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.
 }
 
 // acpShimEnv returns the env vars the acp-shim and the image's
-// openclaw-gateway-ensure/openclaw-acp-child scripts read. The shim reuses
+// openclaw-gateway-ensure.sh/openclaw-acp-child.sh scripts read. The shim reuses
 // the harness gateway token as its bearer token; when the token comes from a
 // Secret it stays a secretKeyRef (resolved by ate-api), never inlined.
 func acpShimEnv(ah *v1alpha2.AgentHarness, gatewayPort int) []corev1.EnvVar {

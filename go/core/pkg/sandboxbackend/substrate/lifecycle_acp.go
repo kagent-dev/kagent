@@ -143,7 +143,7 @@ func buildAcpStartupScript(prelude string, child []string, runGateway bool, poli
 			prelude, acpListenPort, policy, childCmd)
 	}
 	return fmt.Sprintf(
-		"set -e\n%sexec /usr/local/bin/acp-shim \\\n  --listen :%d \\\n  --child-policy %s \\\n  -- /bin/sh -c '/usr/local/bin/hermes-gateway-ensure || true; exec %s'",
+		"set -e\n%sexec /usr/local/bin/acp-shim \\\n  --listen :%d \\\n  --child-policy %s \\\n  -- /bin/sh -c '/usr/local/bin/hermes-gateway-ensure.sh || true; exec %s'",
 		prelude, acpListenPort, policy, childCmd)
 }
 

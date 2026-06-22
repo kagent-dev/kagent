@@ -217,9 +217,6 @@ export interface Session {
   created_at: string;
   updated_at: string;
   deleted_at: string;
-  /** For AgentHarness chats: the ACP session id inside the harness's shared
-   * actor that this kagent session is bound to. */
-  acp_session_id?: string;
 }
 
 export interface ToolsResponse {
@@ -454,10 +451,9 @@ export interface Agent {
   };
 }
 
-/** Merged into GET /api/agents when AgentHarness.spec.runtime is substrate. */
+/** Merged into GET /api/agents for an AgentHarness backed by Agent Substrate. */
 export interface AgentHarnessListEntry {
   backend: string;
-  runtime: "substrate";
   actorId?: string;
   /** Same-origin WebSocket path for the ACP chat proxy. */
   acpPath?: string;

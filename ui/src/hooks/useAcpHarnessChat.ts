@@ -14,22 +14,30 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "sonner";
 import type { Message } from "@a2a-js/sdk";
-import { renameSession, bindAcpSession } from "@/app/actions/sessions";
+import { renameSession, createSession } from "@/app/actions/sessions";
 import { createMessage, ProcessedToolCallData, ProcessedToolResultData } from "@/lib/messageHandlers";
 import { chunkText, cleanSessionTitle, toolResultText } from "@/lib/acp";
 import type { AcpSessionInfo, ConnState, JsonRpcMessage, PermissionOption, SessionUpdate } from "@/types/acp";
+
+// How long to wait for a resume (session/load) to complete before giving up. A
+// session/load can hang indefinitely when the harness's shared actor was
+// restored from a checkpoint without the requested session still in memory,
+// which would otherwise pin the chat in "loading-session" ("resuming") forever.
+// On timeout we abandon the resume and start a fresh ACP session so the chat
+// stays usable. Generous so a normal transcript replay never trips it.
+const RESUME_LOAD_TIMEOUT_MS = 20000;
+
 
 export interface UseAcpHarnessChatOptions {
   /** Same-origin WebSocket path, e.g. /api/agentharnesses/kagent/my-claw/acp */
   acpPath: string;
   namespace: string;
   agentName: string;
-  /** The kagent/DB session id this chat maps to. */
+  /** The kagent/DB session id this chat maps to. For harness chats this IS the
+   * ACP session id: the id session/new returns is adopted as the kagent session
+   * id, so a reopened chat session/loads it directly. Undefined for a brand-new
+   * chat until the first message creates the session. */
   sessionId?: string;
-  /** The ACP session id (inside the harness's shared actor) this chat is bound
-   * to. Set for reopened chats so we session/load the right conversation
-   * instead of guessing the most recent one. */
-  boundAcpSessionId?: string;
   /** Callback when ACP sessions are updated from session/list. */
   onSessionsUpdate?: (sessions: AcpSessionInfo[]) => void;
   /** The session ID to load on mount (from sidebar click). */
@@ -56,7 +64,6 @@ export function useAcpHarnessChat({
   namespace,
   agentName,
   sessionId,
-  boundAcpSessionId,
   onSessionsUpdate,
   initialLoadSessionId,
   autoConnect,
@@ -96,14 +103,15 @@ export function useAcpHarnessChat({
   const canListSessionsRef = useRef(false);
   // Last title persisted to the DB session name, to avoid redundant renames.
   const lastTitleRef = useRef<string>("");
-  // DB session id (stable per mount) read from a ref so handleMessage stays stable.
+  // The kagent DB session id, which for harness chats IS the ACP session id
+  // (the id session/new returns is adopted as the kagent session id). Held in a
+  // ref so handleMessage stays stable. For a brand-new chat the prop is
+  // undefined until session/new creates the DB session; once we set it locally
+  // we must not let the still-undefined prop clobber it, hence the guarded sync.
   const dbSessionIdRef = useRef<string | undefined>(sessionId);
-  dbSessionIdRef.current = sessionId;
-  // The ACP session id this chat is bound to (from the DB), read from a ref so
-  // handleMessage stays stable. Drives resume: reopened chats session/load this
-  // exact id rather than guessing the most recent ACP session.
-  const boundAcpSessionIdRef = useRef<string | undefined>(boundAcpSessionId);
-  boundAcpSessionIdRef.current = boundAcpSessionId;
+  if (sessionId && dbSessionIdRef.current !== sessionId) {
+    dbSessionIdRef.current = sessionId;
+  }
   // Auto-reconnect bookkeeping. The harness's actor is shared and resumes on
   // demand, so an unexpected socket drop (e.g. a suspended actor, a brief proxy
   // blip) is recovered automatically with exponential backoff instead of asking
@@ -342,19 +350,19 @@ export function useAcpHarnessChat({
           canListSessionsRef.current = caps.loadSession === true && caps.sessionCapabilities?.list !== undefined;
           // Always ask the actor for its sessions first (session/list) so we
           // resume using the id the actor actually reports. session/new hands
-          // back a bare id (what we persist as the chat's bound id) while
+          // back a bare id (which we adopt as the kagent session id) while
           // session/list returns namespaced ids (e.g. "agent:main:acp:<id>");
           // loading the bare id directly silently fails to replay. The list
-          // response (needResumeDecision) matches our bound id by suffix and
+          // response (needResumeDecision) matches our session id by suffix and
           // session/load's the actor's full id, or starts fresh when this chat
-          // has no bound session yet.
+          // has no session yet.
           if (canListSessionsRef.current) {
             needResumeDecisionRef.current = true;
             setConn("loading-session");
             rpc("session/list", {});
           } else {
-            // Agent can't list/load: start a new ACP session. We persist its id
-            // to the DB once session/new returns so reopening resumes it.
+            // Agent can't list/load: start a new ACP session. Its id becomes the
+            // kagent session id once session/new returns so reopening resumes it.
             setConn("creating-session");
             rpc("session/new", { cwd: "/home/agent", mcpServers: [] });
           }
@@ -383,7 +391,7 @@ export function useAcpHarnessChat({
           // session is gone starts fresh.
           if (needResumeDecisionRef.current) {
             needResumeDecisionRef.current = false;
-            const boundId = boundAcpSessionIdRef.current;
+            const boundId = dbSessionIdRef.current;
             const resume = boundId
               ? sorted.find(
                   (s) =>
@@ -458,11 +466,28 @@ export function useAcpHarnessChat({
           }
           sessionIdRef.current = sid;
           setConn("ready");
-          // Bind this kagent chat to the new ACP session so reopening it resumes
-          // the same conversation inside the harness's shared actor.
-          if (dbSessionIdRef.current && boundAcpSessionIdRef.current !== sid) {
-            boundAcpSessionIdRef.current = sid;
-            void bindAcpSession(dbSessionIdRef.current, sid);
+          // Brand-new chat: the ACP session id session/new just returned becomes
+          // this chat's kagent session id. Create the DB session now (actor-first
+          // ordering) so the kagent record and the ACP session share one id with
+          // no separate binding to persist. Reopened chats already have an id.
+          if (!dbSessionIdRef.current) {
+            dbSessionIdRef.current = sid;
+            const agentRef = `${namespace}/${agentName}`;
+            void createSession({ id: sid, agent_ref: agentRef }).then((res) => {
+              if (res.error || !res.data || typeof window === "undefined") return;
+              // Swap the URL to the real chat id without remounting, and surface
+              // the new chat in the sidebar.
+              window.history.replaceState(
+                {},
+                "",
+                `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(agentName)}/chat/${encodeURIComponent(sid)}`,
+              );
+              window.dispatchEvent(
+                new CustomEvent("new-session-created", {
+                  detail: { agentRef, session: res.data },
+                }),
+              );
+            });
           }
           // Fetch previous chats now that any required authenticate has run.
           if (canListSessionsRef.current) {
@@ -654,6 +679,29 @@ export function useAcpHarnessChat({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialLoadSessionId, conn]);
+
+  // Resume watchdog: a session/load that never answers (e.g. the actor was
+  // restored without the session) would leave the chat stuck in
+  // "loading-session" ("resuming") forever. If a load doesn't complete in time,
+  // abandon the resume and start a fresh ACP session so the chat stays usable
+  // instead of being permanently stuck. A successful/failed load flips conn off
+  // "loading-session", which clears this timer before it fires.
+  useEffect(() => {
+    if (conn !== "loading-session") return;
+    const timer = setTimeout(() => {
+      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+      replayingRef.current = false;
+      pendingLoadRef.current = null;
+      flushStream();
+      setMessages([]);
+      toolNamesRef.current.clear();
+      toolResultsSentRef.current.clear();
+      planMessageIdRef.current = null;
+      setConn("creating-session");
+      rpc("session/new", { cwd: "/home/agent", mcpServers: [] });
+    }, RESUME_LOAD_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [conn, flushStream, rpc]);
 
   // React to manual Suspend/Resume of the harness's shared actor (from the
   // right-sidebar menu). Suspending freezes the actor while the proxied socket

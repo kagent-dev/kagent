@@ -33,7 +33,7 @@ export async function getSession(sessionId: string): Promise<BaseResponse<Sessio
   try {
     // GET /sessions/{id} responds with an envelope whose data nests the session
     // under `session` (alongside `events`): { data: { session, events } }.
-    // Unwrap both layers so callers get the Session directly (incl. acp_session_id).
+    // Unwrap both layers so callers get the Session directly.
     const response = await fetchApi<BaseResponse<{ session: Session; events: unknown[] }>>(`/sessions/${sessionId}`);
     return { message: "Session fetched successfully", data: response.data?.session };
   } catch (error) {
@@ -97,29 +97,6 @@ export async function renameSession(sessionId: string, name: string): Promise<Ba
     return { message: "Session renamed successfully", data: response.data };
   } catch (error) {
     return createErrorResponse<Session>(error, "Error renaming session");
-  }
-}
-
-/**
- * Binds a kagent session to an ACP session id (for AgentHarness chats). The
- * binding is persisted so reopening the chat resumes the same ACP session
- * inside the harness's shared actor.
- * @param sessionId The kagent session ID
- * @param acpSessionId The ACP session id returned by session/new
- * @returns A promise with the updated session
- */
-export async function bindAcpSession(sessionId: string, acpSessionId: string): Promise<BaseResponse<Session>> {
-  try {
-    const response = await fetchApi<BaseResponse<Session>>(`/sessions/${sessionId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ acp_session_id: acpSessionId }),
-    });
-    return { message: "Session bound successfully", data: response.data };
-  } catch (error) {
-    return createErrorResponse<Session>(error, "Error binding ACP session");
   }
 }
 

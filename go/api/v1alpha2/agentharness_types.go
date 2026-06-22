@@ -36,14 +36,6 @@ func IsKnownAgentHarnessBackend(b AgentHarnessBackendType) bool {
 	}
 }
 
-// AgentHarnessRuntime selects which control plane provisions the harness VM.
-// +kubebuilder:validation:Enum=substrate
-type AgentHarnessRuntime string
-
-const (
-	AgentHarnessRuntimeSubstrate AgentHarnessRuntime = "substrate"
-)
-
 // AgentHarnessSubstrateSnapshotsConfig points at a GCS prefix for actor memory snapshots.
 // Substrate currently expects a gs:// location (see Agent Substrate SnapshotsConfig).
 type AgentHarnessSubstrateSnapshotsConfig struct {
@@ -206,20 +198,14 @@ type AgentHarnessChannel struct {
 // in. The backend is responsible for provisioning an environment that stays
 // ready to accept incoming commands.
 // +kubebuilder:validation:XValidation:rule="!has(self.channels) || self.channels.all(c, c.type != 'slack' || (has(c.slack) && ((self.backend == 'hermes' && has(c.slack.hermes) && !has(c.slack.openclaw)) || (self.backend == 'openclaw' && has(c.slack.openclaw) && !has(c.slack.hermes)))))",message="slack backend-specific settings must match spec.backend"
-// +kubebuilder:validation:XValidation:rule="!has(self.substrate) || self.runtime == 'substrate'",message="spec.substrate may only be set when runtime is substrate"
-// +kubebuilder:validation:XValidation:rule="self.runtime != 'substrate' || has(self.substrate)",message="spec.substrate is required when runtime is substrate"
+// +kubebuilder:validation:XValidation:rule="has(self.substrate)",message="spec.substrate is required"
 type AgentHarnessSpec struct {
 	// Backend selects the control plane to use. Required.
 	// +required
 	Backend AgentHarnessBackendType `json:"backend"`
 
-	// Runtime selects the harness provisioning stack. Defaults to substrate when unset.
-	// +optional
-	// +kubebuilder:default=substrate
-	Runtime AgentHarnessRuntime `json:"runtime,omitempty"`
-
-	// Substrate is required when runtime is substrate.
-	// +optional
+	// Substrate configures the Agent Substrate provisioning stack. Required.
+	// +required
 	Substrate *AgentHarnessSubstrateSpec `json:"substrate,omitempty"`
 
 	// Description is a short human-readable summary shown in the UI (e.g. agents list).
@@ -296,7 +282,6 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=agentharnesses,singular=agentharness,shortName=ahr,categories=kagent
 // +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="Runtime",type="string",JSONPath=".spec.runtime"
 // +kubebuilder:printcolumn:name="Backend",type="string",JSONPath=".spec.backend"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="ID",type="string",JSONPath=".status.backendRef.id"

@@ -165,11 +165,6 @@ func (h *AgentsHandler) agentHarnessAgentResponse(ctx context.Context, log logr.
 		}
 	}
 
-	runtime := sb.Spec.Runtime
-	if runtime == "" {
-		runtime = v1alpha2.AgentHarnessRuntimeSubstrate
-	}
-
 	desc := strings.TrimSpace(sb.Spec.Description)
 
 	resp := api.AgentResponse{
@@ -191,7 +186,6 @@ func (h *AgentsHandler) agentHarnessAgentResponse(ctx context.Context, log logr.
 	// Only substrate runtime is supported
 	subEntry := &api.SubstrateAgentHarnessListEntry{
 		Backend:        sb.Spec.Backend,
-		Runtime:        runtime,
 		ModelConfigRef: sb.Spec.ModelConfigRef,
 		AcpPath:        fmt.Sprintf("/api/agentharnesses/%s/%s/acp", sb.Namespace, sb.Name),
 	}

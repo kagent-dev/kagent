@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
   defaultAgentHarnessFormSlice,
-  isSubstrateOnlyHarnessBackend,
   type AgentHarnessFormSlice,
 } from "@/lib/agentHarnessForm";
 import type { AgentHarnessCrBackend, ModelConfig } from "@/types";
@@ -275,9 +274,6 @@ function AgentHarnessPageContent() {
                           ...prev.harnessForm,
                           backend,
                         };
-                        if (isSubstrateOnlyHarnessBackend(backend)) {
-                          nextHarnessForm.runtime = "substrate";
-                        }
                         return { ...prev, harnessType, harnessForm: nextHarnessForm };
                       });
                     }}

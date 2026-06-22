@@ -6,7 +6,7 @@ echo '{{.OpenClawJSONBase64}}' | base64 -d > "${HOME}/.openclaw/openclaw.json"
 # Node process survives but its listener does not). The gateway stays a
 # private loopback detail: kagent only ever reaches the actor through the
 # shim's /acp WebSocket, never the gateway directly.
-/usr/local/bin/openclaw-gateway-ensure || true
+/usr/local/bin/openclaw-gateway-ensure.sh || true
 # The shim owns the atenet ingress port: /acp bridges WebSocket frames to a
 # long-lived `openclaw acp` child, which connects to the loopback gateway.
 #
@@ -15,7 +15,7 @@ echo '{{.OpenClawJSONBase64}}' | base64 -d > "${HOME}/.openclaw/openclaw.json"
 # instead of paying a fresh Node boot + gateway handshake on every WebSocket
 # connection. The child is started lazily on the first connection and only
 # respawned after it exits (e.g. when its loopback gateway link dies across a
-# checkpoint/restore); each fresh spawn re-runs openclaw-gateway-ensure, so
+# checkpoint/restore); each fresh spawn re-runs openclaw-gateway-ensure.sh, so
 # the gateway is re-established before `openclaw acp` reconnects.
 #
 # The child must NOT pass --url: `openclaw acp` only applies the gateway
@@ -25,4 +25,4 @@ echo '{{.OpenClawJSONBase64}}' | base64 -d > "${HOME}/.openclaw/openclaw.json"
 exec /usr/local/bin/acp-shim \
   --listen :{{.ACPPort}} \
   --child-policy long-lived \
-  -- /bin/sh -c '/usr/local/bin/openclaw-gateway-ensure && exec openclaw acp'
+  -- /bin/sh -c '/usr/local/bin/openclaw-gateway-ensure.sh && exec openclaw acp'

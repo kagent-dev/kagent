@@ -59,7 +59,7 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 	script, env, err := p.buildOpenClawActorStartup(context.Background(), ah)
 	require.NoError(t, err)
 	require.Contains(t, script, "base64 -d")
-	require.Contains(t, script, "openclaw-gateway-ensure")
+	require.Contains(t, script, "openclaw-gateway-ensure.sh")
 	require.Contains(t, script, "exec /usr/local/bin/acp-shim")
 	require.Contains(t, script, "--listen :80")
 	require.NotContains(t, script, "--passthrough")

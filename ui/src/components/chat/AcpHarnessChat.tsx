@@ -26,11 +26,9 @@ interface AcpHarnessChatProps {
   acpPath: string;
   namespace: string;
   agentName: string;
-  /** The kagent/DB session id this chat maps to. */
+  /** The kagent/DB session id this chat maps to. For harness chats this also is
+   * the ACP session id, so a reopened chat resumes the right conversation. */
   sessionId?: string;
-  /** The ACP session id this chat is bound to (from the DB), so reopened chats
-   * resume the right conversation inside the harness's shared actor. */
-  boundAcpSessionId?: string;
   /** Callback when ACP sessions are updated from session/list. */
   onSessionsUpdate?: (sessions: AcpSessionInfo[]) => void;
   /** The session ID to load on mount (from sidebar click). */
@@ -45,7 +43,6 @@ export default function AcpHarnessChat({
   namespace,
   agentName,
   sessionId,
-  boundAcpSessionId,
   onSessionsUpdate,
   initialLoadSessionId,
   autoConnect,
@@ -55,7 +52,6 @@ export default function AcpHarnessChat({
     namespace,
     agentName,
     sessionId,
-    boundAcpSessionId,
     onSessionsUpdate,
     initialLoadSessionId,
     autoConnect,

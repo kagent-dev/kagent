@@ -163,13 +163,6 @@ export function AgentHarnessFields({
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const section = validationError?.section ?? null;
 
-  React.useEffect(() => {
-    // Ensure runtime is always substrate (only supported runtime)
-    if (value.runtime !== "substrate") {
-      onChange({ ...value, runtime: "substrate" });
-    }
-  }, [value, onChange]);
-
   return (
     <div id="section-agent-harness-sandbox" className="space-y-8">
       <FieldError>
@@ -182,52 +175,50 @@ export function AgentHarnessFields({
           title="Runtime"
           description="Agent Substrate generates an ActorTemplate and uses an existing WorkerPool."
         >
-          {value.runtime === "substrate" ? (
-            <div className="space-y-4">
-              <FieldRoot>
-                <FieldLabel htmlFor="agent-field-substrate-gateway-token">Gateway token</FieldLabel>
-                <Input
-                  id="agent-field-substrate-gateway-token"
-                  disabled={disabled}
-                  type="password"
-                  placeholder="Leave empty to auto-generate"
-                  value={value.substrateGatewayToken}
-                  onChange={(e) => set({ substrateGatewayToken: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Optional bearer token used by kagent when proxying the generated sandbox
-                  gateway. Leave empty to have the controller generate one and store it in a
-                  Secret named <code>&lt;harness-name&gt;-gateway-token</code>.
-                </p>
-              </FieldRoot>
-              <FieldRoot>
-                <FieldLabel htmlFor="agent-field-substrate-snapshots">Snapshot location (GCS)</FieldLabel>
-                <Input
-                  id="agent-field-substrate-snapshots"
-                  disabled={disabled}
-                  placeholder="gs://ate-snapshots/kagent/my-harness/"
-                  value={value.substrateSnapshotsLocation}
-                  onChange={(e) => set({ substrateSnapshotsLocation: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Substrate stores golden and incremental snapshots at this gs:// prefix (GCS only today).
-                </p>
-              </FieldRoot>
-              <FieldRoot>
-                <FieldLabel htmlFor="agent-field-substrate-wp-name">WorkerPool name</FieldLabel>
-                <Input
-                  id="agent-field-substrate-wp-name"
-                  disabled={disabled}
-                  placeholder="controller default"
-                  value={value.substrateWorkerPoolRefName}
-                  onChange={(e) => set({ substrateWorkerPoolRefName: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Leave empty to use the controller default WorkerPool.
-                </p>
-              </FieldRoot>
-            </div>
-          ) : null}
+          <div className="space-y-4">
+            <FieldRoot>
+              <FieldLabel htmlFor="agent-field-substrate-gateway-token">Gateway token</FieldLabel>
+              <Input
+                id="agent-field-substrate-gateway-token"
+                disabled={disabled}
+                type="password"
+                placeholder="Leave empty to auto-generate"
+                value={value.substrateGatewayToken}
+                onChange={(e) => set({ substrateGatewayToken: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Optional bearer token used by kagent when proxying the generated sandbox
+                gateway. Leave empty to have the controller generate one and store it in a
+                Secret named <code>&lt;harness-name&gt;-gateway-token</code>.
+              </p>
+            </FieldRoot>
+            <FieldRoot>
+              <FieldLabel htmlFor="agent-field-substrate-snapshots">Snapshot location (GCS)</FieldLabel>
+              <Input
+                id="agent-field-substrate-snapshots"
+                disabled={disabled}
+                placeholder="gs://ate-snapshots/kagent/my-harness/"
+                value={value.substrateSnapshotsLocation}
+                onChange={(e) => set({ substrateSnapshotsLocation: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Substrate stores golden and incremental snapshots at this gs:// prefix (GCS only today).
+              </p>
+            </FieldRoot>
+            <FieldRoot>
+              <FieldLabel htmlFor="agent-field-substrate-wp-name">WorkerPool name</FieldLabel>
+              <Input
+                id="agent-field-substrate-wp-name"
+                disabled={disabled}
+                placeholder="controller default"
+                value={value.substrateWorkerPoolRefName}
+                onChange={(e) => set({ substrateWorkerPoolRefName: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty to use the controller default WorkerPool.
+              </p>
+            </FieldRoot>
+          </div>
         </FormSection>
       ) : null}
 

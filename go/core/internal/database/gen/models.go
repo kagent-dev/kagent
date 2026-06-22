@@ -116,15 +116,14 @@ type PushNotification struct {
 }
 
 type Session struct {
-	ID           string
-	UserID       string
-	Name         *string
-	CreatedAt    *time.Time
-	UpdatedAt    *time.Time
-	DeletedAt    *time.Time
-	AgentID      *string
-	Source       *string
-	AcpSessionID *string
+	ID        string
+	UserID    string
+	Name      *string
+	CreatedAt *time.Time
+	UpdatedAt *time.Time
+	DeletedAt *time.Time
+	AgentID   *string
+	Source    *string
 }
 
 type Task struct {

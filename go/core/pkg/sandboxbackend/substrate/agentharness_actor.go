@@ -51,9 +51,6 @@ func (b *AgentHarnessSessionActorBackend) EnsureSessionActor(ctx context.Context
 	if b == nil || b.client == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate ate-api client is required")
 	}
-	if err := validateSubstrateSpec(ah); err != nil {
-		return sandboxbackend.EnsureResult{}, err
-	}
 
 	actorID := ActorID(ah)
 	tmplNS, tmplName := generatedActorTemplateKey(ah)

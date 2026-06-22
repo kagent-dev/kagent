@@ -84,11 +84,11 @@ spec:
     - name: openclaw
       # Must be digest-pinned (substrate rejects mutable tags) and pullable
       # by the workers — push first, then paste the digest from the push.
-      image: ttl.sh/kagent-acp-openclaw@sha256:f8c7b73253dd00098d3f2cb2c3a3d7585fa549daadeefdacd563362e4d40c7e6
+      image: ttl.sh/kagent-acp-openclaw@sha256:f608146e4716607b3ff6e979eb2aa21130febaab4f4c1f53ea8c3e02b4dd08ba
       # Same launcher as the plain-Deployment test, but the shim binds :80
       # (the atenet-router target port) instead of :9000.
       command:
-        - /usr/local/bin/openclaw-acp-entrypoint
+        - /usr/local/bin/openclaw-acp-entrypoint.sh
         - --listen
         - ":80"
       env:
