@@ -113,7 +113,7 @@ func (a *adkApiTranslator) BuildManifest(
 
 	podTemplate := buildPodTemplate(manifestCtx, podRuntime, configHash)
 
-	workloadObjects, err := a.buildWorkloadObjects(ctx, manifestCtx, podTemplate)
+	workloadObjects, err := a.buildWorkloadObjects(ctx, manifestCtx, podTemplate, configSecret.secret)
 	if err != nil {
 		return nil, err
 	}
@@ -559,11 +559,13 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 	ctx context.Context,
 	manifestCtx manifestContext,
 	podTemplate corev1.PodTemplateSpec,
+	configSecret *corev1.Secret,
 ) ([]client.Object, error) {
 	if manifestCtx.runInSandbox() {
 		sbObjs, err := a.sandboxBackend.BuildSandbox(ctx, sandboxbackend.BuildInput{
-			Agent:       manifestCtx.agent,
-			PodTemplate: podTemplate,
+			Agent:        manifestCtx.agent,
+			PodTemplate:  podTemplate,
+			ConfigSecret: configSecret,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("build sandbox workload: %w", err)

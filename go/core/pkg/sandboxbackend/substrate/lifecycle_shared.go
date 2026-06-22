@@ -3,6 +3,7 @@ package substrate
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -145,32 +146,59 @@ func truncateDNS1123To(s string, max int) string {
 }
 
 // ResolveCurrentActorTemplate returns the ActorTemplate a SandboxAgent should currently serve
-// from: the newest non-terminating template whose golden snapshot is Ready. This is the
-// blue-green pivot — during a config change the new template builds while this keeps returning
-// the previous Ready template, so chat and readiness stay on the working golden with no downtime
-// and flip atomically once the new golden is Ready. Falls back to the newest template when none
-// is Ready yet (the very first build). Returns (nil, nil) when no template exists.
+// from: the template matching the agent's CURRENT desired config whose golden is Ready, else the
+// most-recently-desired Ready template (the previous config) while the desired one is still
+// building — the blue-green pivot, with no downtime and an atomic flip once the new golden is
+// Ready.
+//
+// "Desired" is tracked by the kagent.dev/desired-generation annotation (the agent generation that
+// last applied the template), NOT creationTimestamp. Creation time is wrong for a flip-back to a
+// retained older config: that template's golden was built earlier, so by-creation ordering would
+// keep serving the newer (now-undesired) config. The desired template is always re-applied with
+// the current (highest) generation, so picking the highest-generation Ready template follows the
+// current config in both directions. Falls back to the highest-generation template when none is
+// Ready yet (first build). Returns (nil, nil) when no template exists.
 func ResolveCurrentActorTemplate(ctx context.Context, kube client.Client, namespace, agentName string) (*atev1alpha1.ActorTemplate, error) {
 	templates, err := listSandboxAgentActorTemplates(ctx, kube, namespace, agentName)
 	if err != nil {
 		return nil, err
 	}
-	var newestReady, newest *atev1alpha1.ActorTemplate
+	var desiredReady, desired *atev1alpha1.ActorTemplate
 	for i := range templates {
 		t := templates[i]
-		if newest == nil || t.CreationTimestamp.After(newest.CreationTimestamp.Time) {
-			newest = t
+		if desired == nil || moreDesiredActorTemplate(t, desired) {
+			desired = t
 		}
 		if t.Status.Phase == atev1alpha1.PhaseReady {
-			if newestReady == nil || t.CreationTimestamp.After(newestReady.CreationTimestamp.Time) {
-				newestReady = t
+			if desiredReady == nil || moreDesiredActorTemplate(t, desiredReady) {
+				desiredReady = t
 			}
 		}
 	}
-	if newestReady != nil {
-		return newestReady, nil
+	if desiredReady != nil {
+		return desiredReady, nil
 	}
-	return newest, nil
+	return desired, nil
+}
+
+// moreDesiredActorTemplate reports whether a is "more desired" than b: a higher desired-generation
+// wins (the template applied for the current config), with creationTimestamp as a tiebreaker for
+// legacy templates that predate the annotation.
+func moreDesiredActorTemplate(a, b *atev1alpha1.ActorTemplate) bool {
+	ga, gb := actorTemplateDesiredGeneration(a), actorTemplateDesiredGeneration(b)
+	if ga != gb {
+		return ga > gb
+	}
+	return a.CreationTimestamp.After(b.CreationTimestamp.Time)
+}
+
+// actorTemplateDesiredGeneration parses the desired-generation annotation; absent/invalid is 0.
+func actorTemplateDesiredGeneration(t *atev1alpha1.ActorTemplate) int64 {
+	g, err := strconv.ParseInt(t.Annotations[desiredGenerationAnnotation], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return g
 }
 
 // listSandboxAgentActorTemplates returns the non-terminating generated ActorTemplates for an agent.

@@ -92,7 +92,7 @@ func TestBuildSubstrateKagentContainerCommandDeclarative(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sa := declarativeSandboxAgent(tc.runtime)
-			cmd, env, err := buildSubstrateKagentContainerCommand(sa, &corev1.Container{})
+			cmd, env, err := buildSubstrateKagentContainerCommand(sa, &corev1.Container{}, "my-agent-abc123")
 			require.NoError(t, err)
 			require.Equal(t, tc.wantCmd, cmd)
 
@@ -104,6 +104,16 @@ func TestBuildSubstrateKagentContainerCommandDeclarative(t *testing.T) {
 			}
 			require.Equal(t, "my-agent", envByName["KAGENT_NAME"])
 			require.Equal(t, "kagent", envByName["KAGENT_NAMESPACE"])
+
+			// Config env must reference the per-config-hash Secret (so a golden materializes its
+			// own config), not the shared per-agent Secret.
+			for _, e := range env {
+				if e.Name == "KAGENT_CONFIG_JSON" {
+					require.NotNil(t, e.ValueFrom)
+					require.NotNil(t, e.ValueFrom.SecretKeyRef)
+					require.Equal(t, "my-agent-abc123", e.ValueFrom.SecretKeyRef.Name)
+				}
+			}
 
 			// Substrate ignores the image's ENV, so the Python runtime image's
 			// LD_LIBRARY_PATH must be re-supplied or numpy fails to load libz.so.1.
@@ -134,14 +144,14 @@ func TestBuildSubstrateKagentContainerCommandBYO(t *testing.T) {
 	sa.Namespace = "kagent"
 
 	container := &corev1.Container{Command: []string{"/serve"}, Args: []string{"--host", "0.0.0.0", "--port", "80"}}
-	got, env, err := buildSubstrateKagentContainerCommand(sa, container)
+	got, env, err := buildSubstrateKagentContainerCommand(sa, container, "byo-agent")
 	require.NoError(t, err)
 	// BYO uses the container command + args verbatim.
 	require.Equal(t, []string{"/serve", "--host", "0.0.0.0", "--port", "80"}, got)
 	require.NotEmpty(t, env)
 
 	// A BYO agent missing an explicit command is rejected.
-	_, _, err = buildSubstrateKagentContainerCommand(sa, &corev1.Container{})
+	_, _, err = buildSubstrateKagentContainerCommand(sa, &corev1.Container{}, "byo-agent")
 	require.Error(t, err)
 }
 

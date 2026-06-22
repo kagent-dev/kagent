@@ -20,6 +20,9 @@ const (
 	sandboxAgentIDPrefix   = "asr"
 	defaultKagentContainer = "kagent"
 	SandboxAgentLabelKey   = "kagent.dev/sandbox-agent"
+	// desiredGenerationAnnotation records the SandboxAgent generation that last applied a given
+	// ActorTemplate; the template for the current desired config carries the highest value.
+	desiredGenerationAnnotation = "kagent.dev/desired-generation"
 	defaultGoEntrypoint    = "/app"
 	// defaultPythonEntrypoint is the absolute path to the kagent-adk console script in the
 	// Python ADK image venv. Substrate copies Command verbatim into the OCI Process.Args with
@@ -55,17 +58,33 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	if err != nil {
 		return nil, err
 	}
-	command, containerEnv, err := buildSubstrateKagentContainerCommand(sa, kagentContainer)
-	if err != nil {
-		return nil, err
-	}
-
 	// The config hash is computed by the translator and stamped on the pod template.
 	// Folding it into the ActorTemplate name makes a config change create a new template
 	// (and thus a fresh golden snapshot) instead of mutating one substrate will never
 	// re-snapshot. The annotation carries the same hash for the chat path and reaper.
 	configHash := shortConfigHash(podTemplate.Annotations[consts.ConfigHashAnnotation])
-	annotations := map[string]string{}
+
+	// The config is read from a per-config-hash Secret (cloned in AgentsBackend.BuildSandbox),
+	// not the shared per-agent Secret. A golden snapshot materializes config.json from this
+	// Secret's env at build time; if every config revision shared one Secret name, substrate's
+	// secret-value cache could hand a stale revision to a new golden, so the golden would freeze
+	// the wrong provider's config (e.g. an OpenAI agent in a Gemini actor). The per-hash name is
+	// a cache-miss for each distinct config, so each golden captures exactly its own config.
+	secretName := sandboxAgentConfigSecretName(sa, configHash)
+	command, containerEnv, err := buildSubstrateKagentContainerCommand(sa, kagentContainer, secretName)
+	if err != nil {
+		return nil, err
+	}
+
+	annotations := map[string]string{
+		// The agent generation at the time this template was (re)applied. It bumps only on a spec
+		// change, so the template matching the agent's CURRENT desired config always carries the
+		// highest generation — including on a flip-back to a retained older config, where the
+		// reused template is re-applied with the new generation. ResolveCurrentActorTemplate uses
+		// this (not creationTimestamp) to pick the desired template, so chat/readiness follow the
+		// current config rather than whichever golden was built most recently.
+		desiredGenerationAnnotation: strconv.FormatInt(sa.GetGeneration(), 10),
+	}
 	if configHash != "" {
 		annotations[consts.ConfigHashAnnotation] = configHash
 	}
@@ -120,7 +139,7 @@ func findKagentContainer(containers []corev1.Container) *corev1.Container {
 // `static` command materializes the same env vars before reading /config). For BYO agents the
 // user-provided container Command/Args are used verbatim; the BYO image must serve A2A on the
 // substrate listen port (80).
-func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *corev1.Container) ([]string, []corev1.EnvVar, error) {
+func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *corev1.Container, configSecretName string) ([]string, []corev1.EnvVar, error) {
 	// KAGENT_NAME / KAGENT_NAMESPACE are normally injected by the translator pod
 	// template, but KAGENT_NAMESPACE uses a Downward API fieldRef which Substrate
 	// ActorTemplates do not support (it gets dropped by sanitizeActorTemplateEnvVar).
@@ -144,9 +163,9 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *
 		return cmd, env, nil
 	}
 
-	// Declarative: secret-backed config is materialized at startup.
+	// Declarative: secret-backed config is materialized at startup from the per-config-hash Secret.
+	env = append(env, kagentAgentSecretEnv(configSecretName)...)
 	runtime := v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec())
-	env = append(env, kagentAgentSecretEnv(sa)...)
 	if runtime == v1alpha2.DeclarativeRuntime_Python {
 		env = append(env, pythonRuntimeImageEnv()...)
 	}
@@ -194,8 +213,18 @@ func buildSubstrateDeclarativeCommand(runtime v1alpha2.DeclarativeRuntime) []str
 	}
 }
 
-func kagentAgentSecretEnv(sa *v1alpha2.SandboxAgent) []corev1.EnvVar {
-	secretName := sa.Name
+// sandboxAgentConfigSecretName returns the name of the Secret holding a SandboxAgent's rendered
+// config for a given config hash. It mirrors the ActorTemplate name so the config Secret and the
+// template that consumes it are paired per config. When the hash is empty (no config rendered) it
+// falls back to the translator's per-agent Secret name.
+func sandboxAgentConfigSecretName(sa *v1alpha2.SandboxAgent, configHash string) string {
+	if configHash == "" {
+		return sa.Name
+	}
+	return sandboxAgentActorTemplateName(sa, configHash)
+}
+
+func kagentAgentSecretEnv(secretName string) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		secretEnv("KAGENT_CONFIG_JSON", secretName, "config.json"),
 		secretEnv("KAGENT_AGENT_CARD_JSON", secretName, "agent-card.json"),

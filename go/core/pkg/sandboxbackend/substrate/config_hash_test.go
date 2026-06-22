@@ -8,6 +8,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -85,6 +86,56 @@ func TestBuildActorTemplateStampsConfigHash(t *testing.T) {
 	require.Equal(t, "ff", tmpl.Annotations[consts.ConfigHashAnnotation])
 }
 
+func TestBuildSandboxClonesConfigSecretPerHash(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
+	wp := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Name: "kagent-default", Namespace: "kagent"}}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wp).Build()
+	p := &Lifecycle{
+		Client:   cl,
+		Defaults: LifecycleDefaults{PauseImage: "gcr.io/test/pause@sha256:deadbeef", DefaultWorkerPool: types.NamespacedName{Name: "kagent-default", Namespace: "kagent"}},
+	}
+	b := NewAgentsBackend(p, nil)
+	sa := &v1alpha2.SandboxAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
+		Spec: v1alpha2.SandboxAgentSpec{
+			Platform:  v1alpha2.SandboxPlatformSubstrate,
+			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
+		},
+	}
+	pod := corev1.PodTemplateSpec{
+		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{consts.ConfigHashAnnotation: "255"}},
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name:  defaultKagentContainer,
+			Image: "registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+		}}},
+	}
+	cfg := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
+		StringData: map[string]string{"config.json": `{"model":{"type":"gemini"}}`},
+	}
+
+	objs, err := b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod, ConfigSecret: cfg})
+	require.NoError(t, err)
+	require.Len(t, objs, 2, "expect a per-hash config Secret plus the ActorTemplate")
+
+	sec, ok := objs[0].(*corev1.Secret)
+	require.True(t, ok, "first object must be the cloned config Secret")
+	require.Equal(t, "py-agent-ff", sec.Name, "config Secret is named per config hash (paired with the template)")
+	require.Equal(t, `{"model":{"type":"gemini"}}`, sec.StringData["config.json"], "clone carries the rendered config verbatim")
+
+	tmpl, ok := objs[1].(*atev1alpha1.ActorTemplate)
+	require.True(t, ok)
+	require.Equal(t, "py-agent-ff", tmpl.Name, "ActorTemplate name matches its per-hash config Secret")
+
+	// No config Secret in the input → no clone (falls back to the per-agent Secret), just the template.
+	objs, err = b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod})
+	require.NoError(t, err)
+	require.Len(t, objs, 1)
+}
+
 func TestResolveCurrentActorTemplate(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
@@ -124,4 +175,45 @@ func TestResolveCurrentActorTemplate(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	require.Equal(t, "my-agent-new", got.Name)
+}
+
+func TestResolveCurrentActorTemplatePrefersDesiredGeneration(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
+
+	// Flip-back scenario: the gemini template was created LATER (higher creationTimestamp) but the
+	// agent has since flipped back to the openai config, re-applying the older openai template with
+	// a NEWER generation. The resolver must follow generation (current desired config), not creation
+	// time — otherwise a flip-back keeps serving the stale (gemini) golden.
+	openai := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "agent-openai", Namespace: "kagent",
+		Labels:            map[string]string{SandboxAgentLabelKey: "agent"},
+		Annotations:       map[string]string{desiredGenerationAnnotation: "6"}, // re-applied on flip-back
+		CreationTimestamp: metav1.Unix(100, 0),                                 // created earlier
+	}, Status: atev1alpha1.ActorTemplateStatus{Phase: atev1alpha1.PhaseReady}}
+	gemini := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "agent-gemini", Namespace: "kagent",
+		Labels:            map[string]string{SandboxAgentLabelKey: "agent"},
+		Annotations:       map[string]string{desiredGenerationAnnotation: "5"},
+		CreationTimestamp: metav1.Unix(200, 0), // created later, but no longer desired
+	}, Status: atev1alpha1.ActorTemplateStatus{Phase: atev1alpha1.PhaseReady}}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(openai, gemini).Build()
+
+	got, err := ResolveCurrentActorTemplate(context.Background(), cl, "kagent", "agent")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "agent-openai", got.Name, "must serve the current desired config (highest generation), not the newest-created golden")
+
+	// Forward rollout: desired (gen 7) is still building; serve the previous Ready (gen 6).
+	building := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "agent-new", Namespace: "kagent",
+		Labels:            map[string]string{SandboxAgentLabelKey: "agent"},
+		Annotations:       map[string]string{desiredGenerationAnnotation: "7"},
+		CreationTimestamp: metav1.Unix(300, 0),
+	}, Status: atev1alpha1.ActorTemplateStatus{Phase: atev1alpha1.PhaseResumeGoldenActor}}
+	cl2 := fake.NewClientBuilder().WithScheme(scheme).WithObjects(openai, gemini, building).Build()
+	got, err = ResolveCurrentActorTemplate(context.Background(), cl2, "kagent", "agent")
+	require.NoError(t, err)
+	require.Equal(t, "agent-openai", got.Name, "while the desired golden builds, serve the most-recently-desired Ready template")
 }
