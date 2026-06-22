@@ -105,7 +105,7 @@ CREATE TABLE myschema.eval_set (...);
 CREATE TABLE IF NOT EXISTS eval_set (...);
 ```
 
-Schema is a deploy-time choice, fixed by the connection rather than the migration file. A hard-coded schema breaks any deployment that runs the track in a different schema (e.g. a connection that sets `?search_path=<schema>`). The core and vector migrations already comply.
+Schema is a deploy-time choice, fixed by the connection rather than the migration file. A hard-coded schema breaks any deployment that runs the track in a different schema (e.g. a connection that sets `?search_path=<schema>`). The core and vector migrations comply today (verified by inspection until the lint lands).
 
 > **Enforcement.** A static lint test rejecting the forbidden patterns across all migration files (*Target — not yet enforced*; see [Static Analysis Enforcement](#static-analysis-enforcement)).
 
@@ -162,10 +162,7 @@ This is safe. The only risk is if the winning controller crashes mid-migration (
 
 ### Dirty state recovery
 
-If the controller crashes mid-migration, the migration runner records the version as `dirty = true` in the tracking table. The next startup detects dirty state and calls `rollbackToVersion`, which:
-1. Calls `mg.Force(version - 1)` to clear the dirty flag.
-2. Runs the down migration to restore the previous clean state.
-3. Re-runs the failed up migration.
+If the controller crashes mid-migration, golang-migrate leaves the tracking table marked `dirty = true`. On the next startup `Up` refuses to run against a dirty database, so the runner clears the flag: `mg.Force(version - 1)` resets the tracking table to the last clean version. The process then exits with the error, and the failed migration is re-applied on a **subsequent** startup once the database is clean — so recovery from a transient failure spans restarts rather than completing in a single run.
 
 **Requirement**: down migrations must be idempotent and correctly reverse their up migration. A missing or broken down migration requires manual recovery.
 
