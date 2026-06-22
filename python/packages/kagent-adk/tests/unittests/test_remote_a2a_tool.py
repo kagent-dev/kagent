@@ -1,6 +1,6 @@
 """Tests for KAgentRemoteA2ATool."""
 
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Callable, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -8,12 +8,14 @@ from a2a.types import Message as A2AMessage
 from a2a.types import Part as A2APart
 from a2a.types import (
     Role,
+    SendMessageRequest,
     StreamResponse,
     Task,
     TaskState,
     TaskStatus,
 )
 from google.adk.tools.tool_confirmation import ToolConfirmation
+from google.adk.tools.tool_context import ToolContext
 from google.protobuf.json_format import MessageToDict, ParseDict
 from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
@@ -26,7 +28,6 @@ from kagent.core.a2a import (
 from kagent.adk._remote_a2a_tool import (
     KAgentRemoteA2ATool,
     KAgentRemoteA2AToolset,
-    SubagentSessionProvider,
 )
 
 # ---------------------------------------------------------------------------
@@ -68,6 +69,10 @@ class MockToolContext:
 
     def request_confirmation(self, *, hint: str = "", payload: dict | None = None) -> None:
         self._confirmations[self.function_call_id] = ToolConfirmation(hint=hint, payload=payload)
+
+    def as_tool_context(self) -> ToolContext:
+        """Cast for production APIs that expect ToolContext."""
+        return cast(ToolContext, self)
 
 
 def _make_task(state: TaskState, text: str = "", hitl_data: list[dict] | None = None) -> Task:
@@ -182,7 +187,7 @@ def _approval_ctx(confirmed: bool, payload: dict | None = None, **kwargs) -> Moc
 # ---------------------------------------------------------------------------
 
 
-class TestSubagentInterceptorHeaderPropagation:
+class TestCallContextHeaderPropagation:
     """Tests for header propagation via ClientCallContext.service_parameters."""
 
     async def test_forwards_extra_headers_from_header_provider(self):
@@ -192,13 +197,15 @@ class TestSubagentInterceptorHeaderPropagation:
             agent_card_url="http://k8s-agent/.well-known/agent.json",
             header_provider=lambda _: {"authorization": "Bearer test-jwt"},
         )
-        headers = tool._build_call_context(MockToolContext(user_id="user1")).service_parameters or {}
+        ctx = MockToolContext(user_id="user1")
+        headers = tool._build_call_context(ctx.as_tool_context()).service_parameters or {}
         assert headers.get("authorization") == "Bearer test-jwt"
         assert headers.get("x-user-id") == "user1"
 
     async def test_no_extra_headers_without_header_provider(self):
         tool = _make_tool()
-        headers = tool._build_call_context(MockToolContext(user_id="user1")).service_parameters or {}
+        ctx = MockToolContext(user_id="user1")
+        headers = tool._build_call_context(ctx.as_tool_context()).service_parameters or {}
         assert "authorization" not in headers
 
 
@@ -216,7 +223,9 @@ class TestFirstCall:
         task = _make_task(TaskState.TASK_STATE_COMPLETED, text="all done")
         p, _ = _patch_client(tool, _async_yield((task, None)))
         try:
-            result = await tool.run_async(args={"request": "do something"}, tool_context=MockToolContext())
+            result = await tool.run_async(
+                args={"request": "do something"}, tool_context=MockToolContext().as_tool_context()
+            )
         finally:
             p.stop()
 
@@ -234,7 +243,7 @@ class TestFirstCall:
         )
         p, _ = _patch_client(tool, _async_yield(msg))
         try:
-            result = await tool.run_async(args={"request": "hi"}, tool_context=MockToolContext())
+            result = await tool.run_async(args={"request": "hi"}, tool_context=MockToolContext().as_tool_context())
         finally:
             p.stop()
 
@@ -245,7 +254,7 @@ class TestFirstCall:
         tool = _make_tool()
         p, _ = _patch_client(tool, _async_yield())
         try:
-            result = await tool.run_async(args={"request": "hi"}, tool_context=MockToolContext())
+            result = await tool.run_async(args={"request": "hi"}, tool_context=MockToolContext().as_tool_context())
         finally:
             p.stop()
 
@@ -257,7 +266,7 @@ class TestFirstCall:
         task = _make_task(TaskState.TASK_STATE_FAILED, text="something broke")
         p, _ = _patch_client(tool, _async_yield((task, None)))
         try:
-            result = await tool.run_async(args={"request": "go"}, tool_context=MockToolContext())
+            result = await tool.run_async(args={"request": "go"}, tool_context=MockToolContext().as_tool_context())
         finally:
             p.stop()
 
@@ -267,15 +276,15 @@ class TestFirstCall:
         """The tool's pre-generated context_id is sent on the outgoing A2A message."""
         tool = _make_tool()
         task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
-        sent: list[A2AMessage] = []
+        sent: list[SendMessageRequest] = []
 
-        async def capture(*, request, **kw):
+        async def capture(*, request: SendMessageRequest, **kw):
             sent.append(request)
             yield (task, None)
 
         p, _ = _patch_client(tool, capture)
         try:
-            await tool.run_async(args={"request": "hello"}, tool_context=MockToolContext())
+            await tool.run_async(args={"request": "hello"}, tool_context=MockToolContext().as_tool_context())
         finally:
             p.stop()
 
@@ -294,7 +303,7 @@ class TestFirstCall:
         p, _ = _patch_client(tool, capture)
         try:
             ctx = MockToolContext(user_id="alice@example.com")
-            await tool.run_async(args={"request": "go"}, tool_context=ctx)
+            await tool.run_async(args={"request": "go"}, tool_context=ctx.as_tool_context())
         finally:
             p.stop()
 
@@ -316,7 +325,7 @@ class TestHITLInputRequired:
         p, _ = _patch_client(tool, _async_yield((task, None)))
         try:
             ctx = MockToolContext()
-            await tool.run_async(args={"request": "delete it"}, tool_context=ctx)
+            await tool.run_async(args={"request": "delete it"}, tool_context=ctx.as_tool_context())
         finally:
             p.stop()
 
@@ -331,11 +340,12 @@ class TestHITLInputRequired:
         p, _ = _patch_client(tool, _async_yield((task, None)))
         try:
             ctx = MockToolContext()
-            await tool.run_async(args={"request": "go"}, tool_context=ctx)
+            await tool.run_async(args={"request": "go"}, tool_context=ctx.as_tool_context())
         finally:
             p.stop()
 
         payload = ctx._confirmations[ctx.function_call_id].payload
+        assert payload is not None
         assert payload["task_id"] == "task-1"
         assert payload["context_id"] == "ctx-1"
         assert payload["subagent_name"] == "k8s_agent"
@@ -362,20 +372,20 @@ class TestHITLResume:
         confirmed: bool,
         payload: dict,
         response_task: Task | None = None,
-    ) -> tuple[Any, list[A2AMessage]]:
+    ) -> tuple[Any, list[SendMessageRequest]]:
         """Run a resume and return (result, sent_messages)."""
         if response_task is None:
             response_task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
-        sent: list[A2AMessage] = []
+        sent: list[SendMessageRequest] = []
 
-        async def capture(*, request, **kw):
+        async def capture(*, request: SendMessageRequest, **kw):
             sent.append(request)
             yield (response_task, None)
 
         p, _ = _patch_client(tool, capture)
         try:
             ctx = _approval_ctx(confirmed=confirmed, payload=payload)
-            result = await tool.run_async(args={}, tool_context=ctx)
+            result = await tool.run_async(args={}, tool_context=ctx.as_tool_context())
         finally:
             p.stop()
         return result, sent
@@ -443,7 +453,7 @@ class TestHITLResume:
         """Resume without task_id in payload returns an error string."""
         tool = _make_tool()
         ctx = _approval_ctx(confirmed=True, payload={"context_id": "ctx-1"})
-        result = await tool.run_async(args={}, tool_context=ctx)
+        result = await tool.run_async(args={}, tool_context=ctx.as_tool_context())
         assert "missing task context" in result.lower()
 
     async def test_resume_returns_subagent_session_id(self):
@@ -459,7 +469,7 @@ class TestHITLResume:
         p, _ = _patch_client(tool, _async_yield((chained_task, None)))
         try:
             ctx = _approval_ctx(confirmed=True, payload=_RESUME_PAYLOAD)
-            result = await tool.run_async(args={}, tool_context=ctx)
+            result = await tool.run_async(args={}, tool_context=ctx.as_tool_context())
         finally:
             p.stop()
 
@@ -531,7 +541,7 @@ class TestLineageHeaderPropagation:
     """
 
     def _build_headers(self, tool: KAgentRemoteA2ATool, ctx: MockToolContext) -> dict[str, str]:
-        return tool._build_call_context(ctx).service_parameters or {}
+        return tool._build_call_context(ctx.as_tool_context()).service_parameters or {}
 
     def test_root_agent_stamps_own_id_as_root_and_parent(self):
         """An agent at the top of the chain (no inbound lineage headers) sets
@@ -590,10 +600,7 @@ class TestLineageHeaderPropagation:
 
         headers = self._build_headers(tool, ctx)
 
-        assert (
-            "x-kagent-parent-context-id" not in headers
-            and "x-kagent-root-context-id" not in headers
-        )
+        assert "x-kagent-parent-context-id" not in headers and "x-kagent-root-context-id" not in headers
 
     def test_header_provider_overrides_lineage(self):
         """A constructor-supplied header_provider can override lineage
