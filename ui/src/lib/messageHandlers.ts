@@ -453,6 +453,8 @@ const SEND_GUARD_EXCLUDED_ORIGINAL_TYPES = new Set<OriginalMessageType>([
   "AskUserRequest", // ask_user UI duplicates the pending backend task state.
   "ToolCallSummaryMessage", // UI-only marker that closes tool calls; not a backend chat turn.
 ]);
+const SEND_GUARD_KEY_DELIMITER = "\u0000";
+const SEND_GUARD_PART_DELIMITER = "\u0001";
 
 function isSendGuardComparableMessage(message: Message): boolean {
   const meta = message.metadata as ADKMetadata | undefined;
@@ -460,13 +462,7 @@ function isSendGuardComparableMessage(message: Message): boolean {
 }
 
 export function countSendGuardComparableMessages(messages: Message[]): number {
-  let count = 0;
-  for (const message of messages) {
-    if (isSendGuardComparableMessage(message)) {
-      count += 1;
-    }
-  }
-  return count;
+  return messages.filter(isSendGuardComparableMessage).length;
 }
 
 function getSendGuardMessageContentSignature(message: Message): string {
@@ -474,7 +470,7 @@ function getSendGuardMessageContentSignature(message: Message): string {
   const originalType = meta?.originalType === "TextMessage" ? "" : (meta?.originalType ?? "");
   const partsSignature = message.parts
     ?.map(part => part.kind === "text" ? `text:${part.text ?? ""}` : `${part.kind}:${JSON.stringify(part)}`)
-    .join("\u0001") ?? "";
+    .join(SEND_GUARD_PART_DELIMITER) ?? "";
 
   return [
     message.role,
@@ -482,14 +478,14 @@ function getSendGuardMessageContentSignature(message: Message): string {
     JSON.stringify(meta?.toolCallData ?? null),
     JSON.stringify(meta?.toolResultData ?? null),
     partsSignature,
-  ].join("\u0000");
+  ].join(SEND_GUARD_KEY_DELIMITER);
 }
 
 function getSendGuardMessageKey(message: Message): string | undefined {
   const contentSignature = getSendGuardMessageContentSignature(message);
 
   if (message.role === "user" && message.messageId) {
-    return ["message", message.messageId].join("\u0000");
+    return ["message", message.messageId].join(SEND_GUARD_KEY_DELIMITER);
   }
 
   // Same-tab streamed agent display messages are locally re-created, so their
@@ -497,11 +493,11 @@ function getSendGuardMessageKey(message: Message): string | undefined {
   // is the stable backend identity for those messages; the richer signature
   // avoids counting unrelated messages in the same task.
   if (message.contextId && message.taskId) {
-    return ["task", message.contextId, message.taskId, contentSignature].join("\u0000");
+    return ["task", message.contextId, message.taskId, contentSignature].join(SEND_GUARD_KEY_DELIMITER);
   }
 
   if (message.messageId) {
-    return ["message", message.messageId].join("\u0000");
+    return ["message", message.messageId].join(SEND_GUARD_KEY_DELIMITER);
   }
 
   return undefined;
