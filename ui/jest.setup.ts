@@ -31,6 +31,22 @@ global.ResizeObserver = class ResizeObserver {
 // jsdom: cmdk scrolls selected items into view
 Element.prototype.scrollIntoView = function scrollIntoView() {};
 
+// jsdom: SidebarProvider / useIsMobile
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  configurable: true,
+  value: jest.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })),
+});
+
 // Mock next/router
 jest.mock('next/router', () => ({
   useRouter() {

@@ -276,8 +276,8 @@ controller:
       namespace: ""
       name: ""
     # pauseImage: "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
-    # runscAMD64URL: "gs://gvisor/releases/nightly/2026-05-19/x86_64/runsc"
-    # runscAMD64SHA256: "a397be1abc2420d26bce6c70e6e2ff96c73aaaab929756c56f5e2089ea842b63"
+    # runscAMD64URL: "gs://gvisor/releases/nightly/2026-06-02/x86_64/runsc"
+    # runscAMD64SHA256: "efd12935f6654c91a1389710eb8dfa4d12b6b9be00db87526dc2eb584ad00119"
     # runscARM64URL: "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc"
     # runscARM64SHA256: "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9"
     # Example when enabled:
@@ -413,6 +413,12 @@ ui:
   #       path: /health
   #       port: http
   #     periodSeconds: 15
+  # -- Gates the OpenShift `Route` for the UI. Additionally conditional on the
+  # `route.openshift.io/v1` API being present, so it is a no-op off-OpenShift.
+  # Set to `false` to front the UI with your own Route/ingress or the bundled
+  # oauth2-proxy instead of the chart's edge-terminated Route.
+  route:
+    enabled: true
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
@@ -476,6 +482,13 @@ kmcp:
   namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
 
 # ==============================================================================
+# SUBSTRATE
+# ==============================================================================
+
+substrate:
+  enabled: false
+
+# ==============================================================================
 # BUILT-IN TOOLS
 # ==============================================================================
 
@@ -525,6 +538,11 @@ proxy:
 
 k8s-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -533,6 +551,11 @@ k8s-agent:
       memory: 256Mi
 kgateway-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -541,6 +564,11 @@ kgateway-agent:
       memory: 256Mi
 istio-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -549,6 +577,11 @@ istio-agent:
       memory: 256Mi
 promql-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -557,6 +590,11 @@ promql-agent:
       memory: 256Mi
 observability-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -565,6 +603,11 @@ observability-agent:
       memory: 256Mi
 argo-rollouts-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -573,6 +616,11 @@ argo-rollouts-agent:
       memory: 256Mi
 helm-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -581,6 +629,11 @@ helm-agent:
       memory: 256Mi
 cilium-policy-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -589,6 +642,11 @@ cilium-policy-agent:
       memory: 256Mi
 cilium-manager-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -597,6 +655,11 @@ cilium-manager-agent:
       memory: 256Mi
 cilium-debug-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
