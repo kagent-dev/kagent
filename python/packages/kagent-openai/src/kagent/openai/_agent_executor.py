@@ -25,6 +25,7 @@ from a2a.types import (
     Message,
     Part,
     Role,
+    Task,
     TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
@@ -226,17 +227,17 @@ class OpenAIAgentExecutor(AgentExecutor):
         if not context.message:
             raise ValueError("A2A request must have a message")
 
-        # Send task submitted event for new tasks
+        # For new tasks, the first event must be a Task (not TaskStatusUpdateEvent).
         if not context.current_task:
             await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
+                Task(
+                    id=context.task_id,
+                    context_id=context.context_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_SUBMITTED,
                         message=context.message,
                         timestamp=_now_timestamp(),
                     ),
-                    context_id=context.context_id,
                 )
             )
 
