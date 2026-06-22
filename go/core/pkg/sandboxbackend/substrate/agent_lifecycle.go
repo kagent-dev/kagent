@@ -23,7 +23,7 @@ const (
 	// desiredGenerationAnnotation records the SandboxAgent generation that last applied a given
 	// ActorTemplate; the template for the current desired config carries the highest value.
 	desiredGenerationAnnotation = "kagent.dev/desired-generation"
-	defaultGoEntrypoint    = "/app"
+	defaultGoEntrypoint         = "/app"
 	// defaultPythonEntrypoint is the absolute path to the kagent-adk console script in the
 	// Python ADK image venv. Substrate copies Command verbatim into the OCI Process.Args with
 	// no PATH/entrypoint fallback, so the path must be explicit and kept in sync with the
