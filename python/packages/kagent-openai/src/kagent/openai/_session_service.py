@@ -9,19 +9,13 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from datetime import datetime, timezone
 
 import httpx
 from agents.items import TResponseInputItem
 from agents.memory.session import SessionABC
-from google.protobuf.timestamp_pb2 import Timestamp
 
 logger = logging.getLogger(__name__)
-
-
-def _get_timestamp_string() -> str:
-    ts = Timestamp()
-    ts.GetCurrentTime()
-    return ts.isoformat()
 
 
 class KAgentSession(SessionABC):
@@ -134,8 +128,6 @@ class KAgentSession(SessionABC):
                 event_json = event_data.get("data")
                 if event_json:
                     # Parse the event and extract items if they exist
-                    import json
-
                     try:
                         event_obj = json.loads(event_json)
                         # Look for items in the event
@@ -175,7 +167,7 @@ class KAgentSession(SessionABC):
             "id": str(uuid.uuid4()),
             "data": json.dumps(
                 {
-                    "timestamp": _get_timestamp_string(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "items": items,
                     "type": "conversation_items",
                 }
