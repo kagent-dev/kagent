@@ -121,9 +121,16 @@ func (h *PluginsHandler) HandleProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Strip /_p/{pathPrefix} so the remainder is proxied to the server's web root ("/").
-	remainder := strings.TrimPrefix(r.URL.Path, PluginProxyPrefix+"/"+pathPrefix)
+	// pathPrefix is constrained to [a-z0-9-], so the escaped and unescaped prefixes are
+	// identical and we can trim both the decoded and raw paths with the same literal.
+	stripPrefix := PluginProxyPrefix + "/" + pathPrefix
+	remainder := strings.TrimPrefix(r.URL.Path, stripPrefix)
+	remainderRaw := strings.TrimPrefix(r.URL.EscapedPath(), stripPrefix)
 	if remainder == "" {
 		remainder = "/"
+	}
+	if remainderRaw == "" {
+		remainderRaw = "/"
 	}
 
 	injectCSS := ""
@@ -136,7 +143,9 @@ func (h *PluginsHandler) HandleProxy(w http.ResponseWriter, r *http.Request) {
 			req.URL.Scheme = target.Scheme
 			req.URL.Host = target.Host
 			req.Host = target.Host
+			// Keep Path and RawPath in sync so encoded segments survive proxying.
 			req.URL.Path = remainder
+			req.URL.RawPath = remainderRaw
 			// Request an uncompressed response so injectCSS can be spliced reliably.
 			req.Header.Set("Accept-Encoding", "identity")
 			for k, v := range headers {

@@ -45,8 +45,9 @@ export function generateId(): string {
 }
 
 export function getBackendRoot(): string {
-  const url = getBackendUrl();
-  return url.replace(/\/api\/?$/, "") || url;
+  // Strip a trailing "/api" so callers can build same-origin paths like "/_p/...".
+  // An empty result is intentional for a relative "/api" base (same-origin root).
+  return getBackendUrl().replace(/\/api\/?$/, "");
 }
 
 export function getRelativeTimeString(date: string | number | Date): string {

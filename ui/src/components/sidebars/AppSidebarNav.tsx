@@ -131,18 +131,23 @@ export function AppSidebarNav() {
     };
   });
 
-  // Add PLUGINS section for plugins that specify a section not in NAV_SECTIONS
-  const pluginsSection = plugins.filter((p) => !knownSections.includes(p.section));
-  if (pluginsSection.length > 0) {
-    sections.push({
-      label: "ADMIN",
-      items: pluginsSection.map((p) => ({
-        label: p.displayName,
-        href: `/plugins/${p.pathPrefix}`,
-        icon: getIconByName(p.icon),
-        badge: badges[p.pathPrefix],
-      })),
+  // Plugins whose declared section isn't a built-in NAV section get grouped under
+  // their own section label (e.g. "PLUGINS", "ADMIN") rather than a hardcoded one.
+  const extraSections = new Map<string, NavItemWithBadge[]>();
+  for (const p of plugins) {
+    if (knownSections.includes(p.section)) continue;
+    const label = p.section || "PLUGINS";
+    const items = extraSections.get(label) ?? [];
+    items.push({
+      label: p.displayName,
+      href: `/plugins/${p.pathPrefix}`,
+      icon: getIconByName(p.icon),
+      badge: badges[p.pathPrefix],
     });
+    extraSections.set(label, items);
+  }
+  for (const [label, items] of extraSections) {
+    sections.push({ label, items });
   }
 
   return (
