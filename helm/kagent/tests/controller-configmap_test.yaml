@@ -1,0 +1,20 @@
+suite: test controller configmap
+templates:
+  - controller-configmap.yaml
+tests:
+  - it: should pin agent images by digest by default
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: data.PIN_RUNTIME_IMAGE_DIGEST
+          value: "true"
+
+  - it: should reference agent images by tag when digest pinning is disabled
+    set:
+      controller:
+        pinRuntimeImageDigest: false
+    asserts:
+      - equal:
+          path: data.PIN_RUNTIME_IMAGE_DIGEST
+          value: "false"

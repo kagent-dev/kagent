@@ -181,6 +181,12 @@ controller:
     repository: kagent-dev/kagent/app
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
+  # -- Pin declarative agent images by their link-time digest
+  # (registry/repository@sha256:...). Set to false to reference agent images by
+  # tag (registry/repository:tag), e.g. when mirroring into a private registry
+  # that does not preserve the upstream manifest digest.
+  # See https://github.com/kagent-dev/kagent/issues/2055.
+  pinRuntimeImageDigest: true
   # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
   skillsInitImage:
     registry: ""

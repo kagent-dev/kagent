@@ -117,10 +117,22 @@ var DefaultImageConfig = ImageConfig{
 }
 
 // PythonADKImageDigest, GoADKImageDigest, and GoADKFullImageDigest are set at
-// controller link time from the pushed runtime image manifest digests.
+// controller link time from the pushed runtime image manifest digests. They are
+// used as the default digests when digest pinning is enabled.
 var PythonADKImageDigest string
 var GoADKImageDigest string
 var GoADKFullImageDigest string
+
+// PinRuntimeImageDigest controls how declarative agent images are referenced.
+// When true (the default), images are pinned by their link-time digest
+// (registry/repository@sha256:...) for supply-chain integrity. This requires the
+// configured registry to expose the same manifest digest as the upstream image.
+//
+// Operators mirroring images into a private registry that does not preserve the
+// upstream manifest digest can set this to false so the controller emits a tag
+// reference (registry/repository:tag) that is resolvable in their registry.
+// See https://github.com/kagent-dev/kagent/issues/2055.
+var PinRuntimeImageDigest = true
 
 // DefaultSkillsInitImageConfig is the image config for the skills-init container
 // that clones skill repositories from Git and pulls OCI skill images.
