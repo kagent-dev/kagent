@@ -24,6 +24,7 @@ type Handlers struct {
 	Agents              *AgentsHandler
 	Tools               *ToolsHandler
 	ToolServers         *ToolServersHandler
+	MCPApps             *MCPAppsHandler
 	ToolServerTypes     *ToolServerTypesHandler
 	Memory              *MemoryHandler
 	Feedback            *FeedbackHandler
@@ -85,6 +86,7 @@ func NewHandlers(
 		Agents:              NewAgentsHandler(base),
 		Tools:               NewToolsHandler(base),
 		ToolServers:         NewToolServersHandler(base),
+		MCPApps:             NewMCPAppsHandler(base),
 		ToolServerTypes:     NewToolServerTypesHandler(base),
 		Memory:              NewMemoryHandler(base),
 		Feedback:            NewFeedbackHandler(base),
