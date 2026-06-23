@@ -22,10 +22,12 @@ deployment is effectively wide-open to every authenticated principal.
 
 The good news is that the enforcement plumbing already exists. The
 `auth.Authorizer` interface is wired into every HTTP handler via the `Check(...)`
-helper (~25 call sites in `go/core/internal/httpserver/handlers`), and
-`ProxyAuthenticator` already populates `Principal.Claims` with the full JWT
-payload. The missing piece is a real `Authorizer` implementation and a way for
-operators to express policy.
+helper (~25 call sites in `go/core/internal/httpserver/handlers`), and for
+*direct user calls* `ProxyAuthenticator` populates `Principal.Claims` with the
+full JWT payload. (Agent-originated calls — where `X-Agent-Name` is set —
+currently carry identity (`User`/`Agent`) but **not** `Claims`; see Open
+Questions.) The missing piece is a real `Authorizer` implementation and a way
+for operators to express policy.
 
 This EP proposes that implementation. It is the fine-grained-authorization
 follow-on that EP-476 explicitly deferred ("detailed RBAC policies come in
@@ -287,6 +289,12 @@ remain out of scope here and are addressed by network gating in #2028.
 4. **Default when authorization is enabled but no policy exists** — deny-all
    (secure; #1270 leaned this way) vs. a configurable default rule.
 5. **CLI/M2M principals** — how agent-to-controller and service-account calls map
-   onto the same policy model (relates to #2071 / STS work).
+   onto the same policy model (relates to #2071 / STS work). These principals
+   currently carry **no `claims`** (the agent-call path sets `User`/`Agent` but
+   not `Claims`), so a claims-only policy combined with fail-closed would *deny*
+   internal agent traffic. The model therefore needs a distinct way to match
+   agent identity — e.g. an `agent` variable / `principal.Agent.ID` in the
+   decision context, or a separate M2M policy lane — before authorization can be
+   enabled without breaking A2A.
 6. **Should the central policy also be a CRD** (e.g. `AccessPolicy`) rather than a
    ConfigMap, for validation and status?
