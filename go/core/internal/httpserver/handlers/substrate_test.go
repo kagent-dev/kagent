@@ -139,3 +139,26 @@ func TestHandleGetSubstrateStatus(t *testing.T) {
 	require.Equal(t, "Running", wrapped.Data.Actors[0].Status)
 	require.Len(t, wrapped.Data.Workers, 1)
 }
+
+func TestHandleGetSubstrateStatus_MissingCRDs(t *testing.T) {
+	t.Parallel()
+
+	// Use a client that returns NoKindMatchError for all List calls,
+	// simulating a cluster where the ate.dev CRDs are not installed.
+	base := &handlers.Base{KubeClient: noMatchKubeClient{}, Authorizer: &auth.NoopAuthorizer{}}
+	ate := &substrate.Client{ControlClient: &stubAteControl{}}
+	h := handlers.NewSubstrateHandler(base, ate)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/substrate/status?namespace=kagent", nil)
+	req = setUser(req, "test-user")
+	rec := httptest.NewRecorder()
+	h.HandleGetSubstrateStatus(&testErrorResponseWriter{ResponseWriter: rec}, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var wrapped api.StandardResponse[api.SubstrateStatusResponse]
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &wrapped))
+	require.True(t, wrapped.Data.Enabled)
+	require.Empty(t, wrapped.Data.WorkerPools)
+	require.Empty(t, wrapped.Data.ActorTemplates)
+}
