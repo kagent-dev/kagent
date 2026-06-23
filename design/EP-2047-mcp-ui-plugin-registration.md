@@ -49,11 +49,11 @@ Defined in `go/api/v1alpha2/remotemcpserver_types.go`; the CRD
 | Field | Type | Default | Validation | Purpose |
 |-------|------|---------|------------|---------|
 | `enabled` | bool | `false` | — | Opt-in: this server provides a web UI. |
-| `pathPrefix` | string | `<name>` | `maxLength=63`, `^[a-z0-9][a-z0-9-]*[a-z0-9]$` | URL segment for `/_p/{pathPrefix}/`. |
+| `pathPrefix` | string | `<name>` | `maxLength=63`, `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$` | URL segment for `/_p/{pathPrefix}/`. |
 | `displayName` | string | `<name>` | — | Sidebar label. |
 | `icon` | string | `puzzle` | — | `lucide-react` icon name. |
-| `section` | enum | `PLUGINS` | `OVERVIEW\|AGENTS\|RESOURCES\|ADMIN\|PLUGINS` | Sidebar section. |
-| `defaultPath` | string | `/` | — | Initial sub-path at plugin root. |
+| `section` | enum | `RESOURCES` | `OVERVIEW\|AGENTS\|WORKFLOWS\|KNOWLEDGE\|EVALUATIONS\|RESOURCES\|ADMIN\|PLUGINS` | Sidebar section. |
+| `defaultPath` | string | — | — | Initial sub-path at plugin root. |
 | `injectCSS` | string | — | — | CSS injected into proxied HTML. |
 
 ### Backend (`go/core/internal/httpserver`)

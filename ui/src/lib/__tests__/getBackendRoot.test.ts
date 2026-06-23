@@ -25,4 +25,9 @@ describe("getBackendRoot", () => {
     process.env.BACKEND_INTERNAL_URL = "http://controller.kagent.svc";
     expect(getBackendRoot()).toBe("http://controller.kagent.svc");
   });
+
+  it("returns an empty root for a relative /api base (same-origin)", () => {
+    process.env.BACKEND_INTERNAL_URL = "/api";
+    expect(getBackendRoot()).toBe("");
+  });
 });
