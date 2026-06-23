@@ -12,6 +12,7 @@ import {
   Plus,
   FunctionSquare,
   AlertCircle,
+  AppWindow,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import { toast } from "sonner";
 import { useAgents } from "@/components/AgentsProvider";
 import { getDiscoveredToolDescription, getDiscoveredToolDisplayName } from "@/lib/toolUtils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 function setsEqualString(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) {
@@ -229,6 +231,10 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
             }
             const serverName: string = server.ref;
             const isExpanded = expandedServers.has(serverName);
+            const parsedRef = k8sRefUtils.isValidRef(serverName) ? k8sRefUtils.fromRef(serverName) : null;
+            const appsHref = parsedRef
+              ? `/servers/${encodeURIComponent(parsedRef.namespace)}/${encodeURIComponent(parsedRef.name)}/apps`
+              : null;
             return (
               <li key={server.ref} className="overflow-hidden rounded-xl border border-border/60 bg-card/30 shadow-sm">
                 <div className="bg-secondary/10 p-4">
@@ -277,6 +283,14 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {appsHref ? (
+                          <DropdownMenuItem asChild>
+                            <Link href={appsHref} className="cursor-pointer">
+                              <AppWindow className="mr-2 h-4 w-4" />
+                              MCP Apps
+                            </Link>
+                          </DropdownMenuItem>
+                        ) : null}
                         <DropdownMenuItem
                           className="text-destructive focus:bg-destructive/10"
                           onSelect={(e) => {

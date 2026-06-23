@@ -5,6 +5,7 @@ import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDi
 import { isAgentToolName } from "@/lib/utils";
 import { ADKMetadata, ProcessedToolCallData, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
 import { FunctionCall, ToolDecision, TokenStats } from "@/types";
+import type { ChatMcpAppTool } from "@/components/chat/ChatMcpAppsContext";
 
 interface ToolCallDisplayProps {
   currentMessage: Message;
@@ -12,6 +13,8 @@ interface ToolCallDisplayProps {
   onApprove?: (toolCallId: string) => void;
   onReject?: (toolCallId: string, reason?: string) => void;
   pendingDecisions?: Record<string, ToolDecision>;
+  getMcpAppForTool?: (toolName: string) => ChatMcpAppTool | undefined;
+  onMcpAppSendMessage?: (text: string) => Promise<void>;
 }
 
 interface ToolCallState {
@@ -20,6 +23,7 @@ interface ToolCallState {
   result?: {
     content: string;
     is_error?: boolean;
+    rawResult?: unknown;
   };
   status: ToolCallStatus;
   subagentSessionId?: string;
@@ -146,6 +150,7 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
           name: data.name,
           content: textContent,
           is_error: data.response?.isError || false,
+          raw_result: data.response?.result ?? data.response,
           ...(subagentSessionId ? { subagent_session_id: subagentSessionId } : {}),
         });
       }
@@ -172,7 +177,7 @@ const extractToolCallResults = (message: Message): ProcessedToolResultData[] => 
 };
 
 
-const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pendingDecisions }: ToolCallDisplayProps) => {
+const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pendingDecisions, getMcpAppForTool, onMcpAppSendMessage }: ToolCallDisplayProps) => {
   // Determine which tool call IDs this component instance "owns" by finding,
   // for each ID introduced by currentMessage, whether currentMessage is the
   // FIRST message in allMessages that introduces that ID.
@@ -289,7 +294,8 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             const existingCall = newToolCalls.get(result.call_id)!;
             existingCall.result = {
               content: result.content,
-              is_error: result.is_error
+              is_error: result.is_error,
+              rawResult: result.raw_result,
             };
             if (result.subagent_session_id && !existingCall.subagentSessionId) {
               // Only set from function_response if the 1st pass (function_call
@@ -338,7 +344,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
   const tokenStats = (currentMessage.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
 
   return (
-    <div className="space-y-2">
+    <div className="w-full min-w-0 max-w-full space-y-2 overflow-hidden">
       {currentDisplayableCalls.map(toolCall => {
         // Determine effective status: use local pending decision for optimistic UI
         const localDecision = pendingDecisions?.[toolCall.id];
@@ -378,6 +384,8 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             onApprove={showButtons && onApprove ? () => onApprove(toolCall.id) : undefined}
             onReject={showButtons && onReject ? (reason?: string) => onReject(toolCall.id, reason) : undefined}
             tokenStats={tokenStats}
+            mcpApp={getMcpAppForTool?.(toolCall.call.name)}
+            onMcpAppSendMessage={onMcpAppSendMessage}
           />
         );
       })}
