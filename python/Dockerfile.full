@@ -116,4 +116,4 @@ LABEL org.opencontainers.image.version="$VERSION"
 
 WORKDIR /app
 
-ENTRYPOINT ["kagent-adk", "run", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["/.kagent/.venv/bin/kagent-adk", "run", "--host", "0.0.0.0", "--port", "8080"]

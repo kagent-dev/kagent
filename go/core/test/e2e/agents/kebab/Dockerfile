@@ -14,6 +14,8 @@ COPY  README.md README.md
 COPY  .python-version .python-version
 COPY  uv.lock uv.lock
 
-RUN uv sync --locked --refresh
+# Install only the kebab package into the inherited ADK venv. The base image already provides
+# google-adk/kagent-adk; syncing this child project's lockfile downgrades shared runtime deps.
+RUN uv pip install --python /.kagent/.venv/bin/python --no-deps .
 
 CMD ["kebab"]
