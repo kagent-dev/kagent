@@ -110,7 +110,7 @@ type RemoteMCPServerUI struct {
 	// Defaults to the RemoteMCPServer name if not specified.
 	// +optional
 	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9-]*[a-z0-9]$`
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`
 	PathPrefix string `json:"pathPrefix,omitempty"`
 
 	// DisplayName is the human-readable name shown in the sidebar.

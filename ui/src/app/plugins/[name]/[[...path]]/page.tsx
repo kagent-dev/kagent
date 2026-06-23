@@ -7,8 +7,18 @@ import { useNamespace } from "@/lib/namespace-context";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+// Host<->plugin postMessage protocol. "kagent:context" is host->plugin; the rest
+// are plugin->host messages handled below.
+type PluginMessageType =
+  | "kagent:context"
+  | "kagent:navigate"
+  | "kagent:resize"
+  | "kagent:badge"
+  | "kagent:title"
+  | "kagent:ready";
+
 interface PluginMessage {
-  type: string;
+  type: PluginMessageType;
   payload: unknown;
 }
 
@@ -25,8 +35,16 @@ export default function PluginPage() {
   // Build iframe src using /_p/ prefix - Go backend reverse proxies to plugin service
   // Browser URL /plugins/{name} stays on Next.js; iframe loads from /_p/{name}/ via Go proxy
   const pathParams = useParams<{ path?: string[] }>();
-  const subPath = pathParams.path ? "/" + pathParams.path.join("/") : "/";
-  const iframeSrc = `/_p/${name}${subPath}`;
+  // Drop traversal segments and encode each segment so the browser cannot
+  // normalize the iframe URL out of the /_p/{name}/ prefix (e.g. "..").
+  const subPath = pathParams.path
+    ? "/" +
+      pathParams.path
+        .filter((seg) => seg !== "." && seg !== "..")
+        .map(encodeURIComponent)
+        .join("/")
+    : "/";
+  const iframeSrc = `/_p/${encodeURIComponent(name)}${subPath}`;
 
   const handleRetry = useCallback(() => {
     setLoading(true);
