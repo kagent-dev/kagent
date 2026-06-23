@@ -11,6 +11,13 @@ spec:
   declarative:
     runtime: {{ .Values.runtime | default "python" }}
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
+    {{- with .Values.memory }}
+    {{- if .enabled }}
+    memory:
+      modelConfig: {{ required "A compatible modelConfig must be provided when memory is enabled" .modelConfigRef }}
+      ttlDays: {{ .ttlDays | default 15 }}
+    {{- end }}
+    {{- end }}
     systemMessage: |
       # PromQL Query Generator
 

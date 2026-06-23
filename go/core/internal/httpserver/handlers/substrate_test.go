@@ -16,12 +16,49 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+// noMatchKubeClient is a minimal client.Client stub whose List always returns
+// a *meta.NoKindMatchError, simulating a cluster where the ate.dev CRDs are absent.
+type noMatchKubeClient struct {
+	client.Client
+}
+
+func (noMatchKubeClient) List(_ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+	return &apimeta.NoKindMatchError{}
+}
+
+// TestHandleGetSubstrateStatus_SubstrateNotConfigured verifies that when AteClient is nil
+// (substrate not configured), the endpoint returns 200 with Enabled:false and empty slices
+// without making any CRD List calls.
+func TestHandleGetSubstrateStatus_SubstrateNotConfigured(t *testing.T) {
+	t.Parallel()
+
+	base := &handlers.Base{KubeClient: noMatchKubeClient{}, Authorizer: &auth.NoopAuthorizer{}}
+	h := handlers.NewSubstrateHandler(base, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/substrate/status?namespace=kagent", nil)
+	req = setUser(req, "test-user")
+	rec := httptest.NewRecorder()
+	h.HandleGetSubstrateStatus(&testErrorResponseWriter{ResponseWriter: rec}, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var wrapped api.StandardResponse[api.SubstrateStatusResponse]
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &wrapped))
+	require.False(t, wrapped.Data.Enabled)
+	require.Empty(t, wrapped.Data.WorkerPools)
+	require.Empty(t, wrapped.Data.ActorTemplates)
+	require.Empty(t, wrapped.Data.Actors)
+	require.Empty(t, wrapped.Data.Workers)
+}
 
 type stubAteControl struct {
 	ateapipb.ControlClient
