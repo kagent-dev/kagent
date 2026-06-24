@@ -10,7 +10,7 @@ data:
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   {{- if .Values.ui.externalUrl }}
-  KAGENT_UI_URL: {{ .Values.controller.externalUrl | quote }}
+  KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
   {{- end }}
   IMAGE_PULL_POLICY: {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy | quote }}
   {{- if and .Values.controller.agentImage.pullSecret (not (eq .Values.controller.agentImage.pullSecret "")) }}
