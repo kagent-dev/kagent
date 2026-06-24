@@ -2,12 +2,14 @@ package httpserver
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -109,7 +111,11 @@ func (s *HTTPServer) shareTokenMiddleware(next http.Handler) http.Handler {
 
 		share, err := s.config.DbClient.GetSessionShareByToken(r.Context(), token)
 		if err != nil {
-			http.Error(w, "Invalid or expired share token", http.StatusForbidden)
+			if errors.Is(err, pgx.ErrNoRows) {
+				http.Error(w, "Invalid or expired share token", http.StatusForbidden)
+			} else {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
 			return
 		}
 
