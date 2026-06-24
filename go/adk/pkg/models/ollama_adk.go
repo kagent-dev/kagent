@@ -61,6 +61,9 @@ func (m *OllamaModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 // generateStreaming handles streaming responses from Ollama.
 func (m *OllamaModel) generateStreaming(ctx context.Context, modelName string, messages []api.Message, tools []api.Tool, options map[string]any, yield func(*model.LLMResponse, error) bool) {
 	var aggregatedText strings.Builder
+	// Ollama streams tool calls in intermediate chunks (done=false), not in the
+	// final done=true chunk, so accumulate them across all chunks.
+	var aggregatedToolCalls []api.ToolCall
 
 	streamValue := true
 	chatReq := &api.ChatRequest{
@@ -72,6 +75,9 @@ func (m *OllamaModel) generateStreaming(ctx context.Context, modelName string, m
 	}
 
 	err := m.Client.Chat(ctx, chatReq, func(resp api.ChatResponse) error {
+		// Accumulate tool calls from any chunk that carries them.
+		aggregatedToolCalls = append(aggregatedToolCalls, resp.Message.ToolCalls...)
+
 		// Handle content
 		if resp.Message.Content != "" {
 			aggregatedText.WriteString(resp.Message.Content)
@@ -101,8 +107,8 @@ func (m *OllamaModel) generateStreaming(ctx context.Context, modelName string, m
 				finalParts = append(finalParts, &genai.Part{Text: text})
 			}
 
-			// Convert tool calls from final message
-			for _, tc := range resp.Message.ToolCalls {
+			// Convert tool calls accumulated across all streamed chunks.
+			for _, tc := range aggregatedToolCalls {
 				if tc.Function.Name != "" {
 					functionCall := &genai.FunctionCall{
 						Name: tc.Function.Name,
