@@ -114,11 +114,13 @@ class KAgentApp:
             if not local and http_client is not None and self.agent_config and self.agent_config.share_tools:
                 from kagent.adk.tools.share_tools import CreateShareLinkTool, DeleteShareLinkTool, ListShareLinksTool
 
-                root_agent.tools.extend([
-                    CreateShareLinkTool(http_client),
-                    ListShareLinksTool(http_client),
-                    DeleteShareLinkTool(http_client),
-                ])
+                root_agent.tools.extend(
+                    [
+                        CreateShareLinkTool(http_client),
+                        ListShareLinksTool(http_client),
+                        DeleteShareLinkTool(http_client),
+                    ]
+                )
 
             # Build ADK context config objects from agent config
             events_compaction_config: EventsCompactionConfig | None = None
