@@ -2,11 +2,11 @@ package httpserver
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -87,7 +87,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 		{
 			name: "invalid token returns 403",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return nil, errors.New("not found")
+				return nil, pgx.ErrNoRows
 			},
 			buildReq: func() *http.Request {
 				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
@@ -98,11 +98,11 @@ func TestShareTokenMiddleware(t *testing.T) {
 			wantShareCtx: false,
 		},
 		{
-			// Revocation deletes the session_share row; subsequent lookups return an error,
+			// Revocation deletes the session_share row; subsequent lookups return pgx.ErrNoRows,
 			// so revoked tokens are rejected immediately — no grace period.
 			name: "revoked token returns 403",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return nil, errors.New("no rows in result set")
+				return nil, pgx.ErrNoRows
 			},
 			buildReq: func() *http.Request {
 				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
