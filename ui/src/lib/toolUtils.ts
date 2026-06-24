@@ -1,5 +1,5 @@
 import { k8sRefUtils } from "@/lib/k8sUtils";
-import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
+import type { Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
 
 interface ArgPair {
   value: string;
@@ -8,8 +8,9 @@ interface ArgPair {
 /**
  * Build the `args` array for a stdio MCPServer deployment.
  *
- * Order is preserved as shown in the command preview:
- *   <executor> [commandPrefix...] <packageName> [additionalArgs...]
+ * The executor (`cmd`) is supplied separately; this helper returns the
+ * remaining arguments in the same order shown in the command preview:
+ *   [commandPrefix...] <packageName> [additionalArgs...]
  */
 export const buildMCPServerArgs = (
   commandPrefix: string,
