@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from a2a.server.events import Event as A2AEvent
-from a2a.types import DataPart, Message, Role, Task, TaskState, TaskStatus, TaskStatusUpdateEvent, TextPart
+from a2a.types import Message, Role, Task, TaskState, TaskStatus, TaskStatusUpdateEvent
 from a2a.types import Part as A2APart
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
 from google.adk.flows.llm_flows.functions import REQUEST_EUC_FUNCTION_CALL_NAME
 from google.genai import types as genai_types
+from google.protobuf.json_format import MessageToDict
+from google.protobuf.timestamp_pb2 import Timestamp
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
@@ -32,15 +33,23 @@ ARTIFACT_ID_SEPARATOR = "-"
 logger = logging.getLogger("kagent_adk." + __name__)
 
 
-def serialize_metadata_value(value: Any) -> str:
+def _now_timestamp() -> Timestamp:
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    return ts
+
+
+def serialize_metadata_value(value: Any) -> Any:
     """Safely serializes metadata values to string format.
 
     Args:
       value: The value to serialize.
 
     Returns:
-      String representation of the value.
+      JSON-serializable representation of the value.
     """
+    if hasattr(value, "DESCRIPTOR"):
+        return MessageToDict(value)
     if hasattr(value, "model_dump"):
         try:
             return value.model_dump(exclude_none=True, by_alias=True)
@@ -69,8 +78,11 @@ def _get_context_metadata(event: Event, invocation_context: InvocationContext) -
         raise ValueError("Invocation context cannot be None")
 
     try:
+        partial = getattr(event, "partial", False)
+        if not isinstance(partial, bool):
+            partial = False
         metadata: Dict[str, Any] = {
-            get_kagent_metadata_key("adk_partial"): event.partial,
+            get_kagent_metadata_key("adk_partial"): partial,
             get_kagent_metadata_key("app_name"): invocation_context.app_name,
             get_kagent_metadata_key("user_id"): invocation_context.user_id,
             get_kagent_metadata_key("session_id"): invocation_context.session.id,
@@ -122,15 +134,21 @@ def _process_long_running_tool(a2a_part: A2APart, event: Event) -> None:
       a2a_part: The A2A part to potentially mark as long-running.
       event: The ADK event containing long-running tool information.
     """
+    if not event.long_running_tool_ids:
+        return
+    if not a2a_part.HasField("data"):
+        return
+
+    metadata = MessageToDict(a2a_part.metadata) if a2a_part.metadata else {}
     if (
-        isinstance(a2a_part.root, DataPart)
-        and event.long_running_tool_ids
-        and a2a_part.root.metadata
-        and a2a_part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
-        == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-        and a2a_part.root.data.get("id") in event.long_running_tool_ids
+        metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
     ):
-        a2a_part.root.metadata[get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)] = True
+        return
+
+    part_data = MessageToDict(a2a_part.data)
+    if isinstance(part_data, dict) and part_data.get("id") in event.long_running_tool_ids:
+        a2a_part.metadata.update({get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY): True})
 
 
 def _process_subagent_session_id(a2a_part: A2APart, subagent_session_ids: Dict[str, str]) -> None:
@@ -144,22 +162,24 @@ def _process_subagent_session_id(a2a_part: A2APart, subagent_session_ids: Dict[s
       a2a_part: The A2A part to potentially stamp.
       subagent_session_ids: Mapping of tool name to pre-generated session ID.
     """
-    if not isinstance(a2a_part.root, DataPart) or not a2a_part.root.metadata:
+    if not a2a_part.HasField("data"):
         return
+    metadata = MessageToDict(a2a_part.metadata) if a2a_part.metadata else {}
     if (
-        a2a_part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
         != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
     ):
         return
-    tool_name = a2a_part.root.data.get("name") if isinstance(a2a_part.root.data, dict) else None
+    part_data = MessageToDict(a2a_part.data)
+    tool_name = part_data.get("name") if isinstance(part_data, dict) else None
     if tool_name and tool_name in subagent_session_ids:
-        a2a_part.root.metadata[get_kagent_metadata_key("subagent_session_id")] = subagent_session_ids[tool_name]
+        a2a_part.metadata.update({get_kagent_metadata_key("subagent_session_id"): subagent_session_ids[tool_name]})
 
 
 def convert_event_to_a2a_message(
     event: Event,
     invocation_context: InvocationContext,
-    role: Role = Role.agent,
+    role: Role = Role.ROLE_AGENT,
     subagent_session_ids: Optional[Dict[str, str]] = None,
 ) -> Optional[Message]:
     """Converts an ADK event to an A2A message.
@@ -239,16 +259,15 @@ def _create_error_status_event(
         context_id=context_id,
         metadata=event_metadata,
         status=TaskStatus(
-            state=TaskState.failed,
+            state=TaskState.TASK_STATE_FAILED,
             message=Message(
                 message_id=str(uuid.uuid4()),
-                role=Role.agent,
-                parts=[A2APart(TextPart(text=error_message))],
+                role=Role.ROLE_AGENT,
+                parts=[A2APart(text=error_message)],
                 metadata={get_kagent_metadata_key("error_code"): str(event.error_code)} if event.error_code else {},
             ),
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=_now_timestamp(),
         ),
-        final=False,
     )
 
 
@@ -273,35 +292,40 @@ def _create_status_update_event(
       A TaskStatusUpdateEvent with RUNNING state.
     """
     status = TaskStatus(
-        state=TaskState.working,
+        state=TaskState.TASK_STATE_WORKING,
         message=message,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=_now_timestamp(),
     )
 
-    if any(
-        part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
-        == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-        and part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is True
-        and part.root.data.get("name") == REQUEST_EUC_FUNCTION_CALL_NAME
-        for part in message.parts
-        if part.root.metadata
-    ):
-        status.state = TaskState.auth_required
-    elif any(
-        part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
-        == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-        and part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is True
-        for part in message.parts
-        if part.root.metadata
-    ):
-        status.state = TaskState.input_required
+    has_auth_required = False
+    has_input_required = False
+    for part in message.parts:
+        if not part.HasField("data"):
+            continue
+        metadata = MessageToDict(part.metadata) if part.metadata else {}
+        if (
+            metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+            != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
+        ):
+            continue
+        if metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is not True:
+            continue
+        payload = MessageToDict(part.data)
+        if isinstance(payload, dict) and payload.get("name") == REQUEST_EUC_FUNCTION_CALL_NAME:
+            has_auth_required = True
+            break
+        has_input_required = True
+
+    if has_auth_required:
+        status.state = TaskState.TASK_STATE_AUTH_REQUIRED
+    elif has_input_required:
+        status.state = TaskState.TASK_STATE_INPUT_REQUIRED
 
     return TaskStatusUpdateEvent(
         task_id=task_id,
         context_id=context_id,
         status=status,
         metadata=_get_context_metadata(event, invocation_context),
-        final=False,
     )
 
 

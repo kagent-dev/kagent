@@ -17,12 +17,12 @@ func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 			{
 				URL:             fmt.Sprintf("http://%s.%s:8080", agent.GetName(), agent.GetNamespace()),
 				ProtocolBinding: a2atype.TransportProtocolJSONRPC,
-				ProtocolVersion: a2atype.ProtocolVersion("0.3"),
+				ProtocolVersion: a2atype.Version,
 			},
 			{
 				URL:             fmt.Sprintf("http://%s.%s:8080", agent.GetName(), agent.GetNamespace()),
 				ProtocolBinding: a2atype.TransportProtocolJSONRPC,
-				ProtocolVersion: a2atype.Version,
+				ProtocolVersion: a2atype.ProtocolVersion("0.3"),
 			},
 		},
 		Capabilities: a2atype.AgentCapabilities{

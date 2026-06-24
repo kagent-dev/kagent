@@ -6,6 +6,11 @@ jest.mock('uuid', () => ({
   v4: jest.fn(() => 'test-uuid-v4'),
 }));
 
+// @a2a-js/sdk's CJS bundle requires `jose` at module-load time.
+// In Jest (CJS) this can trip on jose's ESM-only entrypoint, so we provide
+// a minimal mock since UI tests do not exercise agent-card signature codepaths.
+jest.mock('jose', () => ({}));
+
 // Polyfill TextEncoder/TextDecoder for Node.js test environment
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder as typeof global.TextDecoder;

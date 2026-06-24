@@ -1,4 +1,5 @@
-import { Message, TextPart } from "@a2a-js/sdk";
+import type { Message } from "@a2a-js/sdk";
+import { Role } from "@a2a-js/sdk";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
@@ -32,10 +33,10 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
 
   if (!message) return null;
 
-  const textParts = message.parts?.filter(part => part.kind === "text") || [];
-  const content = textParts.map(part => (part as TextPart).text).join("");
+  const textParts = message.parts?.filter(part => part.content?.$case === "text") || [];
+  const content = textParts.map(part => part.content?.$case === "text" ? part.content.value : "").join("");
 
-  const source = message.role === "user" ? "user" : "assistant";
+  const source = message.role === Role.ROLE_USER ? "user" : "assistant";
   const tokenStats = (message.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
   const messageId = message.messageId;
 
@@ -78,7 +79,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
 
   // Check for tool call parts (works for both stored and streaming messages)
   const hasToolCallParts = message.parts?.some(part => {
-    if (part.kind === "data" && part.metadata) {
+    if (part.content?.$case === "data" && part.metadata) {
       const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
       return partType === "function_call" || partType === "function_response";
     }
@@ -130,7 +131,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
   if (originalType === "ToolCallSummaryMessage") {
     const hasToolCalls = allMessages.some(msg => {
       return msg.parts?.some(part => {
-        if (part.kind === "data" && part.metadata) {
+        if (part.content?.$case === "data" && part.metadata) {
           const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
           return partType === "function_call" || partType === "function_response";
         }

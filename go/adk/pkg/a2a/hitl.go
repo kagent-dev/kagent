@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"google.golang.org/adk/tool/toolconfirmation"
 )
 
@@ -161,17 +161,16 @@ func GetKAgentMetadataKey(key string) string {
 	return KAgentMetadataKeyPrefix + key
 }
 
-// asDataPart extracts a *DataPart from an A2A Part, handling both value and
-// pointer types. The a2a-go library may deserialize parts as either
-// a2atype.DataPart (value) or *a2atype.DataPart (pointer).
-func asDataPart(part a2atype.Part) *a2atype.DataPart {
-	switch p := part.(type) {
-	case *a2atype.DataPart:
-		return p
-	case a2atype.DataPart:
-		return &p
+// asDataPart extracts map-backed data content from an A2A part.
+func asDataPart(part *a2atype.Part) map[string]any {
+	if part == nil {
+		return nil
 	}
-	return nil
+	data, ok := part.Data().(map[string]any)
+	if !ok {
+		return nil
+	}
+	return data
 }
 
 // ExtractDecisionFromMessage extracts a decision from an A2A message.
@@ -182,7 +181,7 @@ func ExtractDecisionFromMessage(message *a2atype.Message) DecisionType {
 	}
 	for _, part := range message.Parts {
 		if dataPart := asDataPart(part); dataPart != nil {
-			if decision, ok := dataPart.Data[KAgentHitlDecisionTypeKey].(string); ok {
+			if decision, ok := dataPart[KAgentHitlDecisionTypeKey].(string); ok {
 				switch decision {
 				case KAgentHitlDecisionTypeApprove:
 					return DecisionApprove
@@ -205,10 +204,10 @@ func ExtractBatchDecisionsFromMessage(message *a2atype.Message) map[string]Decis
 	}
 	for _, part := range message.Parts {
 		dp := asDataPart(part)
-		if dp == nil || dp.Data[KAgentHitlDecisionTypeKey] != string(DecisionBatch) {
+		if dp == nil || dp[KAgentHitlDecisionTypeKey] != string(DecisionBatch) {
 			continue
 		}
-		return parseDecisionMap(dp.Data[KAgentHitlDecisionsKey])
+		return parseDecisionMap(dp[KAgentHitlDecisionsKey])
 	}
 	return nil
 }
@@ -224,11 +223,11 @@ func ExtractRejectionReasonsFromMessage(message *a2atype.Message) map[string]str
 		if dp == nil {
 			continue
 		}
-		decision, _ := dp.Data[KAgentHitlDecisionTypeKey].(string)
+		decision, _ := dp[KAgentHitlDecisionTypeKey].(string)
 		if decision == string(DecisionBatch) {
-			return parseStringMap(dp.Data[KAgentHitlRejectionReasonsKey])
+			return parseStringMap(dp[KAgentHitlRejectionReasonsKey])
 		} else if decision == KAgentHitlDecisionTypeReject {
-			if reason, _ := dp.Data["rejection_reason"].(string); reason != "" {
+			if reason, _ := dp["rejection_reason"].(string); reason != "" {
 				return map[string]string{"*": reason}
 			}
 		}
@@ -246,7 +245,7 @@ func ExtractAskUserAnswersFromMessage(message *a2atype.Message) []map[string]any
 		if dp == nil {
 			continue
 		}
-		answers := parseAskUserAnswersValue(dp.Data[KAgentAskUserAnswersKey])
+		answers := parseAskUserAnswersValue(dp[KAgentAskUserAnswersKey])
 		if len(answers) == 0 {
 			continue
 		}
@@ -293,14 +292,14 @@ func HitlPartInfoFromDataPartData(data map[string]any) HitlPartInfo {
 func ExtractHitlInfoFromParts(parts a2atype.ContentParts) []HitlPartInfo {
 	var result []HitlPartInfo
 	for _, part := range parts {
-		dp := asDataPart(part)
-		if dp == nil || dp.Metadata == nil {
+		dpData := asDataPart(part)
+		if dpData == nil || part.Metadata == nil {
 			continue
 		}
-		partType, _ := ReadMetadataValue(dp.Metadata, A2ADataPartMetadataTypeKey)
-		isLR, _ := ReadMetadataValue(dp.Metadata, A2ADataPartMetadataIsLongRunningKey)
+		partType, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataTypeKey)
+		isLR, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataIsLongRunningKey)
 		if partType == A2ADataPartMetadataTypeFunctionCall && isLR == true {
-			result = append(result, HitlPartInfoFromDataPartData(dp.Data))
+			result = append(result, HitlPartInfoFromDataPartData(dpData))
 		}
 	}
 	return result
@@ -322,30 +321,30 @@ func BuildConfirmationPayload(originalPayload, extra map[string]any) map[string]
 func ExtractPendingConfirmationsFromParts(parts a2atype.ContentParts) map[string]PendingConfirmation {
 	pending := make(map[string]PendingConfirmation)
 	for _, part := range parts {
-		dp := asDataPart(part)
-		if dp == nil || dp.Metadata == nil || dp.Data == nil {
+		dpData := asDataPart(part)
+		if dpData == nil || part.Metadata == nil {
 			continue
 		}
 
-		partType, _ := ReadMetadataValue(dp.Metadata, A2ADataPartMetadataTypeKey)
-		isLongRunning, _ := ReadMetadataValue(dp.Metadata, A2ADataPartMetadataIsLongRunningKey)
+		partType, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataTypeKey)
+		isLongRunning, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataIsLongRunningKey)
 		if partType != A2ADataPartMetadataTypeFunctionCall || isLongRunning != true {
 			continue
 		}
 
-		name, _ := dp.Data[PartKeyName].(string)
+		name, _ := dpData[PartKeyName].(string)
 		if name != toolconfirmation.FunctionCallName {
 			continue
 		}
 
-		confirmationID, _ := dp.Data[PartKeyID].(string)
+		confirmationID, _ := dpData[PartKeyID].(string)
 		if confirmationID == "" {
 			continue
 		}
 
-		info := HitlPartInfoFromDataPartData(dp.Data)
+		info := HitlPartInfoFromDataPartData(dpData)
 		var originalPayload map[string]any
-		if args, ok := dp.Data[PartKeyArgs].(map[string]any); ok {
+		if args, ok := dpData[PartKeyArgs].(map[string]any); ok {
 			if tc, ok := args["toolConfirmation"].(map[string]any); ok {
 				if payload, ok := tc["payload"].(map[string]any); ok {
 					originalPayload = payload
@@ -395,14 +394,14 @@ func ProcessHitlDecision(
 	pending map[string]PendingConfirmation,
 	decision DecisionType,
 	message *a2atype.Message,
-) []a2atype.Part {
+) []*a2atype.Part {
 	if len(pending) == 0 {
 		return nil
 	}
 
 	// Ask-user answers take priority.
 	if askUserAnswers := parseAskUserAnswersValue(extractMessageField(message, KAgentAskUserAnswersKey)); len(askUserAnswers) > 0 {
-		var parts []a2atype.Part
+		var parts []*a2atype.Part
 		for fcID, pc := range pending {
 			payload := ParseHitlConfirmationPayload(pc.OriginalPayload)
 			payload.Answers = askUserAnswers
@@ -418,7 +417,7 @@ func ProcessHitlDecision(
 		if batchDecisions == nil {
 			batchDecisions = map[string]DecisionType{}
 		}
-		var parts []a2atype.Part
+		var parts []*a2atype.Part
 		for fcID, pc := range pending {
 			payload := ParseHitlConfirmationPayload(pc.OriginalPayload)
 			var confirmed bool
@@ -451,7 +450,7 @@ func ProcessHitlDecision(
 
 	// Uniform approve/reject.
 	confirmed := decision == DecisionApprove
-	var parts []a2atype.Part
+	var parts []*a2atype.Part
 	for fcID, pc := range pending {
 		payload := ParseHitlConfirmationPayload(pc.OriginalPayload)
 		if !confirmed {
@@ -463,22 +462,21 @@ func ProcessHitlDecision(
 }
 
 // buildConfirmationResponsePart builds the A2A DataPart for a ToolConfirmation FunctionResponse.
-func buildConfirmationResponsePart(fcID string, confirmed bool, payload map[string]any) a2atype.Part {
+func buildConfirmationResponsePart(fcID string, confirmed bool, payload map[string]any) *a2atype.Part {
 	tc := toolconfirmation.ToolConfirmation{
 		Confirmed: confirmed,
 		Payload:   payload,
 	}
 	serialized, _ := json.Marshal(tc)
-	return a2atype.DataPart{
-		Data: map[string]any{
-			PartKeyName:     toolconfirmation.FunctionCallName,
-			PartKeyID:       fcID,
-			PartKeyResponse: map[string]any{"response": string(serialized)},
-		},
-		Metadata: map[string]any{
-			GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
-		},
+	p := a2atype.NewDataPart(map[string]any{
+		PartKeyName:     toolconfirmation.FunctionCallName,
+		PartKeyID:       fcID,
+		PartKeyResponse: map[string]any{"response": string(serialized)},
+	})
+	p.Metadata = map[string]any{
+		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
 	}
+	return p
 }
 
 func extractMessageField(message *a2atype.Message, key string) any {
@@ -490,7 +488,7 @@ func extractMessageField(message *a2atype.Message, key string) any {
 		if dp == nil {
 			continue
 		}
-		if value, ok := dp.Data[key]; ok {
+		if value, ok := dp[key]; ok {
 			return value
 		}
 	}

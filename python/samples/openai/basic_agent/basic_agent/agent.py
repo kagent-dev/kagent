@@ -13,6 +13,7 @@ from pathlib import Path
 from a2a.types import AgentCard
 from agents.agent import Agent
 from agents.tool import function_tool
+from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig
 from kagent.openai import KAgentApp
 
@@ -77,22 +78,25 @@ agent = Agent(
 
 
 # Agent card for A2A protocol
-agent_card = AgentCard(
-    name="basic-openai-agent",
-    description="A basic OpenAI agent with calculator and weather tools",
-    url="localhost:8000",
-    version="0.1.0",
-    capabilities={"streaming": True},
-    defaultInputModes=["text"],
-    defaultOutputModes=["text"],
-    skills=[
-        {
-            "id": "basic",
-            "name": "Basic Assistant",
-            "description": "Can perform calculations and get weather information",
-            "tags": ["calculator", "weather", "assistant"],
-        }
-    ],
+agent_card = ParseDict(
+    {
+        "name": "basic-openai-agent",
+        "description": "A basic OpenAI agent with calculator and weather tools",
+        "version": "0.1.0",
+        "supportedInterfaces": [{"url": "http://localhost:8080", "protocolBinding": "JSONRPC"}],
+        "capabilities": {"streaming": True},
+        "defaultInputModes": ["text/plain"],
+        "defaultOutputModes": ["text/plain"],
+        "skills": [
+            {
+                "id": "basic",
+                "name": "Basic Assistant",
+                "description": "Can perform calculations and get weather information",
+                "tags": ["calculator", "weather", "assistant"],
+            }
+        ],
+    },
+    AgentCard(),
 )
 
 config = KAgentConfig()

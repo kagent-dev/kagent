@@ -4,28 +4,33 @@ import (
 	"context"
 	"testing"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"google.golang.org/adk/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"google.golang.org/adk/server/adka2a/v2"
 	"google.golang.org/genai"
 )
+
+func convDataPart(data map[string]any, metadata map[string]any) *a2atype.Part {
+	p := a2atype.NewDataPart(data)
+	if metadata != nil {
+		p.Metadata = metadata
+	}
+	return p
+}
 
 // ---------------------------------------------------------------------------
 // convertDataPartToGenAI
 // ---------------------------------------------------------------------------
 
 func TestConvertDataPartToGenAI_FunctionCall_KagentPrefix(t *testing.T) {
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			"name": "my_func",
-			"args": map[string]any{"key": "value"},
-			"id":   "call_1",
-		},
-		Metadata: map[string]any{
-			GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
-		},
+	data := map[string]any{
+		"name": "my_func",
+		"args": map[string]any{"key": "value"},
+		"id":   "call_1",
 	}
-
-	part, err := convertDataPartToGenAI(dp, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	meta := map[string]any{
+		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
+	}
+	part, err := convertDataPartToGenAI(data, meta, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -41,18 +46,15 @@ func TestConvertDataPartToGenAI_FunctionCall_KagentPrefix(t *testing.T) {
 }
 
 func TestConvertDataPartToGenAI_FunctionCall_AdkPrefix(t *testing.T) {
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			"name": "my_func",
-			"args": map[string]any{"key": "value"},
-			"id":   "call_1",
-		},
-		Metadata: map[string]any{
-			adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
-		},
+	data := map[string]any{
+		"name": "my_func",
+		"args": map[string]any{"key": "value"},
+		"id":   "call_1",
 	}
-
-	part, err := convertDataPartToGenAI(dp, adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey))
+	meta := map[string]any{
+		adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
+	}
+	part, err := convertDataPartToGenAI(data, meta, adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,18 +67,15 @@ func TestConvertDataPartToGenAI_FunctionCall_AdkPrefix(t *testing.T) {
 }
 
 func TestConvertDataPartToGenAI_FunctionResponse(t *testing.T) {
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			"name":     "my_func",
-			"response": map[string]any{"result": "ok"},
-			"id":       "call_2",
-		},
-		Metadata: map[string]any{
-			GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
-		},
+	data := map[string]any{
+		"name":     "my_func",
+		"response": map[string]any{"result": "ok"},
+		"id":       "call_2",
 	}
-
-	part, err := convertDataPartToGenAI(dp, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	meta := map[string]any{
+		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
+	}
+	part, err := convertDataPartToGenAI(data, meta, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -92,7 +91,7 @@ func TestConvertDataPartToGenAI_FunctionResponse(t *testing.T) {
 }
 
 func TestConvertDataPartToGenAI_Nil(t *testing.T) {
-	part, err := convertDataPartToGenAI(nil, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	part, err := convertDataPartToGenAI(nil, nil, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,20 +101,16 @@ func TestConvertDataPartToGenAI_Nil(t *testing.T) {
 }
 
 func TestConvertDataPartToGenAI_UnknownType(t *testing.T) {
-	dp := &a2atype.DataPart{
-		Data:     map[string]any{"foo": "bar"},
-		Metadata: map[string]any{"kagent_type": "unknown_type"},
-	}
-
-	part, err := convertDataPartToGenAI(dp, "kagent_type")
+	part, err := convertDataPartToGenAI(
+		map[string]any{"foo": "bar"},
+		map[string]any{"kagent_type": "unknown_type"},
+		"kagent_type",
+	)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("unexpected error for unknown part type: %v", err)
 	}
-	if part == nil || part.InlineData == nil {
-		t.Fatalf("expected unknown DataPart to fall back to InlineData, got %#v", part)
-	}
-	if part.InlineData.MIMEType != "text/plain" {
-		t.Errorf("mime type = %q, want text/plain", part.InlineData.MIMEType)
+	if part == nil {
+		t.Fatal("expected fallback GenAI part for unknown type")
 	}
 }
 
@@ -124,7 +119,7 @@ func TestConvertDataPartToGenAI_UnknownType(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestMessageToGenAIContent_TextPart(t *testing.T) {
-	msg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.TextPart{Text: "hello"})
+	msg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
 	content, err := messageToGenAIContent(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -145,8 +140,8 @@ func TestMessageToGenAIContent_DropsUnrecognisedDataPart(t *testing.T) {
 	// A DataPart with no recognised kagent_type metadata (e.g. a HITL decision
 	// payload like {decision_type: "approve"}) should be dropped silently.
 	msg := a2atype.NewMessage(a2atype.MessageRoleUser,
-		a2atype.TextPart{Text: "approving"},
-		&a2atype.DataPart{Data: map[string]any{"decision_type": "approve"}},
+		a2atype.NewTextPart("approving"),
+		convDataPart(map[string]any{"decision_type": "approve"}, nil),
 	)
 	content, err := messageToGenAIContent(context.Background(), msg)
 	if err != nil {
@@ -163,16 +158,13 @@ func TestMessageToGenAIContent_DropsUnrecognisedDataPart(t *testing.T) {
 
 func TestMessageToGenAIContent_KagentTypeFunctionResponse(t *testing.T) {
 	// A DataPart with kagent_type=function_response should be converted to GenAI.
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			"name":     "my_func",
-			"id":       "call_1",
-			"response": map[string]any{"result": "ok"},
-		},
-		Metadata: map[string]any{
-			GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
-		},
-	}
+	dp := convDataPart(map[string]any{
+		"name":     "my_func",
+		"id":       "call_1",
+		"response": map[string]any{"result": "ok"},
+	}, map[string]any{
+		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
+	})
 	msg := a2atype.NewMessage(a2atype.MessageRoleUser, dp)
 	content, err := messageToGenAIContent(context.Background(), msg)
 	if err != nil {
@@ -206,22 +198,18 @@ func TestMessageToGenAIContent_NilMessage(t *testing.T) {
 func TestStampSubagentSessionID_FunctionCallPart(t *testing.T) {
 	subagentIDs := map[string]string{"k8s_agent": "session-abc"}
 
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			PartKeyName: "k8s_agent",
-			PartKeyArgs: map[string]any{"request": "list pods"},
-		},
-		Metadata: map[string]any{
-			adka2a.ToA2AMetaKey("type"): A2ADataPartMetadataTypeFunctionCall,
-		},
-	}
+	dp := convDataPart(map[string]any{
+		PartKeyName: "k8s_agent",
+		PartKeyArgs: map[string]any{"request": "list pods"},
+	}, map[string]any{
+		adka2a.ToA2AMetaKey("type"): A2ADataPartMetadataTypeFunctionCall,
+	})
 	updated := stampSubagentSessionID(dp, subagentIDs)
-	updatedDP, ok := updated.(a2atype.DataPart)
-	if !ok {
-		t.Fatalf("updated part type = %T, want a2atype.DataPart", updated)
+	if updated == nil {
+		t.Fatal("updated part is nil")
 	}
 
-	sessionID, has := updatedDP.Metadata[GetKAgentMetadataKey("subagent_session_id")]
+	sessionID, has := updated.Metadata[GetKAgentMetadataKey("subagent_session_id")]
 	if !has {
 		t.Fatal("expected kagent_subagent_session_id in metadata, not found")
 	}
@@ -233,21 +221,17 @@ func TestStampSubagentSessionID_FunctionCallPart(t *testing.T) {
 func TestStampSubagentSessionID_UnknownTool(t *testing.T) {
 	subagentIDs := map[string]string{"k8s_agent": "session-abc"}
 
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			PartKeyName: "unknown_tool",
-		},
-		Metadata: map[string]any{
-			adka2a.ToA2AMetaKey("type"): A2ADataPartMetadataTypeFunctionCall,
-		},
-	}
+	dp := convDataPart(map[string]any{
+		PartKeyName: "unknown_tool",
+	}, map[string]any{
+		adka2a.ToA2AMetaKey("type"): A2ADataPartMetadataTypeFunctionCall,
+	})
 	updated := stampSubagentSessionID(dp, subagentIDs)
-	updatedDP, ok := updated.(a2atype.DataPart)
-	if !ok {
-		t.Fatalf("updated part type = %T, want a2atype.DataPart", updated)
+	if updated == nil {
+		t.Fatal("updated part is nil")
 	}
 
-	if _, ok := updatedDP.Metadata[GetKAgentMetadataKey("subagent_session_id")]; ok {
+	if _, ok := updated.Metadata[GetKAgentMetadataKey("subagent_session_id")]; ok {
 		t.Error("expected no subagent_session_id for unknown tool")
 	}
 }

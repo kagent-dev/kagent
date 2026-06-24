@@ -45,7 +45,7 @@ func (h *TasksHandler) HandleGetTask(w ErrorResponseWriter, r *http.Request) {
 	}
 
 	log.Info("Successfully retrieved task")
-	// TODO(0.11.0): Remove legacy API conversion after legacy wire support is no longer supported.
+	// TODO(0.12.0): Remove legacy API conversion after legacy wire support is no longer supported.
 	// Currently this will return either legacy or v1 task depending on the wire version
 	var data any
 	switch wireVersion {
@@ -76,7 +76,7 @@ func (h *TasksHandler) HandleCreateTask(w ErrorResponseWriter, r *http.Request) 
 	}
 
 	task := a2a.Task{}
-	// TODO(0.11.0): Remove legacy API conversion after legacy wire support is no longer supported.
+	// TODO(0.12.0): Remove legacy API conversion after legacy wire support is no longer supported.
 	switch wireVersion {
 	case utils.A2AWireVersionLegacy:
 		legacyTask := protocol.Task{}

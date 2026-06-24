@@ -8,26 +8,18 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
-
-try:
-    from datetime import UTC  # Python 3.11+
-except ImportError:
-    from datetime import timezone
-
-    UTC = timezone.utc
 
 from a2a.server.events import Event as A2AEvent
 from a2a.types import (
-    DataPart,
     Message,
     Role,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
-from a2a.types import Part as A2APart
+from a2a.types import (
+    Part as A2APart,
+)
 from agents.items import MessageOutputItem, ToolCallItem, ToolCallOutputItem
 from agents.stream_events import (
     AgentUpdatedStreamEvent,
@@ -35,6 +27,9 @@ from agents.stream_events import (
     RunItemStreamEvent,
     StreamEvent,
 )
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
+from google.protobuf.timestamp_pb2 import Timestamp
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
@@ -43,6 +38,12 @@ from kagent.core.a2a import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _now_timestamp() -> Timestamp:
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    return ts
 
 
 def convert_openai_event_to_a2a_events(
@@ -160,8 +161,8 @@ def _convert_message_output(
 
     message = Message(
         message_id=str(uuid.uuid4()),
-        role=Role.agent,
-        parts=[A2APart(TextPart(text=text_content))],
+        role=Role.ROLE_AGENT,
+        parts=[A2APart(text=text_content)],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
             get_kagent_metadata_key("event_type"): "message_output",
@@ -172,14 +173,13 @@ def _convert_message_output(
         task_id=task_id,
         context_id=context_id,
         status=TaskStatus(
-            state=TaskState.working,
+            state=TaskState.TASK_STATE_WORKING,
             message=message,
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_now_timestamp(),
         ),
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
         },
-        final=False,
     )
 
     return [status_event]
@@ -228,17 +228,17 @@ def _convert_tool_call(
         "args": tool_arguments,
     }
 
-    data_part = DataPart(
-        data=function_data,
-        metadata={
-            get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-        },
-    )
-
     message = Message(
         message_id=str(uuid.uuid4()),
-        role=Role.agent,
-        parts=[A2APart(data_part)],
+        role=Role.ROLE_AGENT,
+        parts=[
+            A2APart(
+                data=ParseDict(function_data, Value()),
+                metadata={
+                    get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                },
+            )
+        ],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
             get_kagent_metadata_key("event_type"): "tool_call",
@@ -249,14 +249,13 @@ def _convert_tool_call(
         task_id=task_id,
         context_id=context_id,
         status=TaskStatus(
-            state=TaskState.working,
+            state=TaskState.TASK_STATE_WORKING,
             message=message,
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_now_timestamp(),
         ),
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
         },
-        final=False,
     )
 
     return [status_event]
@@ -289,17 +288,19 @@ def _convert_tool_output(
         "response": {"result": actual_output},
     }
 
-    data_part = DataPart(
-        data=function_data,
-        metadata={
-            get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-        },
-    )
-
     message = Message(
         message_id=str(uuid.uuid4()),
-        role=Role.agent,
-        parts=[A2APart(data_part)],
+        role=Role.ROLE_AGENT,
+        parts=[
+            A2APart(
+                data=ParseDict(function_data, Value()),
+                metadata={
+                    get_kagent_metadata_key(
+                        A2A_DATA_PART_METADATA_TYPE_KEY
+                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
+                },
+            )
+        ],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
             get_kagent_metadata_key("event_type"): "tool_output",
@@ -310,14 +311,13 @@ def _convert_tool_output(
         task_id=task_id,
         context_id=context_id,
         status=TaskStatus(
-            state=TaskState.working,
+            state=TaskState.TASK_STATE_WORKING,
             message=message,
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_now_timestamp(),
         ),
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
         },
-        final=False,
     )
 
     return [status_event]
@@ -346,17 +346,17 @@ def _convert_agent_updated_event(
         "args": {"target_agent": agent_name},
     }
 
-    data_part = DataPart(
-        data=function_data,
-        metadata={
-            get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-        },
-    )
-
     message = Message(
         message_id=str(uuid.uuid4()),
-        role=Role.agent,
-        parts=[A2APart(data_part)],
+        role=Role.ROLE_AGENT,
+        parts=[
+            A2APart(
+                data=ParseDict(function_data, Value()),
+                metadata={
+                    get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                },
+            )
+        ],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
             get_kagent_metadata_key("event_type"): "agent_handoff",
@@ -368,14 +368,13 @@ def _convert_agent_updated_event(
         task_id=task_id,
         context_id=context_id,
         status=TaskStatus(
-            state=TaskState.working,
+            state=TaskState.TASK_STATE_WORKING,
             message=message,
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=_now_timestamp(),
         ),
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
         },
-        final=False,
     )
 
     return [status_event]

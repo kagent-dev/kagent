@@ -6,9 +6,12 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Querier interface {
+	CountAlreadyV1Rows(ctx context.Context, protocolVersion *string) (int32, error)
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
 	ExtendMemoryTTL(ctx context.Context) error
@@ -38,6 +41,8 @@ type Querier interface {
 	ListEventsForSessionDesc(ctx context.Context, arg ListEventsForSessionDescParams) ([]Event, error)
 	ListEventsForSessionDescLimit(ctx context.Context, arg ListEventsForSessionDescLimitParams) ([]Event, error)
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
+	ListLegacyPushNotifications(ctx context.Context, arg ListLegacyPushNotificationsParams) ([]ListLegacyPushNotificationsRow, error)
+	ListLegacyTasks(ctx context.Context, arg ListLegacyTasksParams) ([]ListLegacyTasksRow, error)
 	ListPushNotifications(ctx context.Context, taskID string) ([]PushNotification, error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]Session, error)
@@ -46,6 +51,9 @@ type Querier interface {
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
+	ListUnknownProtocolVersions(ctx context.Context, protocolVersion *string) ([]ListUnknownProtocolVersionsRow, error)
+	MigratePushNotification(ctx context.Context, arg MigratePushNotificationParams) (pgconn.CommandTag, error)
+	MigrateTask(ctx context.Context, arg MigrateTaskParams) (pgconn.CommandTag, error)
 	// Memory uses hard DELETE (not soft deletes), so no deleted_at filter is needed.
 	// COALESCE guards against NULL embeddings (score=0 rather than NULL); rows are still ordered last by the ORDER BY clause.
 	SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryParams) ([]SearchAgentMemoryRow, error)

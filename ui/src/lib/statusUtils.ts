@@ -1,29 +1,39 @@
 import type { ChatStatus } from "@/types";
-import { TaskState } from "@a2a-js/sdk";
+import { TaskState, taskStateFromJSON } from "@a2a-js/sdk";
 
 export interface StatusInfo {
   text: string;
   placeholder: string;
 }
 
-// Map A2A TaskState to our ChatStatus for UI purposes
-export const mapA2AStateToStatus = (state: TaskState): ChatStatus => {
-  switch (state) {
-    case "submitted":
-      return "submitted";
-    case "working":
-      return "working";
-    case "input-required":
-      return "input_required";
-    case "completed":
-      return "ready";
-    case "canceled":
-    case "failed": 
-    case "rejected":
-      return "error";
-    case "auth-required":
-      return "auth_required";
-    case "unknown":
+// Map A2A TaskState (enum or raw string from API) to our ChatStatus.
+export const mapA2AStateToStatus = (state: TaskState | string | undefined): ChatStatus => {
+  const normalized = taskStateFromJSON(state);
+  if (normalized === TaskState.TASK_STATE_SUBMITTED) {
+    return "submitted";
+  }
+  if (normalized === TaskState.TASK_STATE_WORKING) {
+    return "working";
+  }
+  if (normalized === TaskState.TASK_STATE_INPUT_REQUIRED) {
+    return "input_required";
+  }
+  if (normalized === TaskState.TASK_STATE_COMPLETED) {
+    return "ready";
+  }
+  if (
+    normalized === TaskState.TASK_STATE_CANCELED ||
+    normalized === TaskState.TASK_STATE_FAILED ||
+    normalized === TaskState.TASK_STATE_REJECTED
+  ) {
+    return "error";
+  }
+  if (normalized === TaskState.TASK_STATE_AUTH_REQUIRED) {
+    return "auth_required";
+  }
+
+  switch (normalized) {
+    case TaskState.TASK_STATE_UNSPECIFIED:
     default:
       return "thinking";
   }

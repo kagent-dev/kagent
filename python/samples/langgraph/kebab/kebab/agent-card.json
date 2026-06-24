@@ -1,7 +1,6 @@
 {
   "name": "langgraph-kebab",
   "description": "Minimal LangGraph kebab sample",
-  "url": "localhost:8080",
   "version": "0.1.0",
   "capabilities": {
     "streaming": true

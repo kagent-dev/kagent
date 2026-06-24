@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendUrl } from '@/lib/utils';
 import { getAuthHeadersFromRequest, CORS_ALLOW_HEADERS } from '@/lib/auth';
+import { A2A_PROTOCOL_VERSION, A2A_VERSION_HEADER } from '@a2a-js/sdk';
 
 export async function POST(
   request: NextRequest,
@@ -25,6 +26,7 @@ export async function POST(
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'User-Agent': 'kagent-ui',
+        [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
       },
       body: JSON.stringify(a2aRequest),
     });

@@ -41,7 +41,7 @@ import (
 	"log"
 	"os"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
@@ -50,7 +50,7 @@ import (
 	"google.golang.org/adk/agent/llmagent"
 	"google.golang.org/adk/agent/workflowagents/parallelagent"
 	"google.golang.org/adk/runner"
-	"google.golang.org/adk/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
+	"google.golang.org/adk/server/adka2a/v2"
 	adksession "google.golang.org/adk/session"
 )
 
@@ -127,10 +127,11 @@ func main() {
 			Name:        "byo-parallel-agent",
 			Description: "A BYO agent that runs creative and technical writers in parallel",
 			Version:     "1.0.0",
-			URL:         "http://localhost:8082",
+			SupportedInterfaces: []*a2atype.AgentInterface{
+				a2atype.NewAgentInterface("http://localhost:8082", a2atype.TransportProtocolJSONRPC),
+			},
 			Capabilities: a2atype.AgentCapabilities{
-				Streaming:              stream,
-				StateTransitionHistory: true,
+				Streaming: stream,
 			},
 			DefaultInputModes:  []string{"text/plain"},
 			DefaultOutputModes: []string{"text/plain"},

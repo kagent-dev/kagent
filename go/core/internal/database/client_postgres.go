@@ -199,22 +199,17 @@ func (c *postgresClient) ListEventsForSession(ctx context.Context, sessionID, us
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
-// TODO(0.11.0): Switch task writes to v1 storage format and remove legacy conversion from this write path.
-// NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0
 func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task) error {
-	legacyTask, err := trpcv0.ToLegacyTask(task)
-	if err != nil {
-		return fmt.Errorf("failed to convert task to legacy format: %w", err)
-	}
-	data, err := json.Marshal(legacyTask)
+	data, err := json.Marshal(task)
 	if err != nil {
 		return fmt.Errorf("failed to serialize task: %w", err)
 	}
+	protocolVersion := trpcv0.ProtocolVersionV1
 	return c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
 		ID:              string(task.ID),
 		Data:            string(data),
 		SessionID:       strPtrIfNotEmpty(task.ContextID),
-		ProtocolVersion: nil,
+		ProtocolVersion: &protocolVersion,
 	})
 }
 
@@ -248,19 +243,17 @@ func (c *postgresClient) DeleteTask(ctx context.Context, taskID string) error {
 
 // ── Push Notifications ────────────────────────────────────────────────────────
 
-// TODO(0.11.0): Switch push notification writes to v1 storage format and remove legacy conversion from this write path.
-// NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0.
 func (c *postgresClient) StorePushNotification(ctx context.Context, config *a2a.PushConfig) error {
-	legacyConfig := trpcv0.ToLegacyPushConfig(config)
-	data, err := json.Marshal(legacyConfig)
+	data, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to serialize push notification: %w", err)
 	}
+	protocolVersion := trpcv0.ProtocolVersionV1
 	return c.q.UpsertPushNotification(ctx, dbgen.UpsertPushNotificationParams{
 		ID:              config.ID,
 		TaskID:          string(config.TaskID),
 		Data:            string(data),
-		ProtocolVersion: nil,
+		ProtocolVersion: &protocolVersion,
 	})
 }
 

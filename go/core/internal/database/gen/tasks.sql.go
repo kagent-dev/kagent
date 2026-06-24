@@ -7,6 +7,8 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const getTask = `-- name: GetTask :one
@@ -28,6 +30,43 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.ProtocolVersion,
 	)
 	return i, err
+}
+
+const listLegacyTasks = `-- name: ListLegacyTasks :many
+SELECT id, data FROM task
+WHERE protocol_version IS NULL AND id > $1
+ORDER BY id
+LIMIT $2
+`
+
+type ListLegacyTasksParams struct {
+	ID    string
+	Limit int32
+}
+
+type ListLegacyTasksRow struct {
+	ID   string
+	Data string
+}
+
+func (q *Queries) ListLegacyTasks(ctx context.Context, arg ListLegacyTasksParams) ([]ListLegacyTasksRow, error) {
+	rows, err := q.db.Query(ctx, listLegacyTasks, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListLegacyTasksRow
+	for rows.Next() {
+		var i ListLegacyTasksRow
+		if err := rows.Scan(&i.ID, &i.Data); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listTasksForSession = `-- name: ListTasksForSession :many
@@ -62,6 +101,28 @@ func (q *Queries) ListTasksForSession(ctx context.Context, sessionID *string) ([
 		return nil, err
 	}
 	return items, nil
+}
+
+const migrateTask = `-- name: MigrateTask :execresult
+UPDATE task
+SET data = $1, protocol_version = $2, updated_at = NOW()
+WHERE id = $3 AND data = $4 AND protocol_version IS NULL
+`
+
+type MigrateTaskParams struct {
+	Data            string
+	ProtocolVersion *string
+	ID              string
+	Data_2          string
+}
+
+func (q *Queries) MigrateTask(ctx context.Context, arg MigrateTaskParams) (pgconn.CommandTag, error) {
+	return q.db.Exec(ctx, migrateTask,
+		arg.Data,
+		arg.ProtocolVersion,
+		arg.ID,
+		arg.Data_2,
+	)
 }
 
 const softDeleteTask = `-- name: SoftDeleteTask :exec

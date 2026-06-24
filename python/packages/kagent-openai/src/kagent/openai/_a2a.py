@@ -12,13 +12,14 @@ import os
 from collections.abc import Callable
 
 import httpx
-from a2a.server.apps import A2AFastAPIApplication
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from agents import Agent, set_default_openai_api, set_default_openai_client, set_tracing_disabled
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
+from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
@@ -84,7 +85,7 @@ class KAgentApp:
     def __init__(
         self,
         agent: Agent | Callable[[], Agent],
-        agent_card: AgentCard,
+        agent_card: AgentCard | dict,
         config: KAgentConfig,
         executor_config: OpenAIAgentExecutorConfig | None = None,
         tracing: bool = True,
@@ -93,13 +94,12 @@ class KAgentApp:
 
         Args:
             agent: OpenAI Agent instance or factory function
-            agent_card: A2A agent card describing the agent's capabilities
-            kagent_url: URL of the KAgent backend server
-            app_name: Application name for identification
-            config: Optional executor configuration
+            agent_card: A2A agent card — either an AgentCard protobuf instance or a plain dict
+            config: KAgent configuration
+            executor_config: Optional executor configuration
         """
         self.agent = agent
-        self.agent_card = AgentCard.model_validate(agent_card)
+        self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
         self.config = config
         self.executor_config = executor_config or OpenAIAgentExecutorConfig()
         self.tracing = tracing
@@ -121,6 +121,7 @@ class KAgentApp:
         # Create HTTP client with KAgent backend
         http_client = httpx.AsyncClient(
             base_url=kagent_url_override or self.config.kagent_url,
+            headers={"A2A-Version": "1.0"},
         )
 
         # Create session factory
@@ -145,16 +146,12 @@ class KAgentApp:
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=kagent_task_store,
+            agent_card=self.agent_card,
             request_context_builder=request_context_builder,
         )
 
-        # Create A2A FastAPI application
-        max_content_length = get_a2a_max_content_length()
-        a2a_app = A2AFastAPIApplication(
-            agent_card=self.agent_card,
-            http_handler=request_handler,
-            max_content_length=max_content_length,
-        )
+        # Keep the configured max body size value available for route/middleware evolution.
+        _ = get_a2a_max_content_length()
 
         # Enable fault handler
         faulthandler.enable()
@@ -186,7 +183,8 @@ class KAgentApp:
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
 
         # Add A2A routes
-        a2a_app.add_routes_to_app(app)
+        app.router.routes.extend(create_agent_card_routes(self.agent_card))
+        app.router.routes.extend(create_jsonrpc_routes(request_handler, rpc_url="/"))
 
         return app
 
@@ -218,16 +216,12 @@ class KAgentApp:
         request_handler = DefaultRequestHandler(
             agent_executor=agent_executor,
             task_store=task_store,
+            agent_card=self.agent_card,
             request_context_builder=request_context_builder,
         )
 
-        # Create A2A FastAPI application
-        max_content_length = get_a2a_max_content_length()
-        a2a_app = A2AFastAPIApplication(
-            agent_card=self.agent_card,
-            http_handler=request_handler,
-            max_content_length=max_content_length,
-        )
+        # Keep the configured max body size value available for route/middleware evolution.
+        _ = get_a2a_max_content_length()
 
         # Enable fault handler
         faulthandler.enable()
@@ -240,7 +234,8 @@ class KAgentApp:
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
 
         # Add A2A routes
-        a2a_app.add_routes_to_app(app)
+        app.router.routes.extend(create_agent_card_routes(self.agent_card))
+        app.router.routes.extend(create_jsonrpc_routes(request_handler, rpc_url="/"))
 
         return app
 

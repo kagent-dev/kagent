@@ -2,12 +2,12 @@ import logging
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
@@ -15,7 +15,6 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 
 from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
-from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
@@ -23,6 +22,7 @@ from kagent.adk.models._gemini import KAgentGeminiLlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import OpenAI as OpenAINative
+from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
 
@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 # Proxy host header used for Gateway API routing when using a proxy
 PROXY_HOST_HEADER = "x-kagent-host"
+
+DEFAULT_TIMEOUT = 30.0
 
 # Key used to store headers in session state
 HEADERS_STATE_KEY = "headers"

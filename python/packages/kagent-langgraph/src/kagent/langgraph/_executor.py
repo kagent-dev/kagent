@@ -8,15 +8,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Mapping
-from datetime import datetime
 from typing import Any
-
-try:
-    from datetime import UTC  # Python 3.11+
-except ImportError:
-    from datetime import timezone
-
-    UTC = timezone.utc
 
 try:
     from typing import override  # Python 3.12+
@@ -28,16 +20,18 @@ from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
     Artifact,
-    DataPart,
     Message,
     Part,
     Role,
+    Task,
     TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
+from google.protobuf.timestamp_pb2 import Timestamp
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
@@ -65,6 +59,12 @@ from ._converters import _convert_langgraph_event_to_a2a
 from ._error_mappings import get_error_metadata, get_user_friendly_error_message
 
 logger = logging.getLogger(__name__)
+
+
+def _now_timestamp() -> Timestamp:
+    ts = Timestamp()
+    ts.GetCurrentTime()
+    return ts
 
 
 class LangGraphAgentExecutorConfig(BaseModel):
@@ -183,7 +183,7 @@ class LangGraphAgentExecutor(AgentExecutor):
 
         # publish the task result event - this is final
         if (
-            task_result_aggregator.task_state == TaskState.working
+            task_result_aggregator.task_state == TaskState.TASK_STATE_WORKING
             and task_result_aggregator.task_status_message is not None
             and task_result_aggregator.task_status_message.parts
         ):
@@ -205,11 +205,10 @@ class LangGraphAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.completed,
-                        timestamp=datetime.now(UTC).isoformat(),
+                        state=TaskState.TASK_STATE_COMPLETED,
+                        timestamp=_now_timestamp(),
                     ),
                     context_id=context.context_id,
-                    final=True,
                 )
             )
         else:
@@ -218,11 +217,10 @@ class LangGraphAgentExecutor(AgentExecutor):
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=task_result_aggregator.task_state,
-                        timestamp=datetime.now(UTC).isoformat(),
+                        timestamp=_now_timestamp(),
                         message=task_result_aggregator.task_status_message,
                     ),
                     context_id=context.context_id,
-                    final=True,
                 )
             )
 
@@ -279,8 +277,8 @@ class LangGraphAgentExecutor(AgentExecutor):
 
             parts.append(
                 Part(
-                    DataPart(
-                        data={
+                    data=ParseDict(
+                        {
                             "name": "adk_request_confirmation",
                             "id": confirmation_id,
                             "args": {
@@ -296,13 +294,14 @@ class LangGraphAgentExecutor(AgentExecutor):
                                 },
                             },
                         },
-                        metadata={
-                            get_kagent_metadata_key(
-                                A2A_DATA_PART_METADATA_TYPE_KEY
-                            ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-                            get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY): True,
-                        },
-                    )
+                        Value(),
+                    ),
+                    metadata={
+                        get_kagent_metadata_key(
+                            A2A_DATA_PART_METADATA_TYPE_KEY
+                        ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                        get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY): True,
+                    },
                 )
             )
 
@@ -310,16 +309,15 @@ class LangGraphAgentExecutor(AgentExecutor):
             TaskStatusUpdateEvent(
                 task_id=task_id,
                 status=TaskStatus(
-                    state=TaskState.input_required,
-                    timestamp=datetime.now(UTC).isoformat(),
+                    state=TaskState.TASK_STATE_INPUT_REQUIRED,
+                    timestamp=_now_timestamp(),
                     message=Message(
                         message_id=str(uuid.uuid4()),
-                        role=Role.agent,
+                        role=Role.ROLE_AGENT,
                         parts=parts,
                     ),
                 ),
                 context_id=context_id,
-                final=False,
             )
         )
 
@@ -335,7 +333,7 @@ class LangGraphAgentExecutor(AgentExecutor):
         if not context.current_task:
             return False
 
-        if context.current_task.status.state != TaskState.input_required:
+        if context.current_task.status.state != TaskState.TASK_STATE_INPUT_REQUIRED:
             return False
 
         # Check if message contains a decision
@@ -442,11 +440,10 @@ class LangGraphAgentExecutor(AgentExecutor):
             TaskStatusUpdateEvent(
                 task_id=context.task_id,
                 status=TaskStatus(
-                    state=TaskState.working,
-                    timestamp=datetime.now(UTC).isoformat(),
+                    state=TaskState.TASK_STATE_WORKING,
+                    timestamp=_now_timestamp(),
                 ),
                 context_id=context.context_id,
-                final=False,
             )
         )
 
@@ -468,16 +465,15 @@ class LangGraphAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.failed,
-                        timestamp=datetime.now(UTC).isoformat(),
+                        state=TaskState.TASK_STATE_FAILED,
+                        timestamp=_now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
-                            parts=[Part(TextPart(text=f"Resume failed: {str(e)}"))],
+                            role=Role.ROLE_AGENT,
+                            parts=[Part(text=f"Resume failed: {str(e)}")],
                         ),
                     ),
                     context_id=context.context_id,
-                    final=True,
                 )
             )
 
@@ -504,18 +500,17 @@ class LangGraphAgentExecutor(AgentExecutor):
                 await self._handle_resume(context, event_queue)
                 return
 
-            # Send task submitted event for new tasks
+            # For new tasks, the first event must be a Task (not TaskStatusUpdateEvent).
             if not context.current_task:
                 await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.submitted,
-                            message=context.message,
-                            timestamp=datetime.now(UTC).isoformat(),
-                        ),
+                    Task(
+                        id=context.task_id,
                         context_id=context.context_id,
-                        final=False,
+                        status=TaskStatus(
+                            state=TaskState.TASK_STATE_SUBMITTED,
+                            message=context.message,
+                            timestamp=_now_timestamp(),
+                        ),
                     )
                 )
 
@@ -527,15 +522,14 @@ class LangGraphAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
-                        timestamp=datetime.now(UTC).isoformat(),
+                        state=TaskState.TASK_STATE_WORKING,
+                        timestamp=_now_timestamp(),
                     ),
                     context_id=context.context_id,
-                    final=False,
                     metadata={
-                        "app_name": self.app_name,
-                        "session_id": getattr(context, "session_id", context.context_id),
-                        "thread_id": thread_id,  # Store for resume!
+                        get_kagent_metadata_key("app_name"): self.app_name,
+                        get_kagent_metadata_key("session_id"): getattr(context, "session_id", context.context_id),
+                        get_kagent_metadata_key("thread_id"): thread_id,
                     },
                 )
             )
@@ -561,16 +555,15 @@ class LangGraphAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.failed,
-                            timestamp=datetime.now(UTC).isoformat(),
+                            state=TaskState.TASK_STATE_FAILED,
+                            timestamp=_now_timestamp(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text="Execution timed out"))],
+                                role=Role.ROLE_AGENT,
+                                parts=[Part(text="Execution timed out")],
                             ),
                         ),
                         context_id=context.context_id,
-                        final=True,
                     )
                 )
             except Exception as e:
@@ -584,12 +577,12 @@ class LangGraphAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.failed,
-                            timestamp=datetime.now(UTC).isoformat(),
+                            state=TaskState.TASK_STATE_FAILED,
+                            timestamp=_now_timestamp(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=user_message))],
+                                role=Role.ROLE_AGENT,
+                                parts=[Part(text=user_message)],
                                 metadata={
                                     get_kagent_metadata_key("error_type"): error_meta["error_type"],
                                     get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
@@ -597,7 +590,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                             ),
                         ),
                         context_id=context.context_id,
-                        final=True,
                         metadata={
                             get_kagent_metadata_key("error_type"): error_meta["error_type"],
                             get_kagent_metadata_key("error_detail"): error_meta["error_detail"],

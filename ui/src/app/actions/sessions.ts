@@ -4,7 +4,7 @@ import { BaseResponse, CreateSessionRequest } from "@/types";
 import { Session } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
-import { Task } from "@a2a-js/sdk";
+import type { Task } from "@a2a-js/sdk";
 
 /**
  * Deletes a session

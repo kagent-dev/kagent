@@ -6,7 +6,7 @@ import { ChevronDown, ChevronUp, MessageSquare, Loader2, AlertCircle, CheckCircl
 import KagentLogo from "../kagent-logo";
 import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
 import { getSubagentSessionWithEvents } from "@/app/actions/sessions";
-import { Message, Task } from "@a2a-js/sdk";
+import type { Message, Task } from "@a2a-js/sdk";
 import { extractMessagesFromTasks } from "@/lib/messageHandlers";
 import ChatMessage from "@/components/chat/ChatMessage";
 
