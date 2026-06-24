@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -267,8 +268,7 @@ func TestUpgrade(t *testing.T) {
 			"core":   pgBaselineState.version,
 			"vector": baselineVectorVersion,
 		}
-		for i := len(migrationTracks) - 1; i >= 0; i-- {
-			track := migrationTracks[i]
+		for _, track := range slices.Backward(migrationTracks) {
 			migrateTrackTo(t, dbURL, track, targets[track.name])
 		}
 		stop()
