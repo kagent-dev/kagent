@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/channels"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/channel_helpers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -79,5 +79,5 @@ func unsupportedChannelType(name string, typ v1alpha2.AgentHarnessChannelType) e
 }
 
 func telegramAllowFrom(ctx context.Context, kube client.Client, namespace string, spec *v1alpha2.AgentHarnessTelegramChannelSpec) ([]string, error) {
-	return channels.ResolveAllowedUserIDs(ctx, kube, namespace, spec.AllowedUserIDs, spec.AllowedUserIDsFrom)
+	return channel_helpers.ResolveAllowedUserIDs(ctx, kube, namespace, spec.AllowedUserIDs, spec.AllowedUserIDsFrom)
 }

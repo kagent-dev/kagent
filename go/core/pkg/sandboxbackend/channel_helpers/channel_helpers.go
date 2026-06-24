@@ -1,9 +1,9 @@
-// Package channels holds backend-agnostic helpers for translating AgentHarness
-// channel (Slack/Telegram) credentials and allowlists into Substrate
-// ActorTemplate container env vars. Both the OpenClaw and Hermes substrate
-// paths reuse these primitives; only the env var naming and config shape
-// differ per backend.
-package channels
+// Package channel_helpers holds backend-agnostic helpers for translating
+// AgentHarness channel (Slack/Telegram) credentials and allowlists into
+// Substrate ActorTemplate container env vars. Both the OpenClaw and Hermes
+// substrate paths reuse these primitives; only the env var naming and config
+// shape differ per backend.
+package channel_helpers
 
 import (
 	"context"

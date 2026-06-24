@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/channels"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/channel_helpers"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -52,12 +52,12 @@ func hermesTelegramEnv(ctx context.Context, kube client.Client, namespace string
 	if spec == nil {
 		return nil, fmt.Errorf("channel %q: telegram spec is required", ch.Name)
 	}
-	botEnv, err := channels.CredentialContainerEnv(spec.BotToken, "TELEGRAM_BOT_TOKEN")
+	botEnv, err := channel_helpers.CredentialContainerEnv(spec.BotToken, "TELEGRAM_BOT_TOKEN")
 	if err != nil {
 		return nil, fmt.Errorf("channel %q telegram bot token: %w", ch.Name, err)
 	}
 	out := []corev1.EnvVar{botEnv}
-	allow, err := channels.ResolveAllowedUserIDs(ctx, kube, namespace, spec.AllowedUserIDs, spec.AllowedUserIDsFrom)
+	allow, err := channel_helpers.ResolveAllowedUserIDs(ctx, kube, namespace, spec.AllowedUserIDs, spec.AllowedUserIDsFrom)
 	if err != nil {
 		return nil, fmt.Errorf("channel %q telegram allowed users: %w", ch.Name, err)
 	}
@@ -72,17 +72,17 @@ func hermesSlackEnv(ctx context.Context, kube client.Client, namespace string, c
 	if spec == nil {
 		return nil, fmt.Errorf("channel %q: slack spec is required", ch.Name)
 	}
-	botEnv, err := channels.CredentialContainerEnv(spec.BotToken, "SLACK_BOT_TOKEN")
+	botEnv, err := channel_helpers.CredentialContainerEnv(spec.BotToken, "SLACK_BOT_TOKEN")
 	if err != nil {
 		return nil, fmt.Errorf("channel %q slack bot token: %w", ch.Name, err)
 	}
-	appEnv, err := channels.CredentialContainerEnv(spec.AppToken, "SLACK_APP_TOKEN")
+	appEnv, err := channel_helpers.CredentialContainerEnv(spec.AppToken, "SLACK_APP_TOKEN")
 	if err != nil {
 		return nil, fmt.Errorf("channel %q slack app token: %w", ch.Name, err)
 	}
 	out := []corev1.EnvVar{botEnv, appEnv}
 	if opts := spec.Hermes; opts != nil {
-		allow, err := channels.ResolveAllowedUserIDs(ctx, kube, namespace, opts.AllowedUserIDs, opts.AllowedUserIDsFrom)
+		allow, err := channel_helpers.ResolveAllowedUserIDs(ctx, kube, namespace, opts.AllowedUserIDs, opts.AllowedUserIDsFrom)
 		if err != nil {
 			return nil, fmt.Errorf("channel %q slack allowed users: %w", ch.Name, err)
 		}
