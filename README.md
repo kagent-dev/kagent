@@ -55,7 +55,7 @@
     </td>
   </tr>
 </table>
-<!-- markdownlint-disable MD033 -->
+<!-- markdownlint-enable MD033 -->
 
 ---
 
@@ -69,13 +69,13 @@
 ### Core Concepts
 
 - **Agents**: Agents are the main building block of kagent. They are a system prompt, a set of tools and agents, and an LLM configuration represented with a Kubernetes custom resource called "Agent".
-- **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other [custom providers and models](https://kagent.dev/docs/kagent/supported-providers/custom-models) accessible via AI gateways. Providers are represented by the ModelConfig resource.
+- **LLM Providers**: Kagent supports multiple LLM providers, including [OpenAI](https://kagent.dev/docs/kagent/supported-providers/openai), [Azure OpenAI](https://kagent.dev/docs/kagent/supported-providers/azure-openai), [Anthropic](https://kagent.dev/docs/kagent/supported-providers/anthropic), [Google Vertex AI](https://kagent.dev/docs/kagent/supported-providers/google-vertexai), [Ollama](https://kagent.dev/docs/kagent/supported-providers/ollama) and any other custom providers and models accessible via AI gateways. Providers are represented by the ModelConfig resource.
 - **MCP Tools**: Agents can connect to any MCP server that provides tools. Kagent comes with an MCP server with tools for Kubernetes, Istio, Helm, Argo, Prometheus, Grafana, Cilium, and others. All tools are Kubernetes custom resources (ToolServers) and can be used by multiple agents.
 - **Observability**: Kagent supports [OpenTelemetry tracing](https://kagent.dev/docs/kagent/getting-started/tracing), which allows you to monitor what's happening with your agents and tools.
 
 ### Core Principles
 
-- **Kubernetes Native**: Kagent is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
+- **Kubernetes Native**: Agents and tools are managed as Kubernetes custom resources using familiar `kubectl` workflows.
 - **Extensible**: Kagent is designed to be extensible, so you can add your own agents and tools.
 - **Flexible**: Kagent is designed to be flexible, to suit any AI agent use case.
 - **Observable**: Kagent is designed to be observable, so you can monitor the agents and tools using all common monitoring frameworks.
@@ -83,8 +83,6 @@
 - **Testable**: Kagent is designed to be tested and debugged easily. This is especially important for AI agent applications.
 
 ### Architecture
-
-The kagent framework is designed to be easy to understand and use, and to provide a flexible and powerful way to build and manage AI agents.
 
 <div align="center">
   <img src="img/arch.png" alt="kagent" width="500">
