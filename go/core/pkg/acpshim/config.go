@@ -56,6 +56,28 @@ type Config struct {
 	ReconnectGrace time.Duration
 }
 
+// LoadConfig applies the child policy and the ACP_SHIM_* environment-variable
+// fallbacks to c. The env fallbacks let the agent command and credentials be
+// baked into an image without overriding the entrypoint: Substrate
+// ActorTemplate containers support env (incl. secretKeyRef) but not volume
+// mounts, so the token may be passed directly. A literal token wins over the
+// token file (the base image bakes in a default ACP_SHIM_TOKEN_FILE that only
+// exists when a Secret is mounted). Call before Validate.
+func LoadConfig(c *Config, policy string) {
+	c.Policy = ChildPolicy(policy)
+	if len(c.ChildArgv) == 0 {
+		if v := os.Getenv("ACP_SHIM_CHILD"); v != "" {
+			c.ChildArgv = []string{"/bin/sh", "-c", v}
+		}
+	}
+	if c.TokenFile == "" {
+		c.TokenFile = os.Getenv("ACP_SHIM_TOKEN_FILE")
+	}
+	if c.Token == "" {
+		c.Token = os.Getenv("ACP_SHIM_TOKEN")
+	}
+}
+
 // Validate checks the config and resolves the token from TokenFile if needed.
 func (c *Config) Validate() error {
 	if c.ListenAddr == "" {

@@ -20,9 +20,10 @@ import (
 // acpAgentSpec describes how to run one stdio ACP agent behind the acp-shim
 // inside a Substrate actor.
 type acpAgentSpec struct {
-	// DefaultImage is the digest-pinned acp-sandbox target image used when
-	// neither the harness nor cluster defaults specify a workload image.
-	DefaultImage string
+	// DefaultImage resolves the digest-pinned acp-sandbox target image used when
+	// neither the harness nor cluster defaults specify a workload image. It
+	// errors when the link-time digest was not injected.
+	DefaultImage func() (string, error)
 	// ChildCommand is the stdio ACP agent command the shim spawns
 	// (shell-safe words, joined with spaces).
 	ChildCommand []string

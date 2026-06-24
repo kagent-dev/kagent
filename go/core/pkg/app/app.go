@@ -804,12 +804,14 @@ func substrateAppConfig(cfg *Config) substrate.Config {
 
 func substrateLifecycleFromConfig(kubeClient client.Client, cfg *Config, ate *substrate.Client) *substrate.Lifecycle {
 	return substrate.NewLifecycle(kubeClient, substrate.LifecycleDefaults{
-		PauseImage:           cfg.Substrate.PauseImage,
-		RunscAMD64URL:        cfg.Substrate.RunscAMD64URL,
-		RunscAMD64SHA256:     cfg.Substrate.RunscAMD64SHA256,
-		RunscARM64URL:        cfg.Substrate.RunscARM64URL,
-		RunscARM64SHA256:     cfg.Substrate.RunscARM64SHA256,
-		DefaultWorkloadImage: substrate.AcpSandboxOpenClawImage,
+		PauseImage:       cfg.Substrate.PauseImage,
+		RunscAMD64URL:    cfg.Substrate.RunscAMD64URL,
+		RunscAMD64SHA256: cfg.Substrate.RunscAMD64SHA256,
+		RunscARM64URL:    cfg.Substrate.RunscARM64URL,
+		RunscARM64SHA256: cfg.Substrate.RunscARM64SHA256,
+		// DefaultWorkloadImage is left unset: each backend falls back to its own
+		// digest-pinned default (AcpSandboxOpenClawImage / AcpSandboxHermesImage)
+		// resolved at ActorTemplate build time.
 		DefaultWorkerPool: types.NamespacedName{
 			Namespace: cfg.Substrate.DefaultWorkerPoolNamespace,
 			Name:      cfg.Substrate.DefaultWorkerPoolName,

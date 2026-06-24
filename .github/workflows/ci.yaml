@@ -246,6 +246,8 @@ jobs:
           - golang-adk
           - golang-adk-full
           - skills-init
+          - acp-sandbox-hermes
+          - acp-sandbox-openclaw
     runs-on: ubuntu-latest
     services:
       registry:
@@ -293,7 +295,7 @@ jobs:
           go-version: "1.26"
           cache: true
           cache-dependency-path: go/go.sum
-      - name: golangci-lint 
+      - name: golangci-lint
         working-directory: go
         run: make lint
 

@@ -43,25 +43,8 @@ func main() {
 	}
 	flag.Parse()
 
-	cfg.Policy = acpshim.ChildPolicy(policy)
 	cfg.ChildArgv = flag.Args()
-	// Env-var fallbacks so the agent command can be baked into an image
-	// without overriding the entrypoint.
-	if len(cfg.ChildArgv) == 0 {
-		if v := os.Getenv("ACP_SHIM_CHILD"); v != "" {
-			cfg.ChildArgv = []string{"/bin/sh", "-c", v}
-		}
-	}
-	if cfg.TokenFile == "" {
-		cfg.TokenFile = os.Getenv("ACP_SHIM_TOKEN_FILE")
-	}
-	// Substrate ActorTemplate containers support env (incl. secretKeyRef)
-	// but not volume mounts, so allow passing the token directly. A literal
-	// token wins over the token file (the base image bakes in a default
-	// ACP_SHIM_TOKEN_FILE that only exists when a Secret is mounted).
-	if cfg.Token == "" {
-		cfg.Token = os.Getenv("ACP_SHIM_TOKEN")
-	}
+	acpshim.LoadConfig(cfg, policy)
 
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("acp-shim: %v", err)

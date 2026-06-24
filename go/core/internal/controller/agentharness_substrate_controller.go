@@ -53,10 +53,10 @@ type SubstrateAgentHarnessController struct {
 	// Backends maps the harness backend type to its substrate AsyncBackend.
 	Backends           map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 	SubstrateLifecycle substrate.AgentHarnessLifecycle
-	// SessionActorBackend manages the per-session actors spun from the
-	// harness's generated ActorTemplate. The controller uses it only to clean
-	// up session actors on delete; session actors are created on demand by the
-	// HTTP gateway when a chat connects.
+	// SessionActorBackend manages the shared actor spun from the harness's
+	// generated ActorTemplate. The controller uses it only to clean up actors
+	// on delete; the shared actor is created on demand by the HTTP gateway on
+	// the first chat connect.
 	SessionActorBackend AgentHarnessSessionActorCleaner
 }
 
@@ -127,15 +127,18 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 	}
 
 	// The AgentHarness is a template: once its generated ActorTemplate golden
-	// snapshot is Ready, the harness is Ready. We do NOT create a persistent
-	// actor here. Each chat session gets its own actor, created on demand by the
-	// HTTP gateway (AgentHarnessSessionActorBackend) when a chat connects.
+	// snapshot is Ready, the harness is Ready. We do NOT create an actor here.
+	// One shared actor is spun from the template per harness, created on demand
+	// by the HTTP gateway (AgentHarnessSessionActorBackend) on the first chat
+	// connect. Every chat is multiplexed as an ACP session inside that single
+	// actor's long-lived child process; the actor id is keyed on the harness
+	// (namespace/name), not the session.
 	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue,
 		"AgentHarnessAccepted", "ActorTemplate golden snapshot is ready")
 	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue,
-		"TemplateReady", "session actors are created on demand per chat session")
+		"TemplateReady", "shared actor is created on demand on the first chat connect")
 	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionTrue,
-		"TemplateReady", "AgentHarness template is ready; chat sessions spawn their own actors")
+		"TemplateReady", "AgentHarness template is ready; one shared actor serves all chat sessions")
 	ah.Status.ObservedGeneration = ah.Generation
 	if err := patchAgentHarnessStatus(ctx, r.Client, &ah); err != nil {
 		return ctrl.Result{}, err

@@ -43,11 +43,11 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 	key := types.NamespacedName{Namespace: ah.Namespace, Name: actorTemplateName(ah)}
 
 	var (
-		startupScript string
-		containerEnv  []atev1alpha1.EnvVar
-		defaultImage  string
-		containerName string
-		err           error
+		startupScript  string
+		containerEnv   []atev1alpha1.EnvVar
+		defaultImageFn func() (string, error)
+		containerName  string
+		err            error
 	)
 	// clawBackend selects the OpenClaw startup path; the cluster-wide
 	// DefaultWorkloadImage only applies to claw backends (it points at the
@@ -56,7 +56,7 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 	switch ah.Spec.Backend {
 	case v1alpha2.AgentHarnessBackendOpenClaw:
 		clawBackend = true
-		defaultImage = AcpSandboxOpenClawImage
+		defaultImageFn = AcpSandboxOpenClawImage
 		containerName = defaultOpenClawContainer
 		startupScript, containerEnv, err = p.buildOpenClawActorStartup(ctx, ah)
 		if err != nil {
@@ -67,7 +67,7 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 		if !ok {
 			return nil, fmt.Errorf("substrate runtime does not support backend %q", ah.Spec.Backend)
 		}
-		defaultImage = spec.DefaultImage
+		defaultImageFn = spec.DefaultImage
 		containerName = string(ah.Spec.Backend)
 		startupScript, containerEnv, err = p.buildAcpAgentActorStartup(ctx, ah, spec)
 		if err != nil {
@@ -80,9 +80,13 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 		workloadImage = strings.TrimSpace(p.Defaults.DefaultWorkloadImage)
 	}
 	if workloadImage == "" {
-		workloadImage = defaultImage
+		// Fall back to the backend's built-in default, which is always
+		// digest-pinned (or errors if the link-time digest is missing).
+		workloadImage, err = defaultImageFn()
+		if err != nil {
+			return nil, err
+		}
 	} else {
-		var err error
 		workloadImage, err = pinImageRef(workloadImage)
 		if err != nil {
 			return nil, err

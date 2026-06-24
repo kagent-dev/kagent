@@ -129,7 +129,8 @@ func TestEnsureActorTemplateDoesNotUpdateWhenDesiredStateMatches(t *testing.T) {
 		Spec: v1alpha2.AgentHarnessSpec{
 			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				GatewayToken: "test-token",
+				GatewayToken:  "test-token",
+				WorkloadImage: "ghcr.io/kagent-dev/kagent/acp-sandbox-openclaw@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
 		},
 	}
