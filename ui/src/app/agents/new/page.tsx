@@ -139,7 +139,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullSecrets: [""],
     envPairs: [{ name: "", value: "", isSecret: false }],
     stream: false,
-    declarativeRuntime: "python",
+    declarativeRuntime: "go",
     contextConfig: undefined,
     serviceAccountName: "",
     promptSourceRows: [newPromptSourceRow()],
