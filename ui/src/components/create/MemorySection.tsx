@@ -61,7 +61,7 @@ export function MemorySection({
         <Label className="text-sm mb-2 block">Embedding Model</Label>
         <p className="text-xs mb-2 block text-muted-foreground">
           This model generates vector embeddings for memory. You can use a
-          different provider than the LLM. Leave this empty to disbale memory.
+          different provider than the LLM. Leave this empty to disable memory.
         </p>
         <Select
           key={`memory-model-select-${agentNamespace}`}

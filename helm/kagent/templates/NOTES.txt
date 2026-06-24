@@ -13,7 +13,7 @@ ACCESSING THE UI:
 
 ACCESSING THE CONTROLLER API:
   kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ include "kagent.fullname" . }}-controller {{ .Values.controller.service.ports.port }}:{{ .Values.controller.service.ports.port }}
-  
+
   API endpoint: http://localhost:{{ .Values.controller.service.ports.port }}/api
 
 DEPLOYED COMPONENTS:
@@ -60,6 +60,15 @@ TROUBLESHOOTING:
 DOCUMENTATION:
   Visit https://kagent.dev for comprehensive documentation and examples.
 
+{{- if .Values.controller.streaming }}
+################################################################################
+# DEPRECATED VALUES DETECTED                                                   #
+################################################################################
+  controller.streaming.* (maxBufSize, initialBufSize, timeout) were removed in
+  0.10.0. The A2A SDK now handles SSE buffering and timeouts internally.
+  These values are ignored. Please remove them from your values override.
+
+{{- end }}
 {{ if .Values.database.postgres.bundled.enabled -}}
 ################################################################################
 {{- if and (eq .Values.database.postgres.url "") (eq .Values.database.postgres.urlFile "") }}
@@ -82,5 +91,17 @@ DOCUMENTATION:
   To stop deploying the bundled pod entirely, set:
     database.postgres.bundled.enabled=false
 {{- end }}
+{{- end }}
+{{- if .Values.substrate.enabled }}
+################################################################################
+# WARNING: SUBSTRATE IS EXPERIMENTAL, USE AT OWN RISK                          #
+################################################################################
+Substrate is a product in early development, and as a result may be unstable due to
+schema, API, and architectural changes.
+
+Kagent uses its own fork of Substrate in order to accelerate adoption. As a result,
+the values.yaml schema is subject to change.
+
+################################################################################
 {{- end }}
 ################################################################################

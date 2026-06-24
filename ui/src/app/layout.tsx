@@ -4,6 +4,7 @@ import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentsProvider } from "@/components/AgentsProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { SubstrateFeaturesProvider } from "@/contexts/SubstrateFeaturesContext";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -23,6 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <TooltipProvider>
       <AgentsProvider>
+        <SubstrateFeaturesProvider>
         <AuthProvider>
           <html lang="en" className="" suppressHydrationWarning>
             <body className={`${geistSans.className} flex flex-col h-screen overflow-hidden`}>
@@ -37,6 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </body>
           </html>
         </AuthProvider>
+        </SubstrateFeaturesProvider>
       </AgentsProvider>
     </TooltipProvider>
   );

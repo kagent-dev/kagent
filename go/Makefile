@@ -177,6 +177,10 @@ setup-envtest: envtest ## Download the binaries required for ENVTEST in the loca
 		exit 1; \
 	}
 
+.PHONY: envtest-path
+envtest-path: envtest ## Print the path to the envtest binaries (downloads them if absent).
+	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
+
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
 $(ENVTEST): $(LOCALBIN)

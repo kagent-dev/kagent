@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
@@ -50,6 +51,8 @@ const (
 	APIPathLangGraph            = "/api/langgraph"
 	APIPathCrewAI               = "/api/crewai"
 	APIPathSandboxSSH           = "/api/sandbox/ssh"
+	APIPathAgentHarnessHarness  = "/api/agentharnesses/{namespace}/{name}/"
+	APIPathSubstrateStatus      = "/api/substrate/status"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -59,18 +62,22 @@ var defaultModelConfig = types.NamespacedName{
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	Router            *mux.Router
-	BindAddr          string
-	KubeClient        ctrl_client.Client
-	A2AHandler        a2a.A2AHandlerMux
-	MCPHandler        *mcp.MCPHandler
-	WatchedNamespaces []string
-	DbClient          dbpkg.Client
-	Authenticator     auth.AuthProvider
-	Authorizer        auth.Authorizer
-	ProxyURL          string
-	Reconciler        reconciler.KagentReconciler
-	SandboxBackend    sandboxbackend.Backend
+	Router                       *mux.Router
+	BindAddr                     string
+	KubeClient                   ctrl_client.Client
+	A2AHandler                   a2a.A2AHandlerMux
+	MCPHandler                   *mcp.MCPHandler
+	WatchedNamespaces            []string
+	DbClient                     dbpkg.Client
+	Authenticator                auth.AuthProvider
+	Authorizer                   auth.Authorizer
+	ProxyURL                     string
+	Reconciler                   reconciler.KagentReconciler
+	SandboxBackend               sandboxbackend.Backend
+	AgentHarnessGateway          *handlers.AgentHarnessGatewayConfig
+	SubstrateAteClient           *substrate.Client
+	MCPEgressPlaintext           bool
+	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -87,9 +94,22 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	// Initialize database
 
 	return &HTTPServer{
-		config:        config,
-		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler, config.SandboxBackend),
+		config: config,
+		router: config.Router,
+		handlers: handlers.NewHandlers(
+			config.KubeClient,
+			defaultModelConfig,
+			config.DbClient,
+			config.WatchedNamespaces,
+			config.Authorizer,
+			config.ProxyURL,
+			config.Reconciler,
+			config.SandboxBackend,
+			config.AgentHarnessGateway,
+			config.SubstrateAteClient,
+			config.MCPEgressPlaintext,
+			config.SubstrateSandboxActorBackend,
+		),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -253,9 +273,10 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
 
-	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleListSandboxAgents)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathAgentHarnesses, adaptHandler(s.handlers.Agents.HandleCreateAgentHarness)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgentHarness)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgentHarness)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetSandboxAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleUpdateSandboxAgent)).Methods(http.MethodPut)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteSandboxAgent)).Methods(http.MethodDelete)
@@ -278,6 +299,9 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
+
+	// Agent Substrate inventory (WorkerPools, ActorTemplates, ate-api actors/workers)
+	s.router.HandleFunc(APIPathSubstrateStatus, adaptHandler(s.handlers.Substrate.HandleGetSubstrateStatus)).Methods(http.MethodGet)
 
 	// Prompt template libraries (ConfigMaps)
 	s.router.HandleFunc(APIPathPromptTemplates, adaptHandler(s.handlers.PromptTemplates.HandleListPromptTemplates)).Methods(http.MethodGet)
@@ -306,6 +330,11 @@ func (s *HTTPServer) setupRoutes() {
 	// OpenShell sandbox PTY (browser WebSocket → gateway CONNECT → SSH). Authenticated like other /api routes.
 	s.router.HandleFunc(APIPathSandboxSSH, adaptHandler(s.handlers.HandleSandboxSSHWebSocket)).Methods(http.MethodGet)
 
+	// Substrate OpenClaw gateway proxy (HTTP + WebSocket) via atenet-router.
+	s.router.PathPrefix(APIPathAgentHarnessHarness).Handler(
+		adaptHandler(s.handlers.HandleAgentHarnessGateway),
+	)
+
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 	s.router.PathPrefix(APIPathA2ASandboxes + "/{namespace}/{name}").Handler(s.config.A2AHandler)
@@ -316,7 +345,7 @@ func (s *HTTPServer) setupRoutes() {
 	}
 
 	// Use middleware for common functionality (first registered runs outermost on incoming requests).
-	s.router.Use(wsSandboxSSHAuthQueryMiddleware)
+	s.router.Use(wsAuthQueryMiddleware)
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
 	s.router.Use(s.shareTokenMiddleware)
 	s.router.Use(contentTypeMiddleware)
@@ -324,14 +353,23 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.Use(errorHandlerMiddleware)
 }
 
-// wsSandboxSSHAuthQueryMiddleware maps access_token query → Authorization for browser WebSocket upgrades
+// wsAuthQueryMiddleware maps token query params → Authorization for browser WebSocket upgrades
 // (fetch can send headers; WebSocket cannot).
-func wsSandboxSSHAuthQueryMiddleware(next http.Handler) http.Handler {
+func wsAuthQueryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == APIPathSandboxSSH && r.Header.Get("Authorization") == "" {
-			if t := r.URL.Query().Get("access_token"); t != "" {
-				r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(t))
-			}
+		if r.Header.Get("Authorization") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		var token string
+		switch {
+		case r.URL.Path == APIPathSandboxSSH || strings.HasSuffix(r.URL.Path, "/ssh"):
+			token = r.URL.Query().Get("access_token")
+		case isAgentHarnessGatewayPath(r.URL.Path):
+			token = r.URL.Query().Get("token")
+		}
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 		}
 		next.ServeHTTP(w, r)
 	})

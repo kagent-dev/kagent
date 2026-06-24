@@ -19,19 +19,24 @@ import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists, getSessionWithEvents } from "@/app/actions/sessions";
+import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
+import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 import ShareButton from "@/components/chat/ShareButton";
-import { waitForSandboxAgentReady } from "@/app/actions/agents";
+import { getAgentWithResolvedKind, waitForSandboxAgentReady } from "@/app/actions/agents";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
-import { useChatRunInSandbox } from "@/components/chat/ChatAgentContext";
+import { formatA2AClientError } from "@/lib/a2aErrors";
+import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
 import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
 
 // Task states where the agent is actively processing — resubscribe to live stream.
 const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
+// Task states that mean the session is busy (used by the cross-tab send guard).
+const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -44,6 +49,7 @@ interface ChatInterfaceProps {
 
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId, shareToken }: ChatInterfaceProps) {
   const runInSandbox = useChatRunInSandbox();
+  const substrateSandbox = useChatSubstrateSandbox();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
@@ -229,6 +235,29 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     const userMessageText = currentInputMessage;
 
+    // Cross-tab guard: fetch the latest session state before mutating anything.
+    // Two cases: (1) another tab is still streaming — reconnect instead of sending;
+    // (2) another tab completed a turn we haven't loaded — reload so the user sees
+    // the full context before their next message goes out.
+    const guardSessionId = session?.id || sessionId;
+    if (guardSessionId) {
+      // Compare only non-approval messages to avoid false negatives when
+      // storedMessages includes appended ToolApprovalRequest / AskUserRequest entries.
+      const localMessageCount = storedMessages.filter(m => {
+        const meta = m.metadata as ADKMetadata | undefined;
+        return meta?.originalType !== "ToolApprovalRequest" && meta?.originalType !== "AskUserRequest";
+      }).length;
+      const guardResult = await checkAndSyncSessionBeforeAction(guardSessionId, {
+        localMessageCount,
+        messages: {
+          inFlight: "This session is already being processed — reconnecting to live updates",
+          inputRequired: "Session is awaiting your input — please review before sending",
+          staleOrChanged: "New messages loaded — please review before sending",
+        },
+      });
+      if (guardResult === "blocked") return;
+    }
+
     setCurrentInputMessage("");
     setChatStatus("thinking");
     setStoredMessages(prev => [...prev, ...streamingMessages]);
@@ -261,6 +290,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     try {
       let currentSessionId = session?.id || sessionId;
+      // Track whether we just created a session in this invocation. If so, the
+      // rename block below must be skipped: the title was already set at creation
+      // time, and session React state hasn't yet re-rendered (so session?.name
+      // is still null, which would make isPlaceholderSessionTitle return true
+      // incorrectly and queue a redundant — potentially hanging — POST /sessions).
+      let justCreatedSession = false;
 
       // If there's no session, create one
       if (!currentSessionId) {
@@ -271,7 +306,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
           const newSessionResponse = await createSession({
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
-            name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
+            name: deriveSessionTitle(userMessageText),
           });
 
           if (newSessionResponse.error || !newSessionResponse.data) {
@@ -283,7 +318,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           }
 
           currentSessionId = newSessionResponse.data.id;
-          setSession(newSessionResponse.data);
+          setSession(normalizeSessionTimestamps(newSessionResponse.data));
 
           // Update URL without triggering navigation or component reload
           const newUrl = `/agents/${selectedNamespace}/${selectedAgentName}/chat/${currentSessionId}`;
@@ -294,10 +329,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           const newSessionEvent = new CustomEvent('new-session-created', {
             detail: {
               agentRef: `${selectedNamespace}/${selectedAgentName}`,
-              session: newSessionResponse.data
+              session: normalizeSessionTimestamps(newSessionResponse.data),
             }
           });
           window.dispatchEvent(newSessionEvent);
+          justCreatedSession = true;
         } catch (error) {
           console.error("Error creating session:", error);
           toast.error("Error creating session");
@@ -305,6 +341,38 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           setCurrentInputMessage(userMessageText);
           isCreatingSessionRef.current = false;
           return;
+        }
+      }
+
+      if (
+        !justCreatedSession &&
+        currentSessionId &&
+        storedMessages.length === 0 &&
+        isPlaceholderSessionTitle(session?.name)
+      ) {
+        const title = deriveSessionTitle(userMessageText);
+        if (title) {
+          try {
+            const renameResponse = await createSession({
+              id: currentSessionId,
+              agent_ref: `${selectedNamespace}/${selectedAgentName}`,
+              name: title,
+            });
+            if (!renameResponse.error && renameResponse.data) {
+              const updatedSession = normalizeSessionTimestamps(renameResponse.data, new Date());
+              setSession(updatedSession);
+              window.dispatchEvent(
+                new CustomEvent("new-session-created", {
+                  detail: {
+                    agentRef: `${selectedNamespace}/${selectedAgentName}`,
+                    session: updatedSession,
+                  },
+                }),
+              );
+            }
+          } catch (error) {
+            console.error("Error updating session title:", error);
+          }
         }
       }
 
@@ -326,7 +394,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setCurrentInputMessage(userMessageText);
     }
   };
-  
+
   const consumeStream = async (stream: AsyncIterable<unknown>) => {
     let timeoutTimer: NodeJS.Timeout | null = null;
     let streamActive = true;
@@ -414,15 +482,25 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (runInSandbox && sid) {
         let loadingToast: string | number | undefined;
         const slowToast = setTimeout(() => {
-          loadingToast = toast.loading("Starting sandbox workload…");
+          loadingToast = toast.loading(
+            substrateSandbox ? "Starting chat session…" : "Starting sandbox workload…",
+          );
         }, 600);
         try {
-          const ready = await waitForSandboxAgentReady(selectedAgentName, selectedNamespace);
+          if (substrateSandbox) {
+            // ActorTemplate readiness only; per-session actors resume on the A2A request.
+            const agentRes = await getAgentWithResolvedKind(selectedAgentName, selectedNamespace);
+            if (!agentRes.data?.deploymentReady) {
+              throw new Error("Sandbox agent is still starting. Wait a moment and try again.");
+            }
+          } else {
+            const ready = await waitForSandboxAgentReady(selectedAgentName, selectedNamespace);
+            if (!ready.ok) {
+              throw new Error(ready.error ?? "Sandbox workload not ready");
+            }
+          }
           clearTimeout(slowToast);
           if (loadingToast !== undefined) toast.dismiss(loadingToast);
-          if (!ready.ok) {
-            throw new Error(ready.error ?? "Sandbox workload not ready");
-          }
         } catch (waitErr) {
           clearTimeout(slowToast);
           if (loadingToast !== undefined) toast.dismiss(loadingToast);
@@ -445,7 +523,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (error instanceof Error && error.name === "AbortError") {
         setChatStatus("ready");
       } else {
-        toast.error(`${opts?.errorLabel || "Request failed"}: ${error instanceof Error ? error.message : "Unknown error"}`);
+        toast.error(`${opts?.errorLabel || "Request failed"}: ${formatA2AClientError(error instanceof Error ? error.message : "Unknown error")}`);
         setChatStatus("error");
         opts?.onError?.();
       }
@@ -491,10 +569,89 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       }
     } finally {
       abortControllerRef.current = null;
-      setChatStatus("ready");
+      // Don't override input_required that reloadSessionFromDB() may have set.
+      setChatStatus(prev => prev === "input_required" ? prev : "ready");
       setIsStreaming(false);
       setStreamingContent("");
     }
+  };
+
+  /**
+   * Cross-tab guard: fetch the latest session state and sync before any action
+   * that would mutate the session. Returns "proceed" if safe, "blocked" if the
+   * action was superseded and the handler should return early.
+   *
+   * HITL mode (expectedTaskId provided): verifies the specific task is still
+   * input-required; resubscribes or reloads if another tab already responded.
+   *
+   * Send-guard mode (no expectedTaskId): checks for any active task and for
+   * stale local messages; blocks and syncs if either is detected.
+   */
+  const checkAndSyncSessionBeforeAction = async (
+    guardSessionId: string,
+    opts: {
+      expectedTaskId?: string;
+      localMessageCount?: number;
+      messages: {
+        inFlight: string;
+        inputRequired?: string;
+        staleOrChanged: string;
+      };
+    }
+  ): Promise<"proceed" | "blocked"> => {
+    let tasksCheck: Awaited<ReturnType<typeof getSessionTasks>>;
+    try {
+      tasksCheck = await getSessionTasks(guardSessionId);
+    } catch {
+      // Guard is best-effort: if the check fails, let the action proceed.
+      return "proceed";
+    }
+    if (!tasksCheck.data) return "proceed";
+
+    if (opts.expectedTaskId) {
+      const expectedTask = tasksCheck.data.findLast(task => task.id === opts.expectedTaskId);
+      if ((expectedTask?.status?.state as TaskState | undefined) !== "input-required") {
+        const inFlightTask = tasksCheck.data.findLast(
+          task => RESUBSCRIBE_TASK_STATES.includes(task.status?.state as TaskState)
+        );
+        if (inFlightTask) {
+          toast.info(opts.messages.inFlight);
+          setChatStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
+          await streamResubscribedTask(inFlightTask.id);
+        } else {
+          await reloadSessionFromDB();
+          toast.info(opts.messages.staleOrChanged);
+        }
+        return "blocked";
+      }
+      return "proceed";
+    }
+
+    const inFlightTask = tasksCheck.data.findLast(
+      task => ACTIVE_TASK_STATES.includes(task.status?.state as TaskState)
+    );
+    if (inFlightTask) {
+      if ((inFlightTask.status?.state as TaskState) === "input-required") {
+        await reloadSessionFromDB();
+        toast.info(opts.messages.inputRequired ?? opts.messages.staleOrChanged);
+      } else {
+        toast.info(opts.messages.inFlight);
+        setChatStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
+        await streamResubscribedTask(inFlightTask.id);
+      }
+      return "blocked";
+    }
+
+    if (opts.localMessageCount !== undefined) {
+      const dbMessages = extractMessagesFromTasks(tasksCheck.data);
+      if (dbMessages.length > opts.localMessageCount) {
+        await reloadSessionFromDB();
+        toast.info(opts.messages.staleOrChanged);
+        return "blocked";
+      }
+    }
+
+    return "proceed";
   };
 
   const handleCancel = (e: React.FormEvent) => {
@@ -536,12 +693,24 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     displayText: string,
   ) => {
     const currentSessionId = session?.id || sessionId;
+
+    // Find the taskId first so the guard can verify the task is still input-required.
+    const { taskId: approvalTaskId } = getPendingApprovalToolIds();
+
+    // Cross-tab guard: another tab may have already submitted this approval.
+    if (currentSessionId && approvalTaskId) {
+      const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
+        expectedTaskId: approvalTaskId,
+        messages: {
+          inFlight: "Another tab already responded — reconnecting to live updates",
+          staleOrChanged: "Session state changed — please review",
+        },
+      });
+      if (guardResult === "blocked") return;
+    }
+
     setChatStatus("thinking");
     setStreamingContent("");
-
-    // Find the taskId from the pending approval message so the A2A framework
-    // reuses the existing task instead of creating a new one.
-    const { taskId: approvalTaskId } = getPendingApprovalToolIds();
 
     // Stamp approvalDecision on the current pending approval messages so they
     // are excluded from getPendingApprovalToolIds on future HITL cycles.
@@ -677,8 +846,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
    */
   const handleAskUserSubmit = async (answers: Array<{ answer: string[] }>) => {
     const currentSessionId = session?.id || sessionId;
-    setChatStatus("thinking");
-    setStreamingContent("");
 
     // Find the taskId from the pending AskUserRequest message
     let askUserTaskId: string | undefined;
@@ -690,6 +857,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         break;
       }
     }
+
+    // Cross-tab guard: another tab may have already answered this question.
+    if (currentSessionId && askUserTaskId) {
+      const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
+        expectedTaskId: askUserTaskId,
+        messages: {
+          inFlight: "Another tab already responded — reconnecting to live updates",
+          staleOrChanged: "Session state changed — please review",
+        },
+      });
+      if (guardResult === "blocked") return;
+    }
+
+    setChatStatus("thinking");
+    setStreamingContent("");
 
     // Stamp the ask-user message as resolved so we don't show the form again
     const stampAskUser = (msgs: Message[]) => msgs.map(m => {
@@ -755,7 +937,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     );
   }
   return (
-    <div className="w-full h-screen flex flex-col justify-center min-w-full items-center transition-all duration-300 ease-in-out">
+    <div className="flex h-screen w-full min-w-0 flex-col items-center justify-center transition-all duration-300 ease-in-out">
       <div className="flex-1 w-full overflow-hidden relative">
         <ScrollArea ref={containerRef} className="w-full h-full py-12">
           <div className="flex flex-col space-y-5 px-4">

@@ -4,7 +4,9 @@ import ChatGroup from "./SessionGroup";
 import type { Session } from "@/types";
 import { isToday, isYesterday } from "date-fns";
 import { EmptyState } from "./EmptyState";
-import { deleteSession, getSessionTasks } from "@/app/actions/sessions";
+import { deleteSession, getSessionTasks, createSession } from "@/app/actions/sessions";
+import { formatA2AClientError } from "@/lib/a2aErrors";
+import type { SandboxChatMode } from "@/lib/sandboxAgentForm";
 import { Button } from "@/components/ui/button";
 import { PlusCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -13,13 +15,19 @@ interface GroupedChatsProps {
   agentName: string;
   agentNamespace: string;
   sessions: Session[];
-  /** Sandbox agents use a single persistent chat; hide "New Chat". */
-  hideNewChat?: boolean;
-  /** Sandbox agents cannot delete their only session from the UI. */
-  hideSessionDelete?: boolean;
+  chatMode?: SandboxChatMode;
 }
 
-export default function GroupedChats({ agentName, agentNamespace, sessions, hideNewChat, hideSessionDelete }: GroupedChatsProps) {
+export default function GroupedChats({
+  agentName,
+  agentNamespace,
+  sessions,
+  chatMode = "default",
+}: GroupedChatsProps) {
+  const hideNewChat = chatMode === "single-session";
+  const hideSessionDelete = chatMode === "single-session";
+  const provisionSessionOnNewChat = chatMode === "multi-session";
+
   // Local state to manage sessions for immediate UI updates
   const [localSessions, setLocalSessions] = useState<Session[]>(sessions);
 
@@ -107,7 +115,30 @@ export default function GroupedChats({ agentName, agentNamespace, sessions, hide
     );
   }
 
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
+    if (provisionSessionOnNewChat) {
+      try {
+        const created = await createSession({
+          agent_ref: `${agentNamespace}/${agentName}`,
+        });
+        if (created.error || !created.data) {
+          toast.error(formatA2AClientError(created.error ?? "Failed to create session"));
+          return;
+        }
+        const agentRef = `${agentNamespace}/${agentName}`;
+        window.dispatchEvent(
+          new CustomEvent("new-session-created", {
+            detail: { agentRef, session: created.data },
+          })
+        );
+        window.location.href = `/agents/${agentNamespace}/${agentName}/chat/${created.data.id}`;
+        return;
+      } catch (error) {
+        console.error("Error creating session:", error);
+        toast.error(formatA2AClientError(error instanceof Error ? error.message : "Failed to create session"));
+        return;
+      }
+    }
     // Force a full page reload instead of client-side navigation
     window.location.href = `/agents/${agentNamespace}/${agentName}/chat`;
   };

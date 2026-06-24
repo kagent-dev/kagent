@@ -60,14 +60,14 @@ func StartT(ctx context.Context, t *testing.T) string {
 	return connStr
 }
 
-// Migrate runs the embedded OSS migrations against connStr and returns any error.
+// Migrate runs the embedded migrations against connStr and returns any error.
 // If vectorEnabled is true the vector pass is also applied.
 // Use MigrateT in tests that have a *testing.T; use Migrate in TestMain where no T is available.
 func Migrate(connStr string, vectorEnabled bool) error {
 	return migrations.RunUp(connStr, migrations.FS, vectorEnabled)
 }
 
-// MigrateT runs the embedded OSS migrations against connStr and calls t.Fatal on error.
+// MigrateT runs the embedded migrations against connStr and calls t.Fatal on error.
 // If vectorEnabled is true the vector pass is also applied.
 func MigrateT(t *testing.T, connStr string, vectorEnabled bool) {
 	t.Helper()

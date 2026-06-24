@@ -16,7 +16,29 @@ import (
 	translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 )
 
+func withGoRuntimeDigests(t *testing.T) {
+	t.Helper()
+	originalBase := translator.GoADKImageDigest
+	originalFull := translator.GoADKFullImageDigest
+	translator.GoADKImageDigest = "sha256:test-go-base"
+	translator.GoADKFullImageDigest = "sha256:test-go-full"
+	t.Cleanup(func() {
+		translator.GoADKImageDigest = originalBase
+		translator.GoADKFullImageDigest = originalFull
+	})
+}
+
+func withPythonRuntimeDigest(t *testing.T) {
+	t.Helper()
+	original := translator.PythonADKImageDigest
+	translator.PythonADKImageDigest = "sha256:test-app"
+	t.Cleanup(func() {
+		translator.PythonADKImageDigest = original
+	})
+}
+
 func TestRuntime_GoRuntime(t *testing.T) {
+	withGoRuntimeDigests(t)
 	ctx := context.Background()
 
 	// Create agent with Go runtime
@@ -83,7 +105,7 @@ func TestRuntime_GoRuntime(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "golang-adk", "Image should use golang-adk repository")
-	assert.NotContains(t, container.Image, "-full", "Go runtime without sandboxed execution should use the distroless tag")
+	assert.Contains(t, container.Image, "@sha256:test-go-base", "Go runtime should use digest-pinned golang-adk image")
 
 	// Verify Go runtime readiness probe timings (fast startup)
 	require.NotNil(t, container.ReadinessProbe)
@@ -93,6 +115,7 @@ func TestRuntime_GoRuntime(t *testing.T) {
 }
 
 func TestRuntime_GoRuntimeWithSkillsUsesFullImageTag(t *testing.T) {
+	withGoRuntimeDigests(t)
 	ctx := context.Background()
 
 	agent := &v1alpha2.Agent{
@@ -155,10 +178,11 @@ func TestRuntime_GoRuntimeWithSkillsUsesFullImageTag(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "golang-adk", "Image should use golang-adk repository")
-	assert.Contains(t, container.Image, "-full", "Go runtime with skills should use the full image tag")
+	assert.Contains(t, container.Image, "@sha256:test-go-full", "Go runtime with skills should use digest-pinned golang-adk-full image")
 }
 
 func TestRuntime_PythonRuntime(t *testing.T) {
+	withPythonRuntimeDigest(t)
 	ctx := context.Background()
 
 	// Create agent with Python runtime (explicit)
@@ -221,10 +245,11 @@ func TestRuntime_PythonRuntime(t *testing.T) {
 	}
 	require.NotNil(t, deployment, "Deployment should be in manifest")
 
-	// Verify container image uses app (Python ADK)
+	// Verify container image uses digest-pinned app (Python ADK)
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
-	assert.Contains(t, container.Image, "/app:", "Image should use app repository")
+	assert.Contains(t, container.Image, "/app@", "Image should use app repository")
+	assert.Contains(t, container.Image, "@sha256:test-app", "Python runtime should use digest-pinned app image")
 
 	// Verify Python runtime readiness probe timings (slower startup)
 	require.NotNil(t, container.ReadinessProbe)
@@ -234,6 +259,7 @@ func TestRuntime_PythonRuntime(t *testing.T) {
 }
 
 func TestRuntime_DefaultToPython(t *testing.T) {
+	withPythonRuntimeDigest(t)
 	ctx := context.Background()
 
 	// Create agent without runtime field (should default to Python)
@@ -296,10 +322,11 @@ func TestRuntime_DefaultToPython(t *testing.T) {
 	}
 	require.NotNil(t, deployment, "Deployment should be in manifest")
 
-	// Verify container image uses app (Python ADK) by default
+	// Verify container image uses digest-pinned app (Python ADK) by default
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
-	assert.Contains(t, container.Image, "/app:", "Image should default to app repository")
+	assert.Contains(t, container.Image, "/app@", "Image should default to app repository")
+	assert.Contains(t, container.Image, "@sha256:test-app", "Default Python runtime should use digest-pinned app image")
 
 	// Verify Python runtime readiness probe timings
 	require.NotNil(t, container.ReadinessProbe)
@@ -309,6 +336,7 @@ func TestRuntime_DefaultToPython(t *testing.T) {
 }
 
 func TestRuntime_CustomRepositoryPath(t *testing.T) {
+	withGoRuntimeDigests(t)
 	ctx := context.Background()
 
 	// Save original DefaultImageConfig.Repository and restore after test
@@ -384,10 +412,11 @@ func TestRuntime_CustomRepositoryPath(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "my-registry.com/custom/golang-adk", "Image should use custom repository with golang-adk")
-	assert.NotContains(t, container.Image, "-full", "Go runtime without sandboxed execution should keep the base tag")
+	assert.Contains(t, container.Image, "@sha256:test-go-base", "Go runtime should use digest-pinned golang-adk image")
 }
 
 func TestRuntime_CustomRepositoryPath_WithSkillsUsesFullTag(t *testing.T) {
+	withGoRuntimeDigests(t)
 	ctx := context.Background()
 
 	originalRepo := translator.DefaultImageConfig.Repository
@@ -456,5 +485,5 @@ func TestRuntime_CustomRepositoryPath_WithSkillsUsesFullTag(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "my-registry.com/custom/golang-adk", "Image should use custom repository with golang-adk")
-	assert.Contains(t, container.Image, "-full", "Go runtime with skills should use the full tag")
+	assert.Contains(t, container.Image, "@sha256:test-go-full", "Go runtime with skills should use digest-pinned golang-adk-full image")
 }

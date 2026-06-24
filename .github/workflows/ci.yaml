@@ -81,7 +81,7 @@ jobs:
       - name: Install agent-sandbox
         run: |
           kubectl apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}/manifest.yaml"
-          kubectl wait --for=condition=Established crd/sandboxes.agents.x-k8s.io --timeout=90s
+          timeout 90s bash -c 'until [ "$(kubectl get crd sandboxes.agents.x-k8s.io -o jsonpath="{.status.conditions[?(@.type==\"Established\")].status}" 2>/dev/null)" = "True" ]; do sleep 1; done'
           kubectl rollout status deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
           kubectl wait --for=condition=Ready pod -l app=agent-sandbox-controller -n agent-sandbox-system --timeout=120s
 

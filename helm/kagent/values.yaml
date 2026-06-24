@@ -187,16 +187,22 @@ controller:
     repository: kagent-dev/kagent/skills-init
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
-  streaming: # Streaming buffer size for A2A communication
-    maxBufSize: 1Mi # 1024 * 1024
-    initialBufSize: 4Ki # 4 * 1024
-    timeout: 600s # 600 seconds
+  # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
+  # internally. These values have no effect and will be removed in a future release.
+  streaming: null
+
   # -- Namespaces the controller should watch.
   # If empty, the controller will watch ALL available namespaces.
   # @default -- [] (watches all available namespaces)
   watchNamespaces: []
   #  - watch-ns-1
   #  - watch-ns-2
+
+  # -- Rewrite RemoteMCPServer tool URLs and the controller's tool-discovery
+  # dial from `https://host[:port]` to `http://host:<port-or-443>` so MCP
+  # traffic egresses in plaintext to a proxy that originates TLS upstream
+  # off by default.
+  mcpEgressPlaintext: false
 
   podAnnotations: {}
 
@@ -223,12 +229,63 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
-  # TODO: NEED TO MAKE SURE THESE GET RENDERED IN controller-deployment.yaml
-  # Extra controller env. Examples — OpenShell:
-  # env:
-  #   - name: OPENSHELL_GRPC_ADDR
-  #     value: "openshell.my-namespace.svc.cluster.local:8080"
-  env: []
+  # -- Prometheus-style /metrics endpoint for the controller manager.
+  # When enabled, provisions a dedicated metrics Service plus the
+  # ClusterRoles required for authenticated scrapes. Bind
+  # `<fullname>-metrics-reader` to your Prometheus ServiceAccount to grant
+  # scrape access. Use `bindAddress` for any port change: the Service
+  # `targetPort` and the pod `containerPort` are derived from it at
+  # template time, so overriding `METRICS_BIND_ADDRESS` via
+  # `controller.env` shifts only the runtime listener and leaves the
+  # rendered Service pointing at the chart-time port. Setting
+  # `bindAddress: "0"` (or empty) is treated as a disable signal —
+  # equivalent to `enabled: false` — to keep faith with the controller
+  # binary's documented contract for `--metrics-bind-address`.
+  # @default -- disabled
+  metrics:
+    enabled: false
+    bindAddress: ":8443"
+    secureServing: true
+    service:
+      type: ClusterIP
+      port: 8443
+
+  # Extra controller env (mapped to flags via SUBSTRATE_* / OPENSHELL_* env names).
+  # OpenShell AgentHarness: set OPENSHELL_GATEWAY_URL (or leave defaults below).
+  env:
+    # - name: OPENSHELL_GATEWAY_URL
+    #   value: openshell.openshell.svc.cluster.local:8080
+    # - name: OPENSHELL_INSECURE
+    #   value: "true"
+
+  # Agent Substrate (OpenClaw harness runtime=substrate). Requires ate-system installed.
+  # kagent generates per-harness ActorTemplates and references an existing WorkerPool.
+  substrate:
+    enabled: false
+    ateApiEndpoint: ""
+    atenetRouterURL: ""
+    ateApiInsecure: false
+    ateApiTokenFile: /var/run/secrets/tokens/ate-api/token
+    ateApiTokenAudience: api.ate-system.svc
+    ateApiTokenExpirationSeconds: 3600
+    # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
+    ateApiServer:
+      namespace: ate-system
+      serviceAccount: ate-api-server
+    defaultWorkerPool:
+      namespace: ""
+      name: ""
+    # pauseImage: "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
+    # runscAMD64URL: "gs://gvisor/releases/nightly/2026-06-02/x86_64/runsc"
+    # runscAMD64SHA256: "efd12935f6654c91a1389710eb8dfa4d12b6b9be00db87526dc2eb584ad00119"
+    # runscARM64URL: "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc"
+    # runscARM64SHA256: "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9"
+    # Example when enabled:
+    #   enabled: true
+    #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
+    #   atenetRouterURL: "http://atenet-router.ate-system.svc:80"
+    #   defaultWorkerPool:
+    #     name: "kagent-default"
   envFrom: []
 
   # Additional volumes on the output Deployment definition.
@@ -255,6 +312,14 @@ controller:
   # (httpGet / exec / tcpSocket / grpc) when overriding.
   # @default -- httpGet /health on port http, periodSeconds=30
   readinessProbe: {}
+
+# -- Optional Agent Substrate WorkerPool installed by this chart. This is platform
+# capacity and is not owned by individual AgentHarness resources.
+substrateWorkerPool:
+  create: false
+  name: kagent-default
+  replicas: 1
+  ateomImage: ""
 
 # ==============================================================================
 # UI CONFIGURATION
@@ -353,6 +418,12 @@ ui:
   #       path: /health
   #       port: http
   #     periodSeconds: 15
+  # -- Gates the OpenShift `Route` for the UI. Additionally conditional on the
+  # `route.openshift.io/v1` API being present, so it is a no-op off-OpenShift.
+  # Set to `false` to front the UI with your own Route/ingress or the bundled
+  # oauth2-proxy instead of the chart's edge-terminated Route.
+  route:
+    enabled: true
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
@@ -366,6 +437,13 @@ providers:
     apiKeySecretRef: kagent-openai
     apiKeySecretKey: OPENAI_API_KEY
     # apiKey: ""
+    # Optional TLS settings for the generated ModelConfig.
+    # This same block can be used under any provider.
+    # tls:
+    #   disableVerify: false
+    #   caCertSecretRef: ""
+    #   caCertSecretKey: ""
+    #   disableSystemCAs: false
   ollama:
     provider: Ollama
     model: "llama3.2"
@@ -407,6 +485,13 @@ kmcp:
   nameOverride: "kmcp"
   fullnameOverride: "" # Override if desired
   namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
+
+# ==============================================================================
+# SUBSTRATE
+# ==============================================================================
+
+substrate:
+  enabled: false
 
 # ==============================================================================
 # BUILT-IN TOOLS
@@ -458,6 +543,11 @@ proxy:
 
 k8s-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -466,6 +556,11 @@ k8s-agent:
       memory: 256Mi
 kgateway-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -474,6 +569,11 @@ kgateway-agent:
       memory: 256Mi
 istio-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -482,6 +582,11 @@ istio-agent:
       memory: 256Mi
 promql-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -490,6 +595,11 @@ promql-agent:
       memory: 256Mi
 observability-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -498,6 +608,11 @@ observability-agent:
       memory: 256Mi
 argo-rollouts-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -506,6 +621,11 @@ argo-rollouts-agent:
       memory: 256Mi
 helm-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -514,6 +634,11 @@ helm-agent:
       memory: 256Mi
 cilium-policy-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -522,6 +647,11 @@ cilium-policy-agent:
       memory: 256Mi
 cilium-manager-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -530,6 +660,11 @@ cilium-manager-agent:
       memory: 256Mi
 cilium-debug-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -662,7 +797,7 @@ oauth2-proxy:
     # Skip authentication for kagent's branded login page, health checks, and static assets
     # This allows unauthenticated users to see the landing page and k8s probes to work
     skip-auth-route: "^/(health|login)$"
-    skip-auth-regex: "^/(login|_next/static|_next/image|login-bg\\.(jpg|png|webp)|logo-.*\\.png|favicon\\.ico).*$"
+    skip-auth-regex: "^/(login|_next/static|_next/image|login-bg\\.(jpg|png|webp)|logo-.*\\.png|favicon\\.ico|api/agentharnesses/.*/gateway).*$"
     # Use custom templates that redirect to kagent's branded /login page
     custom-templates-dir: "/templates"
 

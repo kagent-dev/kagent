@@ -92,6 +92,51 @@ class TestKAgentOllamaLlm:
 
         assert mock_client.chat.call_args.kwargs["options"] == opts
 
+    @pytest.mark.asyncio
+    async def test_generate_content_streaming_accumulates_tool_calls_before_done_chunk(self):
+        llm = KAgentOllamaLlm(model="llama3.2:latest")
+
+        tool_call = mock.MagicMock()
+        tool_call.function.name = "get_weather"
+        tool_call.function.arguments = {"city": "Tokyo"}
+
+        tool_chunk = mock.MagicMock()
+        tool_chunk.message.content = ""
+        tool_chunk.message.tool_calls = [tool_call]
+        tool_chunk.done = False
+
+        done_chunk = mock.MagicMock()
+        done_chunk.message.content = ""
+        done_chunk.message.tool_calls = None
+        done_chunk.done = True
+        done_chunk.done_reason = "stop"
+        done_chunk.prompt_eval_count = 10
+        done_chunk.eval_count = 0
+
+        async def chunks():
+            yield tool_chunk
+            yield done_chunk
+
+        mock_client = mock.AsyncMock()
+        mock_client.chat = mock.AsyncMock(return_value=chunks())
+
+        request = mock.MagicMock()
+        request.model = "llama3.2:latest"
+        request.contents = []
+        request.config = None
+
+        with mock.patch.object(type(llm), "_client", new_callable=lambda: property(lambda self: mock_client)):
+            responses = [r async for r in llm.generate_content_async(request, stream=True)]
+
+        assert len(responses) == 1
+        final_response = responses[0]
+        assert final_response.partial is False
+        assert final_response.turn_complete is True
+        assert len(final_response.content.parts) == 1
+        function_call = final_response.content.parts[0].function_call
+        assert function_call.name == "get_weather"
+        assert dict(function_call.args) == {"city": "Tokyo"}
+
 
 class TestConvertContentToOllamaMessages:
     def test_image_inline_data_included(self):

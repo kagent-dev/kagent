@@ -6,7 +6,8 @@ import (
 
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 )
 
 func ctxWithUser(userID string) context.Context {
@@ -52,7 +53,7 @@ func TestInjectInitiatedBy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			msg := &protocol.Message{}
+			msg := &a2atype.Message{}
 			injectInitiatedBy(tt.ctx, msg)
 
 			if !tt.wantMetaKey {

@@ -3,12 +3,14 @@ package migrations
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"maps"
 	"testing"
 	"testing/fstest"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -282,6 +284,133 @@ func TestApplyDir_RollsBackWithExistingVersion(t *testing.T) {
 	}
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
 		t.Errorf("version after rollback = %d, want 1 (rollback should happen when prevVersion > 0)", got)
+	}
+}
+
+func TestMaxEmbeddedVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		fs      fstest.MapFS
+		dir     string
+		want    uint
+		wantErr bool
+	}{
+		{
+			name: "returns highest version from up.sql files",
+			fs: fstest.MapFS{
+				"core/000001_a.up.sql":   {},
+				"core/000001_a.down.sql": {},
+				"core/000003_b.up.sql":   {},
+				"core/000003_b.down.sql": {},
+			},
+			dir:  "core",
+			want: 3,
+		},
+		{
+			name: "ignores non-sql files",
+			fs: fstest.MapFS{
+				"core/README.md":         {},
+				"core/000002_x.up.sql":   {},
+				"core/000002_x.down.sql": {},
+			},
+			dir:  "core",
+			want: 2,
+		},
+		{
+			name: "ignores down.sql when computing max",
+			fs: fstest.MapFS{
+				"core/000001_a.up.sql":   {},
+				"core/000002_b.down.sql": {},
+			},
+			dir:  "core",
+			want: 1,
+		},
+		{
+			name:    "up.sql files with unparseable names returns error",
+			fs:      fstest.MapFS{"core/init.up.sql": {}},
+			dir:     "core",
+			wantErr: true,
+		},
+		{
+			name:    "empty dir returns error",
+			fs:      fstest.MapFS{"core/.keep": {}},
+			dir:     "core",
+			wantErr: true,
+		},
+		{
+			name:    "nonexistent dir returns error",
+			fs:      fstest.MapFS{},
+			dir:     "missing",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := maxEmbeddedVersion(tt.fs, tt.dir)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("maxEmbeddedVersion() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("maxEmbeddedVersion() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestApplyDir_SucceedsWhenDBVersionAhead verifies that an older binary starting against
+// a database that a newer binary has migrated does not crash-loop. It skips Up entirely
+// and returns success, leaving the schema unchanged. Safe rollback relies on the
+// expand-then-contract discipline in database-migrations.md and rolling back one release
+// at a time.
+func TestApplyDir_SucceedsWhenDBVersionAhead(t *testing.T) {
+	connStr := startTestDB(t)
+
+	// Newer binary applies v1 and v2.
+	if _, err := applyDir(connStr, goodCoreFS, "core", "schema_migrations"); err != nil {
+		t.Fatalf("newer binary apply: %v", err)
+	}
+
+	// Older binary (max v1) starts against the v2 schema — must not error.
+	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations"); err != nil {
+		t.Fatalf("older binary apply against newer schema: %v", err)
+	}
+
+	// Schema version must be unchanged — the older binary has no business rolling back.
+	if got := trackVersion(t, connStr, "schema_migrations"); got != 2 {
+		t.Errorf("version = %d, want 2 (older binary must not modify schema version)", got)
+	}
+}
+
+// TestApplyDir_DirtyStateNotMaskedByCompatibilityMode verifies that a dirty database
+// is not silently accepted by compatibility mode. If the DB is both dirty and ahead of
+// the binary's max known version, the dirty state must still be surfaced as an error.
+func TestApplyDir_DirtyStateNotMaskedByCompatibilityMode(t *testing.T) {
+	connStr := startTestDB(t)
+
+	// Apply v1 cleanly first so the tracking table exists.
+	if _, err := applyDir(connStr, oneCoreFS, "core", "schema_migrations"); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	// Simulate a newer binary having applied v2 but leaving it dirty.
+	db, err := sql.Open("pgx", connStr)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("UPDATE schema_migrations SET version = 2, dirty = true"); err != nil {
+		t.Fatalf("set dirty state: %v", err)
+	}
+
+	// Older binary (max v1) starts: DB is at v2 dirty. Compatibility mode must NOT
+	// trigger — dirty state must be returned as an error so the operator can act.
+	_, err = applyDir(connStr, oneCoreFS, "core", "schema_migrations")
+	if err == nil {
+		t.Fatal("expected error for dirty database, got nil")
+	}
+	var dirtyErr migrate.ErrDirty
+	if !errors.As(err, &dirtyErr) {
+		t.Errorf("expected migrate.ErrDirty, got %T: %v", err, err)
 	}
 }
 

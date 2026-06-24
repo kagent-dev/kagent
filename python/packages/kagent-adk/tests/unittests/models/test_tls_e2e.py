@@ -549,7 +549,7 @@ async def test_e2e_ssl_error_contains_troubleshooting_info():
     # Generate troubleshooting message
     message = get_ssl_troubleshooting_message(
         error=error,
-        ca_cert_path="/etc/ssl/certs/custom/ca.crt",
+        ca_cert_path="/etc/ssl/certs/custom/corp-ca/ca.crt",
         server_url="localhost:8443",
     )
 
@@ -559,7 +559,7 @@ async def test_e2e_ssl_error_contains_troubleshooting_info():
     assert "kubectl exec" in message
     assert "openssl x509" in message
     assert "openssl s_client" in message
-    assert "/etc/ssl/certs/custom/ca.crt" in message
+    assert "/etc/ssl/certs/custom/corp-ca/ca.crt" in message
     assert "localhost:8443" in message
     assert "kagent.dev/docs" in message
 

@@ -191,6 +191,32 @@ export type DeclarativeAgentSkillsFormInput = {
   skillsGitAuthSecretName: string;
 };
 
+/** True when the form has at least one OCI skill ref or Git skill source configured. */
+export function declarativeAgentSkillsConfigured(
+  input: DeclarativeAgentSkillsFormInput,
+): boolean {
+  const nonEmptyRefs = (input.skillRefs || []).some((ref) => ref.trim());
+  const gitRepos = formRowsToGitRepos(input.skillGitRepos || []);
+  return nonEmptyRefs || gitRepos.length > 0;
+}
+
+export const SUBSTRATE_SANDBOX_SKILLS_UNSUPPORTED_MSG =
+  "Skills are not supported for Agent Substrate sandbox agents yet";
+
+/** Returns an error when skills are configured on Agent Substrate sandbox platform. */
+export function validateSubstrateSandboxSkillsConflict(
+  input: DeclarativeAgentSkillsFormInput,
+  sandboxPlatform: "agent-sandbox" | "substrate" | undefined,
+): string | undefined {
+  if (sandboxPlatform !== "substrate") {
+    return undefined;
+  }
+  if (declarativeAgentSkillsConfigured(input)) {
+    return SUBSTRATE_SANDBOX_SKILLS_UNSUPPORTED_MSG;
+  }
+  return undefined;
+}
+
 /**
  * Validates OCI refs, Git repos, and optional git auth secret for the declarative agent form.
  * Returns the first error message, or `undefined` if valid.

@@ -1,0 +1,4 @@
+set -e
+mkdir -p "${HOME}/.openclaw"
+echo '{{.OpenClawJSONBase64}}' | base64 -d > "${HOME}/.openclaw/openclaw.json"
+openclaw gateway run --port {{.GatewayPort}} --allow-unconfigured

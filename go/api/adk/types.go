@@ -21,7 +21,7 @@ type StreamableHTTPConnectionParams struct {
 
 type HttpMcpServerConfig struct {
 	Params          StreamableHTTPConnectionParams `json:"params"`
-	Tools           []string                       `json:"tools"`
+	Tools           []string                       `json:"tools,omitempty"`
 	AllowedHeaders  []string                       `json:"allowed_headers,omitempty"`
 	RequireApproval []string                       `json:"require_approval,omitempty"`
 }
@@ -39,7 +39,7 @@ type SseConnectionParams struct {
 
 type SseMcpServerConfig struct {
 	Params          SseConnectionParams `json:"params"`
-	Tools           []string            `json:"tools"`
+	Tools           []string            `json:"tools,omitempty"`
 	AllowedHeaders  []string            `json:"allowed_headers,omitempty"`
 	RequireApproval []string            `json:"require_approval,omitempty"`
 }
@@ -124,6 +124,9 @@ func (o *OpenAI) GetType() string {
 
 type AzureOpenAI struct {
 	BaseModel
+	MaxTokens   *int     `json:"max_tokens,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
 }
 
 func (a *AzureOpenAI) GetType() string {
@@ -251,6 +254,15 @@ type Bedrock struct {
 	// additionalModelRequestFields in the Converse API. Use this for provider-specific
 	// options outside the standard InferenceConfiguration block.
 	AdditionalModelRequestFields map[string]any `json:"additional_model_request_fields,omitempty"`
+	// PromptCaching enables Bedrock prompt caching by appending a CachePoint
+	// block to the end of the system content array and the end of the
+	// toolConfig.tools array in the Converse request. See the
+	// v1alpha2.BedrockConfig CRD doc for context.
+	PromptCaching bool `json:"prompt_caching,omitempty"`
+	// CacheTTL selects the cache retention window when PromptCaching is on:
+	// "5m" (default) or "1h". See the v1alpha2.BedrockConfig CRD doc for the
+	// cost/compatibility trade-offs of "1h".
+	CacheTTL string `json:"cache_ttl,omitempty"`
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {
