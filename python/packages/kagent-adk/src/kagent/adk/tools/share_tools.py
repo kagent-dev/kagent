@@ -9,7 +9,6 @@ from typing import Any, Dict
 import httpx
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
-from kagent.core.a2a import get_request_user_id
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -33,14 +32,6 @@ def _share_url(token: str, session_id: str, app_name: str) -> str:
     namespace, name = _parse_app_name(app_name)
     path = f"/agents/{namespace}/{name}/chat/{session_id}?share={token}"
     return f"{_KAGENT_UI_URL}{path}" if _KAGENT_UI_URL else path
-
-
-def _request_headers(app_name: str) -> Dict[str, str]:
-    headers: Dict[str, str] = {"X-Agent-Name": app_name}
-    user_id = get_request_user_id()
-    if user_id:
-        headers["X-User-Id"] = user_id
-    return headers
 
 
 class CreateShareLinkTool(BaseTool):
@@ -86,7 +77,6 @@ class CreateShareLinkTool(BaseTool):
         try:
             response = await self._client.post(
                 f"/api/sessions/{session_id}/shares",
-                headers=_request_headers(app_name),
                 json={"read_only": read_only},
             )
             if response.status_code == 201:
@@ -131,11 +121,9 @@ class ListShareLinksTool(BaseTool):
         session_id = tool_context.session.id
         if not session_id or not session_id.strip():
             return "Error: session ID is empty — cannot list share links."
-        app_name = tool_context.session.app_name
         try:
             response = await self._client.get(
                 f"/api/sessions/{session_id}/shares",
-                headers=_request_headers(app_name),
             )
             if response.status_code == 200:
                 shares = response.json().get("data", [])
@@ -191,14 +179,12 @@ class DeleteShareLinkTool(BaseTool):
         session_id = tool_context.session.id
         if not session_id or not session_id.strip():
             return "Error: session ID is empty — cannot delete share link."
-        app_name = tool_context.session.app_name
         token = args.get("token", "").strip()
         if not token:
             return "Error: token is required."
         try:
             response = await self._client.delete(
                 f"/api/sessions/{session_id}/shares/{token}",
-                headers=_request_headers(app_name),
             )
             if response.status_code == 200:
                 return f"Share link {token!r} revoked successfully."
