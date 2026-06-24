@@ -102,6 +102,13 @@ spec:
           name: kagent-builtin-prompts
           alias: builtin
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
+    {{- with .Values.memory }}
+    {{- if .enabled }}
+    memory:
+      modelConfig: {{ required "A compatible modelConfig must be provided when memory is enabled" .modelConfigRef }}
+      ttlDays: {{ .ttlDays | default 15 }}
+    {{- end }}
+    {{- end }}
     tools:
       - type: McpServer
         mcpServer:
