@@ -33,6 +33,14 @@ generate: controller-gen sqlc-generate ## Generate DeepCopy methods and sqlc que
 sqlc-generate: sqlc ## Generate type-safe Go code from SQL queries.
 	cd core/internal/database && $(SQLC) generate
 
+# Compile the previous release's sqlc queries against the current schema (the
+# migration files) and fail if a migration removed/renamed/retyped a column or
+# table an old query still uses. Static (no database/cluster). Needs git tags
+# fetched. UPGRADE_FROM_VERSION overrides the auto-derived previous release.
+.PHONY: check-query-contraction
+check-query-contraction: sqlc ## Verify the previous release's queries still type-check against the current schema
+	SQLC=$(SQLC) ../scripts/check-query-contraction.sh
+
 ##@ Development
 
 .PHONY: fmt
