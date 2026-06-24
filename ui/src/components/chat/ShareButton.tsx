@@ -103,7 +103,18 @@ export default function ShareButton({ sessionId, namespace, agentName }: ShareBu
     const url = shareUrl(token);
     if (!url) return;
     try {
-      await navigator.clipboard.writeText(url);
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const el = document.createElement("textarea");
+        el.value = url;
+        el.style.position = "fixed";
+        el.style.opacity = "0";
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand("copy");
+        document.body.removeChild(el);
+      }
       setCopiedToken(token);
       toast.success("Link copied to clipboard");
       setTimeout(() => setCopiedToken(null), 2000);
@@ -134,19 +145,19 @@ export default function ShareButton({ sessionId, namespace, agentName }: ShareBu
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-4 overflow-hidden">
             {shares.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs text-muted-foreground flex items-center gap-1">
                   <Globe className="h-3 w-3 text-primary" />
                   Anyone with a link can access this chat.
                 </p>
-                <div className="divide-y rounded-md border">
+                <div className="divide-y rounded-md border overflow-hidden">
                   {shares.map((share) => {
                     const url = shareUrl(share.token);
                     return (
-                      <div key={share.token} className="flex items-center gap-2 px-3 py-2">
-                        <span className="flex-1 truncate text-xs text-muted-foreground font-mono">
+                      <div key={share.token} className="flex min-w-0 items-center gap-2 px-3 py-2">
+                        <span className="flex-1 min-w-0 truncate text-xs text-muted-foreground font-mono">
                           {url ?? share.token}
                         </span>
                         <span className="shrink-0 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
