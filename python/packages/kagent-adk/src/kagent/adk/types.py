@@ -442,12 +442,6 @@ class AgentConfig(BaseModel):
         if self.memory is not None:
             self._configure_memory(agent)
 
-        # Inject share link tools if enabled
-        if self.share_tools:
-            from kagent.adk.tools.share_tools import CreateShareLinkTool, DeleteShareLinkTool, ListShareLinksTool
-
-            agent.tools.extend([CreateShareLinkTool(), ListShareLinksTool(), DeleteShareLinkTool()])
-
         return agent
 
     def _configure_memory(self, agent: Agent) -> None:

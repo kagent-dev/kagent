@@ -2,6 +2,8 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+
 from kagent.adk.tools.share_tools import (
     CreateShareLinkTool,
     DeleteShareLinkTool,
@@ -33,6 +35,14 @@ def _mock_response(status_code: int, json_data: object):
     r.json.return_value = json_data
     r.text = str(json_data)
     return r
+
+
+def _mock_client(**method_responses) -> AsyncMock:
+    """Build a mock httpx.AsyncClient with the given method return values."""
+    client = AsyncMock(spec=httpx.AsyncClient)
+    for method, response in method_responses.items():
+        getattr(client, method).return_value = response
+    return client
 
 
 # ---------------------------------------------------------------------------
@@ -90,79 +100,59 @@ class TestCreateShareLinkTool:
 
     async def test_creates_link_read_only_by_default(self):
         """Default args produce a read-only share link."""
-        tool = CreateShareLinkTool()
+        client = _mock_client(post=_mock_response(201, {"data": {"token": "tok-ro"}}))
+        tool = CreateShareLinkTool(client)
         ctx = MockToolContext()
-        mock_resp = _mock_response(201, {"data": {"token": "tok-ro"}})
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ):
-            result = await tool.run_async(args={}, tool_context=ctx)
+        result = await tool.run_async(args={}, tool_context=ctx)
 
         assert "tok-ro" in result
         assert "(read-only)" in result
 
     async def test_creates_link_read_write(self):
         """args={'read_only': False} produces a read-write share link."""
-        tool = CreateShareLinkTool()
+        client = _mock_client(post=_mock_response(201, {"data": {"token": "tok-rw"}}))
+        tool = CreateShareLinkTool(client)
         ctx = MockToolContext()
-        mock_resp = _mock_response(201, {"data": {"token": "tok-rw"}})
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ):
-            result = await tool.run_async(args={"read_only": False}, tool_context=ctx)
+        result = await tool.run_async(args={"read_only": False}, tool_context=ctx)
 
         assert "tok-rw" in result
         assert "(read-only)" not in result
 
     async def test_api_error(self):
         """A non-201 status code returns a failure message."""
-        tool = CreateShareLinkTool()
+        client = _mock_client(post=_mock_response(500, {"error": "internal server error"}))
+        tool = CreateShareLinkTool(client)
         ctx = MockToolContext()
-        mock_resp = _mock_response(500, {"error": "internal server error"})
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ):
-            result = await tool.run_async(args={}, tool_context=ctx)
+        result = await tool.run_async(args={}, tool_context=ctx)
 
         assert result.startswith("Failed to create share link")
 
     async def test_sends_correct_read_only_in_body(self):
         """Default args send read_only=True in the request body."""
-        tool = CreateShareLinkTool()
+        client = _mock_client(post=_mock_response(201, {"data": {"token": "t"}}))
+        tool = CreateShareLinkTool(client)
         ctx = MockToolContext()
-        mock_resp = _mock_response(201, {"data": {"token": "t"}})
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ) as mock_req:
-            await tool.run_async(args={}, tool_context=ctx)
+        await tool.run_async(args={}, tool_context=ctx)
 
-        mock_req.assert_called_once()
-        _, _, _, kwargs_or_positional = _unpack_call(mock_req)
-        assert kwargs_or_positional == {"read_only": True}
+        client.post.assert_called_once()
+        _, kwargs = client.post.call_args.args, client.post.call_args.kwargs
+        assert kwargs.get("json") == {"read_only": True}
 
     async def test_sends_read_write_in_body(self):
         """args={'read_only': False} sends read_only=False in the request body."""
-        tool = CreateShareLinkTool()
+        client = _mock_client(post=_mock_response(201, {"data": {"token": "t"}}))
+        tool = CreateShareLinkTool(client)
         ctx = MockToolContext()
-        mock_resp = _mock_response(201, {"data": {"token": "t"}})
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ) as mock_req:
-            await tool.run_async(args={"read_only": False}, tool_context=ctx)
+        await tool.run_async(args={"read_only": False}, tool_context=ctx)
 
-        mock_req.assert_called_once()
-        _, _, _, kwargs_or_positional = _unpack_call(mock_req)
-        assert kwargs_or_positional == {"read_only": False}
+        client.post.assert_called_once()
+        _, kwargs = client.post.call_args.args, client.post.call_args.kwargs
+        assert kwargs.get("json") == {"read_only": False}
 
 
 # ---------------------------------------------------------------------------
@@ -175,48 +165,36 @@ class TestListShareLinksTool:
 
     async def test_returns_formatted_list(self):
         """A non-empty share list is returned with each token shown."""
-        tool = ListShareLinksTool()
-        ctx = MockToolContext()
         shares = [
             {"token": "tok-1", "created_at": "2024-01-01T00:00:00Z"},
             {"token": "tok-2", "created_at": "2024-01-02T00:00:00Z"},
         ]
-        mock_resp = _mock_response(200, {"data": shares})
+        client = _mock_client(get=_mock_response(200, {"data": shares}))
+        tool = ListShareLinksTool(client)
+        ctx = MockToolContext()
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ):
-            result = await tool.run_async(args={}, tool_context=ctx)
+        result = await tool.run_async(args={}, tool_context=ctx)
 
         assert "tok-1" in result
         assert "tok-2" in result
 
     async def test_empty_list(self):
         """An empty data list returns the 'no active share links' message."""
-        tool = ListShareLinksTool()
+        client = _mock_client(get=_mock_response(200, {"data": []}))
+        tool = ListShareLinksTool(client)
         ctx = MockToolContext()
-        mock_resp = _mock_response(200, {"data": []})
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ):
-            result = await tool.run_async(args={}, tool_context=ctx)
+        result = await tool.run_async(args={}, tool_context=ctx)
 
         assert result == "No active share links for this session."
 
     async def test_api_error(self):
         """A non-200 status code returns a failure message."""
-        tool = ListShareLinksTool()
+        client = _mock_client(get=_mock_response(404, {"error": "not found"}))
+        tool = ListShareLinksTool(client)
         ctx = MockToolContext()
-        mock_resp = _mock_response(404, {"error": "not found"})
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ):
-            result = await tool.run_async(args={}, tool_context=ctx)
+        result = await tool.run_async(args={}, tool_context=ctx)
 
         assert result.startswith("Failed")
 
@@ -231,63 +209,31 @@ class TestDeleteShareLinkTool:
 
     async def test_revokes_token(self):
         """A successful DELETE returns a message containing 'revoked'."""
-        tool = DeleteShareLinkTool()
+        client = _mock_client(delete=_mock_response(200, {"data": {}}))
+        tool = DeleteShareLinkTool(client)
         ctx = MockToolContext()
-        mock_resp = _mock_response(200, {"data": {}})
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ):
-            result = await tool.run_async(args={"token": "abc123"}, tool_context=ctx)
+        result = await tool.run_async(args={"token": "abc123"}, tool_context=ctx)
 
         assert "revoked" in result
 
     async def test_empty_token(self):
         """An empty token returns the 'token is required' error without an API call."""
-        tool = DeleteShareLinkTool()
+        client = _mock_client()
+        tool = DeleteShareLinkTool(client)
         ctx = MockToolContext()
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(),
-        ) as mock_req:
-            result = await tool.run_async(args={"token": ""}, tool_context=ctx)
+        result = await tool.run_async(args={"token": ""}, tool_context=ctx)
 
         assert result == "Error: token is required."
-        mock_req.assert_not_called()
+        client.delete.assert_not_called()
 
     async def test_api_error(self):
         """A non-200 status code returns a failure message."""
-        tool = DeleteShareLinkTool()
+        client = _mock_client(delete=_mock_response(403, {"error": "forbidden"}))
+        tool = DeleteShareLinkTool(client)
         ctx = MockToolContext()
-        mock_resp = _mock_response(403, {"error": "forbidden"})
 
-        with patch(
-            "kagent.adk.tools.share_tools._kagent_request",
-            new=AsyncMock(return_value=mock_resp),
-        ):
-            result = await tool.run_async(args={"token": "abc123"}, tool_context=ctx)
+        result = await tool.run_async(args={"token": "abc123"}, tool_context=ctx)
 
         assert result.startswith("Failed")
-
-
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
-
-
-def _unpack_call(mock_req: AsyncMock):
-    """Return (method, path, app_name, json_body) from the first call to mock_req.
-
-    _kagent_request is called as:
-        await _kagent_request(method, path, app_name, json_body=...)
-    """
-    call_args = mock_req.call_args
-    # positional args
-    pos = list(call_args.args)
-    method = pos[0] if len(pos) > 0 else call_args.kwargs.get("method")
-    path = pos[1] if len(pos) > 1 else call_args.kwargs.get("path")
-    app_name = pos[2] if len(pos) > 2 else call_args.kwargs.get("app_name")
-    json_body = call_args.kwargs.get("json_body", pos[3] if len(pos) > 3 else None)
-    return method, path, app_name, json_body

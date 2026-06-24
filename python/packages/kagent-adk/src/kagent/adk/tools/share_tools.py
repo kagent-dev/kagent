@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from typing import Any, Dict
@@ -12,11 +11,8 @@ from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
 from kagent.core.a2a import get_request_user_id
 
-from .._token import read_token
-
 logger = logging.getLogger("kagent_adk." + __name__)
 
-_KAGENT_URL = os.getenv("KAGENT_URL", "")
 _KAGENT_UI_URL = os.getenv("KAGENT_UI_URL", "").rstrip("/")
 
 
@@ -39,24 +35,12 @@ def _share_url(token: str, session_id: str, app_name: str) -> str:
     return f"{_KAGENT_UI_URL}{path}" if _KAGENT_UI_URL else path
 
 
-async def _kagent_request(
-    method: str,
-    path: str,
-    app_name: str,
-    json_body: Dict[str, Any] | None = None,
-) -> httpx.Response:
-    """Make an authenticated request to the kagent API."""
-    if not _KAGENT_URL:
-        raise RuntimeError("KAGENT_URL environment variable is not set")
+def _request_headers(app_name: str) -> Dict[str, str]:
     headers: Dict[str, str] = {"X-Agent-Name": app_name}
-    token = await asyncio.to_thread(read_token)
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     user_id = get_request_user_id()
     if user_id:
         headers["X-User-Id"] = user_id
-    async with httpx.AsyncClient(base_url=_KAGENT_URL) as client:
-        return await client.request(method, path, headers=headers, json=json_body)
+    return headers
 
 
 class CreateShareLinkTool(BaseTool):
@@ -65,7 +49,7 @@ class CreateShareLinkTool(BaseTool):
     The link allows any authenticated user to view (and optionally interact with) the session.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, client: httpx.AsyncClient) -> None:
         super().__init__(
             name="create_share_link",
             description=(
@@ -76,6 +60,7 @@ class CreateShareLinkTool(BaseTool):
                 "Each call creates a new token; existing tokens remain valid."
             ),
         )
+        self._client = client
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -99,11 +84,10 @@ class CreateShareLinkTool(BaseTool):
         app_name = tool_context.session.app_name
         read_only = bool(args.get("read_only", True))
         try:
-            response = await _kagent_request(
-                "POST",
+            response = await self._client.post(
                 f"/api/sessions/{session_id}/shares",
-                app_name,
-                json_body={"read_only": read_only},
+                headers=_request_headers(app_name),
+                json={"read_only": read_only},
             )
             if response.status_code == 201:
                 data = response.json().get("data", {})
@@ -125,7 +109,7 @@ class CreateShareLinkTool(BaseTool):
 class ListShareLinksTool(BaseTool):
     """List existing share links for the current session."""
 
-    def __init__(self) -> None:
+    def __init__(self, client: httpx.AsyncClient) -> None:
         super().__init__(
             name="list_share_links",
             description=(
@@ -134,6 +118,7 @@ class ListShareLinksTool(BaseTool):
                 "Use this to find a token before calling delete_share_link."
             ),
         )
+        self._client = client
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -148,7 +133,10 @@ class ListShareLinksTool(BaseTool):
             return "Error: session ID is empty — cannot list share links."
         app_name = tool_context.session.app_name
         try:
-            response = await _kagent_request("GET", f"/api/sessions/{session_id}/shares", app_name)
+            response = await self._client.get(
+                f"/api/sessions/{session_id}/shares",
+                headers=_request_headers(app_name),
+            )
             if response.status_code == 200:
                 shares = response.json().get("data", [])
                 if not shares:
@@ -173,7 +161,7 @@ class ListShareLinksTool(BaseTool):
 class DeleteShareLinkTool(BaseTool):
     """Delete a share link for the current session, revoking visitor access."""
 
-    def __init__(self) -> None:
+    def __init__(self, client: httpx.AsyncClient) -> None:
         super().__init__(
             name="delete_share_link",
             description=(
@@ -181,6 +169,7 @@ class DeleteShareLinkTool(BaseTool):
                 "Use list_share_links first to find the token you want to revoke."
             ),
         )
+        self._client = client
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         return types.FunctionDeclaration(
@@ -207,7 +196,10 @@ class DeleteShareLinkTool(BaseTool):
         if not token:
             return "Error: token is required."
         try:
-            response = await _kagent_request("DELETE", f"/api/sessions/{session_id}/shares/{token}", app_name)
+            response = await self._client.delete(
+                f"/api/sessions/{session_id}/shares/{token}",
+                headers=_request_headers(app_name),
+            )
             if response.status_code == 200:
                 return f"Share link {token!r} revoked successfully."
             return f"Failed to delete share link: HTTP {response.status_code}: {response.text}"
