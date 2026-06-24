@@ -1,6 +1,33 @@
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
 
+interface ArgPair {
+  value: string;
+}
+
+/**
+ * Build the `args` array for a stdio MCPServer deployment.
+ *
+ * Order is preserved as shown in the command preview:
+ *   <executor> [commandPrefix...] <packageName> [additionalArgs...]
+ */
+export const buildMCPServerArgs = (
+  commandPrefix: string,
+  packageName: string,
+  argPairs: ArgPair[],
+): string[] => {
+  const args: string[] = [];
+  if (commandPrefix.trim()) {
+    args.push(...commandPrefix.trim().split(/\s+/));
+  }
+  if (packageName.trim()) {
+    args.push(packageName.trim());
+  }
+  argPairs
+    .filter((arg) => arg.value.trim() !== "")
+    .forEach((arg) => args.push(arg.value.trim()));
+  return args;
+};
 
 // Constants for MCP server types and defaults
 const DEFAULT_API_GROUP = "kagent.dev";

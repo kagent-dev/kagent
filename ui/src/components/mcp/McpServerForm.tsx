@@ -12,6 +12,7 @@ import type { RemoteMCPServer, MCPServer, ToolServerCreateRequest } from "@/type
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { createRFC1123ValidName, isResourceNameValid } from "@/lib/utils";
+import { buildMCPServerArgs } from "@/lib/toolUtils";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -227,43 +228,19 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
         // Create MCPServer for stdio-based server
         let image: string;
         let cmd: string;
-        let args: string[];
 
         if (commandType === "uvx") {
           // Use uvx with the official uv image
           image = "ghcr.io/astral-sh/uv:debian";
           cmd = "uvx";
-          
-          // Build args array: [args..., packageName]
-          args = [];
-          if (commandPrefix.trim()) {
-            // Split command prefix and add to args
-            args.push(...commandPrefix.trim().split(/\s+/));
-          }
-          // Add additional arguments first
-          argPairs.filter((arg) => arg.value.trim() !== "").forEach((arg) => {
-            args.push(arg.value.trim());
-          });
-          // Add package name at the end
-          args.push(packageName.trim());
         } else {
           // Use npx with Node.js image
           image = "node:24-alpine3.21";
           cmd = "npx";
-          
-          // Build args array: [args..., packageName]
-          args = [];
-          if (commandPrefix.trim()) {
-            // Split command prefix and add to args
-            args.push(...commandPrefix.trim().split(/\s+/));
-          }
-          // Add additional arguments first
-          argPairs.filter((arg) => arg.value.trim() !== "").forEach((arg) => {
-            args.push(arg.value.trim());
-          });
-          // Add package name at the end
-          args.push(packageName.trim());
         }
+
+        // Build args array: [commandPrefix..., packageName, additionalArgs...]
+        const args: string[] = buildMCPServerArgs(commandPrefix, packageName, argPairs);
 
         const mcpServer: MCPServer = {
           metadata: {
