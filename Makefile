@@ -501,8 +501,10 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 # runs the DB-layer upgrade scenario in TestUpgrade: seed -> upgrade -> controller
 # rollout (no crash) -> data survival -> schema-equivalence (upgraded == clean
 # install) -> reverse schema to target (down files) + data survival.
-# Prerequisites (provided by CI as separate steps; run them locally first): a kind
-# cluster (make create-kind-cluster) and the agent-sandbox CRD.
+# Prerequisite (provided by CI as a separate step; run it locally first): a kind
+# cluster (make create-kind-cluster). The controller tolerates the missing
+# agent-sandbox CRD (the owned-resource watch is skipped), and these tests create
+# no SandboxAgents, so agent-sandbox is not required.
 .PHONY: run-upgrade-tests
 run-upgrade-tests: ## Install the previous release, build current images, and run the upgrade test (migration round-trip)
 	test -n "$(UPGRADE_FROM_VERSION)" || { echo "UPGRADE_FROM_VERSION is empty; set it explicitly or ensure git tags are fetched." >&2; exit 1; }
