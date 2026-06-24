@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"fmt"
 
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"trpc.group/trpc-go/trpc-a2a-go/client"
@@ -17,6 +18,19 @@ func NewPassthroughManager(client *client.A2AClient) taskmanager.TaskManager {
 	return &PassthroughManager{
 		client: client,
 	}
+}
+
+// validateShareContext returns an error if a share context is present but the
+// given A2A contextID doesn't match the session the token was issued for.
+func validateShareContext(ctx context.Context, contextID *string) error {
+	sc, ok := pkgauth.ShareContextFrom(ctx)
+	if !ok || contextID == nil || *contextID == "" {
+		return nil
+	}
+	if *contextID != sc.SessionID {
+		return fmt.Errorf("share token is not valid for session %q", *contextID)
+	}
+	return nil
 }
 
 func injectInitiatedBy(ctx context.Context, msg *protocol.Message) {
@@ -44,6 +58,9 @@ func (m *PassthroughManager) OnSendMessage(ctx context.Context, request protocol
 	if request.Message.Kind == "" {
 		request.Message.Kind = protocol.KindMessage
 	}
+	if err := validateShareContext(ctx, request.Message.ContextID); err != nil {
+		return nil, err
+	}
 	injectInitiatedBy(ctx, &request.Message)
 	return m.client.SendMessage(ctx, request)
 }
@@ -54,6 +71,9 @@ func (m *PassthroughManager) OnSendMessageStream(ctx context.Context, request pr
 	}
 	if request.Message.Kind == "" {
 		request.Message.Kind = protocol.KindMessage
+	}
+	if err := validateShareContext(ctx, request.Message.ContextID); err != nil {
+		return nil, err
 	}
 	injectInitiatedBy(ctx, &request.Message)
 	return m.client.StreamMessage(ctx, request)
