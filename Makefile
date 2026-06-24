@@ -136,6 +136,10 @@ init-git-hooks:  ## Use the tracked version of Git hooks from this repo
 KMCP_ENABLED ?= true
 KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($$2, 2) }' go/go.mod) # KMCP version defaults to what's referenced in go.mod
 
+# Substrate
+SUBSTRATE_ENABLED ?= false
+SUBSTRATE_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go/go.mod) # Substrate version defaults to the replace target in go.mod
+
 HELM_ACTION=upgrade --install
 
 # Helm chart variables
@@ -394,8 +398,8 @@ helm-tools: ## Package all tool Helm charts into the dist folder
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup helm-agents helm-tools
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
 	helm dependency update helm/kagent-crds
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds

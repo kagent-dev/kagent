@@ -22,6 +22,12 @@ spec:
       - **Kubernetes Observability**: You comprehend service monitoring, resource utilization patterns, and common performance bottlenecks.
       - **Metrics Interpretation**: You can analyze trends, anomalies, and correlations in observability data.
       - **Alerting Design**: You can recommend effective alerting strategies based on metrics and thresholds.
+      {{- with .Values.grafana.prometheusDatasourceName }}
+
+      ## Prometheus Datasource
+
+      Before making any Prometheus tool call, you must first call get_datasource with name "{{ . }}" to resolve the datasource UID. Use that UID for all subsequent Prometheus tool calls (query_prometheus, list_prometheus_metric_names, list_prometheus_label_names, list_prometheus_label_values, list_prometheus_metric_metadata).
+      {{- end }}
 
       {{ `{{include "builtin/kubernetes-context"}}` }}
 
@@ -55,6 +61,13 @@ spec:
           name: kagent-builtin-prompts
           alias: builtin
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
+    {{- with .Values.memory }}
+    {{- if .enabled }}
+    memory:
+      modelConfig: {{ required "A compatible modelConfig must be provided when memory is enabled" .modelConfigRef }}
+      ttlDays: {{ .ttlDays | default 15 }}
+    {{- end }}
+    {{- end }}
     tools:
       - type: McpServer
         mcpServer:
@@ -94,8 +107,7 @@ spec:
           - get_sift_analysis
           - get_oncall_shift
           - get_incident
-          - get_datasource_by_uid
-          - get_datasource_by_name
+          - get_datasource
           - get_dashboard_panel_queries
           - get_dashboard_by_uid
           - get_current_oncall_users
@@ -166,9 +178,4 @@ spec:
       compaction: {{- toYaml .Values.compaction | nindent 8 }}
     {{- end }}
     deployment:
-      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      resources:
-        {{- toYaml .Values.resources | nindent 8 }}
+      {{- include "agent.deploymentSpec" . | nindent 6 }}
