@@ -160,6 +160,144 @@ jobs:
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller
 
+  upgrade-tests:
+    needs:
+      - setup
+    env:
+      VERSION: v0.0.1-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full history + tags so scripts/upgrade-from-version.sh can derive the
+          # previous release to upgrade from.
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Initialize Environment
+        uses: ./.github/actions/initialize-environment
+      - name: Allow unprivileged user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: linux/amd64,linux/arm64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
+          platforms: linux/amd64,linux/arm64
+          use: "true"
+          driver-opts: network=host
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.18.0
+      - name: Install Kind
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+        with:
+          install_only: true
+      - name: Create Kind cluster
+        run: |
+          make create-kind-cluster
+      - name: Install agent-sandbox
+        run: |
+          kubectl apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}/manifest.yaml"
+          timeout 90s bash -c 'until [ "$(kubectl get crd sandboxes.agents.x-k8s.io -o jsonpath="{.status.conditions[?(@.type==\"Established\")].status}" 2>/dev/null)" = "True" ]; do sleep 1; done'
+          kubectl rollout status deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
+          kubectl wait --for=condition=Ready pod -l app=agent-sandbox-controller -n agent-sandbox-system --timeout=120s
+      - name: Run upgrade tests
+        env:
+          OPENAI_API_KEY: fake
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-upgrade,mode=max
+            --platform=linux/amd64
+            --push
+        run: |
+          make run-upgrade-tests
+      - name: fail print info
+        if: failure()
+        run: |
+          echo "::error::Failed to run upgrade tests"
+          kubectl describe pods -n kagent
+          kubectl get events -n kagent
+          kubectl logs -n kagent deployment/kagent-controller || true
+
+  rolling-upgrade-tests:
+    needs:
+      - setup
+    env:
+      VERSION: v0.0.1-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full history + tags so scripts/upgrade-from-version.sh can derive the
+          # previous release to upgrade from.
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Initialize Environment
+        uses: ./.github/actions/initialize-environment
+      - name: Allow unprivileged user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: linux/amd64,linux/arm64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
+          platforms: linux/amd64,linux/arm64
+          use: "true"
+          driver-opts: network=host
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.0
+        with:
+          version: v3.18.0
+      - name: Install Kind
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+        with:
+          install_only: true
+      - name: Create Kind cluster
+        run: |
+          make create-kind-cluster
+      - name: Install agent-sandbox
+        run: |
+          kubectl apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}/manifest.yaml"
+          timeout 90s bash -c 'until [ "$(kubectl get crd sandboxes.agents.x-k8s.io -o jsonpath="{.status.conditions[?(@.type==\"Established\")].status}" 2>/dev/null)" = "True" ]; do sleep 1; done'
+          kubectl rollout status deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
+          kubectl wait --for=condition=Ready pod -l app=agent-sandbox-controller -n agent-sandbox-system --timeout=120s
+      - name: Run rolling upgrade tests
+        env:
+          OPENAI_API_KEY: fake
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
+            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-upgrade,mode=max
+            --platform=linux/amd64
+            --push
+        run: |
+          make run-rolling-upgrade-tests
+      - name: fail print info
+        if: failure()
+        run: |
+          echo "::error::Failed to run rolling upgrade tests"
+          kubectl describe pods -n kagent
+          kubectl get events -n kagent
+          kubectl logs -n kagent deployment/kagent-controller || true
+
   go-unit-tests:
     runs-on: ubuntu-latest
     steps:

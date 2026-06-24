@@ -460,6 +460,78 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
+# Upgrade test targets install the previous released kagent chart from the public
+# OCI registry, build the current images, then run the e2e assertions in
+# go/core/test/e2e/upgrade. The Go test performs the actual upgrade to the current
+# build by invoking `make helm-install-provider`. UPGRADE_FROM_VERSION defaults to
+# the previous release derived from git tags (scripts/upgrade-from-version.sh);
+# override it to pin a baseline. The previous install pins the bundled Postgres
+# image to match the current install (pgvector pg18-trixie) so the upgrade
+# isolates the kagent app/migration change rather than a coincidental DB swap.
+#
+# Prerequisites (provided by CI as separate steps; run them locally first): a kind
+# cluster (make create-kind-cluster) and the agent-sandbox CRD must already exist.
+UPGRADE_FROM_VERSION ?= $(shell ./scripts/upgrade-from-version.sh)
+
+.PHONY: install-previous-release
+install-previous-release: ## Install the previous released kagent + kagent-crds charts from the public OCI registry
+	test -n "$(UPGRADE_FROM_VERSION)" || { echo "UPGRADE_FROM_VERSION is empty; set it explicitly or ensure git tags are fetched." >&2; exit 1; }
+	@echo "=== Installing previous release: $(UPGRADE_FROM_VERSION) ==="
+	helm upgrade --install kagent-crds $(HELM_REPO)/kagent/helm/kagent-crds \
+		--version $(UPGRADE_FROM_VERSION) \
+		--namespace kagent --create-namespace \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--timeout 5m --wait
+	helm upgrade --install kagent $(HELM_REPO)/kagent/helm/kagent \
+		--version $(UPGRADE_FROM_VERSION) \
+		--namespace kagent --create-namespace \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--timeout 5m --wait \
+		--set ui.service.type=LoadBalancer \
+		--set controller.service.type=LoadBalancer \
+		--set providers.default=openAI \
+		--set providers.openAI.apiKey="$${OPENAI_API_KEY:-test}" \
+		--set database.postgres.bundled.image.repository=pgvector \
+		--set database.postgres.bundled.image.name=pgvector \
+		--set database.postgres.bundled.image.tag=pg18-trixie \
+		--set database.postgres.vectorEnabled=true \
+		$(UPGRADE_PREV_EXTRA_ARGS)
+
+# run-upgrade-tests installs the previous release, builds the current images, and
+# runs the DB-layer upgrade scenario in TestUpgrade: seed -> upgrade -> controller
+# rollout (no crash) -> data survival -> schema-equivalence (upgraded == clean
+# install) -> reverse schema to target (down files) + data survival.
+# Prerequisites (provided by CI as separate steps; run them locally first): a kind
+# cluster (make create-kind-cluster) and the agent-sandbox CRD.
+.PHONY: run-upgrade-tests
+run-upgrade-tests: ## Install the previous release, build current images, and run the upgrade test (migration round-trip)
+	test -n "$(UPGRADE_FROM_VERSION)" || { echo "UPGRADE_FROM_VERSION is empty; set it explicitly or ensure git tags are fetched." >&2; exit 1; }
+	$(MAKE) build
+	$(MAKE) install-previous-release
+	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
+	cd go && \
+	RUN_UPGRADE_TESTS=true \
+	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	VERSION=$(VERSION) \
+	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
+	go test ./core/test/e2e/upgrade -run TestUpgrade -count=1 -timeout=20m -v
+
+.PHONY: run-rolling-upgrade-tests
+run-rolling-upgrade-tests: ## Install the previous release with 2 controller replicas, build the current images, and run the rolling upgrade e2e test
+	$(MAKE) build
+	$(MAKE) install-previous-release UPGRADE_PREV_EXTRA_ARGS="--set controller.replicas=2"
+	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
+	cd go && \
+	RUN_ROLLING_UPGRADE_TESTS=true \
+	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	VERSION=$(VERSION) \
+	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
+	go test ./core/test/e2e/upgrade -run TestRollingUpgradeCompatibility -count=1 -timeout=20m -v
+
 .PHONY: helm-publish
 helm-publish: ## Package and push all Helm charts to the OCI registry
 helm-publish: helm-version
