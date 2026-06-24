@@ -4,6 +4,11 @@ import ChatLayoutUI from "@/components/chat/ChatLayoutUI";
 import { ErrorState } from "@/components/ErrorState";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { CSSProperties, ReactNode } from "react";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  referrer: "no-referrer",
+};
 
 async function getData(agentName: string, namespace: string) {
   try {
