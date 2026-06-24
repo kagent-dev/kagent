@@ -8,6 +8,7 @@ import { getSessionsForAgent } from "@/app/actions/sessions";
 import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "@/types";
 import { toast } from "sonner";
 import { ChatAgentProvider } from "@/components/chat/ChatAgentContext";
+import { ChatMcpAppsProvider } from "@/components/chat/ChatMcpAppsContext";
 import { isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
 import { mergeSessionUpdate, normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 
@@ -108,15 +109,17 @@ export default function ChatLayoutUI({
         agentSessions={sessions}
         isLoadingSessions={isLoadingSessions}
       />
-      <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden px-4">
-        <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-1 flex-col">
-          <ChatAgentProvider
-            agentType={currentAgent.agent.spec.type}
-            runInSandbox={currentAgent.workloadMode === "sandbox"}
-            substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
-          >
-            {children}
-          </ChatAgentProvider>
+      <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden px-4">
+        <div className="mx-auto flex h-full min-h-0 w-full min-w-0 max-w-6xl flex-1 flex-col">
+          <ChatMcpAppsProvider currentAgent={currentAgent}>
+            <ChatAgentProvider
+              agentType={currentAgent.agent.spec.type}
+              runInSandbox={currentAgent.workloadMode === "sandbox"}
+              substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
+            >
+              {children}
+            </ChatAgentProvider>
+          </ChatMcpAppsProvider>
         </div>
       </main>
       <AgentDetailsSidebar

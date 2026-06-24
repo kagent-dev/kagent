@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MCP Apps Sandbox Proxy</title>
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    // The host page passes its origin via ?parentOrigin=...; fall back to this
+    // document's own origin (the proxy is served from the host's origin). We
+    // never trust "*" — only messages from (and posts to) the expected parent.
+    var params = new URLSearchParams(window.location.search);
+    var parentOrigin = params.get("parentOrigin") || window.location.origin;
+
+    window.addEventListener("message", (event) => {
+      // Reject messages from any origin other than the expected parent so a
+      // page embedding this iframe cannot inject arbitrary HTML/script.
+      if (event.origin !== parentOrigin) return;
+
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+
+      if (data.method === "ui/notifications/sandbox-resource-ready") {
+        const html = data.params && data.params.html;
+        if (typeof html === "string") {
+          document.open();
+          document.write(html);
+          document.close();
+        }
+      }
+    });
+
+    window.parent.postMessage({
+      method: "ui/notifications/sandbox-proxy-ready",
+      params: {}
+    }, parentOrigin);
+  </script>
+</body>
+</html>

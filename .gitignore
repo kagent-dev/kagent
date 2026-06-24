@@ -2,6 +2,7 @@
 python/.env
 .env
 values.local.yaml
+.playwright*
 
 test_results
 

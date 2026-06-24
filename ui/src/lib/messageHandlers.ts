@@ -122,6 +122,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
                 name: toolData.name,
                 content: normalizeToolResultToText(toolData),
                 is_error: toolData.response?.isError || false,
+                raw_result: getRawToolResult(toolData),
                 ...(frSubagentSessionId ? { subagent_session_id: frSubagentSessionId } : {}),
               }],
             },
@@ -477,6 +478,7 @@ export interface ToolResponseData {
   response?: {
     isError?: boolean;
     result?: unknown;
+    [key: string]: unknown;
   };
 }
 
@@ -493,7 +495,12 @@ export interface ProcessedToolResultData {
   name: string;
   content: string;
   is_error: boolean;
+  raw_result?: unknown;
   subagent_session_id?: string;
+}
+
+export function getRawToolResult(toolData: ToolResponseData): unknown {
+  return toolData.response?.result ?? toolData.response;
 }
 
 // Normalize various tool response result shapes into plain text
@@ -727,6 +734,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       name: toolData.name,
       content,
       is_error: toolData.response?.isError || false,
+      raw_result: getRawToolResult(toolData),
       ...(subagentSessionId ? { subagent_session_id: subagentSessionId } : {}),
     }];
     const execEvent = createMessage(
@@ -992,6 +1000,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
             name: toolData.name,
             content: textContent,
             is_error: toolData.response?.isError || false,
+            raw_result: getRawToolResult(toolData),
             ...(artifactSubagentSessionId ? { subagent_session_id: artifactSubagentSessionId } : {}),
           }];
           const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolResultData: toolResultContent } });
