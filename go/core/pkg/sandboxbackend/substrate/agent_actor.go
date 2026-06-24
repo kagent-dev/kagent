@@ -130,16 +130,58 @@ func (b *SandboxAgentActorBackend) DeleteSandboxAgentActor(ctx context.Context, 
 	return deleteActor(ctx, b.client, actorID)
 }
 
-// DeleteSandboxAgentSessionActor deletes the actor for a single chat session.
+// DeleteSandboxAgentSessionActor deletes the actor(s) for a single chat session. Because the
+// session actor id is keyed on the config hash and old templates/goldens are retained, a session
+// can have actors under several hashes (one per config it was active under). Deleting only the
+// current-hash actor would orphan the others, so this deletes the session's actor for every
+// retained config hash.
 func (b *SandboxAgentActorBackend) DeleteSandboxAgentSessionActor(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) (bool, error) {
-	if sa == nil {
+	if b == nil || b.client == nil || sa == nil {
 		return true, nil
 	}
-	actorID, _, err := b.sessionActorRef(ctx, sa, sessionID)
+	hashes, err := b.retainedSessionConfigHashes(ctx, sa)
 	if err != nil {
 		return false, err
 	}
-	return b.DeleteSandboxAgentActor(ctx, actorID)
+	allDone := true
+	seen := make(map[string]struct{}, len(hashes))
+	for _, hash := range hashes {
+		actorID := SandboxAgentSessionActorID(sa, hash, sessionID)
+		if _, ok := seen[actorID]; ok {
+			continue
+		}
+		seen[actorID] = struct{}{}
+		done, err := b.DeleteSandboxAgentActor(ctx, actorID)
+		if err != nil {
+			return false, err
+		}
+		if !done {
+			allDone = false
+		}
+	}
+	return allDone, nil
+}
+
+// retainedSessionConfigHashes returns the distinct config-hash segments across the agent's
+// retained ActorTemplates (plus "" for legacy/no-hash actors). These are the hashes a session's
+// actor id could have been keyed on, mirroring sessionActorRef's per-template derivation.
+func (b *SandboxAgentActorBackend) retainedSessionConfigHashes(ctx context.Context, sa *v1alpha2.SandboxAgent) ([]string, error) {
+	templates, err := listSandboxAgentActorTemplates(ctx, b.kube, sa.Namespace, sa.Name)
+	if err != nil {
+		return nil, err
+	}
+	// Always include "" so a session actor created before any config hash existed is still cleaned.
+	hashes := []string{""}
+	seen := map[string]struct{}{"": {}}
+	for _, t := range templates {
+		hash := t.Annotations[consts.ConfigHashAnnotation]
+		if _, ok := seen[hash]; ok {
+			continue
+		}
+		seen[hash] = struct{}{}
+		hashes = append(hashes, hash)
+	}
+	return hashes, nil
 }
 
 // sessionActorRef resolves the agent's current (config-hashed) ActorTemplate and returns the
@@ -164,6 +206,21 @@ func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Conte
 		return true, nil
 	}
 	prefix := sandboxAgentActorPrefix(sa)
+
+	// Build the set of ActorTemplates this agent owns (one per retained config hash). Session
+	// actors are created FROM these templates, so matching an actor's source template reliably
+	// identifies it even when its id falls back to the prefix-less asr-<hash> form (long agent
+	// name / session id), which id-prefix matching alone would miss. This runs before template
+	// cleanup in the delete path, so the templates are still present here.
+	templates, err := listSandboxAgentActorTemplates(ctx, b.kube, sa.Namespace, sa.Name)
+	if err != nil {
+		return false, err
+	}
+	ownedTemplates := make(map[string]struct{}, len(templates))
+	for _, t := range templates {
+		ownedTemplates[t.Name] = struct{}{}
+	}
+
 	actors, err := b.client.ListActors(ctx)
 	if err != nil {
 		return false, fmt.Errorf("list substrate actors: %w", err)
@@ -174,7 +231,7 @@ func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Conte
 		if id == "" {
 			continue
 		}
-		if id != SandboxAgentActorID(sa) && !strings.HasPrefix(id, prefix+"-") {
+		if !actorBelongsToSandboxAgent(sa, actor, prefix, ownedTemplates) {
 			continue
 		}
 		done, err := deleteActor(ctx, b.client, id)
@@ -186,6 +243,20 @@ func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Conte
 		}
 	}
 	return allDone, nil
+}
+
+// actorBelongsToSandboxAgent reports whether an actor was created for this SandboxAgent. It matches
+// on the actor's source ActorTemplate first (robust: survives the prefix-less asr-<hash> id
+// fallback), then falls back to id-prefix matching as a backstop for orphaned actors whose
+// template was already deleted.
+func actorBelongsToSandboxAgent(sa *v1alpha2.SandboxAgent, actor *ateapipb.Actor, prefix string, ownedTemplates map[string]struct{}) bool {
+	if actor.GetActorTemplateNamespace() == sa.Namespace {
+		if _, ok := ownedTemplates[actor.GetActorTemplateName()]; ok {
+			return true
+		}
+	}
+	id := strings.TrimSpace(actor.GetActorId())
+	return id == SandboxAgentActorID(sa) || strings.HasPrefix(id, prefix+"-")
 }
 
 func sandboxAgentActorPrefix(sa *v1alpha2.SandboxAgent) string {

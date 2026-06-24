@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
@@ -216,4 +217,86 @@ func TestResolveCurrentActorTemplatePrefersDesiredGeneration(t *testing.T) {
 	got, err = ResolveCurrentActorTemplate(context.Background(), cl2, "kagent", "agent")
 	require.NoError(t, err)
 	require.Equal(t, "agent-openai", got.Name, "while the desired golden builds, serve the most-recently-desired Ready template")
+}
+
+func TestActorBelongsToSandboxAgent(t *testing.T) {
+	t.Parallel()
+	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
+	prefix := sandboxAgentActorPrefix(sa)
+	owned := map[string]struct{}{"my-agent-abc123": {}, "my-agent": {}}
+
+	tests := []struct {
+		name  string
+		actor *ateapipb.Actor
+		want  bool
+	}{
+		{
+			// The case comment #2 flags: a long agent name / session id forces the prefix-less
+			// asr-<hash> fallback id, which id-prefix matching misses — but the owning template matches.
+			name:  "prefix-less fallback id matched by owning template",
+			actor: &ateapipb.Actor{ActorId: sandboxAgentIDPrefix + "-deadbeefdeadbeefdeadbeef", ActorTemplateNamespace: "kagent", ActorTemplateName: "my-agent-abc123"},
+			want:  true,
+		},
+		{
+			name:  "normal session id matched by prefix",
+			actor: &ateapipb.Actor{ActorId: prefix + "-sess-1", ActorTemplateNamespace: "kagent", ActorTemplateName: "my-agent-abc123"},
+			want:  true,
+		},
+		{
+			name:  "legacy per-agent id matched exactly",
+			actor: &ateapipb.Actor{ActorId: SandboxAgentActorID(sa)},
+			want:  true,
+		},
+		{
+			name:  "orphan actor whose template was already deleted still matched by prefix",
+			actor: &ateapipb.Actor{ActorId: prefix + "-sess-2", ActorTemplateName: "gone"},
+			want:  true,
+		},
+		{
+			name:  "unrelated actor not matched",
+			actor: &ateapipb.Actor{ActorId: "asr-other-ns-other-agent-sess", ActorTemplateNamespace: "kagent", ActorTemplateName: "other-agent"},
+			want:  false,
+		},
+		{
+			name:  "same template name in a different namespace not matched",
+			actor: &ateapipb.Actor{ActorId: "asr-xyz", ActorTemplateNamespace: "elsewhere", ActorTemplateName: "my-agent-abc123"},
+			want:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, actorBelongsToSandboxAgent(sa, tt.actor, prefix, owned))
+		})
+	}
+}
+
+func TestRetainedSessionConfigHashes(t *testing.T) {
+	t.Parallel()
+	scheme := runtime.NewScheme()
+	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
+
+	tmplA := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "agent-abc123", Namespace: "kagent",
+		Labels:      map[string]string{SandboxAgentLabelKey: "agent"},
+		Annotations: map[string]string{consts.ConfigHashAnnotation: "abc123"},
+	}}
+	tmplB := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "agent-def456", Namespace: "kagent",
+		Labels:      map[string]string{SandboxAgentLabelKey: "agent"},
+		Annotations: map[string]string{consts.ConfigHashAnnotation: "def456"},
+	}}
+	other := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
+		Name: "other", Namespace: "kagent",
+		Labels:      map[string]string{SandboxAgentLabelKey: "other-agent"},
+		Annotations: map[string]string{consts.ConfigHashAnnotation: "zzz999"},
+	}}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tmplA, tmplB, other).Build()
+
+	b := &SandboxAgentActorBackend{kube: cl}
+	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"}}
+	hashes, err := b.retainedSessionConfigHashes(context.Background(), sa)
+	require.NoError(t, err)
+	// "" is always included (legacy/no-hash actors), plus each retained template's hash; the other
+	// agent's template hash is excluded.
+	require.ElementsMatch(t, []string{"", "abc123", "def456"}, hashes)
 }
