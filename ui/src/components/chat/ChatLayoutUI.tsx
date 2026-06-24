@@ -108,7 +108,7 @@ export default function ChatLayoutUI({
         agentSessions={sessions}
         isLoadingSessions={isLoadingSessions}
       />
-      <main className="flex min-h-svh min-w-0 flex-1 flex-col overflow-x-hidden px-4">
+      <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden px-4">
         <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-1 flex-col">
           <ChatAgentProvider
             agentType={currentAgent.agent.spec.type}
