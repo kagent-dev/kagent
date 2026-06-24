@@ -55,13 +55,13 @@ type AgentSpec struct {
 	// +optional
 	Type AgentType `json:"type,omitempty"`
 
-	// BYO configures a "bring your own" agent backed by a user-provided
+	// byo configures a "bring your own" agent backed by a user-provided
 	// container image. Kagent deploys the image and expects it to serve the
 	// agent over the A2A protocol on port 8080.
 	// Required if type is BYO.
 	// +optional
 	BYO *BYOAgentSpec `json:"byo,omitempty"`
-	// Declarative configures an agent that is fully described by this resource
+	// declarative configures an agent that is fully described by this resource
 	// (model, instructions, tools) and runs on one of kagent's built-in runtimes.
 	// Required if type is Declarative.
 	// +optional
@@ -70,18 +70,18 @@ type AgentSpec struct {
 	// +optional
 	Description string `json:"description,omitempty"`
 
-	// Skills to load into the agent. They will be pulled from the specified container images.
+	// skills to load into the agent. They will be pulled from the specified container images.
 	// and made available to the agent under the `/skills` folder.
 	// +optional
 	Skills *SkillForAgent `json:"skills,omitempty"`
 
-	// Sandbox configures sandboxed execution behavior shared across runtimes.
+	// sandbox configures sandboxed execution behavior shared across runtimes.
 	// This is intended for sandboxed declarative execution today, and can also
 	// be consumed by BYO agents.
 	// +optional
 	Sandbox *SandboxConfig `json:"sandbox,omitempty"`
 
-	// AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
+	// allowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
 	// This follows the Gateway API pattern for cross-namespace route attachments.
 	// If not specified, only Agents in the same namespace can reference this Agent as a tool.
 	// This field only applies when this Agent is used as a tool by another Agent.
@@ -103,7 +103,7 @@ type SkillForAgent struct {
 	// +optional
 	Refs []string `json:"refs,omitempty"`
 
-	// ImagePullSecrets is a list of references to secrets in the same namespace to use for
+	// imagePullSecrets is a list of references to secrets in the same namespace to use for
 	// pulling skill images from private registries. Each referenced secret must be of type
 	// kubernetes.io/dockerconfigjson. The credentials from all secrets are merged and made
 	// available to the skills-init container at /.kagent/.docker/config.json; krane will
@@ -143,7 +143,7 @@ type SkillsInitContainer struct {
 
 // GitRepo specifies a single Git repository to fetch skills from.
 type GitRepo struct {
-	// URL of the git repository (HTTPS or SSH).
+	// url of the git repository (HTTPS or SSH).
 	// +required
 	URL string `json:"url"`
 
@@ -158,7 +158,7 @@ type GitRepo struct {
 	// +optional
 	Path string `json:"path,omitempty"`
 
-	// Name for the skill directory under /skills. If omitted, defaults to the last
+	// name for the skill directory under /skills. If omitted, defaults to the last
 	// segment of Path when Path is set; otherwise defaults to the repo name (last
 	// URL path segment, without .git).
 	// +optional
@@ -167,24 +167,24 @@ type GitRepo struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
-	// Runtime specifies which ADK implementation to use for this agent.
+	// runtime specifies which ADK implementation to use for this agent.
 	// - "python": Uses the Python ADK (default, slower startup, full feature set)
 	// - "go": Uses the Go ADK (faster startup, most features supported)
 	// The runtime determines both the container image and readiness probe configuration.
 	// +optional
 	// +kubebuilder:default=python
 	Runtime DeclarativeRuntime `json:"runtime,omitempty"`
-	// SystemMessage is a string specifying the system message for the agent.
+	// systemMessage is a string specifying the system message for the agent.
 	// When PromptTemplate is set, this field is treated as a Go text/template
 	// with access to an include("source/key") function and agent context variables
 	// such as .AgentName, .AgentNamespace, .Description, .ToolNames, and .SkillNames.
 	// +optional
 	SystemMessage string `json:"systemMessage,omitempty"`
-	// SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
+	// systemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
 	// When PromptTemplate is set, the resolved value is treated as a Go text/template.
 	// +optional
 	SystemMessageFrom *ValueSource `json:"systemMessageFrom,omitempty"`
-	// PromptTemplate enables Go text/template processing on the systemMessage field.
+	// promptTemplate enables Go text/template processing on the systemMessage field.
 	// When set, systemMessage is treated as a Go template with access to the include function
 	// and agent context variables.
 	// +optional
@@ -201,7 +201,7 @@ type DeclarativeAgentSpec struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	Tools []*Tool `json:"tools,omitempty"`
-	// A2AConfig instantiates an A2A server for this agent,
+	// a2aConfig instantiates an A2A server for this agent,
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).
 	// The A2A server URL will be served at
@@ -220,11 +220,11 @@ type DeclarativeAgentSpec struct {
 	// due to a bug in adk (https://github.com/google/adk-python/issues/3921 ), this field is ignored for now.
 	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
 
-	// Memory configuration for the agent.
+	// memory configuration for the agent.
 	// +optional
 	Memory *MemorySpec `json:"memory,omitempty"`
 
-	// Context configures context management for this agent.
+	// context configures context management for this agent.
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
@@ -254,7 +254,7 @@ type SandboxSubstrateSpec struct {
 
 // SandboxConfig configures sandboxed execution behavior.
 type SandboxConfig struct {
-	// Network configures outbound network access for sandboxed execution paths.
+	// network configures outbound network access for sandboxed execution paths.
 	// When unset or when allowedDomains is empty, outbound access is denied by default.
 	// +optional
 	Network *NetworkConfig `json:"network,omitempty"`
@@ -296,7 +296,7 @@ func EffectiveDeclarativeRuntimeForAgent(agent AgentObject) DeclarativeRuntime {
 
 // NetworkConfig configures outbound network access for sandboxed execution paths.
 type NetworkConfig struct {
-	// AllowedDomains lists the domains that sandboxed execution may contact.
+	// allowedDomains lists the domains that sandboxed execution may contact.
 	// Wildcards such as *.example.com are supported by the sandbox runtime.
 	// +optional
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
@@ -304,7 +304,7 @@ type NetworkConfig struct {
 
 // ContextConfig configures context management for an agent.
 type ContextConfig struct {
-	// Compaction configures event history compaction.
+	// compaction configures event history compaction.
 	// When enabled, older events in the conversation are compacted (compressed/summarized)
 	// to reduce context size while preserving key information.
 	// +optional
@@ -323,7 +323,7 @@ type ContextCompressionConfig struct {
 	// +kubebuilder:default=2
 	// +kubebuilder:validation:Minimum=0
 	OverlapSize *int `json:"overlapSize,omitempty"`
-	// Summarizer configures an LLM-based summarizer for event compaction.
+	// summarizer configures an LLM-based summarizer for event compaction.
 	// If not specified, compacted events are dropped from the context without summarization.
 	// +optional
 	Summarizer *ContextSummarizerConfig `json:"summarizer,omitempty"`
@@ -331,19 +331,19 @@ type ContextCompressionConfig struct {
 	// observed prompt token count meets or exceeds this threshold.
 	// +optional
 	TokenThreshold *int `json:"tokenThreshold,omitempty"`
-	// EventRetentionSize is the number of most recent events to always retain.
+	// eventRetentionSize is the number of most recent events to always retain.
 	// +optional
 	EventRetentionSize *int `json:"eventRetentionSize,omitempty"`
 }
 
 // ContextSummarizerConfig configures the LLM-based event summarizer.
 type ContextSummarizerConfig struct {
-	// ModelConfig is the name of a ModelConfig resource to use for summarization.
+	// modelConfig is the name of a ModelConfig resource to use for summarization.
 	// Must be in the same namespace as the Agent.
 	// If not specified, uses the agent's own model.
 	// +optional
 	ModelConfig *string `json:"modelConfig,omitempty"`
-	// PromptTemplate is a custom prompt template for the summarizer.
+	// promptTemplate is a custom prompt template for the summarizer.
 	// See the ADK LlmEventSummarizer for template details:
 	// https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
 	// +optional
@@ -352,7 +352,7 @@ type ContextSummarizerConfig struct {
 
 // PromptTemplateSpec configures prompt template processing for an agent's system message.
 type PromptTemplateSpec struct {
-	// DataSources defines the ConfigMaps whose keys can be included in the systemMessage
+	// dataSources defines the ConfigMaps whose keys can be included in the systemMessage
 	// using Go template syntax, e.g. include("alias/key") or include("name/key").
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
@@ -367,7 +367,7 @@ type PromptSource struct {
 	// For ConfigMaps: kind=ConfigMap, apiGroup="" (empty for core API group).
 	TypedLocalReference `json:",inline"`
 
-	// Alias is an optional short identifier for use in include directives.
+	// alias is an optional short identifier for use in include directives.
 	// If set, use include("alias/key") instead of include("name/key").
 	// +optional
 	Alias string `json:"alias,omitempty"`
@@ -375,12 +375,12 @@ type PromptSource struct {
 
 // MemorySpec enables long-term memory for an agent.
 type MemorySpec struct {
-	// ModelConfig is the name of the ModelConfig object whose embedding
+	// modelConfig is the name of the ModelConfig object whose embedding
 	// provider will be used to generate memory vectors.
 	// +required
 	ModelConfig string `json:"modelConfig"`
 
-	// TTLDays controls how many days a stored memory entry remains valid before
+	// ttlDays controls how many days a stored memory entry remains valid before
 	// it is eligible for pruning. Defaults to 15 days when unset or zero.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
@@ -395,21 +395,21 @@ type DeclarativeDeploymentSpec struct {
 }
 
 type BYOAgentSpec struct {
-	// Deployment configures the Kubernetes Deployment created for the BYO agent container.
+	// deployment configures the Kubernetes Deployment created for the BYO agent container.
 	// +optional
 	Deployment *ByoDeploymentSpec `json:"deployment,omitempty"`
 }
 
 type ByoDeploymentSpec struct {
-	// Image is the container image of the BYO agent.
+	// image is the container image of the BYO agent.
 	// The image is expected to serve the agent over the A2A protocol on port 8080.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	Image string `json:"image,omitempty"`
-	// Cmd overrides the container entrypoint (the container's command).
+	// cmd overrides the container entrypoint (the container's command).
 	// +optional
 	Cmd *string `json:"cmd,omitempty"`
-	// Args are the arguments passed to the container entrypoint.
+	// args are the arguments passed to the container entrypoint.
 	// +optional
 	Args []string `json:"args,omitempty"`
 	// workingDir sets the container working directory. Defaults to the image WORKDIR when omitted.
@@ -421,66 +421,66 @@ type ByoDeploymentSpec struct {
 
 // +kubebuilder:validation:XValidation:message="serviceAccountName and serviceAccountConfig are mutually exclusive",rule="!(has(self.serviceAccountName) && has(self.serviceAccountConfig))"
 type SharedDeploymentSpec struct {
-	// Replicas is the number of desired agent pods. Defaults to 1.
+	// replicas is the number of desired agent pods. Defaults to 1.
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
-	// ImagePullSecrets are references to secrets in the agent's namespace
+	// imagePullSecrets are references to secrets in the agent's namespace
 	// used for pulling the agent container image.
 	// +optional
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
-	// Volumes are additional volumes added to the agent pod.
+	// volumes are additional volumes added to the agent pod.
 	// +optional
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
-	// VolumeMounts are additional volume mounts added to the agent container.
+	// volumeMounts are additional volume mounts added to the agent container.
 	// +optional
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
-	// Labels are additional labels added to the agent pods.
+	// labels are additional labels added to the agent pods.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
-	// Annotations are additional annotations added to the agent pods.
+	// annotations are additional annotations added to the agent pods.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
-	// Env are additional environment variables set on the agent container.
+	// env are additional environment variables set on the agent container.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 	// +optional
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
-	// Tolerations applied to the agent pods.
+	// tolerations applied to the agent pods.
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
-	// NodeSelector restricts the nodes the agent pods can be scheduled on.
+	// nodeSelector restricts the nodes the agent pods can be scheduled on.
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 	// +optional
 	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 	// +optional
 	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
-	// ServiceAccountName specifies the name of an existing ServiceAccount to use.
+	// serviceAccountName specifies the name of an existing ServiceAccount to use.
 	// If this field is set, the Agent controller will not create a ServiceAccount for the agent.
 	// This field is mutually exclusive with ServiceAccountConfig.
 	// +optional
 	ServiceAccountName *string `json:"serviceAccountName,omitempty"`
-	// ServiceAccountConfig configures the ServiceAccount created by the Agent controller.
+	// serviceAccountConfig configures the ServiceAccount created by the Agent controller.
 	// This field can only be used when ServiceAccountName is not set.
 	// If ServiceAccountName is not set, a default ServiceAccount (named after the agent)
 	// is created, and this config will be applied to it.
 	// +optional
 	ServiceAccountConfig *ServiceAccountConfig `json:"serviceAccountConfig,omitempty"`
-	// ExtraContainers is a list of additional containers to run alongside the main agent container.
+	// extraContainers is a list of additional containers to run alongside the main agent container.
 	// Useful for sidecars such as token proxies, log shippers, or security agents.
 	// +optional
 	ExtraContainers []corev1.Container `json:"extraContainers,omitempty"`
 }
 
 type ServiceAccountConfig struct {
-	// Labels are additional labels added to the created ServiceAccount.
+	// labels are additional labels added to the created ServiceAccount.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
-	// Annotations are additional annotations added to the created ServiceAccount.
+	// annotations are additional annotations added to the created ServiceAccount.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -506,7 +506,7 @@ type Tool struct {
 	// +optional
 	Agent *TypedReference `json:"agent,omitempty"`
 
-	// HeadersFrom specifies a list of configuration values to be added as
+	// headersFrom specifies a list of configuration values to be added as
 	// headers to requests sent to the Tool from this agent. The value of
 	// each header is resolved from either a Secret or ConfigMap in the same
 	// namespace as the Agent. Headers specified here will override any
@@ -543,7 +543,7 @@ type McpServerTool struct {
 	// +optional
 	ToolNames []string `json:"toolNames,omitempty"`
 
-	// RequireApproval lists tool names that require human approval before
+	// requireApproval lists tool names that require human approval before
 	// execution. Each name must also appear in ToolNames. When a tool in
 	// this list is invoked by the agent, execution pauses and the user is
 	// prompted to approve or reject the call.
@@ -551,7 +551,7 @@ type McpServerTool struct {
 	// +kubebuilder:validation:MaxItems=50
 	RequireApproval []string `json:"requireApproval,omitempty"`
 
-	// AllowedHeaders specifies which headers from the A2A request should be
+	// allowedHeaders specifies which headers from the A2A request should be
 	// propagated to MCP tool calls. Header names are case-insensitive.
 	//
 	// Authorization header behavior:
@@ -613,28 +613,28 @@ type A2AConfig struct {
 
 // AgentSkill describes a specific capability or function of the agent.
 type AgentSkill struct {
-	// ID is the unique identifier for the skill.
+	// id is the unique identifier for the skill.
 	// +optional
 	ID string `json:"id,omitempty"`
-	// Name is the human-readable name of the skill.
+	// name is the human-readable name of the skill.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name"`
-	// Description is an optional detailed description of the skill.
+	// description is an optional detailed description of the skill.
 	// +optional
 	Description string `json:"description,omitempty"`
-	// Tags are optional tags for categorization.
+	// tags are optional tags for categorization.
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
 	Tags []string `json:"tags,omitempty"`
-	// Examples are optional usage examples.
+	// examples are optional usage examples.
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
 	Examples []string `json:"examples,omitempty"`
-	// InputModes are the supported input MIME types for this skill, overriding the agent's defaults.
+	// inputModes are the supported input MIME types for this skill, overriding the agent's defaults.
 	// +optional
 	InputModes []string `json:"inputModes,omitempty"`
-	// OutputModes are the supported output MIME types for this skill, overriding the agent's defaults.
+	// outputModes are the supported output MIME types for this skill, overriding the agent's defaults.
 	// +optional
 	OutputModes []string `json:"outputModes,omitempty"`
 }

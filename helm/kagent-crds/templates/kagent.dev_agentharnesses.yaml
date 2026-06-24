@@ -68,26 +68,26 @@ spec:
               ready to accept incoming commands.
             properties:
               backend:
-                description: Backend selects the control plane to use. Required.
+                description: backend selects the control plane to use. Required.
                 enum:
                 - openclaw
                 - nemoclaw
                 - hermes
                 type: string
               channels:
-                description: Channels configures Telegram and Slack integrations for
+                description: channels configures Telegram and Slack integrations for
                   OpenClaw inside the harness VM.
                 items:
                   description: AgentHarnessChannel declares one messenger binding
                     inside a harness VM.
                   properties:
                     name:
-                      description: Name is a stable id for this binding (OpenClaw
+                      description: name is a stable id for this binding (OpenClaw
                         channels.*.accounts key).
                       minLength: 1
                       type: string
                     slack:
-                      description: Slack configures Slack when type is Slack.
+                      description: slack configures Slack when type is Slack.
                       properties:
                         appToken:
                           description: AgentHarnessChannelCredential supplies a token
@@ -158,10 +158,10 @@ spec:
                             rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
                               && has(self.valueFrom))
                         hermes:
-                          description: Hermes configures Hermes-specific Slack settings.
+                          description: hermes configures Hermes-specific Slack settings.
                           properties:
                             allowedUserIDs:
-                              description: AllowedUserIDs restricts which Slack member
+                              description: allowedUserIDs restricts which Slack member
                                 IDs may interact with the bot (SLACK_ALLOWED_USERS).
                               items:
                                 type: string
@@ -190,11 +190,11 @@ spec:
                               - type
                               type: object
                             homeChannel:
-                              description: HomeChannel is the default Slack channel
+                              description: homeChannel is the default Slack channel
                                 ID for cron/scheduled messages (SLACK_HOME_CHANNEL).
                               type: string
                             homeChannelName:
-                              description: HomeChannelName is a human-readable label
+                              description: homeChannelName is a human-readable label
                                 for HomeChannel (SLACK_HOME_CHANNEL_NAME).
                               type: string
                           type: object
@@ -203,11 +203,11 @@ spec:
                               exclusive
                             rule: '!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))'
                         openclaw:
-                          description: OpenClaw configures OpenClaw/NemoClaw-specific
+                          description: openclaw configures OpenClaw/NemoClaw-specific
                             Slack routing.
                           properties:
                             allowlistChannels:
-                              description: AllowlistChannels is required when channelAccess
+                              description: allowlistChannels is required when channelAccess
                                 is allowlist.
                               items:
                                 type: string
@@ -326,12 +326,12 @@ spec:
                 maxItems: 1024
                 type: array
               description:
-                description: Description is a short human-readable summary shown in
+                description: description is a short human-readable summary shown in
                   the UI (e.g. agents list).
                 type: string
               env:
                 description: |-
-                  Env is a list of environment variables injected into the harness workload.
+                  env is a list of environment variables injected into the harness workload.
                   Values use the Kubernetes EnvVar shape; ValueFrom references are
                   resolved server-side where supported.
                 items:
@@ -491,24 +491,24 @@ spec:
                 type: array
               image:
                 description: |-
-                  Image is the container image to run in the harness VM, if the backend
+                  image is the container image to run in the harness VM, if the backend
                   supports per-resource images. Backends openclaw and nemoclaw pin the image
                   to the NemoClaw sandbox base when this field is empty; backend hermes pins
                   to the Hermes sandbox base image when empty.
                 type: string
               modelConfigRef:
                 description: |-
-                  ModelConfigRef is the reference to the ModelConfig used to configure the harness.
+                  modelConfigRef is the reference to the ModelConfig used to configure the harness.
                   The controller registers the gateway provider and, after the harness is Ready,
                   writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
                 type: string
               network:
                 description: |-
-                  Network controls outbound access from the harness. When unset,
+                  network controls outbound access from the harness. When unset,
                   backend defaults apply.
                 properties:
                   allowedDomains:
-                    description: AllowedDomains is a list of DNS names the harness
+                    description: allowedDomains is a list of DNS names the harness
                       may reach.
                     items:
                       type: string
@@ -516,24 +516,24 @@ spec:
                 type: object
               runtime:
                 default: openshell
-                description: Runtime selects the harness provisioning stack. Defaults
+                description: runtime selects the harness provisioning stack. Defaults
                   to openshell when unset.
                 enum:
                 - openshell
                 - substrate
                 type: string
               substrate:
-                description: Substrate is required when runtime is substrate.
+                description: substrate is required when runtime is substrate.
                 properties:
                   gatewayToken:
                     description: |-
-                      GatewayToken is the OpenClaw gateway Bearer token for this harness.
+                      gatewayToken is the OpenClaw gateway Bearer token for this harness.
                       Prefer gatewayTokenSecretRef for production secrets.
                     minLength: 1
                     type: string
                   gatewayTokenSecretRef:
                     description: |-
-                      GatewayTokenSecretRef references a Secret key holding the OpenClaw gateway Bearer token.
+                      gatewayTokenSecretRef references a Secret key holding the OpenClaw gateway Bearer token.
                       The Secret must contain a "token" key.
                     properties:
                       apiGroup:
@@ -547,12 +547,12 @@ spec:
                     type: object
                   snapshotsConfig:
                     description: |-
-                      SnapshotsConfig configures actor memory snapshots. Defaults to
+                      snapshotsConfig configures actor memory snapshots. Defaults to
                       gs://ate-snapshots/<namespace>/<agentharnessname> when unset.
                     properties:
                       location:
                         description: |-
-                          Location is the GCS URI prefix for golden and incremental snapshots.
+                          location is the GCS URI prefix for golden and incremental snapshots.
                           Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
                         pattern: ^gs://
                         type: string
@@ -561,7 +561,7 @@ spec:
                     type: object
                   workerPoolRef:
                     description: |-
-                      WorkerPoolRef references an existing ate.dev WorkerPool in the harness namespace.
+                      workerPoolRef references an existing ate.dev WorkerPool in the harness namespace.
                       When unset, the controller uses its configured default WorkerPool.
                     properties:
                       apiGroup:
@@ -574,7 +574,7 @@ spec:
                     - name
                     type: object
                   workloadImage:
-                    description: WorkloadImage overrides the default nemoclaw/openclaw
+                    description: workloadImage overrides the default nemoclaw/openclaw
                       sandbox image in the ActorTemplate.
                     type: string
                 type: object
@@ -601,7 +601,7 @@ spec:
             properties:
               backendRef:
                 description: |-
-                  BackendRef points at the harness instance on the backend control
+                  backendRef points at the harness instance on the backend control
                   plane, once Ensure has succeeded at least once.
                 properties:
                   backend:
@@ -676,12 +676,12 @@ spec:
                   type: object
                 type: array
               connection:
-                description: Connection is populated by the controller when the harness
+                description: connection is populated by the controller when the harness
                   is ready.
                 properties:
                   endpoint:
                     description: |-
-                      Endpoint is the backend-specific address (gRPC target, SSH host:port,
+                      endpoint is the backend-specific address (gRPC target, SSH host:port,
                       ...) clients should use to reach the harness.
                     type: string
                 type: object

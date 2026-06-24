@@ -49,7 +49,7 @@ const (
 // AgentHarnessSubstrateSnapshotsConfig points at a GCS prefix for actor memory snapshots.
 // Substrate currently expects a gs:// location (see Agent Substrate SnapshotsConfig).
 type AgentHarnessSubstrateSnapshotsConfig struct {
-	// Location is the GCS URI prefix for golden and incremental snapshots.
+	// location is the GCS URI prefix for golden and incremental snapshots.
 	// Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
 	// +required
 	// +kubebuilder:validation:Pattern=`^gs://`
@@ -63,27 +63,27 @@ type AgentHarnessSubstrateSnapshotsConfig struct {
 // created or deleted by the AgentHarness controller.
 // +kubebuilder:validation:XValidation:rule="(has(self.gatewayToken) && !has(self.gatewayTokenSecretRef)) || (!has(self.gatewayToken) && has(self.gatewayTokenSecretRef))",message="Exactly one of gatewayToken or gatewayTokenSecretRef must be specified"
 type AgentHarnessSubstrateSpec struct {
-	// WorkerPoolRef references an existing ate.dev WorkerPool in the harness namespace.
+	// workerPoolRef references an existing ate.dev WorkerPool in the harness namespace.
 	// When unset, the controller uses its configured default WorkerPool.
 	// +optional
 	WorkerPoolRef *TypedLocalReference `json:"workerPoolRef,omitempty"`
 
-	// SnapshotsConfig configures actor memory snapshots. Defaults to
+	// snapshotsConfig configures actor memory snapshots. Defaults to
 	// gs://ate-snapshots/<namespace>/<agentharnessname> when unset.
 	// +optional
 	SnapshotsConfig *AgentHarnessSubstrateSnapshotsConfig `json:"snapshotsConfig,omitempty"`
 
-	// WorkloadImage overrides the default nemoclaw/openclaw sandbox image in the ActorTemplate.
+	// workloadImage overrides the default nemoclaw/openclaw sandbox image in the ActorTemplate.
 	// +optional
 	WorkloadImage string `json:"workloadImage,omitempty"`
 
-	// GatewayToken is the OpenClaw gateway Bearer token for this harness.
+	// gatewayToken is the OpenClaw gateway Bearer token for this harness.
 	// Prefer gatewayTokenSecretRef for production secrets.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	GatewayToken string `json:"gatewayToken,omitempty"`
 
-	// GatewayTokenSecretRef references a Secret key holding the OpenClaw gateway Bearer token.
+	// gatewayTokenSecretRef references a Secret key holding the OpenClaw gateway Bearer token.
 	// The Secret must contain a "token" key.
 	// +optional
 	GatewayTokenSecretRef *TypedLocalReference `json:"gatewayTokenSecretRef,omitempty"`
@@ -138,7 +138,7 @@ type AgentHarnessTelegramChannelSpec struct {
 type AgentHarnessOpenClawSlackOptions struct {
 	// +optional
 	ChannelAccess AgentHarnessChannelAccess `json:"channelAccess,omitempty"`
-	// AllowlistChannels is required when channelAccess is allowlist.
+	// allowlistChannels is required when channelAccess is allowlist.
 	// +optional
 	// +kubebuilder:validation:MaxItems=1024
 	AllowlistChannels []string `json:"allowlistChannels,omitempty"`
@@ -151,16 +151,16 @@ type AgentHarnessOpenClawSlackOptions struct {
 //
 // +kubebuilder:validation:XValidation:rule="!(size(self.allowedUserIDs) > 0 && has(self.allowedUserIDsFrom))",message="allowedUserIDs and allowedUserIDsFrom are mutually exclusive"
 type AgentHarnessHermesSlackOptions struct {
-	// AllowedUserIDs restricts which Slack member IDs may interact with the bot (SLACK_ALLOWED_USERS).
+	// allowedUserIDs restricts which Slack member IDs may interact with the bot (SLACK_ALLOWED_USERS).
 	// +optional
 	// +kubebuilder:validation:MaxItems=1024
 	AllowedUserIDs []string `json:"allowedUserIDs,omitempty"`
 	// +optional
 	AllowedUserIDsFrom *ValueSource `json:"allowedUserIDsFrom,omitempty"`
-	// HomeChannel is the default Slack channel ID for cron/scheduled messages (SLACK_HOME_CHANNEL).
+	// homeChannel is the default Slack channel ID for cron/scheduled messages (SLACK_HOME_CHANNEL).
 	// +optional
 	HomeChannel string `json:"homeChannel,omitempty"`
-	// HomeChannelName is a human-readable label for HomeChannel (SLACK_HOME_CHANNEL_NAME).
+	// homeChannelName is a human-readable label for HomeChannel (SLACK_HOME_CHANNEL_NAME).
 	// +optional
 	HomeChannelName string `json:"homeChannelName,omitempty"`
 }
@@ -173,10 +173,10 @@ type AgentHarnessSlackChannelSpec struct {
 	BotToken AgentHarnessChannelCredential `json:"botToken"`
 	// +required
 	AppToken AgentHarnessChannelCredential `json:"appToken"`
-	// OpenClaw configures OpenClaw/NemoClaw-specific Slack routing.
+	// openclaw configures OpenClaw/NemoClaw-specific Slack routing.
 	// +optional
 	OpenClaw *AgentHarnessOpenClawSlackOptions `json:"openclaw,omitempty"`
-	// Hermes configures Hermes-specific Slack settings.
+	// hermes configures Hermes-specific Slack settings.
 	// +optional
 	Hermes *AgentHarnessHermesSlackOptions `json:"hermes,omitempty"`
 }
@@ -185,7 +185,7 @@ type AgentHarnessSlackChannelSpec struct {
 //
 // +kubebuilder:validation:XValidation:rule="(self.type == 'telegram' && has(self.telegram) && !has(self.slack)) || (self.type == 'slack' && has(self.slack) && !has(self.telegram))",message="exactly one of telegram or slack must be set and must match type"
 type AgentHarnessChannel struct {
-	// Name is a stable id for this binding (OpenClaw channels.*.accounts key).
+	// name is a stable id for this binding (OpenClaw channels.*.accounts key).
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Name string `json:"name"`
@@ -193,7 +193,7 @@ type AgentHarnessChannel struct {
 	Type AgentHarnessChannelType `json:"type"`
 	// +optional
 	Telegram *AgentHarnessTelegramChannelSpec `json:"telegram,omitempty"`
-	// Slack configures Slack when type is Slack.
+	// slack configures Slack when type is Slack.
 	// +optional
 	Slack *AgentHarnessSlackChannelSpec `json:"slack,omitempty"`
 }
@@ -208,48 +208,48 @@ type AgentHarnessChannel struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.substrate) || self.runtime == 'substrate'",message="spec.substrate may only be set when runtime is substrate"
 // +kubebuilder:validation:XValidation:rule="self.runtime != 'substrate' || has(self.substrate)",message="spec.substrate is required when runtime is substrate"
 type AgentHarnessSpec struct {
-	// Backend selects the control plane to use. Required.
+	// backend selects the control plane to use. Required.
 	// +required
 	Backend AgentHarnessBackendType `json:"backend"`
 
-	// Runtime selects the harness provisioning stack. Defaults to openshell when unset.
+	// runtime selects the harness provisioning stack. Defaults to openshell when unset.
 	// +optional
 	// +kubebuilder:default=openshell
 	Runtime AgentHarnessRuntime `json:"runtime,omitempty"`
 
-	// Substrate is required when runtime is substrate.
+	// substrate is required when runtime is substrate.
 	// +optional
 	Substrate *AgentHarnessSubstrateSpec `json:"substrate,omitempty"`
 
-	// Description is a short human-readable summary shown in the UI (e.g. agents list).
+	// description is a short human-readable summary shown in the UI (e.g. agents list).
 	// +optional
 	Description string `json:"description,omitempty"`
 
-	// Image is the container image to run in the harness VM, if the backend
+	// image is the container image to run in the harness VM, if the backend
 	// supports per-resource images. Backends openclaw and nemoclaw pin the image
 	// to the NemoClaw sandbox base when this field is empty; backend hermes pins
 	// to the Hermes sandbox base image when empty.
 	// +optional
 	Image string `json:"image,omitempty"`
 
-	// Env is a list of environment variables injected into the harness workload.
+	// env is a list of environment variables injected into the harness workload.
 	// Values use the Kubernetes EnvVar shape; ValueFrom references are
 	// resolved server-side where supported.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
 
-	// Network controls outbound access from the harness. When unset,
+	// network controls outbound access from the harness. When unset,
 	// backend defaults apply.
 	// +optional
 	Network *AgentHarnessNetwork `json:"network,omitempty"`
 
-	// ModelConfigRef is the reference to the ModelConfig used to configure the harness.
+	// modelConfigRef is the reference to the ModelConfig used to configure the harness.
 	// The controller registers the gateway provider and, after the harness is Ready,
 	// writes OpenClaw config inside the VM (~/.openclaw/openclaw.json) and starts the gateway.
 	// +optional
 	ModelConfigRef string `json:"modelConfigRef,omitempty"`
 
-	// Channels configures Telegram and Slack integrations for OpenClaw inside the harness VM.
+	// channels configures Telegram and Slack integrations for OpenClaw inside the harness VM.
 	// +optional
 	// +kubebuilder:validation:MaxItems=1024
 	Channels []AgentHarnessChannel `json:"channels,omitempty"`
@@ -257,14 +257,14 @@ type AgentHarnessSpec struct {
 
 // AgentHarnessNetwork captures the minimal network-policy knobs exposed to users.
 type AgentHarnessNetwork struct {
-	// AllowedDomains is a list of DNS names the harness may reach.
+	// allowedDomains is a list of DNS names the harness may reach.
 	// +optional
 	AllowedDomains []string `json:"allowedDomains,omitempty"`
 }
 
 // AgentHarnessConnection describes how clients reach the provisioned harness VM.
 type AgentHarnessConnection struct {
-	// Endpoint is the backend-specific address (gRPC target, SSH host:port,
+	// endpoint is the backend-specific address (gRPC target, SSH host:port,
 	// ...) clients should use to reach the harness.
 	// +optional
 	Endpoint string `json:"endpoint,omitempty"`
@@ -285,12 +285,12 @@ type AgentHarnessStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// BackendRef points at the harness instance on the backend control
+	// backendRef points at the harness instance on the backend control
 	// plane, once Ensure has succeeded at least once.
 	// +optional
 	BackendRef *AgentHarnessStatusRef `json:"backendRef,omitempty"`
 
-	// Connection is populated by the controller when the harness is ready.
+	// connection is populated by the controller when the harness is ready.
 	// +optional
 	Connection *AgentHarnessConnection `json:"connection,omitempty"`
 }

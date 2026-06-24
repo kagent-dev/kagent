@@ -51,7 +51,7 @@ const (
 // By default (when not specified), only references from the same namespace are allowed.
 // +kubebuilder:validation:XValidation:rule="!(self.from == 'Selector' && !has(self.selector))",message="selector must be specified when from is Selector"
 type AllowedNamespaces struct {
-	// From indicates where references to this resource can originate.
+	// from indicates where references to this resource can originate.
 	// Possible values are:
 	// * All: References from all namespaces are allowed.
 	// * Same: Only references from the same namespace are allowed (default).
@@ -60,7 +60,7 @@ type AllowedNamespaces struct {
 	// +optional
 	From FromNamespaces `json:"from,omitempty"`
 
-	// Selector is a label selector for namespaces that are allowed to reference this resource.
+	// selector is a label selector for namespaces that are allowed to reference this resource.
 	// Only used when From is set to "Selector".
 	// +optional
 	Selector *metav1.LabelSelector `json:"selector,omitempty"`

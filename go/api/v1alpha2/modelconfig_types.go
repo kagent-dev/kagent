@@ -103,7 +103,7 @@ type AnthropicConfig struct {
 	// +optional
 	MaxTokens int `json:"maxTokens,omitempty"`
 
-	// Temperature for sampling
+	// temperature for sampling
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 
@@ -124,7 +124,7 @@ const TokenExchangeTypeGDCH TokenExchangeType = "GDCHServiceAccount"
 
 // GDCHServiceAccountConfig holds GDCH-specific token exchange parameters.
 type GDCHServiceAccountConfig struct {
-	// Audience is the token exchange audience URL (the GDC inference gateway base URL)
+	// audience is the token exchange audience URL (the GDC inference gateway base URL)
 	// +required
 	Audience string `json:"audience"`
 }
@@ -143,11 +143,11 @@ type OpenAIConfig struct {
 	// +optional
 	BaseURL string `json:"baseUrl,omitempty"`
 
-	// Organization ID for the OpenAI API
+	// organization ID for the OpenAI API
 	// +optional
 	Organization string `json:"organization,omitempty"`
 
-	// Temperature for sampling
+	// temperature for sampling
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 
@@ -167,11 +167,11 @@ type OpenAIConfig struct {
 	// +optional
 	PresencePenalty string `json:"presencePenalty,omitempty"`
 
-	// Seed value
+	// seed value
 	// +optional
 	Seed *int `json:"seed,omitempty"`
 
-	// N value
+	// n value
 	// +optional
 	N *int `json:"n,omitempty"`
 
@@ -183,7 +183,7 @@ type OpenAIConfig struct {
 	// +optional
 	ReasoningEffort *OpenAIReasoningEffort `json:"reasoningEffort,omitempty"`
 
-	// TokenExchange configures dynamic bearer token acquisition via credential exchange.
+	// tokenExchange configures dynamic bearer token acquisition via credential exchange.
 	// Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
 	// +optional
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
@@ -216,7 +216,7 @@ type AzureOpenAIConfig struct {
 	// TODO (peterj): We need to figure out how to implement this
 	// AzureADTokenProvider interface{} `json:"azureAdTokenProvider,omitempty"`
 
-	// Temperature for sampling
+	// temperature for sampling
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 
@@ -231,11 +231,11 @@ type AzureOpenAIConfig struct {
 
 // OllamaConfig contains Ollama-specific configuration options
 type OllamaConfig struct {
-	// Host for the Ollama API
+	// host for the Ollama API
 	// +optional
 	Host string `json:"host,omitempty"`
 
-	// Options for the Ollama API
+	// options for the Ollama API
 	// +optional
 	Options map[string]string `json:"options,omitempty"`
 }
@@ -248,7 +248,7 @@ type BedrockConfig struct {
 	// +required
 	Region string `json:"region"`
 
-	// AdditionalModelRequestFields passes model-specific parameters to Bedrock's
+	// additionalModelRequestFields passes model-specific parameters to Bedrock's
 	// additionalModelRequestFields in the Converse API. Use this for provider-specific
 	// options that are not part of the standard InferenceConfiguration block, such as
 	// Claude extended thinking or top_k. Values are forwarded as-is to the API.
@@ -319,7 +319,7 @@ type SAPAICoreConfig struct {
 // +kubebuilder:validation:XValidation:message="caCertSecretRef requires caCertSecretKey",rule="!(has(self.caCertSecretRef) && size(self.caCertSecretRef) > 0 && (!has(self.caCertSecretKey) || size(self.caCertSecretKey) == 0))"
 // +kubebuilder:validation:XValidation:message="disableSystemCAs requires caCertSecretRef or disableVerify (trust-nothing config rejects every upstream)",rule="!(has(self.disableSystemCAs) && self.disableSystemCAs && (!has(self.disableVerify) || !self.disableVerify) && (!has(self.caCertSecretRef) || size(self.caCertSecretRef) == 0))"
 type TLSConfig struct {
-	// DisableVerify disables SSL certificate verification entirely.
+	// disableVerify disables SSL certificate verification entirely.
 	// When false (default), SSL certificates are verified.
 	// When true, SSL certificate verification is disabled.
 	// WARNING: This should ONLY be used in development/testing environments.
@@ -328,7 +328,7 @@ type TLSConfig struct {
 	// +kubebuilder:default=false
 	DisableVerify bool `json:"disableVerify,omitempty"`
 
-	// CACertSecretRef is a reference to a Kubernetes Secret containing
+	// caCertSecretRef is a reference to a Kubernetes Secret containing
 	// CA certificate(s) in PEM format. The Secret must be in the same
 	// namespace as the resource referencing it (ModelConfig,
 	// RemoteMCPServer, or any future consumer of TLSConfig).
@@ -337,14 +337,14 @@ type TLSConfig struct {
 	// +optional
 	CACertSecretRef string `json:"caCertSecretRef,omitempty"`
 
-	// CACertSecretKey is the key within the Secret that contains the
+	// caCertSecretKey is the key within the Secret that contains the
 	// CA certificate data (PEM-encoded). Required when CACertSecretRef
 	// is set — admission rejects ref-without-key regardless of
 	// DisableVerify (see the TLSConfig-level XValidation rules).
 	// +optional
 	CACertSecretKey string `json:"caCertSecretKey,omitempty"`
 
-	// DisableSystemCAs disables the use of system CA certificates.
+	// disableSystemCAs disables the use of system CA certificates.
 	// When false (default), system CA certificates are used for verification (safe behavior).
 	// When true, only the custom CA from CACertSecretRef is trusted.
 	// This allows strict security policies where only corporate CAs should be trusted.
@@ -399,7 +399,7 @@ type ModelConfigSpec struct {
 	// +optional
 	APIKeySecretKey string `json:"apiKeySecretKey,omitempty"`
 
-	// APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
+	// apiKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
 	// directly to the LLM provider as the API key. This is useful for organizations
 	// with federated identity that want to avoid separate secret management.
 	// Mutually exclusive with apiKeySecret.
@@ -450,7 +450,7 @@ type ModelConfigSpec struct {
 	// +optional
 	SAPAICore *SAPAICoreConfig `json:"sapAICore,omitempty"`
 
-	// TLS configuration for provider connections.
+	// tls configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers
 	// that use self-signed certificates or custom certificate authorities.
 	// +optional

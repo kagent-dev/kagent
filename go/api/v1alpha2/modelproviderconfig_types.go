@@ -53,7 +53,7 @@ func DefaultModelProviderEndpoint(providerType ModelProvider) string {
 // SecretReference references a Kubernetes Secret that must contain exactly one data key
 // holding the API key or credential.
 type SecretReference struct {
-	// Name is the name of the secret in the same namespace as the ModelProviderConfig.
+	// name is the name of the secret in the same namespace as the ModelProviderConfig.
 	// +required
 	Name string `json:"name"`
 }
@@ -63,17 +63,17 @@ type SecretReference struct {
 // +kubebuilder:validation:XValidation:message="endpoint must be a valid URL starting with http:// or https://",rule="!has(self.endpoint) || size(self.endpoint) == 0 || self.endpoint.startsWith('http://') || self.endpoint.startsWith('https://')"
 // +kubebuilder:validation:XValidation:message="secretRef is required for providers that need authentication (not Ollama)",rule="self.type == 'Ollama' || (has(self.secretRef) && has(self.secretRef.name) && size(self.secretRef.name) > 0)"
 type ModelProviderConfigSpec struct {
-	// Type is the model provider type (OpenAI, Anthropic, etc.)
+	// type is the model provider type (OpenAI, Anthropic, etc.)
 	// +required
 	Type ModelProvider `json:"type"`
 
-	// Endpoint is the API endpoint URL for the provider.
+	// endpoint is the API endpoint URL for the provider.
 	// If not specified, the default endpoint for the provider type will be used.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^https?://.*`
 	Endpoint string `json:"endpoint,omitempty"`
 
-	// SecretRef references the Kubernetes Secret containing the API key.
+	// secretRef references the Kubernetes Secret containing the API key.
 	// Optional for providers that don't require authentication (e.g., local Ollama).
 	// +optional
 	SecretRef *SecretReference `json:"secretRef,omitempty"`
@@ -94,29 +94,29 @@ func (p *ModelProviderConfigSpec) RequiresSecret() bool {
 
 // ModelProviderConfigStatus defines the observed state of ModelProviderConfig.
 type ModelProviderConfigStatus struct {
-	// ObservedGeneration reflects the generation of the most recently observed ModelProviderConfig spec
+	// observedGeneration reflects the generation of the most recently observed ModelProviderConfig spec
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// Conditions represent the latest available observations of the ModelProviderConfig's state
+	// conditions represent the latest available observations of the ModelProviderConfig's state
 	// +optional
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
-	// DiscoveredModels is the cached list of model IDs available from this model provider
+	// discoveredModels is the cached list of model IDs available from this model provider
 	// +optional
 	DiscoveredModels []string `json:"discoveredModels,omitempty"`
 
-	// ModelCount is the number of discovered models (for kubectl display)
+	// modelCount is the number of discovered models (for kubectl display)
 	// +optional
 	ModelCount int `json:"modelCount,omitempty"`
 
-	// LastDiscoveryTime is the timestamp of the last successful model discovery
+	// lastDiscoveryTime is the timestamp of the last successful model discovery
 	// +optional
 	LastDiscoveryTime *metav1.Time `json:"lastDiscoveryTime,omitempty"`
 
-	// SecretHash is a hash of the referenced secret data, used to detect secret changes
+	// secretHash is a hash of the referenced secret data, used to detect secret changes
 	// +optional
 	SecretHash string `json:"secretHash,omitempty"`
 }

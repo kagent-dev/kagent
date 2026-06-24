@@ -100,7 +100,7 @@ type AnthropicConfig struct {
 	// +optional
 	MaxTokens int `json:"maxTokens,omitempty"`
 
-	// Temperature for sampling
+	// temperature for sampling
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 
@@ -119,11 +119,11 @@ type OpenAIConfig struct {
 	// +optional
 	BaseURL string `json:"baseUrl,omitempty"`
 
-	// Organization ID for the OpenAI API
+	// organization ID for the OpenAI API
 	// +optional
 	Organization string `json:"organization,omitempty"`
 
-	// Temperature for sampling
+	// temperature for sampling
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 
@@ -143,11 +143,11 @@ type OpenAIConfig struct {
 	// +optional
 	PresencePenalty string `json:"presencePenalty,omitempty"`
 
-	// Seed value
+	// seed value
 	// +optional
 	Seed *int `json:"seed,omitempty"`
 
-	// N value
+	// n value
 	// +optional
 	N *int `json:"n,omitempty"`
 
@@ -179,7 +179,7 @@ type AzureOpenAIConfig struct {
 	// TODO (peterj): We need to figure out how to implement this
 	// AzureADTokenProvider interface{} `json:"azureAdTokenProvider,omitempty"`
 
-	// Temperature for sampling
+	// temperature for sampling
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 
@@ -194,11 +194,11 @@ type AzureOpenAIConfig struct {
 
 // OllamaConfig contains Ollama-specific configuration options
 type OllamaConfig struct {
-	// Host for the Ollama API
+	// host for the Ollama API
 	// +optional
 	Host string `json:"host,omitempty"`
 
-	// Options for the Ollama API
+	// options for the Ollama API
 	// +optional
 	Options map[string]string `json:"options,omitempty"`
 }
@@ -234,7 +234,7 @@ type ModelConfigSpec struct {
 	// +optional
 	DefaultHeaders map[string]string `json:"defaultHeaders,omitempty"`
 
-	// ModelInfo contains information about the model.
+	// modelInfo contains information about the model.
 	// This field is required if the model is not one of the
 	// pre-defined autogen models. That list can be found here:
 	// +optional
