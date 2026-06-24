@@ -51,7 +51,7 @@ flowchart TB
     subgraph UI["UI Layer (Next.js)"]
         LoginPage["/login Page<br/>SSO redirect button"]
         AuthContext["AuthContext Provider<br/>- User state management<br/>- Loading/error states"]
-        AuthActions["Server Actions<br/>getCurrentUser()"]
+        AuthActions["Server Actions<br/>getAuthResult()"]
         JWTLib["JWT Library<br/>- Decode tokens<br/>- Check expiry"]
         AuthLib["Auth Library<br/>- Header forwarding"]
     end
@@ -137,7 +137,7 @@ flowchart TD
     style I fill:#ff9,stroke:#333
 ```
 
-**Design rationale**: oauth2-proxy gates access using its session cookie (valid up to `cookie-expire`, default 168h), while the UI derives the user from the forwarded id_token. These lifetimes are decoupled, so the id_token can go stale while the session cookie is still valid. To keep them aligned, oauth2-proxy *can* be configured with `cookie-refresh` (and the `offline_access` scope) to refresh the id_token — note the chart's defaults do **not** enable these (default scope is `openid profile email groups`), so operators must opt in. As a safety net regardless of refresh configuration, `getCurrentUser()` distinguishes three states:
+**Design rationale**: oauth2-proxy gates access using its session cookie (valid up to `cookie-expire`, default 168h), while the UI derives the user from the forwarded id_token. These lifetimes are decoupled, so the id_token can go stale while the session cookie is still valid. To keep them aligned, oauth2-proxy *can* be configured with `cookie-refresh` (and the `offline_access` scope) to refresh the id_token — note the chart's defaults do **not** enable these (default scope is `openid profile email groups`), so operators must opt in. As a safety net regardless of refresh configuration, `getAuthResult()` distinguishes three states:
 
 - **authenticated** — valid token → set user state.
 - **expired** — `Authorization` header present but token missing/expired → the UI re-runs the OIDC flow (`/oauth2/start`) to mint a fresh token, guarded against redirect loops.

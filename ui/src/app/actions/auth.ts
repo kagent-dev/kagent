@@ -23,7 +23,7 @@ export interface AuthResult {
   user: CurrentUser | null;
 }
 
-export async function getCurrentUser(): Promise<AuthResult> {
+export async function getAuthResult(): Promise<AuthResult> {
   const headersList = await headers();
   const authHeader = headersList.get("Authorization");
 

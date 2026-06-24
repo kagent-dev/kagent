@@ -1,13 +1,13 @@
 import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { getCurrentUser, type AuthResult } from "@/app/actions/auth";
+import { getAuthResult, type AuthResult } from "@/app/actions/auth";
 
 jest.mock("@/app/actions/auth", () => ({
-  getCurrentUser: jest.fn(),
+  getAuthResult: jest.fn(),
 }));
 
-const mockedGetCurrentUser = getCurrentUser as jest.Mock;
+const mockedGetAuthResult = getAuthResult as jest.Mock;
 
 const REAUTH_GUARD_KEY = "kagent_reauth_attempt";
 
@@ -31,15 +31,15 @@ function renderProvider() {
 }
 
 function setResult(result: AuthResult) {
-  mockedGetCurrentUser.mockResolvedValue(result);
+  mockedGetAuthResult.mockResolvedValue(result);
 }
 
-// jsdom fully hardens window.location (it is non-configurable and assign is
-// read-only), so the redirect call (window.location.assign) cannot be spied on
+// jsdom fully hardens window.location (it is non-configurable and replace is
+// read-only), so the redirect call (window.location.replace) cannot be spied on
 // here. Instead we assert the observable contract that gates the redirect: the
-// sessionStorage re-auth guard, written immediately before assign() is invoked
+// sessionStorage re-auth guard, written immediately before replace() is invoked
 // ("guard written" == "redirect attempted"). console.error is silenced to drop
-// jsdom's expected "Not implemented: navigation" noise from the assign() call.
+// jsdom's expected "Not implemented: navigation" noise from the replace() call.
 describe("AuthProvider re-auth behavior", () => {
   let consoleErrorSpy: jest.SpyInstance;
 
@@ -92,7 +92,7 @@ describe("AuthProvider re-auth behavior", () => {
     expect(sessionStorage.getItem(REAUTH_GUARD_KEY)).toBe(previousAttempt);
   });
 
-  it("clears the re-auth guard once authenticated", async () => {
+  it("clears the re-auth guard and error once authenticated", async () => {
     sessionStorage.setItem(REAUTH_GUARD_KEY, String(Date.now()));
     setResult({ status: "authenticated", user: { sub: "user-1" } });
 
@@ -102,5 +102,6 @@ describe("AuthProvider re-auth behavior", () => {
       expect(screen.getByTestId("status").textContent).toBe("authenticated");
     });
     expect(sessionStorage.getItem(REAUTH_GUARD_KEY)).toBeNull();
+    expect(screen.getByTestId("error").textContent).toBe("");
   });
 });

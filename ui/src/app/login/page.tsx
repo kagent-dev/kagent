@@ -12,7 +12,7 @@ export default function LoginPage() {
       {/* Preload background image for faster rendering */}
       <link rel="preload" href="/login-bg.webp" as="image" type="image/webp" fetchPriority="high" />
 
-      <div className="login-page fixed inset-0 z-50 overflow-hidden bg-[#0B0B15] text-white">
+      <div className="login-page relative fixed inset-0 z-50 overflow-hidden bg-[#0B0B15] text-white">
         <a
           href="#login-main"
           className={cn(skipToContentLinkClassName, "text-white/90")}

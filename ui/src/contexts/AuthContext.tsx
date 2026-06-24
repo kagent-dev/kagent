@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { getCurrentUser, type CurrentUser, type AuthStatus } from "@/app/actions/auth";
+import { getAuthResult, type AuthResult, type CurrentUser, type AuthStatus } from "@/app/actions/auth";
 
 // oauth2-proxy endpoint that (re)starts the OIDC flow. Client components can only
 // read NEXT_PUBLIC_* env vars at runtime, so this mirrors the server-side
@@ -25,8 +25,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [status, setStatus] = useState<AuthStatus>("unsecured");
+  const [authResult, setAuthResult] = useState<AuthResult>({ status: "unsecured", user: null });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -34,9 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
     try {
-      const result = await getCurrentUser();
-      setStatus(result.status);
-      setUser(result.user);
+      setAuthResult(await getAuthResult());
     } catch (e) {
       setError(e instanceof Error ? e : new Error("Failed to fetch user"));
     } finally {
@@ -53,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // of silently rendering a logged-out UI. Only triggers in secured ("expired")
   // mode — never in "unsecured" mode where there is no /oauth2 endpoint.
   useEffect(() => {
-    if (isLoading || status !== "expired" || typeof window === "undefined") return;
+    if (isLoading || authResult.status !== "expired" || typeof window === "undefined") return;
 
     const lastAttempt = Number(sessionStorage.getItem(REAUTH_GUARD_KEY) || "0");
     if (Date.now() - lastAttempt < REAUTH_GUARD_WINDOW_MS) {
@@ -64,17 +61,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     sessionStorage.setItem(REAUTH_GUARD_KEY, String(Date.now()));
     const rd = encodeURIComponent(window.location.pathname + window.location.search);
-    window.location.assign(`${SSO_REDIRECT_PATH}?rd=${rd}`);
-  }, [isLoading, status]);
+    window.location.replace(`${SSO_REDIRECT_PATH}?rd=${rd}`);
+  }, [isLoading, authResult.status]);
 
   useEffect(() => {
-    if (status === "authenticated" && typeof window !== "undefined") {
+    if (authResult.status === "authenticated" && typeof window !== "undefined") {
       sessionStorage.removeItem(REAUTH_GUARD_KEY);
+      setError(null);
     }
-  }, [status]);
+  }, [authResult.status]);
 
   return (
-    <AuthContext.Provider value={{ user, status, isLoading, error, refetch: fetchUser }}>
+    <AuthContext.Provider
+      value={{
+        user: authResult.user,
+        status: authResult.status,
+        isLoading,
+        error,
+        refetch: fetchUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

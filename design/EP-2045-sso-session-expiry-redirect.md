@@ -8,7 +8,7 @@ kagent is frequently deployed behind [oauth2-proxy](https://github.com/oauth2-pr
 acting as an OIDC relying party. oauth2-proxy authenticates the user, maintains
 its own session cookie, and forwards the user's `id_token` to the kagent UI as a
 `Authorization: Bearer <jwt>` header. The UI decodes the JWT to derive the current
-user (`getCurrentUser`).
+user (`getAuthResult`).
 
 Two distinct failure modes were conflated in the previous implementation, which
 decoded the token and returned `CurrentUser | null`:
@@ -50,7 +50,7 @@ must manually reload to recover. This is confusing and looks like a kagent bug.
 
 ### Auth status model (`ui/src/app/actions/auth.ts`)
 
-`getCurrentUser()` now returns an `AuthResult` instead of `CurrentUser | null`:
+`getAuthResult()` now returns an `AuthResult` instead of `CurrentUser | null`:
 
 ```ts
 export type AuthStatus = "authenticated" | "expired" | "unsecured";
@@ -102,7 +102,7 @@ successful `authenticated` result.
 
 ## Test Plan
 
-- **Unit (UI):** `getCurrentUser` returns the correct `AuthStatus` for: no header,
+- **Unit (UI):** `getAuthResult` returns the correct `AuthStatus` for: no header,
   expired token, valid token. `AuthProvider` redirects only on `expired`, never on
   `unsecured`, and respects the loop guard.
 - **Manual / e2e:** Deploy behind oauth2-proxy with a short `id_token` lifetime;

@@ -1,4 +1,4 @@
-import { getCurrentUser } from "@/app/actions/auth";
+import { getAuthResult } from "@/app/actions/auth";
 import { headers } from "next/headers";
 import { decodeJWT, isTokenExpired } from "@/lib/jwt";
 
@@ -21,7 +21,7 @@ function withAuthorizationHeader(value: string | null) {
   });
 }
 
-describe("getCurrentUser", () => {
+describe("getAuthResult", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
@@ -29,7 +29,7 @@ describe("getCurrentUser", () => {
   it("returns unsecured when there is no Authorization header", async () => {
     withAuthorizationHeader(null);
 
-    const result = await getCurrentUser();
+    const result = await getAuthResult();
 
     expect(result).toEqual({ status: "unsecured", user: null });
     expect(mockedDecodeJWT).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ describe("getCurrentUser", () => {
   it("returns unsecured when the header is not a Bearer token", async () => {
     withAuthorizationHeader("Basic abc123");
 
-    const result = await getCurrentUser();
+    const result = await getAuthResult();
 
     expect(result).toEqual({ status: "unsecured", user: null });
   });
@@ -47,7 +47,7 @@ describe("getCurrentUser", () => {
     withAuthorizationHeader("Bearer not-a-jwt");
     mockedDecodeJWT.mockReturnValue(null);
 
-    const result = await getCurrentUser();
+    const result = await getAuthResult();
 
     expect(mockedDecodeJWT).toHaveBeenCalledWith("not-a-jwt");
     expect(result).toEqual({ status: "expired", user: null });
@@ -58,7 +58,7 @@ describe("getCurrentUser", () => {
     mockedDecodeJWT.mockReturnValue({ sub: "user-1", exp: 1 });
     mockedIsTokenExpired.mockReturnValue(true);
 
-    const result = await getCurrentUser();
+    const result = await getAuthResult();
 
     expect(result).toEqual({ status: "expired", user: null });
   });
@@ -69,7 +69,7 @@ describe("getCurrentUser", () => {
     mockedDecodeJWT.mockReturnValue(claims);
     mockedIsTokenExpired.mockReturnValue(false);
 
-    const result = await getCurrentUser();
+    const result = await getAuthResult();
 
     expect(result).toEqual({ status: "authenticated", user: claims });
   });
