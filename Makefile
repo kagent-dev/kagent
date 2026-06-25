@@ -457,14 +457,14 @@ helm-install-provider: helm-version check-api-key
 		--timeout 5m       \
 		--kube-context kind-$(KIND_CLUSTER_NAME) \
 		--wait \
-		--set ui.service.type=ClusterIP \
+		--set ui.service.type=LoadBalancer \
 		--set registry=$(DOCKER_REGISTRY) \
 		--set imagePullPolicy=Always \
 		--set tag=$(VERSION) \
 		--set controller.loglevel=debug \
 		--set controller.image.pullPolicy=Always \
 		--set ui.image.pullPolicy=Always \
-		--set controller.service.type=ClusterIP \
+		--set controller.service.type=LoadBalancer \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
 		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
