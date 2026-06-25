@@ -112,7 +112,7 @@ func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace strin
 	wpList := &atev1alpha1.WorkerPoolList{}
 	if err := h.KubeClient.List(ctx, wpList, listOpts...); err != nil {
 		if meta.IsNoMatchError(err) {
-			ctrllog.FromContext(ctx).Info("WorkerPool CRD not found, returning empty list", "namespace", namespace)
+			ctrllog.FromContext(ctx).V(1).Info("WorkerPool CRD not found, returning empty list", "namespace", namespace)
 		} else {
 			return nil, nil, err
 		}
@@ -120,7 +120,7 @@ func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace strin
 	tmplList := &atev1alpha1.ActorTemplateList{}
 	if err := h.KubeClient.List(ctx, tmplList, listOpts...); err != nil {
 		if meta.IsNoMatchError(err) {
-			ctrllog.FromContext(ctx).Info("ActorTemplate CRD not found, returning empty list", "namespace", namespace)
+			ctrllog.FromContext(ctx).V(1).Info("ActorTemplate CRD not found, returning empty list", "namespace", namespace)
 		} else {
 			return nil, nil, err
 		}
