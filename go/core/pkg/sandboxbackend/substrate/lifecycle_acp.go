@@ -9,7 +9,6 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/acpshim"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -27,19 +26,16 @@ type acpAgentSpec struct {
 	// ChildCommand is the stdio ACP agent command the shim spawns
 	// (shell-safe words, joined with spaces).
 	ChildCommand []string
-	// ChildPolicy is the acp-shim child lifecycle policy for this backend.
-	ChildPolicy acpshim.ChildPolicy
 }
 
 // acpAgentSpecs maps non-OpenClaw substrate backends to their agent commands.
 //
-// Hermes uses the long-lived child policy: its ACP SessionManager keeps live
-// sessions (history, cwd, model, cancel event) in memory inside the running
-// `hermes acp` process, so a single child must persist across bridge
-// reconnects (page refreshes) so list/load/resume/fork stay scoped to that
-// process and find the prior conversation. A per-connection child would hand
-// every reconnect a fresh process and force a reload from disk. (See the
-// hermes target in docker/acp-sandbox/Dockerfile.)
+// The acp-shim keeps a single long-lived child across bridge reconnects. This
+// matters for Hermes: its ACP SessionManager keeps live sessions (history,
+// cwd, model, cancel event) in memory inside the running `hermes acp`
+// process, so a single child must persist across reconnects (page refreshes)
+// so list/load/resume/fork stay scoped to that process and find the prior
+// conversation. (See the hermes target in docker/acp-sandbox/Dockerfile.)
 //
 // Session history is also durable: Hermes persists ACP sessions to
 // ~/.hermes/state.db, which lives on the actor's home dir and therefore
@@ -50,14 +46,13 @@ var acpAgentSpecs = map[v1alpha2.AgentHarnessBackendType]acpAgentSpec{
 	v1alpha2.AgentHarnessBackendHermes: {
 		DefaultImage: AcpSandboxHermesImage,
 		ChildCommand: []string{"hermes", "acp"},
-		ChildPolicy:  acpshim.ChildPolicyLongLived,
 	},
 }
 
 // buildAcpAgentActorStartup returns the ateom workload startup script and
 // container env for a generic stdio ACP agent (hermes) on
 // Substrate. Unlike OpenClaw there is no in-sandbox gateway: the shim owns
-// the atenet ingress port and bridges WebSocket frames to a per-connection
+// the atenet ingress port and bridges WebSocket frames to a long-lived
 // agent child. Model credentials come from the harness ModelConfig as a
 // provider-conventional env var (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY)
 // resolved by ate-api from the referenced Secret.
@@ -96,7 +91,7 @@ func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha2.
 	}
 
 	// Hermes messaging channels (Slack/Telegram) run in a persistent gateway
-	// process alongside the per-connection acp child, mirroring the OpenClaw
+	// process alongside the long-lived acp child, mirroring the OpenClaw
 	// gateway. Translate channel credentials/allowlists into the unsuffixed
 	// env contract the gateway auto-detects.
 	runGateway := false
@@ -110,16 +105,10 @@ func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha2.
 	}
 
 	// Backend-agnostic env passthrough from the harness spec. Appended last so
-	// it cannot shadow HOME/PATH or the shim token.
+	// it cannot shadow HOME/PATH.
 	containerEnv = append(containerEnv, ah.Spec.Env...)
 
-	containerEnv = append(containerEnv, acpShimTokenEnv(ah)...)
-
-	policy := spec.ChildPolicy
-	if policy == "" {
-		policy = acpshim.ChildPolicyPerConnection
-	}
-	script = buildAcpStartupScript(prelude, spec.ChildCommand, runGateway, policy)
+	script = buildAcpStartupScript(prelude, spec.ChildCommand, runGateway)
 	return script, actorTemplateEnvFromPodEnv(containerEnv), nil
 }
 
@@ -136,16 +125,16 @@ func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha2.
 // shim spawns the child — so it dials the platforms in the live network. The
 // gateway launcher never fails the acp child, so the UI path is unaffected if a
 // channel misbehaves.
-func buildAcpStartupScript(prelude string, child []string, runGateway bool, policy acpshim.ChildPolicy) string {
+func buildAcpStartupScript(prelude string, child []string, runGateway bool) string {
 	childCmd := strings.Join(child, " ")
 	if !runGateway {
 		return fmt.Sprintf(
-			"set -e\n%sexec /usr/local/bin/acp-shim \\\n  --listen :%d \\\n  --child-policy %s \\\n  -- %s",
-			prelude, acpListenPort, policy, childCmd)
+			"set -e\n%sexec /usr/local/bin/acp-shim \\\n  --listen :%d \\\n  -- %s",
+			prelude, acpListenPort, childCmd)
 	}
 	return fmt.Sprintf(
-		"set -e\n%sexec /usr/local/bin/acp-shim \\\n  --listen :%d \\\n  --child-policy %s \\\n  -- /bin/sh -c '/usr/local/bin/hermes-gateway-ensure.sh || true; exec %s'",
-		prelude, acpListenPort, policy, childCmd)
+		"set -e\n%sexec /usr/local/bin/acp-shim \\\n  --listen :%d \\\n  -- /bin/sh -c '/usr/local/bin/hermes-gateway-ensure.sh || true; exec %s'",
+		prelude, acpListenPort, childCmd)
 }
 
 // hermesProviderSlugs maps kagent ModelConfig providers to hermes provider

@@ -9,8 +9,7 @@
 //
 // Usage:
 //
-//	acp-shim --listen :9000 --token-file /var/run/acp/token -- hermes acp
-//	acp-shim --child-policy per-connection -- gemini --experimental-acp
+//	acp-shim --listen :9000 -- hermes acp
 package main
 
 import (
@@ -30,13 +29,10 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
 	cfg := &acpshim.Config{}
-	var policy string
 	flag.StringVar(&cfg.ListenAddr, "listen", ":9000", "address to serve the WebSocket endpoint on")
-	flag.StringVar(&cfg.TokenFile, "token-file", "", "path to bearer token file used to authenticate clients (empty disables auth)")
 	flag.StringVar(&cfg.ChildDir, "workdir", "", "working directory for the agent process")
-	flag.StringVar(&policy, "child-policy", string(acpshim.ChildPolicyLongLived), "child lifecycle policy: long-lived or per-connection")
 	flag.DurationVar(&cfg.GracePeriod, "grace", 5*time.Second, "SIGTERM-to-SIGKILL grace period when stopping the agent")
-	flag.DurationVar(&cfg.ReconnectGrace, "reconnect-grace", 0, "how long a long-lived agent survives after the client disconnects (0 = forever)")
+	flag.DurationVar(&cfg.ReconnectGrace, "reconnect-grace", 0, "how long the agent survives after the client disconnects (0 = forever)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [flags] -- <agent command> [args...]\n\nFlags:\n", os.Args[0])
 		flag.PrintDefaults()
@@ -44,7 +40,7 @@ func main() {
 	flag.Parse()
 
 	cfg.ChildArgv = flag.Args()
-	acpshim.LoadConfig(cfg, policy)
+	acpshim.LoadConfig(cfg)
 
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("acp-shim: %v", err)

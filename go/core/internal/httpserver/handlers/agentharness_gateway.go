@@ -73,13 +73,6 @@ func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	token, err := h.resolveHarnessGatewayToken(r.Context(), &ah)
-	if err != nil {
-		log.Error(err, "resolve gateway token")
-		http.Error(w, "gateway token not configured", http.StatusInternalServerError)
-		return
-	}
-
 	// Provision (create + resume) the harness's shared actor on demand, then
 	// route to it. If the chat was already provisioned via the ensure endpoint
 	// this is a fast no-op that just resumes a suspended actor.
@@ -97,7 +90,7 @@ func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	proxy := newAgentHarnessACPProxy(target, upstreamHost, token, log)
+	proxy := newAgentHarnessACPProxy(target, upstreamHost, log)
 	proxy.ServeHTTP(w, r)
 
 	// The session actor is intentionally left running after the WebSocket
@@ -130,7 +123,7 @@ func agentHarnessHarnessBase(namespace, name string) string {
 	return "/api/agentharnesses/" + namespace + "/" + name
 }
 
-func newAgentHarnessACPProxy(target *url.URL, upstreamHost, token string, log interface {
+func newAgentHarnessACPProxy(target *url.URL, upstreamHost string, log interface {
 	Error(error, string, ...any)
 }) *httputil.ReverseProxy {
 	proxy := &httputil.ReverseProxy{
@@ -143,12 +136,6 @@ func newAgentHarnessACPProxy(target *url.URL, upstreamHost, token string, log in
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			pr.Out.Host = upstreamHost
-			// The acp-shim authenticates with a bearer token (the harness
-			// gateway token); the browser WebSocket cannot set headers, so the
-			// proxy injects it server-side.
-			if token != "" {
-				pr.Out.Header.Set("Authorization", "Bearer "+token)
-			}
 			pr.Out.URL.Path = "/acp"
 			pr.Out.URL.RawPath = "/acp"
 		},
@@ -158,8 +145,4 @@ func newAgentHarnessACPProxy(target *url.URL, upstreamHost, token string, log in
 		http.Error(rw, "acp proxy error", http.StatusBadGateway)
 	}
 	return proxy
-}
-
-func (h *Handlers) resolveHarnessGatewayToken(ctx context.Context, ah *v1alpha2.AgentHarness) (string, error) {
-	return substrate.ResolveGatewayToken(ctx, h.KubeClient, ah)
 }

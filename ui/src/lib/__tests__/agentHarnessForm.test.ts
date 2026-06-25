@@ -99,14 +99,12 @@ describe("agentHarnessForm build", () => {
         modelRef: "m1",
         harness: {
           ...defaultAgentHarnessFormSlice(),
-          substrateGatewayToken: "tok",
           substrateWorkerPoolRefName: "default-wp",
         },
       });
       expect("error" in draft).toBe(false);
       if ("error" in draft) return;
       expect(draft.spec.substrate).toEqual({
-        gatewayToken: "tok",
         snapshotsConfig: { location: "gs://ate-snapshots/kagent/" },
         workerPoolRef: { name: "default-wp" },
       });

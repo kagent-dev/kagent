@@ -618,6 +618,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			Backends:            substrateHarnessBackends,
 			SubstrateLifecycle:  substrateLifecycle,
 			SessionActorBackend: agentHarnessSessionActorBackend,
+			DbClient:            dbClient,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
 			os.Exit(1)

@@ -51,7 +51,6 @@ type AgentHarnessSubstrateSnapshotsConfig struct {
 // kagent generates a per-harness ActorTemplate and creates an Actor from it. WorkerPool
 // capacity is referenced from workerPoolRef or the controller default; it is not
 // created or deleted by the AgentHarness controller.
-// +kubebuilder:validation:XValidation:rule="!(has(self.gatewayToken) && has(self.gatewayTokenSecretRef))",message="Specify at most one of gatewayToken or gatewayTokenSecretRef"
 type AgentHarnessSubstrateSpec struct {
 	// WorkerPoolRef references an existing ate.dev WorkerPool in the harness namespace.
 	// When unset, the controller uses its configured default WorkerPool.
@@ -66,20 +65,6 @@ type AgentHarnessSubstrateSpec struct {
 	// WorkloadImage overrides the default openclaw sandbox image in the ActorTemplate.
 	// +optional
 	WorkloadImage string `json:"workloadImage,omitempty"`
-
-	// GatewayToken is the OpenClaw gateway Bearer token for this harness.
-	// Optional: when neither gatewayToken nor gatewayTokenSecretRef is set, the
-	// controller generates a random token and stores it in a Secret named
-	// "<harness-name>-gateway-token" (key "token"), which can be retrieved later.
-	// Prefer gatewayTokenSecretRef for production secrets.
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	GatewayToken string `json:"gatewayToken,omitempty"`
-
-	// GatewayTokenSecretRef references a Secret key holding the OpenClaw gateway Bearer token.
-	// The Secret must contain a "token" key.
-	// +optional
-	GatewayTokenSecretRef *TypedLocalReference `json:"gatewayTokenSecretRef,omitempty"`
 }
 
 // AgentHarnessChannelType selects a messenger integration for OpenClaw harness VMs.

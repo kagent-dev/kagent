@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/pkg/acpshim"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -110,26 +109,20 @@ func TestBuildHermesChannelEnvUnsupportedType(t *testing.T) {
 func TestBuildAcpStartupScript(t *testing.T) {
 	child := []string{"hermes", "acp"}
 
-	noGateway := buildAcpStartupScript("", child, false, acpshim.ChildPolicyLongLived)
+	noGateway := buildAcpStartupScript("", child, false)
 	if strings.Contains(noGateway, "hermes-gateway-ensure.sh") {
 		t.Fatalf("non-gateway script should not reference gateway: %q", noGateway)
 	}
 	if !strings.Contains(noGateway, "exec /usr/local/bin/acp-shim") {
 		t.Fatalf("expected acp-shim exec: %q", noGateway)
 	}
-	if !strings.Contains(noGateway, "--child-policy long-lived") {
-		t.Fatalf("expected long-lived child policy: %q", noGateway)
-	}
 	if !strings.HasSuffix(noGateway, "-- hermes acp") {
 		t.Fatalf("expected child appended: %q", noGateway)
 	}
 
-	gateway := buildAcpStartupScript("export FOO=bar\n", child, true, acpshim.ChildPolicyLongLived)
+	gateway := buildAcpStartupScript("export FOO=bar\n", child, true)
 	if !strings.Contains(gateway, "export FOO=bar") {
 		t.Fatalf("expected prelude preserved: %q", gateway)
-	}
-	if !strings.Contains(gateway, "--child-policy long-lived") {
-		t.Fatalf("expected long-lived child policy: %q", gateway)
 	}
 	// The gateway is launched only inside the acp-shim child wrapper (on the
 	// first post-restore connection), NOT pre-warmed before acp-shim — a

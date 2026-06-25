@@ -15,8 +15,6 @@
 #   - ENTRYPOINT is acp-shim; it serves ws://0.0.0.0:9000/acp.
 #   - The agent layer provides the child command either as CMD args after
 #     "--" or via the ACP_SHIM_CHILD env var.
-#   - The bearer token is mounted at /var/run/acp/token by the Substrate
-#     workload spec (same pattern as the AgentHarness gatewayToken).
 #
 # OpenClaw note: NemoClaw's sandbox-base is built from the NemoClaw repo
 # for a different runtime, so we don't extend it. The "openclaw" target below installs
@@ -58,17 +56,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Single unprivileged user. Substrate provides the isolation boundary
 # (microVM); we don't need a separate gateway/sandbox user split here.
-RUN groupadd -r agent && useradd -r -m -g agent -d /home/agent -s /bin/bash agent \
-    && mkdir -p /var/run/acp \
-    && chown agent:agent /var/run/acp
+RUN groupadd -r agent && useradd -r -m -g agent -d /home/agent -s /bin/bash agent
 
 COPY --from=builder /acp-shim /usr/local/bin/acp-shim
 
 USER agent
 WORKDIR /home/agent
 EXPOSE 9000
-
-ENV ACP_SHIM_TOKEN_FILE=/var/run/acp/token
 
 ENTRYPOINT ["/usr/local/bin/acp-shim"]
 # Agent layers append the child command, e.g.:

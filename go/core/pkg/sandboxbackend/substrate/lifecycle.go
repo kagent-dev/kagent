@@ -14,10 +14,6 @@ func (p *Lifecycle) EnsureGeneratedTemplate(ctx context.Context, ah *v1alpha2.Ag
 		return LifecycleState{}, fmt.Errorf("spec.substrate is required")
 	}
 
-	if err := p.EnsureManagedGatewayToken(ctx, ah); err != nil {
-		return LifecycleState{}, err
-	}
-
 	wpKey, err := p.resolveWorkerPoolRef(ctx, ah)
 	if err != nil {
 		return LifecycleState{}, err

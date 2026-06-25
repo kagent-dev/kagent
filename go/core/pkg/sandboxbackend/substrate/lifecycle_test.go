@@ -22,9 +22,7 @@ func TestSubstrateSnapshotsLocationDefault(t *testing.T) {
 	ah := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "kagent", Name: "claw"},
 		Spec: v1alpha2.AgentHarnessSpec{
-			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				GatewayToken: "test-token",
-			},
+			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{},
 		},
 	}
 	if got := substrateSnapshotsLocation(ah); got != "gs://ate-snapshots/kagent/claw" {
@@ -129,7 +127,7 @@ func TestEnsureActorTemplateDoesNotUpdateWhenDesiredStateMatches(t *testing.T) {
 		Spec: v1alpha2.AgentHarnessSpec{
 			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				GatewayToken:  "test-token",
+
 				WorkloadImage: "ghcr.io/kagent-dev/kagent/acp-sandbox-openclaw@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
 		},

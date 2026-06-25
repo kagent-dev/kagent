@@ -2,7 +2,6 @@ package acpshim
 
 import (
 	"context"
-	"crypto/subtle"
 	"fmt"
 	"log"
 	"net"
@@ -22,9 +21,9 @@ const (
 	CloseChildFailed = 4001
 )
 
-// preemptTimeout bounds how long a newly arriving client waits for the stale
+// preemptTimeout bounds how long a newly arriving client waits for the
 // connection it is preempting to release the single-client slot before the
-// shim gives up and rejects the newcomer.
+// shim gives up and drops the newcomer.
 const preemptTimeout = 10 * time.Second
 
 // Server is the shim's WebSocket server. It accepts at most one client at a
@@ -37,7 +36,6 @@ type Server struct {
 
 	mu         sync.Mutex
 	child      *child
-	connBusy   bool
 	activeConn *websocket.Conn
 	released   chan struct{}
 	graceTimer *time.Timer
@@ -51,8 +49,9 @@ func NewServer(cfg *Config) *Server {
 			ReadBufferSize:  64 * 1024,
 			WriteBufferSize: 64 * 1024,
 			// Browser clients (e.g. the kagent UI) connect cross-origin. The
-			// shim authenticates with an explicit bearer token rather than
-			// ambient cookie credentials, so Origin checks add no protection.
+			// shim is reached only through the controller's same-origin proxy
+			// over the actor's private atenet ingress, so Origin checks add no
+			// protection.
 			CheckOrigin: func(*http.Request) bool { return true },
 		},
 	}
@@ -81,7 +80,7 @@ func (s *Server) ListenAndServe() error {
 // Serve runs the server on the given listener (used by tests to bind an
 // ephemeral port).
 func (s *Server) Serve(l net.Listener) error {
-	log.Printf("acp-shim: listening on %s (policy=%s)", l.Addr(), s.cfg.Policy)
+	log.Printf("acp-shim: listening on %s", l.Addr())
 	err := s.httpSrv.Serve(l)
 	if err == http.ErrServerClosed {
 		return nil
@@ -95,10 +94,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	c := s.child
 	s.child = nil
-	if s.graceTimer != nil {
-		s.graceTimer.Stop()
-		s.graceTimer = nil
-	}
+	s.stopGraceTimerLocked()
 	s.mu.Unlock()
 	if c != nil {
 		c.terminate(s.cfg.GracePeriod)
@@ -111,115 +107,75 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
-// authorized checks the bearer token on the WebSocket handshake. The token
-// may arrive in the Authorization header or, for clients that cannot set
-// headers, the access_token query parameter.
-func (s *Server) authorized(r *http.Request) bool {
-	if s.cfg.Token == "" {
-		return true // auth disabled (prototype/testing only)
-	}
-	presented := ""
-	if h := r.Header.Get("Authorization"); len(h) > 7 && h[:7] == "Bearer " {
-		presented = h[7:]
-	} else if q := r.URL.Query().Get("access_token"); q != "" {
-		presented = q
-	}
-	return subtle.ConstantTimeCompare([]byte(presented), []byte(s.cfg.Token)) == 1
-}
-
 func (s *Server) handleACP(w http.ResponseWriter, r *http.Request) {
-	if !s.authorized(r) {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	conn, err := s.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("acp-shim: websocket upgrade failed: %v", err)
 		return
 	}
+	defer conn.Close()
 
-	// Single-client slot. The bridge is a single browser that reconnects on
-	// every refresh; rejecting the newcomer would strand the user behind a
-	// stale (and possibly half-open) connection that never releases the slot.
-	// Instead the new client preempts the incumbent: close the stale
-	// connection and wait for it to release before taking over.
-	if !s.takeSlot(w) {
+	// Single-client slot: make this connection the active client, preempting
+	// any stale incumbent. The bridge is a single browser that reconnects on
+	// every refresh, so the newcomer must win rather than be rejected behind a
+	// half-open connection (see takeSlot).
+	if !s.takeSlot(conn) {
 		return
 	}
-	defer s.releaseSlot()
 
 	c, err := s.acquireChild()
 	if err != nil {
 		log.Printf("acp-shim: failed to start child: %v", err)
-		http.Error(w, "failed to start agent", http.StatusBadGateway)
+		_ = conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(CloseChildFailed, "failed to start agent"),
+			time.Now().Add(5*time.Second))
+		s.releaseSlot()
 		return
 	}
 
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("acp-shim: websocket upgrade failed: %v", err)
-		s.releaseChild(c)
-		return
-	}
-	s.mu.Lock()
-	s.activeConn = conn
-	s.mu.Unlock()
 	log.Printf("acp-shim: client connected from %s", r.RemoteAddr)
-
 	s.pump(conn, c)
-
-	_ = conn.Close()
+	s.releaseSlot()
 	s.releaseChild(c)
 	log.Printf("acp-shim: client %s disconnected", r.RemoteAddr)
 }
 
-// takeSlot claims the single-client slot for a new connection, preempting any
-// incumbent. It closes the stale connection and waits for it to release the
-// slot, retrying until it wins or preemptTimeout elapses (in which case it
-// writes a 409 and returns false).
-func (s *Server) takeSlot(w http.ResponseWriter) bool {
-	deadline := time.Now().Add(preemptTimeout)
-	for {
-		s.mu.Lock()
-		if !s.connBusy {
-			s.connBusy = true
-			s.released = make(chan struct{})
-			if s.graceTimer != nil {
-				s.graceTimer.Stop()
-				s.graceTimer = nil
-			}
-			s.mu.Unlock()
-			return true
-		}
+// takeSlot makes conn the single active client, preempting any incumbent.
+// Because the bridge is a single browser that reconnects on every refresh,
+// the newcomer must win rather than be rejected behind a stale (possibly
+// half-open) connection: it closes the incumbent's connection and waits for
+// it to release the slot. The connection is published as the active client
+// before this returns, so a later newcomer can always find and preempt it
+// without polling. Returns false if the incumbent does not release within
+// preemptTimeout, in which case the caller drops the new connection.
+func (s *Server) takeSlot(conn *websocket.Conn) bool {
+	s.mu.Lock()
+	for s.activeConn != nil {
 		old := s.activeConn
 		released := s.released
 		s.mu.Unlock()
 
-		if old != nil {
-			log.Printf("acp-shim: preempting stale client to admit a new connection")
-			_ = old.Close()
-		}
-
-		// Wait briefly for the incumbent to release the slot, then retry. The
-		// short poll also re-checks activeConn, covering the narrow window
-		// where the incumbent claimed the slot but had not yet published its
-		// connection when we first looked.
+		log.Printf("acp-shim: preempting stale client to admit a new connection")
+		_ = old.Close()
 		select {
 		case <-released:
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(preemptTimeout):
+			log.Printf("acp-shim: previous client did not release in time, dropping new connection")
+			return false
 		}
-		if time.Now().After(deadline) {
-			s.mu.Lock()
-			busy := s.connBusy
-			s.mu.Unlock()
-			if busy {
-				http.Error(w, "previous client did not release the connection", http.StatusConflict)
-				return false
-			}
-		}
+		s.mu.Lock()
 	}
+	s.activeConn = conn
+	s.released = make(chan struct{})
+	s.stopGraceTimerLocked()
+	s.mu.Unlock()
+	return true
 }
 
 // releaseSlot frees the single-client slot and wakes any client waiting to
 // preempt this connection.
 func (s *Server) releaseSlot() {
 	s.mu.Lock()
-	s.connBusy = false
 	s.activeConn = nil
 	if s.released != nil {
 		close(s.released)
@@ -228,13 +184,14 @@ func (s *Server) releaseSlot() {
 	s.mu.Unlock()
 }
 
-// acquireChild returns the child process for a new connection, starting one
-// according to the configured policy.
+// acquireChild returns the long-lived child process for a new connection,
+// reusing the running one across reconnects and starting a fresh one only
+// when none is alive.
 func (s *Server) acquireChild() (*child, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.cfg.Policy == ChildPolicyLongLived && s.child != nil && !s.child.exited() {
+	if s.child != nil && !s.child.exited() {
 		return s.child, nil
 	}
 	c, err := startChild(s.cfg)
@@ -245,31 +202,19 @@ func (s *Server) acquireChild() (*child, error) {
 	return c, nil
 }
 
-// releaseChild handles child lifecycle when a connection ends: terminate for
-// per-connection policy, or arm the reconnect grace timer for long-lived.
+// releaseChild keeps the child alive after a connection ends so the next
+// client can resume its in-memory sessions. When a reconnect grace window is
+// configured, the child is terminated if no new client arrives within it.
 func (s *Server) releaseChild(c *child) {
-	if s.cfg.Policy == ChildPolicyPerConnection {
-		s.mu.Lock()
-		if s.child == c {
-			s.child = nil
-		}
-		s.mu.Unlock()
-		c.terminate(s.cfg.GracePeriod)
-		return
-	}
-	// Long-lived: keep the child alive so the next connection can resume
-	// its sessions, unless a reconnect grace window is configured.
 	if s.cfg.ReconnectGrace <= 0 || c.exited() {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.graceTimer != nil {
-		s.graceTimer.Stop()
-	}
+	s.stopGraceTimerLocked()
 	s.graceTimer = time.AfterFunc(s.cfg.ReconnectGrace, func() {
 		s.mu.Lock()
-		busy := s.connBusy
+		busy := s.activeConn != nil
 		if !busy && s.child == c {
 			s.child = nil
 		}
@@ -279,6 +224,15 @@ func (s *Server) releaseChild(c *child) {
 			c.terminate(s.cfg.GracePeriod)
 		}
 	})
+}
+
+// stopGraceTimerLocked cancels a pending reconnect-grace termination. The
+// caller must hold s.mu.
+func (s *Server) stopGraceTimerLocked() {
+	if s.graceTimer != nil {
+		s.graceTimer.Stop()
+		s.graceTimer = nil
+	}
 }
 
 // pump moves frames between the WebSocket and the child's stdio until either

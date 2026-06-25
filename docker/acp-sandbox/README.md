@@ -24,8 +24,6 @@ The base↔agent contract is intentionally tiny:
 - `ENTRYPOINT` is `acp-shim`; it serves `ws://0.0.0.0:9000/acp`.
 - The agent layer provides the child command as `CMD` args after `--`, or via
   the `ACP_SHIM_CHILD` env var.
-- The bearer token is read from the file in `ACP_SHIM_TOKEN_FILE`
-  (default `/var/run/acp/token`).
 
 ### Why a kagent-owned base instead of extending NemoClaw's sandbox-base
 
@@ -54,15 +52,14 @@ docker build -f docker/acp-sandbox/Dockerfile --target openclaw -t kagent/acp-sa
 gateway):
 
 ```sh
-echo -n s3cret > /tmp/token
-docker run --rm -p 9000:9000 -v /tmp/token:/var/run/acp/token kagent/acp-sandbox-hermes
+docker run --rm -p 9000:9000 kagent/acp-sandbox-hermes
 # then from another shell, speak newline-delimited JSON-RPC over WS:
-websocat -H "Authorization: Bearer s3cret" ws://localhost:9000/acp
+websocat ws://localhost:9000/acp
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}
 ```
 
-The shim accepts the token either as an `Authorization: Bearer` header or as an
-`access_token` query parameter (`ws://localhost:9000/acp?access_token=s3cret`).
+The shim does not authenticate the WebSocket handshake; in Substrate the actor's
+ingress is its only reachable surface and the controller proxies to it.
 
 ## Standalone cluster tests
 

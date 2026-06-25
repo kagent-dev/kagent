@@ -17,7 +17,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -33,30 +32,6 @@ func NewSessionsHandler(base *Base, substrateSandboxActorBackend *substrate.Sand
 		Base:                         base,
 		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
 	}
-}
-
-// splitAgentRef splits a "namespace/name" agent reference. ok is false when the
-// ref is not in that form.
-func splitAgentRef(ref string) (namespace, name string, ok bool) {
-	parts := strings.SplitN(ref, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
-}
-
-// isAgentHarnessRef reports whether the given namespace/name resolves to an
-// AgentHarness CR. AgentHarnesses are not stored as DB agents but reuse the same
-// session storage, so session handlers fall back to this lookup.
-func (h *SessionsHandler) isAgentHarnessRef(ctx context.Context, namespace, name string) (bool, error) {
-	var ah v1alpha2.AgentHarness
-	if err := h.KubeClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &ah); err != nil {
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
 }
 
 // RunRequest represents a run creation request
@@ -87,19 +62,12 @@ func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *ht
 		return
 	}
 
-	// Get agent ID from agent ref. AgentHarnesses are not stored as DB agents
-	// but reuse the same session storage keyed by the python-identifier ref.
+	// Get agent ID from agent ref. AgentHarnesses are recorded in the same
+	// agent table as regular agents, so the lookup is uniform.
 	agentID := utils.ConvertToPythonIdentifier(namespace + "/" + agentName)
 	if _, err := h.DatabaseService.GetAgent(r.Context(), agentID); err != nil {
-		isHarness, herr := h.isAgentHarnessRef(r.Context(), namespace, agentName)
-		if herr != nil {
-			w.RespondWithError(errors.NewInternalServerError("Failed to resolve agent ref", herr))
-			return
-		}
-		if !isHarness {
-			w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-			return
-		}
+		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
+		return
 	}
 
 	log.V(1).Info("Getting sessions for agent from database")
@@ -168,25 +136,16 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 
 	log.V(1).Info("Getting agent from database", "session_request", sessionRequest)
 
-	// AgentHarnesses are not stored as DB agents but reuse the same session
-	// storage; allow a session when the ref resolves to an AgentHarness CR.
+	// AgentHarnesses are recorded in the same agent table as regular agents, so
+	// the lookup is uniform; harness rows use the deployment workload mode and
+	// therefore skip the sandbox single-session restriction below.
 	agentID := utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef)
 	agent, err := h.DatabaseService.GetAgent(r.Context(), agentID)
 	if err != nil {
-		namespace, name, ok := splitAgentRef(*sessionRequest.AgentRef)
-		isHarness := false
-		if ok {
-			var herr error
-			if isHarness, herr = h.isAgentHarnessRef(r.Context(), namespace, name); herr != nil {
-				w.RespondWithError(errors.NewInternalServerError("Failed to resolve agent ref", herr))
-				return
-			}
-		}
-		if !isHarness {
-			w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", *sessionRequest.AgentRef), err))
-			return
-		}
-	} else if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
+		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", *sessionRequest.AgentRef), err))
+		return
+	}
+	if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
 		_, isSubstrateSandbox, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), *sessionRequest.AgentRef)
 		if lookupErr != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to inspect sandbox agent", lookupErr))
@@ -302,63 +261,13 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// HandleUpdateSession handles PUT /api/sessions requests using database
+// HandleUpdateSession handles PUT and PATCH /api/sessions/{session_id} requests.
+// It applies a partial update to the session identified by the {session_id} path
+// param: it sets the display name when "name" is provided, and re-points the
+// session at a different agent when "agent_ref" is provided. At least one of the
+// two must be present.
 func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "update-db")
-
-	var sessionRequest api.SessionRequest
-	if err := DecodeJSONBody(r, &sessionRequest); err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
-		return
-	}
-
-	if sessionRequest.Name == nil {
-		w.RespondWithError(errors.NewBadRequestError("session name is required", nil))
-		return
-	}
-
-	if sessionRequest.AgentRef == nil {
-		w.RespondWithError(errors.NewBadRequestError("agent_ref is required", nil))
-		return
-	}
-	log = log.WithValues("agentRef", *sessionRequest.AgentRef)
-
-	userID, err := GetUserID(r)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
-		return
-	}
-	// Get existing session
-	session, err := h.DatabaseService.GetSession(r.Context(), *sessionRequest.Name, userID)
-	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
-		return
-	}
-
-	agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
-	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-		return
-	}
-
-	// Update fields
-	session.AgentID = &agent.ID
-
-	if err := h.DatabaseService.StoreSession(r.Context(), session); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to update session", err))
-		return
-	}
-
-	log.Info("Successfully updated session")
-	data := api.NewResponse(session, "Successfully updated session", false)
-	RespondWithJSON(w, http.StatusOK, data)
-}
-
-// HandleRenameSession handles PATCH /api/sessions/{session_id} requests, setting
-// the session's display name. Unlike HandleUpdateSession it does not require the
-// session to resolve to a DB agent, so it also works for AgentHarness sessions.
-func (h *SessionsHandler) HandleRenameSession(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "rename-db")
 
 	userID, err := GetUserID(r)
 	if err != nil {
@@ -378,8 +287,9 @@ func (h *SessionsHandler) HandleRenameSession(w ErrorResponseWriter, r *http.Req
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
-	if sessionRequest.Name == nil {
-		w.RespondWithError(errors.NewBadRequestError("session name is required", nil))
+
+	if sessionRequest.Name == nil && sessionRequest.AgentRef == nil {
+		w.RespondWithError(errors.NewBadRequestError("at least one of name or agent_ref is required", nil))
 		return
 	}
 
@@ -392,13 +302,23 @@ func (h *SessionsHandler) HandleRenameSession(w ErrorResponseWriter, r *http.Req
 	if sessionRequest.Name != nil {
 		session.Name = sessionRequest.Name
 	}
+	if sessionRequest.AgentRef != nil {
+		log = log.WithValues("agentRef", *sessionRequest.AgentRef)
+		agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
+		if err != nil {
+			w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
+			return
+		}
+		session.AgentID = &agent.ID
+	}
+
 	if err := h.DatabaseService.StoreSession(r.Context(), session); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to rename session", err))
+		w.RespondWithError(errors.NewInternalServerError("Failed to update session", err))
 		return
 	}
 
-	log.Info("Successfully renamed session")
-	data := api.NewResponse(session, "Successfully renamed session", false)
+	log.Info("Successfully updated session")
+	data := api.NewResponse(session, "Successfully updated session", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 

@@ -1,9 +1,10 @@
 #!/bin/sh
 # OpenClaw image entrypoint. Writes the gateway config (loopback bind, auth mode
-# "none" — gateway and ACP client share this container; the externally reachable
-# surface is the shim, which enforces its own bearer token), pre-warms the
-# gateway so the golden snapshot includes a hot npm/node page cache, then hands
-# off to the shim with the gateway-ensuring child wrapper.
+# "none" — gateway and ACP client share this container; the only externally
+# reachable surface is the shim, reached through the controller's same-origin
+# proxy over the actor's private atenet ingress), pre-warms the gateway so the
+# golden snapshot includes a hot npm/node page cache, then hands off to the shim
+# with the gateway-ensuring child wrapper.
 set -eu
 : "${OPENCLAW_GATEWAY_PORT:=18789}"
 mkdir -p "${HOME}/.openclaw"

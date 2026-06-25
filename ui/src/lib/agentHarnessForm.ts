@@ -70,7 +70,6 @@ export function newAgentHarnessChannelRow(): AgentHarnessChannelRow {
 export interface AgentHarnessFormSlice {
   backend: AgentHarnessCrBackend;
   substrateWorkerPoolRefName: string;
-  substrateGatewayToken: string;
   /** GCS snapshot prefix (gs://bucket/path/) — required for generated templates. */
   substrateSnapshotsLocation: string;
   /** Optional override for the sandbox container image. Empty → controller default. */
@@ -82,7 +81,6 @@ export function defaultAgentHarnessFormSlice(): AgentHarnessFormSlice {
   return {
     backend: "openclaw",
     substrateWorkerPoolRefName: "",
-    substrateGatewayToken: "",
     substrateSnapshotsLocation: "gs://ate-snapshots/kagent/",
     image: "",
     channels: [],
@@ -350,12 +348,6 @@ export function buildAgentHarnessCRDraft(args: {
     const substrate: Record<string, unknown> = {
       snapshotsConfig: { location: snapshots },
     };
-    // Optional: when omitted, the controller generates a random gateway token
-    // and stores it in a Secret named "<harness-name>-gateway-token".
-    const gatewayToken = args.harness.substrateGatewayToken?.trim();
-    if (gatewayToken) {
-      substrate.gatewayToken = gatewayToken;
-    }
     const wpName = args.harness.substrateWorkerPoolRefName?.trim();
     if (wpName) {
       substrate.workerPoolRef = {

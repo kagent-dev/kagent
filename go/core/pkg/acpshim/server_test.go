@@ -4,8 +4,6 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,16 +11,10 @@ import (
 )
 
 func TestConfigValidate(t *testing.T) {
-	tokenFile := filepath.Join(t.TempDir(), "token")
-	if err := os.WriteFile(tokenFile, []byte("s3cret\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
 	tests := []struct {
-		name      string
-		cfg       Config
-		wantErr   bool
-		wantToken string
+		name    string
+		cfg     Config
+		wantErr bool
 	}{
 		{
 			name:    "missing listen addr",
@@ -35,23 +27,8 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "invalid policy",
-			cfg:     Config{ListenAddr: ":0", ChildArgv: []string{"cat"}, Policy: "sometimes"},
-			wantErr: true,
-		},
-		{
 			name: "defaults applied",
 			cfg:  Config{ListenAddr: ":0", ChildArgv: []string{"cat"}},
-		},
-		{
-			name:      "token loaded and trimmed from file",
-			cfg:       Config{ListenAddr: ":0", ChildArgv: []string{"cat"}, TokenFile: tokenFile},
-			wantToken: "s3cret",
-		},
-		{
-			name:    "missing token file",
-			cfg:     Config{ListenAddr: ":0", ChildArgv: []string{"cat"}, TokenFile: "/nonexistent/token"},
-			wantErr: true,
 		},
 	}
 
@@ -60,15 +37,6 @@ func TestConfigValidate(t *testing.T) {
 			err := tt.cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if err != nil {
-				return
-			}
-			if tt.cfg.Policy != ChildPolicyLongLived && tt.cfg.Policy != ChildPolicyPerConnection {
-				t.Errorf("Validate() did not default policy, got %q", tt.cfg.Policy)
-			}
-			if tt.wantToken != "" && tt.cfg.Token != tt.wantToken {
-				t.Errorf("Validate() token = %q, want %q", tt.cfg.Token, tt.wantToken)
 			}
 		})
 	}
@@ -129,35 +97,15 @@ func TestEchoRoundTrip(t *testing.T) {
 }
 
 func TestAuth(t *testing.T) {
-	tests := []struct {
-		name    string
-		token   string
-		wantErr bool
-	}{
-		{name: "correct token", token: "hunter2", wantErr: false},
-		{name: "wrong token", token: "wrong", wantErr: true},
-		{name: "missing token", token: "", wantErr: true},
+	// The shim no longer authenticates the WebSocket handshake; it is reached
+	// only through the controller's same-origin proxy over the actor's private
+	// atenet ingress. A bare dial (no Authorization header) must succeed.
+	url := startTestServer(t, &Config{ChildArgv: []string{"cat"}})
+	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		t.Fatalf("Dial() error = %v, want success", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			url := startTestServer(t, &Config{ChildArgv: []string{"cat"}, Token: "hunter2"})
-			h := http.Header{}
-			if tt.token != "" {
-				h.Set("Authorization", "Bearer "+tt.token)
-			}
-			conn, resp, err := websocket.DefaultDialer.Dial(url, h)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("Dial() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if conn != nil {
-				conn.Close()
-			}
-			if tt.wantErr && resp != nil && resp.StatusCode != http.StatusUnauthorized {
-				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
-			}
-		})
-	}
+	conn.Close()
 }
 
 func TestNewClientPreemptsStale(t *testing.T) {
@@ -215,7 +163,7 @@ func TestChildExitCloseCodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url := startTestServer(t, &Config{ChildArgv: tt.argv, Policy: ChildPolicyPerConnection})
+			url := startTestServer(t, &Config{ChildArgv: tt.argv})
 			conn := dial(t, url, "")
 			defer conn.Close()
 
@@ -243,7 +191,6 @@ func TestLongLivedChildSurvivesReconnect(t *testing.T) {
 	// survived the reconnect.
 	url := startTestServer(t, &Config{
 		ChildArgv: []string{"sh", "-c", "echo ready; cat"},
-		Policy:    ChildPolicyLongLived,
 	})
 
 	conn1 := dial(t, url, "")
@@ -280,34 +227,5 @@ func TestLongLivedChildSurvivesReconnect(t *testing.T) {
 	}
 	if string(got) != "ping" {
 		t.Errorf("after reconnect read %q, want \"ping\" (a second \"ready\" means the child was restarted)", got)
-	}
-}
-
-func TestPerConnectionChildRestarted(t *testing.T) {
-	url := startTestServer(t, &Config{
-		ChildArgv: []string{"sh", "-c", "echo ready; cat"},
-		Policy:    ChildPolicyPerConnection,
-	})
-
-	for i := range 2 {
-		var conn *websocket.Conn
-		deadline := time.Now().Add(5 * time.Second)
-		for {
-			c, _, err := websocket.DefaultDialer.Dial(url, nil)
-			if err == nil {
-				conn = c
-				break
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("connection %d: %v", i, err)
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		_, got, err := conn.ReadMessage()
-		if err != nil || string(got) != "ready" {
-			t.Fatalf("connection %d read = %q, %v; want \"ready\" (fresh child per connection)", i, got, err)
-		}
-		conn.Close()
 	}
 }

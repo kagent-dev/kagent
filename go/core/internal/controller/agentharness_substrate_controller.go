@@ -24,7 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
@@ -32,6 +34,11 @@ import (
 const (
 	// substrateDeleteTimeout is the maximum time to wait for substrate cleanup during delete.
 	substrateDeleteTimeout = 5 * time.Minute
+
+	// agentHarnessDBType is the database.Agent.Type recorded for AgentHarness
+	// rows. It distinguishes harnesses from deployment/sandbox agents in the
+	// shared agent table.
+	agentHarnessDBType = "AgentHarness"
 )
 
 // +kubebuilder:rbac:groups=ate.dev,resources=workerpools,verbs=get;list;watch
@@ -58,6 +65,11 @@ type SubstrateAgentHarnessController struct {
 	// on delete; the shared actor is created on demand by the HTTP gateway on
 	// the first chat connect.
 	SessionActorBackend AgentHarnessSessionActorCleaner
+	// DbClient records each AgentHarness as a row in the shared agent table so
+	// that chat sessions resolve through the same agent lookup as regular
+	// agents. The row is upserted once the harness is Ready and removed on
+	// delete.
+	DbClient database.Client
 }
 
 func (r *SubstrateAgentHarnessController) backendFor(ah *v1alpha2.AgentHarness) sandboxbackend.AsyncBackend {
@@ -133,6 +145,9 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 	// connect. Every chat is multiplexed as an ACP session inside that single
 	// actor's long-lived child process; the actor id is keyed on the harness
 	// (namespace/name), not the session.
+	if err := r.upsertHarnessAgentRow(ctx, &ah); err != nil {
+		return ctrl.Result{}, err
+	}
 	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue,
 		"AgentHarnessAccepted", "ActorTemplate golden snapshot is ready")
 	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue,
@@ -205,11 +220,52 @@ func (r *SubstrateAgentHarnessController) reconcileDelete(ctx context.Context, a
 		return ctrl.Result{}, err
 	}
 
+	if err := r.deleteHarnessAgentRow(ctx, ah); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	controllerutil.RemoveFinalizer(ah, agentHarnessFinalizer)
 	if err := r.Client.Update(ctx, ah); err != nil {
 		return ctrl.Result{}, fmt.Errorf("remove finalizer: %w", err)
 	}
 	return ctrl.Result{}, nil
+}
+
+// upsertHarnessAgentRow records the AgentHarness as a row in the shared agent
+// table, keyed by the same python-identifier used for chat sessions. This lets
+// session handlers resolve harness chats through the regular agent lookup
+// instead of a harness-specific fallback. It is a no-op when no DB client is
+// configured.
+func (r *SubstrateAgentHarnessController) upsertHarnessAgentRow(ctx context.Context, ah *v1alpha2.AgentHarness) error {
+	if r.DbClient == nil {
+		return nil
+	}
+	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(ah))
+	dbAgent := &database.Agent{
+		ID:   id,
+		Type: agentHarnessDBType,
+		// Harnesses are not sandbox agents: they serve many concurrent chats
+		// from one shared actor, so they must not pick up the sandbox
+		// single-session restriction.
+		WorkloadType: v1alpha2.WorkloadModeDeployment,
+	}
+	if err := r.DbClient.StoreAgent(ctx, dbAgent); err != nil {
+		return fmt.Errorf("store agent row for AgentHarness %s: %w", id, err)
+	}
+	return nil
+}
+
+// deleteHarnessAgentRow removes the AgentHarness's row from the shared agent
+// table. It is a no-op when no DB client is configured.
+func (r *SubstrateAgentHarnessController) deleteHarnessAgentRow(ctx context.Context, ah *v1alpha2.AgentHarness) error {
+	if r.DbClient == nil {
+		return nil
+	}
+	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(ah))
+	if err := r.DbClient.DeleteAgent(ctx, id); err != nil {
+		return fmt.Errorf("delete agent row for AgentHarness %s: %w", id, err)
+	}
+	return nil
 }
 
 func substrateDeleteTimedOut(ah *v1alpha2.AgentHarness) bool {

@@ -46,11 +46,7 @@ func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.
 		return "", nil, fmt.Errorf("substrate lifecycle kubernetes client is required")
 	}
 
-	token, err := ResolveGatewayToken(ctx, p.Client, ah)
-	if err != nil {
-		return "", nil, fmt.Errorf("resolve gateway token: %w", err)
-	}
-	gw := openclaw.SubstrateGatewayBootstrap(token, OpenClawGatewayPort)
+	gw := openclaw.SubstrateGatewayBootstrap(OpenClawGatewayPort)
 
 	var jsonBytes []byte
 	var containerEnv []corev1.EnvVar
@@ -84,47 +80,12 @@ func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.
 	return script, actorTemplateEnvFromPodEnv(containerEnv), nil
 }
 
-// acpShimEnv returns the env vars the acp-shim and the image's
-// openclaw-gateway-ensure.sh/openclaw-acp-child.sh scripts read. The shim reuses
-// the harness gateway token as its bearer token; when the token comes from a
-// Secret it stays a secretKeyRef (resolved by ate-api), never inlined.
+// acpShimEnv returns the env vars the image's
+// openclaw-gateway-ensure.sh/openclaw-acp-child.sh scripts read. The shim no
+// longer authenticates the WebSocket handshake, so no bearer token is passed.
 func acpShimEnv(ah *v1alpha2.AgentHarness, gatewayPort int) []corev1.EnvVar {
-	env := []corev1.EnvVar{
+	return []corev1.EnvVar{
 		{Name: "OPENCLAW_GATEWAY_PORT", Value: fmt.Sprintf("%d", gatewayPort)},
-	}
-	return append(env, acpShimTokenEnv(ah)...)
-}
-
-// acpShimTokenEnv returns the ACP_SHIM_TOKEN env var derived from the
-// harness gateway token (secretKeyRef stays a ref, resolved by ate-api).
-// When the spec sets neither gatewayToken nor gatewayTokenSecretRef, it
-// references the controller-managed Secret holding the auto-generated token.
-func acpShimTokenEnv(ah *v1alpha2.AgentHarness) []corev1.EnvVar {
-	sub := ah.Spec.Substrate
-	if sub == nil {
-		return nil
-	}
-	switch {
-	case sub.GatewayTokenSecretRef != nil && strings.TrimSpace(sub.GatewayTokenSecretRef.Name) != "":
-		return []corev1.EnvVar{shimTokenSecretRefEnv(sub.GatewayTokenSecretRef.Name)}
-	case strings.TrimSpace(sub.GatewayToken) != "":
-		return []corev1.EnvVar{{Name: "ACP_SHIM_TOKEN", Value: strings.TrimSpace(sub.GatewayToken)}}
-	default:
-		return []corev1.EnvVar{shimTokenSecretRefEnv(ManagedGatewayTokenSecretName(ah))}
-	}
-}
-
-// shimTokenSecretRefEnv builds an ACP_SHIM_TOKEN env var sourced from the
-// "token" key of the named Secret.
-func shimTokenSecretRefEnv(secretName string) corev1.EnvVar {
-	return corev1.EnvVar{
-		Name: "ACP_SHIM_TOKEN",
-		ValueFrom: &corev1.EnvVarSource{
-			SecretKeyRef: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
-				Key:                  GatewayTokenSecretKey,
-			},
-		},
 	}
 }
 

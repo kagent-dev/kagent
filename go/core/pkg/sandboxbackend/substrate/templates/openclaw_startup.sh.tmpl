@@ -24,5 +24,4 @@ echo '{{.OpenClawJSONBase64}}' | base64 -d > "${HOME}/.openclaw/openclaw.json"
 # --url bypasses the config token and fails against a token-auth gateway.
 exec /usr/local/bin/acp-shim \
   --listen :{{.ACPPort}} \
-  --child-policy long-lived \
   -- /bin/sh -c '/usr/local/bin/openclaw-gateway-ensure.sh && exec openclaw acp'

@@ -15,7 +15,6 @@ import (
 func TestACPProxyForwardsToAtenetRouterWithActorHost(t *testing.T) {
 	t.Parallel()
 	const actorHost = "ahr-kagent-my-claw.actors.resources.substrate.ate.dev"
-	const token = "some-token"
 
 	var gotHost, gotAuth, gotPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +31,7 @@ func TestACPProxyForwardsToAtenetRouterWithActorHost(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	proxy := newAgentHarnessACPProxy(target, actorHost, token, testLog{t})
+	proxy := newAgentHarnessACPProxy(target, actorHost, testLog{t})
 	req := httptest.NewRequest(http.MethodGet, "/api/agentharnesses/kagent/my-claw/acp", nil)
 	rec := httptest.NewRecorder()
 	proxy.ServeHTTP(rec, req)
@@ -43,8 +42,8 @@ func TestACPProxyForwardsToAtenetRouterWithActorHost(t *testing.T) {
 	if gotHost != actorHost {
 		t.Fatalf("upstream Host = %q, want %q", gotHost, actorHost)
 	}
-	if gotAuth != "Bearer "+token {
-		t.Fatalf("Authorization = %q", gotAuth)
+	if gotAuth != "" {
+		t.Fatalf("Authorization = %q, want empty", gotAuth)
 	}
 	if gotPath != "/acp" {
 		t.Fatalf("upstream path = %q, want /acp", gotPath)
@@ -66,7 +65,7 @@ func TestACPProxyRewriteTargetsAtenetRouterHost(t *testing.T) {
 	if host != actorHost {
 		t.Fatalf("host = %q, want %q", host, actorHost)
 	}
-	proxy := newAgentHarnessACPProxy(target, host, "tok", testLog{t})
+	proxy := newAgentHarnessACPProxy(target, host, testLog{t})
 	req := httptest.NewRequest(http.MethodGet, "/api/agentharnesses/kagent/my-claw/acp", nil)
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
@@ -83,8 +82,8 @@ func TestACPProxyRewriteTargetsAtenetRouterHost(t *testing.T) {
 	if outReq.URL.Path != "/acp" {
 		t.Fatalf("URL.Path = %q, want /acp", outReq.URL.Path)
 	}
-	if outReq.Header.Get("Authorization") != "Bearer tok" {
-		t.Fatalf("missing Authorization")
+	if outReq.Header.Get("Authorization") != "" {
+		t.Fatalf("Authorization should not be set: %q", outReq.Header.Get("Authorization"))
 	}
 	if outReq.Header.Get("x-openclaw-scopes") != "" {
 		t.Fatalf("scopes header should not be set: %q", outReq.Header.Get("x-openclaw-scopes"))

@@ -177,22 +177,6 @@ export function AgentHarnessFields({
         >
           <div className="space-y-4">
             <FieldRoot>
-              <FieldLabel htmlFor="agent-field-substrate-gateway-token">Gateway token</FieldLabel>
-              <Input
-                id="agent-field-substrate-gateway-token"
-                disabled={disabled}
-                type="password"
-                placeholder="Leave empty to auto-generate"
-                value={value.substrateGatewayToken}
-                onChange={(e) => set({ substrateGatewayToken: e.target.value })}
-              />
-              <p className="text-xs text-muted-foreground">
-                Optional bearer token used by kagent when proxying the generated sandbox
-                gateway. Leave empty to have the controller generate one and store it in a
-                Secret named <code>&lt;harness-name&gt;-gateway-token</code>.
-              </p>
-            </FieldRoot>
-            <FieldRoot>
               <FieldLabel htmlFor="agent-field-substrate-snapshots">Snapshot location (GCS)</FieldLabel>
               <Input
                 id="agent-field-substrate-snapshots"
