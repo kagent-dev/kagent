@@ -1,11 +1,12 @@
 name: Upgrade Test Setup
 
 description: >-
-  Shared prelude for the upgrade-tests and rolling-upgrade-tests jobs: checkout
-  with full history/tags, resolve the upgrade-from version (with the
-  prev-stable == adjacent skip), and bring up the build/cluster toolchain.
-  Exposes the resolved version and skip flag so the caller can gate its test
-  step.
+  Shared prelude for the upgrade-tests and rolling-upgrade-tests jobs: resolve
+  the upgrade-from version (with the prev-stable == adjacent skip) and bring up
+  the build/cluster toolchain. Exposes the resolved version and skip flag so the
+  caller can gate its test step. The caller MUST run actions/checkout (with
+  fetch-depth: 0 + fetch-tags) before this action — a local action is loaded
+  from the checked-out workspace and the version resolvers need full history.
 
 inputs:
   upgrade-from:
@@ -29,13 +30,9 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Checkout repository
-      uses: actions/checkout@v6
-      with:
-        # Full history + tags so the version-resolver scripts can derive the
-        # target release to upgrade from.
-        fetch-depth: 0
-        fetch-tags: true
+    # The caller must run actions/checkout (fetch-depth: 0 + fetch-tags) before
+    # this action: a local action is loaded from the checked-out workspace, so
+    # its files don't exist on the runner until checkout has run.
     - name: Resolve upgrade-from version
       id: resolve
       shell: bash

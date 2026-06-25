@@ -173,6 +173,13 @@ jobs:
         # prev-stable: the previous stable line's latest patch (prev-stable-version.sh)
         upgrade-from: [adjacent, prev-stable]
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full history + tags so the version resolvers can derive the
+          # upgrade-from release, and so the local action below is on disk.
+          fetch-depth: 0
+          fetch-tags: true
       - name: Prepare upgrade test environment
         id: prep
         uses: ./.github/actions/upgrade-test-setup
@@ -214,6 +221,13 @@ jobs:
         # prev-stable: the previous stable line's latest patch (prev-stable-version.sh)
         upgrade-from: [adjacent, prev-stable]
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full history + tags so the version resolvers can derive the
+          # upgrade-from release, and so the local action below is on disk.
+          fetch-depth: 0
+          fetch-tags: true
       - name: Prepare upgrade test environment
         id: prep
         uses: ./.github/actions/upgrade-test-setup
