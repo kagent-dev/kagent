@@ -464,13 +464,17 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 # OCI registry, build the current images, then run the e2e assertions in
 # go/core/test/e2e/upgrade. The Go test performs the actual upgrade to the current
 # build by invoking `make helm-install-provider`. UPGRADE_FROM_VERSION defaults to
-# the previous release derived from git tags (scripts/upgrade-from-version.sh);
-# override it to pin a baseline. The previous install pins the bundled Postgres
-# image to match the current install (pgvector pg18-trixie) so the upgrade
-# isolates the kagent app/migration change rather than a coincidental DB swap.
+# the latest release reachable from HEAD (scripts/upgrade-from-version.sh); CI runs
+# this against two targets via a matrix — that adjacent release and the previous
+# stable line's latest patch (scripts/prev-stable-version.sh) — and you can pin
+# either locally, e.g. `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
+# The previous install pins the bundled Postgres image to match the current
+# install (pgvector pg18-trixie) so the upgrade isolates the kagent app/migration
+# change rather than a coincidental DB swap.
 #
-# Prerequisites (provided by CI as separate steps; run them locally first): a kind
-# cluster (make create-kind-cluster) and the agent-sandbox CRD must already exist.
+# Prerequisite (provided by CI as a separate step; run it locally first): a kind
+# cluster (make create-kind-cluster). agent-sandbox is not required — the
+# controller tolerates the missing CRD and these tests create no SandboxAgents.
 UPGRADE_FROM_VERSION ?= $(shell ./scripts/upgrade-from-version.sh)
 
 .PHONY: install-previous-release

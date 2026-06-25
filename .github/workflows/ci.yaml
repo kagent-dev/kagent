@@ -166,24 +166,50 @@ jobs:
     env:
       VERSION: v0.0.1-test
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # adjacent: the latest release reachable from HEAD (upgrade-from-version.sh)
+        # prev-stable: the previous stable line's latest patch (prev-stable-version.sh)
+        upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          # Full history + tags so scripts/upgrade-from-version.sh can derive the
-          # previous release to upgrade from.
+          # Full history + tags so the version-resolver scripts can derive the
+          # target release to upgrade from.
           fetch-depth: 0
           fetch-tags: true
+      - name: Resolve upgrade-from version
+        id: resolve
+        run: |
+          ADJ="$(./scripts/upgrade-from-version.sh)"
+          if [ "${{ matrix.upgrade-from }}" = "prev-stable" ]; then
+            V="$(./scripts/prev-stable-version.sh)"
+            if [ "$V" = "$ADJ" ]; then
+              echo "prev-stable ($V) == adjacent; skipping (covered by the adjacent leg)."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            V="$ADJ"
+          fi
+          echo "Upgrade-from target: $V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Initialize Environment
+        if: steps.resolve.outputs.skip != 'true'
         uses: ./.github/actions/initialize-environment
       - name: Allow unprivileged user namespaces
+        if: steps.resolve.outputs.skip != 'true'
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Set up QEMU
+        if: steps.resolve.outputs.skip != 'true'
         uses: docker/setup-qemu-action@v4
         with:
           platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
+        if: steps.resolve.outputs.skip != 'true'
         uses: docker/setup-buildx-action@v4
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
@@ -192,17 +218,21 @@ jobs:
           use: "true"
           driver-opts: network=host
       - name: Set up Helm
+        if: steps.resolve.outputs.skip != 'true'
         uses: azure/setup-helm@v5.0.0
         with:
           version: v3.18.0
       - name: Install Kind
+        if: steps.resolve.outputs.skip != 'true'
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
         with:
           install_only: true
       - name: Create Kind cluster
+        if: steps.resolve.outputs.skip != 'true'
         run: |
           make create-kind-cluster
       - name: Run upgrade tests
+        if: steps.resolve.outputs.skip != 'true'
         env:
           OPENAI_API_KEY: fake
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
@@ -214,9 +244,9 @@ jobs:
             --platform=linux/amd64
             --push
         run: |
-          make run-upgrade-tests
+          make run-upgrade-tests UPGRADE_FROM_VERSION="${{ steps.resolve.outputs.version }}"
       - name: fail print info
-        if: failure()
+        if: failure() && steps.resolve.outputs.skip != 'true'
         run: |
           echo "::error::Failed to run upgrade tests"
           kubectl describe pods -n kagent
@@ -229,24 +259,50 @@ jobs:
     env:
       VERSION: v0.0.1-test
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # adjacent: the latest release reachable from HEAD (upgrade-from-version.sh)
+        # prev-stable: the previous stable line's latest patch (prev-stable-version.sh)
+        upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          # Full history + tags so scripts/upgrade-from-version.sh can derive the
-          # previous release to upgrade from.
+          # Full history + tags so the version-resolver scripts can derive the
+          # target release to upgrade from.
           fetch-depth: 0
           fetch-tags: true
+      - name: Resolve upgrade-from version
+        id: resolve
+        run: |
+          ADJ="$(./scripts/upgrade-from-version.sh)"
+          if [ "${{ matrix.upgrade-from }}" = "prev-stable" ]; then
+            V="$(./scripts/prev-stable-version.sh)"
+            if [ "$V" = "$ADJ" ]; then
+              echo "prev-stable ($V) == adjacent; skipping (covered by the adjacent leg)."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            V="$ADJ"
+          fi
+          echo "Upgrade-from target: $V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Initialize Environment
+        if: steps.resolve.outputs.skip != 'true'
         uses: ./.github/actions/initialize-environment
       - name: Allow unprivileged user namespaces
+        if: steps.resolve.outputs.skip != 'true'
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Set up QEMU
+        if: steps.resolve.outputs.skip != 'true'
         uses: docker/setup-qemu-action@v4
         with:
           platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
+        if: steps.resolve.outputs.skip != 'true'
         uses: docker/setup-buildx-action@v4
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
@@ -255,17 +311,21 @@ jobs:
           use: "true"
           driver-opts: network=host
       - name: Set up Helm
+        if: steps.resolve.outputs.skip != 'true'
         uses: azure/setup-helm@v5.0.0
         with:
           version: v3.18.0
       - name: Install Kind
+        if: steps.resolve.outputs.skip != 'true'
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
         with:
           install_only: true
       - name: Create Kind cluster
+        if: steps.resolve.outputs.skip != 'true'
         run: |
           make create-kind-cluster
       - name: Run rolling upgrade tests
+        if: steps.resolve.outputs.skip != 'true'
         env:
           OPENAI_API_KEY: fake
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
@@ -277,9 +337,9 @@ jobs:
             --platform=linux/amd64
             --push
         run: |
-          make run-rolling-upgrade-tests
+          make run-rolling-upgrade-tests UPGRADE_FROM_VERSION="${{ steps.resolve.outputs.version }}"
       - name: fail print info
-        if: failure()
+        if: failure() && steps.resolve.outputs.skip != 'true'
         run: |
           echo "::error::Failed to run rolling upgrade tests"
           kubectl describe pods -n kagent
