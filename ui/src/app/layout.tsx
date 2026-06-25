@@ -1,46 +1,43 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Geist } from "next/font/google";
 import "./globals.css";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AgentsProvider } from "@/components/AgentsProvider";
-import { AuthProvider } from "@/contexts/AuthContext";
-import { SubstrateFeaturesProvider } from "@/contexts/SubstrateFeaturesContext";
-import { Header } from "@/components/Header";
-import { Footer } from "@/components/Footer";
-import { ThemeProvider } from "@/components/ThemeProvider";
-import { Toaster } from "@/components/ui/sonner";
-import { AppInitializer } from "@/components/AppInitializer";
+import { Providers } from "./providers";
+import { SidebarInset } from "@/components/ui/sidebar";
+import { AppSidebar } from "@/components/sidebars/AppSidebar";
+import { MobileTopBar } from "@/components/MobileTopBar";
+
+export const metadata: Metadata = {
+  title: "kagent.dev | Amdocs.com",
+};
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  title: "kagent.dev",
-};
+const SIDEBAR_COOKIE_NAME = "sidebar_state";
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const cookieStore = await cookies();
+  const sidebarCookie = cookieStore.get(SIDEBAR_COOKIE_NAME)?.value;
+  // Default to expanded when the cookie is unset (first visit).
+  const sidebarDefaultOpen = sidebarCookie !== "false";
+
   return (
-    <TooltipProvider>
-      <AgentsProvider>
-        <SubstrateFeaturesProvider>
-        <AuthProvider>
-          <html lang="en" className="" suppressHydrationWarning>
-            <body className={`${geistSans.className} flex flex-col h-screen overflow-hidden`}>
-              <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-                <AppInitializer>
-                  <Header />
-                  <main className="flex-1 overflow-y-scroll w-full mx-auto">{children}</main>
-                  <Footer />
-                </AppInitializer>
-                <Toaster richColors/>
-              </ThemeProvider>
-            </body>
-          </html>
-        </AuthProvider>
-        </SubstrateFeaturesProvider>
-      </AgentsProvider>
-    </TooltipProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body
+        suppressHydrationWarning
+        className={`${geistSans.className} flex h-screen overflow-hidden`}
+      >
+        <Providers sidebarDefaultOpen={sidebarDefaultOpen}>
+          <AppSidebar />
+          <SidebarInset className="flex-1 overflow-y-auto">
+            <MobileTopBar />
+            {children}
+          </SidebarInset>
+        </Providers>
+      </body>
+    </html>
   );
 }

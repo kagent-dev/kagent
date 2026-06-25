@@ -270,6 +270,27 @@ type UpdatePromptTemplateRequest struct {
 	Data map[string]string `json:"data"`
 }
 
+// Plugin types
+
+// PluginResponse describes a RemoteMCPServer that exposes a web UI, projected for
+// the UI sidebar. Field names match the UI's PluginItem contract.
+type PluginResponse struct {
+	// Name is the RemoteMCPServer metadata name.
+	Name string `json:"name"`
+	// Namespace is the RemoteMCPServer namespace.
+	Namespace string `json:"namespace"`
+	// PathPrefix is the URL segment used for proxy routing: /_p/{pathPrefix}/.
+	PathPrefix string `json:"pathPrefix"`
+	// DisplayName is the human-readable label shown in the sidebar.
+	DisplayName string `json:"displayName"`
+	// Icon is a lucide-react icon name.
+	Icon string `json:"icon"`
+	// Section is the sidebar section where the plugin appears.
+	Section string `json:"section"`
+	// DefaultPath is the initial sub-path to open at the plugin root.
+	DefaultPath string `json:"defaultPath,omitempty"`
+}
+
 // Namespace types
 
 // NamespaceResponse represents a namespace response
