@@ -468,19 +468,35 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 # this against two targets via a matrix — that adjacent release and the previous
 # stable line's latest patch (scripts/prev-stable-version.sh) — and you can pin
 # either locally, e.g. `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
-# The previous install pins the bundled Postgres image to match the current
-# install (pgvector pg18-trixie) so the upgrade isolates the kagent app/migration
-# change rather than a coincidental DB swap.
+# The previous install pins the bundled Postgres image to whatever the
+# upgrade-from release's own install target shipped (see PREV_DB_SET_FLAGS), so
+# the baseline matches how that release actually runs rather than a hardcoded
+# guess; the upgrade then exercises the real app/migration (and any DB image)
+# change between that release and the current build.
 #
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
 # cluster (make create-kind-cluster). agent-sandbox is not required — the
 # controller tolerates the missing CRD and these tests create no SandboxAgents.
 UPGRADE_FROM_VERSION ?= $(shell ./scripts/upgrade-from-version.sh)
 
+# The bundled-Postgres image is selected by the install target's --set flags, not
+# by the chart defaults (the chart ships a non-vector image). So the previous
+# install must use the exact pins the upgrade-from release shipped — otherwise the
+# baseline DB would differ from how that release actually runs, and the upgrade
+# would conflate a DB swap with the migration change under test. Read those flags
+# straight from that release's own helm-install-provider target (via its tagged
+# Makefile) instead of hardcoding values that drift as the bundled image changes.
+# Assumes the flags are literal (no make/env variables); the guard in
+# install-previous-release fails loudly if they can't be read.
+PREV_DB_SET_FLAGS = $(shell git show v$(UPGRADE_FROM_VERSION):Makefile 2>/dev/null | \
+	grep -oE '\-\-set[[:space:]]+database\.postgres\.[^[:space:]\\]+')
+
 .PHONY: install-previous-release
 install-previous-release: ## Install the previous released kagent + kagent-crds charts from the public OCI registry
 	test -n "$(UPGRADE_FROM_VERSION)" || { echo "UPGRADE_FROM_VERSION is empty; set it explicitly or ensure git tags are fetched." >&2; exit 1; }
+	test -n "$(strip $(PREV_DB_SET_FLAGS))" || { echo "Could not read bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile; the upgrade-from release's install target may have moved or renamed them." >&2; exit 1; }
 	@echo "=== Installing previous release: $(UPGRADE_FROM_VERSION) ==="
+	@echo "    bundled-Postgres flags (from v$(UPGRADE_FROM_VERSION) install target): $(PREV_DB_SET_FLAGS)"
 	helm upgrade --install kagent-crds $(HELM_REPO)/kagent/helm/kagent-crds \
 		--version $(UPGRADE_FROM_VERSION) \
 		--namespace kagent --create-namespace \
@@ -495,10 +511,7 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 		--set controller.service.type=LoadBalancer \
 		--set providers.default=openAI \
 		--set providers.openAI.apiKey="$${OPENAI_API_KEY:-test}" \
-		--set database.postgres.bundled.image.repository=pgvector \
-		--set database.postgres.bundled.image.name=pgvector \
-		--set database.postgres.bundled.image.tag=pg18-trixie \
-		--set database.postgres.vectorEnabled=true \
+		$(PREV_DB_SET_FLAGS) \
 		$(UPGRADE_PREV_EXTRA_ARGS)
 
 # run-upgrade-tests installs the previous release, builds the current images, and

@@ -258,6 +258,7 @@ func TestUpgrade(t *testing.T) {
 		scaleController(t, env, 0)
 
 		localPort, stop := startPortForward(t, env, postgresServiceName, 5432)
+		defer stop()
 		dbURL := fmt.Sprintf("postgres://kagent:kagent@127.0.0.1:%d/kagent?sslmode=disable", localPort)
 
 		// Reverse each track to the target release's version, in reverse
@@ -271,7 +272,6 @@ func TestUpgrade(t *testing.T) {
 		for _, track := range slices.Backward(migrationTracks) {
 			migrateTrackTo(t, dbURL, track, targets[track.name])
 		}
-		stop()
 
 		// Migration bookkeeping is back at the target versions and clean.
 		reverted := pgMigrationState(t, env)
@@ -382,7 +382,7 @@ func pgQuery(t *testing.T, env upgradeEnv, query string) string {
 	pod := podNameForSelector(t, env, postgresSelector)
 	out := kubectl(t, env, time.Minute,
 		"exec", "-n", env.namespace, pod, "-c", postgresContainer, "--",
-		"psql", "-U", "kagent", "-d", "kagent", "-tAc", query,
+		"psql", "-v", "ON_ERROR_STOP=1", "-U", "kagent", "-d", "kagent", "-tAc", query,
 	)
 	return strings.TrimSpace(out)
 }

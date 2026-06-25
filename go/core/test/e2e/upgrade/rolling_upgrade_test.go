@@ -69,13 +69,29 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 
 	// Wait until the target schema has landed while at least one previous-release
 	// controller pod is still ready. That is the rolling deploy hazard: old code
-	// can keep serving briefly after a new pod has applied migrations.
+	// can keep serving briefly after a new pod has applied migrations. Surface a
+	// helm upgrade failure immediately instead of letting it look like a
+	// schema-observation timeout.
+	var helmErr error
+	var helmOut string
 	require.Eventually(t, func() bool {
+		select {
+		case r := <-done:
+			if r.err != nil {
+				helmErr, helmOut = r.err, r.out
+				return true
+			}
+			// Helm finished successfully before we caught the window; put the
+			// result back so the final read below still sees it, then keep polling.
+			done <- r
+		default:
+		}
 		state := pgMigrationState(t, env)
 		return state.version == targetCoreVersion &&
 			!state.dirty &&
 			anyPodsReady(t, env, oldPods)
 	}, 6*time.Minute, 500*time.Millisecond, "target schema was not observed while old controller pods were still ready")
+	require.NoError(t, helmErr, "helm upgrade failed before target schema was observed:\n%s", helmOut)
 
 	// These SQL canaries intentionally use the pre-upgrade column shape. They do
 	// not prove every previous-release code path works, but they catch migrations

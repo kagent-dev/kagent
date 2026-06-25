@@ -58,7 +58,7 @@ func pgExecDB(t *testing.T, env upgradeEnv, database, query string) {
 	pod := podNameForSelector(t, env, postgresSelector)
 	kubectl(t, env, time.Minute,
 		"exec", "-n", env.namespace, pod, "-c", postgresContainer, "--",
-		"psql", "-U", "kagent", "-d", database, "-tAc", query,
+		"psql", "-v", "ON_ERROR_STOP=1", "-U", "kagent", "-d", database, "-tAc", query,
 	)
 }
 

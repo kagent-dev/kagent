@@ -1,0 +1,97 @@
+name: Upgrade Test Setup
+
+description: >-
+  Shared prelude for the upgrade-tests and rolling-upgrade-tests jobs: checkout
+  with full history/tags, resolve the upgrade-from version (with the
+  prev-stable == adjacent skip), and bring up the build/cluster toolchain.
+  Exposes the resolved version and skip flag so the caller can gate its test
+  step.
+
+inputs:
+  upgrade-from:
+    description: 'Which release to upgrade from: "adjacent" or "prev-stable".'
+    required: true
+  buildx-builder-name:
+    description: Name for the docker/setup-buildx-action builder.
+    required: true
+  buildx-version:
+    description: Buildx version for docker/setup-buildx-action.
+    required: true
+
+outputs:
+  skip:
+    description: '"true" when this leg is redundant (prev-stable == adjacent) and the caller should skip its test step.'
+    value: ${{ steps.resolve.outputs.skip }}
+  version:
+    description: The resolved upgrade-from version (empty when skip is true).
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        # Full history + tags so the version-resolver scripts can derive the
+        # target release to upgrade from.
+        fetch-depth: 0
+        fetch-tags: true
+    - name: Resolve upgrade-from version
+      id: resolve
+      shell: bash
+      run: |
+        ADJ="$(./scripts/upgrade-from-version.sh)"
+        if [ "${{ inputs.upgrade-from }}" = "prev-stable" ]; then
+          V="$(./scripts/prev-stable-version.sh)"
+          if [ -z "$V" ]; then
+            echo "no stable line below the current line; skipping prev-stable leg."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$V" = "$ADJ" ]; then
+            echo "prev-stable ($V) == adjacent; skipping (covered by the adjacent leg)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        else
+          V="$ADJ"
+        fi
+        echo "Upgrade-from target: $V"
+        echo "version=$V" >> "$GITHUB_OUTPUT"
+    - name: Initialize Environment
+      if: steps.resolve.outputs.skip != 'true'
+      uses: ./.github/actions/initialize-environment
+    - name: Allow unprivileged user namespaces
+      if: steps.resolve.outputs.skip != 'true'
+      shell: bash
+      run: |
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+    - name: Set up QEMU
+      if: steps.resolve.outputs.skip != 'true'
+      uses: docker/setup-qemu-action@v4
+      with:
+        platforms: linux/amd64,linux/arm64
+    - name: Set up Docker Buildx
+      if: steps.resolve.outputs.skip != 'true'
+      uses: docker/setup-buildx-action@v4
+      with:
+        name: ${{ inputs.buildx-builder-name }}
+        version: ${{ inputs.buildx-version }}
+        platforms: linux/amd64,linux/arm64
+        use: "true"
+        driver-opts: network=host
+    - name: Set up Helm
+      if: steps.resolve.outputs.skip != 'true'
+      uses: azure/setup-helm@v5.0.0
+      with:
+        version: v3.18.0
+    - name: Install Kind
+      if: steps.resolve.outputs.skip != 'true'
+      uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+      with:
+        install_only: true
+    - name: Create Kind cluster
+      if: steps.resolve.outputs.skip != 'true'
+      shell: bash
+      run: |
+        make create-kind-cluster
