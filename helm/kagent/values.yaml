@@ -351,6 +351,17 @@ ui:
     # Path to redirect users to when they click "Sign in with SSO" on the login page
     # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
     ssoRedirectPath: "/oauth2/start"
+  # -- Client-side chat stream inactivity timeout (seconds). The browser aborts a
+  # streaming response if no event is received within this window. Should be >=
+  # ui.nginx.proxyReadTimeout so nginx isn't the silent limit. Default 1800 (30m).
+  streamTimeoutSeconds: 1800
+  # -- Nginx proxy timeout configuration for the UI sidecar (values are passed
+  # directly to the corresponding nginx directives, e.g. "1800s").
+  nginx:
+    # -- proxy_read_timeout: max time between two successive reads from the upstream.
+    proxyReadTimeout: 1800s
+    # -- proxy_send_timeout: max time between two successive writes to the upstream.
+    proxySendTimeout: 1800s
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
   # -- Additional request headers (beyond Authorization) the UI proxy will forward
   # to the backend. Names are case-insensitive. Hop-by-hop headers (Connection,
@@ -419,6 +430,13 @@ ui:
   # oauth2-proxy instead of the chart's edge-terminated Route.
   route:
     enabled: true
+  
+  # OpenShift Route only (when route.openshift.io/v1 exists). Long timeouts are required
+  # for A2A/SSE streaming through the cluster router; defaults are often ~60s and cause
+  # net::ERR_INCOMPLETE_CHUNKED_ENCODING in the browser.
+  openshiftRoute:
+    annotations:
+      haproxy.router.openshift.io/timeout: 120m
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================

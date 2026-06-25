@@ -6,6 +6,10 @@ kind: Route
 metadata:
     name: {{ include "kagent.fullname" . }}-ui
     namespace: {{ include "kagent.namespace" . }}
+    {{- with .Values.ui.openshiftRoute.annotations }}
+    annotations:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
 spec:
     to:
         kind: Service
