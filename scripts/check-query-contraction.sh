@@ -56,12 +56,21 @@ targets=($(printf '%s\n' "${targets[@]}" | awk 'NF && !seen[$0]++'))
 workroot="$(mktemp -d)"
 trap 'rm -rf "$workroot"' EXIT
 
+# A target resolved (non-empty version) but whose tag is absent locally means
+# the checkout didn't fetch tags — a misconfiguration that would otherwise let
+# the whole check pass having compiled nothing. Track the two outcomes so the
+# post-loop guard can fail on that case while still allowing a legitimately
+# empty run (every resolved target predates the sqlc query set).
+compiled=0
+missing_tag=0
+
 check_target() {
   local prev="$1"
   local prev_tag="v${prev}"
 
   if ! git -C "$repo_root" rev-parse -q --verify "refs/tags/${prev_tag}" >/dev/null; then
     echo "NOTE: tag ${prev_tag} not present locally; skipping (fetch tags to include it)."
+    missing_tag=$((missing_tag + 1))
     return 0
   fi
   if [ -z "$(git -C "$repo_root" ls-tree "$prev_tag" -- "$queries_path" 2>/dev/null)" ]; then
@@ -96,8 +105,21 @@ EOF
   echo "=== Contraction check: queries@${prev_tag} vs current schema ==="
   ( cd "$wd" && "$sqlc_bin" compile -f sqlc.yaml )
   echo "OK: ${prev_tag} queries still type-check against the current schema."
+  compiled=$((compiled + 1))
 }
 
 for t in "${targets[@]}"; do
   check_target "$t"
 done
+
+# Guard against a vacuous green: if nothing compiled because resolved targets had
+# no local tag, the checkout almost certainly didn't fetch tags. Fail loudly
+# rather than report success on an empty run. An all-predate run (no missing
+# tags) is legitimately empty and stays green.
+if [ "$compiled" -eq 0 ]; then
+  if [ "$missing_tag" -gt 0 ]; then
+    echo "ERROR: no targets compiled — ${missing_tag} resolved version(s) had no local tag; fetch tags (fetch-depth: 0, fetch-tags: true) so the contraction check actually runs." >&2
+    exit 1
+  fi
+  echo "NOTE: no targets compiled; all resolved versions predate the sqlc query set."
+fi

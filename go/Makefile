@@ -36,7 +36,7 @@ sqlc-generate: sqlc ## Generate type-safe Go code from SQL queries.
 # Compile the previous release's sqlc queries against the current schema (the
 # migration files) and fail if a migration removed/renamed/retyped a column or
 # table an old query still uses. Static (no database/cluster). Needs git tags
-# fetched. UPGRADE_FROM_VERSION overrides the auto-derived previous release.
+# fetched. TARGET_VERSIONS (space-separated) overrides the auto-derived release(s).
 .PHONY: check-query-contraction
 check-query-contraction: sqlc ## Verify the previous release's queries still type-check against the current schema
 	SQLC=$(SQLC) ../scripts/check-query-contraction.sh
