@@ -810,8 +810,14 @@ func substrateLifecycleFromConfig(kubeClient client.Client, cfg *Config, ate *su
 		RunscAMD64SHA256: cfg.Substrate.RunscAMD64SHA256,
 		RunscARM64URL:    cfg.Substrate.RunscARM64URL,
 		RunscARM64SHA256: cfg.Substrate.RunscARM64SHA256,
+		// ImageRegistry/ImageRepository mirror the declarative-agent image config
+		// (--image-registry/--image-repository) so digest-pinned acp-sandbox
+		// workload images resolve against the same (possibly private/mirrored)
+		// registry as the rest of the kagent images.
+		ImageRegistry:   agent_translator.DefaultImageConfig.Registry,
+		ImageRepository: agent_translator.DefaultImageConfig.Repository,
 		// DefaultWorkloadImage is left unset: each backend falls back to its own
-		// digest-pinned default (AcpSandboxOpenClawImage / AcpSandboxHermesImage)
+		// digest-pinned default (acpSandboxOpenClawImage / acpSandboxHermesImage)
 		// resolved at ActorTemplate build time.
 		DefaultWorkerPool: types.NamespacedName{
 			Namespace: cfg.Substrate.DefaultWorkerPoolNamespace,

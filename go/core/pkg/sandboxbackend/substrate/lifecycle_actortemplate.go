@@ -45,7 +45,7 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 	var (
 		startupScript  string
 		containerEnv   []atev1alpha1.EnvVar
-		defaultImageFn func() (string, error)
+		defaultImageFn func(acpSandboxImageConfig) (string, error)
 		containerName  string
 		err            error
 	)
@@ -56,7 +56,7 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 	switch ah.Spec.Backend {
 	case v1alpha2.AgentHarnessBackendOpenClaw:
 		clawBackend = true
-		defaultImageFn = AcpSandboxOpenClawImage
+		defaultImageFn = acpSandboxOpenClawImage
 		containerName = defaultOpenClawContainer
 		startupScript, containerEnv, err = p.buildOpenClawActorStartup(ctx, ah)
 		if err != nil {
@@ -82,7 +82,7 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 	if workloadImage == "" {
 		// Fall back to the backend's built-in default, which is always
 		// digest-pinned (or errors if the link-time digest is missing).
-		workloadImage, err = defaultImageFn()
+		workloadImage, err = defaultImageFn(p.acpSandboxImageConfig())
 		if err != nil {
 			return nil, err
 		}

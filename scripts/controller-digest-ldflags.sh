@@ -101,29 +101,8 @@ append_digest_ldflag() {
 	printf ' -X %s.%s=%s' "${pkg}" "${go_var}" "${digest}"
 }
 
-# append_pinned_ref_ldflag emits a -X ldflag setting go_var to the fully
-# resolved, digest-pinned ref (registry/repo/name@sha256:...) for image_ref.
-# Unlike append_digest_ldflag (digest only, with the registry composed in Go),
-# this bakes in the registry/repo from the image that was actually built/pushed,
-# so the controller points at the right registry (ghcr.io for releases,
-# localhost:5001 for local kind/`make helm-install`).
-append_pinned_ref_ldflag() {
-	local pkg=$1
-	local go_var=$2
-	local image_ref=$3
-	local digest repo
-	digest="$(image_digest "${image_ref}")"
-	if [[ -z "${digest}" ]]; then
-		echo "error: could not resolve OCI digest for ${image_ref} (is it pushed to the registry?)" >&2
-		exit 1
-	fi
-	# Strip the :tag; the registry may contain a :port, so trim only the last :tag.
-	repo="${image_ref%:*}"
-	printf ' -X %s.%s=%s@%s' "${pkg}" "${go_var}" "${repo}" "${digest}"
-}
-
 append_digest_ldflag "${TRANSLATOR_PKG}" "PythonADKImageDigest" "${APP_IMG}"
 append_digest_ldflag "${TRANSLATOR_PKG}" "GoADKImageDigest" "${GOLANG_ADK_IMG}"
 append_digest_ldflag "${TRANSLATOR_PKG}" "GoADKFullImageDigest" "${GOLANG_ADK_FULL_IMG}"
-append_pinned_ref_ldflag "${SUBSTRATE_PKG}" "AcpSandboxOpenClawImageRef" "${ACP_SANDBOX_OPENCLAW_IMG}"
-append_pinned_ref_ldflag "${SUBSTRATE_PKG}" "AcpSandboxHermesImageRef" "${ACP_SANDBOX_HERMES_IMG}"
+append_digest_ldflag "${SUBSTRATE_PKG}" "AcpSandboxOpenClawImageDigest" "${ACP_SANDBOX_OPENCLAW_IMG}"
+append_digest_ldflag "${SUBSTRATE_PKG}" "AcpSandboxHermesImageDigest" "${ACP_SANDBOX_HERMES_IMG}"

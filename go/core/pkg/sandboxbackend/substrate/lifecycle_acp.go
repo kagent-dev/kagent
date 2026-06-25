@@ -14,15 +14,16 @@ import (
 )
 
 // Default Substrate workload images for the generic acp-shim agent targets live
-// in constants.go (AcpSandboxHermesImage, etc.).
+// in constants.go (acpSandboxHermesImage, etc.).
 
 // acpAgentSpec describes how to run one stdio ACP agent behind the acp-shim
 // inside a Substrate actor.
 type acpAgentSpec struct {
 	// DefaultImage resolves the digest-pinned acp-sandbox target image used when
 	// neither the harness nor cluster defaults specify a workload image. It
-	// errors when the link-time digest was not injected.
-	DefaultImage func() (string, error)
+	// composes the ref from the runtime registry/repository and errors when the
+	// link-time digest was not injected.
+	DefaultImage func(acpSandboxImageConfig) (string, error)
 	// ChildCommand is the stdio ACP agent command the shim spawns
 	// (shell-safe words, joined with spaces).
 	ChildCommand []string
@@ -44,7 +45,7 @@ type acpAgentSpec struct {
 // in-memory fidelity and avoiding a per-reconnect reload, not about durability.
 var acpAgentSpecs = map[v1alpha2.AgentHarnessBackendType]acpAgentSpec{
 	v1alpha2.AgentHarnessBackendHermes: {
-		DefaultImage: AcpSandboxHermesImage,
+		DefaultImage: acpSandboxHermesImage,
 		ChildCommand: []string{"hermes", "acp"},
 	},
 }
