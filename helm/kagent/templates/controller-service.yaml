@@ -5,11 +5,9 @@ metadata:
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
-  {{- if .Values.controller.service.annotations }}
+  {{- with .Values.controller.service.annotations }}
   annotations:
-    {{- with .Values.controller.service.annotations }}
-      {{- toYaml . | nindent 4 }}
-    {{- end }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
   type: {{ .Values.controller.service.type }}
