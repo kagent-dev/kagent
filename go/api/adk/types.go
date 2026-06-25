@@ -104,6 +104,7 @@ const (
 	ModelTypeGemini          = "gemini"
 	ModelTypeBedrock         = "bedrock"
 	ModelTypeSAPAICore       = "sap_ai_core"
+	ModelTypeFoundry         = "foundry"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -302,6 +303,42 @@ func (s *SAPAICore) GetType() string {
 	return ModelTypeSAPAICore
 }
 
+// Types for Foundry
+type FoundryAuthType string
+
+const (
+	FoundryAuthTypeAPIKey            FoundryAuthType = "APIKey"
+	FoundryAuthTypeWorkloadIdentity  FoundryAuthType = "WorkloadIdentity"
+	FoundryAuthTypeAPIKeyPassthrough FoundryAuthType = "APIKeyPassthrough"
+)
+
+type FoundryAuth struct {
+	Type FoundryAuthType `json:"type"`
+}
+
+type Foundry struct {
+	BaseModel
+	Endpoint   string      `json:"endpoint"`
+	Deployment string      `json:"deployment"`
+	APIVersion string      `json:"api_version"`
+	Auth       FoundryAuth `json:"auth"`
+}
+
+func (a *Foundry) GetType() string {
+	return ModelTypeFoundry
+}
+
+func (a *Foundry) MarshalJSON() ([]byte, error) {
+	type Alias Foundry
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeFoundry,
+		Alias: (*Alias)(a),
+	})
+}
+
 // GenericModel is a catch-all model type used by the Go ADK when the model
 // type doesn't match any known constant.
 type GenericModel struct {
@@ -370,6 +407,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &sapAICore, nil
+	case ModelTypeFoundry:
+		var foundry Foundry
+		if err := json.Unmarshal(bytes, &foundry); err != nil {
+			return nil, err
+		}
+		return &foundry, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
@@ -438,6 +481,8 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 	case *SAPAICore:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+	case *Foundry:
+		e.Model = v.Model
 	default:
 		e.Model = ""
 	}

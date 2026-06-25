@@ -170,3 +170,34 @@ var (
 		ComponentAgentRuntime,
 	)
 )
+
+// Foundry
+var (
+	FoundryAPIKey = RegisterStringVar(
+		"FOUNDRY_API_KEY",
+		"",
+		"API key for Foundry.",
+		ComponentAgentRuntime,
+	)
+
+	FoundryEndpoint = RegisterStringVar(
+		"FOUNDRY_ENDPOINT",
+		"",
+		"Endpoint URL for Foundry or Azure AI Services account.",
+		ComponentAgentRuntime,
+	)
+
+	FoundryDeployment = RegisterStringVar(
+		"FOUNDRY_DEPLOYMENT",
+		"",
+		"Foundry model deployment name.",
+		ComponentAgentRuntime,
+	)
+
+	FoundryAPIVersion = RegisterStringVar(
+		"FOUNDRY_API_VERSION",
+		"2024-10-21",
+		"Foundry OpenAI-compatible data-plane API version.",
+		ComponentAgentRuntime,
+	)
+)

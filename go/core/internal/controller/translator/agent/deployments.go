@@ -21,6 +21,12 @@ type modelDeploymentData struct {
 	VolumeMounts []corev1.VolumeMount
 }
 
+// Internal to translator - pod-level runtime requirements inferred from model configuration.
+type modelRuntimeRequirements struct {
+	PodLabels                 map[string]string
+	ServiceAccountAnnotations map[string]string
+}
+
 // Internal to translator – a unified deployment spec for any agent.
 type resolvedDeployment struct {
 	// Required concrete runtime properties
@@ -150,7 +156,10 @@ func resolveGoRuntimeImage(registry string, full bool) (string, error) {
 	)
 }
 
-func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData) (*resolvedDeployment, error) {
+func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData, mrr *modelRuntimeRequirements) (*resolvedDeployment, error) {
+	if mrr == nil {
+		mrr = &modelRuntimeRequirements{}
+	}
 	specRef := agent.GetAgentSpec()
 	// Defaults
 	port := int32(8080)
@@ -215,6 +224,25 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		return nil, err
 	}
 
+	labels := getDefaultLabels(agent.GetName(), spec.Labels)
+	if err := mergeStringMapNoConflict(labels, mrr.PodLabels, "pod label"); err != nil {
+		return nil, err
+	}
+	serviceAccountConfig := spec.ServiceAccountConfig
+	if len(mrr.ServiceAccountAnnotations) > 0 {
+		if serviceAccountConfig == nil {
+			serviceAccountConfig = &v1alpha2.ServiceAccountConfig{}
+		} else {
+			serviceAccountConfig = serviceAccountConfig.DeepCopy()
+		}
+		if serviceAccountConfig.Annotations == nil {
+			serviceAccountConfig.Annotations = map[string]string{}
+		}
+		if err := mergeStringMapNoConflict(serviceAccountConfig.Annotations, mrr.ServiceAccountAnnotations, "service account annotation"); err != nil {
+			return nil, err
+		}
+	}
+
 	dep := &resolvedDeployment{
 		Image:                image,
 		Args:                 args,
@@ -224,7 +252,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		ImagePullSecrets:     slices.Clone(spec.ImagePullSecrets),
 		Volumes:              append(slices.Clone(spec.Volumes), mdd.Volumes...),
 		VolumeMounts:         append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
-		Labels:               getDefaultLabels(agent.GetName(), spec.Labels),
+		Labels:               labels,
 		Annotations:          maps.Clone(spec.Annotations),
 		Env:                  append(slices.Clone(spec.Env), mdd.EnvVars...),
 		Resources:            getDefaultResources(spec.Resources), // Set default resources if not specified
@@ -234,7 +262,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		SecurityContext:      spec.SecurityContext,
 		PodSecurityContext:   spec.PodSecurityContext,
 		ServiceAccountName:   spec.ServiceAccountName,
-		ServiceAccountConfig: spec.ServiceAccountConfig,
+		ServiceAccountConfig: serviceAccountConfig,
 		ExtraContainers:      slices.Clone(spec.ExtraContainers),
 	}
 
@@ -246,8 +274,21 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 			dep.ServiceAccountName = serviceAccountName
 		}
 	}
+	if len(mrr.ServiceAccountAnnotations) > 0 && dep.ServiceAccountName != nil && *dep.ServiceAccountName != agent.GetName() {
+		return nil, fmt.Errorf("model runtime requires ServiceAccount annotations, but serviceAccountName %q is external; use the generated ServiceAccount or preconfigure the external ServiceAccount with the required annotations", *dep.ServiceAccountName)
+	}
 
 	return dep, nil
+}
+
+func mergeStringMapNoConflict(dst, src map[string]string, label string) error {
+	for key, value := range src {
+		if existing, ok := dst[key]; ok && existing != value {
+			return fmt.Errorf("conflicting %s %q: %q != %q", label, key, existing, value)
+		}
+		dst[key] = value
+	}
+	return nil
 }
 
 func checkPullSecretAlreadyPresent(spec v1alpha2.DeclarativeDeploymentSpec) bool {
