@@ -22,6 +22,8 @@ import { createSession, getSessionTasks, checkSessionExists } from "@/app/action
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
 import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 import { getAgentWithResolvedKind, waitForSandboxAgentReady } from "@/app/actions/agents";
+import { getUiRuntimeConfig } from "@/app/actions/config";
+import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, countSendGuardComparableMessages, countBackendBackedComparableMessages, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
@@ -72,6 +74,22 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const pendingDecisionsRef = useRef<Record<string, ToolDecision>>({});
   /** Per-tool rejection reasons collected as the user rejects individual tools. */
   const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
+  // Stream inactivity timeout (ms), configurable via Helm (ui.streamTimeoutSeconds).
+  const streamTimeoutMsRef = useRef<number>(DEFAULT_STREAM_TIMEOUT_MS);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUiRuntimeConfig()
+      .then((config) => {
+        if (!cancelled) streamTimeoutMsRef.current = config.streamTimeoutMs;
+      })
+      .catch(() => {
+        /* keep default on failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const {
     isListening,
@@ -382,18 +400,24 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const consumeStream = async (stream: AsyncIterable<unknown>) => {
     let timeoutTimer: NodeJS.Timeout | null = null;
     let streamActive = true;
-    const STREAM_TIMEOUT_MS = 600000; // 10 minutes
+
+    const formatTimeout = (ms: number): string => {
+      const mins = ms / 60000;
+      return mins >= 1 ? `${Math.ceil(mins)} minutes` : `${Math.round(ms / 1000)} seconds`;
+    };
 
     const startTimeout = () => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
+      const streamTimeoutMs = streamTimeoutMsRef.current;
       timeoutTimer = setTimeout(() => {
         if (streamActive) {
-          console.error("⏰ Stream timeout - no events received for 10 minutes");
-          toast.error("⏰ Stream timed out - no events received for 10 minutes");
+          const label = formatTimeout(streamTimeoutMs);
+          console.error(`⏰ Stream timeout - no events received for ${label}`);
+          toast.error(`⏰ Stream timed out - no events received for ${label}`);
           streamActive = false;
           abortControllerRef.current?.abort();
         }
-      }, STREAM_TIMEOUT_MS);
+      }, streamTimeoutMs);
     };
     startTimeout();
 
@@ -924,7 +948,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     );
   }
   return (
-    <div className="flex h-screen w-full min-w-0 flex-col items-center justify-center transition-all duration-300 ease-in-out">
+    <div className="flex h-full w-full min-w-0 flex-col items-center justify-center transition-all duration-300 ease-in-out">
       <div className="flex-1 w-full overflow-hidden relative">
         <ScrollArea ref={containerRef} className="w-full h-full py-12">
           <div className="flex flex-col space-y-5 px-4">
