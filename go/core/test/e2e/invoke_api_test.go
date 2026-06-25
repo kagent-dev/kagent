@@ -170,6 +170,18 @@ type AgentOptions struct {
 	PromptTemplate *v1alpha2.PromptTemplateSpec
 }
 
+func pythonRuntime() *v1alpha2.DeclarativeRuntime {
+	r := v1alpha2.DeclarativeRuntime_Python
+	return &r
+}
+
+func requireAgentRuntime(t *testing.T, cli client.Client, agent *v1alpha2.Agent, want v1alpha2.DeclarativeRuntime) {
+	t.Helper()
+	got := &v1alpha2.Agent{}
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKeyFromObject(agent), got))
+	require.Equal(t, want, got.Spec.Declarative.Runtime)
+}
+
 // setupAgentWithOptions creates and returns an agent resource with custom options
 func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.Agent {
 	agent := generateAgent(modelConfigName, tools, opts)
@@ -1079,12 +1091,11 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {
-	runE2EInvokeSTSIntegration(t, "python", nil)
+	runE2EInvokeSTSIntegration(t, "go", nil)
 }
 
-func TestE2EGoInvokeSTSIntegration(t *testing.T) {
-	goRuntime := v1alpha2.DeclarativeRuntime_Go
-	runE2EInvokeSTSIntegration(t, "go", &goRuntime)
+func TestE2EPythonInvokeSTSIntegration(t *testing.T) {
+	runE2EInvokeSTSIntegration(t, "python", pythonRuntime())
 }
 
 func runE2EInvokeSTSIntegration(t *testing.T, runtimeName string, runtimeOverride *v1alpha2.DeclarativeRuntime) {
@@ -1133,6 +1144,9 @@ func runE2EInvokeSTSIntegration(t *testing.T, runtimeName string, runtimeOverrid
 			},
 		},
 	})
+	if runtimeOverride == nil {
+		requireAgentRuntime(t, cli, agent, v1alpha2.DeclarativeRuntime_Go)
+	}
 
 	// access token for test user with the may act claim allowing system:serviceaccount:kagent:test-sts to
 	// perform operations on behalf of the test user
@@ -1273,12 +1287,11 @@ func TestE2ESkillImagePullSecrets(t *testing.T) {
 }
 
 func TestE2EDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
-	runDeclarativeAgentNetworkAllowlistWithSkills(t, "python", nil)
+	runDeclarativeAgentNetworkAllowlistWithSkills(t, "default", nil)
 }
 
-func TestE2EGoDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
-	goRuntime := v1alpha2.DeclarativeRuntime_Go
-	runDeclarativeAgentNetworkAllowlistWithSkills(t, "go", &goRuntime)
+func TestE2EPythonDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
+	runDeclarativeAgentNetworkAllowlistWithSkills(t, "python", pythonRuntime())
 }
 
 func runDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T, runtimeName string, runtimeOverride *v1alpha2.DeclarativeRuntime) {
@@ -1377,29 +1390,21 @@ func TestE2EInvokePassthroughAgent(t *testing.T) {
 	})
 }
 
-func TestE2EInvokeGolangADKAgent(t *testing.T) {
-	// Setup mock server
+func TestE2EAgentDefaultRuntimeIsGo(t *testing.T) {
 	baseURL, stopServer := setupMockServer(t, "mocks/invoke_golang_adk_agent.json")
 	defer stopServer()
 
-	// Setup Kubernetes client
 	cli := setupK8sClient(t, false)
-
-	// Setup model config pointing at mock server
 	modelCfg := setupModelConfig(t, cli, baseURL)
 
-	// Create a declarative agent that uses the Go ADK runtime
-	goRuntime := v1alpha2.DeclarativeRuntime_Go
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
-		Name:          "golang-adk-test",
+		Name:          "default-runtime-test",
 		SystemMessage: "You are a helpful test agent. Answer concisely.",
-		Runtime:       &goRuntime,
 	})
+	requireAgentRuntime(t, cli, agent, v1alpha2.DeclarativeRuntime_Go)
 
-	// Setup A2A client
 	a2aClient := setupA2AClient(t, agent)
 
-	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
 		runSyncTest(t, a2aClient, "What is 2+2?", "4", nil)
 	})
@@ -1450,19 +1455,16 @@ func runMemoryAgentTest(t *testing.T, extraOpts AgentOptions) {
 }
 
 // TestE2EMemoryWithAgent runs the agent with memory enabled against the mock
-// (invoke_memory_agent.json). Two ModelConfigs are used: one for chat (gpt-4.1-mini)
-// and one for embeddings (text-embedding-3-small) so LiteLLM calls the correct APIs.
+// (invoke_memory_agent.json) using the default (Go) ADK runtime.
 func TestE2EMemoryWithAgent(t *testing.T) {
 	runMemoryAgentTest(t, AgentOptions{Name: "memory-test-agent"})
 }
 
-// TestE2EMemoryWithGoADKAgent is the same as TestE2EMemoryWithAgent but uses
-// the Go ADK runtime to verify memory works end-to-end with the Go runtime.
-func TestE2EMemoryWithGoADKAgent(t *testing.T) {
-	goRuntime := v1alpha2.DeclarativeRuntime_Go
+// TestE2EMemoryWithPythonAgent verifies memory with the Python ADK runtime.
+func TestE2EMemoryWithPythonAgent(t *testing.T) {
 	runMemoryAgentTest(t, AgentOptions{
-		Name:    "memory-go-adk-test",
-		Runtime: &goRuntime,
+		Name:    "memory-python-test",
+		Runtime: pythonRuntime(),
 	})
 }
 
@@ -1583,6 +1585,7 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
 		ExecuteCode: new(true),
+		Runtime:     pythonRuntime(),
 	})
 
 	// Setup A2A client
@@ -1603,6 +1606,7 @@ func TestE2ESandboxAgentNetworkAllowlistWithExecuteCode(t *testing.T) {
 	t.Run("deny_by_default", func(t *testing.T) {
 		agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
 			ExecuteCode: new(true),
+			Runtime:     pythonRuntime(),
 		})
 
 		a2aClient := setupSandboxA2AClient(t, agent)
@@ -1612,6 +1616,7 @@ func TestE2ESandboxAgentNetworkAllowlistWithExecuteCode(t *testing.T) {
 	t.Run("allowlist_enables_access", func(t *testing.T) {
 		agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
 			ExecuteCode: new(true),
+			Runtime:     pythonRuntime(),
 			Sandbox: &v1alpha2.SandboxConfig{
 				Network: &v1alpha2.NetworkConfig{
 					AllowedDomains: []string{controllerHost},

@@ -26,7 +26,7 @@ import { getUiRuntimeConfig } from "@/app/actions/config";
 import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
+import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, countSendGuardComparableMessages, countBackendBackedComparableMessages, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
@@ -38,6 +38,7 @@ import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
 const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
 // Task states that mean the session is busy (used by the cross-tab send guard).
 const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
+
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -243,14 +244,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     // the full context before their next message goes out.
     const guardSessionId = session?.id || sessionId;
     if (guardSessionId) {
-      // Compare only non-approval messages to avoid false negatives when
-      // storedMessages includes appended ToolApprovalRequest / AskUserRequest entries.
-      const localMessageCount = storedMessages.filter(m => {
-        const meta = m.metadata as ADKMetadata | undefined;
-        return meta?.originalType !== "ToolApprovalRequest" && meta?.originalType !== "AskUserRequest";
-      }).length;
+      // Compare visible messages against the backend snapshot. Completed
+      // same-tab stream messages remain in streamingMessages until the next
+      // send promotes them, but only backend-backed matches count as local.
       const guardResult = await checkAndSyncSessionBeforeAction(guardSessionId, {
-        localMessageCount,
+        localMessages: allMessages,
         messages: {
           inFlight: "This session is already being processed — reconnecting to live updates",
           inputRequired: "Session is awaiting your input — please review before sending",
@@ -270,15 +268,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     pendingRejectionReasonsRef.current = {};
     pendingTurnStatsRef.current = undefined;
 
+    const messageId = uuidv4();
+
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
       kind: "message",
-      messageId: uuidv4(),
+      messageId,
       role: "user",
       parts: [{
         kind: "text",
         text: userMessageText
       }],
+      contextId: guardSessionId,
       metadata: {
         timestamp: Date.now()
       }
@@ -378,7 +379,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
       }
 
-      const messageId = uuidv4();
       const a2aMessage = createMessage(userMessageText, "user", {
         messageId,
         contextId: currentSessionId,
@@ -597,6 +597,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     guardSessionId: string,
     opts: {
       expectedTaskId?: string;
+      localMessages?: Message[];
       localMessageCount?: number;
       messages: {
         inFlight: string;
@@ -648,9 +649,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       return "blocked";
     }
 
-    if (opts.localMessageCount !== undefined) {
+    if (opts.localMessages !== undefined || opts.localMessageCount !== undefined) {
       const dbMessages = extractMessagesFromTasks(tasksCheck.data);
-      if (dbMessages.length > opts.localMessageCount) {
+      const dbMessageCount = countSendGuardComparableMessages(dbMessages);
+      const localMessageCount = opts.localMessages !== undefined
+        ? countBackendBackedComparableMessages(opts.localMessages, dbMessages)
+        : opts.localMessageCount;
+      if (localMessageCount !== undefined && dbMessageCount > localMessageCount) {
         await reloadSessionFromDB();
         toast.info(opts.messages.staleOrChanged);
         return "blocked";
