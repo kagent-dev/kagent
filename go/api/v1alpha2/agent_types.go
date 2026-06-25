@@ -269,7 +269,7 @@ func AgentSandboxPlatform(agent AgentObject) SandboxPlatform {
 	return sa.Spec.Platform
 }
 
-// EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python).
+// EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python when not set).
 func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
 	if spec == nil {
 		return DeclarativeRuntime_Python
