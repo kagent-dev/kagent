@@ -13,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
 	adkmodel "google.golang.org/adk/model"
@@ -50,13 +51,16 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		return nil, nil, fmt.Errorf("agent config is required")
 	}
 
-	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) == "true"
-	overrideStaticWithForwardedToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN_OVERRIDES_STATIC")) == "true"
+	propagateToken := env.KagentPropagateToken.Get()
+	tokenPrecedence := mcp.StaticTokenWins
+	if env.KagentPropagateTokenOverridesStatic.Get() {
+		tokenPrecedence = mcp.ForwardedTokenWins
+	}
 	var dynamicHeaderProvider mcp.DynamicHeaderProvider
 	if stsPlugin != nil {
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
-	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, overrideStaticWithForwardedToken, dynamicHeaderProvider)
+	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, tokenPrecedence, dynamicHeaderProvider)
 	subagentSessionIDs := make(map[string]string)
 
 	var remoteAgentTools []tool.Tool

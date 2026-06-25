@@ -63,16 +63,16 @@ var (
 		ComponentAgentRuntime,
 	)
 
-	KagentPropagateToken = RegisterStringVar(
+	KagentPropagateToken = RegisterBoolVar(
 		"KAGENT_PROPAGATE_TOKEN",
-		"",
-		"When set, propagates the authentication token to downstream services.",
+		false,
+		"When true, the incoming Authorization token is propagated to downstream MCP servers and A2A agents.",
 		ComponentAgentRuntime,
 	)
 
-	KagentPropagateTokenOverridesStatic = RegisterStringVar(
+	KagentPropagateTokenOverridesStatic = RegisterBoolVar(
 		"KAGENT_PROPAGATE_TOKEN_OVERRIDES_STATIC",
-		"",
+		false,
 		"When true, a forwarded or STS-exchanged Authorization takes precedence over a static Authorization on an MCP server, and the displaced static token is sent as the X-Actor-Token actor token for downstream RFC 8693 delegation.",
 		ComponentAgentRuntime,
 	)

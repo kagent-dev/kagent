@@ -12,6 +12,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	adkmemory "google.golang.org/adk/memory"
 	adkplugin "google.golang.org/adk/plugin"
 	"google.golang.org/adk/runner"
@@ -97,7 +98,7 @@ func CreateRunnerConfig(
 }
 
 func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.TokenPropagationPlugin, error) {
-	propagateToken := strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PROPAGATE_TOKEN")), "true")
+	propagateToken := env.KagentPropagateToken.Get()
 	stsWellKnownURI := strings.TrimSpace(os.Getenv("STS_WELL_KNOWN_URI"))
 	if !propagateToken && stsWellKnownURI == "" {
 		return nil, nil
