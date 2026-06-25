@@ -1,9 +1,9 @@
 {{- $dot := . }}
-{{- $defaultProfider := .Values.providers.default | default "openAI" }}
-{{- $model := index .Values.providers $defaultProfider }}
-{{- if hasKey .Values.providers  $defaultProfider | not }}
-{{- fail  (printf "Provider key=%s is not found under .Values.providers" $defaultProfider)  }}
+{{- $defaultProvider := .Values.providers.default | default "openAI" }}
+{{- if hasKey .Values.providers $defaultProvider | not }}
+{{- fail (printf "Provider key=%s is not found under .Values.providers" $defaultProvider) }}
 {{- end }}
+{{- $model := index .Values.providers $defaultProvider }}
 ---
 apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig

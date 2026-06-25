@@ -276,8 +276,8 @@ controller:
       namespace: ""
       name: ""
     # pauseImage: "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
-    # runscAMD64URL: "gs://gvisor/releases/nightly/2026-05-19/x86_64/runsc"
-    # runscAMD64SHA256: "a397be1abc2420d26bce6c70e6e2ff96c73aaaab929756c56f5e2089ea842b63"
+    # runscAMD64URL: "gs://gvisor/releases/nightly/2026-06-02/x86_64/runsc"
+    # runscAMD64SHA256: "efd12935f6654c91a1389710eb8dfa4d12b6b9be00db87526dc2eb584ad00119"
     # runscARM64URL: "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc"
     # runscARM64SHA256: "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9"
     # Example when enabled:
@@ -351,6 +351,17 @@ ui:
     # Path to redirect users to when they click "Sign in with SSO" on the login page
     # Default: /oauth2/start (oauth2-proxy's authentication start endpoint)
     ssoRedirectPath: "/oauth2/start"
+  # -- Client-side chat stream inactivity timeout (seconds). The browser aborts a
+  # streaming response if no event is received within this window. Should be >=
+  # ui.nginx.proxyReadTimeout so nginx isn't the silent limit. Default 1800 (30m).
+  streamTimeoutSeconds: 1800
+  # -- Nginx proxy timeout configuration for the UI sidecar (values are passed
+  # directly to the corresponding nginx directives, e.g. "1800s").
+  nginx:
+    # -- proxy_read_timeout: max time between two successive reads from the upstream.
+    proxyReadTimeout: 1800s
+    # -- proxy_send_timeout: max time between two successive writes to the upstream.
+    proxySendTimeout: 1800s
   env: {} # Additional configuration key-value pairs for the ui ConfigMap
   # -- Additional request headers (beyond Authorization) the UI proxy will forward
   # to the backend. Names are case-insensitive. Hop-by-hop headers (Connection,
@@ -413,6 +424,19 @@ ui:
   #       path: /health
   #       port: http
   #     periodSeconds: 15
+  # -- Gates the OpenShift `Route` for the UI. Additionally conditional on the
+  # `route.openshift.io/v1` API being present, so it is a no-op off-OpenShift.
+  # Set to `false` to front the UI with your own Route/ingress or the bundled
+  # oauth2-proxy instead of the chart's edge-terminated Route.
+  route:
+    enabled: true
+  
+  # OpenShift Route only (when route.openshift.io/v1 exists). Long timeouts are required
+  # for A2A/SSE streaming through the cluster router; defaults are often ~60s and cause
+  # net::ERR_INCOMPLETE_CHUNKED_ENCODING in the browser.
+  openshiftRoute:
+    annotations:
+      haproxy.router.openshift.io/timeout: 120m
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
@@ -476,6 +500,13 @@ kmcp:
   namespaceOverride: "" # Override if desired (in conjunction with fullnameOverride to drop the `kagent-` prefix if you want)
 
 # ==============================================================================
+# SUBSTRATE
+# ==============================================================================
+
+substrate:
+  enabled: false
+
+# ==============================================================================
 # BUILT-IN TOOLS
 # ==============================================================================
 
@@ -525,6 +556,11 @@ proxy:
 
 k8s-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -533,6 +569,11 @@ k8s-agent:
       memory: 256Mi
 kgateway-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -541,6 +582,11 @@ kgateway-agent:
       memory: 256Mi
 istio-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -549,6 +595,11 @@ istio-agent:
       memory: 256Mi
 promql-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -557,6 +608,11 @@ promql-agent:
       memory: 256Mi
 observability-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -565,6 +621,11 @@ observability-agent:
       memory: 256Mi
 argo-rollouts-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -573,6 +634,11 @@ argo-rollouts-agent:
       memory: 256Mi
 helm-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -581,6 +647,11 @@ helm-agent:
       memory: 256Mi
 cilium-policy-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -589,6 +660,11 @@ cilium-policy-agent:
       memory: 256Mi
 cilium-manager-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m
@@ -597,6 +673,11 @@ cilium-manager-agent:
       memory: 256Mi
 cilium-debug-agent:
   enabled: true
+  modelConfigRef: ""
+  memory:
+    enabled: false
+    modelConfigRef: ""
+    ttlDays: 15
   resources:
     requests:
       cpu: 50m

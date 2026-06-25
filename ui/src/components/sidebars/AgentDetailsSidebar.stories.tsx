@@ -154,7 +154,6 @@ const mockTools: ToolsResponse[] = [
 
 export const AgentWithTools: Story = {
   args: {
-    selectedAgentName: "kagent/momus-gpt",
     currentAgent: mockAgent,
     allTools: mockTools,
   },
@@ -162,7 +161,6 @@ export const AgentWithTools: Story = {
 
 export const AgentWithNoTools: Story = {
   args: {
-    selectedAgentName: "kagent/simple-agent",
     currentAgent: mockAgentNoTools,
     allTools: [],
   },
@@ -170,7 +168,6 @@ export const AgentWithNoTools: Story = {
 
 export const BYOAgent: Story = {
   args: {
-    selectedAgentName: "kagent/custom-agent",
     currentAgent: mockBYOAgent,
     allTools: [],
   },

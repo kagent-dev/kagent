@@ -586,6 +586,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model:   model.Spec.AzureOpenAI.DeploymentName,
 				Headers: model.Spec.DefaultHeaders,
 			},
+			Temperature: utils.ParseStringToFloat64(model.Spec.AzureOpenAI.Temperature),
+			TopP:        utils.ParseStringToFloat64(model.Spec.AzureOpenAI.TopP),
+			MaxTokens:   model.Spec.AzureOpenAI.MaxTokens,
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
@@ -1212,27 +1215,20 @@ func mergeDeploymentData(dst, src *modelDeploymentData) {
 }
 
 func collectOtelEnvFromProcess() []corev1.EnvVar {
-	envVars := slices.Collect(utils.Map(
-		utils.Filter(
-			slices.Values(os.Environ()),
-			func(envVar string) bool {
-				return strings.HasPrefix(envVar, "OTEL_")
-			},
-		),
-		func(envVar string) corev1.EnvVar {
-			parts := strings.SplitN(envVar, "=", 2)
-			return corev1.EnvVar{
-				Name:  parts[0],
-				Value: parts[1],
-			}
-		},
-	))
-
-	// Sort by environment variable name
+	var envVars []corev1.EnvVar
+	for _, envVar := range os.Environ() {
+		if !strings.HasPrefix(envVar, "OTEL_") {
+			continue
+		}
+		name, value, found := strings.Cut(envVar, "=")
+		if !found {
+			continue
+		}
+		envVars = append(envVars, corev1.EnvVar{Name: name, Value: value})
+	}
 	slices.SortFunc(envVars, func(a, b corev1.EnvVar) int {
 		return strings.Compare(a.Name, b.Name)
 	})
-
 	return envVars
 }
 
