@@ -173,7 +173,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
       - name: Previous-release queries vs current schema
@@ -188,7 +188,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
 
@@ -321,7 +321,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
       - name: golangci-lint 
@@ -394,7 +394,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
 
