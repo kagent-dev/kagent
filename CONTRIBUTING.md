@@ -123,7 +123,7 @@ It's difficult to cover all the possible scenarios that you might encounter when
 
 DCO, short for Developer Certificate of Origin, is a per-commit signoff that you, the contributor, agree to the terms published at [https://developercertificate.org](https://developercertificate.org) for that particular commit. This will appear as a `Signed-off-by: Your Name <your.email>` trailer at the end of each commit message. The kagent project requires that every commit contains this DCO signoff.
 
-The easiest way to make sure each of your commits contains the signoff is to run make `init-git-hooks` in the repo to which you are contributing. This will configure your repo to use a Git hook which will automatically add the required trailer to all of your commit messages.
+The easiest way to make sure each of your commits contains the signoff is to run `make init-git-hooks` in the repo to which you are contributing. This will configure your repo to use a Git hook which will automatically add the required trailer to all of your commit messages.
 
 ```shell
 make init-git-hooks
@@ -229,7 +229,7 @@ All code must be reviewed by at least one [maintainer](https://github.com/kagent
 
 ## Documentation
 
-The kagent documentation lives at [kagent.dev/docs](https://kagent.dev/docs/kagent). The code lives at [kagent website](https://github.com/kagent-dev/website).
+The kagent documentation lives at [kagent.dev/docs/kagent](https://kagent.dev/docs/kagent). The code lives at [kagent website](https://github.com/kagent-dev/website).
 
 ## Get in touch
 
