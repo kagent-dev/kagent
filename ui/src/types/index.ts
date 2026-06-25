@@ -77,6 +77,22 @@ export interface BedrockConfig {
   region: string;
 }
 
+export interface FoundryConfig {
+  endpoint?: string;
+  endpointFrom?: Record<string, unknown>;
+  deployment: string;
+  apiVersion?: string;
+  auth: {
+    type: "APIKey" | "WorkloadIdentity" | "APIKeyPassthrough";
+    workloadIdentity?: {
+      clientId?: string;
+      clientIdFrom?: Record<string, unknown>;
+      tenantId?: string;
+      tenantIdFrom?: Record<string, unknown>;
+    };
+  };
+}
+
 export interface TLSConfig {
   disableVerify?: boolean;
   caCertSecretRef?: string;
@@ -101,6 +117,7 @@ export interface ModelConfigSpec {
   anthropicVertexAI?: AnthropicVertexAIConfig;
   bedrock?: BedrockConfig;
   sapAICore?: SAPAICoreConfigPayload;
+  foundry?: FoundryConfig;
 }
 
 export interface ModelConfig {

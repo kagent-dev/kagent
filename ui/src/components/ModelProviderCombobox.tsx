@@ -68,6 +68,7 @@ export function ModelProviderCombobox({
             'AnthropicVertexAI': Anthropic,
             'Bedrock': Bedrock,
             'SAPAICore': SAPAICore,
+            'Foundry': Azure,
         };
         if (!providerKey || !PROVIDER_ICONS[providerKey]) {
             return null;
