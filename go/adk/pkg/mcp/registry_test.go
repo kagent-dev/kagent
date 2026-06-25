@@ -643,3 +643,48 @@ func TestOverrideStatic_PreexistingActorTokenPreserved(t *testing.T) {
 		t.Errorf("X-Actor-Token: got %q, want %q", capturedActor, "Bearer forwarded-actor")
 	}
 }
+
+// TestOverrideStatic_NoStaticAuthorization_ForwardedPassesThrough verifies that
+// in ForwardedTokenWins mode with no static Authorization configured (only a
+// non-Authorization static header), the forwarded Authorization passes through
+// untouched and no actor token is synthesized.
+func TestOverrideStatic_NoStaticAuthorization_ForwardedPassesThrough(t *testing.T) {
+	t.Parallel()
+	var capturedAuth, capturedActor, capturedStatic string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		capturedActor = r.Header.Get("X-Actor-Token")
+		capturedStatic = r.Header.Get("X-Static")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := a2aCtx(map[string][]string{
+		"Authorization": {"Bearer user-dex"},
+	})
+
+	rt := &headerRoundTripper{
+		base:            http.DefaultTransport,
+		propagateToken:  true,
+		tokenPrecedence: ForwardedTokenWins,
+		headers:         map[string]string{"X-Static": "keep-me"},
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer user-dex" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer user-dex")
+	}
+	if capturedActor != "" {
+		t.Errorf("X-Actor-Token: got %q, want empty", capturedActor)
+	}
+	if capturedStatic != "keep-me" {
+		t.Errorf("X-Static: got %q, want %q", capturedStatic, "keep-me")
+	}
+}

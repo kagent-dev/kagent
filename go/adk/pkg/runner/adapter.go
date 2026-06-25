@@ -3,7 +3,6 @@ package runner
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -99,7 +98,7 @@ func CreateRunnerConfig(
 
 func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.TokenPropagationPlugin, error) {
 	propagateToken := env.KagentPropagateToken.Get()
-	stsWellKnownURI := strings.TrimSpace(os.Getenv("STS_WELL_KNOWN_URI"))
+	stsWellKnownURI := strings.TrimSpace(env.StsWellKnownURI.Get())
 	if !propagateToken && stsWellKnownURI == "" {
 		return nil, nil
 	}

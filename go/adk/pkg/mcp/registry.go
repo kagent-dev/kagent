@@ -104,11 +104,8 @@ type mcpServerParams struct {
 // independently of AllowedHeaders, mirroring the Python ADKTokenPropagationPlugin
 // behaviour triggered by KAGENT_PROPAGATE_TOKEN.
 //
-// tokenPrecedence selects how a static Authorization relates to a forwarded or
-// STS-exchanged one. ForwardedTokenWins (KAGENT_PROPAGATE_TOKEN_OVERRIDES_STATIC)
-// lets the forwarded Authorization win and carries the displaced static token as
-// the actor token; StaticTokenWins keeps the static Authorization at the highest
-// precedence.
+// tokenPrecedence is a runtime-global policy (KAGENT_PROPAGATE_TOKEN_OVERRIDES_STATIC)
+// applied uniformly to every server here; see TokenPrecedence and applyStaticHeaders.
 //
 // Optional headerProvider can be used to inject per-request headers
 // derived from invocation context (e.g., STS exchanged access tokens).
@@ -251,6 +248,11 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 		baseTransport.TLSClientConfig = tlsConfig
 	}
 
+	if params.TokenPrecedence == ForwardedTokenWins &&
+		params.TLSInsecureSkipVerify != nil && *params.TLSInsecureSkipVerify {
+		log.Info("WARNING: ForwardedTokenWins sends the static M2M credential as X-Actor-Token, but TLS verification is disabled for this MCP server - the actor token can leak to an unverified endpoint", "url", params.URL)
+	}
+
 	var httpTransport http.RoundTripper = baseTransport
 	if len(params.Headers) > 0 || len(params.AllowedHeaders) > 0 || params.PropagateToken || params.HeaderProvider != nil {
 		httpTransport = &headerRoundTripper{
@@ -292,16 +294,8 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 //  3. headerProvider: runtime headers derived from ADK context, such as STS tokens.
 //  4. headers: static key/value pairs configured on the MCP server spec.
 //
-// Static headers (4) always have the highest precedence, except for the
-// Authorization header when tokenPrecedence is ForwardedTokenWins. In that mode
-// a forwarded or STS-exchanged Authorization (1-3) wins over the static one, and
-// the displaced static Authorization is sent as the actor token (X-Actor-Token)
-// so a downstream gateway can perform an RFC 8693 delegation with subject=end
-// user and actor=agent. This supports gateways that require a static M2M token
-// for tool discovery but must act on behalf of the end user on tool calls. With
-// no forwarded token the static Authorization remains and no actor token is
-// added, so autonomous runs stay pure M2M. Only Authorization participates in
-// this swap; every other static header keeps the highest precedence in both modes.
+// Static headers (4) have the highest precedence; the one exception is the
+// Authorization header under ForwardedTokenWins, resolved in applyStaticHeaders.
 type headerRoundTripper struct {
 	base            http.RoundTripper
 	headers         map[string]string
@@ -353,6 +347,8 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 // equal to the static one is treated as M2M (no actor); an actor token already
 // forwarded via allowedHeaders is left untouched.
 func (rt *headerRoundTripper) applyStaticHeaders(req *http.Request) {
+	// headers is assumed to hold at most one Authorization key; with case-variant
+	// duplicates map iteration order decides which wins.
 	staticAuthorization := ""
 	for key, value := range rt.headers {
 		if strings.EqualFold(key, constants.AuthorizationHeader) {
