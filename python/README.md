@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - [uv package manager](https://docs.astral.sh/uv/getting-started/installation/)
-- Open AI API key
+- OpenAI API key
 
 ## Python
 

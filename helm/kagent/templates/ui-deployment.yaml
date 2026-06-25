@@ -64,6 +64,10 @@ spec:
             - name: SSO_REDIRECT_PATH
               value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
             {{- end }}
+            {{- if .Values.ui.streamTimeoutSeconds }}
+            - name: KAGENT_STREAM_TIMEOUT_MS
+              value: {{ mul (int .Values.ui.streamTimeoutSeconds) 1000 | quote }}
+            {{- end }}
             {{- with .Values.ui.additionalForwardedHeaders }}
             - name: KAGENT_ADDITIONAL_FORWARDED_HEADERS
               value: {{ join "," . | quote }}
