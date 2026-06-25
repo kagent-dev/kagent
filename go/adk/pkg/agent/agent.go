@@ -51,11 +51,12 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	}
 
 	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) == "true"
+	overrideStaticWithForwardedToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN_OVERRIDES_STATIC")) == "true"
 	var dynamicHeaderProvider mcp.DynamicHeaderProvider
 	if stsPlugin != nil {
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
-	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, dynamicHeaderProvider)
+	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, overrideStaticWithForwardedToken, dynamicHeaderProvider)
 	subagentSessionIDs := make(map[string]string)
 
 	var remoteAgentTools []tool.Tool

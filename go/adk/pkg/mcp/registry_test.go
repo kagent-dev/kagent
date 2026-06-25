@@ -396,3 +396,131 @@ func TestStaticHeaders_OverrideDynamic(t *testing.T) {
 		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer static")
 	}
 }
+
+// TestOverrideStatic_PropagatedTokenWinsAsSubject verifies that with
+// overrideStaticWithForwardedToken set, a token forwarded via propagateToken
+// beats the static Authorization (becoming the OBO subject), the displaced
+// static token is carried as the actor (X-Actor-Token), and other static
+// headers still apply.
+func TestOverrideStatic_PropagatedTokenWinsAsSubject(t *testing.T) {
+	t.Parallel()
+	var capturedAuth, capturedActor, capturedStatic string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		capturedActor = r.Header.Get("X-Actor-Token")
+		capturedStatic = r.Header.Get("X-Static")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := a2aCtx(map[string][]string{
+		"Authorization": {"Bearer user-dex"},
+	})
+
+	rt := &headerRoundTripper{
+		base:                             http.DefaultTransport,
+		propagateToken:                   true,
+		overrideStaticWithForwardedToken: true,
+		headers: map[string]string{
+			"Authorization": "Bearer m2m-sa",
+			"X-Static":      "keep-me",
+		},
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer user-dex" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer user-dex")
+	}
+	if capturedActor != "Bearer m2m-sa" {
+		t.Errorf("X-Actor-Token: got %q, want %q", capturedActor, "Bearer m2m-sa")
+	}
+	if capturedStatic != "keep-me" {
+		t.Errorf("X-Static: got %q, want %q", capturedStatic, "keep-me")
+	}
+}
+
+// TestOverrideStatic_DisplacedStaticBecomesActor verifies the displacement also
+// holds when the winning Authorization comes from the STS headerProvider rather
+// than a propagated A2A token.
+func TestOverrideStatic_DisplacedStaticBecomesActor(t *testing.T) {
+	t.Parallel()
+	var capturedAuth, capturedActor string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		capturedActor = r.Header.Get("X-Actor-Token")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rt := &headerRoundTripper{
+		base:                             http.DefaultTransport,
+		overrideStaticWithForwardedToken: true,
+		headers:                          map[string]string{"Authorization": "Bearer m2m-sa"},
+		headerProvider: func(context.Context) map[string]string {
+			return map[string]string{"Authorization": "Bearer sts-exchanged"}
+		},
+	}
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer sts-exchanged" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer sts-exchanged")
+	}
+	if capturedActor != "Bearer m2m-sa" {
+		t.Errorf("X-Actor-Token: got %q, want %q", capturedActor, "Bearer m2m-sa")
+	}
+}
+
+// TestOverrideStatic_NoForwardedToken_StaticStaysNoActor verifies that with no
+// forwarded or STS token the static Authorization is preserved and no actor
+// token is added, so autonomous runs stay pure M2M.
+func TestOverrideStatic_NoForwardedToken_StaticStaysNoActor(t *testing.T) {
+	t.Parallel()
+	var capturedAuth, capturedActor string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		capturedActor = r.Header.Get("X-Actor-Token")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	// propagateToken is on but the incoming request carries no Authorization.
+	ctx := a2aCtx(map[string][]string{
+		"X-Trace-Id": {"abc"},
+	})
+
+	rt := &headerRoundTripper{
+		base:                             http.DefaultTransport,
+		propagateToken:                   true,
+		overrideStaticWithForwardedToken: true,
+		headers:                          map[string]string{"Authorization": "Bearer m2m-sa"},
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer m2m-sa" {
+		t.Errorf("Authorization: got %q, want %q", capturedAuth, "Bearer m2m-sa")
+	}
+	if capturedActor != "" {
+		t.Errorf("X-Actor-Token: got %q, want empty", capturedActor)
+	}
+}

@@ -70,6 +70,13 @@ var (
 		ComponentAgentRuntime,
 	)
 
+	KagentPropagateTokenOverridesStatic = RegisterStringVar(
+		"KAGENT_PROPAGATE_TOKEN_OVERRIDES_STATIC",
+		"",
+		"When true, a forwarded or STS-exchanged Authorization takes precedence over a static Authorization on an MCP server, and the displaced static token is sent as the X-Actor-Token actor token for downstream RFC 8693 delegation.",
+		ComponentAgentRuntime,
+	)
+
 	StsWellKnownURI = RegisterStringVar(
 		"STS_WELL_KNOWN_URI",
 		"",
