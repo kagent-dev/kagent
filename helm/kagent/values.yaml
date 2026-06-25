@@ -229,6 +229,7 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
+    annotations: {}
   # -- Prometheus-style /metrics endpoint for the controller manager.
   # When enabled, provisions a dedicated metrics Service plus the
   # ClusterRoles required for authenticated scrapes. Bind

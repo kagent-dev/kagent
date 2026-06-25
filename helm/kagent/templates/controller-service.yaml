@@ -5,6 +5,12 @@ metadata:
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
+  {{- if .Values.controller.service.annotations }}
+  annotations:
+    {{- with .Values.controller.service.annotations }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
 spec:
   type: {{ .Values.controller.service.type }}
   ports:
