@@ -26,6 +26,15 @@ describe('isAllowedFile', () => {
   test('accepts by extension when mime is empty', () => {
     expect(isAllowedFile(makeFile('a.md', ''))).toBe(true);
     expect(isAllowedFile(makeFile('a.csv', ''))).toBe(true);
+    expect(isAllowedFile(makeFile('a.yaml', ''))).toBe(true);
+    expect(isAllowedFile(makeFile('a.yml', ''))).toBe(true);
+    expect(isAllowedFile(makeFile('a.xml', ''))).toBe(true);
+  });
+
+  test('accepts yaml and xml by mime', () => {
+    expect(isAllowedFile(makeFile('a.xml', 'application/xml'))).toBe(true);
+    expect(isAllowedFile(makeFile('a.xml', 'text/xml'))).toBe(true);
+    expect(isAllowedFile(makeFile('a.yaml', 'application/x-yaml'))).toBe(true);
   });
 
   test('rejects disallowed types', () => {

@@ -86,6 +86,26 @@ func TestSaveArtifact(t *testing.T) {
 			wantVersion: 1,
 		},
 		{
+			// "____" is url-safe base64 for 0xff,0xff,0xff; standard decoding rejects '_'.
+			name:        "url-safe base64 decoded",
+			artifacts:   newFakeArtifacts(),
+			input:       saveArtifactInput{Name: "u.bin", Content: "____", MimeType: "application/octet-stream", Base64: true},
+			limit:       1024,
+			wantBytes:   []byte{0xff, 0xff, 0xff},
+			wantMime:    "application/octet-stream",
+			wantVersion: 1,
+		},
+		{
+			// "AQI" is unpadded base64 for 0x01,0x02; standard padded decoding rejects it.
+			name:        "unpadded base64 decoded",
+			artifacts:   newFakeArtifacts(),
+			input:       saveArtifactInput{Name: "p.bin", Content: "AQI", MimeType: "application/octet-stream", Base64: true},
+			limit:       1024,
+			wantBytes:   []byte{0x01, 0x02},
+			wantMime:    "application/octet-stream",
+			wantVersion: 1,
+		},
+		{
 			name:      "empty name rejected",
 			artifacts: newFakeArtifacts(),
 			input:     saveArtifactInput{Name: "  ", Content: "x"},

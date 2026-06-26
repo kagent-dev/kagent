@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"strconv"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
@@ -37,7 +38,10 @@ func MaxArtifactBytes() int {
 
 // checkInboundFileSizes returns an error if any inbound FilePart's decoded
 // content exceeds the limit. Only inline base64 (FileBytes) parts are checked;
-// URI-referenced files are out of scope.
+// URI-referenced files are out of scope. The decoded size is derived from the
+// base64 length so a ~10 MB upload is not fully decoded onto the heap just to be
+// measured; base64 validity is enforced downstream when the payload is decoded
+// for persistence.
 func checkInboundFileSizes(msg *a2atype.Message, limit int) error {
 	if msg == nil {
 		return nil
@@ -51,15 +55,29 @@ func checkInboundFileSizes(msg *a2atype.Message, limit int) error {
 		if !ok {
 			continue
 		}
-		decoded, err := base64.StdEncoding.DecodeString(fb.Bytes)
-		if err != nil {
-			return fmt.Errorf("invalid base64 in file part %q: %w", fb.Name, err)
-		}
-		if len(decoded) > limit {
-			return fmt.Errorf("file %q exceeds maximum allowed size: %d bytes > %d bytes", fb.Name, len(decoded), limit)
+		if n := base64DecodedLen(fb.Bytes); n > limit {
+			return fmt.Errorf("file %q exceeds maximum allowed size: %d bytes > %d bytes", fb.Name, n, limit)
 		}
 	}
 	return nil
+}
+
+// base64DecodedLen returns the number of bytes that standard padded base64 input
+// decodes to, derived from its length and trailing padding without allocating
+// the payload.
+//
+// ponytail: assumes clean, padded StdEncoding base64 (what the UI emits via
+// FileReader); embedded whitespace/newlines would inflate the estimate. The
+// upgrade path is a streaming decode counter if MIME-wrapped input ever shows up.
+func base64DecodedLen(s string) int {
+	n := base64.StdEncoding.DecodedLen(len(s))
+	switch {
+	case strings.HasSuffix(s, "=="):
+		return n - 2
+	case strings.HasSuffix(s, "="):
+		return n - 1
+	}
+	return n
 }
 
 // asFilePart extracts a *FilePart from an A2A Part, handling both value and
