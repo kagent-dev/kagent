@@ -25,7 +25,7 @@ function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRu
   if (agentFormData.sandboxPlatform === "substrate") {
     return "go";
   }
-  return agentFormData.declarativeRuntime === "go" ? "go" : "python";
+  return agentFormData.declarativeRuntime === "python" ? "python" : "go";
 }
 
 function attachPromptTemplateToDeclarative(decl: DeclarativeAgentSpec, agentFormData: AgentFormData) {
