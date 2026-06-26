@@ -50,6 +50,12 @@ export interface AgentFormData {
   };
   // Context management
   context?: ContextConfig;
+  /** Max consecutive failures per tool call before the agent stops retrying (reflect-and-retry). */
+  toolRetries?: number;
+  /** Cap on the total number of model calls per request (cost safety rail). */
+  maxLLMCalls?: number;
+  /** Log every LLM request/response and tool call to the agent pod logs. */
+  debugLogging?: boolean;
   promptSources?: Array<{ name: string; alias: string }>;
   /** AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; openclaw or hermes backend). */
   agentHarness?: AgentHarnessFormSlice;

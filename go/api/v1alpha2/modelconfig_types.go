@@ -455,6 +455,26 @@ type ModelConfigSpec struct {
 	// that use self-signed certificates or custom certificate authorities.
 	// +optional
 	TLS *TLSConfig `json:"tls,omitempty"`
+
+	// Retry configures automatic retries of failed LLM HTTP requests
+	// (e.g. 429 rate limits, transient 5xx errors, timeouts) with
+	// exponential backoff, handled by the provider SDK.
+	// +optional
+	Retry *ModelRetryConfig `json:"retry,omitempty"`
+}
+
+// ModelRetryConfig configures automatic retries of failed LLM HTTP requests.
+type ModelRetryConfig struct {
+	// Attempts is the maximum number of retry attempts after the initial
+	// request fails. Retried errors include rate limits (429), request
+	// timeouts (408), and transient server errors (5xx); backoff between
+	// attempts is exponential. Set to 0 to disable retries entirely.
+	// Supported for the OpenAI, AzureOpenAI, Anthropic, and Gemini providers;
+	// ignored by other providers.
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=20
+	Attempts int `json:"attempts"`
 }
 
 // ModelConfigStatus defines the observed state of ModelConfig.

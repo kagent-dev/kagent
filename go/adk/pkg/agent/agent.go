@@ -228,6 +228,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		if err != nil {
 			return nil, fmt.Errorf("failed to build HTTP client for Gemini: %w", err)
 		}
+		warnIgnoredMaxRetries(log, m.BaseModel, "gemini")
 		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
 			APIKey:     apiKey,
 			HTTPClient: httpClient,
@@ -246,6 +247,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
+		warnIgnoredMaxRetries(log, m.BaseModel, "gemini_vertex_ai")
 		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
 			Backend:  genai.BackendVertexAI,
 			Project:  project,
@@ -278,6 +280,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			modelName = DefaultOllamaModel
 		}
 		// Create OllamaConfig with native SDK support for Ollama-specific options
+		warnIgnoredMaxRetries(log, m.BaseModel, "ollama")
 		cfg := &models.OllamaConfig{
 			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
 			Model:           modelName,
@@ -299,6 +302,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			return nil, fmt.Errorf("bedrock requires a model name (e.g. anthropic.claude-3-sonnet-20240229-v1:0)")
 		}
 		// Use Bedrock Converse API for ALL models (including Anthropic)
+		warnIgnoredMaxRetries(log, m.BaseModel, "bedrock")
 		cfg := &models.BedrockConfig{
 			TransportConfig:              transportConfigFromBase(m.BaseModel, nil),
 			Model:                        modelName,
@@ -331,6 +335,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		return models.NewAnthropicVertexAIModelWithLogger(ctx, cfg, region, project, log)
 
 	case *adk.SAPAICore:
+		warnIgnoredMaxRetries(log, m.BaseModel, "sap_ai_core")
 		cfg := models.SAPAICoreConfig{
 			Model:         m.Model,
 			BaseUrl:       m.BaseUrl,
@@ -354,6 +359,15 @@ func transportConfigFromBase(b adk.BaseModel, timeout *int) models.TransportConf
 		TLSDisableSystemCAs:   b.TLSDisableSystemCAs,
 		APIKeyPassthrough:     b.APIKeyPassthrough,
 		Timeout:               timeout,
+		MaxRetries:            b.MaxRetries,
+	}
+}
+
+// warnIgnoredMaxRetries logs a warning when retry configuration is set on a
+// provider whose Go SDK does not support configurable HTTP retries.
+func warnIgnoredMaxRetries(log logr.Logger, b adk.BaseModel, provider string) {
+	if b.MaxRetries != nil {
+		log.Info("Model retry configuration (max_retries) is not supported for this provider in the Go runtime; ignoring", "provider", provider)
 	}
 }
 

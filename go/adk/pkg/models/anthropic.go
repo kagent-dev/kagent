@@ -65,6 +65,9 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 	if config.BaseUrl != "" {
 		opts = append(opts, option.WithBaseURL(config.BaseUrl))
 	}
+	if config.MaxRetries != nil {
+		opts = append(opts, option.WithMaxRetries(*config.MaxRetries))
+	}
 
 	// Create HTTP client with TLS, custom headers, and timeout.
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
@@ -94,6 +97,9 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicConfig, region, projectID string, logger logr.Logger) (*AnthropicModel, error) {
 	opts := []option.RequestOption{
 		vertex.WithGoogleAuth(ctx, region, projectID),
+	}
+	if config.MaxRetries != nil {
+		opts = append(opts, option.WithMaxRetries(*config.MaxRetries))
 	}
 
 	// Create HTTP client with timeout, custom headers, TLS, and passthrough
@@ -125,6 +131,9 @@ func NewAnthropicBedrockModelWithLogger(ctx context.Context, config *AnthropicCo
 		bedrock.WithLoadDefaultConfig(ctx,
 			awsconfig.WithRegion(region),
 		),
+	}
+	if config.MaxRetries != nil {
+		opts = append(opts, option.WithMaxRetries(*config.MaxRetries))
 	}
 
 	// Create HTTP client with timeout, custom headers, TLS, and passthrough

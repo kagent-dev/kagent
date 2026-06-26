@@ -14,6 +14,8 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	adkmemory "google.golang.org/adk/memory"
 	adkplugin "google.golang.org/adk/plugin"
+	"google.golang.org/adk/plugin/loggingplugin"
+	"google.golang.org/adk/plugin/retryandreflect"
 	"google.golang.org/adk/runner"
 	adksession "google.golang.org/adk/session"
 	adktool "google.golang.org/adk/tool"
@@ -83,6 +85,12 @@ func CreateRunnerConfig(
 		}
 	}
 
+	reliabilityPlugins, err := buildReliabilityPlugins(agentConfig.Reliability, log)
+	if err != nil {
+		return runner.Config{}, nil, err
+	}
+	adkPlugins = append(adkPlugins, reliabilityPlugins...)
+
 	cfg := runner.Config{
 		AppName:        appName,
 		Agent:          adkAgent,
@@ -94,6 +102,49 @@ func CreateRunnerConfig(
 	}
 
 	return cfg, subagentSessionIDs, nil
+}
+
+// buildReliabilityPlugins translates the agent reliability configuration into
+// ADK plugins: debug logging, tool retry (reflect-and-retry), and a max LLM
+// calls limit.
+func buildReliabilityPlugins(r *adk.ReliabilityConfig, log logr.Logger) ([]*adkplugin.Plugin, error) {
+	if r == nil {
+		return nil, nil
+	}
+
+	var plugins []*adkplugin.Plugin
+
+	if r.DebugLogging != nil && *r.DebugLogging {
+		p, err := loggingplugin.New("kagent_debug_logging")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create debug logging plugin: %w", err)
+		}
+		plugins = append(plugins, p)
+		log.Info("Debug logging enabled for agent")
+	}
+
+	if r.ToolRetries != nil && *r.ToolRetries > 0 {
+		p, err := retryandreflect.New(
+			retryandreflect.WithMaxRetries(*r.ToolRetries),
+			retryandreflect.WithErrorIfRetryExceeded(false),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create tool retry plugin: %w", err)
+		}
+		plugins = append(plugins, p)
+		log.Info("Tool retry enabled for agent", "toolRetries", *r.ToolRetries)
+	}
+
+	if r.MaxLLMCalls != nil && *r.MaxLLMCalls > 0 {
+		p, err := newMaxLLMCallsPlugin(*r.MaxLLMCalls)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create max LLM calls plugin: %w", err)
+		}
+		plugins = append(plugins, p)
+		log.Info("Max LLM calls limit enabled for agent", "maxLLMCalls", *r.MaxLLMCalls)
+	}
+
+	return plugins, nil
 }
 
 func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.TokenPropagationPlugin, error) {

@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, Suspense, useCallback, useMemo } from "react";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,6 +57,12 @@ interface AgentPageContentProps {
   agentNamespace: string | null;
 }
 
+/** Parses a form field into a positive integer, returning undefined for empty/invalid input (avoids NaN in payloads). */
+function parseOptionalPositiveInt(value: string): number | undefined {
+  const parsed = parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
 
 # Instructions
@@ -102,6 +108,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     /** Python vs Go ADK (`spec.declarative.runtime`). */
     declarativeRuntime: DeclarativeRuntime;
     contextConfig: ContextConfig | undefined;
+    /** Max consecutive tool-call failures before the agent stops retrying (empty = disabled). */
+    toolRetries: string;
+    /** Cap on total model calls per request (empty = runtime default). */
+    maxLLMCalls: string;
+    /** Log every LLM request/response and tool call to pod logs. */
+    debugLogging: boolean;
     serviceAccountName: string;
     promptSourceRows: PromptSourceRow[];
     isSubmitting: boolean;
@@ -137,6 +149,9 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     stream: false,
     declarativeRuntime: "go",
     contextConfig: undefined,
+    toolRetries: "",
+    maxLLMCalls: "",
+    debugLogging: false,
     serviceAccountName: "",
     promptSourceRows: [newPromptSourceRow()],
     isSubmitting: false,
@@ -145,6 +160,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     substrateWorkerPoolRefName: "",
     substrateSnapshotsLocation: "",
   });
+
+  const [isAdvancedSectionExpanded, setIsAdvancedSectionExpanded] = useState(false);
 
   const substrateEnabled = useSubstrateEnabled();
 
@@ -267,11 +284,17 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     : null,
                   memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
                   contextConfig: decl?.context,
+                  toolRetries: decl?.reliability?.toolRetries ? String(decl.reliability.toolRetries) : "",
+                  maxLLMCalls: decl?.reliability?.maxLLMCalls ? String(decl.reliability.maxLLMCalls) : "",
+                  debugLogging: decl?.reliability?.debugLogging ?? false,
                   serviceAccountName: decl?.deployment?.serviceAccountName || "",
                   byoImage: "",
                   byoCmd: "",
                   byoArgs: "",
                 }));
+                if (decl?.reliability?.toolRetries || decl?.reliability?.maxLLMCalls || decl?.reliability?.debugLogging) {
+                  setIsAdvancedSectionExpanded(true);
+                }
               } else {
                 setState((prev) => ({
                   ...prev,
@@ -479,6 +502,9 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               }
             : undefined,
         context: useDeclarativeAgentFields ? state.contextConfig : undefined,
+        toolRetries: useDeclarativeAgentFields ? parseOptionalPositiveInt(state.toolRetries) : undefined,
+        maxLLMCalls: useDeclarativeAgentFields ? parseOptionalPositiveInt(state.maxLLMCalls) : undefined,
+        debugLogging: useDeclarativeAgentFields ? state.debugLogging : undefined,
         declarativeRuntime: useDeclarativeAgentFields ? state.declarativeRuntime : undefined,
         byoImage: state.byoImage,
         byoCmd: state.byoCmd || undefined,
@@ -830,6 +856,90 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                           Token-by-token responses where the provider supports it
                         </p>
                       </div>
+                    </div>
+
+                    <div className="rounded-md border border-border/60">
+                      <button
+                        type="button"
+                        className="flex w-full cursor-pointer items-center justify-between px-3 py-2.5 text-left"
+                        onClick={() => setIsAdvancedSectionExpanded((prev) => !prev)}
+                        aria-expanded={isAdvancedSectionExpanded}
+                        aria-controls="agent-advanced-fields"
+                      >
+                        <span className="space-y-0.5">
+                          <span className="block text-sm font-medium text-foreground">Advanced</span>
+                          <span className="block text-xs text-muted-foreground">
+                            Reliability and debugging: tool retries, model call limits, debug logging
+                          </span>
+                        </span>
+                        {isAdvancedSectionExpanded ? (
+                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                      </button>
+                      {isAdvancedSectionExpanded && (
+                        <div id="agent-advanced-fields" className="space-y-5 border-t border-border/60 p-3">
+                          <FieldRoot>
+                            <FieldLabel htmlFor="tool-retries">Tool retries</FieldLabel>
+                            <Input
+                              id="tool-retries"
+                              type="number"
+                              min={1}
+                              max={10}
+                              placeholder="Disabled"
+                              value={state.toolRetries}
+                              onChange={(e) => setState((prev) => ({ ...prev, toolRetries: e.target.value }))}
+                              disabled={disabled}
+                              className="max-w-[180px]"
+                            />
+                            <FieldHint>
+                              Self-healing: when a tool call fails, inject reflection guidance and retry up to this
+                              many times before giving up. Leave empty to disable.
+                            </FieldHint>
+                          </FieldRoot>
+
+                          <FieldRoot>
+                            <FieldLabel htmlFor="max-llm-calls">Max model calls per request</FieldLabel>
+                            <Input
+                              id="max-llm-calls"
+                              type="number"
+                              min={1}
+                              placeholder="Runtime default (500)"
+                              value={state.maxLLMCalls}
+                              onChange={(e) => setState((prev) => ({ ...prev, maxLLMCalls: e.target.value }))}
+                              disabled={disabled}
+                              className="max-w-[180px]"
+                            />
+                            <FieldHint>
+                              Cost safety rail: stop the run with a clear error if the agent exceeds this many model
+                              calls in a single request (like a resource limit, but for tokens).
+                            </FieldHint>
+                          </FieldRoot>
+
+                          <div className="flex gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                            <div className="flex h-5 shrink-0 items-center self-start">
+                              <Checkbox
+                                id="debug-logging-toggle"
+                                checked={state.debugLogging}
+                                onCheckedChange={(checked) => setState((prev) => ({ ...prev, debugLogging: !!checked }))}
+                                disabled={disabled}
+                              />
+                            </div>
+                            <div className="min-w-0 space-y-1.5">
+                              <Label
+                                htmlFor="debug-logging-toggle"
+                                className="block cursor-pointer text-sm font-medium leading-5 text-foreground"
+                              >
+                                Debug logging
+                              </Label>
+                              <p className="text-xs leading-snug text-muted-foreground">
+                                Log every LLM request/response and tool call to the agent pod logs
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <ServiceAccountNameField

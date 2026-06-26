@@ -74,6 +74,10 @@ AgentSpec
 │   │       ├── summarizer: ContextSummarizerConfig
 │   │       ├── tokenThreshold: int
 │   │       └── eventRetentionSize: int
+│   ├── reliability: ReliabilityConfig
+│   │   ├── toolRetries: int (reflect-and-retry on failed tool calls)
+│   │   ├── maxLLMCalls: int (cap on model calls per request)
+│   │   └── debugLogging: bool (log every LLM request/response and tool call)
 │   └── executeCodeBlocks: bool (currently ignored)
 │
 └── byo: BYOAgentSpec (if type=BYO)
@@ -125,6 +129,10 @@ ModelConfigSpec
 │   ├── caCertSecretRef: string
 │   ├── caCertSecretKey: string
 │   └── disableSystemCAs: bool
+│
+├── retry: ModelRetryConfig
+│   └── attempts: int (max retries of failed LLM HTTP requests with exponential backoff;
+│                      OpenAI/AzureOpenAI/Anthropic/Gemini only)
 │
 ├── openAI: OpenAIConfig
 │   ├── baseUrl, temperature, maxTokens, topP
@@ -340,7 +348,8 @@ When adding a field to an existing CRD, update all layers:
 5. **Translator** — `go/core/internal/controller/translator/agent/adk_api_translator.go` (wire field into config)
 6. **Python ADK types** — `python/packages/kagent-adk/src/kagent/adk/types.py` (mirror Go types)
 7. **Python runtime** — Use the field in agent setup if it affects runtime behavior
-8. **Tests** — Translator unit tests (golden files), E2E tests
-9. **Helm values** — If exposed to users installing via Helm
+8. **Go runtime** — `go/adk/pkg/` (mirror runtime behavior for `runtime: go` agents)
+9. **Tests** — Translator unit tests (golden files), E2E tests
+10. **Helm values** — If exposed to users installing via Helm
 
 See [controller-reconciliation.md](controller-reconciliation.md) for the reconciliation flow and the kagent-dev skill for step-by-step examples.

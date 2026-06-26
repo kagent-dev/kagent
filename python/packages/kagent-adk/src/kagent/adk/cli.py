@@ -78,6 +78,29 @@ def static(
             plugins = []
         plugins.append(LLMPassthroughPlugin())
 
+    if agent_config.reliability and agent_config.reliability.debug_logging:
+        from google.adk.plugins import LoggingPlugin
+
+        if plugins is None:
+            plugins = []
+        plugins.append(LoggingPlugin())
+        logger.info("Debug logging plugin enabled")
+
+    if agent_config.reliability and agent_config.reliability.tool_retries:
+        from ._reflect_retry_plugin import KAgentReflectAndRetryToolPlugin
+
+        if plugins is None:
+            plugins = []
+        plugins.append(
+            KAgentReflectAndRetryToolPlugin(
+                max_retries=agent_config.reliability.tool_retries,
+                # Return reflection guidance to the model instead of raising,
+                # so the conversation degrades gracefully after max retries.
+                throw_exception_if_retry_exceeded=False,
+            )
+        )
+        logger.info(f"Reflect-and-retry plugin enabled (tool_retries={agent_config.reliability.tool_retries})")
+
     def root_agent_factory() -> BaseAgent:
         root_agent = agent_config.to_agent(app_cfg.name, sts_integration, propagate_token)
 

@@ -61,6 +61,11 @@ type BaseModel struct {
 	// APIKeyPassthrough enables forwarding the Bearer token from incoming requests
 	// as the LLM API key instead of using a static secret.
 	APIKeyPassthrough bool `json:"api_key_passthrough,omitempty"`
+
+	// MaxRetries is the maximum number of times a failed LLM HTTP request
+	// (429 rate limit, 408 timeout, transient 5xx) is retried with
+	// exponential backoff by the provider SDK. Nil means SDK default.
+	MaxRetries *int `json:"max_retries,omitempty"`
 }
 
 // GDCHTokenExchangeConfig holds the GDCH-specific token exchange fields
@@ -454,6 +459,19 @@ type NetworkConfig struct {
 	AllowedDomains []string `json:"allowed_domains,omitempty"`
 }
 
+// ReliabilityConfig groups reliability-related configuration that flows
+// through config.json to the Python runtime.
+type ReliabilityConfig struct {
+	// ToolRetries is the maximum number of consecutive failures for a tool
+	// call before the runtime stops retrying it (reflect-and-retry).
+	ToolRetries *int `json:"tool_retries,omitempty"`
+	// MaxLLMCalls caps the total number of model calls per request.
+	MaxLLMCalls *int `json:"max_llm_calls,omitempty"`
+	// DebugLogging enables verbose logging of every LLM request/response
+	// and tool call.
+	DebugLogging *bool `json:"debug_logging,omitempty"`
+}
+
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
 type AgentContextConfig struct {
 	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
@@ -509,6 +527,7 @@ type AgentConfig struct {
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	Network       *NetworkConfig        `json:"network,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	Reliability   *ReliabilityConfig    `json:"reliability,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -540,6 +559,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Memory        json.RawMessage       `json:"memory"`
 		Network       *NetworkConfig        `json:"network,omitempty"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		Reliability   *ReliabilityConfig    `json:"reliability,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -569,6 +589,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Memory = memory
 	a.Network = tmp.Network
 	a.ContextConfig = tmp.ContextConfig
+	a.Reliability = tmp.Reliability
 	return nil
 }
 

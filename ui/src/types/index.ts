@@ -84,6 +84,11 @@ export interface TLSConfig {
   disableSystemCAs?: boolean;
 }
 
+export interface ModelRetryConfig {
+  /** Max retry attempts for failed LLM HTTP requests (429, 408, transient 5xx). 0 disables retries. */
+  attempts: number;
+}
+
 export interface ModelConfigSpec {
   model: string;
   provider: string;
@@ -92,6 +97,7 @@ export interface ModelConfigSpec {
   apiKeyPassthrough?: boolean;
   defaultHeaders?: Record<string, string>;
   tls?: TLSConfig;
+  retry?: ModelRetryConfig;
   openAI?: OpenAIConfig;
   anthropic?: AnthropicConfig;
   azureOpenAI?: AzureOpenAIConfig;
@@ -373,6 +379,17 @@ export interface DeclarativeAgentSpec {
   memory?: MemorySpec;
   /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
   promptTemplate?: PromptTemplateSpec;
+  /** Self-healing and observability behaviors: tool retries, model call caps, debug logging. */
+  reliability?: ReliabilityConfig;
+}
+
+export interface ReliabilityConfig {
+  /** Max consecutive failures for a tool call before the agent stops retrying it. */
+  toolRetries?: number;
+  /** Cap on the total number of model calls per request (cost safety rail). */
+  maxLLMCalls?: number;
+  /** Log every LLM request/response and tool call to the agent pod logs. */
+  debugLogging?: boolean;
 }
 
 export interface ContextConfig {
