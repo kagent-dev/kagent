@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	substrateSandboxSkillsUnsupportedMsg = "spec.skills is not supported when spec.platform is substrate"
+	substrateSandboxSkillsUnsupportedMsg = "spec.skills is not supported for sandbox agents"
 	substrateSandboxBYOMissingCommandMsg = "BYO agents on substrate must set spec.byo.deployment.cmd (substrate does not fall back to the image entrypoint)"
 )
 
@@ -19,13 +19,13 @@ func AgentSpecHasSkills(spec *AgentSpec) bool {
 	return len(s.Refs) > 0 || len(s.GitRefs) > 0
 }
 
-// ValidateSubstrateSandboxAgentSpec rejects substrate sandbox configurations that kagent
-// does not support yet (for example declarative skills on Agent Substrate). Declarative
+// ValidateSubstrateSandboxAgentSpec rejects sandbox agent configurations that kagent
+// does not support on Agent Substrate (for example declarative skills). Declarative
 // Python/Go and BYO (Go/Python) agents are supported; BYO agents must provide an explicit
 // command because substrate copies the container Command verbatim with no image-entrypoint
 // fallback.
 func ValidateSubstrateSandboxAgentSpec(agent *SandboxAgent) error {
-	if agent == nil || AgentSandboxPlatform(agent) != SandboxPlatformSubstrate {
+	if agent == nil {
 		return nil
 	}
 	spec := agent.GetAgentSpec()

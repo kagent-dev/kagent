@@ -210,7 +210,6 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			sa: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "go-agent", Namespace: "kagent"},
 				Spec: v1alpha2.SandboxAgentSpec{
-					Platform:  v1alpha2.SandboxPlatformSubstrate,
 					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}},
 				},
 			},
@@ -224,7 +223,6 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			sa: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
 				Spec: v1alpha2.SandboxAgentSpec{
-					Platform:  v1alpha2.SandboxPlatformSubstrate,
 					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
 				},
 			},
@@ -238,7 +236,6 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			sa: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "byo-agent", Namespace: "kagent"},
 				Spec: v1alpha2.SandboxAgentSpec{
-					Platform:  v1alpha2.SandboxPlatformSubstrate,
 					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}},
 				},
 			},

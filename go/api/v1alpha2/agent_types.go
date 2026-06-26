@@ -230,15 +230,6 @@ type DeclarativeAgentSpec struct {
 	Context *ContextConfig `json:"context,omitempty"`
 }
 
-// SandboxPlatform selects the control plane for sandboxed agents.
-// +kubebuilder:validation:Enum=agent-sandbox;substrate
-type SandboxPlatform string
-
-const (
-	SandboxPlatformAgentSandbox SandboxPlatform = "agent-sandbox"
-	SandboxPlatformSubstrate    SandboxPlatform = "substrate"
-)
-
 // SandboxSubstrateSpec configures Agent Substrate for a SandboxAgent.
 // WorkerPool capacity is referenced from workerPoolRef or the controller default.
 type SandboxSubstrateSpec struct {
@@ -258,15 +249,6 @@ type SandboxConfig struct {
 	// When unset or when allowedDomains is empty, outbound access is denied by default.
 	// +optional
 	Network *NetworkConfig `json:"network,omitempty"`
-}
-
-// AgentSandboxPlatform returns the effective sandbox platform for an agent.
-func AgentSandboxPlatform(agent AgentObject) SandboxPlatform {
-	sa, ok := agent.(*SandboxAgent)
-	if !ok || sa == nil || sa.Spec.Platform == "" {
-		return SandboxPlatformAgentSandbox
-	}
-	return sa.Spec.Platform
 }
 
 // EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python when not set).

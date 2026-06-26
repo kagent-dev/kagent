@@ -7,27 +7,16 @@ import (
 )
 
 func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
-	t.Run("allows substrate without skills", func(t *testing.T) {
+	t.Run("allows sandbox agent without skills", func(t *testing.T) {
 		agent := &SandboxAgent{
-			Spec: SandboxAgentSpec{Platform: SandboxPlatformSubstrate},
+			Spec: SandboxAgentSpec{},
 		}
 		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
 	})
 
-	t.Run("allows skills on agent-sandbox platform", func(t *testing.T) {
+	t.Run("rejects skills", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Platform:  SandboxPlatformAgentSandbox,
-				AgentSpec: AgentSpec{Skills: &SkillForAgent{Refs: []string{"ghcr.io/org/skill:latest"}}},
-			},
-		}
-		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
-	})
-
-	t.Run("rejects skills on substrate platform", func(t *testing.T) {
-		agent := &SandboxAgent{
-			Spec: SandboxAgentSpec{
-				Platform:  SandboxPlatformSubstrate,
 				AgentSpec: AgentSpec{Skills: &SkillForAgent{Refs: []string{"ghcr.io/org/skill:latest"}}},
 			},
 		}
@@ -36,10 +25,9 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxSkillsUnsupportedMsg)
 	})
 
-	t.Run("allows python runtime on substrate platform", func(t *testing.T) {
+	t.Run("allows python runtime", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Platform: SandboxPlatformSubstrate,
 				AgentSpec: AgentSpec{
 					Type: AgentType_Declarative,
 					Declarative: &DeclarativeAgentSpec{
@@ -51,10 +39,9 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
 	})
 
-	t.Run("rejects BYO agents without an explicit command on substrate platform", func(t *testing.T) {
+	t.Run("rejects BYO agents without an explicit command", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Platform: SandboxPlatformSubstrate,
 				AgentSpec: AgentSpec{
 					Type: AgentType_BYO,
 					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest"}},
@@ -66,11 +53,10 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxBYOMissingCommandMsg)
 	})
 
-	t.Run("rejects BYO agents with a whitespace-only command on substrate platform", func(t *testing.T) {
+	t.Run("rejects BYO agents with a whitespace-only command", func(t *testing.T) {
 		cmd := "   "
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Platform: SandboxPlatformSubstrate,
 				AgentSpec: AgentSpec{
 					Type: AgentType_BYO,
 					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
@@ -82,11 +68,10 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxBYOMissingCommandMsg)
 	})
 
-	t.Run("allows BYO agents with an explicit command on substrate platform", func(t *testing.T) {
+	t.Run("allows BYO agents with an explicit command", func(t *testing.T) {
 		cmd := "/app"
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Platform: SandboxPlatformSubstrate,
 				AgentSpec: AgentSpec{
 					Type: AgentType_BYO,
 					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
@@ -96,23 +81,9 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
 	})
 
-	t.Run("allows BYO agents on agent-sandbox platform", func(t *testing.T) {
+	t.Run("allows go runtime", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Platform: SandboxPlatformAgentSandbox,
-				AgentSpec: AgentSpec{
-					Type: AgentType_BYO,
-					BYO:  &BYOAgentSpec{},
-				},
-			},
-		}
-		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
-	})
-
-	t.Run("allows go runtime on substrate platform", func(t *testing.T) {
-		agent := &SandboxAgent{
-			Spec: SandboxAgentSpec{
-				Platform: SandboxPlatformSubstrate,
 				AgentSpec: AgentSpec{
 					Type: AgentType_Declarative,
 					Declarative: &DeclarativeAgentSpec{

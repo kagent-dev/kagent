@@ -59,11 +59,7 @@ export function focusFirstFormError(
       const err = errors.agentHarness;
       if (err) {
         const focusId =
-          err.section === "allowedDomains"
-            ? "agent-field-agent-harness-allowed-domains"
-            : err.section === "channels"
-              ? "section-agent-harness-channels"
-              : "section-agent-harness";
+          err.section === "channels" ? "section-agent-harness-channels" : "section-agent-harness";
         if (focusElementById(focusId)) {
           return;
         }

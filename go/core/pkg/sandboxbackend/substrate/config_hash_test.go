@@ -69,7 +69,6 @@ func TestBuildActorTemplateStampsConfigHash(t *testing.T) {
 	sa := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
 		Spec: v1alpha2.SandboxAgentSpec{
-			Platform:  v1alpha2.SandboxPlatformSubstrate,
 			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
 		},
 	}
@@ -102,7 +101,6 @@ func TestBuildSandboxClonesConfigSecretPerHash(t *testing.T) {
 	sa := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
 		Spec: v1alpha2.SandboxAgentSpec{
-			Platform:  v1alpha2.SandboxPlatformSubstrate,
 			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
 		},
 	}
