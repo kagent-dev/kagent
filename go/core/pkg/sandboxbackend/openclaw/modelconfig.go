@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// GatewayProviderRecordName returns the OpenShell / OpenClaw provider record id for a ModelConfig provider.
+// GatewayProviderRecordName returns the OpenClaw provider record id for a ModelConfig provider.
 func GatewayProviderRecordName(provider v1alpha2.ModelProvider) string {
 	return strings.ToLower(string(provider))
 }
@@ -44,7 +44,7 @@ func ModelConfigAPIKeyEnvVar(mc *v1alpha2.ModelConfig) (corev1.EnvVar, error) {
 // ResolveModelConfigAPIKey reads the API key from the Secret referenced by ModelConfig.
 func ResolveModelConfigAPIKey(ctx context.Context, kube client.Client, mc *v1alpha2.ModelConfig) (string, error) {
 	if mc.Spec.APIKeyPassthrough {
-		return "", fmt.Errorf("APIKeyPassthrough is not supported when registering an OpenShell gateway provider from ModelConfig")
+		return "", fmt.Errorf("APIKeyPassthrough is not supported when registering an OpenClaw gateway provider from ModelConfig")
 	}
 	if mc.Spec.APIKeySecret == "" || mc.Spec.APIKeySecretKey == "" {
 		return "", fmt.Errorf("modelConfig %s/%s requires apiKeySecret and apiKeySecretKey", mc.Namespace, mc.Name)

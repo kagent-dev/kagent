@@ -1,4 +1,27 @@
 set -e
 mkdir -p "${HOME}/.openclaw"
 echo '{{.OpenClawJSONBase64}}' | base64 -d > "${HOME}/.openclaw/openclaw.json"
-openclaw gateway run --port {{.GatewayPort}} --allow-unconfigured
+# Pre-warm the gateway so it lands in the golden snapshot (best effort: the
+# child re-ensures it on spawn after checkpoint/restore, where the snapshotted
+# Node process survives but its listener does not). The gateway stays a
+# private loopback detail: kagent only ever reaches the actor through the
+# shim's /acp WebSocket, never the gateway directly.
+/usr/local/bin/openclaw-gateway-ensure.sh || true
+# The shim owns the atenet ingress port: /acp bridges WebSocket frames to a
+# long-lived `openclaw acp` child, which connects to the loopback gateway.
+#
+# The child is long-lived so warm reconnects (re-opening a session while the
+# actor is already running) re-attach to the existing process instantly
+# instead of paying a fresh Node boot + gateway handshake on every WebSocket
+# connection. The child is started lazily on the first connection and only
+# respawned after it exits (e.g. when its loopback gateway link dies across a
+# checkpoint/restore); each fresh spawn re-runs openclaw-gateway-ensure.sh, so
+# the gateway is re-established before `openclaw acp` reconnects.
+#
+# The child must NOT pass --url: `openclaw acp` only applies the gateway
+# token from gateway.remote.token when it also resolves the URL from
+# gateway.remote.url (both are written to openclaw.json above). An explicit
+# --url bypasses the config token and fails against a token-auth gateway.
+exec /usr/local/bin/acp-shim \
+  --listen :{{.ACPPort}} \
+  -- /bin/sh -c '/usr/local/bin/openclaw-gateway-ensure.sh && exec openclaw acp'

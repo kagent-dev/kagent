@@ -39,9 +39,6 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 	if !ok || sa == nil {
 		return nil, fmt.Errorf("substrate sandbox backend requires a SandboxAgent")
 	}
-	if v1alpha2.AgentSandboxPlatform(sa) != v1alpha2.SandboxPlatformSubstrate {
-		return nil, fmt.Errorf("substrate sandbox backend called for platform %q", v1alpha2.AgentSandboxPlatform(sa))
-	}
 	if b.Lifecycle == nil {
 		return nil, fmt.Errorf("substrate lifecycle is not configured")
 	}

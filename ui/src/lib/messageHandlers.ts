@@ -448,6 +448,84 @@ export interface ADKMetadata {
   [key: string]: unknown; // Allow for additional metadata fields
 }
 
+const SEND_GUARD_EXCLUDED_ORIGINAL_TYPES = new Set<OriginalMessageType>([
+  "ToolApprovalRequest", // HITL approval UI duplicates the pending backend task state.
+  "AskUserRequest", // ask_user UI duplicates the pending backend task state.
+  "ToolCallSummaryMessage", // UI-only marker that closes tool calls; not a backend chat turn.
+]);
+const SEND_GUARD_KEY_DELIMITER = "\u0000";
+const SEND_GUARD_PART_DELIMITER = "\u0001";
+
+function isSendGuardComparableMessage(message: Message): boolean {
+  const meta = message.metadata as ADKMetadata | undefined;
+  return !meta?.originalType || !SEND_GUARD_EXCLUDED_ORIGINAL_TYPES.has(meta.originalType);
+}
+
+export function countSendGuardComparableMessages(messages: Message[]): number {
+  return messages.filter(isSendGuardComparableMessage).length;
+}
+
+function getSendGuardMessageContentSignature(message: Message): string {
+  const meta = message.metadata as ADKMetadata | undefined;
+  const originalType = meta?.originalType === "TextMessage" ? "" : (meta?.originalType ?? "");
+  const partsSignature = message.parts
+    ?.map(part => part.kind === "text" ? `text:${part.text ?? ""}` : `${part.kind}:${JSON.stringify(part)}`)
+    .join(SEND_GUARD_PART_DELIMITER) ?? "";
+
+  return [
+    message.role,
+    originalType,
+    JSON.stringify(meta?.toolCallData ?? null),
+    JSON.stringify(meta?.toolResultData ?? null),
+    partsSignature,
+  ].join(SEND_GUARD_KEY_DELIMITER);
+}
+
+function getSendGuardMessageKey(message: Message): string | undefined {
+  const contentSignature = getSendGuardMessageContentSignature(message);
+
+  if (message.role === "user" && message.messageId) {
+    return ["message", message.messageId].join(SEND_GUARD_KEY_DELIMITER);
+  }
+
+  // Same-tab streamed agent display messages are locally re-created, so their
+  // messageId may differ from the backend history item. The task/context pair
+  // is the stable backend identity for those messages; the richer signature
+  // avoids counting unrelated messages in the same task.
+  if (message.contextId && message.taskId) {
+    return ["task", message.contextId, message.taskId, contentSignature].join(SEND_GUARD_KEY_DELIMITER);
+  }
+
+  if (message.messageId) {
+    return ["message", message.messageId].join(SEND_GUARD_KEY_DELIMITER);
+  }
+
+  return undefined;
+}
+
+export function countBackendBackedComparableMessages(localMessages: Message[], backendMessages: Message[]): number {
+  const backendCounts = new Map<string, number>();
+  for (const message of backendMessages) {
+    if (!isSendGuardComparableMessage(message)) continue;
+    const key = getSendGuardMessageKey(message);
+    if (!key) continue;
+    backendCounts.set(key, (backendCounts.get(key) ?? 0) + 1);
+  }
+
+  let count = 0;
+  for (const message of localMessages) {
+    if (!isSendGuardComparableMessage(message)) continue;
+    const key = getSendGuardMessageKey(message);
+    if (!key) continue;
+    const remaining = backendCounts.get(key) ?? 0;
+    if (remaining > 0) {
+      count += 1;
+      backendCounts.set(key, remaining - 1);
+    }
+  }
+  return count;
+}
+
 /**
  * Read a metadata value checking `adk_<key>` first, then `kagent_<key>`.
  * Allows interoperability with upstream ADK (adk_ prefix) while preserving
