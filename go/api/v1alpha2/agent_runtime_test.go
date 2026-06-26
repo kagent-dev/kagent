@@ -14,19 +14,14 @@ func TestEffectiveDeclarativeRuntimeForAgent(t *testing.T) {
 		},
 	}
 
-	t.Run("regular Agent keeps configured runtime on substrate platform", func(t *testing.T) {
+	t.Run("regular Agent keeps configured runtime", func(t *testing.T) {
 		agent := &Agent{Spec: substrateSpec}
 		require.Equal(t, DeclarativeRuntime_Python, EffectiveDeclarativeRuntimeForAgent(agent))
 	})
 
-	t.Run("SandboxAgent on substrate uses Go", func(t *testing.T) {
-		sa := &SandboxAgent{Spec: SandboxAgentSpec{AgentSpec: substrateSpec, Platform: SandboxPlatformSubstrate}}
+	t.Run("SandboxAgent uses Go", func(t *testing.T) {
+		sa := &SandboxAgent{Spec: SandboxAgentSpec{AgentSpec: substrateSpec}}
 		require.Equal(t, DeclarativeRuntime_Go, EffectiveDeclarativeRuntimeForAgent(sa))
-	})
-
-	t.Run("SandboxAgent on agent-sandbox keeps configured runtime", func(t *testing.T) {
-		sa := &SandboxAgent{Spec: SandboxAgentSpec{AgentSpec: substrateSpec, Platform: SandboxPlatformAgentSandbox}}
-		require.Equal(t, DeclarativeRuntime_Python, EffectiveDeclarativeRuntimeForAgent(sa))
 	})
 
 	t.Run("regular Agent honors Go runtime", func(t *testing.T) {

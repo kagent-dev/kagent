@@ -50,7 +50,6 @@ const (
 	APIPathFeedback             = "/api/feedback"
 	APIPathLangGraph            = "/api/langgraph"
 	APIPathCrewAI               = "/api/crewai"
-	APIPathSandboxSSH           = "/api/sandbox/ssh"
 	APIPathAgentHarnessHarness  = "/api/agentharnesses/{namespace}/{name}/"
 	APIPathSubstrateStatus      = "/api/substrate/status"
 )
@@ -78,6 +77,7 @@ type ServerConfig struct {
 	SubstrateAteClient           *substrate.Client
 	MCPEgressPlaintext           bool
 	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
+	AgentHarnessSessionActor     *substrate.AgentHarnessSessionActorBackend
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -109,6 +109,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 			config.SubstrateAteClient,
 			config.MCPEgressPlaintext,
 			config.SubstrateSandboxActorBackend,
+			config.AgentHarnessSessionActor,
 		),
 		authenticator: config.Authenticator,
 	}, nil
@@ -244,7 +245,7 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleGetSession)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/tasks", adaptHandler(s.handlers.Sessions.HandleListTasksForSession)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut, http.MethodPatch)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/events", adaptHandler(s.handlers.Sessions.HandleAddEventToSession)).Methods(http.MethodPost)
 
 	// Tasks
@@ -324,10 +325,14 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleStoreFlowState)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleGetFlowState)).Methods(http.MethodGet)
 
-	// OpenShell sandbox PTY (browser WebSocket → gateway CONNECT → SSH). Authenticated like other /api routes.
-	s.router.HandleFunc(APIPathSandboxSSH, adaptHandler(s.handlers.HandleSandboxSSHWebSocket)).Methods(http.MethodGet)
+	// Substrate harness per-session actor lifecycle (provision on New Chat,
+	// suspend from the chat UI). Registered before the /acp gateway catch-all so
+	// these specific paths win over the PathPrefix match.
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions/{session_id}/ensure", adaptHandler(s.handlers.HandleEnsureAgentHarnessSessionActor)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions/{session_id}/suspend", adaptHandler(s.handlers.HandleSuspendAgentHarnessSessionActor)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions/{session_id}/status", adaptHandler(s.handlers.HandleGetAgentHarnessSessionActor)).Methods(http.MethodGet)
 
-	// Substrate OpenClaw gateway proxy (HTTP + WebSocket) via atenet-router.
+	// Substrate harness /acp WebSocket proxy via atenet-router.
 	s.router.PathPrefix(APIPathAgentHarnessHarness).Handler(
 		adaptHandler(s.handlers.HandleAgentHarnessGateway),
 	)
@@ -359,10 +364,8 @@ func wsAuthQueryMiddleware(next http.Handler) http.Handler {
 		}
 		var token string
 		switch {
-		case r.URL.Path == APIPathSandboxSSH || strings.HasSuffix(r.URL.Path, "/ssh"):
+		case strings.HasSuffix(r.URL.Path, "/ssh"):
 			token = r.URL.Query().Get("access_token")
-		case isAgentHarnessGatewayPath(r.URL.Path):
-			token = r.URL.Query().Get("token")
 		}
 		if token != "" {
 			r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))

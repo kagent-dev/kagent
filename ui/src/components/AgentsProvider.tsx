@@ -51,7 +51,7 @@ export interface AgentFormData {
   // Context management
   context?: ContextConfig;
   promptSources?: Array<{ name: string; alias: string }>;
-  /** AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; openclaw, nemoclaw, or hermes backend). */
+  /** AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; openclaw or hermes backend). */
   agentHarness?: AgentHarnessFormSlice;
   // BYO fields
   byoImage?: string;
@@ -67,8 +67,7 @@ export interface AgentFormData {
   env?: EnvVar[];
   imagePullPolicy?: string;
   serviceAccountName?: string;
-  /** Sandbox workload platform when type is Sandbox. */
-  sandboxPlatform?: "agent-sandbox" | "substrate";
+  /** Optional Agent Substrate settings when runInSandbox is true. */
   substrateWorkerPoolRefName?: string;
   substrateSnapshotsLocation?: string;
 }
@@ -191,7 +190,11 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       if (!data.modelName || data.modelName.trim() === "") {
         errors.model = "Please select a model config";
       }
-      if (data.agentHarness !== undefined) {
+      // Validate harness-specific config (channels, runtime) only once a model
+      // is chosen. The missing-model case is surfaced via `errors.model` next to
+      // the model dropdown, so we don't also report it as a general harness error
+      // (which renders below the dropdown).
+      if (data.agentHarness !== undefined && data.modelName && data.modelName.trim() !== "") {
         const oc = validateAgentHarnessForm({
           harness: data.agentHarness,
           modelRef: data.modelName,
