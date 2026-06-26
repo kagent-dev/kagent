@@ -125,12 +125,7 @@ func validateExtraContainers(containers []corev1.Container) error {
 
 func resolvePythonRuntimeImage(registry string) (string, error) {
 	repo := DefaultImageConfig.Repository
-	if d := normalizeImageDigest(PythonADKImageDigest); d != "" {
-		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
-	}
-	return "", fmt.Errorf(
-		"app image digest is not set at link time; rebuild the controller after pushing agent runtime images",
-	)
+	return resolveRuntimeImage(registry, repo, PythonADKImageDigest, "app")
 }
 
 func resolveGoRuntimeImage(registry string, full bool) (string, error) {
@@ -141,13 +136,32 @@ func resolveGoRuntimeImage(registry string, full bool) (string, error) {
 		digest = GoADKFullImageDigest
 		imageLabel = "golang-adk-full"
 	}
-	if d := normalizeImageDigest(digest); d != "" {
-		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
+	return resolveRuntimeImage(registry, repo, digest, imageLabel)
+}
+
+// resolveRuntimeImage builds the image reference for a declarative agent runtime.
+//
+// By default it pins the image by its link-time digest (registry/repository@sha256:...)
+// for supply-chain integrity. When digest pinning is disabled via
+// PinRuntimeImageDigest, it falls back to a tag reference (registry/repository:tag)
+// so the image is resolvable in private registries that do not preserve the upstream
+// manifest digest. See https://github.com/kagent-dev/kagent/issues/2055.
+func resolveRuntimeImage(registry, repository, digest, imageLabel string) (string, error) {
+	cfg := ImageConfig{
+		Registry:   registry,
+		Repository: repository,
+		Tag:        DefaultImageConfig.Tag,
 	}
-	return "", fmt.Errorf(
-		"%s image digest is not set at link time; rebuild the controller after pushing agent runtime images",
-		imageLabel,
-	)
+	if PinRuntimeImageDigest {
+		if normalizeImageDigest(digest) == "" {
+			return "", fmt.Errorf(
+				"%s image digest is not set at link time; rebuild the controller after pushing agent runtime images, or set --pin-runtime-image-digest=false to reference the image by tag",
+				imageLabel,
+			)
+		}
+		cfg.Digest = digest
+	}
+	return cfg.PinnedImage(), nil
 }
 
 func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData) (*resolvedDeployment, error) {

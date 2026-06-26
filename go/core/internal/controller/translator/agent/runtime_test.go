@@ -487,3 +487,149 @@ func TestRuntime_CustomRepositoryPath_WithSkillsUsesFullTag(t *testing.T) {
 	assert.Contains(t, container.Image, "my-registry.com/custom/golang-adk", "Image should use custom repository with golang-adk")
 	assert.Contains(t, container.Image, "@sha256:test-go-full", "Go runtime with skills should use digest-pinned golang-adk-full image")
 }
+
+// withRuntimeImageTagReference disables digest pinning and sets a deterministic
+// image tag so tests can assert the tag-based reference emitted for private
+// registries that do not preserve upstream manifest digests.
+// See https://github.com/kagent-dev/kagent/issues/2055.
+func withRuntimeImageTagReference(t *testing.T) {
+	t.Helper()
+	originalPin := translator.PinRuntimeImageDigest
+	originalTag := translator.DefaultImageConfig.Tag
+	translator.PinRuntimeImageDigest = false
+	translator.DefaultImageConfig.Tag = "v-test"
+	t.Cleanup(func() {
+		translator.PinRuntimeImageDigest = originalPin
+		translator.DefaultImageConfig.Tag = originalTag
+	})
+}
+
+func TestRuntime_PythonRuntime_TagReferenceWhenDigestPinningDisabled(t *testing.T) {
+	withPythonRuntimeDigest(t)
+	withRuntimeImageTagReference(t)
+	ctx := context.Background()
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-python-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Python,
+				SystemMessage: "Test Python agent",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, modelConfig).
+		Build()
+
+	defaultModel := types.NamespacedName{
+		Namespace: "test",
+		Name:      "test-model",
+	}
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment, "Deployment should be in manifest")
+
+	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
+	container := deployment.Spec.Template.Spec.Containers[0]
+	assert.Contains(t, container.Image, "/app:v-test", "Python runtime should reference the app image by tag when digest pinning is disabled")
+	assert.NotContains(t, container.Image, "@sha256:", "Image must not be digest-pinned when digest pinning is disabled")
+}
+
+func TestRuntime_GoRuntime_TagReferenceWhenDigestPinningDisabled(t *testing.T) {
+	withGoRuntimeDigests(t)
+	withRuntimeImageTagReference(t)
+	ctx := context.Background()
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-go-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime:       v1alpha2.DeclarativeRuntime_Go,
+				SystemMessage: "Test Go agent",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, modelConfig).
+		Build()
+
+	defaultModel := types.NamespacedName{
+		Namespace: "test",
+		Name:      "test-model",
+	}
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment, "Deployment should be in manifest")
+
+	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
+	container := deployment.Spec.Template.Spec.Containers[0]
+	assert.Contains(t, container.Image, "/golang-adk:v-test", "Go runtime should reference the golang-adk image by tag when digest pinning is disabled")
+	assert.NotContains(t, container.Image, "@sha256:", "Image must not be digest-pinned when digest pinning is disabled")
+}
