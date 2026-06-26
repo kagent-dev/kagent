@@ -43,9 +43,6 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 	if b == nil || b.client == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate ate-api client is required")
 	}
-	if v1alpha2.AgentSandboxPlatform(sa) != v1alpha2.SandboxPlatformSubstrate {
-		return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate actor backend called for platform %q", v1alpha2.AgentSandboxPlatform(sa))
-	}
 
 	actorID := SandboxAgentSessionActorID(sa, sessionID)
 	tmplNS, tmplName := sa.Namespace, SandboxAgentActorTemplateName(sa)

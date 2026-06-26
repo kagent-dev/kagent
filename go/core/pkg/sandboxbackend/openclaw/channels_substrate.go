@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/channel_helpers"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -41,7 +42,7 @@ func (a *harnessChannels) addSubstrateTelegram(ctx context.Context, kube client.
 		return nil, fmt.Errorf("channel %q: telegram spec is required", ch.Name)
 	}
 	botEnv := channelSecretEnvVar(ch.Name, "TELEGRAM_BOT")
-	botEnvVar, err := channelCredentialContainerEnv(spec.BotToken, botEnv)
+	botEnvVar, err := channel_helpers.CredentialContainerEnv(spec.BotToken, botEnv)
 	if err != nil {
 		return nil, fmt.Errorf("channel %q telegram bot token: %w", ch.Name, err)
 	}
@@ -75,11 +76,11 @@ func (a *harnessChannels) addSubstrateSlack(ctx context.Context, kube client.Cli
 	}
 	botEnv := channelSecretEnvVar(ch.Name, "SLACK_BOT")
 	appEnv := channelSecretEnvVar(ch.Name, "SLACK_APP")
-	botEnvVar, err := channelCredentialContainerEnv(spec.BotToken, botEnv)
+	botEnvVar, err := channel_helpers.CredentialContainerEnv(spec.BotToken, botEnv)
 	if err != nil {
 		return nil, fmt.Errorf("channel %q slack bot token: %w", ch.Name, err)
 	}
-	appEnvVar, err := channelCredentialContainerEnv(spec.AppToken, appEnv)
+	appEnvVar, err := channel_helpers.CredentialContainerEnv(spec.AppToken, appEnv)
 	if err != nil {
 		return nil, fmt.Errorf("channel %q slack app token: %w", ch.Name, err)
 	}
@@ -99,7 +100,7 @@ func (a *harnessChannels) addSubstrateSlack(ctx context.Context, kube client.Cli
 			InteractiveReplies: slackInteractiveReplies(opts),
 		},
 	}
-	if chans := trimNonEmptyStrings(opts.AllowlistChannels); len(chans) > 0 {
+	if chans := channel_helpers.TrimNonEmpty(opts.AllowlistChannels); len(chans) > 0 {
 		acc.DM = &groupDM{GroupEnabled: true, GroupChannels: chans}
 	}
 	a.slack[ch.Name] = acc

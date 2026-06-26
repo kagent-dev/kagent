@@ -9,11 +9,14 @@ import {
   AlertDialogHeader,
   AlertDialogFooter,
 } from "@/components/ui/alert-dialog";
-import { MoreHorizontal, Trash2, Download } from "lucide-react";
+import { MoreHorizontal, Trash2, Download, PauseCircle, Circle } from "lucide-react";
 import { SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import Link from "next/link";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "../ui/button";
+
+/** Lifecycle state of a harness chat session's substrate actor. */
+export type SessionActorState = "running" | "suspended" | "missing";
 
 interface ChatItemProps {
   sessionId: string;
@@ -23,13 +26,15 @@ interface ChatItemProps {
   sessionName?: string;
   onDownload?: (sessionId: string) => Promise<void>;
   activityAt?: string;
-  /** When true, omit delete (e.g. Sandbox single-session agents). */
+  /** When true, omit delete (e.g. read-only sessions). */
   hideDelete?: boolean;
+  /** Substrate harness actor state; when set, a status indicator is shown. */
+  sessionStatus?: SessionActorState;
 }
 
-const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, activityAt, hideDelete }: ChatItemProps) => {
+const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, activityAt, hideDelete, sessionStatus }: ChatItemProps) => {
   const title = sessionName || "Untitled";
-  
+
   // Format timestamp based on how recent it is
   const formatTime = (dateString?: string) => {
     if (!dateString) return "";
@@ -38,23 +43,37 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
 
     const now = new Date();
     const isToday = date.toDateString() === now.toDateString();
-    
+
     // For today: just show time (e.g., "2:30 PM" or "14:30" based on locale)
     if (isToday) {
       return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     }
-    
+
     // For older: show full date and time (e.g., "Nov 28, 2:30 PM" based on locale)
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + 
+    return date.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' +
            date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   };
-  
+
+  const statusIcon =
+    sessionStatus === "running" ? (
+      <Circle
+        className="h-2.5 w-2.5 shrink-0 mr-2 fill-green-500 text-green-500"
+        aria-label="Running"
+      />
+    ) : sessionStatus === "suspended" ? (
+      <PauseCircle
+        className="h-3 w-3 shrink-0 mr-2 text-muted-foreground"
+        aria-label="Suspended"
+      />
+    ) : null;
+
   return (
     <>
       <SidebarMenu>
         <SidebarMenuItem key={sessionId}>
           <SidebarMenuButton asChild className="overflow-hidden relative group/chatitem">
             <Link href={`/agents/${agentNamespace}/${agentName}/chat/${sessionId}`} className="flex items-center w-full">
+              {statusIcon}
               <span className="text-sm whitespace-nowrap" title={title}>{title}</span>
               <span className="absolute right-8 top-1/2 -translate-y-1/2 text-xs text-muted-foreground whitespace-nowrap pl-6"
                 style={{

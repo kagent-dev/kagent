@@ -56,7 +56,7 @@ func substrateContainerEnv(apiKey corev1.EnvVar, extra []corev1.EnvVar) []corev1
 	out := make([]corev1.EnvVar, 0, len(extra)+2)
 	out = append(out, apiKey)
 	out = append(out, extra...)
-	out = append(out, corev1.EnvVar{Name: "HOME", Value: "/root"})
+	out = append(out, corev1.EnvVar{Name: "HOME", Value: SubstrateActorHome})
 	return out
 }
 

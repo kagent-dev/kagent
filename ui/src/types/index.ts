@@ -264,17 +264,24 @@ export type AgentType = "Declarative" | "BYO" | "AgentHarness";
  * AgentHarness.spec.backend (go/api/v1alpha2/agentharness_types.go).
  * Single source of truth for backend strings — forms, API payloads, and helpers should use this.
  */
-export type AgentHarnessCrBackend = "openclaw" | "nemoclaw" | "hermes";
+export type AgentHarnessCrBackend =
+  | "openclaw"
+  | "hermes";
 /**
  * Backends that support messenger channels (CR validation + channel form).
  */
-export type AgentHarnessMessengerBackend = AgentHarnessCrBackend;
+export type AgentHarnessMessengerBackend = "openclaw" | "hermes";
 
 export const AGENT_HARNESS_MESSENGER_BACKENDS: readonly AgentHarnessMessengerBackend[] = [
   "openclaw",
-  "nemoclaw",
   "hermes",
 ];
+
+/**
+ * Backends only available on the Agent Substrate runtime.
+ * Mirrors the controller wiring: substrate registers all harness backends.
+ */
+export const AGENT_HARNESS_SUBSTRATE_ONLY_BACKENDS: readonly AgentHarnessCrBackend[] = [];
 
 /** Single Git repository source for skills. */
 export interface GitRepo {
@@ -299,8 +306,6 @@ export interface SandboxAgent {
   spec: AgentSpec;
 }
 
-export type SandboxPlatform = "agent-sandbox" | "substrate";
-
 export interface SandboxSubstrateSpec {
   workerPoolRef?: { name: string; namespace?: string };
   snapshotsConfig?: { location: string };
@@ -316,7 +321,6 @@ export interface AgentSpec {
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
-  platform?: SandboxPlatform;
   substrate?: SandboxSubstrateSpec;
   sandbox?: SandboxConfig;
 }
@@ -447,23 +451,12 @@ export interface Agent {
   };
 }
 
-/** Merged into GET /api/agents for kagent.dev/v1alpha2 AgentHarness (openclaw/nemoclaw). */
-export interface OpenshellAgentHarnessListEntry {
+/** Merged into GET /api/agents for an AgentHarness backed by Agent Substrate. */
+export interface AgentHarnessListEntry {
   backend: string;
-  /** Gateway sandbox name for SSH (`namespace-name`); pass as `/openshell` `sandbox` query param. */
-  gatewaySandboxName: string;
-  modelConfigRef?: string;
-  backendRefId?: string;
-  endpoint?: string;
-}
-
-/** Merged into GET /api/agents when AgentHarness.spec.runtime is substrate. */
-export interface SubstrateAgentHarnessListEntry {
-  backend: string;
-  runtime: "substrate";
   actorId?: string;
-  /** Same-origin path for OpenClaw UI (HTTP + WebSocket via kagent proxy to actor pod IP). */
-  gatewayUIPath?: string;
+  /** Same-origin WebSocket path for the ACP chat proxy. */
+  acpPath?: string;
   modelConfigRef?: string;
   backendRefId?: string;
   endpoint?: string;
@@ -531,8 +524,7 @@ export interface AgentResponse {
   deploymentReady: boolean;
   accepted: boolean;
   workloadMode?: "deployment" | "sandbox";
-  openshellAgentHarness?: OpenshellAgentHarnessListEntry;
-  substrateAgentHarness?: SubstrateAgentHarnessListEntry;
+  substrateAgentHarness?: AgentHarnessListEntry;
 }
 
 export interface RemoteMCPServer {
