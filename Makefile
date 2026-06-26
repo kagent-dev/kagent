@@ -56,6 +56,9 @@ APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 SKILLS_INIT_IMAGE_NAME ?= skills-init
+ACP_SANDBOX_BASE_IMAGE_NAME ?= acp-sandbox-base
+ACP_SANDBOX_HERMES_IMAGE_NAME ?= acp-sandbox-hermes
+ACP_SANDBOX_OPENCLAW_IMAGE_NAME ?= acp-sandbox-openclaw
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
@@ -64,6 +67,7 @@ KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
 SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
+ACP_SANDBOX_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
@@ -71,6 +75,9 @@ KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(K
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 GOLANG_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_FULL_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
+ACP_SANDBOX_BASE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_BASE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
+ACP_SANDBOX_HERMES_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_HERMES_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
+ACP_SANDBOX_OPENCLAW_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_OPENCLAW_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -238,6 +245,9 @@ build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo golang-adk=$(GOLANG_ADK_IMG)
 	@echo golang-adk-full=$(GOLANG_ADK_FULL_IMG)
 	@echo skills-init=$(SKILLS_INIT_IMG)
+	@echo acp-sandbox-base=$(ACP_SANDBOX_BASE_IMG)
+	@echo acp-sandbox-hermes=$(ACP_SANDBOX_HERMES_IMG)
+	@echo acp-sandbox-openclaw=$(ACP_SANDBOX_OPENCLAW_IMG)
 
 .PHONY: controller-manifests
 controller-manifests: ## Regenerate CRD manifests and copy them into the Helm chart
@@ -245,13 +255,15 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
-build-controller: ## Build and push the controller image (embeds agent runtime digests via scripts/controller-digest-ldflags.sh)
-build-controller: buildx-create controller-manifests build-app build-golang-adk build-golang-adk-full
+build-controller: ## Build and push the controller image (embeds agent runtime + acp-sandbox digests via scripts/controller-digest-ldflags.sh)
+build-controller: buildx-create controller-manifests build-app build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
 	@set -e; \
 	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
 		APP_IMG=$(APP_IMG) \
 		GOLANG_ADK_IMG=$(GOLANG_ADK_IMG) \
 		GOLANG_ADK_FULL_IMG=$(GOLANG_ADK_FULL_IMG) \
+		ACP_SANDBOX_OPENCLAW_IMG=$(ACP_SANDBOX_OPENCLAW_IMG) \
+		ACP_SANDBOX_HERMES_IMG=$(ACP_SANDBOX_HERMES_IMG) \
 		./scripts/controller-digest-ldflags.sh); \
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
 		--build-arg LDFLAGS="$(LDFLAGS)$$DIGEST_LDFLAGS" \
@@ -294,6 +306,28 @@ build-skills-init: ## Build and push the skills-init image
 build-skills-init: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile ./go
 	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
+
+.PHONY: build-acp-sandbox
+build-acp-sandbox: ## Build and push all ACP sandbox agent images (hermes, openclaw)
+build-acp-sandbox: build-acp-sandbox-hermes build-acp-sandbox-openclaw
+
+.PHONY: build-acp-sandbox-base
+build-acp-sandbox-base: ## Build and push the ACP sandbox base image (acp-shim only, no agent)
+build-acp-sandbox-base: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target base -t $(ACP_SANDBOX_BASE_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_PUSH) $(ACP_SANDBOX_BASE_IMG)
+
+.PHONY: build-acp-sandbox-hermes
+build-acp-sandbox-hermes: ## Build and push the ACP sandbox Hermes image
+build-acp-sandbox-hermes: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target hermes -t $(ACP_SANDBOX_HERMES_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_PUSH) $(ACP_SANDBOX_HERMES_IMG)
+
+.PHONY: build-acp-sandbox-openclaw
+build-acp-sandbox-openclaw: ## Build and push the ACP sandbox OpenClaw image
+build-acp-sandbox-openclaw: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target openclaw -t $(ACP_SANDBOX_OPENCLAW_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_PUSH) $(ACP_SANDBOX_OPENCLAW_IMG)
 
 .PHONY: push
 push: ## Push all component images (controller, ui, app, ADKs)

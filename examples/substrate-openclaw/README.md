@@ -45,7 +45,6 @@ The generated `ActorTemplate` uses `controller.substrate.pauseImage`, `controlle
 Create a harness. If `snapshotsConfig` is omitted, kagent defaults it to `gs://ate-snapshots/<namespace>/<agentharnessname>`.
 
 - **Worker pool** — reference an existing pool (`workerPoolRef`) or configure a controller default WorkerPool
-- **Gateway token** — required per harness with either `gatewayToken` or `gatewayTokenSecretRef`
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
@@ -66,13 +65,6 @@ spec:
     # Required unless the controller has a default WorkerPool configured.
     workerPoolRef:
       name: kagent-default
-
-    # Required: configure the OpenClaw gateway token for this harness.
-    # Use either gatewayToken or gatewayTokenSecretRef. The Secret must contain key "token".
-    gatewayToken: test-token
-
-    # gatewayTokenSecretRef:
-    #   name: openclaw-gateway-token
 
     # Optional: override the sandbox image used in the ActorTemplate (must be digest-pinned).
     # workloadImage: ghcr.io/kagent-dev/nemoclaw/sandbox-base@sha256:d52bee415dc4c0dba7164f9eabe727574c056d4f211781f20af249707883a3b4
@@ -122,7 +114,7 @@ spec:
       value: /root
 ```
 
-The generated `command` contains a base64-encoded `openclaw.json`, so the live object will be more verbose than the abbreviated example above. `pauseImage`, runsc URLs and hashes, and the default workload image come from controller/Helm configuration unless overridden on the `AgentHarness`; the gateway token comes from `spec.substrate.gatewayToken` or `gatewayTokenSecretRef`. kagent also sets `gateway.controlUi.basePath` to `/api/agentharnesses/<namespace>/<name>/gateway` so OpenClaw serves the Control UI under the same path kagent proxies.
+The generated `command` contains a base64-encoded `openclaw.json`, so the live object will be more verbose than the abbreviated example above. `pauseImage`, runsc URLs and hashes, and the default workload image come from controller/Helm configuration unless overridden on the `AgentHarness`. kagent also sets `gateway.controlUi.basePath` to `/api/agentharnesses/<namespace>/<name>/gateway` so OpenClaw serves the Control UI under the same path kagent proxies.
 
 When `modelConfigRef` or `spec.channels` are set, credentials are **not** copied into the ActorTemplate or `openclaw.json` as plaintext. kagent writes `valueFrom.secretKeyRef` (or inline `value` for harness inline tokens) on the ActorTemplate container env; Substrate `ate-api` resolves those refs at actor resume. In `openclaw.json`, kagent uses OpenClaw [env SecretRefs](https://docs.openclaw.ai/gateway/secrets) (`{source:"env",provider:"default",id:"<VAR>"}`) for `models.providers.*.apiKey`, `channels.telegram.accounts.*.botToken`, and `channels.slack.accounts.*.botToken` / `appToken`. Rotate a Secret and recreate the ActorTemplate golden snapshot when keys change.
 
@@ -137,8 +129,7 @@ kubectl port-forward -n kagent svc/kagent-ui 8001:8080
 Navigate to the deployed agent harness. If the OpenClaw Control UI asks for a gateway connection, use:
 
 - Gateway URL: `http://localhost:8001/api/agentharnesses/kagent/peterj-claw/gateway/`
-- Gateway token: `test-token`
 
-The gateway URL must include the trailing slash. The token is the value configured in `spec.substrate.gatewayToken`, or the Secret value referenced by `spec.substrate.gatewayTokenSecretRef`; enter it in the token/credentials field rather than relying on a `token` query parameter.
+The gateway URL must include the trailing slash. The gateway runs without authentication; the actor's only externally reachable surface is reached through the controller's same-origin proxy over the actor's private atenet ingress.
 
 kagent proxies UI traffic to the actor OpenClaw gateway through Substrate's **atenet-router** (Envoy) using the actor `Host` header (`<actor-id>.actors.resources.substrate.ate.dev`). The default router URL is `http://atenet-router.ate-system.svc:80`; override with `controller.substrate.atenetRouterURL` when needed.
