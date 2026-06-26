@@ -1,5 +1,5 @@
 import type { Session } from "@/types";
-import ChatItem from "@/components/sidebars/ChatItem";
+import ChatItem, { type SessionActorState } from "@/components/sidebars/ChatItem";
 import { SidebarGroup, SidebarMenu, SidebarMenuSub } from "../ui/sidebar";
 import { Collapsible } from "@radix-ui/react-collapsible";
 import { ChevronRight } from "lucide-react";
@@ -13,10 +13,12 @@ interface ChatGroupProps {
   agentName: string;
   agentNamespace: string;
   hideSessionDelete?: boolean;
+  /** Per-session substrate actor states (harness sessions only). */
+  sessionStatuses?: Record<string, SessionActorState>;
 }
 
 // The sessions are grouped by today, yesterday, and older
-const ChatGroup = ({ title, sessions, onDeleteSession, onDownloadSession, agentName, agentNamespace, hideSessionDelete }: ChatGroupProps) => {
+const ChatGroup = ({ title, sessions, onDeleteSession, onDownloadSession, agentName, agentNamespace, hideSessionDelete, sessionStatuses }: ChatGroupProps) => {
   return (
     <SidebarGroup>
       <SidebarMenu>
@@ -30,7 +32,7 @@ const ChatGroup = ({ title, sessions, onDeleteSession, onDownloadSession, agentN
           <CollapsibleContent>
             <SidebarMenuSub className="mx-0 px-0 ml-2 pl-2">
               {sessions.map((session) => (
-                <ChatItem key={session.id} sessionId={session.id!} agentName={agentName} agentNamespace={agentNamespace} onDelete={onDeleteSession} sessionName={session.name} onDownload={onDownloadSession} activityAt={session.updated_at || session.created_at} hideDelete={hideSessionDelete} />
+                <ChatItem key={session.id} sessionId={session.id!} agentName={agentName} agentNamespace={agentNamespace} onDelete={onDeleteSession} sessionName={session.name} onDownload={onDownloadSession} activityAt={session.updated_at || session.created_at} hideDelete={hideSessionDelete} sessionStatus={sessionStatuses?.[session.id!]} />
               ))}
             </SidebarMenuSub>
           </CollapsibleContent>

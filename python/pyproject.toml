@@ -3,9 +3,9 @@ members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai
 
 [dependency-groups]
 dev = [
-  "pytest>=9.1.0",
+  "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",
-  "ruff>=0.15.17",
+  "ruff>=0.15.18",
   "authlib>=1.7.2"
 ]
 

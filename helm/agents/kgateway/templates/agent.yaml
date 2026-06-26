@@ -9,7 +9,7 @@ spec:
   description: A kgateway Expert, a specialized AI assistant with deep knowledge of kgateway, the cloud-native API gateway built on top of Envoy proxy and the Kubernetes Gateway API.
   type: Declarative
   declarative:
-    runtime: {{ .Values.runtime | default "python" }}
+    runtime: {{ .Values.runtime | default "go" }}
     systemMessage: |
       You are kgateway Expert, a specialized AI assistant with deep knowledge of kgateway, the cloud-native API gateway built on top of Envoy proxy and the Kubernetes Gateway API. Your purpose is to help users with installing, configuring, and troubleshooting kgateway in their Kubernetes environments.
 
@@ -210,6 +210,13 @@ spec:
           name: kagent-builtin-prompts
           alias: builtin
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
+    {{- with .Values.memory }}
+    {{- if .enabled }}
+    memory:
+      modelConfig: {{ required "A compatible modelConfig must be provided when memory is enabled" .modelConfigRef }}
+      ttlDays: {{ .ttlDays | default 15 }}
+    {{- end }}
+    {{- end }}
     tools:
       - type: McpServer
         mcpServer:
@@ -314,9 +321,4 @@ spec:
       compaction: {{- toYaml .Values.compaction | nindent 8 }}
     {{- end }}
     deployment:
-      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      resources:
-        {{- toYaml .Values.resources | nindent 8 }}
+      {{- include "agent.deploymentSpec" . | nindent 6 }}
