@@ -43,9 +43,8 @@ var (
 	sandboxAgentControllerLog = ctrl.Log.WithName("sandboxagent-controller")
 )
 
-// SandboxAgentController reconciles SandboxAgent objects for both agent-sandbox and
-// Agent Substrate platforms. Platform-specific workload objects are selected by the
-// sandbox routing backend; substrate delete cleanup is handled in this controller.
+// SandboxAgentController reconciles SandboxAgent objects, which always run on the
+// Agent Substrate platform. Substrate delete cleanup is handled in this controller.
 type SandboxAgentController struct {
 	Client                client.Client
 	Scheme                *runtime.Scheme
@@ -80,7 +79,7 @@ func (r *SandboxAgentController) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("get SandboxAgent: %w", err)
 	}
 
-	if sandboxAgentUsesSubstrate(&sa) && r.SubstrateLifecycle != nil {
+	if r.SubstrateLifecycle != nil {
 		if res, err := r.reconcileSubstrateSandboxAgent(ctx, &sa); err != nil || !res.IsZero() {
 			return res, err
 		}

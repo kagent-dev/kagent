@@ -10,49 +10,29 @@ import (
 
 // GatewayBootstrapConfig describes the gateway section of openclaw.json for a harness runtime.
 type GatewayBootstrapConfig struct {
-	Port      int
-	Bind      string // loopback | lan
-	AuthMode  string // none | token
-	Token     string // required when AuthMode is token
-	ControlUI *ControlUIBootstrapConfig
+	Port     int
+	Bind     string // loopback | lan
+	AuthMode string // none
 }
 
-// ControlUIBootstrapConfig maps to gateway.controlUi in openclaw.json.
-type ControlUIBootstrapConfig struct {
-	BasePath                     string
-	AllowedOrigins               []string
-	DangerouslyDisableDeviceAuth bool
-}
-
-// OpenshellGatewayBootstrap is the default gateway profile for OpenShell sandboxes.
-func OpenshellGatewayBootstrap(port int) GatewayBootstrapConfig {
-	return GatewayBootstrapConfig{Port: port, Bind: "loopback", AuthMode: "none"}
-}
-
-// SubstrateGatewayBootstrap is the gateway profile for Agent Substrate actors (port 80, token auth, proxied Control UI).
-func SubstrateGatewayBootstrap(token string, port int, controlUIBasePath string) GatewayBootstrapConfig {
+// SubstrateGatewayBootstrap is the gateway profile for Agent Substrate actors
+// (no auth, loopback-only). The gateway has no Control UI and is a private
+// in-sandbox detail the `openclaw acp` child connects to over loopback;
+// kagent reaches the actor solely through the acp-shim's /acp WebSocket, which
+// is itself only exposed via the controller's same-origin proxy.
+//
+// Bind MUST be "loopback": OpenClaw refuses to bind the gateway to "lan" when
+// auth.mode is "none" ("Refusing to bind gateway to lan without auth"), so a
+// lan bind would make the gateway exit without listening on :18789, the acp
+// child would never spawn, and chats would hang. The gateway is only ever
+// reached over 127.0.0.1 by the in-sandbox child, so loopback is both correct
+// and the only bind permitted without a token.
+func SubstrateGatewayBootstrap(port int) GatewayBootstrapConfig {
 	return GatewayBootstrapConfig{
 		Port:     port,
-		Bind:     "lan",
-		AuthMode: "token",
-		Token:    strings.TrimSpace(token),
-		ControlUI: &ControlUIBootstrapConfig{
-			BasePath:                     normalizeControlUIBasePath(controlUIBasePath),
-			AllowedOrigins:               []string{"*"},
-			DangerouslyDisableDeviceAuth: true,
-		},
+		Bind:     "loopback",
+		AuthMode: "none",
 	}
-}
-
-func normalizeControlUIBasePath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" || path == "/" {
-		return ""
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
-	return strings.TrimRight(path, "/")
 }
 
 // BuildGatewayOnlyBootstrapJSON returns a minimal openclaw.json with gateway settings only (no models/channels).
@@ -135,16 +115,6 @@ func buildGatewaySection(gw GatewayBootstrapConfig) gatewaySection {
 		Bind: bind,
 		Auth: gatewayAuth{Mode: authMode},
 		Port: port,
-	}
-	if authMode == "token" {
-		section.Auth.Token = gw.Token
-	}
-	if gw.ControlUI != nil {
-		section.ControlUi = &controlUiSection{
-			BasePath:                     normalizeControlUIBasePath(gw.ControlUI.BasePath),
-			AllowedOrigins:               gw.ControlUI.AllowedOrigins,
-			DangerouslyDisableDeviceAuth: gw.ControlUI.DangerouslyDisableDeviceAuth,
-		}
 	}
 	return section
 }

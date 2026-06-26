@@ -39,6 +39,17 @@ func (f *fakeSubstrateLifecycle) CleanupGeneratedTemplate(_ context.Context, _ *
 	return f.cleanupDone, f.cleanupErr
 }
 
+type fakeSessionActorCleaner struct {
+	done  bool
+	err   error
+	calls int
+}
+
+func (f *fakeSessionActorCleaner) DeleteAllAgentHarnessActors(_ context.Context, _ *v1alpha2.AgentHarness) (bool, error) {
+	f.calls++
+	return f.done, f.err
+}
+
 type fakeAgentHarnessBackend struct {
 	ensureCalls int
 	deleteCalls int
@@ -100,7 +111,7 @@ func TestAgentHarnessController_SubstrateWaitsForGeneratedTemplate(t *testing.T)
 	lifecycle := &fakeSubstrateLifecycle{state: substrate.LifecycleState{ActorTemplateReady: false}}
 	backend := &fakeAgentHarnessBackend{}
 	controller.SubstrateLifecycle = lifecycle
-	controller.OpenClawBackend = backend
+	setSubstrateTestBackend(controller, backend)
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
@@ -122,7 +133,7 @@ func TestAgentHarnessController_SubstrateLifecycleErrorSetsStatus(t *testing.T) 
 	lifecycle := &fakeSubstrateLifecycle{ensureErr: errors.New("workerpool missing")}
 	backend := &fakeAgentHarnessBackend{}
 	controller.SubstrateLifecycle = lifecycle
-	controller.OpenClawBackend = backend
+	setSubstrateTestBackend(controller, backend)
 
 	_, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.ErrorContains(t, err, "workerpool missing")
@@ -134,36 +145,33 @@ func TestAgentHarnessController_SubstrateLifecycleErrorSetsStatus(t *testing.T) 
 	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse, "SubstrateLifecycleFailed")
 }
 
-func TestAgentHarnessController_SubstrateReadyCreatesActorAndRunsBootstrap(t *testing.T) {
+func TestAgentHarnessController_SubstrateReadyMarksTemplateReady(t *testing.T) {
 	ctx := context.Background()
 	ah := newSubstrateHarness("kagent", "claw")
 	controller := newAgentHarnessTestController(t, ah)
 	lifecycle := &fakeSubstrateLifecycle{state: substrate.LifecycleState{ActorTemplateReady: true}}
-	backend := &fakeAgentHarnessBackend{ensureHandle: "actor-1", endpoint: "kagent gateway: /api/agentharnesses/kagent/claw/gateway/"}
+	backend := &fakeAgentHarnessBackend{}
 	controller.SubstrateLifecycle = lifecycle
-	controller.OpenClawBackend = backend
+	setSubstrateTestBackend(controller, backend)
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
 	require.Equal(t, ctrl.Result{}, result)
 	require.Equal(t, 1, lifecycle.ensureCalls)
-	require.Equal(t, 1, backend.ensureCalls)
-	require.Equal(t, 1, backend.readyCalls)
+	require.Zero(t, backend.ensureCalls, "harness is a template: no persistent actor is created")
+	require.Zero(t, backend.readyCalls, "harness is a template: no per-harness bootstrap runs")
 
 	latest := getAgentHarness(t, controller.Client, ah)
-	require.NotNil(t, latest.Status.BackendRef)
-	require.Equal(t, "actor-1", latest.Status.BackendRef.ID)
-	require.NotNil(t, latest.Status.Connection)
+	require.Nil(t, latest.Status.BackendRef, "template harness has no persistent actor backend ref")
 	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue, "AgentHarnessAccepted")
 	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorTemplateReady, metav1.ConditionTrue, "Ready")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue, "Running")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeBootstrapReady, metav1.ConditionTrue, "BootstrapComplete")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionTrue, "Running")
+	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue, "TemplateReady")
+	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionTrue, "TemplateReady")
 
 	result, err = controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
 	require.Equal(t, ctrl.Result{}, result)
-	require.Equal(t, 1, backend.readyCalls, "bootstrap should not rerun for an already bootstrapped generation")
+	require.Zero(t, backend.ensureCalls, "no actor should ever be created for the template harness")
 }
 
 func TestAgentHarnessController_SubstrateDeleteWaitsForActorBeforeTemplateCleanup(t *testing.T) {
@@ -172,15 +180,15 @@ func TestAgentHarnessController_SubstrateDeleteWaitsForActorBeforeTemplateCleanu
 	ah.Status.BackendRef = &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenClaw, ID: "actor-1"}
 	controller := newAgentHarnessTestController(t, ah)
 	lifecycle := &fakeSubstrateLifecycle{cleanupDone: true}
-	backend := &fakeAgentHarnessBackend{deleteDone: false}
+	cleaner := &fakeSessionActorCleaner{done: false}
 	controller.SubstrateLifecycle = lifecycle
-	controller.OpenClawBackend = backend
+	controller.SessionActorBackend = cleaner
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
 	require.Equal(t, agentHarnessNotReadyRequeue, result.RequeueAfter)
-	require.Equal(t, 1, backend.deleteCalls)
-	require.Zero(t, lifecycle.cleanupCalls, "template cleanup must wait for harness actor deletion")
+	require.Equal(t, 1, cleaner.calls)
+	require.Zero(t, lifecycle.cleanupCalls, "template cleanup must wait for session actor deletion")
 
 	latest := getAgentHarness(t, controller.Client, ah)
 	require.NotNil(t, latest.Status.BackendRef)
@@ -194,14 +202,14 @@ func TestAgentHarnessController_SubstrateDeleteWaitsForGeneratedTemplateCleanup(
 	ah.Status.BackendRef = &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenClaw, ID: "actor-1"}
 	controller := newAgentHarnessTestController(t, ah)
 	lifecycle := &fakeSubstrateLifecycle{cleanupDone: false}
-	backend := &fakeAgentHarnessBackend{deleteDone: true}
+	cleaner := &fakeSessionActorCleaner{done: true}
 	controller.SubstrateLifecycle = lifecycle
-	controller.OpenClawBackend = backend
+	controller.SessionActorBackend = cleaner
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
 	require.Equal(t, agentHarnessNotReadyRequeue, result.RequeueAfter)
-	require.Equal(t, 1, backend.deleteCalls)
+	require.Equal(t, 1, cleaner.calls)
 	require.Equal(t, 1, lifecycle.cleanupCalls)
 
 	latest := getAgentHarness(t, controller.Client, ah)
@@ -216,14 +224,14 @@ func TestAgentHarnessController_SubstrateDeleteRemovesFinalizerAfterCleanup(t *t
 	ah.Status.BackendRef = &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenClaw, ID: "actor-1"}
 	controller := newAgentHarnessTestController(t, ah)
 	lifecycle := &fakeSubstrateLifecycle{cleanupDone: true}
-	backend := &fakeAgentHarnessBackend{deleteDone: true}
+	cleaner := &fakeSessionActorCleaner{done: true}
 	controller.SubstrateLifecycle = lifecycle
-	controller.OpenClawBackend = backend
+	controller.SessionActorBackend = cleaner
 
 	result, err := controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
 	require.Equal(t, ctrl.Result{}, result)
-	require.Equal(t, 1, backend.deleteCalls)
+	require.Equal(t, 1, cleaner.calls)
 	require.Equal(t, 1, lifecycle.cleanupCalls)
 
 	var latest v1alpha2.AgentHarness
@@ -243,6 +251,12 @@ func newAgentHarnessTestController(t *testing.T, objects ...client.Object) *Subs
 	return &SubstrateAgentHarnessController{Client: kube}
 }
 
+func setSubstrateTestBackend(c *SubstrateAgentHarnessController, b sandboxbackend.AsyncBackend) {
+	c.Backends = map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
+		v1alpha2.AgentHarnessBackendOpenClaw: b,
+	}
+}
+
 func newSubstrateHarness(namespace, name string) *v1alpha2.AgentHarness {
 	return &v1alpha2.AgentHarness{
 		TypeMeta: metav1.TypeMeta{APIVersion: v1alpha2.GroupVersion.String(), Kind: "AgentHarness"},
@@ -253,11 +267,8 @@ func newSubstrateHarness(namespace, name string) *v1alpha2.AgentHarness {
 			Finalizers: []string{agentHarnessFinalizer},
 		},
 		Spec: v1alpha2.AgentHarnessSpec{
-			Runtime: v1alpha2.AgentHarnessRuntimeSubstrate,
-			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
-			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				GatewayToken: "token",
-			},
+			Backend:   v1alpha2.AgentHarnessBackendOpenClaw,
+			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{},
 		},
 	}
 }

@@ -1,6 +1,6 @@
 # Kagent Helm Chart
 
-These Helm charts install kagent-crds,kagent, it is required that the Kagent CRDs chart to be installed first.
+These Helm charts install kagent-crds and kagent. The kagent-crds chart must be installed first.
 
 ## Installation
 
@@ -10,8 +10,8 @@ These Helm charts install kagent-crds,kagent, it is required that the Kagent CRD
 # First, install the required CRDs
 helm install kagent-crds ./helm/kagent-crds/  --namespace kagent
 
-# Then install Kagent with default provider 
-# --set providers.default=openAI enabled by default, but you need to provide your openAI apikey
+# Then install kagent with default provider
+# --set providers.default=openAI is enabled by default, but you need to provide your OpenAI API key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.openAI.apiKey=your-openai-api-key
 
 # Or with optional providers if you prefer local ollama provider or anthropic
@@ -35,7 +35,7 @@ make KAGENT_DEFAULT_MODEL_PROVIDER=openAI helm-install
 # install charts with anthropic provider
 make KAGENT_DEFAULT_MODEL_PROVIDER=anthropic helm-install
 
-# install charts with anthropic provider
+# install charts with azureOpenAI provider
 make KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI helm-install
 
 # install charts with ollama provider

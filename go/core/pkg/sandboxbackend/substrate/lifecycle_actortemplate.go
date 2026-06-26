@@ -8,7 +8,6 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -42,22 +41,56 @@ func (p *Lifecycle) ensureActorTemplate(ctx context.Context, ah *v1alpha2.AgentH
 
 func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHarness, wpKey types.NamespacedName) (*atev1alpha1.ActorTemplate, error) {
 	key := types.NamespacedName{Namespace: ah.Namespace, Name: actorTemplateName(ah)}
+
+	var (
+		startupScript  string
+		containerEnv   []atev1alpha1.EnvVar
+		defaultImageFn func(acpSandboxImageConfig) (string, error)
+		containerName  string
+		err            error
+	)
+	// clawBackend selects the OpenClaw startup path; the cluster-wide
+	// DefaultWorkloadImage only applies to claw backends (it points at the
+	// openclaw sandbox image), other backends fall back to their own image.
+	clawBackend := false
+	switch ah.Spec.Backend {
+	case v1alpha2.AgentHarnessBackendOpenClaw:
+		clawBackend = true
+		defaultImageFn = acpSandboxOpenClawImage
+		containerName = defaultOpenClawContainer
+		startupScript, containerEnv, err = p.buildOpenClawActorStartup(ctx, ah)
+		if err != nil {
+			return nil, fmt.Errorf("build openclaw actor startup: %w", err)
+		}
+	default:
+		spec, ok := acpAgentSpecs[ah.Spec.Backend]
+		if !ok {
+			return nil, fmt.Errorf("substrate runtime does not support backend %q", ah.Spec.Backend)
+		}
+		defaultImageFn = spec.DefaultImage
+		containerName = string(ah.Spec.Backend)
+		startupScript, containerEnv, err = p.buildAcpAgentActorStartup(ctx, ah, spec)
+		if err != nil {
+			return nil, fmt.Errorf("build %s actor startup: %w", ah.Spec.Backend, err)
+		}
+	}
+
 	workloadImage := strings.TrimSpace(ah.Spec.Substrate.WorkloadImage)
-	if workloadImage == "" {
+	if workloadImage == "" && clawBackend {
 		workloadImage = strings.TrimSpace(p.Defaults.DefaultWorkloadImage)
 	}
 	if workloadImage == "" {
-		workloadImage = openclaw.NemoclawSandboxBaseImage
+		// Fall back to the backend's built-in default, which is always
+		// digest-pinned (or errors if the link-time digest is missing).
+		workloadImage, err = defaultImageFn(p.acpSandboxImageConfig())
+		if err != nil {
+			return nil, err
+		}
 	} else {
-		var err error
 		workloadImage, err = pinImageRef(workloadImage)
 		if err != nil {
 			return nil, err
 		}
-	}
-	startupScript, containerEnv, err := p.buildOpenClawActorStartup(ctx, ah)
-	if err != nil {
-		return nil, fmt.Errorf("build openclaw actor startup: %w", err)
 	}
 
 	desired := &atev1alpha1.ActorTemplate{
@@ -71,7 +104,7 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 			Runsc:      defaultRunscConfig(p.Defaults),
 			Containers: []atev1alpha1.Container{
 				{
-					Name:  defaultOpenClawContainer,
+					Name:  containerName,
 					Image: workloadImage,
 					Command: []string{
 						"/bin/sh",

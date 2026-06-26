@@ -203,12 +203,12 @@ export function declarativeAgentSkillsConfigured(
 export const SUBSTRATE_SANDBOX_SKILLS_UNSUPPORTED_MSG =
   "Skills are not supported for Agent Substrate sandbox agents yet";
 
-/** Returns an error when skills are configured on Agent Substrate sandbox platform. */
+/** Returns an error when skills are configured on a sandbox (Agent Substrate) agent. */
 export function validateSubstrateSandboxSkillsConflict(
   input: DeclarativeAgentSkillsFormInput,
-  sandboxPlatform: "agent-sandbox" | "substrate" | undefined,
+  runInSandbox: boolean,
 ): string | undefined {
-  if (sandboxPlatform !== "substrate") {
+  if (!runInSandbox) {
     return undefined;
   }
   if (declarativeAgentSkillsConfigured(input)) {
