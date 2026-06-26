@@ -231,9 +231,9 @@ func TestMCPToolKindOf(t *testing.T) {
 			want: mcpToolKindAppOnly,
 		},
 		{
-			name: "model and app visibility without resource is a plain agent tool",
+			name: "model and app visibility without resource is a plain model tool",
 			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"model", "app"}}},
-			want: mcpToolKindAgent,
+			want: mcpToolKindModel,
 		},
 		{
 			name: "model and app visibility with resource renders as app",
@@ -241,9 +241,9 @@ func TestMCPToolKindOf(t *testing.T) {
 			want: mcpToolKindApp,
 		},
 		{
-			name: "model only visibility is a plain agent tool",
+			name: "model only visibility is a plain model tool",
 			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"model"}}},
-			want: mcpToolKindAgent,
+			want: mcpToolKindModel,
 		},
 		{
 			name: "resource uri in ui object renders as app",
@@ -258,7 +258,7 @@ func TestMCPToolKindOf(t *testing.T) {
 		{
 			name: "plain tool",
 			meta: mcpsdk.Meta{},
-			want: mcpToolKindAgent,
+			want: mcpToolKindModel,
 		},
 	}
 
