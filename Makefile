@@ -529,6 +529,7 @@ PREV_DB_SET_FLAGS = $(shell git show v$(UPGRADE_FROM_VERSION):Makefile 2>/dev/nu
 install-previous-release: ## Install the previous released kagent + kagent-crds charts from the public OCI registry
 	test -n "$(UPGRADE_FROM_VERSION)" || { echo "UPGRADE_FROM_VERSION is empty; set it explicitly or ensure git tags are fetched." >&2; exit 1; }
 	test -n "$(strip $(PREV_DB_SET_FLAGS))" || { echo "Could not read bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile; the upgrade-from release's install target may have moved or renamed them." >&2; exit 1; }
+	case '$(PREV_DB_SET_FLAGS)' in *'$$'*|*'{'*|*'('*) echo "Bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile contain an unexpanded variable and cannot be passed to helm verbatim: $(PREV_DB_SET_FLAGS)" >&2; exit 1;; esac
 	@echo "=== Installing previous release: $(UPGRADE_FROM_VERSION) ==="
 	@echo "    bundled-Postgres flags (from v$(UPGRADE_FROM_VERSION) install target): $(PREV_DB_SET_FLAGS)"
 	helm upgrade --install kagent-crds $(HELM_REPO)/kagent/helm/kagent-crds \
@@ -564,6 +565,7 @@ run-upgrade-tests: ## Install the previous release, build current images, and ru
 	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	cd go && \
 	RUN_UPGRADE_TESTS=true \
+	REPO_ROOT=$(CURDIR) \
 	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
 	VERSION=$(VERSION) \
 	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
@@ -578,6 +580,7 @@ run-rolling-upgrade-tests: ## Install the previous release with 2 controller rep
 	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	cd go && \
 	RUN_ROLLING_UPGRADE_TESTS=true \
+	REPO_ROOT=$(CURDIR) \
 	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
 	VERSION=$(VERSION) \
 	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \

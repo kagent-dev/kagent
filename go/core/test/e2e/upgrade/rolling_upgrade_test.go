@@ -86,7 +86,10 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 			done <- r
 		default:
 		}
-		state := pgMigrationState(t, env)
+		state, err := pgMigrationStateE(t, env)
+		if err != nil {
+			return false
+		}
 		return state.version == targetCoreVersion &&
 			!state.dirty &&
 			anyPodsReady(t, env, oldPods)
@@ -132,12 +135,23 @@ type upgradeResult struct {
 func podNamesForSelector(t *testing.T, env upgradeEnv, selector string) []string {
 	t.Helper()
 
-	out := kubectl(t, env, time.Minute,
+	pods, err := podNamesForSelectorE(t, env, selector)
+	require.NoError(t, err)
+	return pods
+}
+
+// podNamesForSelectorE is the error-returning core of podNamesForSelector, for
+// use inside require.Eventually conditions (see pgQueryE).
+func podNamesForSelectorE(t *testing.T, env upgradeEnv, selector string) ([]string, error) {
+	out, err := kubectlOutput(t, env, time.Minute,
 		"get", "pods",
 		"-n", env.namespace,
 		"-l", selector,
 		"-o", "jsonpath={range .items[*]}{.metadata.name}{\"\\n\"}{end}",
 	)
+	if err != nil {
+		return nil, err
+	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	pods := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -146,7 +160,7 @@ func podNamesForSelector(t *testing.T, env upgradeEnv, selector string) []string
 			pods = append(pods, pod)
 		}
 	}
-	return pods
+	return pods, nil
 }
 
 func anyPodsReady(t *testing.T, env upgradeEnv, pods []string) bool {

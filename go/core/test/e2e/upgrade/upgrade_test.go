@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -312,12 +311,21 @@ func helmUpgradeCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
 func loadUpgradeEnv(t *testing.T) upgradeEnv {
 	t.Helper()
 
-	_, filename, _, ok := runtime.Caller(0)
-	require.True(t, ok, "determine test file path")
+	// Resolve the repo root. Prefer an explicit REPO_ROOT (set by the make
+	// targets), otherwise ask git: this is location-independent, so moving this
+	// file cannot silently point make at the wrong root, and git is already a hard
+	// dependency of this flow (the make targets derive versions from git tags).
+	repoRoot := os.Getenv("REPO_ROOT")
+	if repoRoot == "" {
+		out, err := exec.CommandContext(t.Context(), "git", "rev-parse", "--show-toplevel").Output()
+		require.NoError(t, err, "resolve repo root via `git rev-parse --show-toplevel`; set REPO_ROOT to override")
+		repoRoot = strings.TrimSpace(string(out))
+	}
 
-	// go/core/test/e2e/upgrade/upgrade_test.go -> repo root is five levels up.
-	repoRoot, err := filepath.Abs(filepath.Join(filepath.Dir(filename), "..", "..", "..", "..", ".."))
-	require.NoError(t, err)
+	// Fail clearly here rather than letting `make -C <repoRoot> ...` fail with a
+	// confusing "no rule to make target" if the root resolved wrong.
+	_, err := os.Stat(filepath.Join(repoRoot, "Makefile"))
+	require.NoError(t, err, "resolved repo root %q has no Makefile; set REPO_ROOT", repoRoot)
 
 	clusterName := envOrDefault("KIND_CLUSTER_NAME", "kagent")
 	return upgradeEnv{
@@ -362,7 +370,8 @@ func waitForPostgresAgentTable(t *testing.T, env upgradeEnv, timeout time.Durati
 	t.Helper()
 
 	require.Eventually(t, func() bool {
-		return pgQuery(t, env, "SELECT to_regclass('public.agent') IS NOT NULL") == "t"
+		out, err := pgQueryE(t, env, "SELECT to_regclass('public.agent') IS NOT NULL")
+		return err == nil && out == "t"
 	}, timeout, 5*time.Second, "agent table did not appear in the baseline Postgres schema")
 }
 
@@ -379,24 +388,64 @@ func pgQueryInt(t *testing.T, env upgradeEnv, query string) int {
 func pgQuery(t *testing.T, env upgradeEnv, query string) string {
 	t.Helper()
 
-	pod := podNameForSelector(t, env, postgresSelector)
-	out := kubectl(t, env, time.Minute,
+	out, err := pgQueryE(t, env, query)
+	require.NoError(t, err, "psql query failed: %s", query)
+	return out
+}
+
+// pgQueryE is the error-returning core of pgQuery. Condition functions passed to
+// require.Eventually must use this form (returning false on error) rather than
+// pgQuery: testify runs the condition in a separate goroutine, where require's
+// t.FailNow would be dropped silently, turning a transient kubectl/psql failure
+// into a misleading poll timeout instead of a clear failure.
+func pgQueryE(t *testing.T, env upgradeEnv, query string) (string, error) {
+	pod, err := podNameForSelectorE(t, env, postgresSelector)
+	if err != nil {
+		return "", err
+	}
+	out, err := kubectlOutput(t, env, time.Minute,
 		"exec", "-n", env.namespace, pod, "-c", postgresContainer, "--",
 		"psql", "-v", "ON_ERROR_STOP=1", "-U", "kagent", "-d", "kagent", "-tAc", query,
 	)
-	return strings.TrimSpace(out)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 func pgMigrationState(t *testing.T, env upgradeEnv) postgresMigrationState {
 	t.Helper()
 
-	raw := pgQuery(t, env, "SELECT CASE WHEN to_regclass('public.schema_migrations') IS NULL THEN '0,false' ELSE (SELECT concat(COALESCE(MAX(version), 0), ',', COALESCE(bool_or(dirty), false)) FROM public.schema_migrations) END")
-	parts := strings.Split(raw, ",")
-	require.Len(t, parts, 2, "parse schema_migrations state %q", raw)
-	return postgresMigrationState{
-		version: parseInt(t, parts[0], "schema_migrations version"),
-		dirty:   parseBool(t, parts[1], "schema_migrations dirty"),
+	state, err := pgMigrationStateE(t, env)
+	require.NoError(t, err)
+	return state
+}
+
+// pgMigrationStateE is the error-returning core of pgMigrationState, for use
+// inside require.Eventually conditions (see pgQueryE).
+func pgMigrationStateE(t *testing.T, env upgradeEnv) (postgresMigrationState, error) {
+	raw, err := pgQueryE(t, env, "SELECT CASE WHEN to_regclass('public.schema_migrations') IS NULL THEN '0,false' ELSE (SELECT concat(COALESCE(MAX(version), 0), ',', COALESCE(bool_or(dirty), false)) FROM public.schema_migrations) END")
+	if err != nil {
+		return postgresMigrationState{}, err
 	}
+	parts := strings.Split(raw, ",")
+	if len(parts) != 2 {
+		return postgresMigrationState{}, fmt.Errorf("parse schema_migrations state %q", raw)
+	}
+	version, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return postgresMigrationState{}, fmt.Errorf("parse schema_migrations version %q: %w", parts[0], err)
+	}
+	var dirty bool
+	switch strings.TrimSpace(parts[1]) {
+	case "t", "true":
+		dirty = true
+	case "f", "false":
+		dirty = false
+	default:
+		return postgresMigrationState{}, fmt.Errorf("parse schema_migrations dirty %q", parts[1])
+	}
+	return postgresMigrationState{version: version, dirty: dirty}, nil
 }
 
 func requirePostgresTablesExist(t *testing.T, env upgradeEnv, tables ...string) {
@@ -411,15 +460,28 @@ func requirePostgresTablesExist(t *testing.T, env upgradeEnv, tables ...string) 
 func podNameForSelector(t *testing.T, env upgradeEnv, selector string) string {
 	t.Helper()
 
-	out := kubectl(t, env, time.Minute,
+	pod, err := podNameForSelectorE(t, env, selector)
+	require.NoError(t, err)
+	return pod
+}
+
+// podNameForSelectorE is the error-returning core of podNameForSelector, for use
+// inside require.Eventually conditions (see pgQueryE).
+func podNameForSelectorE(t *testing.T, env upgradeEnv, selector string) (string, error) {
+	out, err := kubectlOutput(t, env, time.Minute,
 		"get", "pods",
 		"-n", env.namespace,
 		"-l", selector,
 		"-o", "jsonpath={.items[0].metadata.name}",
 	)
+	if err != nil {
+		return "", err
+	}
 	pod := strings.TrimSpace(out)
-	require.NotEmpty(t, pod, "no pod matched selector %q in namespace %s", selector, env.namespace)
-	return pod
+	if pod == "" {
+		return "", fmt.Errorf("no pod matched selector %q in namespace %s", selector, env.namespace)
+	}
+	return pod, nil
 }
 
 func newestPodNameForSelector(t *testing.T, env upgradeEnv, selector string) string {
@@ -485,20 +547,6 @@ func parseInt(t *testing.T, raw, description string) int {
 	n, err := strconv.Atoi(strings.TrimSpace(raw))
 	require.NoError(t, err, "parse integer from %s output %q", description, raw)
 	return n
-}
-
-func parseBool(t *testing.T, raw, description string) bool {
-	t.Helper()
-
-	switch strings.TrimSpace(raw) {
-	case "t", "true":
-		return true
-	case "f", "false":
-		return false
-	default:
-		require.Failf(t, "parse bool", "parse boolean from %s output %q", description, raw)
-		return false
-	}
 }
 
 func latestCoreMigrationVersion(t *testing.T) int {

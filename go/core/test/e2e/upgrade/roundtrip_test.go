@@ -202,7 +202,8 @@ func scaleController(t *testing.T, env upgradeEnv, replicas int) {
 
 	if replicas == 0 {
 		require.Eventually(t, func() bool {
-			return len(podNamesForSelector(t, env, controllerSelector)) == 0
+			pods, err := podNamesForSelectorE(t, env, controllerSelector)
+			return err == nil && len(pods) == 0
 		}, 2*time.Minute, 2*time.Second, "controller pods did not terminate after scale to zero")
 		return
 	}
