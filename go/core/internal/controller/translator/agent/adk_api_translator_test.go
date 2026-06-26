@@ -11,7 +11,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/agentsxk8s"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,8 +18,6 @@ import (
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
 )
 
 // Test_AdkApiTranslator_CrossNamespaceAgentTool tests that the translator can
@@ -1347,116 +1344,4 @@ func Test_AdkApiTranslator_ContextConfig(t *testing.T) {
 			}
 		})
 	}
-}
-
-func Test_AdkApiTranslator_SandboxAgent_defaultEmitsSandbox(t *testing.T) {
-	ctx := context.Background()
-	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
-	require.NoError(t, agentsandboxv1.AddToScheme(scheme))
-
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-ns"}}
-	modelConfig := &v1alpha2.ModelConfig{
-		ObjectMeta: metav1.ObjectMeta{Name: "m1", Namespace: "sandbox-ns"},
-		Spec: v1alpha2.ModelConfigSpec{
-			Model:    "gpt-4",
-			Provider: v1alpha2.ModelProviderOpenAI,
-		},
-	}
-	sa := &v1alpha2.SandboxAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "ag1", Namespace: "sandbox-ns"},
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_Declarative,
-				Declarative: &v1alpha2.DeclarativeAgentSpec{
-					SystemMessage: "You are a sandboxed agent",
-					ModelConfig:   "m1",
-				},
-			},
-		},
-	}
-	kubeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(ns, modelConfig).
-		Build()
-
-	trans := translator.NewAdkApiTranslator(
-		kubeClient,
-		types.NamespacedName{Namespace: "sandbox-ns", Name: "m1"},
-		nil,
-		"",
-		agentsxk8s.New(),
-	)
-	outputs, err := translator.TranslateAgent(ctx, trans, sa)
-	require.NoError(t, err)
-	require.NotNil(t, outputs)
-
-	var sawSandbox, sawDeploy, sawService bool
-	for _, o := range outputs.Manifest {
-		switch o.(type) {
-		case *agentsandboxv1.Sandbox:
-			sawSandbox = true
-		case *appsv1.Deployment:
-			sawDeploy = true
-		case *corev1.Service:
-			sawService = true
-		}
-	}
-	require.True(t, sawSandbox, "sandbox runtime should emit a Sandbox CR")
-	require.False(t, sawDeploy, "manifest should not include Deployment when runInSandbox is true")
-	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
-}
-
-func Test_AdkApiTranslator_SandboxAgent_BYOEmitsSandbox(t *testing.T) {
-	ctx := context.Background()
-	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
-	require.NoError(t, agentsandboxv1.AddToScheme(scheme))
-
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-ns"}}
-	cmd := "/app/run"
-	sa := &v1alpha2.SandboxAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "byo-sb", Namespace: "sandbox-ns"},
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_BYO,
-				BYO: &v1alpha2.BYOAgentSpec{
-					Deployment: &v1alpha2.ByoDeploymentSpec{
-						Image: "example.com/agent:1",
-						Cmd:   &cmd,
-					},
-				},
-			},
-		},
-	}
-	kubeClient := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithObjects(ns).
-		Build()
-
-	trans := translator.NewAdkApiTranslator(
-		kubeClient,
-		types.NamespacedName{Namespace: "sandbox-ns", Name: "default"},
-		nil,
-		"",
-		agentsxk8s.New(),
-	)
-	outputs, err := translator.TranslateAgent(ctx, trans, sa)
-	require.NoError(t, err)
-	require.NotNil(t, outputs)
-
-	var sawSandbox, sawDeploy, sawService bool
-	for _, o := range outputs.Manifest {
-		switch o.(type) {
-		case *agentsandboxv1.Sandbox:
-			sawSandbox = true
-		case *appsv1.Deployment:
-			sawDeploy = true
-		case *corev1.Service:
-			sawService = true
-		}
-	}
-	require.True(t, sawSandbox)
-	require.False(t, sawDeploy)
-	require.False(t, sawService, "sandbox runtime must not include Service; agent-sandbox owns it")
 }

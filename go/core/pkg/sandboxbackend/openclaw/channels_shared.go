@@ -1,10 +1,12 @@
 package openclaw
 
 import (
+	"context"
 	"fmt"
-	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/channel_helpers"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type harnessChannels struct {
@@ -72,34 +74,10 @@ func openClawSlackChannelAccess(opts *v1alpha2.AgentHarnessOpenClawSlackOptions)
 	return opts.ChannelAccess
 }
 
-func splitAllowedList(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	var out []string
-	for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
-		return r == ',' || r == '\n' || r == ';'
-	}) {
-		s := strings.TrimSpace(part)
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func trimNonEmptyStrings(ss []string) []string {
-	out := make([]string, 0, len(ss))
-	for _, s := range ss {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
 func unsupportedChannelType(name string, typ v1alpha2.AgentHarnessChannelType) error {
 	return fmt.Errorf("channel %q: unsupported type %q", name, typ)
+}
+
+func telegramAllowFrom(ctx context.Context, kube client.Client, namespace string, spec *v1alpha2.AgentHarnessTelegramChannelSpec) ([]string, error) {
+	return channel_helpers.ResolveAllowedUserIDs(ctx, kube, namespace, spec.AllowedUserIDs, spec.AllowedUserIDsFrom)
 }

@@ -27,7 +27,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: SandboxAgent declares an agent that runs in an isolated sandbox
-          (agent-sandbox or Agent Substrate).
+          on Agent Substrate.
         properties:
           apiVersion:
             description: |-
@@ -10951,14 +10951,6 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
-              platform:
-                default: agent-sandbox
-                description: Platform selects the sandbox control plane. Defaults
-                  to agent-sandbox.
-                enum:
-                - agent-sandbox
-                - substrate
-                type: string
               sandbox:
                 description: |-
                   Sandbox configures sandboxed execution behavior shared across runtimes.
@@ -11296,8 +11288,7 @@ spec:
                     type: array
                 type: object
               substrate:
-                description: Substrate is optional substrate-specific settings when
-                  platform is substrate.
+                description: Substrate is optional Agent Substrate-specific settings.
                 properties:
                   snapshotsConfig:
                     description: |-
@@ -11335,12 +11326,10 @@ spec:
                 type: string
             type: object
             x-kubernetes-validations:
-            - message: spec.skills is not supported when spec.platform is substrate
-              rule: '!has(self.skills) || self.platform != ''substrate'''
-            - message: spec.substrate may only be set when spec.platform is substrate
-              rule: '!has(self.substrate) || self.platform == ''substrate'''
-            - message: BYO agents are not supported when spec.platform is substrate
-              rule: '!has(self.type) || self.type != ''BYO'' || self.platform != ''substrate'''
+            - message: spec.skills is not supported for sandbox agents
+              rule: '!has(self.skills)'
+            - message: BYO agents are not supported for sandbox agents
+              rule: '!has(self.type) || self.type != ''BYO'''
             - message: type must be specified
               rule: has(self.type)
             - message: type must be either Declarative or BYO

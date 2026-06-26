@@ -251,13 +251,8 @@ controller:
       type: ClusterIP
       port: 8443
 
-  # Extra controller env (mapped to flags via SUBSTRATE_* / OPENSHELL_* env names).
-  # OpenShell AgentHarness: set OPENSHELL_GATEWAY_URL (or leave defaults below).
-  env:
-    # - name: OPENSHELL_GATEWAY_URL
-    #   value: openshell.openshell.svc.cluster.local:8080
-    # - name: OPENSHELL_INSECURE
-    #   value: "true"
+  # Extra controller env (mapped to flags via SUBSTRATE_* env names).
+  env: []
 
   # Agent Substrate (OpenClaw harness runtime=substrate). Requires ate-system installed.
   # kagent generates per-harness ActorTemplates and references an existing WorkerPool.
