@@ -23,7 +23,7 @@ const (
 
 var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
-// ClawBackend implements AsyncBackend for OpenClaw/NemoClaw on Agent Substrate.
+// ClawBackend implements AsyncBackend for OpenClaw on Agent Substrate.
 type ClawBackend struct {
 	client   *Client
 	backend  v1alpha2.AgentHarnessBackendType
@@ -32,7 +32,7 @@ type ClawBackend struct {
 
 var _ sandboxbackend.AsyncBackend = (*ClawBackend)(nil)
 
-// NewOpenClawBackend returns a substrate backend for openclaw/nemoclaw harness types.
+// NewOpenClawBackend returns a substrate backend for openclaw harness types.
 func NewOpenClawBackend(client *Client, backend v1alpha2.AgentHarnessBackendType, recorder record.EventRecorder) *ClawBackend {
 	return &ClawBackend{
 		client:   client,
@@ -48,9 +48,6 @@ func (b *ClawBackend) Name() v1alpha2.AgentHarnessBackendType {
 func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.AgentHarness) (sandboxbackend.EnsureResult, error) {
 	if ah == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("AgentHarness is required")
-	}
-	if err := validateSubstrateSpec(ah); err != nil {
-		return sandboxbackend.EnsureResult{}, err
 	}
 
 	actorID := ActorID(ah)
@@ -158,17 +155,6 @@ func substrateConnectionEndpoint(namespace, name string, actor *ateapipb.Actor) 
 		return fmt.Sprintf("atenet-router Host %s (UI via kagent %s)", ActorHost(actorID, ""), gw)
 	}
 	return fmt.Sprintf("kagent gateway: %s (actor status %s)", gw, actor.GetStatus())
-}
-
-func validateSubstrateSpec(ah *v1alpha2.AgentHarness) error {
-	runtime := ah.Spec.Runtime
-	if runtime == "" {
-		runtime = v1alpha2.AgentHarnessRuntimeOpenshell
-	}
-	if runtime != v1alpha2.AgentHarnessRuntimeSubstrate {
-		return fmt.Errorf("substrate backend called for runtime %q", runtime)
-	}
-	return nil
 }
 
 func actorStatusToCondition(actor *ateapipb.Actor) (metav1.ConditionStatus, string, string) {

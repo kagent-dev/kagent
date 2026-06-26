@@ -269,9 +269,7 @@ func TestSessionsHandler(t *testing.T) {
 					Name:      "test-substrate-agent",
 					Namespace: "kagent",
 				},
-				Spec: v1alpha2.SandboxAgentSpec{
-					Platform: v1alpha2.SandboxPlatformSubstrate,
-				},
+				Spec: v1alpha2.SandboxAgentSpec{},
 			}).Build()
 			handler.KubeClient = kubeClient
 
@@ -408,13 +406,13 @@ func TestSessionsHandler(t *testing.T) {
 			newAgent := createTestAgent(t, dbClient, newAgentRef)
 
 			sessionReq := api.SessionRequest{
-				Name:     &sessionName,
 				AgentRef: &newAgentRef,
 			}
 
 			jsonBody, _ := json.Marshal(sessionReq)
-			req := httptest.NewRequest("PUT", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/sessions/"+session.ID, bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = mux.SetURLVars(req, map[string]string{"session_id": session.ID})
 			req = setUser(req, userID)
 
 			handler.HandleUpdateSession(responseRecorder, req)
@@ -428,18 +426,55 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, newAgent.ID, *response.Data.AgentID)
 		})
 
-		t.Run("MissingSessionName", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler(t)
+		t.Run("RenameOnly", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
-			agentRef := "default/test-agent"
+			sessionID := "rename-session"
 
+			agentRef := utils.ConvertToPythonIdentifier("default/test-agent")
+			agent := createTestAgent(t, dbClient, agentRef)
+			session := createTestSession(t, dbClient, sessionID, userID, agent.ID)
+
+			newName := "my new name"
 			sessionReq := api.SessionRequest{
-				AgentRef: &agentRef,
+				Name: &newName,
 			}
 
 			jsonBody, _ := json.Marshal(sessionReq)
-			req := httptest.NewRequest("PUT", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PATCH", "/api/sessions/"+session.ID, bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = mux.SetURLVars(req, map[string]string{"session_id": session.ID})
+			req = setUser(req, userID)
+
+			handler.HandleUpdateSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+
+			var response api.StandardResponse[*database.Session]
+			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
+			require.NoError(t, err)
+			assert.Equal(t, session.ID, response.Data.ID)
+			require.NotNil(t, response.Data.Name)
+			assert.Equal(t, newName, *response.Data.Name)
+			// Agent must be left untouched when only the name is updated.
+			assert.Equal(t, agent.ID, *response.Data.AgentID)
+		})
+
+		t.Run("MissingNameAndAgentRef", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			userID := "test-user"
+			sessionID := "empty-update-session"
+
+			agentRef := utils.ConvertToPythonIdentifier("default/test-agent")
+			agent := createTestAgent(t, dbClient, agentRef)
+			createTestSession(t, dbClient, sessionID, userID, agent.ID)
+
+			sessionReq := api.SessionRequest{}
+
+			jsonBody, _ := json.Marshal(sessionReq)
+			req := httptest.NewRequest("PATCH", "/api/sessions/"+sessionID, bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
 			req = setUser(req, userID)
 
 			handler.HandleUpdateSession(responseRecorder, req)
@@ -451,19 +486,19 @@ func TestSessionsHandler(t *testing.T) {
 		t.Run("SessionNotFound", func(t *testing.T) {
 			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
-			sessionName := "non-existent-session"
+			sessionID := "non-existent-session"
 			agentRef := "default/test-agent"
 
 			createTestAgent(t, dbClient, agentRef)
 
 			sessionReq := api.SessionRequest{
-				Name:     &sessionName,
 				AgentRef: &agentRef,
 			}
 
 			jsonBody, _ := json.Marshal(sessionReq)
-			req := httptest.NewRequest("PUT", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/sessions/"+sessionID, bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
 			req = setUser(req, userID)
 
 			handler.HandleUpdateSession(responseRecorder, req)

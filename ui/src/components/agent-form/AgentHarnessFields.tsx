@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
 import { cn } from "@/lib/utils";
@@ -16,7 +15,12 @@ import type {
   AgentHarnessFormSlice,
   AgentHarnessFormValidationError,
 } from "@/lib/agentHarnessForm";
-import { isClawHarnessBackend, newAgentHarnessChannelRow } from "@/lib/agentHarnessForm";
+import {
+  agentHarnessBackendSupportsMessengerChannels,
+  isClawHarnessBackend,
+  isSubstrateOnlyHarnessBackend,
+  newAgentHarnessChannelRow,
+} from "@/lib/agentHarnessForm";
 import type { AgentHarnessCrBackend } from "@/types";
 import { useSubstrateEnabled } from "@/contexts/SubstrateFeaturesContext";
 
@@ -113,7 +117,7 @@ function ChannelTypeSetupHints({
           lines={[
             <>
               <strong>Bot + app tokens:</strong> Same Socket Mode tokens as OpenClaw (<span className="font-mono">xoxb-</span> and{" "}
-              <span className="font-mono">xapp-</span>). Stored as OpenShell providers and resolved at egress.
+              <span className="font-mono">xapp-</span>). Stored as secret providers and resolved at egress.
             </>,
             <>
               <strong>Allowed Slack users:</strong> Optional Slack member IDs (<span className="font-mono">U…</span>) who may DM the
@@ -153,15 +157,11 @@ export function AgentHarnessFields({
   const substrateEnabled = useSubstrateEnabled();
   const harnessBackend = value.backend;
   const clawBackend = isClawHarnessBackend(harnessBackend);
+  const substrateOnly = isSubstrateOnlyHarnessBackend(harnessBackend);
+  const channelsSupported = agentHarnessBackendSupportsMessengerChannels(harnessBackend);
   const set = (patch: Partial<AgentHarnessFormSlice>) => onChange({ ...value, ...patch });
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const section = validationError?.section ?? null;
-
-  React.useEffect(() => {
-    if (!substrateEnabled && value.runtime === "substrate") {
-      set({ runtime: "openshell" });
-    }
-  }, [substrateEnabled, value.runtime]);
 
   return (
     <div id="section-agent-harness-sandbox" className="space-y-8">
@@ -169,73 +169,44 @@ export function AgentHarnessFields({
         {section === "general" ? validationError?.message : null}
       </FieldError>
 
-      {substrateEnabled ? (
+      {substrateEnabled || substrateOnly ? (
         <FormSection
           id="section-agent-harness-runtime"
           title="Runtime"
-          description="OpenShell provisions a VM via the OpenShell gateway. Substrate generates an ActorTemplate and uses an existing WorkerPool."
+          description="Agent Substrate generates an ActorTemplate and uses an existing WorkerPool."
         >
-          <FieldRoot>
-            <FieldLabel htmlFor="agent-field-harness-runtime">Control plane</FieldLabel>
-            <select
-              id="agent-field-harness-runtime"
-              className="flex h-9 w-full max-w-md rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-              disabled={disabled}
-              value={value.runtime}
-              onChange={(e) =>
-                set({ runtime: e.target.value === "substrate" ? "substrate" : "openshell" })
-              }
-            >
-              <option value="openshell">OpenShell</option>
-              <option value="substrate">Agent Substrate</option>
-            </select>
-          </FieldRoot>
-          {value.runtime === "substrate" ? (
-            <div className="space-y-4">
-              <FieldRoot>
-                <FieldLabel htmlFor="agent-field-substrate-gateway-token">Gateway token</FieldLabel>
-                <Input
-                  id="agent-field-substrate-gateway-token"
-                  disabled={disabled}
-                  type="password"
-                  value={value.substrateGatewayToken}
-                  onChange={(e) => set({ substrateGatewayToken: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Bearer token used by kagent when proxying the generated OpenClaw gateway.
-                </p>
-              </FieldRoot>
-              <FieldRoot>
-                <FieldLabel htmlFor="agent-field-substrate-snapshots">Snapshot location (GCS)</FieldLabel>
-                <Input
-                  id="agent-field-substrate-snapshots"
-                  disabled={disabled}
-                  placeholder="gs://ate-snapshots/kagent/my-harness/"
-                  value={value.substrateSnapshotsLocation}
-                  onChange={(e) => set({ substrateSnapshotsLocation: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Substrate stores golden and incremental snapshots at this gs:// prefix (GCS only today).
-                </p>
-              </FieldRoot>
-              <FieldRoot>
-                <FieldLabel htmlFor="agent-field-substrate-wp-name">WorkerPool name</FieldLabel>
-                <Input
-                  id="agent-field-substrate-wp-name"
-                  disabled={disabled}
-                  placeholder="controller default"
-                  value={value.substrateWorkerPoolRefName}
-                  onChange={(e) => set({ substrateWorkerPoolRefName: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Leave empty to use the controller default WorkerPool.
-                </p>
-              </FieldRoot>
-            </div>
-          ) : null}
+          <div className="space-y-4">
+            <FieldRoot>
+              <FieldLabel htmlFor="agent-field-substrate-snapshots">Snapshot location (GCS)</FieldLabel>
+              <Input
+                id="agent-field-substrate-snapshots"
+                disabled={disabled}
+                placeholder="gs://ate-snapshots/kagent/my-harness/"
+                value={value.substrateSnapshotsLocation}
+                onChange={(e) => set({ substrateSnapshotsLocation: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Substrate stores golden and incremental snapshots at this gs:// prefix (GCS only today).
+              </p>
+            </FieldRoot>
+            <FieldRoot>
+              <FieldLabel htmlFor="agent-field-substrate-wp-name">WorkerPool name</FieldLabel>
+              <Input
+                id="agent-field-substrate-wp-name"
+                disabled={disabled}
+                placeholder="controller default"
+                value={value.substrateWorkerPoolRefName}
+                onChange={(e) => set({ substrateWorkerPoolRefName: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty to use the controller default WorkerPool.
+              </p>
+            </FieldRoot>
+          </div>
         </FormSection>
       ) : null}
 
+      {channelsSupported ? (
       <FormSection
         id="section-agent-harness-channels"
         title="Channels integrations"
@@ -663,35 +634,7 @@ export function AgentHarnessFields({
         )}
       </FieldRoot>
       </FormSection>
-
-      <FormSection
-        id="section-agent-harness-network"
-        title="Network"
-        description="Restrict outbound HTTP(S) traffic from the harness to a list of allowed domains. Each entry allows all HTTP methods (GET, POST, PUT, DELETE, …) and all paths on that host."
-      >
-        <FieldError>{section === "allowedDomains" ? validationError?.message : null}</FieldError>
-        <FieldRoot>
-          <FieldLabel htmlFor="agent-field-agent-harness-allowed-domains">Allowed domains</FieldLabel>
-          <FieldHint>
-            One host per line (commas and spaces also work). Use bare DNS names like{" "}
-            <span className="font-mono">api.github.com</span> or glob labels like{" "}
-            <span className="font-mono">*.slack.com</span> — no scheme or path. Domains are merged with the harness baseline and
-            channel-derived egress policies.
-          </FieldHint>
-          <Textarea
-            id="agent-field-agent-harness-allowed-domains"
-            name="allowedDomains"
-            value={value.allowedDomains}
-            onChange={(e) => set({ allowedDomains: e.target.value })}
-            placeholder={"api.github.com\nregistry.npmjs.org\n*.slack.com"}
-            rows={4}
-            spellCheck={false}
-            autoComplete="off"
-            disabled={disabled}
-            className="font-mono text-sm"
-          />
-        </FieldRoot>
-      </FormSection>
+      ) : null}
 
       <section className="rounded-lg border border-border/90 bg-card text-card-foreground shadow-sm">
         <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
@@ -723,7 +666,7 @@ export function AgentHarnessFields({
                   value={value.image}
                   onChange={(e) => set({ image: e.target.value })}
                   className="font-mono text-sm"
-                  placeholder="e.g. ghcr.io/kagent-dev/nemoclaw/sandbox-base:2026.5.4"
+                  placeholder="e.g. ghcr.io/kagent-dev/openclaw/sandbox-base:2026.5.4"
                   disabled={disabled}
                   autoComplete="off"
                 />
