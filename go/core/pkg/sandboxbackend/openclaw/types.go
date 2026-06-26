@@ -20,8 +20,7 @@ type gatewaySection struct {
 }
 
 type gatewayAuth struct {
-	Mode  string `json:"mode"`
-	Token string `json:"token,omitempty"`
+	Mode string `json:"mode"`
 }
 
 type controlUiSection struct {

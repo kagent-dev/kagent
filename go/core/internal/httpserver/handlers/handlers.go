@@ -15,6 +15,9 @@ import (
 type Handlers struct {
 	KubeClient          client.Client
 	AgentHarnessGateway *AgentHarnessGatewayConfig
+	// AgentHarnessSessionActor creates/suspends the per-session substrate actors
+	// that back each AgentHarness chat session.
+	AgentHarnessSessionActor *substrate.AgentHarnessSessionActorBackend
 
 	Health              *HealthHandler
 	ModelConfig         *ModelConfigHandler
@@ -62,6 +65,7 @@ func NewHandlers(
 	substrateAteClient *substrate.Client,
 	mcpEgressPlaintext bool,
 	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend,
+	agentHarnessSessionActorBackend *substrate.AgentHarnessSessionActorBackend,
 ) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
@@ -75,25 +79,26 @@ func NewHandlers(
 	}
 
 	return &Handlers{
-		KubeClient:          kubeClient,
-		AgentHarnessGateway: agentHarnessGateway,
-		Health:              NewHealthHandler(),
-		ModelConfig:         NewModelConfigHandler(base),
-		Model:               NewModelHandler(base),
-		ModelProviderConfig: NewModelProviderConfigHandler(base, rcnclr),
-		Sessions:            NewSessionsHandler(base, substrateSandboxActorBackend),
-		Agents:              NewAgentsHandler(base),
-		Tools:               NewToolsHandler(base),
-		ToolServers:         NewToolServersHandler(base),
-		ToolServerTypes:     NewToolServerTypesHandler(base),
-		Memory:              NewMemoryHandler(base),
-		Feedback:            NewFeedbackHandler(base),
-		Namespaces:          NewNamespacesHandler(base),
-		PromptTemplates:     NewPromptTemplatesHandler(base),
-		Tasks:               NewTasksHandler(base),
-		Checkpoints:         NewCheckpointsHandler(base),
-		CrewAI:              NewCrewAIHandler(base),
-		CurrentUser:         NewCurrentUserHandler(),
-		Substrate:           NewSubstrateHandler(base, substrateAteClient),
+		KubeClient:               kubeClient,
+		AgentHarnessGateway:      agentHarnessGateway,
+		AgentHarnessSessionActor: agentHarnessSessionActorBackend,
+		Health:                   NewHealthHandler(),
+		ModelConfig:              NewModelConfigHandler(base),
+		Model:                    NewModelHandler(base),
+		ModelProviderConfig:      NewModelProviderConfigHandler(base, rcnclr),
+		Sessions:                 NewSessionsHandler(base, substrateSandboxActorBackend),
+		Agents:                   NewAgentsHandler(base),
+		Tools:                    NewToolsHandler(base),
+		ToolServers:              NewToolServersHandler(base),
+		ToolServerTypes:          NewToolServerTypesHandler(base),
+		Memory:                   NewMemoryHandler(base),
+		Feedback:                 NewFeedbackHandler(base),
+		Namespaces:               NewNamespacesHandler(base),
+		PromptTemplates:          NewPromptTemplatesHandler(base),
+		Tasks:                    NewTasksHandler(base),
+		Checkpoints:              NewCheckpointsHandler(base),
+		CrewAI:                   NewCrewAIHandler(base),
+		CurrentUser:              NewCurrentUserHandler(),
+		Substrate:                NewSubstrateHandler(base, substrateAteClient),
 	}
 }

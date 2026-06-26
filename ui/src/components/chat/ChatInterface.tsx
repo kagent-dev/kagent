@@ -22,9 +22,11 @@ import { createSession, getSessionTasks, checkSessionExists } from "@/app/action
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
 import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 import { getAgentWithResolvedKind, waitForSandboxAgentReady } from "@/app/actions/agents";
+import { getUiRuntimeConfig } from "@/app/actions/config";
+import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
+import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, countSendGuardComparableMessages, countBackendBackedComparableMessages, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
@@ -36,6 +38,7 @@ import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
 const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
 // Task states that mean the session is busy (used by the cross-tab send guard).
 const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
+
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -71,6 +74,22 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const pendingDecisionsRef = useRef<Record<string, ToolDecision>>({});
   /** Per-tool rejection reasons collected as the user rejects individual tools. */
   const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
+  // Stream inactivity timeout (ms), configurable via Helm (ui.streamTimeoutSeconds).
+  const streamTimeoutMsRef = useRef<number>(DEFAULT_STREAM_TIMEOUT_MS);
+
+  useEffect(() => {
+    let cancelled = false;
+    getUiRuntimeConfig()
+      .then((config) => {
+        if (!cancelled) streamTimeoutMsRef.current = config.streamTimeoutMs;
+      })
+      .catch(() => {
+        /* keep default on failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const {
     isListening,
@@ -225,14 +244,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     // the full context before their next message goes out.
     const guardSessionId = session?.id || sessionId;
     if (guardSessionId) {
-      // Compare only non-approval messages to avoid false negatives when
-      // storedMessages includes appended ToolApprovalRequest / AskUserRequest entries.
-      const localMessageCount = storedMessages.filter(m => {
-        const meta = m.metadata as ADKMetadata | undefined;
-        return meta?.originalType !== "ToolApprovalRequest" && meta?.originalType !== "AskUserRequest";
-      }).length;
+      // Compare visible messages against the backend snapshot. Completed
+      // same-tab stream messages remain in streamingMessages until the next
+      // send promotes them, but only backend-backed matches count as local.
       const guardResult = await checkAndSyncSessionBeforeAction(guardSessionId, {
-        localMessageCount,
+        localMessages: allMessages,
         messages: {
           inFlight: "This session is already being processed — reconnecting to live updates",
           inputRequired: "Session is awaiting your input — please review before sending",
@@ -252,15 +268,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     pendingRejectionReasonsRef.current = {};
     pendingTurnStatsRef.current = undefined;
 
+    const messageId = uuidv4();
+
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
       kind: "message",
-      messageId: uuidv4(),
+      messageId,
       role: "user",
       parts: [{
         kind: "text",
         text: userMessageText
       }],
+      contextId: guardSessionId,
       metadata: {
         timestamp: Date.now()
       }
@@ -360,7 +379,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
       }
 
-      const messageId = uuidv4();
       const a2aMessage = createMessage(userMessageText, "user", {
         messageId,
         contextId: currentSessionId,
@@ -382,18 +400,24 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const consumeStream = async (stream: AsyncIterable<unknown>) => {
     let timeoutTimer: NodeJS.Timeout | null = null;
     let streamActive = true;
-    const STREAM_TIMEOUT_MS = 600000; // 10 minutes
+
+    const formatTimeout = (ms: number): string => {
+      const mins = ms / 60000;
+      return mins >= 1 ? `${Math.ceil(mins)} minutes` : `${Math.round(ms / 1000)} seconds`;
+    };
 
     const startTimeout = () => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
+      const streamTimeoutMs = streamTimeoutMsRef.current;
       timeoutTimer = setTimeout(() => {
         if (streamActive) {
-          console.error("⏰ Stream timeout - no events received for 10 minutes");
-          toast.error("⏰ Stream timed out - no events received for 10 minutes");
+          const label = formatTimeout(streamTimeoutMs);
+          console.error(`⏰ Stream timeout - no events received for ${label}`);
+          toast.error(`⏰ Stream timed out - no events received for ${label}`);
           streamActive = false;
           abortControllerRef.current?.abort();
         }
-      }, STREAM_TIMEOUT_MS);
+      }, streamTimeoutMs);
     };
     startTimeout();
 
@@ -573,6 +597,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     guardSessionId: string,
     opts: {
       expectedTaskId?: string;
+      localMessages?: Message[];
       localMessageCount?: number;
       messages: {
         inFlight: string;
@@ -624,9 +649,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       return "blocked";
     }
 
-    if (opts.localMessageCount !== undefined) {
+    if (opts.localMessages !== undefined || opts.localMessageCount !== undefined) {
       const dbMessages = extractMessagesFromTasks(tasksCheck.data);
-      if (dbMessages.length > opts.localMessageCount) {
+      const dbMessageCount = countSendGuardComparableMessages(dbMessages);
+      const localMessageCount = opts.localMessages !== undefined
+        ? countBackendBackedComparableMessages(opts.localMessages, dbMessages)
+        : opts.localMessageCount;
+      if (localMessageCount !== undefined && dbMessageCount > localMessageCount) {
         await reloadSessionFromDB();
         toast.info(opts.messages.staleOrChanged);
         return "blocked";
@@ -919,7 +948,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     );
   }
   return (
-    <div className="flex h-screen w-full min-w-0 flex-col items-center justify-center transition-all duration-300 ease-in-out">
+    <div className="flex h-full w-full min-w-0 flex-col items-center justify-center transition-all duration-300 ease-in-out">
       <div className="flex-1 w-full overflow-hidden relative">
         <ScrollArea ref={containerRef} className="w-full h-full py-12">
           <div className="flex flex-col space-y-5 px-4">

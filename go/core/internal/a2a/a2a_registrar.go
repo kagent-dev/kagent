@@ -218,7 +218,6 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 
 	httpClient := debugHTTPClient()
 	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok &&
-		v1alpha2.AgentSandboxPlatform(sa) == v1alpha2.SandboxPlatformSubstrate &&
 		a.substrateSandboxActorBackend != nil {
 		routerURL := a.ateneRouterURL
 		if routerURL == "" {

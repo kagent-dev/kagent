@@ -18,15 +18,17 @@ import (
 
 func TestSubstrateGatewayBootstrap(t *testing.T) {
 	t.Parallel()
-	raw, err := openclaw.BuildGatewayOnlyBootstrapJSON(openclaw.SubstrateGatewayBootstrap("tok", 80, "/api/agentharnesses/kagent/claw/gateway/"))
+	raw, err := openclaw.BuildGatewayOnlyBootstrapJSON(openclaw.SubstrateGatewayBootstrap(80))
 	require.NoError(t, err)
 	var root map[string]any
 	require.NoError(t, json.Unmarshal(raw, &root))
 	gw := root["gateway"].(map[string]any)
-	require.Equal(t, "lan", gw["bind"])
-	cui := gw["controlUi"].(map[string]any)
-	require.Equal(t, "/api/agentharnesses/kagent/claw/gateway", cui["basePath"])
-	require.Equal(t, true, cui["dangerouslyDisableDeviceAuth"])
+	// Must be loopback: OpenClaw refuses an unauthenticated (auth.mode=none)
+	// "lan" bind, so a lan gateway would never listen on :18789.
+	require.Equal(t, "loopback", gw["bind"])
+	require.Equal(t, "none", gw["auth"].(map[string]any)["mode"])
+	_, hasControlUI := gw["controlUi"]
+	require.False(t, hasControlUI, "controlUi should not be emitted")
 }
 
 func TestBuildSubstrateBootstrapJSON_ModelConfigAPIKeyUsesSecretRef(t *testing.T) {
@@ -48,7 +50,7 @@ func TestBuildSubstrateBootstrapJSON_ModelConfigAPIKeyUsesSecretRef(t *testing.T
 	sbx := &v1alpha2.AgentHarness{ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns}}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mc).Build()
-	raw, env, err := openclaw.BuildSubstrateBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.SubstrateGatewayBootstrap("tok", 80, "/gw/"))
+	raw, env, err := openclaw.BuildSubstrateBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.SubstrateGatewayBootstrap(80))
 	require.NoError(t, err)
 
 	var root map[string]any
@@ -117,7 +119,7 @@ func TestBuildSubstrateBootstrapJSON_TelegramUsesEnvSecretRef(t *testing.T) {
 	}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mc, secret).Build()
-	raw, env, err := openclaw.BuildSubstrateBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.SubstrateGatewayBootstrap("tok", 80, "/gw/"))
+	raw, env, err := openclaw.BuildSubstrateBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.SubstrateGatewayBootstrap(80))
 	require.NoError(t, err)
 
 	var root map[string]any

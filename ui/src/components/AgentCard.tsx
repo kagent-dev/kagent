@@ -14,23 +14,19 @@ import type { AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
 import { MemoriesDialog } from "@/components/MemoriesDialog";
 import KagentLogo from "@/components/kagent-logo";
+import HermesLogo from "@/components/hermes-logo";
+import OpenClawLogo from "@/components/openclaw-logo";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Brain, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
+import { Brain, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import {
-  agentHarnessIcon,
   agentHarnessRuntimeLabel,
   agentHarnessTypeLabel,
   getAgentHarnessBackend,
   getAgentHarnessRuntime,
   isAgentHarness,
 } from "@/lib/agentHarness";
-import {
-  isOpenshellSandboxRow,
-  isSubstrateHarnessRow,
-  openshellTerminalHref,
-} from "@/lib/openshellSandboxAgents";
 import { cn } from "@/lib/utils";
 
 interface AgentCardProps {
@@ -44,8 +40,6 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
   const [memoriesOpen, setMemoriesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
-  const sshSandbox = isOpenshellSandboxRow(agentResponse);
-  const substrateHarness = isSubstrateHarnessRow(agentResponse);
   const agentHarness = isAgentHarness(agentResponse);
   const harnessBackend = getAgentHarnessBackend(agentResponse);
   const harnessRuntime = getAgentHarnessRuntime(agentResponse);
@@ -92,22 +86,18 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
     )}>
       <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2 relative z-30">
         <CardTitle className="flex items-center gap-2 flex-1 min-w-0">
-          {sshSandbox ? (
-            agentHarness ? (
-              <span
-                className="h-5 w-5 flex-shrink-0 text-muted-foreground"
-                aria-hidden
-                title={
-                  harnessBackend
-                    ? `${agentHarnessTypeLabel(harnessBackend)} (${harnessRuntime ? agentHarnessRuntimeLabel(harnessRuntime) : ""})`
-                    : agentResponse.openshellAgentHarness?.backend
-                }
-              >
-                {harnessBackend ? agentHarnessIcon(harnessBackend) : "🦞"}
-              </span>
-            ) : (
-              <Terminal className="h-5 w-5 flex-shrink-0 text-muted-foreground" aria-hidden />
-            )
+          {agentHarness ? (
+            <span
+              className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center text-lg leading-none"
+              aria-hidden
+              title={
+                harnessBackend
+                  ? `${agentHarnessTypeLabel(harnessBackend)} (${harnessRuntime ? agentHarnessRuntimeLabel(harnessRuntime) : ""})`
+                  : ""
+              }
+            >
+              {harnessBackend === "hermes" ? <HermesLogo className="h-5 w-5" /> : <OpenClawLogo className="h-5 w-5" />}
+            </span>
           ) : (
             <KagentLogo className="h-5 w-5 flex-shrink-0" />
           )}
@@ -185,19 +175,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
     </Card>
   );
 
-  const substrateGatewayPath = agentResponse.substrateAgentHarness?.gatewayUIPath;
-  const chatHref =
-    substrateHarness && substrateGatewayPath
-      ? substrateGatewayPath
-      : sshSandbox && agentResponse.openshellAgentHarness
-        ? openshellTerminalHref({
-            gatewaySandboxName: agentResponse.openshellAgentHarness.gatewaySandboxName,
-            namespace: agent.metadata.namespace,
-            crName: agent.metadata.name,
-            modelConfigRef: agentResponse.modelConfigRef,
-            harnessBackend,
-          })
-        : `/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`;
+  const chatHref = `/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`;
 
   return (
     <>
