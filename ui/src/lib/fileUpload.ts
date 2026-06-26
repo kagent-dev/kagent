@@ -14,6 +14,11 @@ export const ALLOWED_MIME_TYPES = new Set<string>([
   "text/csv",
   "text/html",
   "application/json",
+  "application/xml",
+  "text/xml",
+  "application/yaml",
+  "application/x-yaml",
+  "text/yaml",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -26,6 +31,9 @@ export const ALLOWED_EXTENSIONS = [
   ".markdown",
   ".csv",
   ".json",
+  ".xml",
+  ".yaml",
+  ".yml",
   ".txt",
   ".html",
   ".htm",
@@ -39,11 +47,12 @@ export const ALLOWED_EXTENSIONS = [
 // accept attribute mirroring the allowlist for the native file picker.
 export const FILE_ACCEPT =
   "image/*,application/pdf,text/plain,text/markdown,text/csv,text/html,application/json," +
+  "application/xml,text/xml,application/yaml,application/x-yaml,text/yaml," +
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document," +
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet," +
   "application/vnd.openxmlformats-officedocument.presentationml.presentation," +
   "application/epub+zip," +
-  ".md,.markdown,.csv,.json,.txt,.html,.htm,.pdf,.docx,.xlsx,.pptx,.epub";
+  ".md,.markdown,.csv,.json,.xml,.yaml,.yml,.txt,.html,.htm,.pdf,.docx,.xlsx,.pptx,.epub";
 
 /** Returns true if the file's type/extension is in the upload allowlist. */
 export function isAllowedFile(file: File): boolean {

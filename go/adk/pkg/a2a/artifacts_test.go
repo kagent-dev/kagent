@@ -97,6 +97,18 @@ func TestCheckInboundFileSizes(t *testing.T) {
 	}
 }
 
+func TestBase64DecodedLen(t *testing.T) {
+	// Covers each padding case so the allocation-free size check stays exact
+	// for clean StdEncoding input (the format the UI emits).
+	for _, n := range []int{0, 1, 2, 3, 5, 10, 64, 1023, 1 << 20} {
+		data := make([]byte, n)
+		encoded := base64.StdEncoding.EncodeToString(data)
+		if got := base64DecodedLen(encoded); got != n {
+			t.Errorf("base64DecodedLen(%d-byte payload) = %d, want %d", n, got, n)
+		}
+	}
+}
+
 func TestCheckInboundFileSizes_PointerPart(t *testing.T) {
 	msg := a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.FilePart{
 		File: a2atype.FileBytes{

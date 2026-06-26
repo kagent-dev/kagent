@@ -180,10 +180,12 @@ docker run --rm \
 
 ### File uploads (artifacts)
 
-The chat UI supports uploading files to agents running on the **Go ADK runtime**
-(Python runtime is out of scope). Files travel inline (base64) over the existing
-A2A message channel as `FilePart`s — there is no separate artifact HTTP API or
-CRD field.
+The chat UI supports uploading files to agents running on the **Go ADK runtime**.
+The artifact round trip (persistence, the `save_artifact`/`load_artifacts` tools,
+and surfacing agent-produced files back to the UI) is Go ADK only; the Python
+runtime mirrors just the text-extraction path so uploaded documents still reach
+non-multimodal models. Files travel inline (base64) over the existing A2A message
+channel as `FilePart`s — there is no separate artifact HTTP API or CRD field.
 
 - **Storage:** Uploaded files are persisted via the ADK in-memory artifact
   service (`artifact.InMemoryService()`), so artifacts live for the lifetime of
@@ -201,7 +203,7 @@ CRD field.
   set is kept common across both runtimes and the UI. Scanned/image-only PDFs
   yield no text without OCR.
 - **Allowlist (enforced in the UI):** images, PDF, plain text, Markdown, CSV,
-  JSON, HTML, and DOCX, XLSX, PPTX, EPUB documents.
+  JSON, XML, YAML, HTML, and DOCX, XLSX, PPTX, EPUB documents.
 - **Size limit:** 10 MB per file by default, enforced both client-side and on
   the server. Override the server limit with the `KAGENT_MAX_ARTIFACT_BYTES`
   environment variable (value in bytes); oversized inbound files fail the task.

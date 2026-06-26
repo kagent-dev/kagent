@@ -54,7 +54,7 @@ func saveArtifact(ctx context.Context, artifacts agent.Artifacts, in saveArtifac
 
 	var data []byte
 	if in.Base64 {
-		decoded, err := base64.StdEncoding.DecodeString(in.Content)
+		decoded, err := decodeFlexibleBase64(in.Content)
 		if err != nil {
 			return nil, fmt.Errorf("invalid base64 content for artifact %q: %w", name, err)
 		}
@@ -90,4 +90,22 @@ func saveArtifact(ctx context.Context, artifacts agent.Artifacts, in saveArtifac
 		"mime_type":  mimeType,
 		"size_bytes": len(data),
 	}, nil
+}
+
+// decodeFlexibleBase64 decodes base64 using the standard or URL-safe alphabet,
+// with or without padding. LLMs sometimes emit url-safe (-_) or unpadded base64;
+// trying the common encodings avoids failing the tool call with a confusing
+// "illegal base64 data" error for content that is in fact decodable.
+func decodeFlexibleBase64(s string) ([]byte, error) {
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	} {
+		if b, err := enc.DecodeString(s); err == nil {
+			return b, nil
+		}
+	}
+	return nil, fmt.Errorf("content is not valid base64 (tried standard and url-safe, padded and unpadded)")
 }
