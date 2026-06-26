@@ -386,7 +386,7 @@ describe("agentSkillsForm", () => {
   });
 
   describe("validateSubstrateSandboxSkillsConflict", () => {
-    it("rejects skills when sandbox platform is substrate", () => {
+    it("rejects skills when running in a sandbox", () => {
       expect(
         validateSubstrateSandboxSkillsConflict(
           {
@@ -394,7 +394,7 @@ describe("agentSkillsForm", () => {
             skillGitRepos: [],
             skillsGitAuthSecretName: "",
           },
-          "substrate",
+          true,
         ),
       ).toMatch(/not supported for Agent Substrate/);
     });
@@ -407,7 +407,7 @@ describe("agentSkillsForm", () => {
             skillGitRepos: [newEmptyGitSkillRow()],
             skillsGitAuthSecretName: "",
           },
-          "substrate",
+          true,
         ),
       ).toBeUndefined();
     });

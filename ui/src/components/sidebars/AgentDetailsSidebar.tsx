@@ -15,6 +15,8 @@ import { getAgents } from "@/app/actions/agents";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { useParams } from "next/navigation";
+import { HarnessActorControl } from "@/components/sidebars/HarnessActorControl";
 
 interface AgentDetailsSidebarProps {
   currentAgent: AgentResponse;
@@ -25,6 +27,8 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
+  const routeParams = useParams<{ chatId?: string }>();
+  const currentChatId = typeof routeParams?.chatId === "string" ? routeParams.chatId : undefined;
 
   const selectedTeam = currentAgent;
 
@@ -122,7 +126,7 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
             const baseToolIdentifier = getToolIdentifier(mcpTool);
             mcpTool.mcpServer?.toolNames.forEach((mcpToolName) => {
               const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
-              
+
               // Find the tool in allTools by matching server ref and tool name
               const toolFromDB = allTools.find(server => {
                 const { name } = k8sRefUtils.fromRef(server.server_name);
@@ -142,7 +146,7 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
           }
         });
       }
-      
+
       setToolDescriptions(descriptions);
     };
 
@@ -262,12 +266,21 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
           <ScrollArea>
             <SidebarGroup>
               <div className="min-w-0 px-2 mb-1">
-                <SidebarGroupLabel
-                  className="font-bold mb-0 block w-full truncate p-0"
-                  title={selectedTeam?.model ? `${agentRef} (${selectedTeam.model})` : agentRef}
-                >
-                  {agentRef}
-                </SidebarGroupLabel>
+                <div className="flex items-center justify-between gap-2">
+                  <SidebarGroupLabel
+                    className="font-bold mb-0 block min-w-0 flex-1 truncate p-0"
+                    title={selectedTeam?.model ? `${agentRef} (${selectedTeam.model})` : agentRef}
+                  >
+                    {agentRef}
+                  </SidebarGroupLabel>
+                  {currentAgent.substrateAgentHarness && currentChatId && (
+                    <HarnessActorControl
+                      namespace={agentNamespace}
+                      harnessName={agentName}
+                      sessionId={currentChatId}
+                    />
+                  )}
+                </div>
                 {selectedTeam?.model && (
                   <p className="mt-0.5 truncate text-xs text-muted-foreground" title={selectedTeam.model}>
                     {selectedTeam.model}

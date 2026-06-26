@@ -14,7 +14,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -130,7 +129,7 @@ func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger,
 		if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
 			continue
 		}
-		result = append(result, h.openshellAgentHarnessAgentResponse(ctx, log, sb))
+		result = append(result, h.agentHarnessAgentResponse(ctx, log, sb))
 	}
 
 	return result, nil
@@ -151,7 +150,7 @@ func (h *AgentsHandler) appendAgentResponses(
 	}
 }
 
-func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, log logr.Logger, sb *v1alpha2.AgentHarness) api.AgentResponse {
+func (h *AgentsHandler) agentHarnessAgentResponse(ctx context.Context, log logr.Logger, sb *v1alpha2.AgentHarness) api.AgentResponse {
 	ref := utils.GetObjectRef(sb)
 	id := utils.ConvertToPythonIdentifier(ref)
 
@@ -166,12 +165,6 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 		}
 	}
 
-	runtime := sb.Spec.Runtime
-	if runtime == "" {
-		runtime = v1alpha2.AgentHarnessRuntimeOpenshell
-	}
-
-	gatewayName := fmt.Sprintf("%s-%s", sb.Namespace, sb.Name)
 	desc := strings.TrimSpace(sb.Spec.Description)
 
 	resp := api.AgentResponse{
@@ -190,36 +183,20 @@ func (h *AgentsHandler) openshellAgentHarnessAgentResponse(ctx context.Context, 
 		Accepted:        accepted,
 	}
 
-	switch runtime {
-	case v1alpha2.AgentHarnessRuntimeSubstrate:
-		subEntry := &api.SubstrateAgentHarnessListEntry{
-			Backend:        sb.Spec.Backend,
-			Runtime:        runtime,
-			ModelConfigRef: sb.Spec.ModelConfigRef,
-			GatewayUIPath:  fmt.Sprintf("/api/agentharnesses/%s/%s/gateway/", sb.Namespace, sb.Name),
-		}
-		if sb.Status.BackendRef != nil {
-			subEntry.BackendRefID = sb.Status.BackendRef.ID
-			subEntry.ActorID = sb.Status.BackendRef.ID
-		}
-		if sb.Status.Connection != nil {
-			subEntry.Endpoint = sb.Status.Connection.Endpoint
-		}
-		resp.SubstrateAgentHarness = subEntry
-	default:
-		entry := &api.OpenshellAgentHarnessListEntry{
-			Backend:            sb.Spec.Backend,
-			GatewaySandboxName: gatewayName,
-			ModelConfigRef:     sb.Spec.ModelConfigRef,
-		}
-		if sb.Status.BackendRef != nil {
-			entry.BackendRefID = sb.Status.BackendRef.ID
-		}
-		if sb.Status.Connection != nil {
-			entry.Endpoint = sb.Status.Connection.Endpoint
-		}
-		resp.OpenshellAgentHarness = entry
+	// Only substrate runtime is supported
+	subEntry := &api.SubstrateAgentHarnessListEntry{
+		Backend:        sb.Spec.Backend,
+		ModelConfigRef: sb.Spec.ModelConfigRef,
+		AcpPath:        fmt.Sprintf("/api/agentharnesses/%s/%s/acp", sb.Namespace, sb.Name),
 	}
+	if sb.Status.BackendRef != nil {
+		subEntry.BackendRefID = sb.Status.BackendRef.ID
+		subEntry.ActorID = sb.Status.BackendRef.ID
+	}
+	if sb.Status.Connection != nil {
+		subEntry.Endpoint = sb.Status.Connection.Endpoint
+	}
+	resp.SubstrateAgentHarness = subEntry
 
 	mcRef := strings.TrimSpace(sb.Spec.ModelConfigRef)
 	if mcRef == "" {
@@ -335,13 +312,6 @@ func (h *AgentsHandler) buildTranslator(kubeClient client.Client) agent_translat
 func (h *AgentsHandler) validateAgentObject(ctx context.Context, agent v1alpha2.AgentObject) error {
 	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
 		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
-			return errors.NewBadRequestError(err.Error(), err)
-		}
-	}
-
-	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox && h.SandboxBackend != nil &&
-		v1alpha2.AgentSandboxPlatform(agent) != v1alpha2.SandboxPlatformSubstrate {
-		if err := sandboxbackend.EnsureAgentSandboxAPIsRegistered(ctx, h.KubeClient); err != nil {
 			return errors.NewBadRequestError(err.Error(), err)
 		}
 	}
@@ -676,7 +646,7 @@ func (h *AgentsHandler) HandleGetAgentHarness(w ErrorResponseWriter, r *http.Req
 		w.RespondWithError(errors.NewNotFoundError("AgentHarness not found", nil))
 		return
 	}
-	resp := h.openshellAgentHarnessAgentResponse(ctx, log, sb)
+	resp := h.agentHarnessAgentResponse(ctx, log, sb)
 	log.Info("Successfully retrieved AgentHarness")
 	RespondWithJSON(w, http.StatusOK, api.NewResponse(resp, "Successfully retrieved AgentHarness", false))
 }
@@ -818,7 +788,7 @@ func normalizeSandboxAgentForAPI(sa *v1alpha2.SandboxAgent) {
 	}
 }
 
-// HandleCreateAgentHarness handles POST /api/agentharnesses requests (kagent.dev/v1alpha2 AgentHarness — OpenClaw/NemoClaw VM, etc.).
+// HandleCreateAgentHarness handles POST /api/agentharnesses requests (kagent.dev/v1alpha2 AgentHarness — OpenClaw VM, etc.).
 func (h *AgentsHandler) HandleCreateAgentHarness(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "create-agentharness")
 	sb := &v1alpha2.AgentHarness{}
@@ -852,7 +822,7 @@ func (h *AgentsHandler) HandleCreateAgentHarness(w ErrorResponseWriter, r *http.
 		return
 	}
 
-	resp := h.openshellAgentHarnessAgentResponse(r.Context(), log, sb)
+	resp := h.agentHarnessAgentResponse(r.Context(), log, sb)
 	log.Info("Successfully created AgentHarness", "agentHarnessRef", agentRef)
 	respondWithObjectResponse(w, http.StatusCreated, resp, "Successfully created AgentHarness")
 }

@@ -26,6 +26,12 @@ type LifecycleDefaults struct {
 	RunscARM64SHA256     string
 	DefaultWorkloadImage string
 	DefaultWorkerPool    types.NamespacedName
+	// ImageRegistry and ImageRepository are the runtime registry/repository used
+	// to compose digest-pinned acp-sandbox workload image refs (from
+	// --image-registry/--image-repository). ImageRepository is the agent app
+	// repository (e.g. "kagent-dev/kagent/app"); see acpSandboxImageConfig.
+	ImageRegistry   string
+	ImageRepository string
 }
 
 // Lifecycle reconciles the Kubernetes lifecycle that kagent owns for a substrate AgentHarness.
@@ -50,6 +56,15 @@ func NewLifecycle(kube client.Client, defaults LifecycleDefaults, ateClient *Cli
 		Client:    kube,
 		Defaults:  defaults,
 		AteClient: ateClient,
+	}
+}
+
+// acpSandboxImageConfig returns the runtime registry/repository used to compose
+// digest-pinned acp-sandbox workload image refs.
+func (p *Lifecycle) acpSandboxImageConfig() acpSandboxImageConfig {
+	return acpSandboxImageConfig{
+		Registry:   p.Defaults.ImageRegistry,
+		Repository: p.Defaults.ImageRepository,
 	}
 }
 
