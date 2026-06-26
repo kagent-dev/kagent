@@ -22,10 +22,6 @@ export type McpServerFormProps = {
   onCreate: (serverRequest: ToolServerCreateRequest) => Promise<void>;
 };
 
-interface ArgPair {
-  value: string;
-}
-
 interface EnvPair {
   key: string;
   value: string;
@@ -43,10 +39,10 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
   const [commandType, setCommandType] = useState("npx");
   const [commandPrefix, setCommandPrefix] = useState("");
   const [packageName, setPackageName] = useState("");
-  const [argPairs, setArgPairs] = useState<ArgPair[]>([{ value: "" }]);
+  const [argPairs, setArgPairs] = useState<string[]>([""]);
   const [envPairs, setEnvPairs] = useState<EnvPair[]>([{ key: "", value: "" }]);
   const [commandPreview, setCommandPreview] = useState("");
-  
+
 
   // SseServer parameters
   const [url, setUrl] = useState("");
@@ -81,36 +77,36 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
         const urlObj = new URL(url.trim());
         // Convert hostname to RFC 1123 compliant format
         let hostname = urlObj.hostname.toLowerCase();
-        
+
         // Replace invalid characters with hyphens
         hostname = hostname.replace(/[^a-z0-9.-]/g, "-");
-        
+
         // Replace multiple consecutive hyphens with a single hyphen
         hostname = hostname.replace(/-+/g, "-");
-        
+
         // Remove hyphens at the beginning and end
         hostname = hostname.replace(/^-+|-+$/g, "");
-        
+
         // If the hostname starts with a dot, prepend an 'a'
         if (hostname.startsWith(".")) {
           hostname = "a" + hostname;
         }
-        
+
         // If the hostname ends with a dot, append an 'a'
         if (hostname.endsWith(".")) {
           hostname = hostname + "a";
         }
-        
+
         // If it doesn't start with alphanumeric, prepend 'server-'
         if (!/^[a-z0-9]/.test(hostname)) {
           hostname = "server-" + hostname;
         }
-        
+
         // If it doesn't end with alphanumeric, append '-server'
         if (!/[a-z0-9]$/.test(hostname)) {
           hostname = hostname + "-server";
         }
-        
+
         generatedName = hostname;
       } catch {
         // If URL is invalid, use a default name
@@ -139,8 +135,8 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
       }
 
       argPairs.forEach((arg) => {
-        if (arg.value.trim()) {
-          preview += " " + arg.value.trim();
+        if (arg.trim()) {
+          preview += " " + arg.trim();
         }
       });
 
@@ -149,7 +145,7 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
   }, [activeTab, commandType, commandPrefix, packageName, argPairs]);
 
   const addArgPair = () => {
-    setArgPairs([...argPairs, { value: "" }]);
+    setArgPairs([...argPairs, ""]);
   };
 
   const removeArgPair = (index: number) => {
@@ -158,7 +154,7 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
 
   const updateArgPair = (index: number, newValue: string) => {
     const updatedPairs = [...argPairs];
-    updatedPairs[index].value = newValue;
+    updatedPairs[index] = newValue;
     setArgPairs(updatedPairs);
   };
 
@@ -330,19 +326,19 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
     if (errorMsg.includes("already exists")) {
       return "A server with this name already exists. Please choose a different name.";
     }
-    
+
     if (errorMsg.includes("Failed to create server")) {
       return "Failed to create server. Please check your configuration and try again.";
     }
-    
+
     if (errorMsg.includes("Network error")) {
       return "Network error: Could not connect to the server. Please check your connection and try again.";
     }
-    
+
     if (errorMsg.includes("Request timed out")) {
       return "Request timed out: The server took too long to respond. Please try again later.";
     }
-    
+
     // Return the original error if no specific formatting is needed
     return errorMsg;
   };
@@ -415,10 +411,10 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <Input 
-                id="server-name" 
-                placeholder="e.g., my-tool-server" 
-                value={serverName} 
+              <Input
+                id="server-name"
+                placeholder="e.g., my-tool-server"
+                value={serverName}
                 onChange={handleServerNameChange}
                 className={!isResourceNameValid(serverName) && serverName ? "border-red-300" : ""}
               />
@@ -522,7 +518,7 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
                   <div className="space-y-2">
                     {argPairs.map((pair, index) => (
                       <div key={index} className="flex gap-2 items-center">
-                        <Input placeholder="Argument (e.g., --verbose, --help, ...)" value={pair.value} onChange={(e) => updateArgPair(index, e.target.value)} className="flex-1" />
+                        <Input placeholder="Argument (e.g., --verbose, --help, ...)" value={pair} onChange={(e) => updateArgPair(index, e.target.value)} className="flex-1" />
                         <Button type="button" variant="ghost" size="sm" onClick={() => removeArgPair(index)} disabled={argPairs.length === 1} className="p-1">
                           <Trash2 className="h-4 w-4 text-red-500" />
                         </Button>
@@ -557,7 +553,7 @@ export function McpServerForm({ supportedToolServerTypes, onCreate }: McpServerF
                   </div>
                 </div>
 
-                
+
               </TabsContent>
 
               <TabsContent value="url" className="pt-4 space-y-4">

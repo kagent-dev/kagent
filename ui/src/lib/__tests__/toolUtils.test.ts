@@ -1,6 +1,6 @@
 import { describe, expect, it, jest, beforeEach, afterEach } from '@jest/globals';
-import { 
-  isMcpTool, 
+import {
+  isMcpTool,
   isAgentTool,
   groupMcpToolsByServer,
   getToolIdentifier,
@@ -1034,7 +1034,7 @@ describe('Tool Utility Functions', () => {
       const args = buildMCPServerArgs(
         "-y",
         "@modelcontextprotocol/server-map",
-        [{ value: "--stdio" }],
+        ["--stdio"],
       );
       expect(args).toEqual([
         "-y",
@@ -1047,7 +1047,7 @@ describe('Tool Utility Functions', () => {
       const args = buildMCPServerArgs(
         "",
         "@acme/mcp-tool",
-        [{ value: "" }, { value: "--verbose" }, { value: "" }],
+        ["", "--verbose", ""],
       );
       expect(args).toEqual(["@acme/mcp-tool", "--verbose"]);
     });
@@ -1056,7 +1056,7 @@ describe('Tool Utility Functions', () => {
       const args = buildMCPServerArgs(
         "--cache --quiet",
         "@acme/mcp-tool",
-        [{ value: "--help" }],
+        ["--help"],
       );
       expect(args).toEqual([
         "--cache",
@@ -1067,7 +1067,7 @@ describe('Tool Utility Functions', () => {
     });
 
     it('should handle empty prefix and no additional arguments', () => {
-      const args = buildMCPServerArgs("", "@acme/mcp-tool", [{ value: "" }]);
+      const args = buildMCPServerArgs("", "@acme/mcp-tool", [""]);
       expect(args).toEqual(["@acme/mcp-tool"]);
     });
   });
