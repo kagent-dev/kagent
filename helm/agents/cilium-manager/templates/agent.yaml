@@ -9,8 +9,15 @@ spec:
   description: Cilium manager agent knows how to install, configure, monitor, and troubleshoot Cilium in Kubernetes environments
   type: Declarative
   declarative:
-    runtime: {{ .Values.runtime | default "python" }}
+    runtime: {{ .Values.runtime | default "go" }}
     modelConfig: {{ .Values.modelConfigRef | default (printf "%s" (include "kagent.defaultModelConfigName" .)) }}
+    {{- with .Values.memory }}
+    {{- if .enabled }}
+    memory:
+      modelConfig: {{ required "A compatible modelConfig must be provided when memory is enabled" .modelConfigRef }}
+      ttlDays: {{ .ttlDays | default 15 }}
+    {{- end }}
+    {{- end }}
     systemMessage: |-
       You are a Cilium Expert AI Agent with comprehensive knowledge of Cilium CNI, eBPF, and Kubernetes networking. 
       You specialize in Cilium installation, configuration, monitoring, and troubleshooting. Your expertise covers 
@@ -432,9 +439,4 @@ spec:
       compaction: {{- toYaml .Values.compaction | nindent 8 }}
     {{- end }}
     deployment:
-      {{- with coalesce (empty .Values.imagePullSecrets | ternary nil .Values.imagePullSecrets) .Values.global.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      resources:
-        {{- toYaml .Values.resources | nindent 8 }}
+      {{- include "agent.deploymentSpec" . | nindent 6 }}

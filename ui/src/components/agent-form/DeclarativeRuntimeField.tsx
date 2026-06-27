@@ -22,8 +22,8 @@ export function DeclarativeRuntimeField({ value, onChange, disabled }: Declarati
           <SelectValue placeholder="Select runtime…" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="python">Python</SelectItem>
           <SelectItem value="go">Go</SelectItem>
+          <SelectItem value="python">Python</SelectItem>
         </SelectContent>
       </Select>
     </FieldRoot>

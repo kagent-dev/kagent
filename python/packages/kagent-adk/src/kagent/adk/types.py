@@ -316,6 +316,16 @@ class Bedrock(BaseLLM):
     # additionalModelRequestFields in the Converse API. Use this for provider-specific
     # options outside the standard InferenceConfiguration block.
     additional_model_request_fields: dict | None = None
+    # prompt_caching enables Bedrock prompt caching: a CachePoint marker is
+    # appended to the end of the Converse request's system content array and
+    # toolConfig.tools array. Bedrock caches the prefix across requests in the
+    # same region; cached portion is billed at a reduced rate on hit.
+    prompt_caching: bool = False
+    # cache_ttl selects the cache retention window when prompt_caching is on:
+    # "5m" (default) for Bedrock's standard 5-minute cache, or "1h" for
+    # extended-TTL caching. "1h" is supported on fewer models and billed at a
+    # higher cache-write rate, so it is not strictly better than "5m".
+    cache_ttl: Literal["5m", "1h"] | None = None
     type: Literal["bedrock"]
 
 
@@ -681,6 +691,8 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             extra_headers=extra_headers,
             additional_model_request_fields=model_config.additional_model_request_fields,
+            prompt_caching=model_config.prompt_caching,
+            cache_ttl=model_config.cache_ttl,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "sap_ai_core":

@@ -48,6 +48,7 @@ func TestToLegacyPushConfig_FromV1(t *testing.T) {
 	got := ToLegacyPushConfig(buildV1PushConfigFixture())
 	if got == nil {
 		t.Fatal("expected non-nil config")
+		return
 	}
 	if got.TaskID != "task-v1-rich" || got.PushNotificationConfig.ID != "cfg-v1" || got.PushNotificationConfig.URL != "https://callback.example/v1" || got.PushNotificationConfig.Token != "token-v1" {
 		t.Fatalf("unexpected legacy push config: %+v", got)
@@ -144,6 +145,9 @@ func assertForwardDataTaskFixture(t *testing.T, task a2av1.Task) {
 
 func assertBackwardTaskFixture(t *testing.T, got *trpc.Task) {
 	t.Helper()
+	if got.Kind != trpc.KindTask {
+		t.Fatalf("task kind = %q, want %q", got.Kind, trpc.KindTask)
+	}
 	if got.ID != "task-v1-rich" {
 		t.Fatalf("task ID = %q", got.ID)
 	}

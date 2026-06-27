@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -109,6 +110,18 @@ func TestMaterializeFromEnv(t *testing.T) {
 	}
 	if string(srtData) != `{"skills":[]}` {
 		t.Fatalf("srt settings = %q", string(srtData))
+	}
+
+	if runtime.GOOS != "windows" {
+		for _, name := range []string{"config.json", "agent-card.json", srtSettingsFile} {
+			fi, err := os.Stat(filepath.Join(tmpDir, name))
+			if err != nil {
+				t.Fatalf("stat %s: %v", name, err)
+			}
+			if perm := fi.Mode().Perm(); perm != 0o600 {
+				t.Errorf("%s permissions = %o, want 0600", name, perm)
+			}
+		}
 	}
 }
 

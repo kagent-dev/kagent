@@ -117,7 +117,7 @@ class TestStaticInstructionBypass:
         mock_ctx = MagicMock()
         mock_ctx._invocation_context.session.state = {}
         with pytest.raises(KeyError, match="repo"):
-            asyncio.get_event_loop().run_until_complete(inject_session_state("Clone {repo}", mock_ctx))
+            asyncio.run(inject_session_state("Clone {repo}", mock_ctx))
 
     def test_raw_string_instruction_would_not_bypass(self):
         """A raw string in the instruction field would set bypass_state_injection=False.
@@ -131,6 +131,6 @@ class TestStaticInstructionBypass:
         # Temporarily set instruction to a raw string to verify ADK behavior
         agent.instruction = "Raw string with {repo}"
         mock_ctx = MagicMock()
-        text, bypass = asyncio.get_event_loop().run_until_complete(agent.canonical_instruction(mock_ctx))
+        text, bypass = asyncio.run(agent.canonical_instruction(mock_ctx))
         assert bypass is False, "raw string in instruction must set bypass_state_injection=False"
         assert text == "Raw string with {repo}"

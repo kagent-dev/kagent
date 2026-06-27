@@ -32,7 +32,7 @@ export async function POST(
 
     if (!backendResponse.ok) {
       const errorText = await backendResponse.text();
-      return new Response(errorText || 'Backend request failed', { 
+      return new Response(errorText || 'Backend request failed', {
         status: backendResponse.status,
         headers: {
           'Content-Type': 'text/plain',
@@ -90,6 +90,10 @@ export async function POST(
               return Promise.resolve();
             }
 
+            // Any upstream bytes count as activity for proxies; also start keep-alives
+            // before the first complete SSE frame (otherwise HAProxy may idle-timeout).
+            resetKeepAliveTimer();
+
             buffer += decoder.decode(value, { stream: true });
 
             // Process complete SSE events (delimited by \n\n)
@@ -111,7 +115,7 @@ export async function POST(
           }).catch(error => {
             console.error('A2A Proxy: Error in stream pump:', error);
             if (keepAliveTimer) clearTimeout(keepAliveTimer);
-            
+
             if (!isClosed) {
               controller.error(error);
               isClosed = true;
@@ -121,6 +125,9 @@ export async function POST(
           });
         };
 
+        // Begin keep-alives immediately so the browser↔UI connection survives long gaps
+        // until the first (or any) chunk from the controller.
+        resetKeepAliveTimer();
         pump();
       }
     });

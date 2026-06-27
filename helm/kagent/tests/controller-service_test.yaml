@@ -69,3 +69,17 @@ tests:
       - equal:
           path: metadata.namespace
           value: custom-namespace
+
+  - it: should have correct annotation when set
+    set:
+      controller:
+        service:
+          annotations:
+            PrivateDNSName: kagent
+            service.beta.kubernetes.io/aws-load-balancer-type: nlb-ip
+    asserts:
+      - equal:
+          path: metadata.annotations
+          value:
+            PrivateDNSName: kagent
+            service.beta.kubernetes.io/aws-load-balancer-type: nlb-ip
