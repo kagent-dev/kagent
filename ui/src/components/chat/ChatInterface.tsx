@@ -18,9 +18,10 @@ import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
-import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
+import { createSession, getSessionTasks, checkSessionExists, getSessionWithEvents } from "@/app/actions/sessions";
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
 import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
+import ShareButton from "@/components/chat/ShareButton";
 import { getAgentWithResolvedKind, waitForSandboxAgentReady } from "@/app/actions/agents";
 import { getUiRuntimeConfig } from "@/app/actions/config";
 import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
@@ -45,9 +46,11 @@ interface ChatInterfaceProps {
   selectedNamespace: string;
   selectedSession?: Session | null;
   sessionId?: string;
+  /** When set, all session reads and A2A calls carry this share token. */
+  shareToken?: string;
 }
 
-export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
+export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId, shareToken }: ChatInterfaceProps) {
   const runInSandbox = useChatRunInSandbox();
   const substrateSandbox = useChatSubstrateSandbox();
   const router = useRouter();
@@ -57,6 +60,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
   const [session, setSession] = useState<Session | null>(selectedSession || null);
+  const [shareReadOnly, setShareReadOnly] = useState<boolean>(false);
   const [storedMessages, setStoredMessages] = useState<Message[]>([]);
   const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string>("");
@@ -149,18 +153,30 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
       setIsLoading(true);
       setSessionNotFound(false);
+      setShareReadOnly(false);
 
       let activeTask: Task | undefined;
 
       try {
-        const sessionExistsResponse = await checkSessionExists(sessionId);
-        if (sessionExistsResponse.error || !sessionExistsResponse.data) {
-          setSessionNotFound(true);
-          setIsLoading(false);
-          return;
+        if (shareToken) {
+          // Fetch session info to get authoritative read_only status from the server.
+          const sessionInfoResponse = await getSessionWithEvents(sessionId, shareToken);
+          if (sessionInfoResponse.error || !sessionInfoResponse.data) {
+            setSessionNotFound(true);
+            setIsLoading(false);
+            return;
+          }
+          setShareReadOnly(sessionInfoResponse.data.read_only === true);
+        } else {
+          const sessionExistsResponse = await checkSessionExists(sessionId);
+          if (sessionExistsResponse.error || !sessionExistsResponse.data) {
+            setSessionNotFound(true);
+            setIsLoading(false);
+            return;
+          }
         }
 
-        const messagesResponse = await getSessionTasks(sessionId);
+        const messagesResponse = await getSessionTasks(sessionId, shareToken);
         if (messagesResponse.error) {
           toast.error("Failed to load messages");
           setIsLoading(false);
@@ -212,7 +228,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     initializeChat();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
+  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage, shareToken]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -444,7 +460,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     try {
       const currentSessionId = session?.id || sessionId;
       if (!currentSessionId) return;
-      const latest = await getSessionTasks(currentSessionId);
+      const latest = await getSessionTasks(currentSessionId, shareToken);
       if (latest.data && latest.data.length > 0) {
         const extractedMessages = extractMessagesFromTasks(latest.data);
         const { messages: pendingApprovalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(latest.data);
@@ -522,7 +538,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         selectedAgentName,
         sendParams,
         abortControllerRef.current?.signal,
-        runInSandbox
+        runInSandbox,
+        shareToken
       );
 
       await consumeStream(stream);
@@ -559,6 +576,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         taskId,
         abortControllerRef.current.signal,
         runInSandbox,
+        shareToken
       );
 
       await consumeStream(stream);
@@ -782,7 +800,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   // Submit all collected decisions to the backend. Called when every pending
   // tool has a decision recorded in `pendingDecisions`, or immediately for
   // "approve all" / uniform decisions.
-  const submitDecisions = (decisions: Record<string, ToolDecision>) => {
+  const submitDecisions = async (decisions: Record<string, ToolDecision>) => {
     const values = Object.values(decisions);
     const allApprove = values.every(v => v === "approve");
     const allReject = values.every(v => v !== "approve");
@@ -790,13 +808,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     if (allApprove) {
       // Uniform approve — no need for batch
-      sendApprovalDecision(
+      await sendApprovalDecision(
         { decision_type: "approve" },
         "Approved",
       );
     } else if (allReject && Object.values(reasons).length === 0) {
       // Uniform reject without reason, otherwise fall through to batch
-      sendApprovalDecision(
+      await sendApprovalDecision(
         { decision_type: "reject" },
         "Rejected",
       );
@@ -816,7 +834,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (Object.keys(rejectedReasons).length > 0) {
         decisionData.rejection_reasons = rejectedReasons;
       }
-      sendApprovalDecision(
+      await sendApprovalDecision(
         decisionData,
         `Batch decision: ${values.filter(v => v === "approve").length} approved, ${values.filter(v => v !== "approve").length} rejected`,
       );
@@ -837,9 +855,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     // Check if all pending tools now have a decision
     const { toolIds } = getPendingApprovalToolIds();
     if (toolIds.length > 0 && toolIds.every(id => id in updated)) {
-      submitDecisions(updated);
+      submitDecisions(updated).catch(err => toast.error(`Decision failed: ${err instanceof Error ? err.message : "Unknown error"}`));
     } else if (toolIds.length === 0) {
-      submitDecisions(updated);
+      submitDecisions(updated).catch(err => toast.error(`Decision failed: ${err instanceof Error ? err.message : "Unknown error"}`));
     }
   };
 
@@ -983,9 +1001,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     message={message}
                     allMessages={allMessages}
                     agentContext={agentContext}
-                    onApprove={handleApprove}
-                    onReject={handleReject}
-                    onAskUserSubmit={handleAskUserSubmit}
+                    onApprove={shareReadOnly ? undefined : handleApprove}
+                    onReject={shareReadOnly ? undefined : handleReject}
+                    onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
                   />
                 })}
@@ -997,9 +1015,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     message={message}
                     allMessages={allMessages}
                     agentContext={agentContext}
-                    onApprove={handleApprove}
-                    onReject={handleReject}
-                    onAskUserSubmit={handleAskUserSubmit}
+                    onApprove={shareReadOnly ? undefined : handleApprove}
+                    onReject={shareReadOnly ? undefined : handleReject}
+                    onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
                   />
                 })}
@@ -1016,63 +1034,77 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       </div>
 
       <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
-        <div className="flex items-center justify-between mb-4">
-          <StatusDisplay chatStatus={chatStatus} />
-          {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
-        </div>
-
-        <form onSubmit={handleSendMessage}>
-          <Textarea
-            value={currentInputMessage}
-            onChange={(e) => setCurrentInputMessage(e.target.value)}
-            placeholder={getStatusPlaceholder(chatStatus)}
-            onKeyDown={handleKeyDown}
-            className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
-            disabled={chatStatus !== "ready"}
-          />
-
-          <div className="flex items-center justify-end gap-2 mt-4">
-            {isVoiceSupported && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant={isListening ? "destructive" : "default"}
-                      size="icon"
-                      onClick={isListening ? stopListening : startListening}
-                      disabled={chatStatus !== "ready"}
-                      className={isListening ? "animate-pulse" : ""}
-                      aria-label={isListening ? "Stop listening" : "Voice input"}
-                    >
-                      {isListening ? (
-                        <Square className="h-4 w-4" aria-hidden />
-                      ) : (
-                        <Mic className="h-4 w-4" aria-hidden />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    {voiceError
-                      ? voiceError
-                      : isListening
-                        ? "Stop listening"
-                        : "Voice input — click and speak"}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
-              Send
-              <ArrowBigUp className="h-4 w-4 ml-2" />
-            </Button>
-            {chatStatus !== "ready" && chatStatus !== "error" && (
-              <Button type="button" variant="outline" onClick={handleCancel}>
-                <X className="h-4 w-4 mr-2" /> Cancel
-              </Button>
-            )}
+        {shareReadOnly ? (
+          <div className="flex items-center justify-between py-2">
+            <p className="text-sm text-muted-foreground">
+              This is a read-only shared session. You can view the conversation but cannot send messages.
+            </p>
+            {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
           </div>
-        </form>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <StatusDisplay chatStatus={chatStatus} />
+              <div className="flex items-center gap-2">
+                {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
+                {(session?.id ?? sessionId) && !shareToken && <ShareButton sessionId={(session?.id ?? sessionId)!} namespace={selectedNamespace} agentName={selectedAgentName} />}
+              </div>
+            </div>
+
+            <form onSubmit={handleSendMessage}>
+              <Textarea
+                value={currentInputMessage}
+                onChange={(e) => setCurrentInputMessage(e.target.value)}
+                placeholder={getStatusPlaceholder(chatStatus)}
+                onKeyDown={handleKeyDown}
+                className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
+                disabled={chatStatus !== "ready"}
+              />
+
+              <div className="flex items-center justify-end gap-2 mt-4">
+                {isVoiceSupported && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant={isListening ? "destructive" : "default"}
+                          size="icon"
+                          onClick={isListening ? stopListening : startListening}
+                          disabled={chatStatus !== "ready"}
+                          className={isListening ? "animate-pulse" : ""}
+                          aria-label={isListening ? "Stop listening" : "Voice input"}
+                        >
+                          {isListening ? (
+                            <Square className="h-4 w-4" aria-hidden />
+                          ) : (
+                            <Mic className="h-4 w-4" aria-hidden />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {voiceError
+                          ? voiceError
+                          : isListening
+                            ? "Stop listening"
+                            : "Voice input — click and speak"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
+                  Send
+                  <ArrowBigUp className="h-4 w-4 ml-2" />
+                </Button>
+                {chatStatus !== "ready" && chatStatus !== "error" && (
+                  <Button type="button" variant="outline" onClick={handleCancel}>
+                    <X className="h-4 w-4 mr-2" /> Cancel
+                  </Button>
+                )}
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
