@@ -203,6 +203,10 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       base.spec!.declarative!.context = agentFormData.context;
     }
 
+    if (agentFormData.shareTools) {
+      base.spec!.declarative!.shareTools = true;
+    }
+
     const trimmedSA = agentFormData.serviceAccountName?.trim();
     if (trimmedSA) {
       base.spec!.declarative!.deployment = {
@@ -369,6 +373,10 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
 
   if (agentFormData.context) {
     decl.context = agentFormData.context;
+  }
+
+  if (agentFormData.shareTools) {
+    decl.shareTools = true;
   }
 
   const trimmedSA = agentFormData.serviceAccountName?.trim();
