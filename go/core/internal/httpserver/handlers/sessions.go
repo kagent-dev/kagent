@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -193,8 +194,19 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 }
 
 type SessionResponse struct {
-	Session *database.Session `json:"session"`
-	Events  []*database.Event `json:"events"`
+	Session  *database.Session `json:"session"`
+	Events   []*database.Event `json:"events"`
+	ReadOnly *bool             `json:"read_only,omitempty"`
+}
+
+// getEffectiveUserIDForSession returns the user ID to use for DB lookups on a specific session.
+// When the request carries a valid X-Share-Token scoped to sessionID, the share owner's user ID
+// is returned so that shared access works transparently.
+func getEffectiveUserIDForSession(r *http.Request, sessionID string) (string, error) {
+	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID {
+		return sc.UserID, nil
+	}
+	return getUserIDOrAgentUser(r)
 }
 
 // HandleGetSession handles GET /api/sessions/{session_id} requests using database
@@ -208,7 +220,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	userID, err := getUserIDOrAgentUser(r)
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -254,10 +266,15 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	}
 
 	log.Info("Successfully retrieved session")
-	data := api.NewResponse(SessionResponse{
+	resp := SessionResponse{
 		Session: session,
 		Events:  events,
-	}, "Successfully retrieved session", false)
+	}
+	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID && sc.ReadOnly {
+		t := true
+		resp.ReadOnly = &t
+	}
+	data := api.NewResponse(resp, "Successfully retrieved session", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
@@ -381,7 +398,7 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	userID, err := GetUserID(r)
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -445,7 +462,7 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
 	}
-	userID, err := getUserID(r)
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return

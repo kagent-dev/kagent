@@ -15,7 +15,7 @@ export interface AskUserQuestion {
 
 interface AskUserDisplayProps {
   questions: AskUserQuestion[];
-  onSubmit: (answers: Array<{ answer: string[] }>) => void;
+  onSubmit?: (answers: Array<{ answer: string[] }>) => void;
   isResolved?: boolean;
   /** Resolved answers — one entry per question. */
   resolvedAnswers?: Array<{ answer: string[] }> | null;
@@ -51,7 +51,7 @@ export default function AskUserDisplay({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const toggleChoice = (qIdx: number, choice: string) => {
-    if (isResolved || isSubmitting) return;
+    if (isResolved || isSubmitting || !onSubmit) return;
     setSelectedChoices(prev => {
       const next = prev.map(s => [...s]);
       const q = questions[qIdx];
@@ -82,7 +82,7 @@ export default function AskUserDisplay({
   });
 
   const handleSubmit = () => {
-    if (!isReadyToSubmit || isSubmitting) return;
+    if (!onSubmit || !isReadyToSubmit || isSubmitting) return;
     setIsSubmitting(true);
     const answers = questions.map((_, i) => {
       const chips = selectedChoices[i];
@@ -137,14 +137,14 @@ export default function AskUserDisplay({
                       <button
                         key={choice}
                         type="button"
-                        disabled={isResolved || isSubmitting}
+                        disabled={isResolved || isSubmitting || !onSubmit}
                         onClick={() => toggleChoice(qIdx, choice)}
                         className={cn(
                           "px-3 py-1 rounded-full text-xs border transition-colors",
                           isSelected
                             ? "bg-primary text-primary-foreground border-primary"
                             : "bg-muted text-muted-foreground border-border hover:border-primary hover:text-primary",
-                          (isResolved || isSubmitting) && "cursor-default opacity-80"
+                          (isResolved || isSubmitting || !onSubmit) && "cursor-default opacity-80"
                         )}
                       >
                         {choice}
@@ -171,7 +171,7 @@ export default function AskUserDisplay({
                   value={freeTextAnswers[qIdx]}
                   onChange={(e) => setFreeText(qIdx, e.target.value)}
                   placeholder="Type your own answer"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !onSubmit}
                   className="text-sm"
                 />
               )}
@@ -183,7 +183,7 @@ export default function AskUserDisplay({
           <Button
             size="sm"
             variant="default"
-            disabled={!isReadyToSubmit || isSubmitting}
+            disabled={!onSubmit || !isReadyToSubmit || isSubmitting}
             onClick={handleSubmit}
             className="mt-2"
           >

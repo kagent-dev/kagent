@@ -22,13 +22,13 @@ function fakeRequest(headers: Record<string, string>): NextRequest {
 describe('parseAllowedForwardHeaders', () => {
   it('returns just the default forward set when env is undefined', () => {
     const { allowed, blocked } = parseAllowedForwardHeaders(undefined);
-    expect(Array.from(allowed)).toEqual(['authorization']);
+    expect(Array.from(allowed)).toEqual(['authorization', 'x-share-token']);
     expect(blocked).toEqual([]);
   });
 
   it('returns just the default forward set when env is empty', () => {
     const { allowed, blocked } = parseAllowedForwardHeaders('');
-    expect(Array.from(allowed)).toEqual(['authorization']);
+    expect(Array.from(allowed)).toEqual(['authorization', 'x-share-token']);
     expect(blocked).toEqual([]);
   });
 
@@ -43,7 +43,7 @@ describe('parseAllowedForwardHeaders', () => {
     const { allowed } = parseAllowedForwardHeaders('  X-A  ,, ,X-B,');
     expect(allowed.has('x-a')).toBe(true);
     expect(allowed.has('x-b')).toBe(true);
-    expect(allowed.size).toBe(3); // authorization + x-a + x-b
+    expect(allowed.size).toBe(4); // authorization + x-share-token + x-a + x-b
   });
 
   it('drops hop-by-hop / routing headers and reports them as blocked', () => {
@@ -62,7 +62,7 @@ describe('parseAllowedForwardHeaders', () => {
 
   it('treats Authorization listed in env as a no-op (already in default set)', () => {
     const { allowed, blocked } = parseAllowedForwardHeaders('Authorization');
-    expect(Array.from(allowed)).toEqual(['authorization']);
+    expect(Array.from(allowed)).toEqual(['authorization', 'x-share-token']);
     expect(blocked).toEqual([]);
   });
 });

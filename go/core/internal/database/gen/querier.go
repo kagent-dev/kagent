@@ -9,8 +9,10 @@ import (
 )
 
 type Querier interface {
+	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
+	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
 	ExtendMemoryTTL(ctx context.Context) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
@@ -18,6 +20,7 @@ type Querier interface {
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
 	GetSession(ctx context.Context, arg GetSessionParams) (Session, error)
+	GetSessionShareByToken(ctx context.Context, token string) (SessionShare, error)
 	GetTask(ctx context.Context, id string) (Task, error)
 	GetTool(ctx context.Context, id string) (Tool, error)
 	GetToolServer(ctx context.Context, name string) (Toolserver, error)
@@ -39,8 +42,9 @@ type Querier interface {
 	ListEventsForSessionDescLimit(ctx context.Context, arg ListEventsForSessionDescLimitParams) ([]Event, error)
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
 	ListPushNotifications(ctx context.Context, taskID string) ([]PushNotification, error)
+	ListSessionSharesBySession(ctx context.Context, sessionID string) ([]SessionShare, error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
-	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]Session, error)
+	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]ListSessionsForAgentRow, error)
 	ListSessionsForAgentAllUsers(ctx context.Context, agentID *string) ([]Session, error)
 	ListTasksForSession(ctx context.Context, sessionID *string) ([]Task, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
@@ -68,6 +72,7 @@ type Querier interface {
 	UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error
 	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
 	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
+	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error
 	UpsertTask(ctx context.Context, arg UpsertTaskParams) error
 	UpsertTool(ctx context.Context, arg UpsertToolParams) error
 	UpsertToolServer(ctx context.Context, arg UpsertToolServerParams) (Toolserver, error)

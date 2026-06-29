@@ -99,6 +99,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullSecrets: string[];
     envPairs: { name: string; value?: string; isSecret?: boolean; secretName?: string; secretKey?: string; optional?: boolean }[];
     stream: boolean;
+    shareTools: boolean;
     /** Python vs Go ADK (`spec.declarative.runtime`). */
     declarativeRuntime: DeclarativeRuntime;
     contextConfig: ContextConfig | undefined;
@@ -135,6 +136,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullSecrets: [""],
     envPairs: [{ name: "", value: "", isSecret: false }],
     stream: false,
+    shareTools: false,
     declarativeRuntime: "go",
     contextConfig: undefined,
     serviceAccountName: "",
@@ -258,6 +260,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       : [newEmptyGitSkillRow()],
                   skillsGitAuthSecretName: agent.spec?.skills?.gitAuthSecretRef?.name || "",
                   stream: decl?.stream ?? false,
+                  shareTools: decl?.shareTools ?? false,
                   // Honor the persisted runtime for all platforms (substrate supports Python and Go).
                   declarativeRuntime: decl?.runtime === "go" ? "go" : "python",
                   selectedMemoryModel: memoryModelConfig
@@ -468,6 +471,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
         modelName: state.selectedModel?.ref || "",
         stream: state.stream,
+        shareTools: useDeclarativeAgentFields ? state.shareTools : undefined,
         tools: state.selectedTools,
         skillRefs: skillsEnabled ? (state.skillRefs || []).filter((ref) => ref.trim()) : undefined,
         skillGitRepos: skillsEnabled ? formRowsToGitRepos(state.skillGitRepos || []) : undefined,
@@ -898,6 +902,27 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             {useDeclarativeAgentFields && (
               <>
                 <FormSection id="section-tools" title="Tools">
+                  <div className="flex gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                    <div className="flex h-5 shrink-0 items-center self-start">
+                      <Checkbox
+                        id="share-tools-toggle"
+                        checked={state.shareTools}
+                        onCheckedChange={(checked) => setState((prev) => ({ ...prev, shareTools: !!checked }))}
+                        disabled={disabled}
+                      />
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                      <Label
+                        htmlFor="share-tools-toggle"
+                        className="block cursor-pointer text-sm font-medium leading-5 text-foreground"
+                      >
+                        Enable share link tools
+                      </Label>
+                      <p className="text-xs leading-snug text-muted-foreground">
+                        Grants the agent built-in tools to create, list, and delete share links for the current session
+                      </p>
+                    </div>
+                  </div>
                   <ToolsSection
                     selectedTools={state.selectedTools}
                     setSelectedTools={(tools) => setState((prev) => ({ ...prev, selectedTools: tools }))}
