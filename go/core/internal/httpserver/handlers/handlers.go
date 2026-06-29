@@ -24,6 +24,7 @@ type Handlers struct {
 	Model               *ModelHandler
 	ModelProviderConfig *ModelProviderConfigHandler
 	Sessions            *SessionsHandler
+	SessionShares       *SessionSharesHandler
 	Agents              *AgentsHandler
 	Tools               *ToolsHandler
 	ToolServers         *ToolServersHandler

@@ -281,6 +281,12 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		cfg.ContextConfig = contextCfg
 	}
 
+	// ShareTools: pass the flag through to AgentConfig; the Python runtime injects the tools.
+	if spec.Declarative.ShareTools != nil && *spec.Declarative.ShareTools {
+		t := true
+		cfg.ShareTools = &t
+	}
+
 	// Handle Memory Configuration: presence of Memory field enables it.
 	if spec.Declarative.Memory != nil {
 		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.GetNamespace(), spec.Declarative.Memory.ModelConfig)

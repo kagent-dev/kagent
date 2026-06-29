@@ -10778,6 +10778,12 @@ spec:
                     - python
                     - go
                     type: string
+                  shareTools:
+                    description: |-
+                      ShareTools enables the built-in share link tools for this agent.
+                      When true, the agent gains create_share_link, list_share_links, and delete_share_link tools
+                      that allow it to manage share tokens for the current session.
+                    type: boolean
                   stream:
                     description: |-
                       Whether to stream the response from the model.

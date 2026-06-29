@@ -379,6 +379,12 @@ func collectSharedEnv(agent v1alpha2.AgentObject) []corev1.EnvVar {
 			Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace()),
 		},
 	)
+	if uiURL := env.KagentUIURL.Get(); uiURL != "" {
+		sharedEnv = append(sharedEnv, corev1.EnvVar{
+			Name:  env.KagentUIURL.Name(),
+			Value: uiURL,
+		})
+	}
 	return sharedEnv
 }
 

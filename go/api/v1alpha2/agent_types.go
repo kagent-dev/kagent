@@ -224,6 +224,12 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	Memory *MemorySpec `json:"memory,omitempty"`
 
+	// ShareTools enables the built-in share link tools for this agent.
+	// When true, the agent gains create_share_link, list_share_links, and delete_share_link tools
+	// that allow it to manage share tokens for the current session.
+	// +optional
+	ShareTools *bool `json:"shareTools,omitempty"`
+
 	// Context configures context management for this agent.
 	// This includes event compaction (compression) and context caching.
 	// +optional
