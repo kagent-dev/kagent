@@ -27,7 +27,7 @@ Do not send a report for vulnerabilities that are not part of the kagent project
 - You want help configuring kagent components for security purposes.
 - You want help applying security related updates to your kagent configuration or environment.
 - Your issue is not related to security vulnerabilities.
-- Your issue is related to base image dependencies, such as AutoGen.
+- Your issue is related to base image dependencies, such as Google ADK or other third-party runtimes.
 
 ### Evaluation
 
