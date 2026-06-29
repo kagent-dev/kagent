@@ -11334,8 +11334,6 @@ spec:
             x-kubernetes-validations:
             - message: spec.skills is not supported for sandbox agents
               rule: '!has(self.skills)'
-            - message: BYO agents are not supported for sandbox agents
-              rule: '!has(self.type) || self.type != ''BYO'''
             - message: type must be specified
               rule: has(self.type)
             - message: type must be either Declarative or BYO

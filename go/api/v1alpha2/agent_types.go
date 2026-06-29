@@ -258,6 +258,7 @@ type SandboxConfig struct {
 }
 
 // EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python when not set).
+// All agents (including substrate SandboxAgents) honor spec.declarative.runtime.
 func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
 	if spec == nil {
 		return DeclarativeRuntime_Python
@@ -267,18 +268,6 @@ func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
 		runtime = spec.Declarative.Runtime
 	}
 	return runtime
-}
-
-// EffectiveDeclarativeRuntimeForAgent returns the runtime for a reconciled agent object.
-// SandboxAgents always use Go; regular Agents honor spec.declarative.runtime.
-func EffectiveDeclarativeRuntimeForAgent(agent AgentObject) DeclarativeRuntime {
-	spec := agent.GetAgentSpec()
-	if agent.GetWorkloadMode() == WorkloadModeSandbox &&
-		spec != nil &&
-		spec.Type == AgentType_Declarative {
-		return DeclarativeRuntime_Go
-	}
-	return EffectiveDeclarativeRuntime(spec)
 }
 
 // NetworkConfig configures outbound network access for sandboxed execution paths.
