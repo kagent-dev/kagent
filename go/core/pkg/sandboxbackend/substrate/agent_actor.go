@@ -95,8 +95,8 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 	// when a new actor is created, all sessions will be resumed on the new actor
 	// so we need to reap the orphaned session actors. There is currently a gap here
 	// where new actors do not retain artifacts of the previous actor. Note that on a config rollout,
-	// previous actor artifcats will be lost but we are aware of this gap and will be
-	// actively addressing it.
+	// previous actor artifacts will be lost but we are aware of this gap and will be
+	// actively addressing it. https://github.com/kagent-dev/kagent/issues/2111
 	if created {
 		b.scheduleReapOrphanedSessionActors(sa, actorID)
 	}
