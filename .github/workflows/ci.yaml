@@ -15,7 +15,6 @@ env:
   # Cache key components for better organization
   CACHE_KEY_PREFIX: kagent-v2
   BRANCH_CACHE_KEY: ${{ github.head_ref || github.ref_name }}
-  AGENT_SANDBOX_VERSION: v0.3.10
   # Consistent builder configuration
   BUILDX_BUILDER_NAME: kagent-builder-v0.23.0
   BUILDX_VERSION: v0.23.0
@@ -77,13 +76,6 @@ jobs:
       - name: Create Kind cluster
         run: |
           make create-kind-cluster
-
-      - name: Install agent-sandbox
-        run: |
-          kubectl apply -f "https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${AGENT_SANDBOX_VERSION}/manifest.yaml"
-          timeout 90s bash -c 'until [ "$(kubectl get crd sandboxes.agents.x-k8s.io -o jsonpath="{.status.conditions[?(@.type==\"Established\")].status}" 2>/dev/null)" = "True" ]; do sleep 1; done'
-          kubectl rollout status deployment/agent-sandbox-controller -n agent-sandbox-system --timeout=120s
-          kubectl wait --for=condition=Ready pod -l app=agent-sandbox-controller -n agent-sandbox-system --timeout=120s
 
       - name: Install Kagent
         id: install-kagent
@@ -150,15 +142,30 @@ jobs:
           echo "::error::Failed to run e2e tests"
           echo "::error::Kubectl get pods -n kagent"
           kubectl describe pods -n kagent
-          echo "::error::Kubectl get pods -n agent-sandbox-system"
-          kubectl get pods -n agent-sandbox-system -o wide || true
-          echo "::error::Kubectl logs -n agent-sandbox-system deployment/agent-sandbox-controller"
-          kubectl logs -n agent-sandbox-system deployment/agent-sandbox-controller || true
           echo "::error::Kubectl get events -n kagent"
           kubectl get events -n kagent
           echo "::error::Kubectl get agents -n kagent"
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller
+
+  query-contraction-check:
+    name: Query Contraction Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full history + tags so the previous release's queries can be read.
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go/go.mod
+          cache: true
+          cache-dependency-path: go/go.sum
+      - name: Previous-release queries vs current schema
+        run: make -C go check-query-contraction
 
   go-unit-tests:
     runs-on: ubuntu-latest
@@ -169,7 +176,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
 
@@ -258,6 +265,8 @@ jobs:
           - golang-adk
           - golang-adk-full
           - skills-init
+          - acp-sandbox-hermes
+          - acp-sandbox-openclaw
     runs-on: ubuntu-latest
     services:
       registry:
@@ -302,10 +311,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
-      - name: golangci-lint 
+      - name: golangci-lint
         working-directory: go
         run: make lint
 
@@ -375,7 +384,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
 

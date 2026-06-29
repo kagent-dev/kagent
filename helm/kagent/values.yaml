@@ -229,6 +229,7 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
+    annotations: {}
   # -- Prometheus-style /metrics endpoint for the controller manager.
   # When enabled, provisions a dedicated metrics Service plus the
   # ClusterRoles required for authenticated scrapes. Bind
@@ -250,13 +251,8 @@ controller:
       type: ClusterIP
       port: 8443
 
-  # Extra controller env (mapped to flags via SUBSTRATE_* / OPENSHELL_* env names).
-  # OpenShell AgentHarness: set OPENSHELL_GATEWAY_URL (or leave defaults below).
-  env:
-    # - name: OPENSHELL_GATEWAY_URL
-    #   value: openshell.openshell.svc.cluster.local:8080
-    # - name: OPENSHELL_INSECURE
-    #   value: "true"
+  # Extra controller env (mapped to flags via SUBSTRATE_* env names).
+  env: []
 
   # Agent Substrate (OpenClaw harness runtime=substrate). Requires ate-system installed.
   # kagent generates per-harness ActorTemplates and references an existing WorkerPool.
@@ -326,6 +322,11 @@ substrateWorkerPool:
 # ==============================================================================
 
 ui:
+  # -- Public-facing base URL of the UI (e.g. https://kagent.example.com).
+  # When set, the controller injects KAGENT_UI_URL into agent pods so that
+  # share link tools return full clickable URLs instead of relative paths.
+  # @default -- "" (share tools return paths only)
+  externalUrl: ""
   replicas: 1
   image:
     registry: ""
@@ -430,7 +431,7 @@ ui:
   # oauth2-proxy instead of the chart's edge-terminated Route.
   route:
     enabled: true
-  
+
   # OpenShift Route only (when route.openshift.io/v1 exists). Long timeouts are required
   # for A2A/SSE streaming through the cluster router; defaults are often ~60s and cause
   # net::ERR_INCOMPLETE_CHUNKED_ENCODING in the browser.

@@ -205,11 +205,11 @@ These tests catch policy violations at PR time without needing a running databas
 
 ## Upgrade and rollback testing
 
-Static analysis covers file *content*; round-trip tests cover *behavior* against a real Postgres. Beyond `runner_test.go` (rollback and concurrency), two release-to-release tests make the rollback promise real. Both are *Target — not yet enforced*.
+Static analysis covers file *content*; round-trip tests cover *behavior* against a real Postgres. Beyond `runner_test.go` (rollback and concurrency), release-to-release coverage makes the rollback promise real.
 
-**Previous-minor round-trip.** Seed a database at the previous minor's latest release with representative data, apply migrations up to `HEAD`, and assert the schema matches a clean `HEAD` install and the data survives; then reverse to the previous minor and assert the schema matches a clean previous-minor install and the data survives. This exercises every changed down file rather than only reviewing it.
+**Previous-minor round-trip** (*Target — not yet enforced*). Seed a database at the previous minor's latest release with representative data, apply migrations up to `HEAD`, and assert the schema matches a clean `HEAD` install and the data survives; then reverse to the previous minor and assert the schema matches a clean previous-minor install and the data survives. This exercises every changed down file rather than only reviewing it.
 
-**Query-level backward compatibility.** Run the previous minor's database test suite against a `HEAD`-migrated schema, proving old code's queries run against the newer schema — the exact property [ahead-schema tolerance](#rollback-and-ahead-schema-tolerance) relies on.
+**Query-level backward compatibility.** A static check — `scripts/check-query-contraction.sh`, run by the `query-contraction-check` CI job — compiles a previous release's sqlc queries against the `HEAD` schema and fails if a migration dropped, renamed, or retyped a column or table an older query still reads. It catches column/table/type-shape contraction with no database, against two prior versions: the latest release reachable from `HEAD` and the previous stable line's latest patch (the `release/vX.Y.x` tip, via `scripts/prev-stable-version.sh`). The fuller property — running the previous minor's whole database *test suite* against a `HEAD`-migrated schema, which also covers semantic breaks a query still compiles against — remains a *Target — not yet enforced*.
 
 ## Downstream Extension Model
 

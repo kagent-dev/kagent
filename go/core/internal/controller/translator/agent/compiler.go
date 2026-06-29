@@ -150,8 +150,8 @@ func (a *adkApiTranslator) CompileAgent(
 	if runInSandbox && a.sandboxBackend == nil {
 		return nil, fmt.Errorf("sandbox backend is not configured")
 	}
-	if runInSandbox && v1alpha2.AgentSandboxPlatform(agent) == v1alpha2.SandboxPlatformSubstrate {
-		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(agent.(*v1alpha2.SandboxAgent)); err != nil {
+	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
+		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
 			return nil, NewValidationError("%s", err.Error())
 		}
 	}
@@ -279,6 +279,12 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		}
 
 		cfg.ContextConfig = contextCfg
+	}
+
+	// ShareTools: pass the flag through to AgentConfig; the Python runtime injects the tools.
+	if spec.Declarative.ShareTools != nil && *spec.Declarative.ShareTools {
+		t := true
+		cfg.ShareTools = &t
 	}
 
 	// Handle Memory Configuration: presence of Memory field enables it.

@@ -23,6 +23,8 @@ jobs:
           - golang-adk
           - golang-adk-full
           - skills-init
+          - acp-sandbox-hermes
+          - acp-sandbox-openclaw
     runs-on: ubuntu-latest
     permissions:
       contents: read

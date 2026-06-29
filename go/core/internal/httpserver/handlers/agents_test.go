@@ -349,7 +349,7 @@ func TestHandleGetSandboxAgent(t *testing.T) {
 }
 
 func TestHandleGetAgentHarness(t *testing.T) {
-	t.Run("gets openshell AgentHarness", func(t *testing.T) {
+	t.Run("gets AgentHarness", func(t *testing.T) {
 		sb := &v1alpha2.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "gh-get", Namespace: "default"},
 			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
@@ -541,11 +541,11 @@ func TestHandleListAgents(t *testing.T) {
 
 		var found bool
 		for _, row := range response.Data {
-			if row.OpenshellAgentHarness == nil {
+			if row.SubstrateAgentHarness == nil {
 				continue
 			}
 			found = true
-			require.Equal(t, "default-openclaw-1", row.OpenshellAgentHarness.GatewaySandboxName)
+			require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, row.SubstrateAgentHarness.Backend)
 			require.Equal(t, "AgentHarness", row.Agent.Kind)
 			require.Equal(t, "openclaw-1", row.Agent.Metadata.Name)
 			require.Equal(t, "Workload VM for experiments", row.Agent.Spec.Description)
@@ -993,7 +993,7 @@ func TestHandleDeleteTeam(t *testing.T) {
 }
 
 func TestHandleDeleteAgentHarness(t *testing.T) {
-	t.Run("deletes openshell AgentHarness", func(t *testing.T) {
+	t.Run("deletes AgentHarness", func(t *testing.T) {
 		sb := &v1alpha2.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "sb-only", Namespace: "default"},
 			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
@@ -1066,8 +1066,8 @@ func TestHandleCreateAgentHarness(t *testing.T) {
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 		require.Equal(t, "AgentHarness", response.Data.Agent.Kind)
 		require.Equal(t, "my-openclaw", response.Data.Agent.Metadata.Name)
-		require.NotNil(t, response.Data.OpenshellAgentHarness)
-		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, response.Data.OpenshellAgentHarness.Backend)
+		require.NotNil(t, response.Data.SubstrateAgentHarness)
+		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, response.Data.SubstrateAgentHarness.Backend)
 
 		var created v1alpha2.AgentHarness
 		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-openclaw"}, &created))
@@ -1105,7 +1105,7 @@ func TestHandleCreateAgentHarness(t *testing.T) {
 
 		var response api.StandardResponse[api.AgentResponse]
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-		require.Equal(t, v1alpha2.AgentHarnessBackendHermes, response.Data.OpenshellAgentHarness.Backend)
+		require.Equal(t, v1alpha2.AgentHarnessBackendHermes, response.Data.SubstrateAgentHarness.Backend)
 
 		var created v1alpha2.AgentHarness
 		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-hermes"}, &created))

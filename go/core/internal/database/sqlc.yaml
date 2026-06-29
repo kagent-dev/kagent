@@ -1,3 +1,11 @@
+# `schema` points at the migration files, so `sqlc generate` validates every
+# query against the schema those migrations produce. This is a load-bearing
+# migration-safety gate: a migration that drops/renames/retypes a column
+# a current query uses makes codegen fail, and the manifests-check CI job catches
+# the resulting drift. Do not "fix" such a failure by deleting the query — it is
+# reporting a real schema/query incompatibility. The previous-release direction
+# (old queries vs the new schema = the windowed-contraction invariant) is checked
+# by scripts/check-query-contraction.sh.
 version: "2"
 sql:
   - schema: ["../../pkg/migrations/core", "../../pkg/migrations/vector"]

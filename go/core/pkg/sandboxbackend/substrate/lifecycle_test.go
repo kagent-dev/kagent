@@ -22,10 +22,7 @@ func TestSubstrateSnapshotsLocationDefault(t *testing.T) {
 	ah := &v1alpha2.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "kagent", Name: "claw"},
 		Spec: v1alpha2.AgentHarnessSpec{
-			Runtime: v1alpha2.AgentHarnessRuntimeSubstrate,
-			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				GatewayToken: "test-token",
-			},
+			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{},
 		},
 	}
 	if got := substrateSnapshotsLocation(ah); got != "gs://ate-snapshots/kagent/claw" {
@@ -65,7 +62,6 @@ func TestResolveWorkerPoolRef(t *testing.T) {
 				TypeMeta:   metav1.TypeMeta{APIVersion: v1alpha2.GroupVersion.String(), Kind: "AgentHarness"},
 				ObjectMeta: metav1.ObjectMeta{Namespace: "kagent", Name: "claw"},
 				Spec: v1alpha2.AgentHarnessSpec{
-					Runtime:   v1alpha2.AgentHarnessRuntimeSubstrate,
 					Substrate: &v1alpha2.AgentHarnessSubstrateSpec{},
 				},
 			}
@@ -129,9 +125,10 @@ func TestEnsureActorTemplateDoesNotUpdateWhenDesiredStateMatches(t *testing.T) {
 			UID:       "00000000-0000-0000-0000-000000000001",
 		},
 		Spec: v1alpha2.AgentHarnessSpec{
-			Runtime: v1alpha2.AgentHarnessRuntimeSubstrate,
+			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
 			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				GatewayToken: "test-token",
+
+				WorkloadImage: "ghcr.io/kagent-dev/kagent/acp-sandbox-openclaw@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
 		},
 	}
