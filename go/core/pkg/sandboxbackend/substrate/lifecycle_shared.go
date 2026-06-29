@@ -178,6 +178,12 @@ func ResolveCurrentActorTemplate(ctx context.Context, kube client.Client, namesp
 	if err != nil {
 		return nil, err
 	}
+	return selectCurrentActorTemplate(templates), nil
+}
+
+// selectCurrentActorTemplate selects the current actor as defined by the
+// highest-desired-generation template whose golden is Ready
+func selectCurrentActorTemplate(templates []*atev1alpha1.ActorTemplate) *atev1alpha1.ActorTemplate {
 	var desiredReady, desired *atev1alpha1.ActorTemplate
 	for i := range templates {
 		t := templates[i]
@@ -191,9 +197,9 @@ func ResolveCurrentActorTemplate(ctx context.Context, kube client.Client, namesp
 		}
 	}
 	if desiredReady != nil {
-		return desiredReady, nil
+		return desiredReady
 	}
-	return desired, nil
+	return desired
 }
 
 // moreDesiredActorTemplate reports whether a is "more desired" than b: a higher desired-generation

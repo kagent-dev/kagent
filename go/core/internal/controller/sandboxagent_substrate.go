@@ -38,12 +38,6 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Cont
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// A config change creates a new config-hashed ActorTemplate (applied via the translator's
-	// BuildSandbox path); the previous template, its golden, and any per-session actors are left
-	// in place. Superseded goldens and suspended session actors are stateful and pin no workers
-	// (a suspended actor frees its worker), so they are retained — not retired — and cleaned up
-	// only when the SandboxAgent itself is deleted (see reconcileSubstrateSandboxAgentDelete).
-	// ResolveCurrentActorTemplate keeps chat and readiness pointed at the newest Ready template.
 	return ctrl.Result{}, nil
 }
 

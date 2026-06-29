@@ -3,8 +3,10 @@ package substrate
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -13,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // SandboxAgentActorBackend manages ate-api actors for SandboxAgent workloads.
@@ -63,6 +66,7 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 	}
 	tmplNS := sa.Namespace
 
+	created := false
 	actor, err := b.client.GetActor(ctx, actorID)
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
@@ -72,6 +76,7 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, wrapCreateActorError(actorID, err)
 		}
+		created = true
 	}
 
 	switch actor.GetStatus() {
@@ -87,11 +92,91 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		return sandboxbackend.EnsureResult{}, err
 	}
 
+	// when a new actor is created, all sessions will be resumed on the new actor
+	// so we need to reap the orphaned session actors. There is currently a gap here
+	// where new actors do not retain artifacts of the previous actor. Note that on a config rollout,
+	// previous actor artifcats will be lost but we are aware of this gap and will be
+	// actively addressing it.
+	if created {
+		b.scheduleReapOrphanedSessionActors(sa, actorID)
+	}
+
 	host := ActorHost(actorID, "")
 	return sandboxbackend.EnsureResult{
 		Handle:   sandboxbackend.Handle{ID: actorID},
 		Endpoint: fmt.Sprintf("atenet-router Host %s", host),
 	}, nil
+}
+
+// reapOrphanedActorsTimeout bounds the detached best-effort cleanup launched after a session actor
+// is created. Deleting suspended orphans is a couple of ate-api round-trips per retained config
+// hash; this leaves ample headroom while ensuring the goroutine cannot linger.
+const reapOrphanedActorsTimeout = 30 * time.Second
+
+// scheduleReapOrphanedSessionActors fires reapOrphanedSessionActors on a detached, time-bounded
+// context so it never adds latency to (or fails) the chat request that triggered the new actor.
+// Mirrors the transport's post-response suspend scheduling.
+func (b *SandboxAgentActorBackend) scheduleReapOrphanedSessionActors(sa *v1alpha2.SandboxAgent, keepActorID string) {
+	if b == nil || b.client == nil || sa == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), reapOrphanedActorsTimeout)
+		defer cancel()
+		if err := b.reapOrphanedSessionActors(ctx, sa, keepActorID); err != nil {
+			ctrllog.Log.WithName("substrate-actor-reaper").Error(err, "failed to reap orphaned session actors after config rollout",
+				"sandboxagent", sa.Namespace+"/"+sa.Name)
+		}
+	}()
+}
+
+// reapOrphanedSessionActors deletes all agent's SUSPENDED session actors that were created from a
+// superseded ActorTemplate
+func (b *SandboxAgentActorBackend) reapOrphanedSessionActors(ctx context.Context, sa *v1alpha2.SandboxAgent, keepActorID string) error {
+	if b == nil || b.client == nil || sa == nil {
+		return nil
+	}
+	templates, err := listSandboxAgentActorTemplates(ctx, b.kube, sa.Namespace, sa.Name)
+	if err != nil {
+		return err
+	}
+	current := selectCurrentActorTemplate(templates)
+	if current == nil {
+		// No resolvable current template — can't tell orphans from live actors; reap nothing.
+		return nil
+	}
+	ownedTemplates := make(map[string]struct{}, len(templates))
+	for _, t := range templates {
+		ownedTemplates[t.Name] = struct{}{}
+	}
+
+	actors, err := b.client.ListActors(ctx)
+	if err != nil {
+		return fmt.Errorf("list substrate actors: %w", err)
+	}
+	// Session actor ids start with "asr-"; substrate goldens use UUIDs, so this prefix excludes them.
+	sessionPrefix := sandboxAgentIDPrefix + "-"
+	agentPrefix := sandboxAgentActorPrefix(sa)
+	var errs []error
+	for _, actor := range actors {
+		id := strings.TrimSpace(actor.GetActorId())
+		if id == "" || id == keepActorID {
+			continue
+		}
+		if !strings.HasPrefix(id, sessionPrefix) {
+			continue // golden actor (UUID id) — never reap
+		}
+		if !actorBelongsToSandboxAgent(sa, actor, agentPrefix, ownedTemplates) {
+			continue // another agent's session actor
+		}
+		if actor.GetActorTemplateNamespace() == sa.Namespace && actor.GetActorTemplateName() == current.Name {
+			continue // under the current desired config — a live session, keep
+		}
+		if _, err := deleteActorIfSuspended(ctx, b.client, id); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // SuspendSessionActor checkpoints and frees the worker for a chat session actor.
