@@ -995,3 +995,56 @@ class TestConvertOpenAIResponseToLlmResponse:
         tool_messages = [m for m in messages if m["role"] == "tool"]
         assert len(tool_messages) == 1
         assert tool_messages[0]["extra_content"] == {"google": {"thought_signature": "YWJj"}}
+
+
+class TestConvertContentNonImageFiles:
+    """Non-image uploads must reach the model as extracted text, not be dropped."""
+
+    def test_text_file_inline_data_becomes_user_text(self):
+        contents = [
+            Content(
+                role="user",
+                parts=[
+                    Part(text="explain attached invoice"),
+                    Part(
+                        inline_data=types.Blob(
+                            data=b"vendor,amount\nAcme,42",
+                            mime_type="text/csv",
+                            display_name="invoice.csv",
+                        )
+                    ),
+                ],
+            )
+        ]
+
+        messages = _convert_content_to_openai_messages(contents)
+
+        user_messages = [m for m in messages if m["role"] == "user"]
+        assert len(user_messages) == 1
+        content = user_messages[0]["content"]
+        assert isinstance(content, str)
+        assert "explain attached invoice" in content
+        assert "invoice.csv" in content
+        assert "Acme,42" in content
+
+    def test_unsupported_binary_inline_data_adds_note(self):
+        contents = [
+            Content(
+                role="user",
+                parts=[
+                    Part(
+                        inline_data=types.Blob(
+                            data=b"\x00\x01\x02",
+                            mime_type="application/zip",
+                            display_name="archive.zip",
+                        )
+                    ),
+                ],
+            )
+        ]
+
+        messages = _convert_content_to_openai_messages(contents)
+
+        user_messages = [m for m in messages if m["role"] == "user"]
+        assert len(user_messages) == 1
+        assert "could not be read as text" in user_messages[0]["content"]

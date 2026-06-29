@@ -18,6 +18,7 @@ import (
 	adkmodel "google.golang.org/adk/model"
 	adkgemini "google.golang.org/adk/model/gemini"
 	"google.golang.org/adk/tool"
+	"google.golang.org/adk/tool/loadartifactstool"
 	"google.golang.org/adk/tool/loadmemorytool"
 	"google.golang.org/adk/tool/preloadmemorytool"
 	"google.golang.org/genai"
@@ -166,6 +167,18 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 	}
 	localTools = append(localTools, remoteAgentTools...)
 	localTools = append(localTools, extraTools...)
+
+	// Register the built-in load_artifacts tool so the LLM can list/load stored
+	// artifacts (uploaded files and agent-produced files) across turns.
+	localTools = append(localTools, loadartifactstool.New())
+
+	// Register the save_artifact tool so the LLM can produce downloadable files
+	// from chat; the executor surfaces saved artifacts as A2A file parts.
+	saveArtifactTool, err := tools.NewSaveArtifactTool()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create save_artifact tool: %w", err)
+	}
+	localTools = append(localTools, saveArtifactTool)
 
 	skillsDirectory := strings.TrimSpace(os.Getenv("KAGENT_SKILLS_FOLDER"))
 	if skillsDirectory != "" {

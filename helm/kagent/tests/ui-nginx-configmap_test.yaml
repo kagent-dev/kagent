@@ -69,3 +69,21 @@ tests:
       - matchRegex:
           path: data["nginx.conf"]
           pattern: 'server RELEASE-NAME-controller\.NAMESPACE\.svc\.cluster\.local:8083;'
+
+  - it: should set client_max_body_size by default
+    template: ui-nginx-configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "client_max_body_size 50m;"
+
+  - it: should allow overriding client_max_body_size
+    template: ui-nginx-configmap.yaml
+    set:
+      ui:
+        nginx:
+          clientMaxBodySize: 200m
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: "client_max_body_size 200m;"
