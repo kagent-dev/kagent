@@ -38,17 +38,41 @@ type TokenPropagationPlugin struct {
 	mu              sync.RWMutex
 	logger          logr.Logger
 	bufferSeconds   int64
+	resource        any // RFC 8707 resource indicator passed to the STS exchange
+	audience        any // RFC 8693 audience passed to the STS exchange
+}
+
+// Option configures a TokenPropagationPlugin.
+type Option func(*TokenPropagationPlugin)
+
+// WithExchangeTarget sets the RFC 8707 resource and RFC 8693 audience sent on
+// token-exchange requests. Empty values are omitted from the request, so an
+// unset target leaves the exchange unscoped. Values are single strings, which
+// the STS client always serializes; multi-valued resources are out of scope.
+func WithExchangeTarget(resource, audience string) Option {
+	return func(p *TokenPropagationPlugin) {
+		if resource != "" {
+			p.resource = resource
+		}
+		if audience != "" {
+			p.audience = audience
+		}
+	}
 }
 
 // NewTokenPropagationPlugin creates a new token propagation plugin.
 // If integration is nil, the plugin will pass through tokens without exchange.
-func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger) *TokenPropagationPlugin {
-	return &TokenPropagationPlugin{
+func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, opts ...Option) *TokenPropagationPlugin {
+	p := &TokenPropagationPlugin{
 		integration:   integration,
 		tokenCache:    make(map[string]*TokenCacheEntry),
 		logger:        logger.WithName("sts-plugin"),
 		bufferSeconds: 5,
 	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 // getCachedToken retrieves a valid cached token for the session.
@@ -179,10 +203,10 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			subjectToken,
 			TokenTypeJWT,
 			actorToken,
-			nil, // resource
-			nil, // audience
-			"",  // scope
-			"",  // requestedTokenType
+			p.resource,
+			p.audience,
+			"", // scope
+			"", // requestedTokenType
 		)
 		if err != nil {
 			p.logger.Error(err, "STS token exchange failed, tools may not authenticate", "sessionID", sessionID)
