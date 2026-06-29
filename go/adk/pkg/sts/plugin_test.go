@@ -139,6 +139,86 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 	}
 }
 
+func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		opts         []Option
+		wantResource string
+		wantAudience string
+	}{
+		{
+			name:         "configured target is sent",
+			opts:         []Option{WithExchangeTarget("https://mcp.example.com", "mcp-backend")},
+			wantResource: "https://mcp.example.com",
+			wantAudience: "mcp-backend",
+		},
+		{
+			name:         "no target leaves resource and audience unset",
+			opts:         nil,
+			wantResource: "",
+			wantAudience: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var gotResource, gotAudience string
+			var srv *httptest.Server
+			srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/.well-known/oauth-authorization-server" {
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"issuer":         srv.URL,
+						"token_endpoint": srv.URL + "/token",
+					})
+					return
+				}
+				if r.URL.Path != "/token" {
+					http.NotFound(w, r)
+					return
+				}
+				if err := r.ParseForm(); err != nil {
+					t.Fatalf("ParseForm() error = %v", err)
+				}
+				gotResource = r.FormValue("resource")
+				gotAudience = r.FormValue("audience")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"access_token":      "access-token",
+					"issued_token_type": string(TokenTypeJWT),
+				})
+			}))
+			defer srv.Close()
+
+			integration, err := NewSTSIntegration(
+				srv.URL+"/.well-known/oauth-authorization-server",
+				"", nil, nil, 5, true, false,
+			)
+			if err != nil {
+				t.Fatalf("NewSTSIntegration() error = %v", err)
+			}
+
+			plugin := NewTokenPropagationPlugin(integration, logr.Discard(), tt.opts...)
+			ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
+			if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{
+				Context:   ctx,
+				sessionID: "sess-resource",
+			}); err != nil {
+				t.Fatalf("BeforeRunCallback() error = %v", err)
+			}
+
+			if gotResource != tt.wantResource {
+				t.Fatalf("resource = %q, want %q", gotResource, tt.wantResource)
+			}
+			if gotAudience != tt.wantAudience {
+				t.Fatalf("audience = %q, want %q", gotAudience, tt.wantAudience)
+			}
+		})
+	}
+}
+
 func TestExtractJWTExpiryUsesUnverifiedClaims(t *testing.T) {
 	t.Parallel()
 	want := time.Now().Add(time.Hour).Unix()
