@@ -105,7 +105,7 @@ CREATE TABLE myschema.eval_set (...);
 CREATE TABLE IF NOT EXISTS eval_set (...);
 ```
 
-Schema is a deploy-time choice, fixed by the connection rather than the migration file. A hard-coded schema breaks any deployment that runs the track in a different schema (e.g. a connection that sets `?search_path=<schema>`). The core and vector migrations comply today (verified by inspection until the lint lands).
+Schema is a deploy-time choice, fixed by the connection rather than the migration file. A hard-coded schema breaks any deployment that runs the track in a different schema (e.g. a connection that sets `?search_path=<schema>`). The core and vector migrations comply, enforced by `TestSchemaAgnosticSQL`.
 
 > **Enforcement.** `TestSchemaAgnosticSQL` rejects the forbidden patterns across all migration files (see [Static Analysis Enforcement](#static-analysis-enforcement)).
 

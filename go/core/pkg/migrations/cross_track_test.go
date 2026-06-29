@@ -85,16 +85,16 @@ func crossTrackViolations(fsys fs.FS, foreignTables map[string]string) ([]violat
 	return violations, err
 }
 
-// guardCheck describes a DDL statement that requires an idempotency guard.
-// re captures the first significant word after the keyword; if that word is not
-// "if" (case-insensitive) the guard is absent.
-type guardCheck struct {
+// sqlCheck pairs a name with a regex used by the static migration checks below.
+// How re is interpreted depends on the check: the guard checks capture the first
+// token after a keyword and require it to be "if"; other checks match on presence.
+type sqlCheck struct {
 	name string
 	re   *regexp.Regexp
 }
 
 // upGuardChecks are statements in up migrations that must use IF NOT EXISTS.
-var upGuardChecks = []guardCheck{
+var upGuardChecks = []sqlCheck{
 	{"CREATE TABLE", regexp.MustCompile(`(?i)\bCREATE\s+TABLE\s+(\w+)`)},
 	{"CREATE INDEX", regexp.MustCompile(`(?i)\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(\w+)`)},
 	{"CREATE EXTENSION", regexp.MustCompile(`(?i)\bCREATE\s+EXTENSION\s+(\w+)`)},
@@ -102,7 +102,7 @@ var upGuardChecks = []guardCheck{
 }
 
 // downGuardChecks are statements in down migrations that must use IF EXISTS.
-var downGuardChecks = []guardCheck{
+var downGuardChecks = []sqlCheck{
 	{"DROP TABLE", regexp.MustCompile(`(?i)\bDROP\s+TABLE\s+(\w+)`)},
 	{"DROP INDEX", regexp.MustCompile(`(?i)\bDROP\s+INDEX\s+(\w+)`)},
 	{"DROP EXTENSION", regexp.MustCompile(`(?i)\bDROP\s+EXTENSION\s+(\w+)`)},
@@ -129,7 +129,7 @@ func TestMigrationGuards(t *testing.T) {
 				return err
 			}
 
-			var checks []guardCheck
+			var checks []sqlCheck
 			switch {
 			case strings.HasSuffix(path, ".up.sql"):
 				checks = upGuardChecks
@@ -234,7 +234,7 @@ func stripSQLComments(s string) string {
 // into whatever schema the connection selects. See database-migrations.md,
 // "Schema-agnostic SQL". Static check over every migration file — no database.
 
-var schemaQualifiedChecks = []guardCheck{
+var schemaQualifiedChecks = []sqlCheck{
 	{"CREATE SCHEMA", regexp.MustCompile(`(?i)\bCREATE\s+SCHEMA\b`)},
 	{"DROP SCHEMA", regexp.MustCompile(`(?i)\bDROP\s+SCHEMA\b`)},
 	{"search_path", regexp.MustCompile(`(?i)\bsearch_path\b`)},
