@@ -76,4 +76,18 @@ var (
 		"Well-known endpoint for the Security Token Service (STS) used for token exchange.",
 		ComponentAgentRuntime,
 	)
+
+	KagentTokenResource = RegisterStringVar(
+		"KAGENT_TOKEN_RESOURCE",
+		"",
+		"RFC 8707 resource indicator sent on STS token-exchange requests to scope the issued token to a target backend.",
+		ComponentAgentRuntime,
+	)
+
+	KagentTokenAudience = RegisterStringVar(
+		"KAGENT_TOKEN_AUDIENCE",
+		"",
+		"RFC 8693 audience sent on STS token-exchange requests. Alternate to KAGENT_TOKEN_RESOURCE for servers that key on audience.",
+		ComponentAgentRuntime,
+	)
 )
