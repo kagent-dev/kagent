@@ -20,14 +20,21 @@ authentication but a false sense of access control — there is none.
 This is a security gap, not only a missing feature: any shared or multi-tenant
 deployment is effectively wide-open to every authenticated principal.
 
-The good news is that the enforcement plumbing already exists. The
-`auth.Authorizer` interface is wired into every HTTP handler via the `Check(...)`
-helper (~25 call sites in `go/core/internal/httpserver/handlers`), and for
-*direct user calls* `ProxyAuthenticator` populates `Principal.Claims` with the
-full JWT payload. (Agent-originated calls — where `X-Agent-Name` is set —
-currently carry identity (`User`/`Agent`) but **not** `Claims`; see Open
-Questions.) The missing piece is a real `Authorizer` implementation and a way
-for operators to express policy.
+The enforcement seam already exists, but its coverage is **partial and opt-in**,
+which is itself part of the problem. The `auth.Authorizer` interface is invoked
+via the `Check(...)` helper, but only ~6 handler files actually call it today
+(Agent, ModelConfig, ToolServer, ToolServerType, PromptTemplate, Substrate).
+Roughly half of the handler surface — including the most sensitive endpoints
+(sessions, memory, tasks, LangGraph checkpoints, model-provider config, and A2A
+invoke) — calls no `Check()` at all and would remain wide open even once a real
+`Authorizer` is installed. See [Authorization coverage today](#authorization-coverage-today)
+for the verified matrix. For *direct user calls* `ProxyAuthenticator` populates
+`Principal.Claims` with the full JWT payload; agent-originated calls (where
+`X-Agent-Name` is set) carry identity (`User`/`Agent`) but **not** `Claims` —
+addressed by [Machine-to-machine identity](#machine-to-machine-identity-workload-identity).
+The missing pieces are: a real `Authorizer` implementation, an enforcement model
+that does not leave new routes open by default, and a way for operators to
+express policy.
 
 This EP proposes that implementation. It is the fine-grained-authorization
 follow-on that EP-476 explicitly deferred ("detailed RBAC policies come in
@@ -121,6 +128,70 @@ the existing `auth.Authorizer` interface.
 - **The interface stays the seam.** CEL is the batteries-included default; an
   external/OPA authorizer (#1370) remains a drop-in alternative.
 
+### Authorization coverage today
+
+The "wire an `Authorizer` in" framing understates the work. Verified against
+`main` by counting `Check()` / `authorizeAgentRequest` calls per handler file,
+only about 6 of the ~22 handler areas gate anything; the rest — including the
+most sensitive surfaces — are ungated and would remain bypass paths even with a
+correct `CELAuthorizer` installed.
+
+| Handler | Gates today | Sensitivity | If CEL enabled |
+|---|---|---|---|
+| `agents.go` | yes (~12, incl. `authorizeAgentRequest`) | high | covered |
+| `modelconfig.go` (companion secrets gated transitively) | yes (5) | high (cred refs) | covered |
+| `prompttemplates.go` | yes (5) | medium | covered |
+| `toolservers.go` | yes (4) | medium | covered |
+| `toolservertypes.go` | yes (1) | low | covered |
+| `substrate.go` | yes (1) | medium | covered |
+| `sessions.go` | none | high (conversation content) | **bypass** |
+| `memory.go` | none | high (embeddings, PII) | **bypass** |
+| `tasks.go` | none | high (task data) | **bypass** |
+| `checkpoints.go` | none | high (LangGraph state) | **bypass** |
+| `modelproviderconfig.go` | none | high (credential-adjacent) | **bypass** |
+| `models.go` / `namespaces.go` / `tools.go` | none | low–medium | **bypass** |
+| `feedback.go` / `crewai.go` / `agentharness_gateway.go` | none | low–medium | **bypass** |
+| A2A invoke (`/api/a2a/{ns}/{name}`) | authn only, no `Authorizer` | high (direct agent run) | **bypass** |
+| `/health`, `/version`, `/api/user` | none (by design) | none / self | acceptable |
+
+**Scope commitment:** this EP commits to closing the sensitive gaps (sessions,
+memory, tasks, checkpoints, model-provider config, and A2A invoke) as part of
+the implementation, not as a follow-up. The mechanism is the enforcement model
+below, which makes the gap structurally impossible to reintroduce.
+
+### Enforcement model: deny-by-default middleware (hybrid)
+
+Authorization today is **opt-in per handler**: any route that forgets to call
+`Check()` is silently a bypass. A one-time audit fixes the current snapshot but
+rots the moment someone adds a route. This EP therefore adopts an explicit
+enforcement model rather than inheriting the implicit per-handler one:
+
+- A **deny-by-default `AuthzMiddleware`** is added to the router chain
+  immediately after `AuthnMiddleware`
+  ([`server.go:346`](../go/core/internal/httpserver/server.go)). It maps each
+  request to a `(resourceType, verb)` from a **declarative route registry**
+  (using `mux.Vars(r)` for `{namespace}`/`{name}` and the HTTP method for the
+  verb, the same switch `Check` already uses) and calls the `Authorizer`.
+- A route **not** present in the registry is **denied**. An explicit public
+  allowlist (`/health`, `/version`, the self-scoped `/api/user`) keeps probes
+  and self-calls working.
+- Per-handler `Check()` is retained for what the middleware structurally cannot
+  do:
+
+| Concern | Where | Why |
+|---|---|---|
+| Coarse "may you touch this resource type + verb at all" | Middleware (deny-by-default) | One chokepoint; closes the gap |
+| List filtering, per returned item | Handler | Needs the response set, not just the request |
+| Create where name/namespace are in the body | Handler | Middleware sees path vars, not the decoded body |
+| Per-resource policy combining (`spec.accessPolicy`) | Handler | Needs the fetched resource + central-vs-resource combining |
+| Non-uniform routes (A2A `/{ns}/{name}`, sessions/memory keyed by agent) | Both, explicit registry entry | Resource identity is not inferable from path shape alone |
+
+The asymmetry is the whole point: a **missing registry entry fails closed**
+(denied), whereas a missing `Check()` today fails open (allowed). The same
+middleware also covers the A2A `PathPrefix` handler
+([`server.go:336`](../go/core/internal/httpserver/server.go)) instead of leaving
+it to a separate hand-wired gate.
+
 ### The decision context exposed to a policy
 
 A `CELAuthorizer` implements
@@ -133,7 +204,8 @@ policy expression:
 |---|---|---|
 | `claims` | `map(string, dyn)` | `principal.Claims` — the full raw JWT payload |
 | `user` | `string` | `principal.User.ID` (the `sub`/configured claim) |
-| `verb` | `string` | `get` \| `create` \| `update` \| `delete` (derived from HTTP method, as today) |
+| `agent` | `string` | `principal.Agent.ID` — the calling workload identity for M2M/A2A (empty for direct user calls) |
+| `verb` | `string` | `get` \| `create` \| `update` \| `delete` \| `invoke` (HTTP method as today; A2A invocation maps to the new `invoke` verb) |
 | `resource.type` | `string` | e.g. `Agent`, `ModelConfig`, `ToolServer` |
 | `resource.name` | `string` | `namespace/name` |
 | `resource.namespace` | `string` | parsed from the resource ref |
@@ -174,16 +246,20 @@ Point; agent pods enforce nothing):
    (see Open Questions). Authored by whoever owns the agent, still enforced
    centrally.
 
-<<[UNRESOLVED policy combining]>>
-The combining rule needs agreement. Proposed default: **default-deny**, allow if
-*either* the central policy *or* the resource's own policy permits. A per-resource
-policy may only widen access to *its own* resource (it can never grant access to
-other resources), so an agent owner cannot escalate beyond the resource they own.
-Whether we also support explicit `deny` rules (vs. allow-only) is open.
-<<[/UNRESOLVED]>>
+**Policy combining (resolved).** The model is **default-deny**: a request is
+allowed if *either* the central policy *or* the matching per-resource policy
+permits it. Crucially, a per-resource policy is consulted **only for its own
+resource** — it is never evaluated for any other resource. That single rule is
+what structurally guarantees the **widen-only** invariant: an agent owner can
+broaden access to the agent they own, but can never grant access to another
+resource or escalate centrally. The first cut is **allow-only** (no explicit
+`deny` rules); explicit deny is deferred to a follow-up if a concrete need
+emerges.
 
-### Enforcement is central; the controller already has the data
+### The decision point: in-process and cache-backed
 
+Where the enforcement model above decides *where requests are gated* (the
+middleware plus per-handler `Check()`), this is where the *decision* is made.
 The `Authorizer` is constructed once in
 [`cmd/controller/main.go`](../go/core/cmd/controller/main.go) and runs inside the
 controller process. It can be handed the controller-runtime client via
@@ -225,20 +301,105 @@ the CEL evaluator and applied consistently (Agents first; ModelConfig/ToolServer
 follow). This is real work independent of the policy engine and is called out so
 it is not under-scoped.
 
-### A2A path
+### A2A path and the `invoke` verb
 
 A2A invocation must be gated too (a major risk is reaching an agent directly).
-#1766 added a per-request check in the A2A handler mux; we reuse that integration
-point with the CEL authorizer. Direct-to-agent calls that bypass the controller
-remain out of scope here and are addressed by network gating in #2028.
+Today A2A would collapse onto the `get` verb, so a policy cannot tell "may read
+this agent" apart from "may run it". This EP adds a distinct **`VerbInvoke`** to
+the `auth.Verb` set ([`auth.go:9-16`](../go/core/pkg/auth/auth.go)); the A2A
+handler mux (and the deny-by-default middleware's registry entry for
+`/api/a2a/{ns}/{name}`) map invocation to it. #1766 added a per-request check in
+the A2A handler mux; we reuse that integration point with the CEL authorizer,
+gated by `invoke`. Direct-to-agent calls that bypass the controller remain out
+of scope here and are addressed by network gating in #2028.
+
+### Machine-to-machine identity (workload identity)
+
+M2M and agent-to-controller calls currently identify the caller from the
+unverified `X-Agent-Name` header and set no `claims`
+([`proxy_authn.go:43-62`](../go/core/internal/httpserver/auth/proxy_authn.go)).
+A fail-closed, claims-based policy would therefore deny *all* internal A2A
+traffic, and the header itself is spoofable. This is resolved in-design (not
+left as an open question): the M2M caller presents a **verified
+workload-identity token**, and the authenticator binds it into the principal.
+
+First cut, the most native carrier in this stack: a **Kubernetes projected
+ServiceAccount token**, audience-bound to kagent, with `sub`
+`system:serviceaccount:<ns>:<sa>`. The token's signature and audience are
+verified (TokenReview or local JWKS), and the parsed identity populates both
+`Principal.Claims` and `Principal.Agent.ID`. Alternatives behind the same model:
+a SPIFFE JWT-SVID (`sub spiffe://<trust-domain>/ns/<ns>/sa/<sa>`) or Istio mTLS
+X.509-SVID forwarded via `X-Forwarded-Client-Cert`.
+
+The same CEL model then covers humans and machines with no separate lane:
+
+```cel
+// projected Kubernetes ServiceAccount token
+claims.sub == "system:serviceaccount:kagent/agent-runner"
+
+// or a SPIFFE JWT-SVID
+claims.sub == "spiffe://kagent.local/ns/kagent/sa/agent-runner"
+```
+
+This removes the spoofable-header risk and the "no claims on M2M" blocker at
+once. Workload identity answers *which agent called*, not *on whose behalf* —
+on-behalf-of user delegation (#2071 / STS) is deliberately deferred.
 
 ### Configuration / rollout
 
 - An auth-mode / authorizer-selection flag chooses `NoopAuthorizer` (default,
   backward compatible) vs. `CELAuthorizer`. No enforcement unless opted in.
+- The authorizer is forced to `NoopAuthorizer` whenever `auth.mode=unsecure`,
+  regardless of the authorizer selection. Dev clusters carry no verified
+  `claims`, so a claims-based policy would lock everyone out; authorization is
+  only meaningful once `trusted-proxy` (or another claim-bearing mode) is on.
 - Helm values expose the central policy ConfigMap and the authorizer selection.
 - The external authorizer (#1370) is selectable as an alternative implementation
   of the same interface.
+
+### Observability
+
+Authorization decisions must be observable without leaking the identities they
+act on:
+
+- **Metrics.** `kagent_authz_decisions_total{result, resource_type}` (result =
+  `allow` | `deny`) for decision volume and deny ratio, and
+  `kagent_authz_config_valid` (gauge, per source) so a broken central policy or
+  a failed `spec.accessPolicy` compile is alertable rather than silent.
+- **Logging.** Deny decisions are logged at `V(1)` with the verb, resource type,
+  resource ref, and the authenticated subject (`user` / `agent.ID`) — but
+  **never** claim values or token contents. Allows are not logged per-request
+  (use the metric); compile/validation errors are logged at the default level
+  and mirrored onto `status.conditions`.
+
+### Trust boundaries and threat model
+
+This EP authorizes requests *inside* the controller; it is not a network or
+edge control. Stating the boundary explicitly:
+
+- **The one cryptographic trust boundary is the upstream proxy** (oauth2-proxy
+  in `trusted-proxy` mode). It validates the OIDC flow and signs/forwards the
+  JWT. The controller trusts the proxy and parses the JWT **without
+  re-verifying its signature**
+  ([`proxy_authn.go`](../go/core/internal/httpserver/auth/proxy_authn.go)). The
+  deployment must therefore ensure the controller is only reachable *through*
+  the proxy; a client that can reach the controller directly can forge identity
+  headers. (M2M callers are the exception — they present an independently
+  verified workload-identity token, see
+  [Machine-to-machine identity](#machine-to-machine-identity-workload-identity).)
+- **What authorization does *not* cover:**
+  - Direct pod access that bypasses the controller entirely (e.g. dialing an
+    agent Service directly) — that is network gating, tracked in #2028.
+  - Egress from an agent to MCP tool servers — governed by ToolServer CRD
+    config and STS, not the `Authorizer`.
+  - Endpoints that remain ungated until the coverage commitment lands; the
+    deny-by-default middleware is what closes that window.
+- **Bootstrap / break-glass.** Turning authorization on against a live cluster
+  with no policy yet would lock everyone out. Rollout guidance: ship a
+  bootstrap-admin rule in the central policy (e.g. an admin `claims.sub` or
+  group) *before* enabling enforcement, and document a break-glass path
+  (flip `auth.mode`/authorizer selection back, which the `unsecure`→`noop`
+  coupling above makes a single, well-understood switch).
 
 ### Test Plan
 
@@ -253,6 +414,10 @@ remain out of scope here and are addressed by network gating in #2028.
 
 **Integration:**
 - Handler-level `Check` allow/deny across resource types and verbs.
+- Deny-by-default middleware: a route with no registry entry is denied; the
+  public allowlist (`/health`, `/version`, `/api/user`) stays reachable.
+- `invoke` is distinct from `get` (a read-but-not-run principal is denied invoke).
+- M2M: a verified ServiceAccount token authorizes via `claims.sub`.
 - Agent-list filtering returns only authorized items.
 - A2A gating denies unauthorized invocation.
 
@@ -282,19 +447,15 @@ remain out of scope here and are addressed by network gating in #2028.
 1. **Per-resource policy carrier:** annotation (`kagent.dev/access-policy`,
    zero-schema, matches #1766) vs. a typed `spec.accessPolicy` field
    (validated, discoverable, versioned with the CRD)? Leaning typed field.
-2. **Policy combining semantics** — see the UNRESOLVED block above: default-deny +
-   allow-if-either, allow-only vs. explicit deny rules.
-3. **Scope of per-resource policy initially** — Agent only, or ModelConfig and
+2. **Scope of per-resource policy initially** — Agent only, or ModelConfig and
    ToolServer too in the first cut?
-4. **Default when authorization is enabled but no policy exists** — deny-all
+3. **Default when authorization is enabled but no policy exists** — deny-all
    (secure; #1270 leaned this way) vs. a configurable default rule.
-5. **CLI/M2M principals** — how agent-to-controller and service-account calls map
-   onto the same policy model (relates to #2071 / STS work). These principals
-   currently carry **no `claims`** (the agent-call path sets `User`/`Agent` but
-   not `Claims`), so a claims-only policy combined with fail-closed would *deny*
-   internal agent traffic. The model therefore needs a distinct way to match
-   agent identity — e.g. an `agent` variable / `principal.Agent.ID` in the
-   decision context, or a separate M2M policy lane — before authorization can be
-   enabled without breaking A2A.
-6. **Should the central policy also be a CRD** (e.g. `AccessPolicy`) rather than a
+4. **Should the central policy also be a CRD** (e.g. `AccessPolicy`) rather than a
    ConfigMap, for validation and status?
+
+Resolved during review (previously open): **policy combining** — now default-deny
++ allow-if-either with the widen-only invariant, see
+[Where policy lives](#where-policy-lives); and **M2M principals** — now verified
+workload identity, see
+[Machine-to-machine identity](#machine-to-machine-identity-workload-identity).
