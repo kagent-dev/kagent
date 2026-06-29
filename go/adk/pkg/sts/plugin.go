@@ -46,12 +46,17 @@ type TokenPropagationPlugin struct {
 type Option func(*TokenPropagationPlugin)
 
 // WithExchangeTarget sets the RFC 8707 resource and RFC 8693 audience sent on
-// token-exchange requests. A nil value is omitted from the request. Strings or
-// string slices are accepted, matching TokenExchangeRequest.Resource/Audience.
-func WithExchangeTarget(resource, audience any) Option {
+// token-exchange requests. Empty values are omitted from the request, so an
+// unset target leaves the exchange unscoped. Values are single strings, which
+// the STS client always serializes; multi-valued resources are out of scope.
+func WithExchangeTarget(resource, audience string) Option {
 	return func(p *TokenPropagationPlugin) {
-		p.resource = resource
-		p.audience = audience
+		if resource != "" {
+			p.resource = resource
+		}
+		if audience != "" {
+			p.audience = audience
+		}
 	}
 }
 
