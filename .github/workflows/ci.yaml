@@ -173,8 +173,6 @@ jobs:
         uses: ./.github/actions/upgrade-test-setup
         with:
           upgrade-from: ${{ matrix.upgrade-from }}
-          buildx-builder-name: ${{ env.BUILDX_BUILDER_NAME }}
-          buildx-version: ${{ env.BUILDX_VERSION }}
       - name: Run upgrade tests
         if: steps.prep.outputs.skip != 'true'
         env:
@@ -221,8 +219,6 @@ jobs:
         uses: ./.github/actions/upgrade-test-setup
         with:
           upgrade-from: ${{ matrix.upgrade-from }}
-          buildx-builder-name: ${{ env.BUILDX_BUILDER_NAME }}
-          buildx-version: ${{ env.BUILDX_VERSION }}
       - name: Run rolling upgrade tests
         if: steps.prep.outputs.skip != 'true'
         env:

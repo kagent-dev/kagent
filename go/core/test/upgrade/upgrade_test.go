@@ -1,3 +1,10 @@
+// Package upgrade holds the database upgrade/rollback compatibility tests. They
+// are deliberately separate from test/e2e: they mutate the cluster they run
+// against — installing a prior release, upgrading it in place, and reverse-
+// migrating the schema — so they cannot share the e2e suite's cluster and must
+// run against a throwaway one (see the run-upgrade-tests / run-rolling-upgrade-
+// tests make targets). Each test self-skips unless its RUN_*_TESTS env var is
+// set, so a plain `go test ./...` compiles but does not execute them.
 package upgrade
 
 import (

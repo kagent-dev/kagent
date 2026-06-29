@@ -12,12 +12,6 @@ inputs:
   upgrade-from:
     description: 'Which release to upgrade from: "adjacent" or "prev-stable".'
     required: true
-  buildx-builder-name:
-    description: Name for the docker/setup-buildx-action builder.
-    required: true
-  buildx-version:
-    description: Buildx version for docker/setup-buildx-action.
-    required: true
 
 outputs:
   skip:
@@ -72,8 +66,10 @@ runs:
       if: steps.resolve.outputs.skip != 'true'
       uses: docker/setup-buildx-action@v4
       with:
-        name: ${{ inputs.buildx-builder-name }}
-        version: ${{ inputs.buildx-version }}
+        # Builder name/version match the Makefile (BUILDKIT_VERSION) and the other
+        # workflows (e.g. tag.yaml); kept as literals for consistency.
+        name: kagent-builder-v0.23.0
+        version: v0.23.0
         platforms: linux/amd64,linux/arm64
         use: "true"
         driver-opts: network=host
