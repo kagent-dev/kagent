@@ -103,7 +103,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         questions={questions}
         isResolved={isResolved}
         resolvedAnswers={resolvedAnswers ?? null}
-        onSubmit={(answers) => onAskUserSubmit?.(answers)}
+        onSubmit={onAskUserSubmit}
         subagentName={askUserSubagentName}
       />
     );

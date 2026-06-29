@@ -25,7 +25,7 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxSkillsUnsupportedMsg)
 	})
 
-	t.Run("rejects python runtime", func(t *testing.T) {
+	t.Run("allows python runtime", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
 				AgentSpec: AgentSpec{
@@ -36,23 +36,49 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 				},
 			},
 		}
-		err := ValidateSubstrateSandboxAgentSpec(agent)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), substrateSandboxPythonRuntimeUnsupportedMsg)
+		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
 	})
 
-	t.Run("rejects BYO agents", func(t *testing.T) {
+	t.Run("rejects BYO agents without an explicit command", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
 				AgentSpec: AgentSpec{
 					Type: AgentType_BYO,
-					BYO:  &BYOAgentSpec{},
+					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest"}},
 				},
 			},
 		}
 		err := ValidateSubstrateSandboxAgentSpec(agent)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), substrateSandboxBYOUnsupportedMsg)
+		require.Contains(t, err.Error(), substrateSandboxBYOMissingCommandMsg)
+	})
+
+	t.Run("rejects BYO agents with a whitespace-only command", func(t *testing.T) {
+		cmd := "   "
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
+				},
+			},
+		}
+		err := ValidateSubstrateSandboxAgentSpec(agent)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), substrateSandboxBYOMissingCommandMsg)
+	})
+
+	t.Run("allows BYO agents with an explicit command", func(t *testing.T) {
+		cmd := "/app"
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
+				},
+			},
+		}
+		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
 	})
 
 	t.Run("allows go runtime", func(t *testing.T) {

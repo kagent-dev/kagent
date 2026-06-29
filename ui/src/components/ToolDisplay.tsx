@@ -201,7 +201,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
           )}
         </div>
 
-        {/* Approval buttons — hidden when decided (batch) or submitting */}
+        {/* Approval buttons — hidden when decided (batch) or submitting; disabled when no handler (read-only) */}
         {status === "pending_approval" && !isSubmitting && !isDecided && !showRejectForm && (
           <div className="mt-4 space-y-2">
             <div className="flex gap-2">
@@ -209,6 +209,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
                 size="sm"
                 variant="default"
                 onClick={handleApprove}
+                disabled={!onApprove}
               >
                 Approve
               </Button>
@@ -216,6 +217,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
                 size="sm"
                 variant="destructive"
                 onClick={handleRejectClick}
+                disabled={!onReject}
               >
                 Reject
               </Button>

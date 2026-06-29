@@ -1,14 +1,15 @@
 "use client";
-import { use, useEffect, useState } from "react";
+import { use, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ChatInterface from "@/components/chat/ChatInterface";
 import AcpHarnessChat from "@/components/chat/AcpHarnessChat";
 import { getAgentWithResolvedKind } from "@/app/actions/agents";
 import { Loader2 } from "lucide-react";
 
-export default function ChatPageView({ params }: { params: Promise<{ name: string; namespace: string; chatId: string }> }) {
+function ChatPageViewInner({ params }: { params: Promise<{ name: string; namespace: string; chatId: string }> }) {
   const { name, namespace, chatId } = use(params);
   const searchParams = useSearchParams();
+  const shareToken = searchParams.get("share") ?? undefined;
   // A brand-new chat (just created via "New Chat") arrives with ?new=1 and stays
   // idle until the user sends a message; any other navigation (sidebar click,
   // reload) auto-connects and resumes the actor's prior transcript.
@@ -63,5 +64,13 @@ export default function ChatPageView({ params }: { params: Promise<{ name: strin
     return <AcpHarnessChat key={chatId} acpPath={harnessAcpPath} namespace={namespace} agentName={name} sessionId={chatId} autoConnect={!isNew} />;
   }
 
-  return <ChatInterface selectedAgentName={name} selectedNamespace={namespace} sessionId={chatId} />;
+  return <ChatInterface selectedAgentName={name} selectedNamespace={namespace} sessionId={chatId} shareToken={shareToken} />;
+}
+
+export default function ChatPageView({ params }: { params: Promise<{ name: string; namespace: string; chatId: string }> }) {
+  return (
+    <Suspense>
+      <ChatPageViewInner params={params} />
+    </Suspense>
+  );
 }

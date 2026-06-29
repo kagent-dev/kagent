@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { getBackendUrl } from "./utils";
 import { v4 as uuidv4 } from 'uuid';
 import { MessageSendParams } from '@a2a-js/sdk';
@@ -47,19 +46,23 @@ export class KagentA2AClient {
     agentName: string,
     params: MessageSendParams,
     signal?: AbortSignal,
-    runInSandbox = false
-  ): Promise<AsyncIterable<any>> {
+    runInSandbox = false,
+    shareToken?: string
+  ): Promise<AsyncIterable<unknown>> {
     const request = this.createStreamingRequest(params);
     const proxyUrl = runInSandbox
       ? `/a2a-sandboxes/${namespace}/${agentName}`
       : `/a2a/${namespace}/${agentName}`;
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+    };
+    if (shareToken) headers['X-Share-Token'] = shareToken;
+
     const response = await fetch(proxyUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-      },
+      headers,
       body: JSON.stringify(request),
       signal,
     });
@@ -88,8 +91,9 @@ export class KagentA2AClient {
     agentName: string,
     taskId: string,
     signal?: AbortSignal,
-    runInSandbox = false
-  ): Promise<AsyncIterable<any>> {
+    runInSandbox = false,
+    shareToken?: string
+  ): Promise<AsyncIterable<unknown>> {
     const request = {
       jsonrpc: "2.0" as const,
       method: "tasks/resubscribe",
@@ -101,12 +105,15 @@ export class KagentA2AClient {
       ? `/a2a-sandboxes/${namespace}/${agentName}`
       : `/a2a/${namespace}/${agentName}`;
 
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Accept': 'text/event-stream',
+    };
+    if (shareToken) headers['X-Share-Token'] = shareToken;
+
     const response = await fetch(proxyUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
-      },
+      headers,
       body: JSON.stringify(request),
       signal,
     });
@@ -126,7 +133,7 @@ export class KagentA2AClient {
   /**
    * Process Server-Sent Events stream with proper event boundary detection
    */
-  private async *processSSEStream(body: ReadableStream<Uint8Array>): AsyncIterable<any> {
+  private async *processSSEStream(body: ReadableStream<Uint8Array>): AsyncIterable<unknown> {
     const reader = body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
