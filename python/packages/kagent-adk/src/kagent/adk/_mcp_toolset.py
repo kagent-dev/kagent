@@ -155,7 +155,14 @@ class KAgentMcpToolset(McpToolset):
         for tool in tools:
             if isinstance(tool, McpTool):
                 # getattr guards against partially-constructed McpTool stubs
-                # whose mcp_app_resource_uri property would raise.
+                # whose visibility/mcp_app_resource_uri properties would raise.
+                visibility = getattr(tool, "visibility", None) or []
+                # App-only tools (_meta.ui.visibility declares "app" but not
+                # "model") MUST NOT be exposed to the model; they stay callable
+                # only from the rendered MCP App. Mirrors the Go ADK filter in
+                # go/adk/pkg/mcp/mcp_ui.go (mcpToolKindAppOnly).
+                if "app" in visibility and "model" not in visibility:
+                    continue
                 if self._app_tool_names is not None and getattr(tool, "mcp_app_resource_uri", None):
                     self._app_tool_names.add(tool.name)
                 if not isinstance(tool, ConnectionSafeMcpTool):

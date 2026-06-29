@@ -21,6 +21,49 @@
     var params = new URLSearchParams(window.location.search);
     var parentOrigin = params.get("parentOrigin") || window.location.origin;
 
+    function joinDomains(list) {
+      return Array.isArray(list)
+        ? list.filter(function (d) { return typeof d === "string" && d; }).join(" ")
+        : "";
+    }
+
+    // Build the CSP for the untrusted view from the resource's _meta.ui.csp,
+    // following the MCP Apps spec construction: restrictive defaults, only
+    // server-declared origins are allowed, dangerous features blocked. With no
+    // csp metadata this yields the spec's restrictive default.
+    function buildCsp(csp) {
+      csp = csp && typeof csp === "object" ? csp : {};
+      var resource = joinDomains(csp.resourceDomains);
+      var connect = joinDomains(csp.connectDomains);
+      var frame = joinDomains(csp.frameDomains);
+      var base = joinDomains(csp.baseUriDomains);
+      return [
+        "default-src 'none'",
+        ("script-src 'self' 'unsafe-inline' " + resource).trim(),
+        ("style-src 'self' 'unsafe-inline' " + resource).trim(),
+        ("connect-src 'self' " + connect).trim(),
+        ("img-src 'self' data: " + resource).trim(),
+        ("font-src 'self' " + resource).trim(),
+        ("media-src 'self' data: " + resource).trim(),
+        "frame-src " + (frame || "'none'"),
+        "object-src 'none'",
+        "base-uri " + (base || "'self'")
+      ].join("; ") + ";";
+    }
+
+    // Inject the CSP as a <meta> at the start of <head> so the policy is parsed
+    // before any governed content/scripts in the view.
+    function injectCsp(html, cspValue) {
+      var tag = '<meta http-equiv="Content-Security-Policy" content="' + cspValue + '">';
+      if (/<head[^>]*>/i.test(html)) {
+        return html.replace(/<head[^>]*>/i, function (m) { return m + tag; });
+      }
+      if (/<html[^>]*>/i.test(html)) {
+        return html.replace(/<html[^>]*>/i, function (m) { return m + "<head>" + tag + "</head>"; });
+      }
+      return "<head>" + tag + "</head>" + html;
+    }
+
     window.addEventListener("message", (event) => {
       // Reject messages from any origin other than the expected parent so a
       // page embedding this iframe cannot inject arbitrary HTML/script.
@@ -32,8 +75,9 @@
       if (data.method === "ui/notifications/sandbox-resource-ready") {
         const html = data.params && data.params.html;
         if (typeof html === "string") {
+          const cspValue = buildCsp(data.params && data.params.csp);
           document.open();
-          document.write(html);
+          document.write(injectCsp(html, cspValue));
           document.close();
         }
       }

@@ -25,6 +25,11 @@ import (
 
 const mcpAppHTMLMimeType = "text/html;profile=mcp-app"
 
+// mcpUIExtensionName is the MCP Apps extension identifier negotiated via
+// capabilities.extensions during initialize. Advertising it lets conformant
+// servers that gate UI tools on client support expose them to kagent.
+const mcpUIExtensionName = "io.modelcontextprotocol/ui"
+
 type MCPAppsHandler struct {
 	*Base
 }
@@ -116,6 +121,24 @@ func (h *MCPAppsHandler) HandleCallTool(w ErrorResponseWriter, r *http.Request) 
 	}
 	defer cancel()
 	defer session.Close()
+
+	// This endpoint only serves app-originated tools/call requests. Per the MCP
+	// Apps spec the host MUST reject app calls to tools whose visibility does not
+	// include "app" (e.g. model-only tools), so enforce it server-side rather
+	// than trusting the client.
+	allowed, found, err := toolAllowsAppCall(r.Context(), session, toolName)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to verify MCP tool visibility", err))
+		return
+	}
+	if !found {
+		w.RespondWithError(errors.NewNotFoundError(fmt.Sprintf("MCP tool %q not found", toolName), nil))
+		return
+	}
+	if !allowed {
+		w.RespondWithError(errors.NewForbiddenError(fmt.Sprintf("MCP tool %q is not callable by apps (visibility does not include \"app\")", toolName), nil))
+		return
+	}
 
 	result, err := session.CallTool(r.Context(), &mcp.CallToolParams{
 		Name:      toolName,
@@ -253,7 +276,9 @@ func (h *MCPAppsHandler) connect(ctx context.Context, namespace, name string) (*
 		Name:    "kagent-controller",
 		Version: version.Version,
 	}
-	client := mcp.NewClient(impl, nil)
+	caps := &mcp.ClientCapabilities{}
+	caps.AddExtension(mcpUIExtensionName, map[string]any{"mimeTypes": []string{mcpAppHTMLMimeType}})
+	client := mcp.NewClient(impl, &mcp.ClientOptions{Capabilities: caps})
 	session, err := client.Connect(connectCtx, transport, nil)
 	if err != nil {
 		cancel()
@@ -277,6 +302,68 @@ func extractUIResourceURI(meta map[string]any) (string, bool) {
 		return uri, true
 	}
 	return "", false
+}
+
+// extractUIVisibility reads `_meta.ui.visibility`, which the MCP Apps spec
+// allows as either a single string or a list of strings.
+func extractUIVisibility(meta map[string]any) []string {
+	ui, ok := meta["ui"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	switch v := ui["visibility"].(type) {
+	case string:
+		return []string{v}
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// visibilityAllowsApp reports whether an app may call a tool. Per the MCP Apps
+// spec visibility defaults to ["model","app"], so absent/empty visibility is
+// app-callable; otherwise "app" must be present.
+func visibilityAllowsApp(meta map[string]any) bool {
+	visibility := extractUIVisibility(meta)
+	if len(visibility) == 0 {
+		return true
+	}
+	for _, v := range visibility {
+		if v == "app" {
+			return true
+		}
+	}
+	return false
+}
+
+// toolAllowsAppCall lists the server's tools (following pagination), finds the
+// named tool, and reports whether it is app-callable. found is false when no
+// tool with that name exists.
+func toolAllowsAppCall(ctx context.Context, session *mcp.ClientSession, toolName string) (allowed bool, found bool, err error) {
+	params := &mcp.ListToolsParams{}
+	for {
+		result, err := session.ListTools(ctx, params)
+		if err != nil {
+			return false, false, err
+		}
+		for _, tool := range result.Tools {
+			if tool != nil && tool.Name == toolName {
+				return visibilityAllowsApp(tool.Meta), true, nil
+			}
+		}
+		if result.NextCursor == "" {
+			return false, false, nil
+		}
+		params.Cursor = result.NextCursor
+	}
 }
 
 func validateMCPAppResource(result *mcp.ReadResourceResult) error {

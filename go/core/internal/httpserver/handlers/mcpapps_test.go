@@ -13,6 +13,33 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+// TestVisibilityAllowsApp pins the spec rule the call-tool handler enforces:
+// visibility defaults to ["model","app"], so only a tool that explicitly omits
+// "app" is rejected for app-originated calls.
+func TestVisibilityAllowsApp(t *testing.T) {
+	tests := []struct {
+		name string
+		meta map[string]any
+		want bool
+	}{
+		{name: "no meta defaults to app-callable", meta: nil, want: true},
+		{name: "empty ui defaults to app-callable", meta: map[string]any{"ui": map[string]any{}}, want: true},
+		{name: "model and app list", meta: map[string]any{"ui": map[string]any{"visibility": []any{"model", "app"}}}, want: true},
+		{name: "app-only string", meta: map[string]any{"ui": map[string]any{"visibility": "app"}}, want: true},
+		{name: "app-only list", meta: map[string]any{"ui": map[string]any{"visibility": []any{"app"}}}, want: true},
+		{name: "model-only is rejected", meta: map[string]any{"ui": map[string]any{"visibility": []any{"model"}}}, want: false},
+		{name: "model-only string is rejected", meta: map[string]any{"ui": map[string]any{"visibility": "model"}}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := visibilityAllowsApp(tt.meta); got != tt.want {
+				t.Errorf("visibilityAllowsApp(%v) = %v, want %v", tt.meta, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestResolveRemoteMCPServer pins the dual-CRD resolution: a RemoteMCPServer is
 // used as-is, a kmcp MCPServer is converted to the in-cluster Service URL, and a
 // missing ref returns a clear error instead of leaking RemoteMCPServer specifics.

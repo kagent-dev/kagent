@@ -14,6 +14,8 @@ import { installMcpAppInitCompat } from "@/lib/mcpAppInitCompat";
 // `ui/initialize` request still complete the handshake. See mcpAppInitCompat.
 installMcpAppInitCompat();
 
+type SandboxCsp = NonNullable<AppRendererProps["sandbox"]>["csp"];
+
 interface McpAppRendererProps {
   namespace: string;
   serverName: string;
@@ -60,6 +62,7 @@ export function McpAppRenderer({
   const { resolvedTheme } = useTheme();
   const { getMcpToolForAppCall } = useChatMcpApps();
   const [sandboxUrl, setSandboxUrl] = useState<URL | null>(null);
+  const [csp, setCsp] = useState<SandboxCsp>(undefined);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,7 +96,10 @@ export function McpAppRenderer({
     [connected, resolvedTheme],
   );
 
-  const sandbox = useMemo(() => sandboxUrl ? { url: sandboxUrl } : undefined, [sandboxUrl]);
+  // Pass the resource's declared CSP (captured in handleReadResource) to the
+  // sandbox proxy so it can enforce it; the proxy applies the spec's restrictive
+  // default when this is undefined.
+  const sandbox = useMemo(() => sandboxUrl ? { url: sandboxUrl, csp } : undefined, [sandboxUrl, csp]);
 
   // Advertise the host channels we actually implement so capability-gated apps
   // know they can proxy tool/resource calls and push messages to the chat.
@@ -105,7 +111,14 @@ export function McpAppRenderer({
   }), []);
 
   const handleReadResource = useCallback<NonNullable<AppRendererProps["onReadResource"]>>(async ({ uri }) => {
-    return requireData(await readMcpAppResource(namespace, serverName, uri));
+    const result = requireData(await readMcpAppResource(namespace, serverName, uri));
+    // Capture _meta.ui.csp before the library renders the iframe so the sandbox
+    // proxy can enforce the server-declared Content Security Policy.
+    const ui = (result.contents?.[0]?._meta as { ui?: { csp?: SandboxCsp } } | undefined)?.ui;
+    if (ui?.csp) {
+      setCsp(ui.csp);
+    }
+    return result;
   }, [namespace, serverName]);
 
   // An iframe-initiated tools/call is the app updating itself: proxy it to the

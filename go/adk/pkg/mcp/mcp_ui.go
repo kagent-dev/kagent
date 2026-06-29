@@ -25,6 +25,24 @@ import (
 	"google.golang.org/adk/tool"
 )
 
+const (
+	// mcpUIExtensionName is the MCP Apps extension identifier negotiated via
+	// capabilities.extensions during initialize. Advertising it lets conformant
+	// servers that only register UI tools when the client supports them expose
+	// those tools to kagent.
+	mcpUIExtensionName = "io.modelcontextprotocol/ui"
+	// mcpAppHTMLMimeType is the only UI content type defined by the MCP Apps MVP.
+	mcpAppHTMLMimeType = "text/html;profile=mcp-app"
+)
+
+// mcpUIClientCapabilities advertises MCP Apps support so capability-gated
+// servers expose their UI tools.
+func mcpUIClientCapabilities() *mcpsdk.ClientCapabilities {
+	caps := &mcpsdk.ClientCapabilities{}
+	caps.AddExtension(mcpUIExtensionName, map[string]any{"mimeTypes": []string{mcpAppHTMLMimeType}})
+	return caps
+}
+
 // MCPAppToolNames is the set of MCP tool names whose results render as
 // interactive MCP App (UI) widgets in the chat (the tool declares a
 // `_meta.ui.resourceUri` and is visible to the model). It is used as a set, so
@@ -191,7 +209,7 @@ func agentVisibleToolFilter(ctx context.Context, params mcpServerParams, configu
 		return nil, nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
 	}
 
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "kagent-adk"}, nil)
+	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "kagent-adk"}, &mcpsdk.ClientOptions{Capabilities: mcpUIClientCapabilities()})
 	session, err := client.Connect(ctx, mcpTransport, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect MCP client for %s: %w", params.URL, err)
