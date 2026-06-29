@@ -652,12 +652,30 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	clientRegistry := a2a.NewAgentClientRegistry()
+
+	scheduledRunScheduler, err := controller.NewScheduledRunScheduler(mgr.GetClient(), dbClient, clientRegistry)
+	if err != nil {
+		setupLog.Error(err, "unable to create scheduled run scheduler")
+		os.Exit(1)
+	}
+	if err := mgr.Add(scheduledRunScheduler); err != nil {
+		setupLog.Error(err, "unable to add scheduled run scheduler to manager")
+		os.Exit(1)
+	}
+	if err = (&controller.ScheduledRunController{
+		Scheme:    mgr.GetScheme(),
+		Kube:      mgr.GetClient(),
+		Scheduler: scheduledRunScheduler,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ScheduledRun")
+		os.Exit(1)
+	}
+
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned lifecycle")
 		os.Exit(1)
 	}
-
-	clientRegistry := a2a.NewAgentClientRegistry()
 
 	// Create MCP handler that invokes agents directly via their A2A clients,
 	// bypassing the controller's own HTTP A2A listener.
@@ -753,6 +771,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		MCPEgressPlaintext:           cfg.MCPEgressPlaintext,
 		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
 		AgentHarnessSessionActor:     agentHarnessSessionActorBackend,
+		ScheduledRunTrigger:          scheduledRunScheduler,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")

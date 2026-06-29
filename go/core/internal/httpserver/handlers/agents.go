@@ -68,7 +68,8 @@ func (h *AgentsHandler) handleListAgents(w ErrorResponseWriter, r *http.Request,
 		return
 	}
 
-	agentsWithID, err := h.listAgentResponses(r.Context(), log, opts...)
+	includeAgentHarness := r.URL.Query().Get("includeAgentHarness") != "false"
+	agentsWithID, err := h.listAgentResponses(r.Context(), log, includeAgentHarness, opts...)
 	if err != nil {
 		w.RespondWithError(err)
 		return
@@ -102,10 +103,11 @@ func (h *AgentsHandler) HandleListSandboxAgents(w ErrorResponseWriter, r *http.R
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// listAgentResponses fetches Agent and AgentHarness resources, applies the
+// listAgentResponses fetches Agent and SandboxAgent resources, optionally
+// includes AgentHarness resources, applies the
 // provided list options (e.g. client.InNamespace), and returns the merged
 // slice of AgentResponse values.
-func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger, opts ...client.ListOption) ([]api.AgentResponse, error) {
+func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger, includeAgentHarness bool, opts ...client.ListOption) ([]api.AgentResponse, error) {
 	agentList := &v1alpha2.AgentList{}
 	if err := h.KubeClient.List(ctx, agentList, opts...); err != nil {
 		return nil, errors.NewInternalServerError("Failed to list Agents from Kubernetes", err)
@@ -116,14 +118,18 @@ func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger,
 		return nil, errors.NewInternalServerError("Failed to list SandboxAgents from Kubernetes", err)
 	}
 
+	result := make([]api.AgentResponse, 0, len(agentList.Items)+len(sandboxAgentList.Items))
+	h.appendAgentResponses(ctx, log, agentObjects(agentList.Items), &result)
+	h.appendAgentResponses(ctx, log, sandboxAgentObjects(sandboxAgentList.Items), &result)
+
+	if !includeAgentHarness {
+		return result, nil
+	}
+
 	harnessList := &v1alpha2.AgentHarnessList{}
 	if err := h.KubeClient.List(ctx, harnessList, opts...); err != nil {
 		return nil, errors.NewInternalServerError("Failed to list AgentHarness resources from Kubernetes", err)
 	}
-
-	result := make([]api.AgentResponse, 0, len(agentList.Items)+len(sandboxAgentList.Items)+len(harnessList.Items))
-	h.appendAgentResponses(ctx, log, agentObjects(agentList.Items), &result)
-	h.appendAgentResponses(ctx, log, sandboxAgentObjects(sandboxAgentList.Items), &result)
 	for i := range harnessList.Items {
 		sb := &harnessList.Items[i]
 		if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {

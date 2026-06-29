@@ -52,6 +52,7 @@ const (
 	APIPathCrewAI               = "/api/crewai"
 	APIPathAgentHarnessHarness  = "/api/agentharnesses/{namespace}/{name}/"
 	APIPathSubstrateStatus      = "/api/substrate/status"
+	APIPathScheduledRuns        = "/api/scheduledruns"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -78,6 +79,7 @@ type ServerConfig struct {
 	MCPEgressPlaintext           bool
 	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
 	AgentHarnessSessionActor     *substrate.AgentHarnessSessionActorBackend
+	ScheduledRunTrigger          handlers.ScheduledRunTrigger
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -110,6 +112,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 			config.MCPEgressPlaintext,
 			config.SubstrateSandboxActorBackend,
 			config.AgentHarnessSessionActor,
+			config.ScheduledRunTrigger,
 		),
 		authenticator: config.Authenticator,
 	}, nil
@@ -336,6 +339,16 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.PathPrefix(APIPathAgentHarnessHarness).Handler(
 		adaptHandler(s.handlers.HandleAgentHarnessGateway),
 	)
+
+	// ScheduledRuns
+	if s.handlers.ScheduledRuns != nil {
+		s.router.HandleFunc(APIPathScheduledRuns, adaptHandler(s.handlers.ScheduledRuns.HandleListScheduledRuns)).Methods(http.MethodGet)
+		s.router.HandleFunc(APIPathScheduledRuns, adaptHandler(s.handlers.ScheduledRuns.HandleCreateScheduledRun)).Methods(http.MethodPost)
+		s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleGetScheduledRun)).Methods(http.MethodGet)
+		s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleUpdateScheduledRun)).Methods(http.MethodPut)
+		s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleDeleteScheduledRun)).Methods(http.MethodDelete)
+		s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}/trigger", adaptHandler(s.handlers.ScheduledRuns.HandleTriggerScheduledRun)).Methods(http.MethodPost)
+	}
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)

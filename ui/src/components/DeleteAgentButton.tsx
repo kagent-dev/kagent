@@ -5,6 +5,7 @@ import { Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { deleteAgent } from "@/app/actions/agents";
+import { toast } from "sonner";
 
 interface DeleteButtonProps {
   agentName: string;
@@ -47,8 +48,11 @@ export function DeleteButton({
         throw new Error(result.error);
       }
 
+      toast.success(`Agent "${agentName}" deleted`);
       await onDeleted?.();
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to delete agent";
+      toast.error(message, { duration: 8000 });
       console.error("Error deleting agent:", error);
     } finally {
       setIsDeleting(false);

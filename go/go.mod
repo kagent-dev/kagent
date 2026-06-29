@@ -71,6 +71,7 @@ require (
 	github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085
 	github.com/ollama/ollama v0.30.10
 	github.com/pgvector/pgvector-go/pgx v0.4.0
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.20.0

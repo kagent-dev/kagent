@@ -35,17 +35,21 @@ func (r *AgentClientRegistry) delete(agentRef string) {
 
 // Register adds or replaces the A2A client for the given agent.
 func (r *AgentClientRegistry) Register(namespace, name string, c *a2aclient.Client) {
-	r.set(namespace+"/"+name, c)
+	r.set(RouteKeyForAgent(namespace, name), c)
 }
 
 // SendMessage invokes an agent directly via its cached A2A client.
 func (r *AgentClientRegistry) SendMessage(ctx context.Context, namespace, name string, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
-	key := namespace + "/" + name
+	return r.SendMessageToRoute(ctx, RouteKeyForAgent(namespace, name), req)
+}
+
+// SendMessageToRoute invokes an agent by an explicit A2A route key.
+func (r *AgentClientRegistry) SendMessageToRoute(ctx context.Context, key string, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
 	r.mu.RLock()
 	c, ok := r.clients[key]
 	r.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("agent %s/%s not found or not ready", namespace, name)
+		return nil, fmt.Errorf("agent route %s not found or not ready", key)
 	}
 	return c.SendMessage(ctx, req)
 }

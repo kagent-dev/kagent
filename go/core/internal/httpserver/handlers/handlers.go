@@ -37,6 +37,7 @@ type Handlers struct {
 	CrewAI              *CrewAIHandler
 	CurrentUser         *CurrentUserHandler
 	Substrate           *SubstrateHandler
+	ScheduledRuns       *ScheduledRunsHandler
 }
 
 // Base holds common dependencies for all handlers
@@ -66,6 +67,7 @@ func NewHandlers(
 	mcpEgressPlaintext bool,
 	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend,
 	agentHarnessSessionActorBackend *substrate.AgentHarnessSessionActorBackend,
+	scheduledRunTrigger ScheduledRunTrigger,
 ) *Handlers {
 	base := &Base{
 		KubeClient:         kubeClient,
@@ -78,7 +80,7 @@ func NewHandlers(
 		MCPEgressPlaintext: mcpEgressPlaintext,
 	}
 
-	return &Handlers{
+	handlers := &Handlers{
 		KubeClient:               kubeClient,
 		AgentHarnessGateway:      agentHarnessGateway,
 		AgentHarnessSessionActor: agentHarnessSessionActorBackend,
@@ -101,4 +103,8 @@ func NewHandlers(
 		CurrentUser:              NewCurrentUserHandler(),
 		Substrate:                NewSubstrateHandler(base, substrateAteClient),
 	}
+	if scheduledRunTrigger != nil {
+		handlers.ScheduledRuns = NewScheduledRunsHandler(base, scheduledRunTrigger)
+	}
+	return handlers
 }

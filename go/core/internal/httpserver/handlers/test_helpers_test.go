@@ -27,6 +27,8 @@ func setupScheme() *runtime.Scheme {
 		&v1alpha2.SandboxAgentList{},
 		&v1alpha2.AgentHarness{},
 		&v1alpha2.AgentHarnessList{},
+		&v1alpha2.ScheduledRun{},
+		&v1alpha2.ScheduledRunList{},
 	)
 
 	metav1.AddToGroupVersion(s, schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha1"})
