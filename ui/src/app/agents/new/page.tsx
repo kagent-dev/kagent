@@ -152,7 +152,9 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType);
   const substrateSandboxAgent = state.runInSandbox;
-  const showDeclarativeRuntimeField = useDeclarativeAgentFields && !substrateSandboxAgent;
+  // Substrate supports both Python and Go declarative runtimes, so the runtime selector is
+  // shown for declarative agents.
+  const showDeclarativeRuntimeField = useDeclarativeAgentFields;
   const showByoFields = formUsesByoSections(state.agentType);
   const showModelAndBehaviorSection = useDeclarativeAgentFields;
   const skillsEnabled = useDeclarativeAgentFields && !state.runInSandbox;
@@ -227,7 +229,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 agentResponse.workloadMode === "sandbox"
                   ? sandboxFieldsFromApiSpec(agent.spec?.substrate)
                   : {};
-              const isSubstrateSandbox = agentResponse.workloadMode === "sandbox";
               const useDeclarativeForm = agent.spec.type === "Declarative";
               if (useDeclarativeForm) {
                 const decl = agent.spec?.declarative;
@@ -260,11 +261,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   skillsGitAuthSecretName: agent.spec?.skills?.gitAuthSecretRef?.name || "",
                   stream: decl?.stream ?? false,
                   shareTools: decl?.shareTools ?? false,
-                  declarativeRuntime: isSubstrateSandbox
-                    ? "go"
-                    : decl?.runtime === "go"
-                      ? "go"
-                      : "python",
+                  // Honor the persisted runtime for all platforms (substrate supports Python and Go).
+                  declarativeRuntime: decl?.runtime === "go" ? "go" : "python",
                   selectedMemoryModel: memoryModelConfig
                     ? { ref: memoryModelConfig, spec: { model: memorySpec?.modelConfig || "", provider: "" } }
                     : null,
@@ -361,6 +359,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     };
 
     const newErrors = validateAgentData(formData);
+
+    // BYO agents on substrate must set an explicit command: substrate copies the container
+    // command verbatim and does not fall back to the image entrypoint (mirrors the backend).
+    if (state.agentType === "BYO" && substrateSandboxAgent && !state.byoCmd.trim()) {
+      newErrors.byoCmd = "Command is required for BYO agents on Agent Substrate";
+    }
 
     if (useDeclarativeAgentFields && skillsEnabled) {
       const skillsInput = {
@@ -716,9 +720,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 <FieldRoot>
                   <FieldLabel>Agent Substrate settings</FieldLabel>
                   <FieldHint>
-                    Agent Substrate runs declarative agents as ate.dev actors using the Go ADK
-                    runtime. Skills are not supported on substrate yet. A new substrate actor is started
-                    for each chat session.
+                    Agent Substrate runs declarative (Python or Go) and BYO agents as ate.dev
+                    actors. BYO images must set an explicit command and serve A2A on port 80.
+                    Skills are not supported on substrate yet. A new substrate actor is started for
+                    each chat session.
                   </FieldHint>
                   <div className="mt-3 space-y-3">
                     <div>
@@ -855,6 +860,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               >
                 <ByoDeploymentFields
                   byoImage={state.byoImage}
+                  commandRequired={substrateSandboxAgent}
                   byoCmd={state.byoCmd}
                   byoArgs={state.byoArgs}
                   replicas={state.replicas}
@@ -862,7 +868,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   imagePullSecrets={state.imagePullSecrets}
                   envPairs={state.envPairs}
                   serviceAccountName={state.serviceAccountName}
-                  errors={{ model: state.errors.model, serviceAccountName: state.errors.serviceAccountName }}
+                  errors={{ model: state.errors.model, serviceAccountName: state.errors.serviceAccountName, byoCmd: state.errors.byoCmd }}
                   disabled={disabled}
                   onByoImageChange={(v) => setState((prev) => ({ ...prev, byoImage: v }))}
                   onByoCmdChange={(v) => setState((prev) => ({ ...prev, byoCmd: v }))}
