@@ -44,18 +44,17 @@ func TestFilterTranslatorOwnedTypesForList(t *testing.T) {
 		}
 	})
 
-	t.Run("SandboxAgent keeps sandbox GVKs", func(t *testing.T) {
+	t.Run("SandboxAgent drops ActorTemplate from prune (managed via blue-green)", func(t *testing.T) {
 		sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"}}
 		out, err := sandboxbackend.FilterTranslatorOwnedTypesForList(cl, sa, allTypes, backend)
 		require.NoError(t, err)
-		require.Len(t, out, len(allTypes))
-		var sawActorTemplate bool
+		// Substrate manages ActorTemplate lifecycle itself (config-hashed, blue-green), so it is
+		// excluded from the generic prune list — leaving only the generic Deployment + ConfigMap.
+		require.Len(t, out, 2)
 		for _, o := range out {
-			if _, ok := o.(*atev1alpha1.ActorTemplate); ok {
-				sawActorTemplate = true
-			}
+			_, ok := o.(*atev1alpha1.ActorTemplate)
+			require.False(t, ok, "ActorTemplate must be excluded from generic prune (managed via blue-green)")
 		}
-		require.True(t, sawActorTemplate)
 	})
 
 	t.Run("nil backend is passthrough", func(t *testing.T) {

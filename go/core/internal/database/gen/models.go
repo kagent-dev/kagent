@@ -7,6 +7,7 @@ package dbgen
 import (
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/database"
 	pgvector_go "github.com/pgvector/pgvector-go"
@@ -124,6 +125,21 @@ type Session struct {
 	DeletedAt *time.Time
 	AgentID   *string
 	Source    *string
+}
+
+type SessionShare struct {
+	ID        int64
+	Token     string
+	SessionID string
+	UserID    string
+	ReadOnly  bool
+	CreatedAt pgtype.Timestamp
+}
+
+type SessionShareAccess struct {
+	UserID     string
+	ShareID    int64
+	AccessedAt pgtype.Timestamp
 }
 
 type Task struct {

@@ -3,6 +3,7 @@ package substrate
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -148,11 +149,98 @@ func actorTemplateName(ah *v1alpha2.AgentHarness) string {
 }
 
 func truncateDNS1123(s string) string {
+	return truncateDNS1123To(s, 63)
+}
+
+func truncateDNS1123To(s string, max int) string {
 	s = strings.ToLower(strings.ReplaceAll(s, "_", "-"))
-	if len(s) > 63 {
-		s = strings.TrimRight(s[:63], "-")
+	if len(s) > max {
+		s = strings.TrimRight(s[:max], "-")
 	}
 	return s
+}
+
+// ResolveCurrentActorTemplate returns the ActorTemplate a SandboxAgent should currently serve
+// from: the template matching the agent's CURRENT desired config whose golden is Ready, else the
+// most-recently-desired Ready template (the previous config) while the desired one is still
+// building — the blue-green pivot, with no downtime and an atomic flip once the new golden is
+// Ready.
+//
+// "Desired" is tracked by the kagent.dev/desired-generation annotation (the agent generation that
+// last applied the template), NOT creationTimestamp. Creation time is wrong for a flip-back to a
+// retained older config: that template's golden was built earlier, so by-creation ordering would
+// keep serving the newer (now-undesired) config. The desired template is always re-applied with
+// the current (highest) generation, so picking the highest-generation Ready template follows the
+// current config in both directions. Falls back to the highest-generation template when none is
+// Ready yet (first build). Returns (nil, nil) when no template exists.
+func ResolveCurrentActorTemplate(ctx context.Context, kube client.Client, namespace, agentName string) (*atev1alpha1.ActorTemplate, error) {
+	templates, err := listSandboxAgentActorTemplates(ctx, kube, namespace, agentName)
+	if err != nil {
+		return nil, err
+	}
+	return selectCurrentActorTemplate(templates), nil
+}
+
+// selectCurrentActorTemplate selects the current actor as defined by the
+// highest-desired-generation template whose golden is Ready
+func selectCurrentActorTemplate(templates []*atev1alpha1.ActorTemplate) *atev1alpha1.ActorTemplate {
+	var desiredReady, desired *atev1alpha1.ActorTemplate
+	for i := range templates {
+		t := templates[i]
+		if desired == nil || moreDesiredActorTemplate(t, desired) {
+			desired = t
+		}
+		if t.Status.Phase == atev1alpha1.PhaseReady {
+			if desiredReady == nil || moreDesiredActorTemplate(t, desiredReady) {
+				desiredReady = t
+			}
+		}
+	}
+	if desiredReady != nil {
+		return desiredReady
+	}
+	return desired
+}
+
+// moreDesiredActorTemplate reports whether a is "more desired" than b: a higher desired-generation
+// wins (the template applied for the current config), with creationTimestamp as a tiebreaker for
+// legacy templates that predate the annotation.
+func moreDesiredActorTemplate(a, b *atev1alpha1.ActorTemplate) bool {
+	ga, gb := actorTemplateDesiredGeneration(a), actorTemplateDesiredGeneration(b)
+	if ga != gb {
+		return ga > gb
+	}
+	return a.CreationTimestamp.After(b.CreationTimestamp.Time)
+}
+
+// actorTemplateDesiredGeneration parses the desired-generation annotation; absent/invalid is 0.
+func actorTemplateDesiredGeneration(t *atev1alpha1.ActorTemplate) int64 {
+	g, err := strconv.ParseInt(t.Annotations[desiredGenerationAnnotation], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return g
+}
+
+// listSandboxAgentActorTemplates returns the non-terminating generated ActorTemplates for an agent.
+func listSandboxAgentActorTemplates(ctx context.Context, kube client.Client, namespace, agentName string) ([]*atev1alpha1.ActorTemplate, error) {
+	if kube == nil {
+		return nil, fmt.Errorf("kubernetes client is required")
+	}
+	list := &atev1alpha1.ActorTemplateList{}
+	if err := kube.List(ctx, list,
+		client.InNamespace(namespace),
+		client.MatchingLabels{SandboxAgentLabelKey: agentName},
+	); err != nil {
+		return nil, fmt.Errorf("list ActorTemplates for %s/%s: %w", namespace, agentName, err)
+	}
+	out := make([]*atev1alpha1.ActorTemplate, 0, len(list.Items))
+	for i := range list.Items {
+		if list.Items[i].DeletionTimestamp.IsZero() {
+			out = append(out, &list.Items[i])
+		}
+	}
+	return out, nil
 }
 
 // pinImageRef ensures image refs satisfy Substrate ActorTemplate validation (must contain "@").
