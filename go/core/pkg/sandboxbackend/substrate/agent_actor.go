@@ -117,7 +117,7 @@ const reapOrphanedActorsTimeout = 30 * time.Second
 // context so it never adds latency to (or fails) the chat request that triggered the new actor.
 // Mirrors the transport's post-response suspend scheduling.
 func (b *SandboxAgentActorBackend) scheduleReapOrphanedSessionActors(sa *v1alpha2.SandboxAgent, keepActorID string) {
-	if b == nil || b.client == nil || sa == nil {
+	if sa == nil {
 		return
 	}
 	go func() {
@@ -133,7 +133,7 @@ func (b *SandboxAgentActorBackend) scheduleReapOrphanedSessionActors(sa *v1alpha
 // reapOrphanedSessionActors deletes all agent's SUSPENDED session actors that were created from a
 // superseded ActorTemplate
 func (b *SandboxAgentActorBackend) reapOrphanedSessionActors(ctx context.Context, sa *v1alpha2.SandboxAgent, keepActorID string) error {
-	if b == nil || b.client == nil || sa == nil {
+	if sa == nil {
 		return nil
 	}
 	templates, err := listSandboxAgentActorTemplates(ctx, b.kube, sa.Namespace, sa.Name)
@@ -181,7 +181,7 @@ func (b *SandboxAgentActorBackend) reapOrphanedSessionActors(ctx context.Context
 
 // SuspendSessionActor checkpoints and frees the worker for a chat session actor.
 func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) error {
-	if b == nil || b.client == nil || sa == nil {
+	if sa == nil {
 		return nil
 	}
 	actorID, _, err := b.sessionActorRef(ctx, sa, sessionID)
@@ -218,7 +218,7 @@ func (b *SandboxAgentActorBackend) DeleteSandboxAgentActor(ctx context.Context, 
 // current-hash actor would orphan the others, so this deletes the session's actor for every
 // retained config hash.
 func (b *SandboxAgentActorBackend) DeleteSandboxAgentSessionActor(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) (bool, error) {
-	if b == nil || b.client == nil || sa == nil {
+	if sa == nil {
 		return true, nil
 	}
 	hashes, err := b.retainedSessionConfigHashes(ctx, sa)
@@ -284,7 +284,7 @@ func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1al
 
 // DeleteAllSandboxAgentActors deletes legacy per-agent actors and all session actors for a SandboxAgent.
 func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Context, sa *v1alpha2.SandboxAgent) (bool, error) {
-	if b == nil || b.client == nil || sa == nil {
+	if sa == nil {
 		return true, nil
 	}
 	prefix := sandboxAgentActorPrefix(sa)
