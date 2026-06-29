@@ -258,6 +258,34 @@ func TestUpgrade(t *testing.T) {
 		return
 	}
 
+	if !t.Run("previous release boots against the upgraded schema", func(t *testing.T) {
+		// A deployment-only rollback puts the previous binary back while HEAD's
+		// schema is still applied, so the binary is now behind its database. It
+		// must boot and serve rather than crash-loop trying to migrate down — the
+		// ahead-schema tolerance shipped in 0.9.9 (#1963). Reinstalling the
+		// previous release downgrades the running controller to the old image with
+		// the upgraded schema left in place; helm --wait fails here if it does not
+		// become Ready.
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Minute)
+		defer cancel()
+
+		out, err := installPreviousReleaseCommand(ctx, env).CombinedOutput()
+		require.NoError(t, err, "rolling back to the previous release failed:\n%s", string(out))
+
+		kubectl(t, env, 3*time.Minute,
+			"rollout", "status", "deployment/kagent-controller",
+			"-n", env.namespace,
+			"--timeout=3m",
+		)
+		pod := newestPodNameForSelector(t, env, controllerSelector)
+		restarts := podContainerRestartCount(t, env, pod, controllerContainer)
+		require.Zero(t, restarts,
+			"previous-release controller pod %s crash-looped against the upgraded schema", pod)
+		t.Logf("previous-release controller %s restarts=%d against the upgraded schema", pod, restarts)
+	}) {
+		return
+	}
+
 	t.Run("reverse schema to target", func(t *testing.T) {
 		// Scale the controller to zero so no booting pod re-applies migrations
 		// while we reverse the schema (the design's scale-to-zero recipe).
@@ -311,6 +339,23 @@ func helmUpgradeCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
 		"KIND_CLUSTER_NAME="+env.kindClusterName,
 		"OPENAI_API_KEY="+env.openAIAPIKey,
 		"KAGENT_DEFAULT_MODEL_PROVIDER=openAI",
+	)
+	return cmd
+}
+
+// installPreviousReleaseCommand returns the command that reinstalls the
+// previously-released charts over the current deployment — i.e. a rollback of
+// the app to the prior version. It reuses the repo's install-previous-release
+// target (helm upgrade --install of the published prior kagent-crds and kagent
+// from the OCI registry, with --wait), so a controller that cannot start
+// against the current schema surfaces as a helm wait timeout.
+func installPreviousReleaseCommand(ctx context.Context, env upgradeEnv) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "make", "-C", env.repoRoot, "install-previous-release")
+	cmd.Dir = env.repoRoot
+	cmd.Env = append(os.Environ(),
+		"UPGRADE_FROM_VERSION="+env.upgradeFromVersion,
+		"KIND_CLUSTER_NAME="+env.kindClusterName,
+		"OPENAI_API_KEY="+env.openAIAPIKey,
 	)
 	return cmd
 }
