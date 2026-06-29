@@ -57,6 +57,11 @@ const (
 	// statusWriteTimeout bounds the apiserver write that records a run's
 	// outcome.
 	statusWriteTimeout = 10 * time.Second
+)
+
+// Poll cadence is exposed as vars so tests can shrink them without waiting on
+// the production 5s/15m schedule. Production code never reassigns these.
+var (
 	// outcomePollInterval is the interval between session-state polls when
 	// resolving the run's terminal RunStatus.
 	outcomePollInterval = 5 * time.Second
@@ -359,7 +364,12 @@ func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName) (*v1alpha2.Run
 			latest.Status.NextRunTime = &next
 		}
 	}); err != nil {
+		// Status write failed — the entry is not in RunHistory, so don't
+		// spawn the outcome poller (it would never find a matching SessionID
+		// to update) and surface the error to the caller. Manual triggers
+		// must not report success when the run was never recorded.
 		log.Error(err, "Failed to record run outcome")
+		return nil, fmt.Errorf("failed to record run outcome for %s: %w", key, err)
 	}
 
 	if entry.Status == v1alpha2.RunStatusPending {

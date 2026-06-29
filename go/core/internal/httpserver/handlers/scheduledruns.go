@@ -90,9 +90,6 @@ func (h *ScheduledRunsHandler) validateScheduledRunObject(r *http.Request, sr *v
 	if apiErr := validateScheduledRunPrompt(sr.Spec.Prompt); apiErr != nil {
 		return apiErr
 	}
-	if sr.Spec.MaxRunHistory < 0 || sr.Spec.MaxRunHistory > 100 {
-		return errors.NewBadRequestError("spec.maxRunHistory must be between 1 and 100 when set", nil)
-	}
 	return h.validateScheduledRunTarget(r, sr.Namespace, sr.Spec.AgentRef)
 }
 

@@ -3,9 +3,11 @@ package controller
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -14,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 )
@@ -414,4 +417,169 @@ func TestRunOnce_TruncatesLongDispatchMessage(t *testing.T) {
 	entry, err := s.TriggerManualRun(key)
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(entry.Message), messageMaxBytes+len("…(truncated)"))
+}
+
+// --- poller path tests -----------------------------------------------------
+
+// stubDBClient overrides only ListTasksForSession; any other method call
+// panics, which is fine because the poller never touches them.
+type stubDBClient struct {
+	database.Client
+	listFn func(ctx context.Context, sessionID string) ([]*a2atype.Task, error)
+}
+
+func (s *stubDBClient) ListTasksForSession(ctx context.Context, sessionID string) ([]*a2atype.Task, error) {
+	return s.listFn(ctx, sessionID)
+}
+
+func shrinkPollCadence(t *testing.T, interval, timeout time.Duration) {
+	t.Helper()
+	prevInterval, prevTimeout := outcomePollInterval, outcomePollTimeout
+	outcomePollInterval = interval
+	outcomePollTimeout = timeout
+	t.Cleanup(func() {
+		outcomePollInterval = prevInterval
+		outcomePollTimeout = prevTimeout
+	})
+}
+
+func TestPollSessionOutcome(t *testing.T) {
+	shrinkPollCadence(t, 5*time.Millisecond, 200*time.Millisecond)
+
+	t.Run("completed maps to Succeeded", func(t *testing.T) {
+		s := newTestScheduledRunScheduler(t, nil)
+		s.dbClient = &stubDBClient{listFn: func(_ context.Context, _ string) ([]*a2atype.Task, error) {
+			return []*a2atype.Task{{Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}, nil
+		}}
+		status, _, err := s.pollSessionOutcome(context.Background(), "sess", "user")
+		require.NoError(t, err)
+		assert.Equal(t, v1alpha2.RunStatusSucceeded, status)
+	})
+
+	t.Run("failed maps to Failed with message", func(t *testing.T) {
+		s := newTestScheduledRunScheduler(t, nil)
+		s.dbClient = &stubDBClient{listFn: func(_ context.Context, _ string) ([]*a2atype.Task, error) {
+			return []*a2atype.Task{{Status: a2atype.TaskStatus{
+				State:   a2atype.TaskStateFailed,
+				Message: a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("boom")),
+			}}}, nil
+		}}
+		status, msg, err := s.pollSessionOutcome(context.Background(), "sess", "user")
+		require.NoError(t, err)
+		assert.Equal(t, v1alpha2.RunStatusFailed, status)
+		assert.Equal(t, "boom", msg)
+	})
+
+	t.Run("deadline maps to Timeout", func(t *testing.T) {
+		s := newTestScheduledRunScheduler(t, nil)
+		s.dbClient = &stubDBClient{listFn: func(_ context.Context, _ string) ([]*a2atype.Task, error) {
+			return nil, nil
+		}}
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		status, _, err := s.pollSessionOutcome(ctx, "sess", "user")
+		require.NoError(t, err)
+		assert.Equal(t, v1alpha2.RunStatusTimeout, status)
+	})
+}
+
+// TestSpawnOutcomePoller_UpdatesMatchingEntry verifies the SessionID-keyed
+// write: the poller must update the RunHistoryEntry whose SessionID matches,
+// not by index — RunHistory can be trimmed between dispatch and resolution.
+func TestSpawnOutcomePoller_UpdatesMatchingEntry(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	start := metav1.NewTime(time.Now())
+	sr := &v1alpha2.ScheduledRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "sr", Namespace: "default"},
+		Spec: v1alpha2.ScheduledRunSpec{
+			Schedule: "0 * * * *",
+			Prompt:   "hi",
+			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+		},
+		Status: v1alpha2.ScheduledRunStatus{
+			RunHistory: []v1alpha2.RunHistoryEntry{
+				{StartTime: start, SessionID: "other", Status: v1alpha2.RunStatusPending},
+				{StartTime: start, SessionID: "target", Status: v1alpha2.RunStatusPending},
+			},
+		},
+	}
+	kube := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha2.ScheduledRun{}).
+		WithRuntimeObjects(sr).
+		Build()
+	s := newTestScheduledRunScheduler(t, kube)
+	s.outcomePollerHook = func(_ context.Context, _, _ string) (v1alpha2.RunStatus, string, error) {
+		return v1alpha2.RunStatusSucceeded, "ok", nil
+	}
+
+	key := types.NamespacedName{Namespace: "default", Name: "sr"}
+	s.spawnOutcomePoller(key, "target", "user")
+	s.pollersWG.Wait()
+
+	got := &v1alpha2.ScheduledRun{}
+	require.NoError(t, kube.Get(context.Background(), key, got))
+	assert.Equal(t, v1alpha2.RunStatusPending, got.Status.RunHistory[0].Status)
+	assert.Equal(t, v1alpha2.RunStatusSucceeded, got.Status.RunHistory[1].Status)
+	require.NotNil(t, got.Status.RunHistory[1].EndTime)
+}
+
+// TestResumePendingPollers verifies that on controller startup, Pending
+// RunHistory entries spawn fresh outcome pollers, while terminal/empty-session
+// entries are skipped.
+func TestResumePendingPollers(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	start := metav1.NewTime(time.Now())
+	end := metav1.NewTime(time.Now())
+	sr := &v1alpha2.ScheduledRun{
+		ObjectMeta: metav1.ObjectMeta{Name: "sr", Namespace: "default"},
+		Spec: v1alpha2.ScheduledRunSpec{
+			Schedule: "0 * * * *",
+			Prompt:   "hi",
+			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+		},
+		Status: v1alpha2.ScheduledRunStatus{
+			RunHistory: []v1alpha2.RunHistoryEntry{
+				{StartTime: start, SessionID: "resume-me", Status: v1alpha2.RunStatusPending},
+				{StartTime: start, SessionID: "done", Status: v1alpha2.RunStatusSucceeded, EndTime: &end},
+				{StartTime: start, Status: v1alpha2.RunStatusPending}, // empty SessionID
+			},
+		},
+	}
+	kube := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha2.ScheduledRun{}).
+		WithRuntimeObjects(sr).
+		Build()
+	s := newTestScheduledRunScheduler(t, kube)
+
+	var (
+		mu    sync.Mutex
+		seen  []string
+		ready = make(chan struct{})
+	)
+	s.outcomePollerHook = func(_ context.Context, sessionID, _ string) (v1alpha2.RunStatus, string, error) {
+		mu.Lock()
+		seen = append(seen, sessionID)
+		mu.Unlock()
+		close(ready)
+		return v1alpha2.RunStatusSucceeded, "", nil
+	}
+
+	s.resumePendingPollers(context.Background())
+
+	select {
+	case <-ready:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected resume not observed")
+	}
+	s.pollersWG.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, []string{"resume-me"}, seen)
 }

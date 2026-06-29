@@ -2,6 +2,6 @@
 export function formatDateTime(dateStr?: string): string {
   if (!dateStr) return "-";
   const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return dateStr;
+  if (Number.isNaN(d.getTime())) return "-";
   return d.toLocaleString();
 }

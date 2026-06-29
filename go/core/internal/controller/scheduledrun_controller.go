@@ -31,8 +31,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
@@ -149,6 +151,44 @@ func (r *ScheduledRunController) SetupWithManager(mgr ctrl.Manager) error {
 			NeedLeaderElection: new(true),
 		}).
 		For(&v1alpha2.ScheduledRun{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(
+			&v1alpha2.Agent{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueScheduledRunsForTarget(v1alpha2.AgentReferenceKindAgent)),
+		).
+		Watches(
+			&v1alpha2.SandboxAgent{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueScheduledRunsForTarget(v1alpha2.AgentReferenceKindSandboxAgent)),
+		).
 		Named("scheduledrun").
 		Complete(r)
+}
+
+// enqueueScheduledRunsForTarget returns a map func that finds ScheduledRuns in
+// the target's namespace whose AgentRef points at it. AgentRef is restricted to
+// the same namespace (validated in Reconcile), so we don't have to scan
+// cluster-wide. Reconciling on target create/delete lets the controller
+// schedule a previously-missing target's SR or stop firing once a target
+// disappears.
+func (r *ScheduledRunController) enqueueScheduledRunsForTarget(kind v1alpha2.AgentReferenceKind) handler.MapFunc {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+		var list v1alpha2.ScheduledRunList
+		if err := r.Kube.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
+			log.FromContext(ctx).Error(err, "Failed to list ScheduledRuns for target watch")
+			return nil
+		}
+		var requests []reconcile.Request
+		for i := range list.Items {
+			sr := &list.Items[i]
+			if scheduledrunutil.TargetKind(sr.Spec.AgentRef) != kind {
+				continue
+			}
+			if sr.Spec.AgentRef.Name != obj.GetName() {
+				continue
+			}
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{Namespace: sr.Namespace, Name: sr.Name},
+			})
+		}
+		return requests
+	}
 }
