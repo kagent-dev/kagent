@@ -25,6 +25,8 @@ app = typer.Typer()
 kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
+token_resource = os.getenv("KAGENT_TOKEN_RESOURCE") or None
+token_audience = os.getenv("KAGENT_TOKEN_AUDIENCE") or None
 uvicorn_log_level = os.getenv("UVICORN_LOG_LEVEL", os.getenv("LOG_LEVEL", "info")).lower()
 
 
@@ -33,7 +35,7 @@ def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
         sts_integration = None
         if sts_well_known_uri:
             sts_integration = ADKSTSIntegration(sts_well_known_uri)
-        return ADKTokenPropagationPlugin(sts_integration)
+        return ADKTokenPropagationPlugin(sts_integration, resource=token_resource, audience=token_audience)
 
 
 def maybe_add_skills(root_agent: BaseAgent):
