@@ -3,7 +3,7 @@
 # immediately BELOW the line currently being built: the highest
 # vMAJOR.MINOR.PATCH tag on the newest release/vMAJOR.MINOR.x branch whose
 # MAJOR.MINOR is strictly less than the current line. This is the rollback-window
-# floor the upgrade/contraction tests target.
+# floor a contraction must stay compatible with.
 #
 # The current line comes from the base/target branch:
 #   - release/vX.Y.x  -> current line is X.Y, so this resolves to the newest
@@ -15,7 +15,7 @@
 # target), GITHUB_REF_NAME (push), then the checked-out branch.
 #
 # Prints nothing and exits 0 when no stable line exists below the current one
-# (e.g. building the oldest release line), so the caller can skip the leg.
+# (e.g. building the oldest release line), so the caller can skip that target.
 # Uses `git ls-remote`, so it needs network to the remote but not the branch
 # checked out locally. Output has no leading 'v'. Override the remote with REMOTE.
 set -euo pipefail
@@ -50,7 +50,7 @@ for l in ${lines}; do
   fi
 done
 if [ -z "${prev_minor}" ]; then
-  # No stable line below the current one; let the caller skip the prev-stable leg.
+  # No stable line below the current one; let the caller skip that target.
   exit 0
 fi
 

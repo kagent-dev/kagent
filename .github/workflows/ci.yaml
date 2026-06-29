@@ -148,6 +148,25 @@ jobs:
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller
 
+  query-contraction-check:
+    name: Query Contraction Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          # Full history + tags so the previous release's queries can be read.
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go/go.mod
+          cache: true
+          cache-dependency-path: go/go.sum
+      - name: Previous-release queries vs current schema
+        run: make -C go check-query-contraction
+
   upgrade-tests:
     needs:
       - setup
@@ -249,7 +268,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
 
@@ -384,7 +403,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
       - name: golangci-lint
@@ -457,7 +476,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version-file: go/go.mod
           cache: true
           cache-dependency-path: go/go.sum
 
