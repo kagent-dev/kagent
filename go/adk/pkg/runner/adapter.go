@@ -123,24 +123,11 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 		return nil, fmt.Errorf("failed to initialize STS integration: %w", err)
 	}
 
-	var opts []sts.Option
-	if resource, audience := exchangeTarget(); resource != nil || audience != nil {
-		opts = append(opts, sts.WithExchangeTarget(resource, audience))
-	}
+	// RFC 8707 resource / RFC 8693 audience scope the exchanged token to a
+	// backend. Empty values are omitted by WithExchangeTarget.
+	resource := strings.TrimSpace(os.Getenv("KAGENT_TOKEN_RESOURCE"))
+	audience := strings.TrimSpace(os.Getenv("KAGENT_TOKEN_AUDIENCE"))
 
 	log.Info("Enabling STS token propagation plugin", "wellKnownURI", stsWellKnownURI)
-	return sts.NewTokenPropagationPlugin(integration, log, opts...), nil
-}
-
-// exchangeTarget reads the RFC 8707 resource and RFC 8693 audience from the
-// environment. An unset value is returned as nil so it is omitted from the
-// token-exchange request.
-func exchangeTarget() (resource, audience any) {
-	if r := strings.TrimSpace(os.Getenv("KAGENT_TOKEN_RESOURCE")); r != "" {
-		resource = r
-	}
-	if a := strings.TrimSpace(os.Getenv("KAGENT_TOKEN_AUDIENCE")); a != "" {
-		audience = a
-	}
-	return resource, audience
+	return sts.NewTokenPropagationPlugin(integration, log, sts.WithExchangeTarget(resource, audience)), nil
 }
