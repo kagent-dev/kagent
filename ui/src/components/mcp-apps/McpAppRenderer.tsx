@@ -68,6 +68,13 @@ export function McpAppRenderer({
 
   useEffect(() => {
     const id = requestAnimationFrame(() => {
+      // ponytail: the proxy is served from the host origin, so with the iframe's
+      // allow-same-origin attribute an MCP App shares the host origin (can reach
+      // host cookies/storage/DOM/API). Accepted by design: MCP servers are
+      // curated/trusted, and a single origin keeps everything behind one SSO
+      // gateway. Upgrade path if untrusted servers are ever exposed: serve
+      // sandbox_proxy.html from a distinct, env-configured origin so
+      // allow-same-origin resolves to the sandbox origin instead of the host.
       // Tell the sandbox proxy which origin to trust for postMessage, so it can
       // reject messages from any other origin instead of accepting "*".
       const url = new URL("/sandbox_proxy.html", window.location.origin);

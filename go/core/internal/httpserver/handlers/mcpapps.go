@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -336,12 +337,7 @@ func visibilityAllowsApp(meta map[string]any) bool {
 	if len(visibility) == 0 {
 		return true
 	}
-	for _, v := range visibility {
-		if v == "app" {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(visibility, "app")
 }
 
 // toolAllowsAppCall lists the server's tools (following pagination), finds the
