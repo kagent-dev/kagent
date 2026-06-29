@@ -20,6 +20,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -151,11 +152,19 @@ func (a *kagentReconciler) ReconcileKagentSandboxAgent(ctx context.Context, req 
 	}
 
 	err := a.reconcileSandboxAgent(ctx, sandboxAgent)
+	if errors.Is(err, substrate.ErrActorTemplateReconcilePending) {
+		// A spec-drift recreate is mid-flight; report not-ready without failing
+		// the resource and return the sentinel so the controller requeues.
+		if statusErr := a.reconcileSandboxAgentStatus(ctx, sandboxAgent, nil, true); statusErr != nil {
+			return statusErr
+		}
+		return err
+	}
 	if err != nil {
 		reconcileLog.Error(err, "failed to reconcile sandboxagent", "sandboxagent", req.NamespacedName)
 	}
 
-	return a.reconcileSandboxAgentStatus(ctx, sandboxAgent, err)
+	return a.reconcileSandboxAgentStatus(ctx, sandboxAgent, err, false)
 }
 
 func (a *kagentReconciler) handleDeletedAgentResource(ctx context.Context, req ctrl.Request, resourceName string) error {
@@ -240,14 +249,18 @@ func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alph
 	})
 }
 
-func (a *kagentReconciler) reconcileSandboxAgentStatus(ctx context.Context, sa *v1alpha2.SandboxAgent, reconcileErr error) error {
+func (a *kagentReconciler) reconcileSandboxAgentStatus(ctx context.Context, sa *v1alpha2.SandboxAgent, reconcileErr error, actorTemplatePending bool) error {
 	deployedCondition := metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeReady,
 		Status:             metav1.ConditionUnknown,
 		ObservedGeneration: sa.Generation,
 	}
 
-	if a.sandboxBackend == nil {
+	if actorTemplatePending {
+		deployedCondition.Status = metav1.ConditionFalse
+		deployedCondition.Reason = "ActorTemplateRecreating"
+		deployedCondition.Message = "waiting for ActorTemplate golden actor deletion and recreate"
+	} else if a.sandboxBackend == nil {
 		deployedCondition.Status = metav1.ConditionUnknown
 		deployedCondition.Reason = "SandboxBackendNotConfigured"
 		deployedCondition.Message = "Sandbox backend is not configured"
@@ -925,6 +938,7 @@ func (r *kagentReconciler) GetOwnedResourceTypes() []client.Object {
 // Function initially copied from https://github.com/open-telemetry/opentelemetry-operator/blob/e6d96f006f05cff0bc3808da1af69b6b636fbe88/internal/controllers/common.go#L141-L192
 func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner metav1.Object, desiredObjects []client.Object, ownedObjects map[types.UID]client.Object) error {
 	var errs []error
+	actorTemplatePending := false
 	for _, desired := range desiredObjects {
 		l := reconcileLog.WithValues(
 			"object_name", desired.GetName(),
@@ -935,6 +949,11 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 		if _, ok := desired.(*atev1alpha1.ActorTemplate); ok {
 			if r, ok := a.sandboxBackend.(actorTemplateReconciler); ok {
 				if err := r.ReconcileActorTemplate(ctx, desired); err != nil {
+					if errors.Is(err, substrate.ErrActorTemplateReconcilePending) {
+						actorTemplatePending = true
+						pruneOwnedActorTemplate(ownedObjects, desired)
+						continue
+					}
 					l.Error(err, "failed to reconcile ActorTemplate")
 					errs = append(errs, err)
 					continue
@@ -964,6 +983,9 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 
 	if len(errs) > 0 {
 		return fmt.Errorf("failed to create objects for %s: %w", owner.GetName(), errors.Join(errs...))
+	}
+	if actorTemplatePending {
+		return substrate.ErrActorTemplateReconcilePending
 	}
 
 	// Pruning owned objects in the cluster which are not should not be present after the reconciliation.

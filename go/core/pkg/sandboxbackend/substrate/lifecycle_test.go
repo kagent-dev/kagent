@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -187,7 +188,11 @@ func TestReconcileActorTemplateRecreatesOnSpecDrift(t *testing.T) {
 	var got atev1alpha1.ActorTemplate
 	var recreated bool
 	for range 5 {
-		require.NoError(t, reconcileActorTemplate(context.Background(), kube, ate, desired.DeepCopy()))
+		err := reconcileActorTemplate(context.Background(), kube, ate, desired.DeepCopy())
+		if errors.Is(err, ErrActorTemplateReconcilePending) {
+			continue
+		}
+		require.NoError(t, err)
 		if err := kube.Get(context.Background(), key, &got); err == nil && got.Spec.Containers[0].Image == newImage {
 			recreated = true
 			break
@@ -197,4 +202,52 @@ func TestReconcileActorTemplateRecreatesOnSpecDrift(t *testing.T) {
 	require.True(t, recreated, "ActorTemplate should be recreated with the new image")
 	require.Equal(t, []string{"golden-1"}, rec.deleted, "golden actor must be deleted before recreate")
 	require.Empty(t, got.Status.GoldenActorID, "recreated template starts without a golden actor")
+}
+
+func TestReconcileActorTemplatePendingDuringGoldenActorDelete(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
+
+	key := types.NamespacedName{Namespace: "kagent", Name: "claw"}
+	oldImage := "registry.example/acp@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	newImage := "registry.example/acp@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	spec := func(image string) atev1alpha1.ActorTemplateSpec {
+		return atev1alpha1.ActorTemplateSpec{
+			PauseImage:   "registry.example/pause@sha256:" + "a0",
+			SandboxClass: atev1alpha1.SandboxClassGvisor,
+			Containers: []atev1alpha1.Container{{
+				Name:  "openclaw",
+				Image: image,
+			}},
+			SnapshotsConfig: atev1alpha1.SnapshotsConfig{Location: "gs://ate-snapshots/kagent/claw"},
+		}
+	}
+
+	existing := &atev1alpha1.ActorTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+		Spec:       spec(oldImage),
+		Status:     atev1alpha1.ActorTemplateStatus{GoldenActorID: "golden-1", Phase: atev1alpha1.PhaseReady},
+	}
+	kube := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&atev1alpha1.ActorTemplate{}).
+		WithObjects(existing).
+		Build()
+	rec := &recordingActorClient{}
+	ate := &Client{ControlClient: rec}
+	desired := &atev1alpha1.ActorTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+		Spec:       spec(newImage),
+	}
+
+	err := reconcileActorTemplate(context.Background(), kube, ate, desired)
+	require.ErrorIs(t, err, ErrActorTemplateReconcilePending)
+
+	var got atev1alpha1.ActorTemplate
+	require.NoError(t, kube.Get(context.Background(), key, &got))
+	require.Equal(t, oldImage, got.Spec.Containers[0].Image)
+	require.Equal(t, []string{"golden-1"}, rec.deleted)
 }

@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -15,6 +16,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
+
+// ErrActorTemplateReconcilePending indicates ActorTemplate reconciliation started
+// a multi-step recreate (e.g. golden-actor deletion) and callers should requeue.
+var ErrActorTemplateReconcilePending = errors.New("actor template reconciliation pending")
 
 func (p *Lifecycle) ensureActorTemplate(ctx context.Context, ah *v1alpha2.AgentHarness, wpKey types.NamespacedName) (types.NamespacedName, error) {
 	key := types.NamespacedName{Namespace: ah.Namespace, Name: actorTemplateName(ah)}
@@ -39,7 +44,8 @@ func actorTemplateSpecEqual(a, b atev1alpha1.ActorTemplateSpec) bool {
 //   - spec matches     -> patch labels/owner refs only (never the spec)
 //   - spec drifts      -> delete the golden actor, delete the CR, recreate
 //
-// On spec drift it performs at most one mutating step per call and returns nil so the caller requeues.
+// On spec drift it performs at most one mutating step per call. When more work
+// remains it returns ErrActorTemplateReconcilePending so callers requeue.
 func reconcileActorTemplate(ctx context.Context, c client.Client, ate *Client, desired *atev1alpha1.ActorTemplate) error {
 	key := client.ObjectKeyFromObject(desired)
 
@@ -78,7 +84,7 @@ func reconcileActorTemplate(ctx context.Context, c client.Client, ate *Client, d
 			return fmt.Errorf("delete golden actor %q before recreating ActorTemplate %s: %w", goldenID, key, derr)
 		}
 		if !done {
-			return nil
+			return ErrActorTemplateReconcilePending
 		}
 	}
 	if err := c.Delete(ctx, existing); err != nil && !apierrors.IsNotFound(err) {
@@ -87,7 +93,7 @@ func reconcileActorTemplate(ctx context.Context, c client.Client, ate *Client, d
 	if err := c.Create(ctx, desired); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			// The previous CR is still terminating; recreate on the next pass.
-			return nil
+			return ErrActorTemplateReconcilePending
 		}
 		return fmt.Errorf("recreate ActorTemplate %s: %w", key, err)
 	}

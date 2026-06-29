@@ -139,7 +139,7 @@ func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace strin
 			GoldenActorID:   tmpl.Status.GoldenActorID,
 			GoldenSnapshot:  tmpl.Status.GoldenSnapshot,
 			SandboxClass:    string(tmpl.Spec.SandboxClass),
-			WorkerSelector:  labelSelectorString(tmpl.Spec.WorkerSelector),
+			WorkerSelector:  labelSelectorString(ctx, tmpl.Spec.WorkerSelector),
 			ManagedByKagent: tmpl.Labels["app.kubernetes.io/managed-by"] == "kagent",
 		}
 		if harness := strings.TrimSpace(tmpl.Labels[substrate.HarnessLabelKey]); harness != "" {
@@ -234,13 +234,14 @@ func snapshotInfoString(s *ateapipb.SnapshotInfo) string {
 
 // labelSelectorString renders a metav1.LabelSelector as a compact human-readable
 // string (e.g. "kagent.dev/worker-pool=kagent-default") for UI display.
-func labelSelectorString(sel *metav1.LabelSelector) string {
+func labelSelectorString(ctx context.Context, sel *metav1.LabelSelector) string {
 	if sel == nil {
 		return ""
 	}
 	s, err := metav1.LabelSelectorAsSelector(sel)
 	if err != nil {
-		return ""
+		ctrllog.FromContext(ctx).Info("invalid ActorTemplate workerSelector", "error", err)
+		return "<invalid selector>"
 	}
 	return s.String()
 }

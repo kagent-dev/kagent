@@ -322,10 +322,11 @@ substrateWorkerPool:
   name: kagent-default
   replicas: 1
   ateomImage: ""
-  # sandboxClass selects the sandbox runtime family (gvisor|microvm).
+  # sandboxClass selects the sandbox runtime family (gvisor|microvm). kagent-generated
+  # ActorTemplates currently hardcode gvisor; set this to gvisor until microvm is supported.
   sandboxClass: gvisor
   # Extra labels merged onto the WorkerPool metadata (in addition to the
-  # kagent.dev/worker-pool selector label that generated ActorTemplates match).
+  # kagent.dev/worker-pool label used by generated ActorTemplates to select this pool).
   labels: {}
   # Optional pod scheduling/resources for worker pods (WorkerPool.spec.template).
   # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
