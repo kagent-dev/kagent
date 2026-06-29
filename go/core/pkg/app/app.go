@@ -58,8 +58,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -80,7 +78,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	// +kubebuilder:scaffold:imports
 )
@@ -101,7 +98,6 @@ func init() {
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
-	utilruntime.Must(agentsandboxv1.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
@@ -144,15 +140,6 @@ type Config struct {
 		Url           string
 		UrlFile       string
 		VectorEnabled bool
-	}
-	Openshell struct {
-		GatewayURL  string
-		Token       string
-		TokenFile   string
-		CAFile      string
-		Insecure    bool
-		DialTimeout time.Duration
-		CallTimeout time.Duration
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
@@ -218,14 +205,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
-
-	commandLine.StringVar(&cfg.Openshell.GatewayURL, "openshell-gateway-url", "", "gRPC target for the OpenShell sandbox gateway (e.g. dns:///openshell.openshell.svc:443). When empty, the Sandbox controller is disabled.")
-	commandLine.StringVar(&cfg.Openshell.Token, "openshell-token", "", "Static bearer token for the OpenShell gateway. Prefer --openshell-token-file for secrets.")
-	commandLine.StringVar(&cfg.Openshell.TokenFile, "openshell-token-file", "", "Path to a file containing the OpenShell gateway bearer token. Takes precedence over --openshell-token.")
-	commandLine.StringVar(&cfg.Openshell.CAFile, "openshell-tls-ca-file", "", "Path to a PEM file containing CA bundle for verifying the OpenShell gateway TLS certificate. Optional.")
-	commandLine.BoolVar(&cfg.Openshell.Insecure, "openshell-insecure", false, "Dial the OpenShell gateway without TLS. Use only for local development.")
-	commandLine.DurationVar(&cfg.Openshell.DialTimeout, "openshell-dial-timeout", 10*time.Second, "Timeout for the initial dial to the OpenShell gateway.")
-	commandLine.DurationVar(&cfg.Openshell.CallTimeout, "openshell-call-timeout", 30*time.Second, "Per-RPC timeout for OpenShell gateway calls.")
 
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
 	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
@@ -546,6 +525,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	var substrateAteClient *substrate.Client
 	var substrateLifecycle *substrate.Lifecycle
 	var substrateSandboxActorBackend *substrate.SandboxAgentActorBackend
+	var agentHarnessSessionActorBackend *substrate.AgentHarnessSessionActorBackend
 	if cfg.Substrate.AteAPIEndpoint != "" {
 		var dialErr error
 		substrateAteClient, dialErr = substrate.Dial(ctx, substrateAppConfig(&cfg))
@@ -559,8 +539,9 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 			atenetRouterURL = substrate.DefaultAtenetRouterURL
 		}
 		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient, atenetRouterURL)
+		agentHarnessSessionActorBackend = substrate.NewAgentHarnessSessionActorBackend(substrateAteClient, atenetRouterURL)
 		agentsSubstrate := substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
-		extensionCfg.SandboxBackend = sandboxbackend.NewRoutingBackend(extensionCfg.SandboxBackend, agentsSubstrate)
+		extensionCfg.SandboxBackend = agentsSubstrate
 	}
 
 	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
@@ -609,21 +590,10 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	kubeClient := mgr.GetClient()
-	var openshellOpenClawBackend sandboxbackend.AsyncBackend
-	var openshellHermesBackend sandboxbackend.AsyncBackend
-	if cfg.Openshell.GatewayURL != "" {
-		var err error
-		openshellOpenClawBackend, openshellHermesBackend, err = buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
-		if err != nil {
-			setupLog.Error(err, "unable to build openshell sandbox backends")
-			os.Exit(1)
-		}
-	}
-	var substrateOpenClawBackend sandboxbackend.AsyncBackend
-	var substrateNemoClawBackend sandboxbackend.AsyncBackend
+	var substrateHarnessBackends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 	if cfg.Substrate.AteAPIEndpoint != "" {
 		var err error
-		substrateOpenClawBackend, substrateNemoClawBackend, err = buildSubstrateHarnessBackends(ctx, &cfg, substrateAteClient)
+		substrateHarnessBackends, err = buildSubstrateHarnessBackends(ctx, &cfg, substrateAteClient)
 		if err != nil {
 			setupLog.Error(err, "unable to build substrate harness backends")
 			os.Exit(1)
@@ -641,31 +611,21 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		setupLog.Error(err, "unable to create controller", "controller", "SandboxAgent")
 		os.Exit(1)
 	}
-	if openshellOpenClawBackend != nil || openshellHermesBackend != nil {
-		if err := (&controller.OpenShellAgentHarnessController{
-			Client:          kubeClient,
-			Recorder:        mgr.GetEventRecorder("agentharness-openshell-controller"),
-			OpenClawBackend: openshellOpenClawBackend,
-			HermesBackend:   openshellHermesBackend,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "OpenShellAgentHarness")
-			os.Exit(1)
-		}
-	}
-	if substrateOpenClawBackend != nil || substrateNemoClawBackend != nil {
+	if len(substrateHarnessBackends) > 0 {
 		if err := (&controller.SubstrateAgentHarnessController{
-			Client:             kubeClient,
-			Recorder:           mgr.GetEventRecorder("agentharness-substrate-controller"),
-			OpenClawBackend:    substrateOpenClawBackend,
-			NemoClawBackend:    substrateNemoClawBackend,
-			SubstrateLifecycle: substrateLifecycle,
+			Client:              kubeClient,
+			Recorder:            mgr.GetEventRecorder("agentharness-substrate-controller"),
+			Backends:            substrateHarnessBackends,
+			SubstrateLifecycle:  substrateLifecycle,
+			SessionActorBackend: agentHarnessSessionActorBackend,
+			DbClient:            dbClient,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
 			os.Exit(1)
 		}
 	}
-	if openshellOpenClawBackend == nil && openshellHermesBackend == nil && substrateOpenClawBackend == nil && substrateNemoClawBackend == nil {
-		setupLog.Info("AgentHarness controller disabled: set --openshell-gateway-url and/or --substrate-ate-api-endpoint")
+	if len(substrateHarnessBackends) == 0 {
+		setupLog.Info("AgentHarness controller disabled: set --substrate-ate-api-endpoint")
 	}
 
 	if err = (&controller.ModelConfigController{
@@ -792,6 +752,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		SubstrateAteClient:           substrateAteClient,
 		MCPEgressPlaintext:           cfg.MCPEgressPlaintext,
 		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
+		AgentHarnessSessionActor:     agentHarnessSessionActorBackend,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
@@ -815,51 +776,20 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 }
 
-// buildOpenshellSandboxBackends constructs AsyncBackend values for openclaw and
-// nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
-// share that connection (see openshell.OpenShellClients). The connection is not explicitly
-// closed today — same lifetime as the process.
-func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, error) {
-	oc := openshell.Config{
-		GatewayURL:  cfg.Openshell.GatewayURL,
-		Token:       cfg.Openshell.Token,
-		Insecure:    cfg.Openshell.Insecure,
-		DialTimeout: cfg.Openshell.DialTimeout,
-		CallTimeout: cfg.Openshell.CallTimeout,
-	}
-	if cfg.Openshell.TokenFile != "" {
-		data, err := os.ReadFile(cfg.Openshell.TokenFile)
-		if err != nil {
-			return nil, nil, fmt.Errorf("read openshell token file: %w", err)
-		}
-		oc.Token = strings.TrimSpace(string(data))
-	}
-	if cfg.Openshell.CAFile != "" {
-		data, err := os.ReadFile(cfg.Openshell.CAFile)
-		if err != nil {
-			return nil, nil, fmt.Errorf("read openshell CA file: %w", err)
-		}
-		oc.TLSCAPEM = data
-	}
-	clients, err := openshell.Dial(ctx, oc)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
-	hermesBackend := openshell.NewHermesBackend(kubeClient, clients, oc, nil)
-	return ocl, hermesBackend, nil
-}
-
-func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (sandboxbackend.AsyncBackend, sandboxbackend.AsyncBackend, error) {
+func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
 	if client == nil {
-		return nil, nil, fmt.Errorf("substrate ate-api client is required")
+		return nil, fmt.Errorf("substrate ate-api client is required")
 	}
 	_ = ctx
 	_ = cfg
-	ocl := substrate.NewOpenClawBackend(client, v1alpha2.AgentHarnessBackendOpenClaw, nil)
-	ncl := substrate.NewOpenClawBackend(client, v1alpha2.AgentHarnessBackendNemoClaw, nil)
-	return ocl, ncl, nil
+	backends := make(map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend)
+	for _, b := range []v1alpha2.AgentHarnessBackendType{
+		v1alpha2.AgentHarnessBackendOpenClaw,
+		v1alpha2.AgentHarnessBackendHermes,
+	} {
+		backends[b] = substrate.NewOpenClawBackend(client, b, nil)
+	}
+	return backends, nil
 }
 
 func substrateAppConfig(cfg *Config) substrate.Config {
@@ -875,12 +805,20 @@ func substrateAppConfig(cfg *Config) substrate.Config {
 
 func substrateLifecycleFromConfig(kubeClient client.Client, cfg *Config, ate *substrate.Client) *substrate.Lifecycle {
 	return substrate.NewLifecycle(kubeClient, substrate.LifecycleDefaults{
-		PauseImage:           cfg.Substrate.PauseImage,
-		RunscAMD64URL:        cfg.Substrate.RunscAMD64URL,
-		RunscAMD64SHA256:     cfg.Substrate.RunscAMD64SHA256,
-		RunscARM64URL:        cfg.Substrate.RunscARM64URL,
-		RunscARM64SHA256:     cfg.Substrate.RunscARM64SHA256,
-		DefaultWorkloadImage: openclaw.NemoclawSandboxBaseImage,
+		PauseImage:       cfg.Substrate.PauseImage,
+		RunscAMD64URL:    cfg.Substrate.RunscAMD64URL,
+		RunscAMD64SHA256: cfg.Substrate.RunscAMD64SHA256,
+		RunscARM64URL:    cfg.Substrate.RunscARM64URL,
+		RunscARM64SHA256: cfg.Substrate.RunscARM64SHA256,
+		// ImageRegistry/ImageRepository mirror the declarative-agent image config
+		// (--image-registry/--image-repository) so digest-pinned acp-sandbox
+		// workload images resolve against the same (possibly private/mirrored)
+		// registry as the rest of the kagent images.
+		ImageRegistry:   agent_translator.DefaultImageConfig.Registry,
+		ImageRepository: agent_translator.DefaultImageConfig.Repository,
+		// DefaultWorkloadImage is left unset: each backend falls back to its own
+		// digest-pinned default (acpSandboxOpenClawImage / acpSandboxHermesImage)
+		// resolved at ActorTemplate build time.
 		DefaultWorkerPool: types.NamespacedName{
 			Namespace: cfg.Substrate.DefaultWorkerPoolNamespace,
 			Name:      cfg.Substrate.DefaultWorkerPoolName,

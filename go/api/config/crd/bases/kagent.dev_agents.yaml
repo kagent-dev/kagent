@@ -13111,11 +13111,11 @@ spec:
                         type: array
                     type: object
                   runtime:
-                    default: python
+                    default: go
                     description: |-
                       Runtime specifies which ADK implementation to use for this agent.
-                      - "python": Uses the Python ADK (default, slower startup, full feature set)
-                      - "go": Uses the Go ADK (faster startup, most features supported)
+                      - "go": Uses the Go ADK (default, faster startup, most features supported)
+                      - "python": Uses the Python ADK (slower startup, full feature set)
                       The runtime determines both the container image and readiness probe configuration.
                     enum:
                     - python

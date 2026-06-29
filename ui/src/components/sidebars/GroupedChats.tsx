@@ -5,36 +5,94 @@ import type { Session } from "@/types";
 import { isToday, isYesterday } from "date-fns";
 import { EmptyState } from "./EmptyState";
 import { deleteSession, getSessionTasks, createSession } from "@/app/actions/sessions";
+import { getAgentHarnessSessionStatus } from "@/app/actions/agentHarnessSession";
+import type { SessionActorState } from "@/components/sidebars/ChatItem";
 import { formatA2AClientError } from "@/lib/a2aErrors";
 import type { SandboxChatMode } from "@/lib/sandboxAgentForm";
 import { Button } from "@/components/ui/button";
 import { PlusCircle } from "lucide-react";
 import { toast } from "sonner";
 
+/** How often the sidebar refreshes harness session actor states. */
+const HARNESS_STATUS_POLL_MS = 12000;
+
 interface GroupedChatsProps {
   agentName: string;
   agentNamespace: string;
   sessions: Session[];
+  acpSessions?: Array<{ sessionId: string; title?: string; updatedAt?: string }>;
+  onAcpSessionClick?: (sessionId: string) => void;
   chatMode?: SandboxChatMode;
+  /** When true, this is a substrate AgentHarness: show per-session actor state. */
+  isHarness?: boolean;
 }
 
 export default function GroupedChats({
   agentName,
   agentNamespace,
   sessions,
+  acpSessions = [],
   chatMode = "default",
+  isHarness = false,
 }: GroupedChatsProps) {
-  const hideNewChat = chatMode === "single-session";
-  const hideSessionDelete = chatMode === "single-session";
+  const hideNewChat = false;
+  const hideSessionDelete = false;
   const provisionSessionOnNewChat = chatMode === "multi-session";
 
   // Local state to manage sessions for immediate UI updates
   const [localSessions, setLocalSessions] = useState<Session[]>(sessions);
 
+  // Per-session substrate actor states (harness sessions only).
+  const [sessionStatuses, setSessionStatuses] = useState<Record<string, SessionActorState>>({});
+
   // Update local sessions when the prop changes
   useEffect(() => {
     setLocalSessions(sessions);
   }, [sessions]);
+
+  // Poll the substrate actor state for each harness session so the sidebar can
+  // show a running/suspended indicator that stays in sync with manual actions.
+  // Suspending is a harness-wide action and lives in the right (Agent Details)
+  // sidebar because the actor is shared by every chat; the
+  // "harness-session-suspended" event below keeps these indicators in sync.
+  useEffect(() => {
+    if (!isHarness) return;
+    let cancelled = false;
+
+    const refresh = async () => {
+      const ids = sessions.map((s) => s.id).filter((id): id is string => Boolean(id));
+      if (ids.length === 0) {
+        if (!cancelled) setSessionStatuses({});
+        return;
+      }
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          const res = await getAgentHarnessSessionStatus(agentNamespace, agentName, id);
+          return [id, res.data?.state] as const;
+        })
+      );
+      if (cancelled) return;
+      setSessionStatuses((prev) => {
+        const next: Record<string, SessionActorState> = {};
+        for (const [id, state] of results) {
+          next[id] = (state as SessionActorState | undefined) ?? prev[id] ?? "missing";
+        }
+        return next;
+      });
+    };
+
+    void refresh();
+    const interval = setInterval(() => void refresh(), HARNESS_STATUS_POLL_MS);
+
+    const onSuspended = () => void refresh();
+    window.addEventListener("harness-session-suspended", onSuspended);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("harness-session-suspended", onSuspended);
+    };
+  }, [isHarness, sessions, agentNamespace, agentName]);
 
   const groupedChats = useMemo(() => {
     type SessionWithActivity = {
@@ -85,7 +143,7 @@ export default function GroupedChats({
     try {
       // Immediately remove from local state
       setLocalSessions(prev => prev.filter(session => session.id !== sessionId));
-      
+
       // Then delete from server
       await deleteSession(sessionId);
     } catch (error) {
@@ -116,6 +174,17 @@ export default function GroupedChats({
   }
 
   const handleNewChat = async () => {
+    // Substrate harness: actor-first ordering. Do NOT pre-create a DB session —
+    // its id must be the ACP session id that `session/new` returns. Open the
+    // bare chat page with ?new=1 so it starts a fresh chat idle; the first
+    // message runs `session/new`, and the chat hook then creates the DB session
+    // using that ACP id. (Pre-creating here would mint a random UUID that never
+    // matches the actor's ACP session, so the chat could not be stored/resumed.)
+    // The full page reload also guarantees the chat hook mounts with clean state.
+    if (isHarness) {
+      window.location.href = `/agents/${agentNamespace}/${agentName}/chat?new=1`;
+      return;
+    }
     if (provisionSessionOnNewChat) {
       try {
         const created = await createSession({
@@ -143,7 +212,7 @@ export default function GroupedChats({
     window.location.href = `/agents/${agentNamespace}/${agentName}/chat`;
   };
 
-  const hasNoSessions = !groupedChats.today.length && !groupedChats.yesterday.length && !groupedChats.older.length;
+  const hasNoSessions = !groupedChats.today.length && !groupedChats.yesterday.length && !groupedChats.older.length && acpSessions.length === 0;
 
   return (
     <>
@@ -160,15 +229,15 @@ export default function GroupedChats({
       </div>
       )}
 
-      {hasNoSessions || localSessions.length === 0 ? (
+      {hasNoSessions || (localSessions.length === 0 && acpSessions.length === 0) ? (
         <EmptyState variant={hideNewChat ? "singleChat" : "default"} />
       ) : (
         <>
-          {groupedChats.today.length > 0 && <ChatGroup title="Today" sessions={groupedChats.today} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} />}
+          {groupedChats.today.length > 0 && <ChatGroup title="Today" sessions={groupedChats.today} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} sessionStatuses={isHarness ? sessionStatuses : undefined} />}
           {groupedChats.yesterday.length > 0 && (
-            <ChatGroup title="Yesterday" sessions={groupedChats.yesterday} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} />
+            <ChatGroup title="Yesterday" sessions={groupedChats.yesterday} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} sessionStatuses={isHarness ? sessionStatuses : undefined} />
           )}
-          {groupedChats.older.length > 0 && <ChatGroup title="Older" sessions={groupedChats.older} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} />}
+          {groupedChats.older.length > 0 && <ChatGroup title="Older" sessions={groupedChats.older} agentName={agentName} agentNamespace={agentNamespace} onDeleteSession={(sessionId) => onDeleteClick(sessionId)} onDownloadSession={(sessionId) => onDownloadClick(sessionId)} hideSessionDelete={hideSessionDelete} sessionStatuses={isHarness ? sessionStatuses : undefined} />}
         </>
       )}
     </>

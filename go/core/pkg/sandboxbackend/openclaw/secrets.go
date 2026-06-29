@@ -19,7 +19,7 @@ func openclawEnvSecretRef(envVar string) envSecretRef {
 	}
 }
 
-// credentialValue marshals as either a plaintext string (OpenShell) or an OpenClaw env SecretRef (Substrate).
+// credentialValue marshals as either a plaintext string or an OpenClaw env SecretRef (Substrate).
 type credentialValue struct {
 	literal   string
 	envSecret *envSecretRef

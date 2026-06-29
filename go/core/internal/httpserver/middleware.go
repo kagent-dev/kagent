@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -81,18 +80,9 @@ func (w *statusResponseWriter) RespondWithError(err error) {
 	}
 }
 
-func isAgentHarnessGatewayPath(path string) bool {
-	if !strings.HasPrefix(path, "/api/agentharnesses/") {
-		return false
-	}
-	return strings.Contains(path, "/gateway")
-}
-
 func contentTypeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" &&
-			r.URL.Path != APIPathSandboxSSH &&
-			!isAgentHarnessGatewayPath(r.URL.Path) {
+		if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" {
 			w.Header().Set("Content-Type", "application/json")
 		}
 		next.ServeHTTP(w, r)

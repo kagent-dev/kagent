@@ -18,7 +18,7 @@ To add your own contribution:
 3. Include a README.md in your subdirectory describing your contribution.
 4. Submit a pull request with a clear description of your changes.
 
-For more details, see the main `CONTRIBUTION.md` in the project root.
+For more details, see the main `CONTRIBUTING.md` in the project root.
 
 ---
 
