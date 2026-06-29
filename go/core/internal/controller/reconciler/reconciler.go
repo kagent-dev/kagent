@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/hashicorp/go-multierror"
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator"
@@ -930,6 +931,19 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 			"object_kind", desired.GetObjectKind(),
 		)
 
+		// Substrate ActorTemplate.spec is immutable, delegate to the sandbox backend to handle spec drift.
+		if _, ok := desired.(*atev1alpha1.ActorTemplate); ok {
+			if r, ok := a.sandboxBackend.(actorTemplateReconciler); ok {
+				if err := r.ReconcileActorTemplate(ctx, desired); err != nil {
+					l.Error(err, "failed to reconcile ActorTemplate")
+					errs = append(errs, err)
+					continue
+				}
+				pruneOwnedActorTemplate(ownedObjects, desired)
+				continue
+			}
+		}
+
 		// existing is an object the controller runtime will hydrate for us
 		// we obtain the existing object by deep copying the desired object because it's the most convenient way
 		existing := desired.DeepCopyObject().(client.Object)
@@ -959,6 +973,25 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 	}
 
 	return nil
+}
+
+// actorTemplateReconciler is implemented by sandbox backends that own substrate
+// ActorTemplate objects and need immutable-spec aware create/recreate semantics.
+type actorTemplateReconciler interface {
+	ReconcileActorTemplate(ctx context.Context, desired client.Object) error
+}
+
+// pruneOwnedActorTemplate removes the live ActorTemplate matching desired from the
+// prune set so it is not garbage collected.
+func pruneOwnedActorTemplate(owned map[types.UID]client.Object, desired client.Object) {
+	for uid, obj := range owned {
+		if _, ok := obj.(*atev1alpha1.ActorTemplate); !ok {
+			continue
+		}
+		if obj.GetName() == desired.GetName() && obj.GetNamespace() == desired.GetNamespace() {
+			delete(owned, uid)
+		}
+	}
 }
 
 // modified version of controllerutil.CreateOrUpdate to support proto based objects like istio

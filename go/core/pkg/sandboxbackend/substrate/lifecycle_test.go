@@ -141,3 +141,60 @@ func TestEnsureActorTemplateDoesNotUpdateWhenDesiredStateMatches(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, updateCalls, "matching desired ActorTemplate should not be updated")
 }
+
+func TestReconcileActorTemplateRecreatesOnSpecDrift(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
+
+	key := types.NamespacedName{Namespace: "kagent", Name: "claw"}
+	baseSpec := func(image string) atev1alpha1.ActorTemplateSpec {
+		return atev1alpha1.ActorTemplateSpec{
+			PauseImage:   "registry.example/pause@sha256:" + "a0",
+			SandboxClass: atev1alpha1.SandboxClassGvisor,
+			Containers: []atev1alpha1.Container{{
+				Name:  "openclaw",
+				Image: image,
+			}},
+			SnapshotsConfig: atev1alpha1.SnapshotsConfig{Location: "gs://ate-snapshots/kagent/claw"},
+		}
+	}
+
+	oldImage := "registry.example/acp@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	newImage := "registry.example/acp@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+
+	existing := &atev1alpha1.ActorTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+		Spec:       baseSpec(oldImage),
+		Status:     atev1alpha1.ActorTemplateStatus{GoldenActorID: "golden-1", Phase: atev1alpha1.PhaseReady},
+	}
+
+	kube := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&atev1alpha1.ActorTemplate{}).
+		WithObjects(existing).
+		Build()
+	rec := &recordingActorClient{}
+	ate := &Client{ControlClient: rec}
+
+	desired := &atev1alpha1.ActorTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+		Spec:       baseSpec(newImage),
+	}
+
+	var got atev1alpha1.ActorTemplate
+	var recreated bool
+	for range 5 {
+		require.NoError(t, reconcileActorTemplate(context.Background(), kube, ate, desired.DeepCopy()))
+		if err := kube.Get(context.Background(), key, &got); err == nil && got.Spec.Containers[0].Image == newImage {
+			recreated = true
+			break
+		}
+	}
+
+	require.True(t, recreated, "ActorTemplate should be recreated with the new image")
+	require.Equal(t, []string{"golden-1"}, rec.deleted, "golden actor must be deleted before recreate")
+	require.Empty(t, got.Status.GoldenActorID, "recreated template starts without a golden actor")
+}

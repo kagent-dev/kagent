@@ -282,10 +282,6 @@ controller:
       namespace: ""
       name: ""
     # pauseImage: "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
-    # runscAMD64URL: "gs://gvisor/releases/nightly/2026-06-02/x86_64/runsc"
-    # runscAMD64SHA256: "efd12935f6654c91a1389710eb8dfa4d12b6b9be00db87526dc2eb584ad00119"
-    # runscARM64URL: "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc"
-    # runscARM64SHA256: "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9"
     # Example when enabled:
     #   enabled: true
     #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
@@ -326,6 +322,14 @@ substrateWorkerPool:
   name: kagent-default
   replicas: 1
   ateomImage: ""
+  # sandboxClass selects the sandbox runtime family (gvisor|microvm).
+  sandboxClass: gvisor
+  # Extra labels merged onto the WorkerPool metadata (in addition to the
+  # kagent.dev/worker-pool selector label that generated ActorTemplates match).
+  labels: {}
+  # Optional pod scheduling/resources for worker pods (WorkerPool.spec.template).
+  # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
+  template: {}
 
 # ==============================================================================
 # UI CONFIGURATION

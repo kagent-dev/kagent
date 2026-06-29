@@ -8,10 +8,11 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
@@ -21,22 +22,76 @@ func (p *Lifecycle) ensureActorTemplate(ctx context.Context, ah *v1alpha2.AgentH
 	if err != nil {
 		return types.NamespacedName{}, err
 	}
-
-	existing := &atev1alpha1.ActorTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      key.Name,
-			Namespace: key.Namespace,
-		},
-	}
-	if _, err := controllerutil.CreateOrUpdate(ctx, p.Client, existing, func() error {
-		existing.Labels = mergeLabels(existing.Labels, desired.Labels)
-		existing.OwnerReferences = desired.OwnerReferences
-		existing.Spec = desired.Spec
-		return nil
-	}); err != nil {
+	if err := reconcileActorTemplate(ctx, p.Client, p.AteClient, desired); err != nil {
 		return types.NamespacedName{}, fmt.Errorf("reconcile ActorTemplate %s: %w", key, err)
 	}
 	return key, nil
+}
+
+// actorTemplateSpecEqual reports whether two ActorTemplate specs are semantically equal.
+func actorTemplateSpecEqual(a, b atev1alpha1.ActorTemplateSpec) bool {
+	return apiequality.Semantic.DeepEqual(a, b)
+}
+
+// reconcileActorTemplate applies the desired ActorTemplate with immutable-spec semantics:
+//
+//   - not found        -> create
+//   - spec matches     -> patch labels/owner refs only (never the spec)
+//   - spec drifts      -> delete the golden actor, delete the CR, recreate
+//
+// On spec drift it performs at most one mutating step per call and returns nil so the caller requeues.
+func reconcileActorTemplate(ctx context.Context, c client.Client, ate *Client, desired *atev1alpha1.ActorTemplate) error {
+	key := client.ObjectKeyFromObject(desired)
+
+	existing := &atev1alpha1.ActorTemplate{}
+	err := c.Get(ctx, key, existing)
+	if apierrors.IsNotFound(err) {
+		if err := c.Create(ctx, desired); err != nil {
+			return fmt.Errorf("create ActorTemplate %s: %w", key, err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get ActorTemplate %s: %w", key, err)
+	}
+
+	// If the spec is semantically equal, update the labels and owner references only.
+	if actorTemplateSpecEqual(existing.Spec, desired.Spec) {
+		merged := mergeLabels(existing.Labels, desired.Labels)
+		if maps.Equal(existing.Labels, merged) &&
+			apiequality.Semantic.DeepEqual(existing.OwnerReferences, desired.OwnerReferences) {
+			return nil
+		}
+		patch := client.MergeFrom(existing.DeepCopy())
+		existing.Labels = merged
+		existing.OwnerReferences = desired.OwnerReferences
+		if err := c.Patch(ctx, existing, patch); err != nil {
+			return fmt.Errorf("patch ActorTemplate %s metadata: %w", key, err)
+		}
+		return nil
+	}
+
+	// Delete the golden actor since it is an external ate-api resource
+	if goldenID := strings.TrimSpace(existing.Status.GoldenActorID); goldenID != "" {
+		done, derr := deleteGoldenActor(ctx, ate, goldenID)
+		if derr != nil {
+			return fmt.Errorf("delete golden actor %q before recreating ActorTemplate %s: %w", goldenID, key, derr)
+		}
+		if !done {
+			return nil
+		}
+	}
+	if err := c.Delete(ctx, existing); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("delete ActorTemplate %s for recreate: %w", key, err)
+	}
+	if err := c.Create(ctx, desired); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			// The previous CR is still terminating; recreate on the next pass.
+			return nil
+		}
+		return fmt.Errorf("recreate ActorTemplate %s: %w", key, err)
+	}
+	return nil
 }
 
 func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHarness, wpKey types.NamespacedName) (*atev1alpha1.ActorTemplate, error) {
@@ -100,8 +155,8 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 			Labels:    lifecycleLabels(ah),
 		},
 		Spec: atev1alpha1.ActorTemplateSpec{
-			PauseImage: p.Defaults.PauseImage,
-			Runsc:      defaultRunscConfig(p.Defaults),
+			PauseImage:   p.Defaults.PauseImage,
+			SandboxClass: atev1alpha1.SandboxClassGvisor,
 			Containers: []atev1alpha1.Container{
 				{
 					Name:  containerName,
@@ -114,10 +169,7 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 					Env: containerEnv,
 				},
 			},
-			WorkerPoolRef: corev1.ObjectReference{
-				Name:      wpKey.Name,
-				Namespace: wpKey.Namespace,
-			},
+			WorkerSelector: workerSelectorForPool(wpKey),
 			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
 				Location: substrateSnapshotsLocation(ah),
 			},
