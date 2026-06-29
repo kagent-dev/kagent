@@ -7,6 +7,7 @@ package dbgen
 
 import (
 	"context"
+	"time"
 )
 
 const getSession = `-- name: GetSession :one
@@ -72,10 +73,22 @@ func (q *Queries) ListSessions(ctx context.Context, userID string) ([]Session, e
 }
 
 const listSessionsForAgent = `-- name: ListSessionsForAgent :many
-SELECT id, user_id, name, created_at, updated_at, deleted_at, agent_id, source FROM session
-WHERE agent_id = $1 AND user_id = $2 AND deleted_at IS NULL
-  AND (source IS NULL OR source != 'agent')
-ORDER BY updated_at DESC, created_at DESC
+SELECT s.id, s.user_id, s.name, s.created_at, s.updated_at, s.deleted_at, s.agent_id, s.source,
+       (CASE WHEN s.user_id = $2 THEN NULL::text    ELSE sh.token     END) AS share_token,
+       (CASE WHEN s.user_id = $2 THEN NULL::boolean ELSE sh.read_only END) AS share_read_only
+FROM session s
+LEFT JOIN LATERAL (
+    SELECT ss.token, ss.read_only
+    FROM session_share ss
+    JOIN session_share_access sa ON sa.share_id = ss.id
+    WHERE ss.session_id = s.id AND sa.user_id = $2
+    ORDER BY ss.read_only ASC, ss.created_at DESC
+    LIMIT 1
+) sh ON true
+WHERE s.agent_id = $1 AND s.deleted_at IS NULL
+  AND (s.source IS NULL OR s.source != 'agent')
+  AND (s.user_id = $2 OR sh.token IS NOT NULL)
+ORDER BY s.updated_at DESC, s.created_at DESC
 `
 
 type ListSessionsForAgentParams struct {
@@ -83,15 +96,28 @@ type ListSessionsForAgentParams struct {
 	UserID  string
 }
 
-func (q *Queries) ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]Session, error) {
+type ListSessionsForAgentRow struct {
+	ID            string
+	UserID        string
+	Name          *string
+	CreatedAt     *time.Time
+	UpdatedAt     *time.Time
+	DeletedAt     *time.Time
+	AgentID       *string
+	Source        *string
+	ShareToken    interface{}
+	ShareReadOnly interface{}
+}
+
+func (q *Queries) ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]ListSessionsForAgentRow, error) {
 	rows, err := q.db.Query(ctx, listSessionsForAgent, arg.AgentID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Session
+	var items []ListSessionsForAgentRow
 	for rows.Next() {
-		var i Session
+		var i ListSessionsForAgentRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.UserID,
@@ -101,6 +127,8 @@ func (q *Queries) ListSessionsForAgent(ctx context.Context, arg ListSessionsForA
 			&i.DeletedAt,
 			&i.AgentID,
 			&i.Source,
+			&i.ShareToken,
+			&i.ShareReadOnly,
 		); err != nil {
 			return nil, err
 		}

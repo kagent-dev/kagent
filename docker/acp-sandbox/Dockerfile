@@ -132,4 +132,3 @@ COPY --chmod=755 \
 USER agent
 ENTRYPOINT ["/usr/local/bin/openclaw-acp-entrypoint.sh"]
 CMD []
-

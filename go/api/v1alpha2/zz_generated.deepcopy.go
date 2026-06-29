@@ -854,6 +854,11 @@ func (in *DeclarativeAgentSpec) DeepCopyInto(out *DeclarativeAgentSpec) {
 		*out = new(MemorySpec)
 		**out = **in
 	}
+	if in.ShareTools != nil {
+		in, out := &in.ShareTools, &out.ShareTools
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Context != nil {
 		in, out := &in.Context, &out.Context
 		*out = new(ContextConfig)
