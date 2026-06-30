@@ -62,13 +62,14 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
       // by the live-stream handlers so the rendering component can display them.
       //
       // Backfill contextId/taskId from the task when the history item omits them.
-      // Persisted agent messages frequently carry empty strings here, and `??`
-      // would keep the empty string ("" is not nullish) — leaving the converted
-      // tool messages without a contextId/taskId. The send guard then can't key
-      // them on (contextId, taskId) and falls back to the regenerated uuid
-      // messageId, so the same backend tool message keys differently on every
-      // extraction and never matches its local counterpart (false stale-send
-      // block). Treat "" as absent so these messages get the task's stable ids.
+      // Persisted agent messages (both tool and text) frequently carry empty
+      // strings here, and `??` would keep the empty string ("" is not nullish).
+      // The locally-streamed copies of these messages carry the task's real ids,
+      // so the send guard keys them on (contextId, taskId); without the backfill
+      // the backend-extracted copies fall back to messageId and never match the
+      // local ones, counting the backend as ahead and falsely blocking the next
+      // send on every turn. Treat "" as absent so both copies get the task's
+      // stable ids. Applied to every extracted agent message below.
       const msgContextId = historyItem.contextId || task.contextId;
       const msgTaskId = historyItem.taskId || task.id;
       const source = getSourceFromMetadata(historyItem.metadata as ADKMetadata | undefined, "assistant");
@@ -158,12 +159,16 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
         }
       }
 
-      // Text messages (or any message without data parts): push with tokenStats.
+      // Text messages (or any message without data parts): push with tokenStats
+      // and the backfilled contextId/taskId so they key the same way the
+      // locally-streamed copy does.
       if (!hasConvertedParts) {
-        messages.push(msgStats
-          ? { ...historyItem, metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } }
-          : historyItem
-        );
+        messages.push({
+          ...historyItem,
+          contextId: msgContextId,
+          taskId: msgTaskId,
+          ...(msgStats ? { metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } } : {}),
+        });
       }
     }
   }

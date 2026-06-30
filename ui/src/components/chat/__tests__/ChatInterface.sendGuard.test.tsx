@@ -374,6 +374,42 @@ describe("ChatInterface send guard", () => {
     expect(mockToastInfo).not.toHaveBeenCalledWith(staleToastMessage);
   });
 
+  it("does not block the next send after a same-tab text turn persisted with empty agent ids", async () => {
+    // The general case behind "every message needs sending twice": the backend
+    // persists AGENT messages with empty contextId/taskId (A2A optional fields;
+    // the task is the canonical carrier). The locally-streamed agent message
+    // carries the task's real ids, so it keys on ["task", ...] while the
+    // backend-extracted copy — pushed as-is with empty ids — keys on
+    // ["message", <persisted id>]. They never match, so every turn (each has an
+    // agent text response) counts the backend as ahead and falsely blocks.
+    mockBackendTasks([completedTask("task-initial", initialTurn)]);
+    mockSendMessageStream
+      .mockResolvedValueOnce(streamOf(completedStatusEvent("same tab answer", "session-1", "task-streamed")))
+      .mockResolvedValueOnce(streamOf(completedStatusEvent("next answer", "session-1", "task-next")));
+
+    renderExistingSession();
+
+    expect(await screen.findByText("initial answer")).toBeInTheDocument();
+
+    await sendText("same tab question");
+    await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("same tab answer")).toBeInTheDocument();
+
+    // Backend reflects the turn, with the agent message persisted with empty
+    // contextId/taskId (the user message keeps its contextId, as the client stamps it).
+    mockBackendTasks([
+      completedTask("task-initial", initialTurn),
+      completedTask("task-streamed", [
+        textMessage(sentMessage().messageId, "user", "same tab question", "session-1", ""),
+        textMessage("same-tab-agent", "agent", "same tab answer", "", ""),
+      ]),
+    ]);
+    await sendText("next question");
+
+    await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(2));
+    expect(mockToastInfo).not.toHaveBeenCalledWith(staleToastMessage);
+  });
+
   it("still blocks when the backend has a cross-tab message not visible locally", async () => {
     mockBackendTasks([completedTask("task-initial", initialTurn)]);
 
