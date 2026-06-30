@@ -1,8 +1,8 @@
 ### STAGE 1: base image
 ARG DOCKER_REGISTRY=ghcr.io
 ARG VERSION=latest
-# bookworm (glibc 2.36), NOT trixie (glibc 2.41): substrate's gVisor checkpoint/restore segfaults
-# processes against trixie's newer glibc. Aligns with the kagent-adk runtime image.
+# substrate's gVisor (ateom) checkpoint/restore segfaults processes linked against trixie's newer glibc
+# use bookworm to align with the kagent-adk runtime image
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
 WORKDIR /app
@@ -13,10 +13,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Use the uv-managed standalone CPython (python-build-standalone), NOT the base image's system
-# Python. REQUIRED for substrate: gVisor checkpoint/restore segfaults the system CPython (a stub
-# that dynamically loads libpython3.13.so) on restore; the standalone build statically embeds
-# libpython and survives. Both this AND the bookworm base above are needed for BYO on substrate.
+# this mirrors the kagent-adk's uv configuration and is needed to work on substrate
+# as gVisor checkpoint/restore segfaults the base image's system
+# CPython on restore and the standalone build survives. Both this and the bookworm base 
+# are needed for BYO to work on substrate as this pins the base image to use a base image with glibc 2.36
+# where as the prvious base image python3.13-trixie-slim used glibc 2.41
 ENV UV_PYTHON_PREFERENCE=only-managed
 ENV UV_PYTHON_INSTALL_DIR=/python
 
