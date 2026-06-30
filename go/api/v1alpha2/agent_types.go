@@ -168,11 +168,11 @@ type GitRepo struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
 	// Runtime specifies which ADK implementation to use for this agent.
-	// - "python": Uses the Python ADK (default, slower startup, full feature set)
-	// - "go": Uses the Go ADK (faster startup, most features supported)
+	// - "go": Uses the Go ADK (default, faster startup, most features supported)
+	// - "python": Uses the Python ADK (slower startup, full feature set)
 	// The runtime determines both the container image and readiness probe configuration.
 	// +optional
-	// +kubebuilder:default=python
+	// +kubebuilder:default=go
 	Runtime DeclarativeRuntime `json:"runtime,omitempty"`
 	// SystemMessage is a string specifying the system message for the agent.
 	// When PromptTemplate is set, this field is treated as a Go text/template
@@ -224,20 +224,17 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	Memory *MemorySpec `json:"memory,omitempty"`
 
+	// ShareTools enables the built-in share link tools for this agent.
+	// When true, the agent gains create_share_link, list_share_links, and delete_share_link tools
+	// that allow it to manage share tokens for the current session.
+	// +optional
+	ShareTools *bool `json:"shareTools,omitempty"`
+
 	// Context configures context management for this agent.
 	// This includes event compaction (compression) and context caching.
 	// +optional
 	Context *ContextConfig `json:"context,omitempty"`
 }
-
-// SandboxPlatform selects the control plane for sandboxed agents.
-// +kubebuilder:validation:Enum=agent-sandbox;substrate
-type SandboxPlatform string
-
-const (
-	SandboxPlatformAgentSandbox SandboxPlatform = "agent-sandbox"
-	SandboxPlatformSubstrate    SandboxPlatform = "substrate"
-)
 
 // SandboxSubstrateSpec configures Agent Substrate for a SandboxAgent.
 // WorkerPool capacity is referenced from workerPoolRef or the controller default.
@@ -260,16 +257,8 @@ type SandboxConfig struct {
 	Network *NetworkConfig `json:"network,omitempty"`
 }
 
-// AgentSandboxPlatform returns the effective sandbox platform for an agent.
-func AgentSandboxPlatform(agent AgentObject) SandboxPlatform {
-	sa, ok := agent.(*SandboxAgent)
-	if !ok || sa == nil || sa.Spec.Platform == "" {
-		return SandboxPlatformAgentSandbox
-	}
-	return sa.Spec.Platform
-}
-
-// EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python).
+// EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python when not set).
+// All agents (including substrate SandboxAgents) honor spec.declarative.runtime.
 func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
 	if spec == nil {
 		return DeclarativeRuntime_Python
@@ -279,19 +268,6 @@ func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
 		runtime = spec.Declarative.Runtime
 	}
 	return runtime
-}
-
-// EffectiveDeclarativeRuntimeForAgent returns the runtime for a reconciled agent object.
-// Substrate SandboxAgents always use Go; regular Agents honor spec.declarative.runtime.
-func EffectiveDeclarativeRuntimeForAgent(agent AgentObject) DeclarativeRuntime {
-	spec := agent.GetAgentSpec()
-	if agent.GetWorkloadMode() == WorkloadModeSandbox &&
-		AgentSandboxPlatform(agent) == SandboxPlatformSubstrate &&
-		spec != nil &&
-		spec.Type == AgentType_Declarative {
-		return DeclarativeRuntime_Go
-	}
-	return EffectiveDeclarativeRuntime(spec)
 }
 
 // NetworkConfig configures outbound network access for sandboxed execution paths.

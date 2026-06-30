@@ -23,6 +23,16 @@ var (
 		ComponentController,
 	)
 
+	KagentA2AClientTimeout = RegisterDurationVar(
+		"KAGENT_A2A_CLIENT_TIMEOUT",
+		0,
+		"HTTP client timeout for A2A requests from the controller to agent pods. "+
+			"0 (the default) means no timeout, which is recommended for long-running agents "+
+			"that stream responses over SSE. Set a positive duration (e.g. 30m) only if you "+
+			"need a hard upper bound on individual A2A calls.",
+		ComponentController,
+	)
+
 	KagentMCPStateless = RegisterBoolVar(
 		"KAGENT_MCP_STATELESS",
 		false,
@@ -46,6 +56,14 @@ var (
 		"KAGENT_URL",
 		"",
 		"Base URL for A2A communication with the kagent controller.",
+		ComponentAgentRuntime,
+	)
+
+	KagentUIURL = RegisterStringVar(
+		"KAGENT_UI_URL",
+		"",
+		"Public base URL of the kagent UI (e.g. https://kagent.example.com). "+
+			"When set, share link tools return full clickable URLs instead of paths.",
 		ComponentAgentRuntime,
 	)
 

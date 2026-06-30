@@ -6,6 +6,8 @@ import type { Agent, AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
 import { MemoriesDialog } from "@/components/MemoriesDialog";
 import KagentLogo from "@/components/kagent-logo";
+import HermesLogo from "@/components/hermes-logo";
+import OpenClawLogo from "@/components/openclaw-logo";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -17,20 +19,13 @@ import {
 import { countAgentToolBindings } from "@/lib/countAgentTools";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Brain, Lock, MoreHorizontal, Pencil, Terminal, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, Lock, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import {
-  agentHarnessIcon,
   agentHarnessTypeLabel,
   getAgentHarnessBackend,
   isAgentHarness,
 } from "@/lib/agentHarness";
-import {
-  isOpenshellSandboxRow,
-  isSubstrateHarnessRow,
-  openshellTerminalHref,
-} from "@/lib/openshellSandboxAgents";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { SandboxPlatform } from "@/types";
 
 interface AgentListViewProps {
   agentResponse: AgentResponse[];
@@ -62,26 +57,15 @@ function baseTypeLabel(type: string | undefined): string {
   }
 }
 
-function sandboxPlatformLabel(platform: SandboxPlatform | undefined): string {
-  switch (platform) {
-    case "substrate":
-      return "Substrate";
-    case "agent-sandbox":
-      return "Agent Sandbox";
-    default:
-      return "Sandbox";
-  }
-}
-
-function SandboxBadge({ platform }: { platform: SandboxPlatform | undefined }) {
+function SandboxBadge() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="inline-flex items-center" aria-label={`Sandbox: ${sandboxPlatformLabel(platform)}`}>
+        <span className="inline-flex items-center" aria-label="Sandbox: Agent Substrate">
           <Lock className="h-3.5 w-3.5 text-muted-foreground/70 hover:text-muted-foreground transition-colors" />
         </span>
       </TooltipTrigger>
-      <TooltipContent side="top">{sandboxPlatformLabel(platform)}</TooltipContent>
+      <TooltipContent side="top">Agent Substrate</TooltipContent>
     </Tooltip>
   );
 }
@@ -91,14 +75,11 @@ function RowTypeCell({ item }: { item: AgentResponse }) {
   if (harnessBackend) {
     return <span>{agentHarnessTypeLabel(harnessBackend)}</span>;
   }
-  if (isOpenshellSandboxRow(item)) {
-    return <span>Agent harness</span>;
-  }
   if (item.workloadMode === "sandbox") {
     return (
       <span className="inline-flex items-center gap-1.5">
         {baseTypeLabel(item.agent.spec?.type)}
-        <SandboxBadge platform={item.agent.spec?.platform} />
+        <SandboxBadge />
       </span>
     );
   }
@@ -108,7 +89,6 @@ function RowTypeCell({ item }: { item: AgentResponse }) {
 function rowTypeSortKey(item: AgentResponse): string {
   const harnessBackend = getAgentHarnessBackend(item);
   if (harnessBackend) return agentHarnessTypeLabel(harnessBackend);
-  if (isOpenshellSandboxRow(item)) return "Agent harness";
   if (item.workloadMode === "sandbox") return `${baseTypeLabel(item.agent.spec?.type)} (sandbox)`;
   return baseTypeLabel(item.agent.spec?.type);
 }
@@ -270,8 +250,6 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
   const [memoriesOpen, setMemoriesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
-  const sshSandbox = isOpenshellSandboxRow(item);
-  const substrateHarness = isSubstrateHarnessRow(item);
   const agentHarness = isAgentHarness(item);
   const harnessBackend = getAgentHarnessBackend(item);
 
@@ -283,31 +261,9 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
   const nTools = countAgentToolBindings(item);
   const nSkills = countSkills(agent);
 
-  const substrateGatewayPath = item.substrateAgentHarness?.gatewayUIPath;
-  const gatewaySandboxName = item.openshellAgentHarness?.gatewaySandboxName;
   const chatPath = useMemo(
-    () =>
-      substrateHarness && substrateGatewayPath
-        ? substrateGatewayPath
-        : sshSandbox && gatewaySandboxName
-          ? openshellTerminalHref({
-              gatewaySandboxName,
-              namespace,
-              crName: name,
-              modelConfigRef: item.modelConfigRef,
-              harnessBackend,
-            })
-          : `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`,
-    [
-      substrateHarness,
-      substrateGatewayPath,
-      sshSandbox,
-      gatewaySandboxName,
-      namespace,
-      name,
-      item.modelConfigRef,
-      harnessBackend,
-    ],
+    () => `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`,
+    [namespace, name],
   );
 
   const goChat = useCallback(() => {
@@ -344,11 +300,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
       tabIndex={isReady ? 0 : -1}
       role={isReady ? "link" : undefined}
       aria-label={
-        isReady
-          ? sshSandbox
-            ? `Open SSH terminal for ${k8sRefUtils.toRef(namespace, name)}`
-            : `Open chat for ${k8sRefUtils.toRef(namespace, name)}`
-          : undefined
+        isReady ? `Open chat for ${k8sRefUtils.toRef(namespace, name)}` : undefined
       }
     >
       <td className="relative px-3 py-3.5 pl-4 align-top [overflow-wrap:anywhere] first:pl-4">
@@ -358,18 +310,14 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
         />
         <div className="pl-1.5">
           <div className="flex min-w-0 items-center gap-2">
-            {sshSandbox ? (
-              agentHarness ? (
-                <span
-                  className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground"
-                  aria-hidden
-                  title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : item.openshellAgentHarness?.backend}
-                >
-                  {harnessBackend ? agentHarnessIcon(harnessBackend) : "🦞"}
-                </span>
-              ) : (
-                <Terminal className="h-4 w-4 shrink-0 opacity-80 text-muted-foreground" aria-hidden />
-              )
+            {agentHarness ? (
+              <span
+                className="inline-flex h-4 w-4 shrink-0 items-center justify-center text-sm leading-none"
+                aria-hidden
+                title={harnessBackend ? agentHarnessTypeLabel(harnessBackend) : ""}
+              >
+                {harnessBackend === "hermes" ? <HermesLogo className="h-4 w-4" /> : <OpenClawLogo className="h-4 w-4" />}
+              </span>
             ) : (
               <KagentLogo className="h-4 w-4 shrink-0 opacity-80" />
             )}
