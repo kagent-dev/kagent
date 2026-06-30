@@ -160,7 +160,7 @@ class KAgentMcpToolset(McpToolset):
                 # App-only tools (_meta.ui.visibility declares "app" but not
                 # "model") MUST NOT be exposed to the model; they stay callable
                 # only from the rendered MCP App. Mirrors the Go ADK filter in
-                # go/adk/pkg/mcp/mcp_ui.go (mcpToolKindAppOnly).
+                # go/adk/pkg/mcp/mcp_ui.go (mcpToolKindAppInternal).
                 if "app" in visibility and "model" not in visibility:
                     continue
                 if self._app_tool_names is not None and getattr(tool, "mcp_app_resource_uri", None):

@@ -102,18 +102,18 @@ const (
 	// `_meta.ui.resourceUri`, so its result renders as an interactive MCP App
 	// (UI) widget in the chat. The model may call it like any other tool.
 	mcpToolKindApp
-	// mcpToolKindAppOnly is hidden from the model and only callable from within
-	// the rendered MCP App itself (e.g. the widget's own refresh button). It
-	// declares `_meta.ui.visibility` of "app" without "model".
-	mcpToolKindAppOnly
+	// mcpToolKindAppInternal is hidden from the model and only callable from
+	// within the rendered MCP App itself (e.g. the widget's own refresh button).
+	// It declares `_meta.ui.visibility` of "app" without "model".
+	mcpToolKindAppInternal
 )
 
 func (k mcpToolKind) String() string {
 	switch k {
 	case mcpToolKindApp:
 		return "app"
-	case mcpToolKindAppOnly:
-		return "app_only"
+	case mcpToolKindAppInternal:
+		return "app_internal"
 	default:
 		return "model"
 	}
@@ -145,13 +145,13 @@ func parseMCPUIMetadata(meta mcpsdk.Meta) mcpUIMetadata {
 	return ui
 }
 
-// mcpToolKindOf classifies a tool from its MCP metadata. App-only takes
+// mcpToolKindOf classifies a tool from its MCP metadata. App-internal takes
 // precedence: a tool hidden from the model is never surfaced to the model even
 // if it also declares a UI resource.
 func mcpToolKindOf(meta mcpsdk.Meta) mcpToolKind {
 	ui := parseMCPUIMetadata(meta)
 	if isAppOnlyVisibility(ui.Visibility) {
-		return mcpToolKindAppOnly
+		return mcpToolKindAppInternal
 	}
 	if ui.ResourceURI != "" {
 		return mcpToolKindApp
@@ -231,7 +231,7 @@ func agentVisibleToolFilter(ctx context.Context, params mcpServerParams, configu
 			continue
 		}
 		switch mcpToolKindOf(t.Meta) {
-		case mcpToolKindAppOnly:
+		case mcpToolKindAppInternal:
 			// Hidden from the model; only the rendered MCP App calls it.
 			continue
 		case mcpToolKindApp:

@@ -218,17 +218,17 @@ func TestMCPToolKindOf(t *testing.T) {
 		{
 			name: "app visibility list is app-only",
 			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"app"}}},
-			want: mcpToolKindAppOnly,
+			want: mcpToolKindAppInternal,
 		},
 		{
 			name: "app visibility string is app-only",
 			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": "app"}},
-			want: mcpToolKindAppOnly,
+			want: mcpToolKindAppInternal,
 		},
 		{
 			name: "app-only wins over a declared resource uri",
 			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"app"}, "resourceUri": "ui://forms/form.html"}},
-			want: mcpToolKindAppOnly,
+			want: mcpToolKindAppInternal,
 		},
 		{
 			name: "model and app visibility without resource is a plain model tool",
