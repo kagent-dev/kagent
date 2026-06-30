@@ -50,6 +50,8 @@ export interface AgentFormData {
   };
   // Context management
   context?: ContextConfig;
+  /** When true, enables the built-in share link tools for this agent. */
+  shareTools?: boolean;
   promptSources?: Array<{ name: string; alias: string }>;
   /** AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; openclaw or hermes backend). */
   agentHarness?: AgentHarnessFormSlice;

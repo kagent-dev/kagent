@@ -247,6 +247,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut, http.MethodPatch)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/events", adaptHandler(s.handlers.Sessions.HandleAddEventToSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleCreateSessionShare)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleListSessionShares)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares/{token}", adaptHandler(s.handlers.SessionShares.HandleDeleteSessionShare)).Methods(http.MethodDelete)
 
 	// Tasks
 	s.router.HandleFunc(APIPathTasks+"/{task_id}", adaptHandler(s.handlers.Tasks.HandleGetTask)).Methods(http.MethodGet)
@@ -349,6 +352,7 @@ func (s *HTTPServer) setupRoutes() {
 	// Use middleware for common functionality (first registered runs outermost on incoming requests).
 	s.router.Use(wsAuthQueryMiddleware)
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
+	s.router.Use(s.shareTokenMiddleware)
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)

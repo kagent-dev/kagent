@@ -389,6 +389,53 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, event1.ID, response.Data.Events[0].ID)
 			assert.Equal(t, event2.ID, response.Data.Events[1].ID)
 		})
+
+		t.Run("OwnerSeesNilReadOnly", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			ownerID := "owner-user"
+			sessionID := "owned-session"
+			agentID := "1"
+			createTestSession(t, dbClient, sessionID, ownerID, agentID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, ownerID)
+
+			handler.HandleGetSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[handlers.SessionResponse]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			assert.Nil(t, response.Data.ReadOnly)
+		})
+
+		t.Run("ShareVisitorSeesReadOnlyTrue", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			ownerID := "owner-user"
+			visitorID := "visitor-user"
+			sessionID := "shared-session"
+			agentID := "1"
+			createTestSession(t, dbClient, sessionID, ownerID, agentID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, visitorID)
+			ctx := auth.ShareContextTo(req.Context(), &auth.ShareContext{
+				Token:     "tok",
+				SessionID: sessionID,
+				UserID:    ownerID,
+				ReadOnly:  true,
+			})
+			req = req.WithContext(ctx)
+
+			handler.HandleGetSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[handlers.SessionResponse]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			require.NotNil(t, response.Data.ReadOnly)
+			assert.True(t, *response.Data.ReadOnly)
+		})
 	})
 
 	t.Run("HandleUpdateSession", func(t *testing.T) {
@@ -574,7 +621,7 @@ func TestSessionsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
 
-			var response api.StandardResponse[[]*database.Session]
+			var response api.StandardResponse[[]database.SessionWithShareToken]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
 			require.NoError(t, err)
 			assert.Len(t, response.Data, 2)

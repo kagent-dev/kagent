@@ -75,14 +75,33 @@ func TestResolveGoRuntimeImageWithoutDigest(t *testing.T) {
 
 func TestResolvePythonRuntimeImageWithDigest(t *testing.T) {
 	original := PythonADKImageDigest
+	originalFull := PythonADKFullImageDigest
 	t.Cleanup(func() {
 		PythonADKImageDigest = original
+		PythonADKFullImageDigest = originalFull
 	})
 	PythonADKImageDigest = "sha256:app-digest"
+	PythonADKFullImageDigest = "sha256:app-full-digest"
 
-	got, err := resolvePythonRuntimeImage("cr.kagent.dev")
+	got, err := resolvePythonRuntimeImage("cr.kagent.dev", false)
 	require.NoError(t, err)
 	require.Equal(t, "cr.kagent.dev/kagent-dev/kagent/app@sha256:app-digest", got)
+
+	gotFull, err := resolvePythonRuntimeImage("cr.kagent.dev", true)
+	require.NoError(t, err)
+	require.Equal(t, "cr.kagent.dev/kagent-dev/kagent/app@sha256:app-full-digest", gotFull)
+}
+
+func TestResolvePythonFullRuntimeImageWithoutDigest(t *testing.T) {
+	original := PythonADKFullImageDigest
+	t.Cleanup(func() {
+		PythonADKFullImageDigest = original
+	})
+	PythonADKFullImageDigest = ""
+
+	_, err := resolvePythonRuntimeImage("cr.kagent.dev", true)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "app-full")
 }
 
 func TestPythonADKImageDigestSupportsLinkerFlag(t *testing.T) {
@@ -103,7 +122,7 @@ func TestResolvePythonRuntimeImageWithoutDigest(t *testing.T) {
 	})
 	PythonADKImageDigest = ""
 
-	_, err := resolvePythonRuntimeImage("cr.kagent.dev")
+	_, err := resolvePythonRuntimeImage("cr.kagent.dev", false)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "app")
 }
