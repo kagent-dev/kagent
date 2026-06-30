@@ -17,13 +17,15 @@ atelet:
 Then install the Substrate platform and kagent:
 
 ```bash
-export ATEOM_VERSION=v0.0.7
+export SUBSTRATE_VERSION=0.0.7
 
 helm upgrade --install substrate-crds \
-  oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds
+  oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds \
+  --version "${SUBSTRATE_VERSION}"
 
 helm upgrade --install substrate \
   oci://ghcr.io/kagent-dev/substrate/helm/substrate \
+  --version "${SUBSTRATE_VERSION}" \
   --namespace ate-system \
   --create-namespace -f substrate-values.yaml
 
@@ -32,7 +34,7 @@ make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
   --set controller.substrate.ateApiInsecure=true \
   --set substrateWorkerPool.create=true \
-  --set substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:${ATEOM_VERSION}"
+  --set substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
 ```
 
 When `substrateWorkerPool.create=true`, the kagent chart installs a namespace-scoped `WorkerPool` with:
@@ -40,6 +42,8 @@ When `substrateWorkerPool.create=true`, the kagent chart installs a namespace-sc
 - `spec.sandboxClass: gvisor`
 - label `kagent.dev/worker-pool: kagent-default` (matches generated `ActorTemplate` selectors)
 - controller default `workerPool` name set to that pool when `create=true`
+
+**Zero-downtime rollouts:** SandboxAgent config and image rollouts retain the previous `ActorTemplate` until the new golden is Ready (blue-green). Use `substrateWorkerPool.replicas: 2` or higher so a spare worker can build the new golden while the current one keeps serving chat.
 
 ## 2. AgentHarness with Substrate runtime
 
