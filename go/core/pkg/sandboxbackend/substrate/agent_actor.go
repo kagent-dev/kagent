@@ -81,7 +81,10 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 
 	switch actor.GetStatus() {
 	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING:
-	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED:
+	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED,
+		ateapipb.Actor_STATUS_PAUSED, ateapipb.Actor_STATUS_PAUSING:
+		// PAUSED/PAUSING keep a node-local snapshot; ResumeActor brings them back
+		// the same as a suspended actor.
 		_, err = b.client.ResumeActor(ctx, actorID)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, wrapResumeActorError(actorID, err)

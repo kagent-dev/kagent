@@ -53,6 +53,14 @@ func (r *recordingActorClient) ResumeActor(context.Context, *ateapipb.ResumeActo
 	panic("not used")
 }
 
+func (r *recordingActorClient) PauseActor(context.Context, *ateapipb.PauseActorRequest, ...grpc.CallOption) (*ateapipb.PauseActorResponse, error) {
+	panic("not used")
+}
+
+func (r *recordingActorClient) UpdateActor(context.Context, *ateapipb.UpdateActorRequest, ...grpc.CallOption) (*ateapipb.UpdateActorResponse, error) {
+	panic("not used")
+}
+
 func (r *recordingActorClient) ListWorkers(context.Context, *ateapipb.ListWorkersRequest, ...grpc.CallOption) (*ateapipb.ListWorkersResponse, error) {
 	panic("not used")
 }
