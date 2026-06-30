@@ -60,8 +60,17 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
       // Agent messages: convert function_call / function_response DataParts to
       // the same ToolCallRequestEvent / ToolCallExecutionEvent format produced
       // by the live-stream handlers so the rendering component can display them.
-      const msgContextId = historyItem.contextId ?? task.contextId;
-      const msgTaskId = historyItem.taskId ?? task.id;
+      //
+      // Backfill contextId/taskId from the task when the history item omits them.
+      // Persisted agent messages frequently carry empty strings here, and `??`
+      // would keep the empty string ("" is not nullish) — leaving the converted
+      // tool messages without a contextId/taskId. The send guard then can't key
+      // them on (contextId, taskId) and falls back to the regenerated uuid
+      // messageId, so the same backend tool message keys differently on every
+      // extraction and never matches its local counterpart (false stale-send
+      // block). Treat "" as absent so these messages get the task's stable ids.
+      const msgContextId = historyItem.contextId || task.contextId;
+      const msgTaskId = historyItem.taskId || task.id;
       const source = getSourceFromMetadata(historyItem.metadata as ADKMetadata | undefined, "assistant");
       const msgStats = getMessageTokenStats(historyItem.metadata as Record<string, unknown>);
 

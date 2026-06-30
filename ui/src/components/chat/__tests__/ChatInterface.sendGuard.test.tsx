@@ -337,6 +337,43 @@ describe("ChatInterface send guard", () => {
     expect(mockSendMessageStream).toHaveBeenCalledTimes(1);
   });
 
+  it("does not block the next send after a same-tab tool-call turn is persisted", async () => {
+    // Reproduces the false positive seen with tool calls: a same-tab turn that
+    // makes a tool call streams a ToolCallRequestEvent locally (keyed by its
+    // real contextId/taskId), but the backend persists agent messages with
+    // EMPTY contextId/taskId. extractMessagesFromTasks leaves those empty
+    // (`"" ?? task.contextId` is still "") and rebuilds the converted tool
+    // message with a fresh uuidv4 messageId, so it keys on ["message", <random>]
+    // — a different key on every extraction. The guard therefore can never match
+    // the persisted tool message against the local one, counts the backend as
+    // ahead, and falsely blocks the next send.
+    mockBackendTasks([completedTask("task-initial", initialTurn)]);
+    mockSendMessageStream
+      .mockResolvedValueOnce(streamOf(completedToolCallStatusEvent("session-1", "task-streamed", "shared-call")))
+      .mockResolvedValueOnce(streamOf(completedStatusEvent("next answer", "session-1", "task-next")));
+
+    renderExistingSession();
+
+    expect(await screen.findByText("initial answer")).toBeInTheDocument();
+
+    await sendText("tool question");
+    await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(1));
+
+    // Backend now reflects exactly that same-tab tool turn. The persisted agent
+    // tool message carries empty contextId/taskId, as the real backend stores it.
+    mockBackendTasks([
+      completedTask("task-initial", initialTurn),
+      completedTask("task-streamed", [
+        textMessage(sentMessage().messageId, "user", "tool question", "session-1", "task-streamed"),
+        toolCallMessage("backend-tool", "", "", "shared-call"),
+      ]),
+    ]);
+    await sendText("next question");
+
+    await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(2));
+    expect(mockToastInfo).not.toHaveBeenCalledWith(staleToastMessage);
+  });
+
   it("still blocks when the backend has a cross-tab message not visible locally", async () => {
     mockBackendTasks([completedTask("task-initial", initialTurn)]);
 
