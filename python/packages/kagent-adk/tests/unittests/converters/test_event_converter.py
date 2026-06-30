@@ -117,3 +117,23 @@ class TestEventConverter:
         error_code_key = get_kagent_metadata_key("error_code")
         assert error_code_key in error_event.metadata
         assert error_event.metadata[error_code_key] == str(genai_types.FinishReason.MALFORMED_FUNCTION_CALL)
+
+    def test_message_carries_task_and_context_ids(self):
+        """The converted message stamps task_id/context_id so consumers that
+        flatten task.history can key it to its task without backfilling."""
+        invocation_context = _create_mock_invocation_context()
+        content = genai_types.Content(parts=[genai_types.Part(text="hello world")])
+        event = _create_mock_event(content=content, invocation_id="test_invocation_ids")
+
+        result = convert_event_to_a2a_events(
+            event, invocation_context, task_id="task-xyz", context_id="ctx-xyz"
+        )
+
+        working_events = [
+            e for e in result if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+        ]
+        assert len(working_events) == 1
+        message = working_events[0].status.message
+        assert message is not None
+        assert message.task_id == "task-xyz"
+        assert message.context_id == "ctx-xyz"
