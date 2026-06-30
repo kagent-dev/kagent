@@ -204,6 +204,68 @@ func TestReconcileActorTemplateRecreatesOnSpecDrift(t *testing.T) {
 	require.Empty(t, got.Status.GoldenActorID, "recreated template starts without a golden actor")
 }
 
+func TestReconcileActorTemplatePatchesAnnotationsWhenSpecMatches(t *testing.T) {
+	t.Parallel()
+
+	scheme := runtime.NewScheme()
+	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
+
+	key := types.NamespacedName{Namespace: "kagent", Name: "agent-openai"}
+	spec := atev1alpha1.ActorTemplateSpec{
+		PauseImage:   "registry.example/pause@sha256:a0",
+		SandboxClass: atev1alpha1.SandboxClassGvisor,
+		Containers: []atev1alpha1.Container{{
+			Name:  "kagent",
+			Image: "registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+		}},
+	}
+
+	existing := &atev1alpha1.ActorTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        key.Name,
+			Namespace:   key.Namespace,
+			Labels:      map[string]string{SandboxAgentLabelKey: "agent"},
+			Annotations: map[string]string{desiredGenerationAnnotation: "4"},
+		},
+		Spec:   spec,
+		Status: atev1alpha1.ActorTemplateStatus{Phase: atev1alpha1.PhaseReady},
+	}
+	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+
+	desired := &atev1alpha1.ActorTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        key.Name,
+			Namespace:   key.Namespace,
+			Labels:      map[string]string{SandboxAgentLabelKey: "agent"},
+			Annotations: map[string]string{desiredGenerationAnnotation: "6"},
+		},
+		Spec: spec,
+	}
+
+	require.NoError(t, reconcileActorTemplate(context.Background(), kube, nil, desired))
+
+	var got atev1alpha1.ActorTemplate
+	require.NoError(t, kube.Get(context.Background(), key, &got))
+	require.Equal(t, "6", got.Annotations[desiredGenerationAnnotation], "flip-back must bump desired-generation without recreating the template")
+
+	// After the annotation is current, routing must prefer this template over a stale Ready sibling.
+	stale := &atev1alpha1.ActorTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "agent-gemini",
+			Namespace:   key.Namespace,
+			Labels:      map[string]string{SandboxAgentLabelKey: "agent"},
+			Annotations: map[string]string{desiredGenerationAnnotation: "5"},
+		},
+		Status: atev1alpha1.ActorTemplateStatus{Phase: atev1alpha1.PhaseReady},
+	}
+	require.NoError(t, kube.Create(context.Background(), stale))
+
+	current, err := ResolveCurrentActorTemplate(context.Background(), kube, key.Namespace, "agent")
+	require.NoError(t, err)
+	require.NotNil(t, current)
+	require.Equal(t, "agent-openai", current.Name)
+}
+
 func TestReconcileActorTemplatePendingDuringGoldenActorDelete(t *testing.T) {
 	t.Parallel()
 

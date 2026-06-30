@@ -41,7 +41,7 @@ func actorTemplateSpecEqual(a, b atev1alpha1.ActorTemplateSpec) bool {
 // reconcileActorTemplate applies the desired ActorTemplate with immutable-spec semantics:
 //
 //   - not found        -> create
-//   - spec matches     -> patch labels/owner refs only (never the spec)
+//   - spec matches     -> patch labels/annotations/owner refs only (never the spec)
 //   - spec drifts      -> delete the golden actor, delete the CR, recreate
 //
 // On spec drift it performs at most one mutating step per call. When more work
@@ -61,15 +61,18 @@ func reconcileActorTemplate(ctx context.Context, c client.Client, ate *Client, d
 		return fmt.Errorf("get ActorTemplate %s: %w", key, err)
 	}
 
-	// If the spec is semantically equal, update the labels and owner references only.
+	// If the spec is semantically equal, update the labels and annotations and owner references only.
 	if actorTemplateSpecEqual(existing.Spec, desired.Spec) {
-		merged := mergeLabels(existing.Labels, desired.Labels)
-		if maps.Equal(existing.Labels, merged) &&
+		mergedLabels := mergeLabels(existing.Labels, desired.Labels)
+		mergedAnnotations := mergeLabels(existing.Annotations, desired.Annotations)
+		if maps.Equal(existing.Labels, mergedLabels) &&
+			maps.Equal(existing.Annotations, mergedAnnotations) &&
 			apiequality.Semantic.DeepEqual(existing.OwnerReferences, desired.OwnerReferences) {
 			return nil
 		}
 		patch := client.MergeFrom(existing.DeepCopy())
-		existing.Labels = merged
+		existing.Labels = mergedLabels
+		existing.Annotations = mergedAnnotations
 		existing.OwnerReferences = desired.OwnerReferences
 		if err := c.Patch(ctx, existing, patch); err != nil {
 			return fmt.Errorf("patch ActorTemplate %s metadata: %w", key, err)
