@@ -102,15 +102,15 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			Annotations: annotations,
 		},
 		Spec: atev1alpha1.ActorTemplateSpec{
-			PauseImage: p.Defaults.PauseImage,
-			Runsc:      defaultRunscConfig(p.Defaults),
+			PauseImage:   p.Defaults.PauseImage,
+			SandboxClass: atev1alpha1.SandboxClassGvisor,
 			Containers: []atev1alpha1.Container{{
 				Name:    defaultKagentContainer,
 				Image:   image,
 				Command: command,
 				Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
 			}},
-			WorkerPoolRef: corev1.ObjectReference{Name: wpKey.Name, Namespace: wpKey.Namespace},
+			WorkerSelector: workerSelectorForPool(wpKey),
 			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
 				Location: sandboxAgentSnapshotsLocation(sa),
 			},

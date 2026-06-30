@@ -5,11 +5,11 @@ name: UI Storybook & Chromatic
 
 on:
   push:
-    branches: [main, release/v0.7.x]
+    branches: [main, "release/**"]
     paths:
       - "ui/**"
   pull_request:
-    branches: [main, release/v0.7.x]
+    branches: [main, "release/**"]
     paths:
       - "ui/**"
   workflow_dispatch:
