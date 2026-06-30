@@ -16,7 +16,14 @@ import (
 // TestE2EFileUploadGoADKAgent verifies the end-to-end file upload round trip on
 // a Go ADK agent: a user uploads a file inline (A2A file part) and the agent
 // processes the request (file persisted as an artifact via
-// SaveInputBlobsAsArtifacts) and responds successfully (AC8 upload path).
+// SaveInputBlobsAsArtifacts) and responds successfully.
+//
+// The mock matches the artifact-save placeholder ("...has been saved to the
+// artifacts") rather than the user's typed prompt. SaveInputBlobsAsArtifacts
+// persists the inbound blob and replaces the inline part with that placeholder
+// before the model is called, so the placeholder only appears in the model
+// request if the a2a-ingest -> save-as-artifact pipeline actually ran. Matching
+// the user's typed text instead would pass even if the upload were dropped.
 func TestE2EFileUploadGoADKAgent(t *testing.T) {
 	baseURL, stopServer := setupMockServer(t, "mocks/invoke_file_upload_agent.json")
 	defer stopServer()

@@ -5,7 +5,7 @@
       "match": {
         "match_type": "contains",
         "message": {
-          "content": "confirm you received the uploaded file",
+          "content": "has been saved to the artifacts",
           "role": "user"
         }
       },

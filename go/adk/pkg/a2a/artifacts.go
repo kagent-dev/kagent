@@ -94,7 +94,7 @@ func asFilePart(part a2atype.Part) *a2atype.FilePart {
 
 // emitArtifacts loads each artifact named in delta from the artifact service
 // and emits it as an A2A artifact event carrying a FilePart. Load/convert
-// failures are logged and skipped so the turn continues (AC4).
+// failures are logged and skipped so the turn continues.
 func (e *KAgentExecutor) emitArtifacts(
 	ctx context.Context,
 	reqCtx *a2asrv.RequestContext,

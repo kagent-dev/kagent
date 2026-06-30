@@ -8,8 +8,7 @@ import (
 )
 
 // TestCreateRunnerConfig_WiresArtifactService verifies that CreateRunnerConfig
-// sets a non-nil ArtifactService so agents/tools get a working ctx.Artifacts()
-// (AC1).
+// sets a non-nil ArtifactService so agents/tools get a working ctx.Artifacts().
 func TestCreateRunnerConfig_WiresArtifactService(t *testing.T) {
 	tests := []struct {
 		name    string

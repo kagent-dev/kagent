@@ -323,7 +323,7 @@ Use the script in scripts/convert.py.
 }
 
 // TestBuildAgentTools_RegistersLoadArtifactsTool verifies that every agent's
-// tool list includes the built-in load_artifacts tool (AC5).
+// tool list includes the built-in load_artifacts tool.
 func TestBuildAgentTools_RegistersLoadArtifactsTool(t *testing.T) {
 	tests := []struct {
 		name   string
