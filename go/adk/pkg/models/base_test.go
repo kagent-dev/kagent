@@ -14,7 +14,7 @@ func TestMergeSystemInstructionFromConfig(t *testing.T) {
 		want     string
 	}{
 		{
-			name: "nil config returns trimmed existing",
+			name:     "nil config returns trimmed existing",
 			existing: "  hello  ",
 			want:     "hello",
 		},
