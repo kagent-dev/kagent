@@ -191,6 +191,16 @@ controller:
   # internally. These values have no effect and will be removed in a future release.
   streaming: null
 
+  # -- HTTP client timeout for A2A requests from the controller to agent pods.
+  # 0 (the default) means no timeout, which is correct for SSE-based streaming agents
+  # that can run for an arbitrarily long time. The previous implicit default was 3m
+  # (inherited from the a2a-go SDK), which caused `context deadline exceeded` errors
+  # for agents that take longer than 3 minutes to complete.
+  # Set a positive Go duration string (e.g. "30m", "1h") only if you need a hard
+  # upper bound on individual A2A calls.
+  # @default -- "" (no timeout)
+  a2aClientTimeout: ""
+
   # -- Namespaces the controller should watch.
   # If empty, the controller will watch ALL available namespaces.
   # @default -- [] (watches all available namespaces)

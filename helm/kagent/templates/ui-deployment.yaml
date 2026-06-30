@@ -63,6 +63,9 @@ spec:
             {{- if .Values.ui.auth }}
             - name: SSO_REDIRECT_PATH
               value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
+            # Client components (e.g. AuthContext) can only read NEXT_PUBLIC_* vars at runtime.
+            - name: NEXT_PUBLIC_SSO_REDIRECT_PATH
+              value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
             {{- end }}
             {{- if .Values.ui.streamTimeoutSeconds }}
             - name: KAGENT_STREAM_TIMEOUT_MS
