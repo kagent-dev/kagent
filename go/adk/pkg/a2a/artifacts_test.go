@@ -62,7 +62,7 @@ func TestMaxArtifactBytes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// checkInboundFileSizes (AC2)
+// checkInboundFileSizes
 // ---------------------------------------------------------------------------
 
 func fileBytesMessage(name string, data []byte) *a2atype.Message {
@@ -122,7 +122,7 @@ func TestCheckInboundFileSizes_PointerPart(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// emitArtifacts (AC4)
+// emitArtifacts
 // ---------------------------------------------------------------------------
 
 func TestEmitArtifacts_EmitsFilePart(t *testing.T) {

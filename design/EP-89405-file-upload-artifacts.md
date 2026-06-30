@@ -1,6 +1,6 @@
 # EP-89405: File Upload & Artifact Support in Chat
 
-* Issue: [MSFN-89405] (internal) — feat: file upload feature
+* Issue: [#2077](https://github.com/kagent-dev/kagent/pull/2077) — feat: file upload feature
 * Status: `implemented` (branch `feature/file-upload-artifacts`, commit `ccfada50`)
 * Related: EP-2046 (Chat UI for MCP UI widgets) — shares the chat files but
   explicitly excludes the file-upload backend, which this EP owns.

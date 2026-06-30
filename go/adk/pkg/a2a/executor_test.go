@@ -32,7 +32,7 @@ func noopAgent(t *testing.T, name string) adkagent.Agent {
 }
 
 // TestExecute_PersistsInboundUploads verifies that an inbound file upload is
-// persisted to the artifact service via SaveInputBlobsAsArtifacts (AC3).
+// persisted to the artifact service via SaveInputBlobsAsArtifacts.
 func TestExecute_PersistsInboundUploads(t *testing.T) {
 	ctx := context.Background()
 	const (
@@ -95,7 +95,7 @@ func TestExecute_PersistsInboundUploads(t *testing.T) {
 }
 
 // TestExecute_RejectsOversizedUpload verifies the server-side size guard fails
-// the task for an oversized inbound file (AC2).
+// the task for an oversized inbound file.
 func TestExecute_RejectsOversizedUpload(t *testing.T) {
 	ctx := context.Background()
 	const (
