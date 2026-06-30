@@ -29,7 +29,7 @@ modified — `cictl` ships only read-only verbs.
                     │
                     │  skill loaded from gitRefs:
                     │    https://github.com/Feelings0220/cictl @ v0.1.0
-                    │    path: skills
+                    │    path: skills, name: cictl  (→ /skills/cictl)
                     │
                     └─▶ runs cictl jenkins … via BashTool
                             │
@@ -48,9 +48,9 @@ image built from kagent's `app` image with `cictl` COPY'd in.
 
 ## Prerequisites
 
-1. **kagent installed** with `app.agentImage` either pointing at a custom image
-   that has `cictl` in `PATH`, or otherwise made available to the Agent's main
-   container. Build instructions:
+1. **kagent installed** with `controller.agentImage` (in the Helm chart) either
+   pointing at a custom image that has `cictl` in `PATH`, or otherwise made
+   available to the Agent's main container. Build instructions:
    [cictl/docs/runtime-setup.md](https://github.com/Feelings0220/cictl/blob/v0.1.0/docs/runtime-setup.md).
 2. **A Jenkins API token** for a read-only user. Generate at
    *People → \<your user\> → Configure → API Token*.
@@ -83,7 +83,7 @@ kubectl apply -f - <<'EOF'
 EOF
 ```
 
-## Step 2 — Apply the Agent CRD
+## Step 2 — Apply the Agent
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
@@ -102,6 +102,7 @@ spec:
       - url: https://github.com/Feelings0220/cictl
         ref: v0.1.0
         path: skills
+        name: cictl   # mounts the skill under /skills/cictl
   declarative:
     runtime: go
     modelConfig: default-model-config
@@ -109,7 +110,7 @@ spec:
       You are a Jenkins triage agent.
 
       You have access to the `cictl` CLI for querying Jenkins read-only. The
-      `jenkins` skill in /skills describes every available command and a
+      `jenkins` skill in /skills/cictl describes every available command and a
       triage playbook. Follow it.
 
       Hard rules:
