@@ -37,6 +37,7 @@ func TestConvertGenaiContentsToBedrockMessages(t *testing.T) {
 	tests := []struct {
 		name           string
 		contents       []*genai.Content
+		config         *genai.GenerateContentConfig
 		wantMsgCount   int
 		wantSystemText string
 		checkMsg       func(t *testing.T, msgs []types.Message)
@@ -56,6 +57,36 @@ func TestConvertGenaiContentsToBedrockMessages(t *testing.T) {
 			},
 			wantMsgCount:   1,
 			wantSystemText: "You are a helpful assistant",
+		},
+		{
+			name: "system instruction from config",
+			contents: []*genai.Content{
+				{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
+			},
+			config: &genai.GenerateContentConfig{
+				SystemInstruction: &genai.Content{
+					Parts: []*genai.Part{
+						{Text: "You are a test agent."},
+						{Text: "Begin EVERY reply with ZEBRA9."},
+					},
+				},
+			},
+			wantMsgCount:   1,
+			wantSystemText: "You are a test agent.\nBegin EVERY reply with ZEBRA9.",
+		},
+		{
+			name: "system instruction from config merges with content role system",
+			contents: []*genai.Content{
+				{Role: "system", Parts: []*genai.Part{{Text: "From contents"}}},
+				{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
+			},
+			config: &genai.GenerateContentConfig{
+				SystemInstruction: &genai.Content{
+					Parts: []*genai.Part{{Text: "From config"}},
+				},
+			},
+			wantMsgCount:   1,
+			wantSystemText: "From contents\nFrom config",
 		},
 		{
 			name: "user and model conversation",
@@ -142,7 +173,7 @@ func TestConvertGenaiContentsToBedrockMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			msgs, systemText := convertGenaiContentsToBedrockMessages(tt.contents, nil)
+			msgs, systemText := convertGenaiContentsToBedrockMessages(tt.contents, nil, tt.config)
 			if len(msgs) != tt.wantMsgCount {
 				t.Errorf("expected %d messages, got %d", tt.wantMsgCount, len(msgs))
 			}
@@ -487,7 +518,7 @@ func TestThinkingOnlyInLastAssistantTurn(t *testing.T) {
 		},
 	}
 
-	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil)
+	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil, nil)
 	if len(msgs) != 4 {
 		t.Fatalf("want 4 messages, got %d", len(msgs))
 	}
@@ -524,7 +555,7 @@ func TestHistoricalToolResultTruncation(t *testing.T) {
 		},
 	}
 
-	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil)
+	msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil, nil)
 	if len(msgs) != 2 {
 		t.Fatalf("want 2 messages, got %d", len(msgs))
 	}
