@@ -127,11 +127,12 @@ func (a *adkApiTranslator) CompileAgent(
 	switch spec.Type {
 	case v1alpha2.AgentType_Declarative:
 		var mdd *modelDeploymentData
-		cfg, mdd, secretHashBytes, err = a.translateInlineAgent(ctx, agent)
+		var mrr *modelRuntimeRequirements
+		cfg, mdd, mrr, secretHashBytes, err = a.translateInlineAgent(ctx, agent)
 		if err != nil {
 			return nil, err
 		}
-		dep, err = resolveInlineDeployment(agent, mdd)
+		dep, err = resolveInlineDeployment(agent, mdd, mrr)
 		if err != nil {
 			return nil, err
 		}
@@ -210,17 +211,20 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 	return nil
 }
 
-func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alpha2.AgentObject) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
+func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alpha2.AgentObject) (*adk.AgentConfig, *modelDeploymentData, *modelRuntimeRequirements, []byte, error) {
 	spec := agent.GetAgentSpec()
-	model, mdd, secretHashBytes, err := a.translateModel(ctx, agent.GetNamespace(), spec.Declarative.ModelConfig)
+	model, mdd, mrr, secretHashBytes, err := a.translateModel(ctx, agent.GetNamespace(), spec.Declarative.ModelConfig)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
+	}
+	if err := requireFoundryGoRuntime(agent, model.GetType()); err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	// Resolve the raw system message (template processing happens after tools are translated).
 	rawSystemMessage, err := a.resolveRawSystemMessage(ctx, agent)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	cfg := &adk.AgentConfig{
@@ -263,12 +267,18 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 				if summarizerModelName == "" || summarizerModelName == spec.Declarative.ModelConfig {
 					compCfg.SummarizerModel = model
 				} else {
-					summarizerModel, summarizerMdd, summarizerSecretHash, err := a.translateModel(ctx, agent.GetNamespace(), summarizerModelName)
+					summarizerModel, summarizerMdd, summarizerMrr, summarizerSecretHash, err := a.translateModel(ctx, agent.GetNamespace(), summarizerModelName)
 					if err != nil {
-						return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", summarizerModelName, err)
+						return nil, nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", summarizerModelName, err)
+					}
+					if err := requireFoundryGoRuntime(agent, summarizerModel.GetType()); err != nil {
+						return nil, nil, nil, nil, err
 					}
 					compCfg.SummarizerModel = summarizerModel
 					mergeDeploymentData(mdd, summarizerMdd)
+					if err := mergeRuntimeRequirements(mrr, summarizerMrr); err != nil {
+						return nil, nil, nil, nil, err
+					}
 					if len(summarizerSecretHash) > 0 {
 						secretHashBytes = append(secretHashBytes, summarizerSecretHash...)
 					}
@@ -289,9 +299,12 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 
 	// Handle Memory Configuration: presence of Memory field enables it.
 	if spec.Declarative.Memory != nil {
-		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.GetNamespace(), spec.Declarative.Memory.ModelConfig)
+		embCfg, embMdd, embMrr, embHash, err := a.translateEmbeddingConfig(ctx, agent.GetNamespace(), spec.Declarative.Memory.ModelConfig)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
+		}
+		if err := requireFoundryGoRuntime(agent, embCfg.Provider); err != nil {
+			return nil, nil, nil, nil, err
 		}
 
 		cfg.Memory = &adk.MemoryConfig{
@@ -300,6 +313,9 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		}
 
 		mergeDeploymentData(mdd, embMdd)
+		if err := mergeRuntimeRequirements(mrr, embMrr); err != nil {
+			return nil, nil, nil, nil, err
+		}
 		if spec.Declarative.Memory.ModelConfig != spec.Declarative.ModelConfig {
 			secretHashBytes = append(secretHashBytes, embHash...)
 		}
@@ -308,14 +324,14 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 	for _, tool := range spec.Declarative.Tools {
 		headers, err := tool.ResolveHeaders(ctx, a.kube, agent.GetNamespace())
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 
 		switch {
 		case tool.McpServer != nil:
 			toolHashBytes, err := a.translateMCPServerTarget(ctx, cfg, mdd, agent.GetNamespace(), tool.McpServer, headers, a.globalProxyURL)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 			// Fold the RemoteMCPServer's TLS-Secret hash into the agent
 			// config hash so an in-place rotation of the RMS CA Secret
@@ -329,11 +345,11 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		case tool.Agent != nil:
 			toolAgent, err := a.getToolAgent(ctx, tool.Agent, agent.GetNamespace())
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, err
 			}
 
 			if agentStateKey(toolAgent) == agentStateKey(agent) {
-				return nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", utils.GetObjectRef(toolAgent))
+				return nil, nil, nil, nil, fmt.Errorf("agent tool cannot be used to reference itself, %s", utils.GetObjectRef(toolAgent))
 			}
 
 			toolSpec := toolAgent.GetAgentSpec()
@@ -345,7 +361,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 				if a.globalProxyURL != "" {
 					targetURL, headers, err = applyProxyURL(originalURL, a.globalProxyURL, headers)
 					if err != nil {
-						return nil, nil, nil, err
+						return nil, nil, nil, nil, err
 					}
 				}
 
@@ -356,30 +372,37 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 					Description: toolSpec.Description,
 				})
 			default:
-				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolSpec.Type)
+				return nil, nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolSpec.Type)
 			}
 
 		default:
-			return nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
+			return nil, nil, nil, nil, fmt.Errorf("tool must have a provider or tool server")
 		}
 	}
 
 	if spec.Declarative.PromptTemplate != nil && len(spec.Declarative.PromptTemplate.DataSources) > 0 {
 		lookup, err := resolvePromptSources(ctx, a.kube, agent.GetNamespace(), spec.Declarative.PromptTemplate.DataSources)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to resolve prompt sources: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to resolve prompt sources: %w", err)
 		}
 
 		tplCtx := buildTemplateContext(agent, cfg)
 
 		resolved, err := executeSystemMessageTemplate(cfg.Instruction, lookup, tplCtx)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to execute system message template: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to execute system message template: %w", err)
 		}
 		cfg.Instruction = resolved
 	}
 
-	return cfg, mdd, secretHashBytes, nil
+	return cfg, mdd, mrr, secretHashBytes, nil
+}
+
+func requireFoundryGoRuntime(agent v1alpha2.AgentObject, modelType string) error {
+	if modelType == adk.ModelTypeFoundry && v1alpha2.EffectiveDeclarativeRuntimeForAgent(agent) != v1alpha2.DeclarativeRuntime_Go {
+		return fmt.Errorf("Foundry model provider requires declarative runtime %q", v1alpha2.DeclarativeRuntime_Go)
+	}
+	return nil
 }
 
 // resolveRawSystemMessage gets the raw system message string from the agent spec

@@ -8,6 +8,7 @@ import { Provider } from "@/types";
 import { PROVIDERS_INFO, getProviderFormKey, BackendModelProviderType } from "@/lib/providers"; 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ValidationErrors {
   name?: string;
@@ -16,6 +17,8 @@ interface ValidationErrors {
   requiredParams?: Record<string, string>;
   optionalParams?: string;
 }
+
+type FoundryAuthType = "APIKey" | "WorkloadIdentity" | "APIKeyPassthrough";
 
 interface AuthSectionProps {
   isOllamaSelected: boolean;
@@ -30,20 +33,45 @@ interface AuthSectionProps {
   selectedProvider: Provider | null;
   isApiKeyNeeded: boolean;
   onApiKeyNeededChange: (isApiKeyNeeded: boolean) => void;
+  foundryAuthType: FoundryAuthType;
+  onFoundryAuthTypeChange: (authType: FoundryAuthType) => void;
 }
 
 export const AuthSection: React.FC<AuthSectionProps> = ({
   isOllamaSelected, isEditMode, apiKey, showApiKey, errors, isSubmitting,
   isLoading, onApiKeyChange, onToggleShowApiKey, selectedProvider,
-  isApiKeyNeeded, onApiKeyNeededChange
+  isApiKeyNeeded, onApiKeyNeededChange, foundryAuthType, onFoundryAuthTypeChange
 }) => {
+  const isFoundrySelected = selectedProvider?.type === "Foundry";
+  const showApiKeyInput = !isOllamaSelected && (!isFoundrySelected || foundryAuthType === "APIKey");
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Authentication</CardTitle>
       </CardHeader>
       <CardContent>
-        {!isOllamaSelected ? (
+        {isFoundrySelected && (
+          <div className="mb-4 space-y-2">
+            <Label htmlFor="foundry-auth-type">Foundry auth type</Label>
+            <Select
+              value={foundryAuthType}
+              onValueChange={(value) => onFoundryAuthTypeChange(value as FoundryAuthType)}
+              disabled={isSubmitting || isLoading}
+            >
+              <SelectTrigger id="foundry-auth-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="WorkloadIdentity">Workload Identity</SelectItem>
+                <SelectItem value="APIKey">API Key</SelectItem>
+                <SelectItem value="APIKeyPassthrough">API Key Passthrough</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {showApiKeyInput ? (
           <div>
             <label className="text-sm mb-2 block">
               API Key {isEditMode && "(Leave blank to keep existing)"}
@@ -86,7 +114,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
                )}
              </div>
              {errors.apiKey && <p className="text-destructive text-sm mt-1">{errors.apiKey}</p>}
-            <div className="flex items-center space-x-2 pt-3">
+            {!isFoundrySelected && <div className="flex items-center space-x-2 pt-3">
               <Checkbox
                 id="api-gateway-checkbox"
                 checked={!isApiKeyNeeded}
@@ -105,11 +133,11 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
               >
                 I don&apos;t need to provide an API key
               </Label>
-            </div>
+            </div>}
            </div>
         ) : (
           <div className="border bg-accent border-border p-3 rounded text-sm text-accent-foreground">
-            Ollama models run locally and do not require an API key.
+            {isFoundrySelected ? "No API key will be stored for this auth mode." : "Ollama models run locally and do not require an API key."}
           </div>
         )}
       </CardContent>

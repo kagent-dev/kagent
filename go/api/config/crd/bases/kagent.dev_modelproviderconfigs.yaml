@@ -91,6 +91,7 @@ spec:
                 - AnthropicVertexAI
                 - Bedrock
                 - SAPAICore
+                - Foundry
                 type: string
             required:
             - type

@@ -39,10 +39,13 @@ import (
 )
 
 const (
-	MCPServiceLabel              = "kagent.dev/mcp-service"
-	MCPServicePathAnnotation     = "kagent.dev/mcp-service-path"
-	MCPServicePortAnnotation     = "kagent.dev/mcp-service-port"
-	MCPServiceProtocolAnnotation = "kagent.dev/mcp-service-protocol"
+	MCPServiceLabel                         = "kagent.dev/mcp-service"
+	MCPServicePathAnnotation                = "kagent.dev/mcp-service-path"
+	MCPServicePortAnnotation                = "kagent.dev/mcp-service-port"
+	MCPServiceProtocolAnnotation            = "kagent.dev/mcp-service-protocol"
+	azureWorkloadIdentityUseLabel           = "azure.workload.identity/use"
+	azureWorkloadIdentityClientIDAnnotation = "azure.workload.identity/client-id"
+	azureWorkloadIdentityTenantIDAnnotation = "azure.workload.identity/tenant-id"
 
 	MCPServicePathDefault     = "/mcp"
 	MCPServiceProtocolDefault = v1alpha2.RemoteMCPServerProtocolStreamableHttp
@@ -415,25 +418,91 @@ func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData,
 	}
 }
 
-// translateEmbeddingConfig resolves the embedding ModelConfig and returns the
-// EmbeddingConfig for the Python config JSON, the deployment data for the
-// embedding model, and the raw secret hash bytes (caller decides whether to
-// include them). The caller should use mergeDeploymentData to combine the
-// returned deployment data with the existing deployment data.
-func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespace, modelConfigName string) (*adk.EmbeddingConfig, *modelDeploymentData, []byte, error) {
-	embModel, embMdd, embHash, err := a.translateModel(ctx, namespace, modelConfigName)
-	if err != nil {
-		return nil, nil, nil, err
+func (a *adkApiTranslator) resolveFoundryValueSource(ctx context.Context, namespace string, source *v1alpha2.FoundryValueSource) (string, error) {
+	if source == nil || source.ConfigMapKeyRef == nil {
+		return "", nil
 	}
-
-	return adk.ModelToEmbeddingConfig(embModel), embMdd, embHash, nil
+	cm := &corev1.ConfigMap{}
+	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: source.ConfigMapKeyRef.Name}, cm); err != nil {
+		return "", fmt.Errorf("failed to get Foundry config map %s: %w", source.ConfigMapKeyRef.Name, err)
+	}
+	value, ok := cm.Data[source.ConfigMapKeyRef.Key]
+	if !ok {
+		if source.ConfigMapKeyRef.Optional != nil && *source.ConfigMapKeyRef.Optional {
+			return "", nil
+		}
+		return "", fmt.Errorf("Foundry config map %s does not contain key %q", source.ConfigMapKeyRef.Name, source.ConfigMapKeyRef.Key)
+	}
+	return value, nil
 }
 
-func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, []byte, error) {
+func (a *adkApiTranslator) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha2.FoundryConfig) (string, error) {
+	if cfg.Endpoint != "" {
+		return cfg.Endpoint, nil
+	}
+	if cfg.EndpointFrom == nil || cfg.EndpointFrom.ConfigMapKeyRef == nil {
+		return "", nil
+	}
+	return a.resolveFoundryValueSource(ctx, namespace, &v1alpha2.FoundryValueSource{ConfigMapKeyRef: cfg.EndpointFrom.ConfigMapKeyRef})
+}
+
+func (a *adkApiTranslator) addFoundryWorkloadIdentityConfiguration(ctx context.Context, namespace string, mrr *modelRuntimeRequirements, auth *v1alpha2.FoundryAuthConfig) error {
+	if auth == nil || auth.Type != v1alpha2.FoundryAuthTypeWorkloadIdentity || auth.WorkloadIdentity == nil {
+		return nil
+	}
+	wi := auth.WorkloadIdentity
+	clientID := wi.ClientID
+	if clientID == "" {
+		var err error
+		clientID, err = a.resolveFoundryValueSource(ctx, namespace, wi.ClientIDFrom)
+		if err != nil {
+			return err
+		}
+	}
+	if clientID == "" {
+		return fmt.Errorf("Foundry workload identity clientId is required")
+	}
+	tenantID := wi.TenantID
+	if tenantID == "" {
+		var err error
+		tenantID, err = a.resolveFoundryValueSource(ctx, namespace, wi.TenantIDFrom)
+		if err != nil {
+			return err
+		}
+	}
+	if mrr.PodLabels == nil {
+		mrr.PodLabels = map[string]string{}
+	}
+	mrr.PodLabels[azureWorkloadIdentityUseLabel] = "true"
+	if mrr.ServiceAccountAnnotations == nil {
+		mrr.ServiceAccountAnnotations = map[string]string{}
+	}
+	mrr.ServiceAccountAnnotations[azureWorkloadIdentityClientIDAnnotation] = clientID
+	if tenantID != "" {
+		mrr.ServiceAccountAnnotations[azureWorkloadIdentityTenantIDAnnotation] = tenantID
+	}
+	return nil
+}
+
+// translateEmbeddingConfig resolves the embedding ModelConfig and returns the
+// EmbeddingConfig for the Python config JSON, the deployment data and runtime
+// requirements for the embedding model, and the raw secret hash bytes (caller
+// decides whether to include them). The caller should merge the returned data
+// with the existing model data.
+func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespace, modelConfigName string) (*adk.EmbeddingConfig, *modelDeploymentData, *modelRuntimeRequirements, []byte, error) {
+	embModel, embMdd, embMrr, embHash, err := a.translateModel(ctx, namespace, modelConfigName)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	return adk.ModelToEmbeddingConfig(embModel), embMdd, embMrr, embHash, nil
+}
+
+func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, *modelRuntimeRequirements, []byte, error) {
 	model := &v1alpha2.ModelConfig{}
 	err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: modelConfig}, model)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Decode hex-encoded secret hash to bytes
@@ -441,12 +510,13 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	if model.Status.SecretHash != "" {
 		decoded, err := hex.DecodeString(model.Status.SecretHash)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to decode secret hash: %w", err)
+			return nil, nil, nil, nil, fmt.Errorf("failed to decode secret hash: %w", err)
 		}
 		secretHashBytes = decoded
 	}
 
 	modelDeploymentData := &modelDeploymentData{}
+	modelRuntimeRequirements := &modelRuntimeRequirements{}
 
 	// Add TLS configuration if present
 	addTLSConfiguration(modelDeploymentData, model.Spec.TLS)
@@ -510,7 +580,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				})
 			}
 		}
-		return openai, modelDeploymentData, secretHashBytes, nil
+		return openai, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropic:
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
@@ -547,10 +617,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				anthropic.TopK = &spec.TopK
 			}
 		}
-		return anthropic, modelDeploymentData, secretHashBytes, nil
+		return anthropic, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
 	case v1alpha2.ModelProviderAzureOpenAI:
 		if model.Spec.AzureOpenAI == nil {
-			return nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
+			return nil, nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
 		if !model.Spec.APIKeyPassthrough {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
@@ -596,10 +666,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
 		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
-		return azureOpenAI, modelDeploymentData, secretHashBytes, nil
+		return azureOpenAI, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
 	case v1alpha2.ModelProviderGeminiVertexAI:
 		if model.Spec.GeminiVertexAI == nil {
-			return nil, nil, nil, fmt.Errorf("GeminiVertexAI model config is required")
+			return nil, nil, nil, nil, fmt.Errorf("GeminiVertexAI model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  env.GoogleCloudProject.Name(),
@@ -641,10 +711,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
 		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
-		return gemini, modelDeploymentData, secretHashBytes, nil
+		return gemini, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil {
-			return nil, nil, nil, fmt.Errorf("AnthropicVertexAI model config is required")
+			return nil, nil, nil, nil, fmt.Errorf("AnthropicVertexAI model config is required")
 		}
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name:  env.GoogleCloudProject.Name(),
@@ -682,10 +752,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		populateTLSFields(&anthropic.BaseModel, model.Spec.TLS)
 		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
-		return anthropic, modelDeploymentData, secretHashBytes, nil
+		return anthropic, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
 	case v1alpha2.ModelProviderOllama:
 		if model.Spec.Ollama == nil {
-			return nil, nil, nil, fmt.Errorf("ollama model config is required")
+			return nil, nil, nil, nil, fmt.Errorf("ollama model config is required")
 		}
 		host := model.Spec.Ollama.Host
 		if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
@@ -706,7 +776,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		populateTLSFields(&ollama.BaseModel, model.Spec.TLS)
 		ollama.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
-		return ollama, modelDeploymentData, secretHashBytes, nil
+		return ollama, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
 	case v1alpha2.ModelProviderGemini:
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name: env.GoogleAPIKey.Name(),
@@ -727,10 +797,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
-		return gemini, modelDeploymentData, secretHashBytes, nil
+		return gemini, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
 	case v1alpha2.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil {
-			return nil, nil, nil, fmt.Errorf("bedrock model config is required")
+			return nil, nil, nil, nil, fmt.Errorf("bedrock model config is required")
 		}
 
 		// Set AWS region (always required)
@@ -744,7 +814,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			secret := &corev1.Secret{}
 			if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: model.Spec.APIKeySecret}, secret); err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to get Bedrock credentials secret: %w", err)
+				return nil, nil, nil, nil, fmt.Errorf("failed to get Bedrock credentials secret: %w", err)
 			}
 
 			if _, hasBearerToken := secret.Data[env.AWSBearerTokenBedrock.Name()]; hasBearerToken {
@@ -801,7 +871,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		var additionalFields map[string]any
 		if model.Spec.Bedrock.AdditionalModelRequestFields != nil {
 			if err := json.Unmarshal(model.Spec.Bedrock.AdditionalModelRequestFields.Raw, &additionalFields); err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to unmarshal bedrock additionalModelRequestFields: %w", err)
+				return nil, nil, nil, nil, fmt.Errorf("failed to unmarshal bedrock additionalModelRequestFields: %w", err)
 			}
 		}
 		bedrock := &adk.Bedrock{
@@ -819,16 +889,16 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		populateTLSFields(&bedrock.BaseModel, model.Spec.TLS)
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
-		return bedrock, modelDeploymentData, secretHashBytes, nil
+		return bedrock, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
 	case v1alpha2.ModelProviderSAPAICore:
 		if model.Spec.SAPAICore == nil {
-			return nil, nil, nil, fmt.Errorf("sapAICore model config is required")
+			return nil, nil, nil, nil, fmt.Errorf("sapAICore model config is required")
 		}
 
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			secret := &corev1.Secret{}
 			if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: model.Spec.APIKeySecret}, secret); err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to get SAP AI Core credentials secret: %w", err)
+				return nil, nil, nil, nil, fmt.Errorf("failed to get SAP AI Core credentials secret: %w", err)
 			}
 
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
@@ -868,9 +938,70 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		populateTLSFields(&sapAICore.BaseModel, model.Spec.TLS)
 		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
-		return sapAICore, modelDeploymentData, secretHashBytes, nil
+		return sapAICore, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
+	case v1alpha2.ModelProviderFoundry:
+		if model.Spec.Foundry == nil {
+			return nil, nil, nil, nil, fmt.Errorf("Foundry model config is required")
+		}
+		cfg := model.Spec.Foundry
+		if cfg.Auth.Type == v1alpha2.FoundryAuthTypeAPIKey && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.FoundryAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
+		endpoint, err := a.resolveFoundryEndpoint(ctx, namespace, cfg)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		if endpoint != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  env.FoundryEndpoint.Name(),
+				Value: endpoint,
+			})
+		}
+		if cfg.Deployment != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  env.FoundryDeployment.Name(),
+				Value: cfg.Deployment,
+			})
+		}
+		apiVersion := cfg.APIVersion
+		if apiVersion == "" {
+			apiVersion = env.FoundryAPIVersion.DefaultValue()
+		}
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+			Name:  env.FoundryAPIVersion.Name(),
+			Value: apiVersion,
+		})
+		if cfg.Auth.Type == v1alpha2.FoundryAuthTypeWorkloadIdentity {
+			if err := a.addFoundryWorkloadIdentityConfiguration(ctx, namespace, modelRuntimeRequirements, &cfg.Auth); err != nil {
+				return nil, nil, nil, nil, err
+			}
+		}
+		foundry := &adk.Foundry{
+			BaseModel: adk.BaseModel{
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
+			},
+			Endpoint:   endpoint,
+			Deployment: cfg.Deployment,
+			APIVersion: apiVersion,
+			Auth:       adk.FoundryAuth{Type: adk.FoundryAuthType(cfg.Auth.Type)},
+		}
+		populateTLSFields(&foundry.BaseModel, model.Spec.TLS)
+		foundry.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+
+		return foundry, modelDeploymentData, modelRuntimeRequirements, secretHashBytes, nil
 	default:
-		return nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
+		return nil, nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}
 }
 
@@ -1214,6 +1345,22 @@ func mergeDeploymentData(dst, src *modelDeploymentData) {
 			dst.VolumeMounts = append(dst.VolumeMounts, sm)
 		}
 	}
+}
+
+func mergeRuntimeRequirements(dst, src *modelRuntimeRequirements) error {
+	if dst == nil || src == nil {
+		return nil
+	}
+	if dst.PodLabels == nil && len(src.PodLabels) > 0 {
+		dst.PodLabels = map[string]string{}
+	}
+	if err := mergeStringMapNoConflict(dst.PodLabels, src.PodLabels, "pod label"); err != nil {
+		return err
+	}
+	if dst.ServiceAccountAnnotations == nil && len(src.ServiceAccountAnnotations) > 0 {
+		dst.ServiceAccountAnnotations = map[string]string{}
+	}
+	return mergeStringMapNoConflict(dst.ServiceAccountAnnotations, src.ServiceAccountAnnotations, "service account annotation")
 }
 
 func collectOtelEnvFromProcess() []corev1.EnvVar {

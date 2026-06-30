@@ -21,6 +21,7 @@ import type {
     AnthropicVertexAIConfig,
     BedrockConfig,
     SAPAICoreConfigPayload,
+    FoundryConfig,
     ProviderModelsResponse,
 } from "@/types";
 import { toast } from "sonner";
@@ -50,6 +51,43 @@ interface ModelParam {
   key: string;
   value: string;
 }
+
+type FoundryAuthType = FoundryConfig["auth"]["type"];
+
+const DEFAULT_FOUNDRY_AUTH_TYPE: FoundryAuthType = "WorkloadIdentity";
+
+const getProviderRequiredParams = (provider: Provider | null, foundryAuthType: FoundryAuthType): string[] => {
+  const requiredKeys = provider?.requiredParams || [];
+  if (provider?.type !== 'Foundry') {
+    return requiredKeys;
+  }
+  return requiredKeys.filter(key => foundryAuthType === "WorkloadIdentity" || key !== "clientId");
+};
+
+const getProviderOptionalParams = (provider: Provider | null, foundryAuthType: FoundryAuthType): string[] => {
+  const optionalKeys = provider?.optionalParams || [];
+  if (provider?.type !== 'Foundry') {
+    return optionalKeys;
+  }
+  return optionalKeys.filter(key => foundryAuthType === "WorkloadIdentity" || key !== "tenantId");
+};
+
+const modelParamValues = (requiredParams: ModelParam[], optionalParams: ModelParam[]): Record<string, string> => {
+  return [...requiredParams, ...optionalParams].reduce((acc, param) => {
+    if (param.key.trim()) {
+      acc[param.key] = param.value;
+    }
+    return acc;
+  }, {} as Record<string, string>);
+};
+
+const modelParamsForKeys = (keys: string[], prefix: string, values: Record<string, string>): ModelParam[] => {
+  return keys.map((key, index) => ({
+    id: `${prefix}-${index}`,
+    key,
+    value: values[key] || "",
+  }));
+};
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const processModelParams = (requiredParams: ModelParam[], optionalParams: ModelParam[]): Record<string, any> => {
@@ -136,6 +174,7 @@ function ModelPageContent() {
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [existingApiKeySecret, setExistingApiKeySecret] = useState("");
   const [existingApiKeySecretKey, setExistingApiKeySecretKey] = useState("");
+  const [foundryAuthType, setFoundryAuthType] = useState<FoundryAuthType>(DEFAULT_FOUNDRY_AUTH_TYPE);
   const isOllamaSelected = selectedProvider?.type === "Ollama";
 
   useEffect(() => {
@@ -246,27 +285,45 @@ function ModelPageContent() {
           setExistingApiKeySecretKey(modelData.spec.apiKeySecretKey || "");
 
           const spec = modelData.spec;
-          const fetchedParams: Record<string, unknown> =
+          let fetchedParams: Record<string, unknown> =
             (spec.openAI ?? spec.anthropic ?? spec.azureOpenAI ?? spec.ollama ??
-             spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? spec.sapAICore ?? {}) as Record<string, unknown>;
+             spec.foundry ?? spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? spec.sapAICore ?? {}) as Record<string, unknown>;
+
+          let effectiveFoundryAuthType = DEFAULT_FOUNDRY_AUTH_TYPE;
+          if (spec.foundry?.auth) {
+            effectiveFoundryAuthType = spec.foundry.auth.type;
+            setFoundryAuthType(effectiveFoundryAuthType);
+            fetchedParams = { ...spec.foundry } as Record<string, unknown>;
+            if (spec.foundry.auth.workloadIdentity) {
+              fetchedParams.clientId = spec.foundry.auth.workloadIdentity.clientId;
+              fetchedParams.tenantId = spec.foundry.auth.workloadIdentity.tenantId;
+            }
+            delete fetchedParams.auth;
+          }
 
           if (provider?.type === 'Ollama') {
             setModelTag(extractedTag || 'latest');
           }
 
-          const requiredKeys = provider?.requiredParams || [];
+          const requiredKeys = getProviderRequiredParams(provider || null, effectiveFoundryAuthType);
           const initialRequired: ModelParam[] = requiredKeys.map((key, index) => {
             const fetchedValue = fetchedParams[key];
             const displayValue = (fetchedValue === null || fetchedValue === undefined) ? "" : String(fetchedValue);
             return { id: `req-${index}`, key: key, value: displayValue };
           });
 
-          const initialOptional: ModelParam[] = Object.entries(fetchedParams)
-            .filter(([key]) => !requiredKeys.includes(key))
-            .map(([key, value], index) => {
-              const displayValue = (value === null || value === undefined) ? "" : String(value);
-              return { id: `fetched-opt-${index}`, key, value: displayValue };
-            });
+          const optionalKeys = getProviderOptionalParams(provider || null, effectiveFoundryAuthType);
+          const optionalKeysToRender = [
+            ...optionalKeys.filter((key) => !requiredKeys.includes(key)),
+            ...Object.keys(fetchedParams).filter((key) =>
+              !spec.foundry && !requiredKeys.includes(key) && !optionalKeys.includes(key)
+            ),
+          ];
+          const initialOptional: ModelParam[] = optionalKeysToRender.map((key, index) => {
+            const value = fetchedParams[key];
+            const displayValue = (value === null || value === undefined) ? "" : String(value);
+            return { id: `fetched-opt-${index}`, key, value: displayValue };
+          });
 
             setRequiredParams(initialRequired);
             setOptionalParams(initialOptional);
@@ -347,8 +404,9 @@ function ModelPageContent() {
 
   useEffect(() => {
     if (selectedProvider) {
-      const requiredKeys = selectedProvider.requiredParams || [];
-      let optionalKeys = [...(selectedProvider.optionalParams || [])];
+      const effectiveFoundryAuthType = DEFAULT_FOUNDRY_AUTH_TYPE;
+      const requiredKeys = getProviderRequiredParams(selectedProvider, effectiveFoundryAuthType);
+      let optionalKeys = [...getProviderOptionalParams(selectedProvider, effectiveFoundryAuthType)];
 
       // Add baseUrl to optional params for providers that support it
       const providersWithBaseUrl = ['OpenAI', 'Anthropic', 'Gemini'];
@@ -359,6 +417,9 @@ function ModelPageContent() {
       const currentModelRequiresReset = !isEditMode;
 
       if (currentModelRequiresReset) {
+        if (selectedProvider.type === 'Foundry') {
+          setFoundryAuthType(DEFAULT_FOUNDRY_AUTH_TYPE);
+        }
         const newRequiredParams = requiredKeys.map((key, index) => ({
           id: `req-${index}`,
           key: key,
@@ -371,6 +432,10 @@ function ModelPageContent() {
         }));
         setRequiredParams(newRequiredParams);
         setOptionalParams(newOptionalParams);
+      }
+
+      if (!isEditMode) {
+        setIsApiKeyNeeded(selectedProvider.type !== 'Ollama' && !(selectedProvider.type === 'Foundry' && effectiveFoundryAuthType !== 'APIKey'));
       }
 
       setErrors(prev => ({ ...prev, requiredParams: {}, optionalParams: undefined }));
@@ -428,8 +493,8 @@ function ModelPageContent() {
 
     if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
     if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
-    const isOllamaNow = selectedProvider?.type?.toLowerCase() === 'ollama';
-    if (!isEditMode && !isOllamaNow && isApiKeyNeeded && !apiKey.trim()) {
+    const isKeylessProvider = selectedProvider?.type === 'Ollama' || (selectedProvider?.type === 'Foundry' && foundryAuthType !== 'APIKey');
+    if (!isEditMode && !isKeylessProvider && isApiKeyNeeded && !apiKey.trim()) {
       newErrors.apiKey = "API key is required for new models (except for Ollama or when you don't need an API key)";
     }
 
@@ -490,6 +555,24 @@ function ModelPageContent() {
     if (errors.optionalParams) {
       setErrors(prev => ({ ...prev, optionalParams: undefined }));
     }
+  };
+
+  const handleFoundryAuthTypeChange = (nextAuthType: FoundryAuthType) => {
+    setFoundryAuthType(nextAuthType);
+    setIsApiKeyNeeded(nextAuthType === "APIKey");
+    if (nextAuthType !== "APIKey") {
+      setApiKey("");
+      setErrors(prev => ({ ...prev, apiKey: undefined }));
+    }
+    if (selectedProvider?.type !== 'Foundry') {
+      return;
+    }
+    const values = modelParamValues(requiredParams, optionalParams);
+    const requiredKeys = getProviderRequiredParams(selectedProvider, nextAuthType);
+    const optionalKeys = getProviderOptionalParams(selectedProvider, nextAuthType);
+    setRequiredParams(modelParamsForKeys(requiredKeys, "req", values));
+    setOptionalParams(modelParamsForKeys(optionalKeys, "opt", values));
+    setErrors(prev => ({ ...prev, requiredParams: {}, optionalParams: undefined }));
   };
 
   const handleFetchModels = async () => {
@@ -612,6 +695,32 @@ function ModelPageContent() {
       case 'SAPAICore':
         spec.sapAICore = providerParams as SAPAICoreConfigPayload;
         break;
+      case 'Foundry': {
+        const { clientId, tenantId, ...foundryParams } = providerParams;
+        const auth: FoundryConfig["auth"] = { type: foundryAuthType };
+        if (foundryAuthType === "WorkloadIdentity") {
+          const workloadIdentity: NonNullable<FoundryConfig["auth"]["workloadIdentity"]> = {};
+          if (typeof clientId === 'string') {
+            workloadIdentity.clientId = clientId;
+          }
+          if (typeof tenantId === 'string') {
+            workloadIdentity.tenantId = tenantId;
+          }
+          auth.workloadIdentity = workloadIdentity;
+        }
+        if (foundryAuthType === "APIKeyPassthrough") {
+          spec.apiKeyPassthrough = true;
+        }
+        if (foundryAuthType !== "APIKey") {
+          delete spec.apiKeySecret;
+          delete spec.apiKeySecretKey;
+        }
+        spec.foundry = {
+          ...(foundryParams as Omit<FoundryConfig, "auth">),
+          auth,
+        };
+        break;
+      }
       default:
         console.error("Unsupported provider type during payload construction:", providerType);
         toast.error("Internal error: Unsupported provider type.");
@@ -748,6 +857,8 @@ function ModelPageContent() {
             selectedProvider={selectedProvider}
             isApiKeyNeeded={isApiKeyNeeded}
             onApiKeyNeededChange={setIsApiKeyNeeded}
+            foundryAuthType={foundryAuthType}
+            onFoundryAuthTypeChange={handleFoundryAuthTypeChange}
           />
 
           {selectedProvider && selectedCombinedModel && (

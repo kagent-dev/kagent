@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha2
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -27,7 +28,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry
 type ModelProvider string
 
 const (
@@ -40,6 +41,7 @@ const (
 	ModelProviderAnthropicVertexAI ModelProvider = "AnthropicVertexAI"
 	ModelProviderBedrock           ModelProvider = "Bedrock"
 	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
+	ModelProviderFoundry           ModelProvider = "Foundry"
 )
 
 type BaseVertexAIConfig struct {
@@ -310,6 +312,93 @@ type SAPAICoreConfig struct {
 	AuthURL string `json:"authUrl,omitempty"`
 }
 
+// FoundryAuthType identifies the authentication mode for Foundry.
+// +kubebuilder:validation:Enum=APIKey;WorkloadIdentity;APIKeyPassthrough
+type FoundryAuthType string
+
+const (
+	FoundryAuthTypeAPIKey            FoundryAuthType = "APIKey"
+	FoundryAuthTypeWorkloadIdentity  FoundryAuthType = "WorkloadIdentity"
+	FoundryAuthTypeAPIKeyPassthrough FoundryAuthType = "APIKeyPassthrough"
+)
+
+// FoundryEndpointSource contains a reference to the Foundry endpoint.
+// +kubebuilder:validation:XValidation:message="configMapKeyRef is required",rule="has(self.configMapKeyRef)"
+type FoundryEndpointSource struct {
+	// ConfigMapKeyRef selects a key of a ConfigMap containing the Foundry endpoint.
+	// +optional
+	ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
+}
+
+// FoundryValueSource contains a reference to a string value used by Foundry config.
+// +kubebuilder:validation:XValidation:message="configMapKeyRef is required",rule="has(self.configMapKeyRef)"
+type FoundryValueSource struct {
+	// ConfigMapKeyRef selects a key of a ConfigMap containing the value.
+	// +optional
+	ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
+}
+
+// FoundryWorkloadIdentityConfig contains Azure Workload Identity configuration.
+// +kubebuilder:validation:XValidation:message="clientId and clientIdFrom are mutually exclusive",rule="!(has(self.clientId) && size(self.clientId) > 0 && has(self.clientIdFrom))"
+// +kubebuilder:validation:XValidation:message="clientId or clientIdFrom is required",rule="(has(self.clientId) && size(self.clientId) > 0) || has(self.clientIdFrom)"
+// +kubebuilder:validation:XValidation:message="tenantId and tenantIdFrom are mutually exclusive",rule="!(has(self.tenantId) && size(self.tenantId) > 0 && has(self.tenantIdFrom))"
+type FoundryWorkloadIdentityConfig struct {
+	// ClientID is the Azure managed identity client ID used by Azure Workload Identity.
+	// +optional
+	ClientID string `json:"clientId,omitempty"`
+
+	// ClientIDFrom references a source for the Azure managed identity client ID.
+	// +optional
+	ClientIDFrom *FoundryValueSource `json:"clientIdFrom,omitempty"`
+
+	// TenantID is the Azure tenant ID. Optional when supplied by the workload identity webhook.
+	// +optional
+	TenantID string `json:"tenantId,omitempty"`
+
+	// TenantIDFrom references a source for the Azure tenant ID.
+	// +optional
+	TenantIDFrom *FoundryValueSource `json:"tenantIdFrom,omitempty"`
+}
+
+// FoundryAuthConfig configures authentication for Foundry.
+// +kubebuilder:validation:XValidation:message="workloadIdentity is required when auth.type is WorkloadIdentity",rule="self.type != 'WorkloadIdentity' || has(self.workloadIdentity)"
+// +kubebuilder:validation:XValidation:message="workloadIdentity must be nil unless auth.type is WorkloadIdentity",rule="!(has(self.workloadIdentity) && self.type != 'WorkloadIdentity')"
+type FoundryAuthConfig struct {
+	// Type identifies the Foundry auth mode.
+	// +required
+	Type FoundryAuthType `json:"type"`
+
+	// WorkloadIdentity contains Azure Workload Identity configuration.
+	// +optional
+	WorkloadIdentity *FoundryWorkloadIdentityConfig `json:"workloadIdentity,omitempty"`
+}
+
+// FoundryConfig contains Foundry-specific configuration options.
+// +kubebuilder:validation:XValidation:message="endpoint and endpointFrom are mutually exclusive",rule="!(has(self.endpoint) && size(self.endpoint) > 0 && has(self.endpointFrom))"
+// +kubebuilder:validation:XValidation:message="endpoint or endpointFrom is required",rule="(has(self.endpoint) && size(self.endpoint) > 0) || has(self.endpointFrom)"
+type FoundryConfig struct {
+	// Endpoint is the Foundry or AI Services account endpoint.
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// EndpointFrom references a source for the Foundry endpoint.
+	// +optional
+	EndpointFrom *FoundryEndpointSource `json:"endpointFrom,omitempty"`
+
+	// Deployment is the Foundry model deployment name.
+	// +required
+	Deployment string `json:"deployment"`
+
+	// API version for the Foundry OpenAI-compatible data-plane API.
+	// +kubebuilder:default="2024-10-21"
+	// +optional
+	APIVersion string `json:"apiVersion,omitempty"`
+
+	// Auth configures Foundry authentication.
+	// +required
+	Auth FoundryAuthConfig `json:"auth"`
+}
+
 // TLSConfig contains TLS/SSL configuration options for outbound HTTPS
 // connections from the agent (model provider, RemoteMCPServer). The
 // XValidation rules below apply at admission to every CRD field that
@@ -377,6 +466,7 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
 // +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
+// +kubebuilder:validation:XValidation:message="provider.foundry must be nil if the provider is not Foundry",rule="!(has(self.foundry) && self.provider != 'Foundry')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
@@ -384,6 +474,10 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="openAI.tokenExchange requires apiKeySecret (the service account secret)",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && (!has(self.apiKeySecret) || size(self.apiKeySecret) == 0))"
 // +kubebuilder:validation:XValidation:message="openAI.tokenExchange and apiKeyPassthrough are mutually exclusive",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough) && self.apiKeyPassthrough)"
 // +kubebuilder:validation:XValidation:message="openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount",rule="!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type == 'GDCHServiceAccount' && !has(self.openAI.tokenExchange.gdchServiceAccount))"
+// +kubebuilder:validation:XValidation:message="Foundry auth.type APIKey requires apiKeySecret",rule="!(self.provider == 'Foundry' && has(self.foundry) && self.foundry.auth.type == 'APIKey' && (!has(self.apiKeySecret) || size(self.apiKeySecret) == 0))"
+// +kubebuilder:validation:XValidation:message="Foundry auth.type WorkloadIdentity must not set apiKeySecret",rule="!(self.provider == 'Foundry' && has(self.foundry) && self.foundry.auth.type == 'WorkloadIdentity' && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
+// +kubebuilder:validation:XValidation:message="Foundry auth.type APIKeyPassthrough requires apiKeyPassthrough=true",rule="!(self.provider == 'Foundry' && has(self.foundry) && self.foundry.auth.type == 'APIKeyPassthrough' && (!has(self.apiKeyPassthrough) || !self.apiKeyPassthrough))"
+// +kubebuilder:validation:XValidation:message="apiKeyPassthrough is only valid for Foundry when foundry.auth.type is APIKeyPassthrough",rule="!(self.provider == 'Foundry' && has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (!has(self.foundry) || self.foundry.auth.type != 'APIKeyPassthrough'))"
 type ModelConfigSpec struct {
 	// +required
 	Model string `json:"model"`
@@ -449,6 +543,10 @@ type ModelConfigSpec struct {
 	// SAP AI Core-specific configuration
 	// +optional
 	SAPAICore *SAPAICoreConfig `json:"sapAICore,omitempty"`
+
+	// Foundry-specific configuration
+	// +optional
+	Foundry *FoundryConfig `json:"foundry,omitempty"`
 
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers

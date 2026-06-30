@@ -54,10 +54,31 @@ func getRequiredKeysForModelProvider(providerType v1alpha2.ModelProvider) []stri
 	case v1alpha2.ModelProviderOpenAI, v1alpha2.ModelProviderAnthropic, v1alpha2.ModelProviderOllama:
 		// These providers currently have no fields marked as strictly required in the API definition
 		return []string{}
+	case v1alpha2.ModelProviderFoundry:
+		return []string{"endpoint", "deployment", "clientId"}
 	default:
 		// Unknown provider, return empty
 		return []string{}
 	}
+}
+
+func getOptionalKeysForModelProvider(providerType v1alpha2.ModelProvider, allKeys, requiredKeys []string) []string {
+	if providerType == v1alpha2.ModelProviderFoundry {
+		return []string{"apiVersion", "tenantId"}
+	}
+
+	requiredSet := make(map[string]struct{})
+	for _, k := range requiredKeys {
+		requiredSet[k] = struct{}{}
+	}
+
+	optionalKeys := []string{}
+	for _, k := range allKeys {
+		if _, isRequired := requiredSet[k]; !isRequired {
+			optionalKeys = append(optionalKeys, k)
+		}
+	}
+	return optionalKeys
 }
 
 func getRequiredKeysForMemoryProvider(providerType v1alpha1.MemoryProvider) []string {
@@ -128,6 +149,7 @@ func (h *ModelProviderConfigHandler) HandleListSupportedModelProviders(w ErrorRe
 		{v1alpha2.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha2.AnthropicVertexAIConfig]()},
 		{v1alpha2.ModelProviderBedrock, reflect.TypeFor[v1alpha2.BedrockConfig]()},
 		{v1alpha2.ModelProviderSAPAICore, reflect.TypeFor[v1alpha2.SAPAICoreConfig]()},
+		{v1alpha2.ModelProviderFoundry, reflect.TypeFor[v1alpha2.FoundryConfig]()},
 	}
 
 	providersResponse := []map[string]any{}
@@ -135,17 +157,7 @@ func (h *ModelProviderConfigHandler) HandleListSupportedModelProviders(w ErrorRe
 	for _, pData := range providersData {
 		allKeys := getStructJSONKeys(pData.configType)
 		requiredKeys := getRequiredKeysForModelProvider(pData.providerEnum)
-		requiredSet := make(map[string]struct{})
-		for _, k := range requiredKeys {
-			requiredSet[k] = struct{}{}
-		}
-
-		optionalKeys := []string{}
-		for _, k := range allKeys {
-			if _, isRequired := requiredSet[k]; !isRequired {
-				optionalKeys = append(optionalKeys, k)
-			}
-		}
+		optionalKeys := getOptionalKeysForModelProvider(pData.providerEnum, allKeys, requiredKeys)
 
 		providersResponse = append(providersResponse, map[string]any{
 			"name":           string(pData.providerEnum),

@@ -532,6 +532,166 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              foundry:
+                description: Foundry-specific configuration
+                properties:
+                  apiVersion:
+                    default: "2024-10-21"
+                    description: API version for the Foundry OpenAI-compatible data-plane
+                      API.
+                    type: string
+                  auth:
+                    description: Auth configures Foundry authentication.
+                    properties:
+                      type:
+                        description: Type identifies the Foundry auth mode.
+                        enum:
+                        - APIKey
+                        - WorkloadIdentity
+                        - APIKeyPassthrough
+                        type: string
+                      workloadIdentity:
+                        description: WorkloadIdentity contains Azure Workload Identity
+                          configuration.
+                        properties:
+                          clientId:
+                            description: ClientID is the Azure managed identity client
+                              ID used by Azure Workload Identity.
+                            type: string
+                          clientIdFrom:
+                            description: ClientIDFrom references a source for the
+                              Azure managed identity client ID.
+                            properties:
+                              configMapKeyRef:
+                                description: ConfigMapKeyRef selects a key of a ConfigMap
+                                  containing the value.
+                                properties:
+                                  key:
+                                    description: The key to select.
+                                    type: string
+                                  name:
+                                    default: ""
+                                    description: |-
+                                      Name of the referent.
+                                      This field is effectively required, but due to backwards compatibility is
+                                      allowed to be empty. Instances of this type with an empty value here are
+                                      almost certainly wrong.
+                                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    type: string
+                                  optional:
+                                    description: Specify whether the ConfigMap or
+                                      its key must be defined
+                                    type: boolean
+                                required:
+                                - key
+                                type: object
+                                x-kubernetes-map-type: atomic
+                            type: object
+                            x-kubernetes-validations:
+                            - message: configMapKeyRef is required
+                              rule: has(self.configMapKeyRef)
+                          tenantId:
+                            description: TenantID is the Azure tenant ID. Optional
+                              when supplied by the workload identity webhook.
+                            type: string
+                          tenantIdFrom:
+                            description: TenantIDFrom references a source for the
+                              Azure tenant ID.
+                            properties:
+                              configMapKeyRef:
+                                description: ConfigMapKeyRef selects a key of a ConfigMap
+                                  containing the value.
+                                properties:
+                                  key:
+                                    description: The key to select.
+                                    type: string
+                                  name:
+                                    default: ""
+                                    description: |-
+                                      Name of the referent.
+                                      This field is effectively required, but due to backwards compatibility is
+                                      allowed to be empty. Instances of this type with an empty value here are
+                                      almost certainly wrong.
+                                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                    type: string
+                                  optional:
+                                    description: Specify whether the ConfigMap or
+                                      its key must be defined
+                                    type: boolean
+                                required:
+                                - key
+                                type: object
+                                x-kubernetes-map-type: atomic
+                            type: object
+                            x-kubernetes-validations:
+                            - message: configMapKeyRef is required
+                              rule: has(self.configMapKeyRef)
+                        type: object
+                        x-kubernetes-validations:
+                        - message: clientId and clientIdFrom are mutually exclusive
+                          rule: '!(has(self.clientId) && size(self.clientId) > 0 &&
+                            has(self.clientIdFrom))'
+                        - message: clientId or clientIdFrom is required
+                          rule: (has(self.clientId) && size(self.clientId) > 0) ||
+                            has(self.clientIdFrom)
+                        - message: tenantId and tenantIdFrom are mutually exclusive
+                          rule: '!(has(self.tenantId) && size(self.tenantId) > 0 &&
+                            has(self.tenantIdFrom))'
+                    required:
+                    - type
+                    type: object
+                    x-kubernetes-validations:
+                    - message: workloadIdentity is required when auth.type is WorkloadIdentity
+                      rule: self.type != 'WorkloadIdentity' || has(self.workloadIdentity)
+                    - message: workloadIdentity must be nil unless auth.type is WorkloadIdentity
+                      rule: '!(has(self.workloadIdentity) && self.type != ''WorkloadIdentity'')'
+                  deployment:
+                    description: Deployment is the Foundry model deployment name.
+                    type: string
+                  endpoint:
+                    description: Endpoint is the Foundry or AI Services account endpoint.
+                    type: string
+                  endpointFrom:
+                    description: EndpointFrom references a source for the Foundry
+                      endpoint.
+                    properties:
+                      configMapKeyRef:
+                        description: ConfigMapKeyRef selects a key of a ConfigMap
+                          containing the Foundry endpoint.
+                        properties:
+                          key:
+                            description: The key to select.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the ConfigMap or its key
+                              must be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
+                    x-kubernetes-validations:
+                    - message: configMapKeyRef is required
+                      rule: has(self.configMapKeyRef)
+                required:
+                - auth
+                - deployment
+                type: object
+                x-kubernetes-validations:
+                - message: endpoint and endpointFrom are mutually exclusive
+                  rule: '!(has(self.endpoint) && size(self.endpoint) > 0 && has(self.endpointFrom))'
+                - message: endpoint or endpointFrom is required
+                  rule: (has(self.endpoint) && size(self.endpoint) > 0) || has(self.endpointFrom)
               gemini:
                 description: Gemini-specific configuration
                 type: object
@@ -665,6 +825,7 @@ spec:
                 - AnthropicVertexAI
                 - Bedrock
                 - SAPAICore
+                - Foundry
                 type: string
               sapAICore:
                 description: SAP AI Core-specific configuration
@@ -760,6 +921,8 @@ spec:
               rule: '!(has(self.bedrock) && self.provider != ''Bedrock'')'
             - message: provider.sapAICore must be nil if the provider is not SAPAICore
               rule: '!(has(self.sapAICore) && self.provider != ''SAPAICore'')'
+            - message: provider.foundry must be nil if the provider is not Foundry
+              rule: '!(has(self.foundry) && self.provider != ''Foundry'')'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set (except
@@ -783,6 +946,22 @@ spec:
             - message: openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount
               rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type
                 == ''GDCHServiceAccount'' && !has(self.openAI.tokenExchange.gdchServiceAccount))'
+            - message: Foundry auth.type APIKey requires apiKeySecret
+              rule: '!(self.provider == ''Foundry'' && has(self.foundry) && self.foundry.auth.type
+                == ''APIKey'' && (!has(self.apiKeySecret) || size(self.apiKeySecret)
+                == 0))'
+            - message: Foundry auth.type WorkloadIdentity must not set apiKeySecret
+              rule: '!(self.provider == ''Foundry'' && has(self.foundry) && self.foundry.auth.type
+                == ''WorkloadIdentity'' && has(self.apiKeySecret) && size(self.apiKeySecret)
+                > 0)'
+            - message: Foundry auth.type APIKeyPassthrough requires apiKeyPassthrough=true
+              rule: '!(self.provider == ''Foundry'' && has(self.foundry) && self.foundry.auth.type
+                == ''APIKeyPassthrough'' && (!has(self.apiKeyPassthrough) || !self.apiKeyPassthrough))'
+            - message: apiKeyPassthrough is only valid for Foundry when foundry.auth.type
+                is APIKeyPassthrough
+              rule: '!(self.provider == ''Foundry'' && has(self.apiKeyPassthrough)
+                && self.apiKeyPassthrough && (!has(self.foundry) || self.foundry.auth.type
+                != ''APIKeyPassthrough''))'
           status:
             description: ModelConfigStatus defines the observed state of ModelConfig.
             properties:

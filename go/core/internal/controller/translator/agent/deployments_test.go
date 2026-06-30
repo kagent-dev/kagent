@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -84,4 +85,69 @@ func TestValidateExtraContainers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMergeRuntimeRequirements(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil inputs are ignored", func(t *testing.T) {
+		t.Parallel()
+		if err := mergeRuntimeRequirements(nil, &modelRuntimeRequirements{PodLabels: map[string]string{"a": "b"}}); err != nil {
+			t.Fatalf("mergeRuntimeRequirements(nil, src) error = %v", err)
+		}
+		dst := &modelRuntimeRequirements{}
+		if err := mergeRuntimeRequirements(dst, nil); err != nil {
+			t.Fatalf("mergeRuntimeRequirements(dst, nil) error = %v", err)
+		}
+	})
+
+	t.Run("merges labels and annotations", func(t *testing.T) {
+		t.Parallel()
+		dst := &modelRuntimeRequirements{
+			PodLabels:                 map[string]string{"existing-label": "same"},
+			ServiceAccountAnnotations: map[string]string{"existing-annotation": "same"},
+		}
+		src := &modelRuntimeRequirements{
+			PodLabels: map[string]string{
+				"existing-label": "same",
+				"new-label":      "value",
+			},
+			ServiceAccountAnnotations: map[string]string{
+				"existing-annotation": "same",
+				"new-annotation":      "value",
+			},
+		}
+
+		if err := mergeRuntimeRequirements(dst, src); err != nil {
+			t.Fatalf("mergeRuntimeRequirements() error = %v", err)
+		}
+		if got := dst.PodLabels["new-label"]; got != "value" {
+			t.Fatalf("new label = %q, want value", got)
+		}
+		if got := dst.ServiceAccountAnnotations["new-annotation"]; got != "value" {
+			t.Fatalf("new annotation = %q, want value", got)
+		}
+	})
+
+	t.Run("rejects conflicting pod labels", func(t *testing.T) {
+		t.Parallel()
+		dst := &modelRuntimeRequirements{PodLabels: map[string]string{"identity/use": "true"}}
+		src := &modelRuntimeRequirements{PodLabels: map[string]string{"identity/use": "false"}}
+
+		err := mergeRuntimeRequirements(dst, src)
+		if err == nil || !strings.Contains(err.Error(), `conflicting pod label "identity/use"`) {
+			t.Fatalf("mergeRuntimeRequirements() error = %v, want conflicting pod label", err)
+		}
+	})
+
+	t.Run("rejects conflicting service account annotations", func(t *testing.T) {
+		t.Parallel()
+		dst := &modelRuntimeRequirements{ServiceAccountAnnotations: map[string]string{"identity/client-id": "one"}}
+		src := &modelRuntimeRequirements{ServiceAccountAnnotations: map[string]string{"identity/client-id": "two"}}
+
+		err := mergeRuntimeRequirements(dst, src)
+		if err == nil || !strings.Contains(err.Error(), `conflicting service account annotation "identity/client-id"`) {
+			t.Fatalf("mergeRuntimeRequirements() error = %v, want conflicting service account annotation", err)
+		}
+	})
 }
