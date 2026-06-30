@@ -49,6 +49,14 @@ var (
 		ComponentAgentRuntime,
 	)
 
+	KagentUIURL = RegisterStringVar(
+		"KAGENT_UI_URL",
+		"",
+		"Public base URL of the kagent UI (e.g. https://kagent.example.com). "+
+			"When set, share link tools return full clickable URLs instead of paths.",
+		ComponentAgentRuntime,
+	)
+
 	KagentSkillsFolder = RegisterStringVar(
 		"KAGENT_SKILLS_FOLDER",
 		"/skills",

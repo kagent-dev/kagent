@@ -119,9 +119,11 @@ var DefaultImageConfig = ImageConfig{
 	Repository: "kagent-dev/kagent/app",
 }
 
-// PythonADKImageDigest, GoADKImageDigest, and GoADKFullImageDigest are set at
-// controller link time from the pushed runtime image manifest digests.
+// PythonADKImageDigest, PythonADKFullImageDigest, GoADKImageDigest, and GoADKFullImageDigest
+// are set at controller link time from the pushed runtime image manifest digests. The "full"
+// variants bundle the sandbox runtime (code execution / bash tools); the slim variants do not.
 var PythonADKImageDigest string
+var PythonADKFullImageDigest string
 var GoADKImageDigest string
 var GoADKFullImageDigest string
 

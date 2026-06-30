@@ -83,11 +83,9 @@ describe("substrate sandbox chat helpers", () => {
 });
 
 describe("substrateSupportedForAgentType", () => {
-  it("disallows substrate for BYO agents", () => {
-    expect(substrateSupportedForAgentType("BYO")).toBe(false);
-  });
-  it("allows substrate for declarative agents", () => {
+  it("allows substrate for declarative and BYO agents", () => {
     expect(substrateSupportedForAgentType("Declarative")).toBe(true);
+    expect(substrateSupportedForAgentType("BYO")).toBe(true);
     expect(substrateSupportedForAgentType(undefined)).toBe(true);
   });
 });

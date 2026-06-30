@@ -554,6 +554,7 @@ type AgentConfig struct {
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	Network       *NetworkConfig        `json:"network,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+	ShareTools    *bool                 `json:"share_tools,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -585,6 +586,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Memory        json.RawMessage       `json:"memory"`
 		Network       *NetworkConfig        `json:"network,omitempty"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
+		ShareTools    *bool                 `json:"share_tools,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -614,6 +616,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Memory = memory
 	a.Network = tmp.Network
 	a.ContextConfig = tmp.ContextConfig
+	a.ShareTools = tmp.ShareTools
 	return nil
 }
 
