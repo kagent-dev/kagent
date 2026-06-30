@@ -60,8 +60,18 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
       // Agent messages: convert function_call / function_response DataParts to
       // the same ToolCallRequestEvent / ToolCallExecutionEvent format produced
       // by the live-stream handlers so the rendering component can display them.
-      const msgContextId = historyItem.contextId ?? task.contextId;
-      const msgTaskId = historyItem.taskId ?? task.id;
+      //
+      // Backfill contextId/taskId from the task when the history item omits them.
+      // Persisted agent messages (both tool and text) frequently carry empty
+      // strings here, and `??` would keep the empty string ("" is not nullish).
+      // The locally-streamed copies of these messages carry the task's real ids,
+      // so the send guard keys them on (contextId, taskId); without the backfill
+      // the backend-extracted copies fall back to messageId and never match the
+      // local ones, counting the backend as ahead and falsely blocking the next
+      // send on every turn. Treat "" as absent so both copies get the task's
+      // stable ids. Applied to every extracted agent message below.
+      const msgContextId = historyItem.contextId || task.contextId;
+      const msgTaskId = historyItem.taskId || task.id;
       const source = getSourceFromMetadata(historyItem.metadata as ADKMetadata | undefined, "assistant");
       const msgStats = getMessageTokenStats(historyItem.metadata as Record<string, unknown>);
 
@@ -150,12 +160,16 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
         }
       }
 
-      // Text messages (or any message without data parts): push with tokenStats.
+      // Text messages (or any message without data parts): push with tokenStats
+      // and the backfilled contextId/taskId so they key the same way the
+      // locally-streamed copy does.
       if (!hasConvertedParts) {
-        messages.push(msgStats
-          ? { ...historyItem, metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } }
-          : historyItem
-        );
+        messages.push({
+          ...historyItem,
+          contextId: msgContextId,
+          taskId: msgTaskId,
+          ...(msgStats ? { metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } } : {}),
+        });
       }
     }
   }
