@@ -169,16 +169,7 @@ func (m *SAPAICoreModel) buildOrchestrationBody(req *model.LLMRequest, stream bo
 }
 
 func genaiContentsToOrchTemplate(contents []*genai.Content, config *genai.GenerateContentConfig) ([]map[string]any, string) {
-	var systemBuilder strings.Builder
-	if config != nil && config.SystemInstruction != nil {
-		for _, p := range config.SystemInstruction.Parts {
-			if p != nil && p.Text != "" {
-				systemBuilder.WriteString(p.Text)
-				systemBuilder.WriteByte('\n')
-			}
-		}
-	}
-	systemInstruction := strings.TrimSpace(systemBuilder.String())
+	systemInstruction := mergeSystemInstructionFromConfig("", config)
 
 	functionResponses := make(map[string]*genai.FunctionResponse)
 	for _, c := range contents {
