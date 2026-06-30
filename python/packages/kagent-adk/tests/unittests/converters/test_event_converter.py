@@ -125,9 +125,7 @@ class TestEventConverter:
         content = genai_types.Content(parts=[genai_types.Part(text="hello world")])
         event = _create_mock_event(content=content, invocation_id="test_invocation_ids")
 
-        result = convert_event_to_a2a_events(
-            event, invocation_context, task_id="task-xyz", context_id="ctx-xyz"
-        )
+        result = convert_event_to_a2a_events(event, invocation_context, task_id="task-xyz", context_id="ctx-xyz")
 
         working_events = [
             e for e in result if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
