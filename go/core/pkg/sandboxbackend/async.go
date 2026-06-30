@@ -14,8 +14,7 @@ type Handle struct {
 }
 
 // EnsureResult is returned by EnsureAgentHarness. Endpoint (if set) is surfaced
-// to users via AgentHarness.Status.Connection (OpenShell: gateway URL#sandbox id;
-// Substrate: kagent gateway proxy path).
+// to users via AgentHarness.Status.Connection (Substrate: kagent gateway proxy path).
 type EnsureResult struct {
 	Handle   Handle
 	Endpoint string

@@ -216,9 +216,8 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 
 	provider := resolveProviderName(ctx, a.cache, agent)
 
-	httpClient := debugHTTPClient()
+	httpClient := a2aHTTPClient()
 	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok &&
-		v1alpha2.AgentSandboxPlatform(sa) == v1alpha2.SandboxPlatformSubstrate &&
 		a.substrateSandboxActorBackend != nil {
 		routerURL := a.ateneRouterURL
 		if routerURL == "" {
@@ -275,22 +274,22 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 	return nil
 }
 
-// debugHTTPClient returns nil in normal operation, letting the a2aclient SDK apply its
-// default 3-minute request timeout. In debug mode it overrides the dial target so all
-// A2A traffic is redirected to a fixed address (e.g. a local proxy).
-func debugHTTPClient() *http.Client {
-	debugAddr := env.KagentA2ADebugAddr.Get()
-	if debugAddr == "" {
-		return nil
-	}
-	return &http.Client{
-		Transport: &http.Transport{
+// a2aHTTPClient returns the HTTP client to use for A2A requests to agent pods.
+// It respects KAGENT_A2A_CLIENT_TIMEOUT (default 0 = no timeout), overriding the
+// a2a-go SDK's built-in 3-minute default which is too short for long-running
+// streaming agents. When KAGENT_A2A_DEBUG_ADDR is set, the dial target is
+// redirected to that fixed address (e.g. a local proxy) for debugging.
+func a2aHTTPClient() *http.Client {
+	client := &http.Client{Timeout: env.KagentA2AClientTimeout.Get()}
+	if debugAddr := env.KagentA2ADebugAddr.Get(); debugAddr != "" {
+		client.Transport = &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				var zeroDialer net.Dialer
 				return zeroDialer.DialContext(ctx, network, debugAddr)
 			},
-		},
+		}
 	}
+	return client
 }
 
 func (a *A2ARegistrar) a2aRouteURL(agent v1alpha2.AgentObject) string {

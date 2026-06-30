@@ -10,6 +10,10 @@ jest.mock("@/app/actions/agents", () => ({
   getAgents: jest.fn().mockResolvedValue({ data: [] }),
 }));
 
+jest.mock("next/navigation", () => ({
+  useParams: jest.fn().mockReturnValue({}),
+}));
+
 function renderSidebar(currentAgent: AgentResponse) {
   return render(
     <SidebarProvider defaultOpen>

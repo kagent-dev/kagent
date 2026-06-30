@@ -76,6 +76,15 @@ type Session struct {
 	Source *SessionSource `json:"source,omitempty"`
 }
 
+// SessionWithShareToken extends Session with optional share fields.
+// ShareToken and ShareReadOnly are nil for sessions owned by the requesting user;
+// non-nil for sessions shared by another user that the caller accesses via X-Share-Token.
+type SessionWithShareToken struct {
+	Session
+	ShareToken    *string `json:"share_token,omitempty"`
+	ShareReadOnly *bool   `json:"share_read_only,omitempty"`
+}
+
 type Task struct {
 	ID              string     `json:"id"`
 	CreatedAt       time.Time  `json:"created_at"`
@@ -223,4 +232,13 @@ type Memory struct {
 type AgentMemorySearchResult struct {
 	Memory
 	Score float64 `json:"score"`
+}
+
+type SessionShare struct {
+	ID        int64     `json:"id"`
+	Token     string    `json:"token"`
+	SessionID string    `json:"session_id"`
+	UserID    string    `json:"user_id"`
+	ReadOnly  bool      `json:"read_only"`
+	CreatedAt time.Time `json:"created_at"`
 }

@@ -16,7 +16,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-const defaultSubstrateOpenClawGatewayPort = 80
+// OpenClawGatewayPort is the loopback port the OpenClaw gateway listens on
+// inside a substrate actor. It is a private implementation detail: the
+// in-sandbox `openclaw acp` child connects to it over loopback, while the
+// acp-shim owns the atenet ingress port (acpListenPort). kagent never reaches
+// the gateway directly.
+const OpenClawGatewayPort = 18789
+
+// acpListenPort is the actor port atenet-router routes Host-based traffic to.
+const acpListenPort = 80
 
 //go:embed templates/openclaw_startup.sh.tmpl
 var openClawStartupScriptTmplContent string
@@ -25,11 +33,11 @@ var openClawStartupScriptTmpl = template.Must(template.New("openclaw_startup").P
 
 type openClawStartupScriptData struct {
 	OpenClawJSONBase64 string
-	GatewayPort        int
+	ACPPort            int
 }
 
 // buildOpenClawActorStartup returns the ateom workload startup script and container env for OpenClaw on Substrate.
-// When spec.modelConfigRef is set, openclaw.json includes models/agents/channels like the OpenShell bootstrap path.
+// When spec.modelConfigRef is set, openclaw.json includes models/agents/channels.
 func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.AgentHarness) (script string, env []atev1alpha1.EnvVar, err error) {
 	if ah == nil {
 		return "", nil, fmt.Errorf("AgentHarness is required")
@@ -38,11 +46,7 @@ func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.
 		return "", nil, fmt.Errorf("substrate lifecycle kubernetes client is required")
 	}
 
-	token, err := ResolveGatewayToken(ctx, p.Client, ah)
-	if err != nil {
-		return "", nil, fmt.Errorf("resolve gateway token: %w", err)
-	}
-	gw := openclaw.SubstrateGatewayBootstrap(token, defaultSubstrateOpenClawGatewayPort, openClawControlUIBasePath(ah))
+	gw := openclaw.SubstrateGatewayBootstrap(OpenClawGatewayPort)
 
 	var jsonBytes []byte
 	var containerEnv []corev1.EnvVar
@@ -66,27 +70,30 @@ func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.
 		if err != nil {
 			return "", nil, fmt.Errorf("build gateway-only openclaw json: %w", err)
 		}
-		containerEnv = []corev1.EnvVar{{Name: "HOME", Value: "/root"}}
+		containerEnv = []corev1.EnvVar{{Name: "HOME", Value: openclaw.SubstrateActorHome}}
 	}
-	script, err = openClawStartupScript(jsonBytes, gw.Port)
+	containerEnv = append(containerEnv, acpShimEnv(ah, gw.Port)...)
+	script, err = openClawStartupScript(jsonBytes)
 	if err != nil {
 		return "", nil, err
 	}
 	return script, actorTemplateEnvFromPodEnv(containerEnv), nil
 }
 
-func openClawControlUIBasePath(ah *v1alpha2.AgentHarness) string {
-	if ah == nil {
-		return ""
+// acpShimEnv returns the env vars the image's
+// openclaw-gateway-ensure.sh/openclaw-acp-child.sh scripts read. The shim no
+// longer authenticates the WebSocket handshake, so no bearer token is passed.
+func acpShimEnv(ah *v1alpha2.AgentHarness, gatewayPort int) []corev1.EnvVar {
+	return []corev1.EnvVar{
+		{Name: "OPENCLAW_GATEWAY_PORT", Value: fmt.Sprintf("%d", gatewayPort)},
 	}
-	return "/api/agentharnesses/" + ah.Namespace + "/" + ah.Name + "/gateway"
 }
 
-func openClawStartupScript(jsonBytes []byte, gwPort int) (string, error) {
+func openClawStartupScript(jsonBytes []byte) (string, error) {
 	var buf bytes.Buffer
 	if err := openClawStartupScriptTmpl.Execute(&buf, openClawStartupScriptData{
 		OpenClawJSONBase64: base64.StdEncoding.EncodeToString(jsonBytes),
-		GatewayPort:        gwPort,
+		ACPPort:            acpListenPort,
 	}); err != nil {
 		return "", fmt.Errorf("render openclaw startup script: %w", err)
 	}

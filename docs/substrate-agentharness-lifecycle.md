@@ -18,7 +18,6 @@ kagent should not create or delete `WorkerPool` resources from the `AgentHarness
 - `workerPoolRef`, optional; falls back to the configured controller default.
 - `snapshotsConfig`, optional; defaults to `gs://ate-snapshots/<namespace>/<name>`.
 - `workloadImage`, optional.
-- exactly one of `gatewayToken` or `gatewayTokenSecretRef`.
 
 There is no `actorTemplateRef`. kagent always generates the `ActorTemplate`, so adopting an external template is not part of the workflow.
 

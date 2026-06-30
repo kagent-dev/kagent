@@ -60,8 +60,18 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
       // Agent messages: convert function_call / function_response DataParts to
       // the same ToolCallRequestEvent / ToolCallExecutionEvent format produced
       // by the live-stream handlers so the rendering component can display them.
-      const msgContextId = historyItem.contextId ?? task.contextId;
-      const msgTaskId = historyItem.taskId ?? task.id;
+      //
+      // Backfill contextId/taskId from the task when the history item omits them.
+      // Persisted agent messages (both tool and text) frequently carry empty
+      // strings here, and `??` would keep the empty string ("" is not nullish).
+      // The locally-streamed copies of these messages carry the task's real ids,
+      // so the send guard keys them on (contextId, taskId); without the backfill
+      // the backend-extracted copies fall back to messageId and never match the
+      // local ones, counting the backend as ahead and falsely blocking the next
+      // send on every turn. Treat "" as absent so both copies get the task's
+      // stable ids. Applied to every extracted agent message below.
+      const msgContextId = historyItem.contextId || task.contextId;
+      const msgTaskId = historyItem.taskId || task.id;
       const source = getSourceFromMetadata(historyItem.metadata as ADKMetadata | undefined, "assistant");
       const msgStats = getMessageTokenStats(historyItem.metadata as Record<string, unknown>);
 
@@ -149,12 +159,16 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
         }
       }
 
-      // Text messages (or any message without data parts): push with tokenStats.
+      // Text messages (or any message without data parts): push with tokenStats
+      // and the backfilled contextId/taskId so they key the same way the
+      // locally-streamed copy does.
       if (!hasConvertedParts) {
-        messages.push(msgStats
-          ? { ...historyItem, metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } }
-          : historyItem
-        );
+        messages.push({
+          ...historyItem,
+          contextId: msgContextId,
+          taskId: msgTaskId,
+          ...(msgStats ? { metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } } : {}),
+        });
       }
     }
   }
@@ -446,6 +460,84 @@ export interface ADKMetadata {
   toolCallData?: ProcessedToolCallData[];
   toolResultData?: ProcessedToolResultData[];
   [key: string]: unknown; // Allow for additional metadata fields
+}
+
+const SEND_GUARD_EXCLUDED_ORIGINAL_TYPES = new Set<OriginalMessageType>([
+  "ToolApprovalRequest", // HITL approval UI duplicates the pending backend task state.
+  "AskUserRequest", // ask_user UI duplicates the pending backend task state.
+  "ToolCallSummaryMessage", // UI-only marker that closes tool calls; not a backend chat turn.
+]);
+const SEND_GUARD_KEY_DELIMITER = "\u0000";
+const SEND_GUARD_PART_DELIMITER = "\u0001";
+
+function isSendGuardComparableMessage(message: Message): boolean {
+  const meta = message.metadata as ADKMetadata | undefined;
+  return !meta?.originalType || !SEND_GUARD_EXCLUDED_ORIGINAL_TYPES.has(meta.originalType);
+}
+
+export function countSendGuardComparableMessages(messages: Message[]): number {
+  return messages.filter(isSendGuardComparableMessage).length;
+}
+
+function getSendGuardMessageContentSignature(message: Message): string {
+  const meta = message.metadata as ADKMetadata | undefined;
+  const originalType = meta?.originalType === "TextMessage" ? "" : (meta?.originalType ?? "");
+  const partsSignature = message.parts
+    ?.map(part => part.kind === "text" ? `text:${part.text ?? ""}` : `${part.kind}:${JSON.stringify(part)}`)
+    .join(SEND_GUARD_PART_DELIMITER) ?? "";
+
+  return [
+    message.role,
+    originalType,
+    JSON.stringify(meta?.toolCallData ?? null),
+    JSON.stringify(meta?.toolResultData ?? null),
+    partsSignature,
+  ].join(SEND_GUARD_KEY_DELIMITER);
+}
+
+function getSendGuardMessageKey(message: Message): string | undefined {
+  const contentSignature = getSendGuardMessageContentSignature(message);
+
+  if (message.role === "user" && message.messageId) {
+    return ["message", message.messageId].join(SEND_GUARD_KEY_DELIMITER);
+  }
+
+  // Same-tab streamed agent display messages are locally re-created, so their
+  // messageId may differ from the backend history item. The task/context pair
+  // is the stable backend identity for those messages; the richer signature
+  // avoids counting unrelated messages in the same task.
+  if (message.contextId && message.taskId) {
+    return ["task", message.contextId, message.taskId, contentSignature].join(SEND_GUARD_KEY_DELIMITER);
+  }
+
+  if (message.messageId) {
+    return ["message", message.messageId].join(SEND_GUARD_KEY_DELIMITER);
+  }
+
+  return undefined;
+}
+
+export function countBackendBackedComparableMessages(localMessages: Message[], backendMessages: Message[]): number {
+  const backendCounts = new Map<string, number>();
+  for (const message of backendMessages) {
+    if (!isSendGuardComparableMessage(message)) continue;
+    const key = getSendGuardMessageKey(message);
+    if (!key) continue;
+    backendCounts.set(key, (backendCounts.get(key) ?? 0) + 1);
+  }
+
+  let count = 0;
+  for (const message of localMessages) {
+    if (!isSendGuardComparableMessage(message)) continue;
+    const key = getSendGuardMessageKey(message);
+    if (!key) continue;
+    const remaining = backendCounts.get(key) ?? 0;
+    if (remaining > 0) {
+      count += 1;
+      backendCounts.set(key, remaining - 1);
+    }
+  }
+  return count;
 }
 
 /**

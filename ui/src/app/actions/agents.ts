@@ -19,13 +19,13 @@ import { isMcpTool } from "@/lib/toolUtils";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
 import { buildAgentHarnessCRDraft } from "@/lib/agentHarnessForm";
-import { buildSandboxPlatformFromForm, buildSandboxSubstrateFromForm } from "@/lib/sandboxAgentForm";
+import { buildSandboxSubstrateFromForm } from "@/lib/sandboxAgentForm";
 
 function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
-  if (agentFormData.sandboxPlatform === "substrate") {
+  if (agentFormData.runInSandbox) {
     return "go";
   }
-  return agentFormData.declarativeRuntime === "go" ? "go" : "python";
+  return agentFormData.declarativeRuntime === "python" ? "python" : "go";
 }
 
 function attachPromptTemplateToDeclarative(decl: DeclarativeAgentSpec, agentFormData: AgentFormData) {
@@ -203,6 +203,10 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       base.spec!.declarative!.context = agentFormData.context;
     }
 
+    if (agentFormData.shareTools) {
+      base.spec!.declarative!.shareTools = true;
+    }
+
     const trimmedSA = agentFormData.serviceAccountName?.trim();
     if (trimmedSA) {
       base.spec!.declarative!.deployment = {
@@ -236,7 +240,6 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
 
 function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxAgent {
   const substrate = buildSandboxSubstrateFromForm(agentFormData);
-  const platform = buildSandboxPlatformFromForm(agentFormData);
   const kind = agentFormData.type || "Declarative";
 
   if (kind === "BYO") {
@@ -251,7 +254,6 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
         type: "BYO",
         description: agentFormData.description,
         // BYO agents are not supported on Agent Substrate.
-        platform: undefined,
         substrate: undefined,
         byo: {
           deployment: {
@@ -373,6 +375,10 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
     decl.context = agentFormData.context;
   }
 
+  if (agentFormData.shareTools) {
+    decl.shareTools = true;
+  }
+
   const trimmedSA = agentFormData.serviceAccountName?.trim();
   if (trimmedSA) {
     decl.deployment = {
@@ -394,9 +400,6 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
     spec.skills = skills;
   }
 
-  if (platform) {
-    spec.platform = platform;
-  }
   if (substrate) {
     spec.substrate = substrate;
   }

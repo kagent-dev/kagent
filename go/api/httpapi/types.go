@@ -136,25 +136,16 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 	return res
 }
 
-// OpenshellAgentHarnessListEntry is set when this row is a kagent.dev/v1alpha2 AgentHarness (openshell backend),
-// merged into GET /api/agents for UI alongside Agent CRs.
-type OpenshellAgentHarnessListEntry struct {
-	Backend            v1alpha2.AgentHarnessBackendType `json:"backend"`
-	GatewaySandboxName string                           `json:"gatewaySandboxName"`
-	ModelConfigRef     string                           `json:"modelConfigRef,omitempty"`
-	BackendRefID       string                           `json:"backendRefId,omitempty"`
-	Endpoint           string                           `json:"endpoint,omitempty"`
-}
-
-// SubstrateAgentHarnessListEntry is set when runtime is substrate.
+// SubstrateAgentHarnessListEntry describes an AgentHarness backed by Agent Substrate.
 type SubstrateAgentHarnessListEntry struct {
-	Backend        v1alpha2.AgentHarnessBackendType `json:"backend"`
-	Runtime        v1alpha2.AgentHarnessRuntime     `json:"runtime"`
-	ActorID        string                           `json:"actorId,omitempty"`
-	GatewayUIPath  string                           `json:"gatewayUIPath,omitempty"`
-	ModelConfigRef string                           `json:"modelConfigRef,omitempty"`
-	BackendRefID   string                           `json:"backendRefId,omitempty"`
-	Endpoint       string                           `json:"endpoint,omitempty"`
+	Backend v1alpha2.AgentHarnessBackendType `json:"backend"`
+	ActorID string                           `json:"actorId,omitempty"`
+	// AcpPath is the server-side ACP WebSocket proxy path for chatting with
+	// the harness from the kagent UI.
+	AcpPath        string `json:"acpPath,omitempty"`
+	ModelConfigRef string `json:"modelConfigRef,omitempty"`
+	BackendRefID   string `json:"backendRefId,omitempty"`
+	Endpoint       string `json:"endpoint,omitempty"`
 }
 
 type AgentResponse struct {
@@ -169,7 +160,6 @@ type AgentResponse struct {
 	DeploymentReady       bool                            `json:"deploymentReady"`
 	Accepted              bool                            `json:"accepted"`
 	WorkloadMode          v1alpha2.WorkloadMode           `json:"workloadMode,omitempty"`
-	OpenshellAgentHarness *OpenshellAgentHarnessListEntry `json:"openshellAgentHarness,omitempty"`
 	SubstrateAgentHarness *SubstrateAgentHarnessListEntry `json:"substrateAgentHarness,omitempty"`
 }
 

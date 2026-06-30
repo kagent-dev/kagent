@@ -16,6 +16,10 @@ type BuildInput struct {
 	PodTemplate  corev1.PodTemplateSpec
 	WorkloadName string
 	ExtraLabels  map[string]string
+	// ConfigSecret is the rendered agent config Secret (config.json / agent-card.json /
+	// srt-settings.json). The substrate backend clones it under a per-config-hash name so each
+	// golden snapshot materializes its own config (see AgentsBackend.BuildSandbox). May be nil.
+	ConfigSecret *corev1.Secret
 }
 
 // Backend builds sandbox CRD objects and evaluates their readiness.
