@@ -201,6 +201,9 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Registry, "go-image-registry", agent_translator.DefaultGoImageConfig.Registry, "The registry to use for the Go (ADK) runtime agent image. When empty, falls back to --image-registry.")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Repository, "go-image-repository", agent_translator.DefaultGoImageConfig.Repository, "The repository to use for the Go (ADK) runtime agent image. When empty, derived from --image-repository by replacing the last path segment with \"golang-adk\".")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.PullPolicy, "go-image-pull-policy", agent_translator.DefaultGoImageConfig.PullPolicy, "The pull policy to use for the Go (ADK) runtime agent image. When empty, falls back to --image-pull-policy.")
 
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
 	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
