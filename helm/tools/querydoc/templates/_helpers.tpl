@@ -67,3 +67,12 @@ Create the querydoc server URL
 {{- define "querydoc.serverUrl" -}}
 {{- printf "http://%s.%s:%d/mcp" (include "querydoc.fullname" .) .Release.Namespace (.Values.service.port | int) }}
 {{- end }}
+
+{{/*
+Constructs the full image reference from registry/repository/tag for querydoc image
+*/}}
+{{- define "querydoc.image" -}}
+{{- $img := .Values.image -}}
+{{- $parts := compact (list $img.registry $img.repository) -}}
+{{- printf "%s:%s" (join "/" $parts) ($img.tag | default .Chart.AppVersion) -}}
+{{- end }}
