@@ -103,17 +103,7 @@ func applyAnthropicConfig(params *anthropic.MessageNewParams, cfg *AnthropicConf
 }
 
 func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.GenerateContentConfig) ([]anthropic.MessageParam, string) {
-	// Extract system instruction
-	var systemBuilder strings.Builder
-	if config != nil && config.SystemInstruction != nil {
-		for _, p := range config.SystemInstruction.Parts {
-			if p != nil && p.Text != "" {
-				systemBuilder.WriteString(p.Text)
-				systemBuilder.WriteByte('\n')
-			}
-		}
-	}
-	systemPrompt := strings.TrimSpace(systemBuilder.String())
+	systemPrompt := mergeSystemInstructionFromConfig("", config)
 
 	// Collect function responses for matching with function calls
 	functionResponses := make(map[string]*genai.FunctionResponse)

@@ -29,9 +29,12 @@ export function buildSandboxSubstrateFromForm(agentFormData: AgentFormData): San
   return substrate;
 }
 
-/** BYO agents cannot run on Agent Substrate; only declarative agents are supported. */
+/**
+ * Agent Substrate supports declarative (Python/Go) and BYO agents. AgentHarness has its own
+ * substrate runtime and is configured elsewhere.
+ */
 export function substrateSupportedForAgentType(agentType: string | undefined): boolean {
-  return agentType !== "BYO";
+  return agentType === "Declarative" || agentType === "BYO" || agentType === undefined;
 }
 
 /** Sandbox agents run on Agent Substrate with a dedicated actor per chat session. */
