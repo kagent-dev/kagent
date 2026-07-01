@@ -3,6 +3,8 @@ package models
 import (
 	"reflect"
 	"testing"
+
+	"google.golang.org/genai"
 )
 
 func TestConvertOllamaOptions(t *testing.T) {
@@ -150,5 +152,65 @@ func TestOllamaConfigDefaults(t *testing.T) {
 	converted := convertOllamaOptions(config.Options)
 	if v, ok := converted["temperature"].(float64); !ok || v != 0.8 {
 		t.Errorf("expected temperature 0.8, got %v", converted["temperature"])
+	}
+}
+
+func TestConvertGenaiContentsToOllamaMessages(t *testing.T) {
+	tests := []struct {
+		name           string
+		contents       []*genai.Content
+		config         *genai.GenerateContentConfig
+		wantMsgCount   int
+		wantSystemText string
+	}{
+		{
+			name: "simple user message",
+			contents: []*genai.Content{
+				{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
+			},
+			wantMsgCount: 1,
+		},
+		{
+			name: "system instruction from config",
+			contents: []*genai.Content{
+				{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
+			},
+			config: &genai.GenerateContentConfig{
+				SystemInstruction: &genai.Content{
+					Parts: []*genai.Part{
+						{Text: "You are a test agent."},
+						{Text: "Begin EVERY reply with ZEBRA9."},
+					},
+				},
+			},
+			wantMsgCount:   1,
+			wantSystemText: "You are a test agent.\nBegin EVERY reply with ZEBRA9.",
+		},
+		{
+			name: "system instruction from config merges with content role system",
+			contents: []*genai.Content{
+				{Role: "system", Parts: []*genai.Part{{Text: "From contents"}}},
+				{Role: "user", Parts: []*genai.Part{{Text: "Hello"}}},
+			},
+			config: &genai.GenerateContentConfig{
+				SystemInstruction: &genai.Content{
+					Parts: []*genai.Part{{Text: "From config"}},
+				},
+			},
+			wantMsgCount:   1,
+			wantSystemText: "From contents\nFrom config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msgs, systemText := convertGenaiContentsToOllamaMessages(tt.contents, tt.config)
+			if len(msgs) != tt.wantMsgCount {
+				t.Errorf("expected %d messages, got %d", tt.wantMsgCount, len(msgs))
+			}
+			if systemText != tt.wantSystemText {
+				t.Errorf("expected system text %q, got %q", tt.wantSystemText, systemText)
+			}
+		})
 	}
 }
