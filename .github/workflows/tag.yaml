@@ -149,7 +149,7 @@ jobs:
       contents: write
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
     - name: Build
       run: |
         # if workflow_dispatch is used, use the version input
