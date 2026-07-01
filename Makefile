@@ -561,23 +561,37 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 # run-upgrade-tests installs the previous release, builds the current images, and
 # runs the DB-layer upgrade scenario in TestUpgrade: seed -> upgrade -> controller
 # rollout (no crash) -> data survival -> schema-equivalence (upgraded == clean
-# install) -> reverse schema to target (down files) + data survival.
+# install) -> reverse schema to target (down files) + data survival. At each
+# state it also runs a version-matched invoke e2e slice (TestE2EInvokeInlineAgent)
+# so the serving controller's real query paths are exercised, not just psql: the
+# HEAD tree post-upgrade, and the previous release's own tree (a git worktree at
+# its tag, in .upgrade-prev) for the old-code-against-new-schema and post-rollback
+# states. KAGENT_LOCAL_HOST (kind gateway IP) lets the agent reach the in-process
+# mock LLM; without it the invoke slices self-skip and only the DB round-trip runs.
 # Prerequisite (provided by CI as a separate step; run it locally first): a kind
 # cluster (make create-kind-cluster). The controller tolerates the missing
 # agent-sandbox CRD (the owned-resource watch is skipped), and these tests create
 # no SandboxAgents, so agent-sandbox is not required.
 .PHONY: run-upgrade-tests
-run-upgrade-tests: build install-previous-release ## Install the previous release, build current images, and run the upgrade test (migration round-trip)
+run-upgrade-tests: build install-previous-release ## Install the previous release, build current images, and run the upgrade + version-matched invoke tests
 	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
+	@set -e; \
+	git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true; \
+	git worktree add --detach "$(CURDIR)/.upgrade-prev" "v$(UPGRADE_FROM_VERSION)"; \
+	trap 'git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true' EXIT; \
+	kind_gw="$$($(CONTAINER_RUNTIME) network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)"; \
+	echo "kind gateway (KAGENT_LOCAL_HOST): $$kind_gw"; \
 	cd go && \
 	RUN_UPGRADE_TESTS=true \
 	REPO_ROOT=$(CURDIR) \
+	PREV_E2E_DIR=$(CURDIR)/.upgrade-prev \
+	KAGENT_LOCAL_HOST="$$kind_gw" \
 	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
 	VERSION=$(VERSION) \
 	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
 	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
-	go test ./core/test/upgrade -run TestUpgrade -count=1 -timeout=20m -v
+	go test ./core/test/upgrade -run TestUpgrade -count=1 -timeout=45m -v
 
 # The target-specific UPGRADE_PREV_EXTRA_ARGS propagates to the
 # install-previous-release prerequisite, so the previous release comes up with 2

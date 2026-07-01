@@ -31,6 +31,9 @@ const (
 
 	postgresContainer   = "postgresql"
 	controllerContainer = "controller"
+
+	controllerServiceName = "kagent-controller"
+	controllerAPIPort     = 8083
 )
 
 type upgradeEnv struct {
@@ -258,6 +261,13 @@ func TestUpgrade(t *testing.T) {
 		return
 	}
 
+	t.Run("post-upgrade invoke (HEAD)", func(t *testing.T) {
+		// The HEAD controller is serving on the migrated schema. Exercise the
+		// current code's real query paths against it (deploy + invoke an agent),
+		// not just the psql-level checks above.
+		runInvokeE2E(t, env, filepath.Join(env.repoRoot, "go"), "post-upgrade")
+	})
+
 	if !t.Run("previous release boots against the upgraded schema", func(t *testing.T) {
 		// A deployment-only rollback puts the previous binary back while HEAD's
 		// schema is still applied, so the binary is now behind its database. It
@@ -285,6 +295,14 @@ func TestUpgrade(t *testing.T) {
 	}) {
 		return
 	}
+
+	t.Run("contraction invoke (previous release)", func(t *testing.T) {
+		// The previous release is now serving against the ahead (HEAD) schema.
+		// Run its own invoke e2e slice (from the worktree at its tag) against it:
+		// old code's real queries against the new schema — the contraction
+		// property raw SQL cannot reach.
+		runInvokeE2E(t, env, prevTreeGoDir(), "contraction")
+	})
 
 	t.Run("reverse schema to target", func(t *testing.T) {
 		// Scale the controller to zero so no booting pod re-applies migrations
@@ -322,6 +340,15 @@ func TestUpgrade(t *testing.T) {
 			"seeded agent row did not survive the rollback")
 		require.GreaterOrEqual(t, pgQueryInt(t, env, fmt.Sprintf("SELECT count(*) FROM feedback WHERE user_id = %s", pgQuote(seedUserID))), 1,
 			"seeded feedback row did not survive the rollback")
+	})
+
+	t.Run("post-rollback invoke (previous release)", func(t *testing.T) {
+		// Bring the previous controller back up on the reverted schema (the reverse
+		// step scaled it to zero). The schema now matches the old binary, so it
+		// boots without migrating. Then run its invoke e2e slice — old code fully
+		// serving on the rolled-back schema.
+		scaleController(t, env, 1)
+		runInvokeE2E(t, env, prevTreeGoDir(), "post-rollback")
 	})
 }
 
