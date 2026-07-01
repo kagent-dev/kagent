@@ -9,7 +9,16 @@ metadata:
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
+    kagent.dev/worker-pool: {{ .Values.substrateWorkerPool.name | quote }}
+    {{- with .Values.substrateWorkerPool.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   replicas: {{ .Values.substrateWorkerPool.replicas }}
   ateomImage: {{ .Values.substrateWorkerPool.ateomImage | quote }}
+  sandboxClass: {{ .Values.substrateWorkerPool.sandboxClass | default "gvisor" | quote }}
+  {{- with .Values.substrateWorkerPool.template }}
+  template:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 {{- end }}

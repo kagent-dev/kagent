@@ -9,6 +9,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -16,15 +17,16 @@ import (
 const (
 	defaultSnapshotsBucket   = "ate-snapshots"
 	defaultOpenClawContainer = "openclaw"
+
+	// Referenced by generated ActorTemplates to gate scheduling onto a WorkerPool.
+	// The kagent Helm chart stamps it on the WorkerPool it manages;
+	// externally-owned pools must carry it to remain eligible.
+	WorkerPoolLabelKey = "kagent.dev/worker-pool"
 )
 
 // LifecycleDefaults are cluster-wide defaults for generated ActorTemplate lifecycle.
 type LifecycleDefaults struct {
 	PauseImage           string
-	RunscAMD64URL        string
-	RunscAMD64SHA256     string
-	RunscARM64URL        string
-	RunscARM64SHA256     string
 	DefaultWorkloadImage string
 	DefaultWorkerPool    types.NamespacedName
 	// ImageRegistry and ImageRepository are the runtime registry/repository used
@@ -74,16 +76,12 @@ type LifecycleState struct {
 	ActorTemplateReady bool
 }
 
-func defaultRunscConfig(d LifecycleDefaults) atev1alpha1.RunscConfig {
-	return atev1alpha1.RunscConfig{
-		AMD64: &atev1alpha1.RunscPlatformConfig{
-			URL:        d.RunscAMD64URL,
-			SHA256Hash: d.RunscAMD64SHA256,
-		},
-		ARM64: &atev1alpha1.RunscPlatformConfig{
-			URL:        d.RunscARM64URL,
-			SHA256Hash: d.RunscARM64SHA256,
-		},
+func workerSelectorForPool(wpKey types.NamespacedName) *metav1.LabelSelector {
+	if wpKey.Name == "" {
+		return nil
+	}
+	return &metav1.LabelSelector{
+		MatchLabels: map[string]string{WorkerPoolLabelKey: wpKey.Name},
 	}
 }
 
