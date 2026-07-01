@@ -1,11 +1,9 @@
 package embedding
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -145,14 +143,19 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig) (*azureOpenAIProvider, err
 		azureEndpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
 	}
 	if azureEndpoint == "" {
-		return nil, fmt.Errorf("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
+		return nil, fmt.Errorf("azure openAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
 	}
 
 	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	baseURL := strings.TrimSuffix(azureEndpoint, "/")
+	if !strings.Contains(baseURL, "/openai/deployments/") {
+		baseURL += "/openai/deployments/" + url.PathEscape(cfg.Model)
+	}
+	baseURL += "/"
+
 	opts := []option.RequestOption{
-		option.WithBaseURL(strings.TrimSuffix(azureEndpoint, "/") + "/"),
+		option.WithBaseURL(baseURL),
 		option.WithQueryAdd("api-version", apiVersion),
-		option.WithMiddleware(azurePathRewriteMiddleware()),
 		option.WithHeader("Api-Key", apiKey),
 		option.WithHTTPClient(defaultProviderHTTPClient()),
 	}
@@ -347,46 +350,6 @@ func float64ToFloat32(v []float64) []float32 {
 		out[i] = float32(x)
 	}
 	return out
-}
-
-// azurePathRewriteMiddleware rewrites .../embeddings to .../openai/deployments/{model}/embeddings.
-// Mirrors models/openai.go so Azure embedding deployments use the same path shape as chat.
-func azurePathRewriteMiddleware() option.Middleware {
-	return func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-		pathSuffix := strings.TrimPrefix(r.URL.Path, "/")
-		var suffix string
-		switch {
-		case strings.HasSuffix(pathSuffix, "chat/completions"):
-			suffix = "chat/completions"
-		case strings.HasSuffix(pathSuffix, "completions"):
-			suffix = "completions"
-		case strings.HasSuffix(pathSuffix, "embeddings"):
-			suffix = "embeddings"
-		default:
-			return next(r)
-		}
-		if r.Body == nil {
-			return next(r)
-		}
-		var buf bytes.Buffer
-		if _, err := buf.ReadFrom(r.Body); err != nil {
-			return nil, err
-		}
-		r.Body = io.NopCloser(&buf)
-		var payload struct {
-			Model string `json:"model"`
-		}
-		if err := json.NewDecoder(bytes.NewReader(buf.Bytes())).Decode(&payload); err != nil || payload.Model == "" {
-			r.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
-			return next(r)
-		}
-		deployment := url.PathEscape(payload.Model)
-		basePath := strings.TrimSuffix(r.URL.Path, suffix)
-		basePath = strings.TrimRight(basePath, "/")
-		r.URL.Path = basePath + "/openai/deployments/" + deployment + "/" + suffix
-		r.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
-		return next(r)
-	}
 }
 
 // normalizeL2 normalizes a vector to unit length using L2 norm.
