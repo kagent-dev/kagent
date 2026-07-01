@@ -25,6 +25,7 @@ function getProviderParams(spec: ModelConfigSpec) {
     spec.anthropicVertexAI ??
     spec.bedrock ??
     spec.sapAICore ??
+    spec.sparkMaaSAI ??
     undefined
   );
 }

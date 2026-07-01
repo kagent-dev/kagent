@@ -157,6 +157,24 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "sonar", FunctionCalling: false},
 			{Name: "sap-abap-1", FunctionCalling: false},
 		},
+		v1alpha2.ModelProviderSparkMaaSAI: {
+			{Name: "Spark5.0-Pro", FunctionCalling: true},
+			{Name: "Spark5.0-Lite", FunctionCalling: true},
+			{Name: "Spark4.0-Ultra", FunctionCalling: true},
+			{Name: "Spark4.0-Max", FunctionCalling: true},
+			{Name: "Spark-Max-32K", FunctionCalling: true},
+			{Name: "Spark-Pro-128K", FunctionCalling: true},
+			{Name: "Spark-Lite", FunctionCalling: true},
+			{Name: "deepseek-v3", FunctionCalling: true},
+			{Name: "deepseek-r1", FunctionCalling: true},
+			{Name: "qwen-plus", FunctionCalling: true},
+			{Name: "qwen-turbo", FunctionCalling: true},
+			{Name: "qwen-max", FunctionCalling: true},
+			{Name: "qwen-long", FunctionCalling: true},
+			{Name: "glm-4-plus", FunctionCalling: true},
+			{Name: "glm-4-flash", FunctionCalling: true},
+			{Name: "MiniMax-M1", FunctionCalling: true},
+		},
 	}
 
 	log.Info("Successfully listed supported models", "count", len(supportedModels))

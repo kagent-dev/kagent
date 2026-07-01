@@ -1,6 +1,6 @@
 
-export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI" | "Bedrock" | "SAPAICore";
-export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI", "Bedrock", "SAPAICore"] as const;
+export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI" | "Bedrock" | "SAPAICore" | "SparkMaaSAI";
+export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI", "Bedrock", "SAPAICore", "SparkMaaSAI"] as const;
 export type ModelProviderKey = typeof modelProviders[number];
 
 
@@ -75,6 +75,13 @@ export const PROVIDERS_INFO: {
         apiKeyLink: "https://help.sap.com/docs/sap-ai-core",
         modelDocsLink: "https://help.sap.com/docs/sap-ai-core/sap-ai-core-service-guide/models-and-scenarios-in-generative-ai-hub",
         help: "Create a K8s Secret with client_id and client_secret from your SAP AI Core service key."
+    },
+    SparkMaaSAI: {
+        name: "Spark MaaS",
+        type: "SparkMaaSAI",
+        apiKeyLink: "https://www.xfyun.cn/",
+        modelDocsLink: "https://www.xfyun.cn/doc/spark/推理服务-http.html",
+        help: "Configure your Spark MaaS API key. Uses OpenAI-compatible protocol."
     },
 };
 

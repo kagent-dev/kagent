@@ -27,7 +27,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;SparkMaaSAI
 type ModelProvider string
 
 const (
@@ -40,6 +40,7 @@ const (
 	ModelProviderAnthropicVertexAI ModelProvider = "AnthropicVertexAI"
 	ModelProviderBedrock           ModelProvider = "Bedrock"
 	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
+	ModelProviderSparkMaaSAI       ModelProvider = "SparkMaaSAI"
 )
 
 type BaseVertexAIConfig struct {
@@ -310,6 +311,14 @@ type SAPAICoreConfig struct {
 	AuthURL string `json:"authUrl,omitempty"`
 }
 
+// SparkMaaSAIConfig contains Spark MaaS AI-specific configuration options.
+type SparkMaaSAIConfig struct {
+	// Base URL for the Spark MaaS API
+	// +kubebuilder:default="https://maas-api.cn-huabei-1.xf-yun.com.cn"
+	// +optional
+	BaseURL string `json:"baseUrl,omitempty"`
+}
+
 // TLSConfig contains TLS/SSL configuration options for outbound HTTPS
 // connections from the agent (model provider, RemoteMCPServer). The
 // XValidation rules below apply at admission to every CRD field that
@@ -377,6 +386,8 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
 // +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
+// +kubebuilder:validation:XValidation:message="provider.sparkMaaSAI must be nil if the provider is not SparkMaaSAI",rule="!(has(self.sparkMaaSAI) && self.provider != 'SparkMaaSAI')"
+// +kubebuilder:validation:XValidation:message="provider.sparkMaaSAI must be set when provider is SparkMaaSAI",rule="!(self.provider == 'SparkMaaSAI' && !has(self.sparkMaaSAI))"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
@@ -449,6 +460,10 @@ type ModelConfigSpec struct {
 	// SAP AI Core-specific configuration
 	// +optional
 	SAPAICore *SAPAICoreConfig `json:"sapAICore,omitempty"`
+
+	// Spark MaaS AI-specific configuration
+	// +optional
+	SparkMaaSAI *SparkMaaSAIConfig `json:"sparkMaaSAI,omitempty"`
 
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers

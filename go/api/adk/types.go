@@ -104,6 +104,7 @@ const (
 	ModelTypeGemini          = "gemini"
 	ModelTypeBedrock         = "bedrock"
 	ModelTypeSAPAICore       = "sap_ai_core"
+	ModelTypeSparkMaaSAI     = "spark_maas_ai"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -302,6 +303,26 @@ func (s *SAPAICore) GetType() string {
 	return ModelTypeSAPAICore
 }
 
+type SparkMaaSAI struct {
+	BaseModel
+	BaseUrl string `json:"base_url,omitempty"`
+}
+
+func (s *SparkMaaSAI) MarshalJSON() ([]byte, error) {
+	type Alias SparkMaaSAI
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeSparkMaaSAI,
+		Alias: (*Alias)(s),
+	})
+}
+
+func (s *SparkMaaSAI) GetType() string {
+	return ModelTypeSparkMaaSAI
+}
+
 // GenericModel is a catch-all model type used by the Go ADK when the model
 // type doesn't match any known constant.
 type GenericModel struct {
@@ -370,6 +391,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &sapAICore, nil
+	case ModelTypeSparkMaaSAI:
+		var sparkMaaSAI SparkMaaSAI
+		if err := json.Unmarshal(bytes, &sparkMaaSAI); err != nil {
+			return nil, err
+		}
+		return &sparkMaaSAI, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
@@ -436,6 +463,9 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 	case *Bedrock:
 		e.Model = v.Model
 	case *SAPAICore:
+		e.Model = v.Model
+		e.BaseUrl = v.BaseUrl
+	case *SparkMaaSAI:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
 	default:

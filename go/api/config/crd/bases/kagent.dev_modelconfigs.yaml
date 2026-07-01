@@ -665,6 +665,7 @@ spec:
                 - AnthropicVertexAI
                 - Bedrock
                 - SAPAICore
+                - SparkMaaSAI
                 type: string
               sapAICore:
                 description: SAP AI Core-specific configuration
@@ -681,6 +682,14 @@ spec:
                     type: string
                 required:
                 - baseUrl
+                type: object
+              sparkMaaSAI:
+                description: Spark MaaS AI-specific configuration
+                properties:
+                  baseUrl:
+                    default: https://maas-api.cn-huabei-1.xf-yun.com.cn
+                    description: Base URL for the Spark MaaS API
+                    type: string
                 type: object
               tls:
                 description: |-
@@ -760,6 +769,10 @@ spec:
               rule: '!(has(self.bedrock) && self.provider != ''Bedrock'')'
             - message: provider.sapAICore must be nil if the provider is not SAPAICore
               rule: '!(has(self.sapAICore) && self.provider != ''SAPAICore'')'
+            - message: provider.sparkMaaSAI must be nil if the provider is not SparkMaaSAI
+              rule: '!(has(self.sparkMaaSAI) && self.provider != ''SparkMaaSAI'')'
+            - message: provider.sparkMaaSAI must be set when provider is SparkMaaSAI
+              rule: '!(self.provider == ''SparkMaaSAI'' && !has(self.sparkMaaSAI))'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set (except
