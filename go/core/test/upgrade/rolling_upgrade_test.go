@@ -29,14 +29,13 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	waitForReadyPods(t, env, postgresSelector, 3*time.Minute)
 	waitForPostgresAgentTable(t, env, 3*time.Minute)
 
-	// This test is only meaningful when the target build has migrations the
-	// baseline has not already applied. Otherwise there is no old-code/new-schema
-	// compatibility window to exercise.
+	// Run even when there is no migration delta: a rolling upgrade rolls the new
+	// image regardless of migrations, so the deploy can still break for
+	// non-schema reasons (a crashing new image, readiness, old pods against
+	// new-code-created resources). When the target build does add migrations, the
+	// same flow additionally exercises the old-code/new-schema window below.
 	baselineState := pgMigrationState(t, env)
 	require.False(t, baselineState.dirty, "baseline Postgres migrations are dirty")
-	if baselineState.version >= targetCoreVersion {
-		t.Skipf("baseline migration version %d is already at target %d", baselineState.version, targetCoreVersion)
-	}
 
 	// Keep multiple old controller pods around during the rollout. With a single
 	// replica the old-code/new-schema window can be too small to observe reliably.
