@@ -191,6 +191,12 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 				return fmt.Errorf("tool must have an agent reference")
 			}
 
+			// Remote (e.g. cross-cluster) agent tool (#1853): there is no local
+			// Agent CR to resolve or recurse into — validation is satisfied.
+			if tool.Agent.URL != "" {
+				continue
+			}
+
 			toolAgent, err := a.getToolAgent(ctx, tool.Agent, agent.GetNamespace())
 			if err != nil {
 				return err
@@ -327,6 +333,30 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 				secretHashBytes = append(secretHashBytes, toolHashBytes...)
 			}
 		case tool.Agent != nil:
+			// Cross-cluster / remote A2A agent tool (#1853): when an explicit URL
+			// is given, use it directly instead of resolving a local Agent CR.
+			// Mirrors the local path's RemoteAgentConfig and honors globalProxyURL.
+			if tool.Agent.URL != "" {
+				targetURL := tool.Agent.URL
+				if a.globalProxyURL != "" {
+					targetURL, headers, err = applyProxyURL(tool.Agent.URL, a.globalProxyURL, headers)
+					if err != nil {
+						return nil, nil, nil, err
+					}
+				}
+				name := tool.Agent.Name
+				if name == "" {
+					name = "remote-agent"
+				}
+				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
+					Name:        utils.ConvertToPythonIdentifier(name),
+					Url:         targetURL,
+					Headers:     headers,
+					Description: tool.Agent.Description,
+				})
+				continue
+			}
+
 			toolAgent, err := a.getToolAgent(ctx, tool.Agent, agent.GetNamespace())
 			if err != nil {
 				return nil, nil, nil, err

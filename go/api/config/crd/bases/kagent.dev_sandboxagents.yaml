@@ -10826,11 +10826,23 @@ spec:
                           properties:
                             apiGroup:
                               type: string
+                            description:
+                              description: |-
+                                Description is shown for a remote (URL-based) agent tool, since there is no
+                                local Agent CR to read the description from.
+                              type: string
                             kind:
                               type: string
                             name:
                               type: string
                             namespace:
+                              type: string
+                            url:
+                              description: |-
+                                URL, when set on an Agent tool reference, points at a remote A2A endpoint
+                                (e.g. an agent in another cluster reachable over an east-west gateway).
+                                When set, the controller does NOT resolve a local Agent CR — it uses this
+                                URL directly, enabling cross-cluster declarative agent-to-agent tools (#1853).
                               type: string
                           required:
                           - name
@@ -10899,6 +10911,11 @@ spec:
                               type: array
                             apiGroup:
                               type: string
+                            description:
+                              description: |-
+                                Description is shown for a remote (URL-based) agent tool, since there is no
+                                local Agent CR to read the description from.
+                              type: string
                             kind:
                               type: string
                             name:
@@ -10924,6 +10941,13 @@ spec:
                                 type: string
                               maxItems: 50
                               type: array
+                            url:
+                              description: |-
+                                URL, when set on an Agent tool reference, points at a remote A2A endpoint
+                                (e.g. an agent in another cluster reachable over an east-west gateway).
+                                When set, the controller does NOT resolve a local Agent CR — it uses this
+                                URL directly, enabling cross-cluster declarative agent-to-agent tools (#1853).
+                              type: string
                           required:
                           - name
                           type: object
