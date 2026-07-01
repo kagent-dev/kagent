@@ -1,0 +1,1 @@
+ALTER TABLE kanban.task ADD COLUMN due_date TIMESTAMPTZ;

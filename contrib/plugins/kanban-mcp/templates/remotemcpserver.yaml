@@ -1,0 +1,38 @@
+{{- if .Values.remoteMCPServer.enabled }}
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: {{ include "kanban-mcp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kanban-mcp.labels" . | nindent 4 }}
+spec:
+  description: {{ .Values.remoteMCPServer.description | quote }}
+  protocol: STREAMABLE_HTTP
+  url: {{ include "kanban-mcp.serverUrl" . }}
+  timeout: {{ .Values.remoteMCPServer.timeout }}
+  sseReadTimeout: {{ .Values.remoteMCPServer.sseReadTimeout }}
+  terminateOnClose: {{ .Values.remoteMCPServer.terminateOnClose }}
+  {{- with .Values.remoteMCPServer.ui }}
+  ui:
+    enabled: {{ .enabled }}
+    {{- with .pathPrefix }}
+    pathPrefix: {{ . }}
+    {{- end }}
+    {{- with .displayName }}
+    displayName: {{ . | quote }}
+    {{- end }}
+    {{- with .icon }}
+    icon: {{ . }}
+    {{- end }}
+    {{- with .section }}
+    section: {{ . }}
+    {{- end }}
+    {{- with .defaultPath }}
+    defaultPath: {{ . | quote }}
+    {{- end }}
+    {{- with .injectCSS }}
+    injectCSS: {{ . | quote }}
+    {{- end }}
+  {{- end }}
+{{- end }}

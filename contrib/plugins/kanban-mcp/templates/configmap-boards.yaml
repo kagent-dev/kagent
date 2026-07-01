@@ -1,0 +1,14 @@
+{{- if .Values.boards }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kanban-mcp.fullname" . }}-boards
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kanban-mcp.labels" . | nindent 4 }}
+data:
+  # Board definitions seeded by the server at startup via KANBAN_BOARDS_FILE.
+  # The server upserts each entry, so redeploys reconcile board names/columns.
+  boards.json: |
+    {{ .Values.boards | toJson }}
+{{- end }}

@@ -1,0 +1,57 @@
+# Docker Compose for local testing of the kanban-mcp server.
+#
+# Brings up Postgres + the kanban-mcp server (HTTP transport) so you can exercise
+# all four surfaces on http://localhost:8080 :
+#   /          embedded Kanban UI
+#   /mcp       MCP Streamable HTTP endpoint (for AI agents / MCP clients)
+#   /api/...   REST API (tasks, subtasks, attachments, board)
+#   /events    SSE stream of board updates
+#
+# Run from this directory:
+#   docker compose up --build
+#
+# The server applies its own `kanban` schema migrations on startup (track
+# kanban_schema_migrations), so it coexists safely if pointed at a database that
+# already holds the kagent core schema.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kanban
+      POSTGRES_PASSWORD: kanban
+      POSTGRES_DB: kanban
+    ports:
+      - "5432:5432"
+    volumes:
+      - kanban-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kanban -d kanban"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kanban-mcp:
+    build:
+      # Build context is the repo root so the whole go/ module is available.
+      context: ../../..
+      dockerfile: go/plugins/kanban-mcp/Dockerfile
+    environment:
+      KANBAN_TRANSPORT: http
+      KANBAN_ADDR: ":8080"
+      KANBAN_DB_URL: "postgres://kanban:kanban@postgres:5432/kanban?sslmode=disable"
+      KANBAN_LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # busybox wget ships in the alpine runtime image.
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:8080/api/board >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  kanban-pgdata:

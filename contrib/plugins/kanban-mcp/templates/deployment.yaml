@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kanban-mcp.fullname" . }}
+  labels:
+    {{- include "kanban-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kanban-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kanban-mcp.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: kanban-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          args:
+            - "--addr={{ .Values.config.addr }}"
+            - "--transport={{ .Values.config.transport }}"
+            - "--log-level={{ .Values.config.logLevel }}"
+            - "--readonly={{ .Values.config.readonly }}"
+          env:
+            - name: KANBAN_ADDR
+              value: {{ .Values.config.addr | quote }}
+            - name: KANBAN_TRANSPORT
+              value: {{ .Values.config.transport | quote }}
+            - name: KANBAN_LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: KANBAN_READONLY
+              value: {{ .Values.config.readonly | quote }}
+            {{- if or .Values.database.url .Values.database.existingSecret }}
+            # The connection URL is mounted as a file from a Secret and read via
+            # KANBAN_DB_URL_FILE so the URL never appears in the pod env / spec.
+            - name: KANBAN_DB_URL_FILE
+              value: /etc/kanban/db/{{ include "kanban-mcp.dbSecretKey" . }}
+            {{- end }}
+            {{- if .Values.boards }}
+            # Board definitions are mounted from a ConfigMap and seeded at startup.
+            - name: KANBAN_BOARDS_FILE
+              value: /etc/kanban/boards/boards.json
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- if eq .Values.config.transport "http" }}
+          readinessProbe:
+            httpGet:
+              path: /api/board
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/board
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if or .Values.database.url .Values.database.existingSecret .Values.boards }}
+          volumeMounts:
+            {{- if or .Values.database.url .Values.database.existingSecret }}
+            - name: db-url
+              mountPath: /etc/kanban/db
+              readOnly: true
+            {{- end }}
+            {{- if .Values.boards }}
+            - name: boards
+              mountPath: /etc/kanban/boards
+              readOnly: true
+            {{- end }}
+          {{- end }}
+      {{- if or .Values.database.url .Values.database.existingSecret .Values.boards }}
+      volumes:
+        {{- if or .Values.database.url .Values.database.existingSecret }}
+        - name: db-url
+          secret:
+            secretName: {{ include "kanban-mcp.dbSecretName" . }}
+            items:
+              - key: {{ include "kanban-mcp.dbSecretKey" . }}
+                path: {{ include "kanban-mcp.dbSecretKey" . }}
+        {{- end }}
+        {{- if .Values.boards }}
+        - name: boards
+          configMap:
+            name: {{ include "kanban-mcp.fullname" . }}-boards
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
