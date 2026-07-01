@@ -143,7 +143,7 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig) (*azureOpenAIProvider, err
 		azureEndpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
 	}
 	if azureEndpoint == "" {
-		return nil, fmt.Errorf("azure openAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
+		return nil, fmt.Errorf("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var") //nolint:staticcheck // ST1005: keep product name readable
 	}
 
 	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
