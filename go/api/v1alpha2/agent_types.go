@@ -560,6 +560,16 @@ type TypedReference struct {
 	Name string `json:"name"`
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
+	// URL, when set on an Agent tool reference, points at a remote A2A endpoint
+	// (e.g. an agent in another cluster reachable over an east-west gateway).
+	// When set, the controller does NOT resolve a local Agent CR — it uses this
+	// URL directly, enabling cross-cluster declarative agent-to-agent tools (#1853).
+	// +optional
+	URL string `json:"url,omitempty"`
+	// Description is shown for a remote (URL-based) agent tool, since there is no
+	// local Agent CR to read the description from.
+	// +optional
+	Description string `json:"description,omitempty"`
 }
 
 func (t *TypedReference) GroupKind() schema.GroupKind {
