@@ -66,8 +66,12 @@ type Source struct {
 }
 
 // BuiltinSources returns the built-in source set: the core track always, and the
-// vector track when vectorEnabled. Downstream consumers append their own Sources
-// to this slice before calling RunUp.
+// vector track when vectorEnabled. app.Start prepends these to any
+// downstream-registered extra sources before calling RunUp, so the built-in
+// tracks always run first and downstream consumers only supply their own extras
+// (never assembling this slice themselves). A caller that invokes RunUp directly
+// (e.g. a migration CLI) composes the list the same way: BuiltinSources first,
+// then extras.
 func BuiltinSources(vectorEnabled bool) []Source {
 	sources := []Source{{
 		Name:          "core",
