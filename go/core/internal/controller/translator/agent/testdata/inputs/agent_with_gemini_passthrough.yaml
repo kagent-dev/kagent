@@ -1,0 +1,25 @@
+operation: translateAgent
+targetObject: gemini-passthrough-agent
+namespace: test
+objects:
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: gemini-passthrough-model
+      namespace: test
+    spec:
+      provider: Gemini
+      model: gemini-2.0-flash
+      apiKeyPassthrough: true
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: gemini-passthrough-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: A Gemini agent using API key passthrough
+        systemMessage: You are a helpful assistant.
+        modelConfig: gemini-passthrough-model
+        tools: []

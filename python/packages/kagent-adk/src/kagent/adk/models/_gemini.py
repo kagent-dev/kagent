@@ -26,7 +26,15 @@ class KAgentGeminiLlm(KAgentTLSMixin, GeminiLLM):
     extra_headers: Optional[dict[str, str]] = None
     api_key_passthrough: Optional[bool] = None
 
+    _api_key: Optional[str] = None
+
     model_config = {"arbitrary_types_allowed": True}
+
+    def set_passthrough_key(self, token: str) -> None:
+        """Forward the Bearer token from the incoming request as the Gemini API key."""
+        self._api_key = token
+        self.__dict__.pop("api_client", None)
+        self.__dict__.pop("_live_api_client", None)
 
     def _http_options(self, *, api_version: str | None = None) -> types.HttpOptions:
         verify = self._tls_verify()
@@ -44,16 +52,19 @@ class KAgentGeminiLlm(KAgentTLSMixin, GeminiLLM):
             **kwargs,
         )
 
+    def _resolve_api_key(self) -> Optional[str]:
+        return self._api_key or os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+
     @cached_property
     def api_client(self) -> Client:
         return Client(
-            api_key=os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"),
+            api_key=self._resolve_api_key(),
             http_options=self._http_options(),
         )
 
     @cached_property
     def _live_api_client(self) -> Client:
         return Client(
-            api_key=os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"),
+            api_key=self._resolve_api_key(),
             http_options=self._http_options(api_version=self._live_api_version),
         )
