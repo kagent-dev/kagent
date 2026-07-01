@@ -1,0 +1,130 @@
+suite: test controller configmap
+templates:
+  - controller-configmap.yaml
+tests:
+  - it: should render the controller configmap
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-controller
+      - hasDocuments:
+          count: 1
+
+  - it: should not emit OTEL_SERVICE_NAME when otel.serviceName is empty
+    asserts:
+      - notExists:
+          path: data.OTEL_SERVICE_NAME
+
+  - it: should emit OTEL_SERVICE_NAME when otel.serviceName is set
+    set:
+      otel:
+        serviceName: my-kagent
+    asserts:
+      - equal:
+          path: data.OTEL_SERVICE_NAME
+          value: my-kagent
+
+  - it: should not emit OTEL_RESOURCE_ATTRIBUTES when otel.resourceAttributes is empty
+    asserts:
+      - notExists:
+          path: data.OTEL_RESOURCE_ATTRIBUTES
+
+  - it: should emit OTEL_RESOURCE_ATTRIBUTES sorted by key when set
+    set:
+      otel:
+        resourceAttributes:
+          team: platform
+          deployment.environment.name: production
+          langfuse.environment: production
+    asserts:
+      - equal:
+          path: data.OTEL_RESOURCE_ATTRIBUTES
+          value: deployment.environment.name=production,langfuse.environment=production,team=platform
+
+  - it: should not emit OTEL_EXPORTER_OTLP_TRACES_HEADERS when tracing.headers is empty
+    asserts:
+      - notExists:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_HEADERS
+
+  - it: should emit OTEL_EXPORTER_OTLP_TRACES_HEADERS sorted by key when set
+    set:
+      otel:
+        tracing:
+          exporter:
+            otlp:
+              headers:
+                x-tenant-id: platform
+                x-region: us-central1
+    asserts:
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_HEADERS
+          value: x-region=us-central1,x-tenant-id=platform
+
+  - it: should not emit OTEL_EXPORTER_OTLP_LOGS_HEADERS when logging.headers is empty
+    asserts:
+      - notExists:
+          path: data.OTEL_EXPORTER_OTLP_LOGS_HEADERS
+
+  - it: should emit OTEL_EXPORTER_OTLP_LOGS_HEADERS when logging.headers is set
+    set:
+      otel:
+        logging:
+          exporter:
+            otlp:
+              headers:
+                x-log-tenant: platform
+    asserts:
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_LOGS_HEADERS
+          value: x-log-tenant=platform
+
+  - it: should keep pre-existing OTEL keys unchanged
+    asserts:
+      - equal:
+          path: data.OTEL_TRACING_ENABLED
+          value: "false"
+      - equal:
+          path: data.OTEL_LOGGING_ENABLED
+          value: "false"
+
+  - it: renders the full Langfuse-Cloud style tracing configuration
+    set:
+      otel:
+        serviceName: kagent
+        resourceAttributes:
+          deployment.environment.name: production
+          langfuse.environment: production
+        tracing:
+          enabled: true
+          exporter:
+            otlp:
+              endpoint: https://cloud.langfuse.com/api/public/otel/v1/traces
+              protocol: http/protobuf
+              insecure: false
+              timeout: 15000
+              headers:
+                x-tenant-id: platform
+    asserts:
+      - equal:
+          path: data.OTEL_TRACING_ENABLED
+          value: "true"
+      - equal:
+          path: data.OTEL_SERVICE_NAME
+          value: kagent
+      - equal:
+          path: data.OTEL_RESOURCE_ATTRIBUTES
+          value: deployment.environment.name=production,langfuse.environment=production
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+          value: https://cloud.langfuse.com/api/public/otel/v1/traces
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+          value: http/protobuf
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_INSECURE
+          value: "false"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_HEADERS
+          value: x-tenant-id=platform
