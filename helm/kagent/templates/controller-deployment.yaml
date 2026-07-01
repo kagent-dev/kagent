@@ -125,22 +125,6 @@ spec:
             - name: SUBSTRATE_PAUSE_IMAGE
               value: {{ . | quote }}
             {{- end }}
-            {{- with .Values.controller.substrate.runscAMD64URL }}
-            - name: SUBSTRATE_RUNSC_AMD64_URL
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.substrate.runscAMD64SHA256 }}
-            - name: SUBSTRATE_RUNSC_AMD64_SHA256
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.substrate.runscARM64URL }}
-            - name: SUBSTRATE_RUNSC_ARM64_URL
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.substrate.runscARM64SHA256 }}
-            - name: SUBSTRATE_RUNSC_ARM64_SHA256
-              value: {{ . | quote }}
-            {{- end }}
             {{- end }}
           envFrom:
             - configMapRef:

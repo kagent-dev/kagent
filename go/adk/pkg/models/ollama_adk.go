@@ -30,7 +30,7 @@ func (m *OllamaModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 		}
 
 		// Convert content to Ollama messages
-		messages, systemInstruction := convertGenaiContentsToOllamaMessages(req.Contents)
+		messages, systemInstruction := convertGenaiContentsToOllamaMessages(req.Contents, req.Config)
 
 		// Add system instruction as first message if present
 		if systemInstruction != "" {
@@ -233,7 +233,7 @@ func (m *OllamaModel) generateNonStreaming(ctx context.Context, modelName string
 
 // convertGenaiContentsToOllamaMessages converts genai.Content to Ollama message format.
 // Returns messages and system instruction (extracted from system role content).
-func convertGenaiContentsToOllamaMessages(contents []*genai.Content) ([]api.Message, string) {
+func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *genai.GenerateContentConfig) ([]api.Message, string) {
 	var messages []api.Message
 	var systemInstruction string
 
@@ -328,7 +328,7 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content) ([]api.Mess
 		}
 	}
 
-	return messages, systemInstruction
+	return messages, mergeSystemInstructionFromConfig(systemInstruction, config)
 }
 
 // convertGenaiToolsToOllama converts genai.Tool to Ollama tool format.
