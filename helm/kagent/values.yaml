@@ -839,6 +839,22 @@ oauth2-proxy:
 # ==============================================================================
 
 otel:
+  # -- Value for the OpenTelemetry `service.name` resource attribute
+  # (OTEL_SERVICE_NAME). When empty the controller falls back to its built-in
+  # default ("kagent-controller"). Takes precedence over `service.name` in
+  # `resourceAttributes` per the OTEL specification.
+  serviceName: ""
+  # -- Extra OpenTelemetry resource attributes (OTEL_RESOURCE_ATTRIBUTES).
+  # Rendered as `key1=value1,key2=value2` and merged with the controller's
+  # built-in resource attributes via `resource.WithFromEnv()`. Useful for
+  # tagging traces/logs with environment, cluster, team, tenant, etc.
+  # @default -- {} (no extra attributes)
+  resourceAttributes: {}
+  # Example:
+  #   resourceAttributes:
+  #     deployment.environment.name: production
+  #     langfuse.environment: production
+  #     team: platform
   tracing:
     enabled: false
     exporter:
@@ -847,6 +863,17 @@ otel:
         protocol: "grpc"
         timeout: 15000 # milliseconds
         insecure: true
+        # -- OTLP exporter headers for traces
+        # (OTEL_EXPORTER_OTLP_TRACES_HEADERS). Rendered as `k1=v1,k2=v2`.
+        # Use for non-secret headers only; for authenticated OTLP backends
+        # (Langfuse Cloud, Honeycomb, Datadog, New Relic, Grafana Cloud, …)
+        # inject the `Authorization` / API-key header from a `Secret` via
+        # `controller.envFrom` — that env var overrides this ConfigMap key.
+        # @default -- {} (no headers)
+        headers: {}
+        # Example (non-secret only):
+        #   headers:
+        #     x-tenant-id: platform
   logging:
     enabled: false
     exporter:
@@ -854,3 +881,9 @@ otel:
         endpoint: ""
         timeout: 15000 # milliseconds
         insecure: true
+        # -- OTLP exporter headers for logs
+        # (OTEL_EXPORTER_OTLP_LOGS_HEADERS). Rendered as `k1=v1,k2=v2`.
+        # See the note under `tracing.exporter.otlp.headers` for how to inject
+        # secret headers via `controller.envFrom`.
+        # @default -- {} (no headers)
+        headers: {}
