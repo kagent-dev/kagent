@@ -243,9 +243,6 @@
                     "memory": "684Mi"
                   }
                 },
-                "securityContext": {
-                  "privileged": true
-                },
                 "volumeMounts": [
                   {
                     "mountPath": "/config",

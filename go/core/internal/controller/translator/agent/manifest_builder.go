@@ -300,7 +300,7 @@ func buildPodRuntime(
 	volumeMounts = append(volumeMounts, manifestCtx.deployment.VolumeMounts...)
 
 	needCodeExecIsolation := cfg != nil && cfg.GetExecuteCode()
-	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
+	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +396,6 @@ func buildSkillsRuntime(
 	sharedEnv *[]corev1.EnvVar,
 	volumes *[]corev1.Volume,
 	volumeMounts *[]corev1.VolumeMount,
-	needCodeExecIsolation *bool,
 ) ([]corev1.Container, *corev1.ConfigMap, error) {
 	spec := manifestCtx.agent.GetAgentSpec()
 	if spec.Skills == nil {
@@ -409,7 +408,6 @@ func buildSkillsRuntime(
 		return nil, nil, nil
 	}
 
-	*needCodeExecIsolation = true
 	*sharedEnv = append(*sharedEnv, corev1.EnvVar{
 		Name:  env.KagentSkillsFolder.Name(),
 		Value: "/skills",
