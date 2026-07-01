@@ -45,6 +45,10 @@ func ActorStatusLabel(status ateapipb.Actor_Status) string {
 		return "Suspending"
 	case ateapipb.Actor_STATUS_SUSPENDED:
 		return "Suspended"
+	case ateapipb.Actor_STATUS_PAUSING:
+		return "Pausing"
+	case ateapipb.Actor_STATUS_PAUSED:
+		return "Paused"
 	case ateapipb.Actor_STATUS_UNSPECIFIED:
 		return "Unknown"
 	default:

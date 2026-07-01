@@ -10,7 +10,7 @@ require (
 	github.com/a2aproject/a2a-go v0.3.15
 	github.com/a2aproject/a2a-go/v2 v2.3.1
 	github.com/abiosoft/ishell/v2 v2.0.2
-	github.com/anthropics/anthropic-sdk-go v1.51.0
+	github.com/anthropics/anthropic-sdk-go v1.52.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.25
 	github.com/briandowns/spinner v1.23.2
 	github.com/charmbracelet/bubbles v1.0.0
@@ -48,7 +48,7 @@ require (
 	go.uber.org/zap v1.28.0
 	golang.org/x/text v0.38.0
 	google.golang.org/adk v1.4.0
-	google.golang.org/genai v1.61.0
+	google.golang.org/genai v1.62.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.2
@@ -69,7 +69,7 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085
-	github.com/ollama/ollama v0.30.10
+	github.com/ollama/ollama v0.30.11
 	github.com/pgvector/pgvector-go/pgx v0.4.0
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
@@ -325,7 +325,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
-	github.com/pelletier/go-toml/v2 v2.3.1 // indirect
+	github.com/pelletier/go-toml/v2 v2.4.0 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
@@ -450,4 +450,4 @@ require (
 
 tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 
-replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.6
+replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.7
