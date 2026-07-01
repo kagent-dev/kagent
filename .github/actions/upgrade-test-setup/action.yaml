@@ -32,7 +32,17 @@ runs:
       shell: bash
       run: |
         ADJ="$(./scripts/upgrade-from-version.sh)"
+        base_ref="${GITHUB_BASE_REF:-${GITHUB_REF_NAME:-}}"
+        is_release_line=false
+        if [[ "$base_ref" =~ ^release/v[0-9]+\.[0-9]+\.x$ ]]; then
+          is_release_line=true
+        fi
+
         if [ "${{ inputs.upgrade-from }}" = "prev-stable" ]; then
+          # prev-stable = the previous minor line's latest patch (the rollback
+          # floor). On main this resolves to the newest release line overall
+          # (e.g. the 0.9.x tip); on a release branch, to the line below it
+          # (skipped when none exists).
           V="$(./scripts/prev-stable-version.sh)"
           if [ -z "$V" ]; then
             echo "no stable line below the current line; skipping prev-stable leg."
@@ -45,10 +55,22 @@ runs:
             exit 0
           fi
         else
+          # adjacent = the same-line previous patch, i.e. the release just before
+          # the one being built on the SAME line. It is only meaningful when
+          # building a patch on a release branch. On main we are building the next
+          # MINOR, which has no same-line predecessor (git-describe would report a
+          # stale patch nobody upgrades from — the newest patch lives on the
+          # release branch, covered by prev-stable), so skip this leg there.
+          if [ "$is_release_line" != "true" ]; then
+            echo "base '$base_ref' is not a release line (building the next minor); skipping the adjacent leg (only prev-stable is meaningful)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           V="$ADJ"
         fi
-        echo "Upgrade-from target: $V"
         echo "version=$V" >> "$GITHUB_OUTPUT"
+        echo "=== Upgrade test (${{ inputs.upgrade-from }} leg): will upgrade FROM v$V TO the current build — building images next ==="
+        echo "::notice title=Upgrade from::v$V (${{ inputs.upgrade-from }} leg) -> current build"
     - name: Initialize Environment
       if: steps.resolve.outputs.skip != 'true'
       uses: ./.github/actions/initialize-environment

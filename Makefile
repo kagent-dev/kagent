@@ -572,8 +572,12 @@ install-previous-release: ## Install the previous released kagent + kagent-crds 
 # cluster (make create-kind-cluster). The controller tolerates the missing
 # agent-sandbox CRD (the owned-resource watch is skipped), and these tests create
 # no SandboxAgents, so agent-sandbox is not required.
+.PHONY: announce-upgrade-from
+announce-upgrade-from: ## Print the upgrade-from -> to versions (runs before the build so it is clear up front)
+	@echo "=== Upgrade test: FROM $(UPGRADE_FROM_VERSION) TO $(VERSION) — building current images next ==="
+
 .PHONY: run-upgrade-tests
-run-upgrade-tests: build install-previous-release ## Install the previous release, build current images, and run the upgrade + version-matched invoke tests
+run-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release, build current images, and run the upgrade + version-matched invoke tests
 	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	@set -e; \
 	git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true; \
@@ -598,7 +602,7 @@ run-upgrade-tests: build install-previous-release ## Install the previous releas
 # controller replicas (needed to observe the old-code/new-schema rollout window).
 .PHONY: run-rolling-upgrade-tests
 run-rolling-upgrade-tests: UPGRADE_PREV_EXTRA_ARGS = --set controller.replicas=2
-run-rolling-upgrade-tests: build install-previous-release ## Install the previous release with 2 controller replicas, build the current images, and run the rolling upgrade e2e test
+run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release with 2 controller replicas, build the current images, and run the rolling upgrade e2e test
 	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
 	cd go && \
 	RUN_ROLLING_UPGRADE_TESTS=true \

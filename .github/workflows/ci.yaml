@@ -176,8 +176,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # adjacent: the latest release reachable from HEAD (upgrade-from-version.sh)
-        # prev-stable: the previous stable line's latest patch (prev-stable-version.sh)
+        # prev-stable: the previous minor line's latest patch — runs on every base
+        #   (on main it resolves to the newest release line, e.g. the 0.9.x tip).
+        # adjacent: the same-line previous patch — only meaningful on a release
+        #   branch (building a patch); skipped on main, which builds a new minor
+        #   with no same-line predecessor. See upgrade-test-setup resolve step.
         upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
@@ -222,8 +225,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # adjacent: the latest release reachable from HEAD (upgrade-from-version.sh)
-        # prev-stable: the previous stable line's latest patch (prev-stable-version.sh)
+        # prev-stable: the previous minor line's latest patch — runs on every base
+        #   (on main it resolves to the newest release line, e.g. the 0.9.x tip).
+        # adjacent: the same-line previous patch — only meaningful on a release
+        #   branch (building a patch); skipped on main, which builds a new minor
+        #   with no same-line predecessor. See upgrade-test-setup resolve step.
         upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
