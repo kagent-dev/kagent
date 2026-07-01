@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   Server,
@@ -12,17 +12,21 @@ import {
   Plus,
   FunctionSquare,
   AlertCircle,
+  AppWindow,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { ToolServerResponse, DiscoveredTool } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { deleteServer } from "@/app/actions/servers";
+import { listMcpAppTools } from "@/app/actions/mcp-apps";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 import { useAgents } from "@/components/AgentsProvider";
 import { getDiscoveredToolDescription, getDiscoveredToolDisplayName } from "@/lib/toolUtils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 function setsEqualString(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) {
@@ -58,8 +62,31 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
   const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
+  // UI-capable (MCP App) tool names per server ref. DiscoveredTool carries no
+  // UI metadata, so we cross-reference listMcpAppTools to mark app tools inline.
+  const [appToolsByServer, setAppToolsByServer] = useState<Record<string, Set<string>>>({});
+  const fetchedAppServers = useRef<Set<string>>(new Set());
 
   const q = searchQuery.trim().toLowerCase();
+
+  const loadAppTools = useCallback(async (serverName: string) => {
+    if (fetchedAppServers.current.has(serverName) || !k8sRefUtils.isValidRef(serverName)) {
+      return;
+    }
+    fetchedAppServers.current.add(serverName);
+    const { namespace, name } = k8sRefUtils.fromRef(serverName);
+    const res = await listMcpAppTools(namespace, name);
+    // Fail-soft: servers the backend can't introspect for UI tools (e.g. an
+    // MCPServer CRD) just show no app markers. ponytail: no retry on error.
+    if (res.error || !res.data) {
+      return;
+    }
+    const names = new Set(res.data.filter((t) => t.uiResourceUri).map((t) => t.name));
+    if (names.size === 0) {
+      return;
+    }
+    setAppToolsByServer((prev) => ({ ...prev, [serverName]: names }));
+  }, []);
 
   const displayList = useMemo((): DisplayServer[] => {
     if (!q) {
@@ -115,6 +142,20 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
     });
     return () => cancelAnimationFrame(id);
   }, [q, displayRefs]);
+
+  // Lazily fetch UI-tool classification for whichever servers are expanded
+  // (handles both manual toggling and search-driven auto-expand). loadAppTools
+  // dedupes via fetchedAppServers, so this only does real work for new servers.
+  // Deferred via rAF to avoid react-hooks/set-state-in-effect (same pattern as
+  // the search auto-expand effect above).
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      for (const serverName of expandedServers) {
+        void loadAppTools(serverName);
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [expandedServers, loadAppTools]);
 
   const handleDeleteServer = async (serverName: string) => {
     const response = await deleteServer(serverName);
@@ -229,6 +270,7 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
             }
             const serverName: string = server.ref;
             const isExpanded = expandedServers.has(serverName);
+            const appToolNames = appToolsByServer[serverName];
             return (
               <li key={server.ref} className="overflow-hidden rounded-xl border border-border/60 bg-card/30 shadow-sm">
                 <div className="bg-secondary/10 p-4">
@@ -302,20 +344,32 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
                           .map((tool) => {
                             const desc = getDiscoveredToolDescription(tool);
                             const showDesc = desc && desc !== "No description available";
+                            const isApp = appToolNames?.has(tool.name) ?? false;
+                            const ToolIcon = isApp ? AppWindow : FunctionSquare;
                             return (
                               <div
                                 key={tool.name}
                                 className="rounded-md border border-border/60 p-3 transition-colors hover:bg-muted/30"
                               >
                                 <div className="flex items-start gap-2.5">
-                                  <FunctionSquare
+                                  <ToolIcon
                                     className="mt-0.5 size-4 min-h-4 min-w-4 shrink-0 self-start text-primary"
                                     aria-hidden
                                     strokeWidth={2}
                                   />
                                   <div className="min-w-0 flex-1">
-                                    <div className="text-sm font-medium" translate="no">
-                                      {highlight(getDiscoveredToolDisplayName(tool))}
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-sm font-medium" translate="no">
+                                        {highlight(getDiscoveredToolDisplayName(tool))}
+                                      </span>
+                                      {isApp ? (
+                                        <Badge
+                                          variant="secondary"
+                                          className="h-4 shrink-0 px-1 text-[10px] leading-none"
+                                        >
+                                          App
+                                        </Badge>
+                                      ) : null}
                                     </div>
                                     {showDesc ? (
                                       <div className="mt-1 line-clamp-3 text-xs text-muted-foreground">
