@@ -874,6 +874,89 @@ func TestEmbeddingConfig_UnmarshalJSON_ProviderOverridesType(t *testing.T) {
 	}
 }
 
+// TestModelToEmbeddingConfig_PropagatesTLS asserts that ModelToEmbeddingConfig
+// copies the TLS fields from a model's embedded BaseModel onto the
+// EmbeddingConfig, so the embedding HTTP client in the Python runtime honours
+// the same ModelConfig.spec.tls as the chat/LLM path (upstream issue #1992).
+func TestModelToEmbeddingConfig_PropagatesTLS(t *testing.T) {
+	base := BaseModel{
+		Model:                 "text-embedding-3-small",
+		TLSInsecureSkipVerify: new(true),
+		TLSCACertPath:         new("/etc/ssl/certs/custom/corp-ca/ca.crt"),
+		TLSDisableSystemCAs:   new(false),
+	}
+
+	tests := []struct {
+		name  string
+		model Model
+	}{
+		{name: "OpenAI", model: &OpenAI{BaseModel: base, BaseUrl: "https://litellm.internal.corp:8080"}},
+		{name: "AzureOpenAI", model: &AzureOpenAI{BaseModel: base}},
+		{name: "Anthropic", model: &Anthropic{BaseModel: base}},
+		{name: "GeminiVertexAI", model: &GeminiVertexAI{BaseModel: base}},
+		{name: "GeminiAnthropic", model: &GeminiAnthropic{BaseModel: base}},
+		{name: "Ollama", model: &Ollama{BaseModel: base}},
+		{name: "Gemini", model: &Gemini{BaseModel: base}},
+		{name: "Bedrock", model: &Bedrock{BaseModel: base}},
+		{name: "SAPAICore", model: &SAPAICore{BaseModel: base}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := ModelToEmbeddingConfig(tt.model)
+			if e == nil {
+				t.Fatal("ModelToEmbeddingConfig() returned nil")
+			}
+			if e.TLSInsecureSkipVerify == nil || !*e.TLSInsecureSkipVerify {
+				t.Errorf("TLSInsecureSkipVerify = %v, want pointer to true", e.TLSInsecureSkipVerify)
+			}
+			if e.TLSCACertPath == nil || *e.TLSCACertPath != "/etc/ssl/certs/custom/corp-ca/ca.crt" {
+				t.Errorf("TLSCACertPath = %v, want pointer to %q", e.TLSCACertPath, "/etc/ssl/certs/custom/corp-ca/ca.crt")
+			}
+			if e.TLSDisableSystemCAs == nil || *e.TLSDisableSystemCAs {
+				t.Errorf("TLSDisableSystemCAs = %v, want pointer to false", e.TLSDisableSystemCAs)
+			}
+		})
+	}
+}
+
+// TestModelToEmbeddingConfig_NoTLS asserts that a model without TLS config
+// yields an EmbeddingConfig with nil TLS pointers, so the Python embedding
+// client keeps its default (no custom httpx client) behaviour.
+func TestModelToEmbeddingConfig_NoTLS(t *testing.T) {
+	e := ModelToEmbeddingConfig(&OpenAI{BaseModel: BaseModel{Model: "text-embedding-3-small"}})
+	if e == nil {
+		t.Fatal("ModelToEmbeddingConfig() returned nil")
+	}
+	if e.TLSInsecureSkipVerify != nil || e.TLSCACertPath != nil || e.TLSDisableSystemCAs != nil {
+		t.Errorf("expected nil TLS pointers, got %v %v %v", e.TLSInsecureSkipVerify, e.TLSCACertPath, e.TLSDisableSystemCAs)
+	}
+}
+
+func TestEmbeddingConfig_UnmarshalJSON_TLSFields(t *testing.T) {
+	data := []byte(`{
+		"provider":"openai",
+		"model":"text-embedding-3-small",
+		"base_url":"https://litellm.internal.corp:8080",
+		"tls_insecure_skip_verify":true,
+		"tls_ca_cert_path":"/etc/ssl/certs/custom/corp-ca/ca.crt",
+		"tls_disable_system_cas":false
+	}`)
+	var cfg EmbeddingConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("UnmarshalJSON() error = %v", err)
+	}
+	if cfg.TLSInsecureSkipVerify == nil || !*cfg.TLSInsecureSkipVerify {
+		t.Errorf("TLSInsecureSkipVerify = %v, want pointer to true", cfg.TLSInsecureSkipVerify)
+	}
+	if cfg.TLSCACertPath == nil || *cfg.TLSCACertPath != "/etc/ssl/certs/custom/corp-ca/ca.crt" {
+		t.Errorf("TLSCACertPath = %v, want pointer to ca.crt path", cfg.TLSCACertPath)
+	}
+	if cfg.TLSDisableSystemCAs == nil || *cfg.TLSDisableSystemCAs {
+		t.Errorf("TLSDisableSystemCAs = %v, want pointer to false", cfg.TLSDisableSystemCAs)
+	}
+}
+
 func TestAgentConfig_ScanAndValue(t *testing.T) {
 	original := AgentConfig{
 		Model:       &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}},
