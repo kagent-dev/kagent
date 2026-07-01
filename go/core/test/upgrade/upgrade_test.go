@@ -327,9 +327,12 @@ func TestUpgrade(t *testing.T) {
 
 		// Migration bookkeeping is back at the target versions and clean.
 		reverted := pgMigrationState(t, env)
+		revertedVector := pgTrackVersion(t, env, "vector_schema_migrations")
+		t.Logf("reversed Postgres schema_migrations version: %d -> %d dirty=%t vector=%d (target=%d)",
+			targetCoreVersion, reverted.version, reverted.dirty, revertedVector, baselineVectorVersion)
 		require.False(t, reverted.dirty, "reverted Postgres migrations are dirty")
 		require.Equal(t, pgBaselineState.version, reverted.version, "core track not reversed to target version")
-		require.Equal(t, baselineVectorVersion, pgTrackVersion(t, env, "vector_schema_migrations"),
+		require.Equal(t, baselineVectorVersion, revertedVector,
 			"vector track not reversed to target version")
 
 		// Schema matches a clean target install, and the seeded rows survived
