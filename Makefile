@@ -515,6 +515,126 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 
+# Upgrade test targets install the previous released kagent chart from the public
+# OCI registry, build the current images, then run the assertions in
+# go/core/test/upgrade. These tests are deliberately kept out of test/e2e: they
+# mutate the cluster (upgrade then reverse-migrate it) and so cannot share the
+# e2e suite's cluster. The Go test performs the actual upgrade to the current
+# build by invoking `make helm-install-provider`. UPGRADE_FROM_VERSION defaults to
+# the latest release reachable from HEAD (scripts/upgrade-from-version.sh); CI runs
+# this against two targets via a matrix — that adjacent release and the previous
+# stable line's latest patch (scripts/prev-stable-version.sh) — and you can pin
+# either locally, e.g. `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
+# The previous install pins the bundled Postgres image to whatever the
+# upgrade-from release's own install target shipped (resolved inside
+# install-previous-release), so the baseline matches how that release actually
+# runs rather than a hardcoded guess; the upgrade then exercises the real
+# app/migration (and any DB image) change between that release and the current
+# build.
+#
+# Prerequisite (provided by CI as a separate step; run it locally first): a kind
+# cluster (make create-kind-cluster). agent-sandbox is not required — the
+# controller tolerates the missing CRD and these tests create no SandboxAgents.
+#
+# Lazily evaluated and referenced only by the upgrade targets below, so unrelated
+# make invocations never run the resolver; CI passes UPGRADE_FROM_VERSION
+# explicitly (per matrix leg), which bypasses the script entirely.
+UPGRADE_FROM_VERSION ?= $(shell ./scripts/upgrade-from-version.sh)
+
+.PHONY: install-previous-release
+install-previous-release: ## Install the previous released kagent + kagent-crds charts from the public OCI registry
+	# Abort early (rather than let helm fail confusingly) if the upgrade-from
+	# version could not be resolved.
+	[ -n "$(UPGRADE_FROM_VERSION)" ] || { echo "UPGRADE_FROM_VERSION is empty; set it explicitly or ensure git tags are fetched." >&2; exit 1; }
+	@echo "=== Installing previous release: $(UPGRADE_FROM_VERSION) ==="
+	helm upgrade --install kagent-crds $(HELM_REPO)/kagent/helm/kagent-crds \
+		--version $(UPGRADE_FROM_VERSION) \
+		--namespace kagent --create-namespace \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--timeout 5m --wait
+	# The bundled-Postgres image is selected by the install target's --set flags,
+	# not by the chart defaults (the chart ships a non-vector image). So the
+	# previous install must use the exact pins the upgrade-from release shipped —
+	# otherwise the baseline DB would differ from how that release actually runs,
+	# and the upgrade would conflate a DB swap with the migration change under
+	# test. Read those flags straight from that release's own helm-install-provider
+	# target (via its tagged Makefile) rather than hardcoding values that drift as
+	# the bundled image changes. Resolved here in the recipe so the `git show` runs
+	# only when this target runs, and so the flags can be validated before use
+	# (they must be literal — a future release that parameterizes them with a
+	# make/env variable would be rejected rather than passed to helm verbatim).
+	@set -e; \
+	db_flags="$$(git show v$(UPGRADE_FROM_VERSION):Makefile 2>/dev/null | grep -oE '\-\-set[[:space:]]+database\.postgres\.[^[:space:]\\]+' | tr '\n' ' ')"; \
+	[ -n "$$db_flags" ] || { echo "Could not read bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile; the upgrade-from release's install target may have moved or renamed them." >&2; exit 1; }; \
+	case "$$db_flags" in *'$$'*|*'('*|*'{'*) echo "Bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile contain an unexpanded variable and cannot be passed to helm verbatim: $$db_flags" >&2; exit 1;; esac; \
+	echo "    bundled-Postgres flags (from v$(UPGRADE_FROM_VERSION) install target): $$db_flags"; \
+	helm upgrade --install kagent $(HELM_REPO)/kagent/helm/kagent \
+		--version $(UPGRADE_FROM_VERSION) \
+		--namespace kagent --create-namespace \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--timeout 5m --wait \
+		--set ui.service.type=LoadBalancer \
+		--set controller.service.type=LoadBalancer \
+		--set providers.default=openAI \
+		--set providers.openAI.apiKey="$${OPENAI_API_KEY:-test}" \
+		$$db_flags $(UPGRADE_PREV_EXTRA_ARGS)
+
+# run-upgrade-tests installs the previous release, builds the current images, and
+# runs the DB-layer upgrade scenario in TestUpgrade: seed -> upgrade -> controller
+# rollout (no crash) -> data survival -> schema-equivalence (upgraded == clean
+# install) -> reverse schema to target (down files) + data survival. At each
+# state it also runs a version-matched invoke e2e slice (TestE2EInvokeInlineAgent)
+# so the serving controller's real query paths are exercised, not just psql: the
+# HEAD tree post-upgrade, and the previous release's own tree (a git worktree at
+# its tag, in .upgrade-prev) for the old-code-against-new-schema and post-rollback
+# states. KAGENT_LOCAL_HOST (kind gateway IP) lets the agent reach the in-process
+# mock LLM; without it the invoke slices self-skip and only the DB round-trip runs.
+# Prerequisite (provided by CI as a separate step; run it locally first): a kind
+# cluster (make create-kind-cluster). The controller tolerates the missing
+# agent-sandbox CRD (the owned-resource watch is skipped), and these tests create
+# no SandboxAgents, so agent-sandbox is not required.
+.PHONY: announce-upgrade-from
+announce-upgrade-from: ## Print the upgrade-from -> to versions (runs before the build so it is clear up front)
+	@echo "=== Upgrade test: FROM $(UPGRADE_FROM_VERSION) TO $(VERSION) — building current images next ==="
+
+.PHONY: run-upgrade-tests
+run-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release, build current images, and run the upgrade + version-matched invoke tests
+	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
+	@set -e; \
+	git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true; \
+	git worktree add --detach "$(CURDIR)/.upgrade-prev" "v$(UPGRADE_FROM_VERSION)"; \
+	trap 'git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true' EXIT; \
+	kind_gw="$$($(CONTAINER_RUNTIME) network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)"; \
+	echo "kind gateway (KAGENT_LOCAL_HOST): $$kind_gw"; \
+	cd go && \
+	RUN_UPGRADE_TESTS=true \
+	REPO_ROOT=$(CURDIR) \
+	PREV_E2E_DIR=$(CURDIR)/.upgrade-prev \
+	KAGENT_LOCAL_HOST="$$kind_gw" \
+	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	VERSION=$(VERSION) \
+	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
+	go test ./core/test/upgrade -run TestUpgrade -count=1 -timeout=45m -v
+
+# The target-specific UPGRADE_PREV_EXTRA_ARGS propagates to the
+# install-previous-release prerequisite, so the previous release comes up with 2
+# controller replicas (needed to observe the old-code/new-schema rollout window).
+.PHONY: run-rolling-upgrade-tests
+run-rolling-upgrade-tests: UPGRADE_PREV_EXTRA_ARGS = --set controller.replicas=2
+run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release with 2 controller replicas, build the current images, and run the rolling upgrade e2e test
+	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
+	cd go && \
+	RUN_ROLLING_UPGRADE_TESTS=true \
+	REPO_ROOT=$(CURDIR) \
+	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	VERSION=$(VERSION) \
+	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
+	go test ./core/test/upgrade -run TestRollingUpgradeCompatibility -count=1 -timeout=20m -v
+
 .PHONY: helm-publish
 helm-publish: ## Package and push all Helm charts to the OCI registry
 helm-publish: helm-version
