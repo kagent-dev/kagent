@@ -150,6 +150,16 @@ func (a *handlerMux) isSandboxRoute(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, a.sandboxPathPrefix+"/") || r.URL.Path == a.sandboxPathPrefix
 }
 
+// RouteKeyForAgent returns the A2A route key for a standard Agent.
+func RouteKeyForAgent(namespace, name string) string {
+	return routeKey(false, namespace, name)
+}
+
+// RouteKeyForSandboxAgent returns the A2A route key for a SandboxAgent.
+func RouteKeyForSandboxAgent(namespace, name string) string {
+	return routeKey(true, namespace, name)
+}
+
 func routeKey(isSandbox bool, namespace, name string) string {
 	if isSandbox {
 		return common.ResourceRefString("sandboxes", common.ResourceRefString(namespace, name))
