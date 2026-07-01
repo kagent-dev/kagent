@@ -31,8 +31,14 @@ securityContext:
     drop:
       - ALL
   readOnlyRootFilesystem: true
-  runAsUser: 1000
-  runAsGroup: 999
+  # runAsUser / runAsGroup are left unset so the chart installs on OpenShift,
+  # where the restricted-v2 SCC assigns a per-namespace UID range and rejects a
+  # pinned UID outside it. runAsNonRoot (in podSecurityContext) enforces
+  # non-root: with runAsUser unset the container runs as the image's USER, so
+  # the mcp/grafana image must ship a non-root USER or the pod will fail to
+  # start. Set a fixed UID below on clusters that allow it:
+  # runAsUser: 1000
+  # runAsGroup: 999
 
 tolerations: []
 
