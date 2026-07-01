@@ -135,7 +135,8 @@ function ActorTemplatesTable({ rows }: { rows: SubstrateActorTemplateEntry[] }) 
           <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground">
             <th className="py-2 pr-4 font-medium">Template</th>
             <th className="py-2 pr-4 font-medium">Phase</th>
-            <th className="py-2 pr-4 font-medium">Worker pool</th>
+            <th className="py-2 pr-4 font-medium">Sandbox class</th>
+            <th className="py-2 pr-4 font-medium">Worker selector</th>
             <th className="py-2 font-medium">Harness</th>
           </tr>
         </thead>
@@ -154,7 +155,8 @@ function ActorTemplatesTable({ rows }: { rows: SubstrateActorTemplateEntry[] }) 
               <td className="py-3 pr-4">
                 <StatusChip label={t.phase ?? ""} />
               </td>
-              <td className="py-3 pr-4 text-muted-foreground">{t.workerPoolRef ?? "—"}</td>
+              <td className="py-3 pr-4 text-muted-foreground">{t.sandboxClass ?? "—"}</td>
+              <td className="py-3 pr-4 font-mono text-[11px] text-muted-foreground">{t.workerSelector ?? "—"}</td>
               <td className="py-3">
                 {t.harnessName ? (
                   <Link

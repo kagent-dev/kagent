@@ -1,13 +1,12 @@
-# kagent agents and agentharness on substrate
+# kagent agents and AgentHarness on Substrate
 
-Follow these instructions to install substrate on a kind cluster. This feature allows you to run AgentHarness (OpenClaw) and declerative Go agents in substrate.
-
+Follow these instructions to install Substrate on a kind cluster. This feature allows you to run AgentHarness (OpenClaw) and declarative Go SandboxAgents on Agent Substrate.
 
 ## 1. Install Substrate on your Kind cluster
 
-This assumes you've configured kind cluster using `make create-kind-cluster`.
+This assumes you've configured a kind cluster using `make create-kind-cluster`.
 
-Create the substrate-values.yaml file:
+Create a `substrate-values.yaml` file:
 
 ```yaml
 atelet:
@@ -15,16 +14,18 @@ atelet:
     - --localhost-registry-replacement=kind-registry:5000
 ```
 
-Then install substrate and kagent:
+Then install the Substrate platform and kagent:
 
 ```bash
-export ATEOM_VERSION=v0.0.6
+export SUBSTRATE_VERSION=0.0.7
 
 helm upgrade --install substrate-crds \
-  oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds
+  oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds \
+  --version "${SUBSTRATE_VERSION}"
 
 helm upgrade --install substrate \
   oci://ghcr.io/kagent-dev/substrate/helm/substrate \
+  --version "${SUBSTRATE_VERSION}" \
   --namespace ate-system \
   --create-namespace -f substrate-values.yaml
 
@@ -33,18 +34,24 @@ make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
   --set controller.substrate.ateApiInsecure=true \
   --set substrateWorkerPool.create=true \
-  --set substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:${ATEOM_VERSION}"
+  --set substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
 ```
 
-## kagent AgentHarness with substrate runtime
+When `substrateWorkerPool.create=true`, the kagent chart installs a namespace-scoped `WorkerPool` with:
 
-kagent generates a per-harness `ActorTemplate` and uses an existing `WorkerPool`.
+- `spec.sandboxClass: gvisor`
+- label `kagent.dev/worker-pool: kagent-default` (matches generated `ActorTemplate` selectors)
+- controller default `workerPool` name set to that pool when `create=true`
 
-The generated `ActorTemplate` uses `controller.substrate.pauseImage`, `controller.substrate.runscAMD64URL`, `controller.substrate.runscAMD64SHA256`, `controller.substrate.runscARM64URL`, and `controller.substrate.runscARM64SHA256` from the Helm values Override them with `--set` or a values file when you need to pin a different gVisor build.
+**Zero-downtime rollouts:** SandboxAgent config and image rollouts retain the previous `ActorTemplate` until the new golden is Ready (blue-green). Use `substrateWorkerPool.replicas: 2` or higher so a spare worker can build the new golden while the current one keeps serving chat.
+
+## 2. AgentHarness with Substrate runtime
+
+kagent generates a per-harness `ActorTemplate` and schedules actors onto an existing `WorkerPool`.
 
 Create a harness. If `snapshotsConfig` is omitted, kagent defaults it to `gs://ate-snapshots/<namespace>/<agentharnessname>`.
 
-- **Worker pool** — reference an existing pool (`workerPoolRef`) or configure a controller default WorkerPool
+- **Worker pool** — reference an existing pool (`workerPoolRef`) or configure a controller default WorkerPool. The target pool must carry label `kagent.dev/worker-pool: <pool-name>`. The kagent Helm-managed pool gets this label automatically; externally owned pools must add it manually.
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
@@ -83,23 +90,15 @@ metadata:
     kagent.dev/agent-harness: peterj-claw
 spec:
   pauseImage: gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da
-  runsc:
-    amd64:
-      url: gs://gvisor/releases/nightly/2026-06-02/x86_64/runsc
-      sha256Hash: efd12935f6654c91a1389710eb8dfa4d12b6b9be00db87526dc2eb584ad00119
-    arm64:
-      url: gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc
-      sha256Hash: 1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9
-  workerPoolRef:
-    name: peterj-claw-wp
-    namespace: kagent
+  sandboxClass: gvisor
+  workerSelector:
+    matchLabels:
+      kagent.dev/worker-pool: kagent-default
   snapshotsConfig:
     location: gs://ate-snapshots/kagent/peterj-claw
   containers:
   - name: openclaw
     image: ghcr.io/kagent-dev/nemoclaw/sandbox-base@sha256:d52bee415dc4c0dba7164f9eabe727574c056d4f211781f20af249707883a3b4
-    ports:
-    - containerPort: 80
     command:
     - /bin/sh
     - -c
