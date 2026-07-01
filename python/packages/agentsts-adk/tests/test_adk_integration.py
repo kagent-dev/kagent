@@ -75,9 +75,36 @@ class TestADKTokenPropagationPlugin:
             subject_token_type=TokenType.JWT,
             actor_token="actor-token",
             actor_token_type=TokenType.JWT,
+            resource=None,
+            audience=None,
         )
         assert "sess-key-1" in plugin.token_cache
         assert plugin.token_cache["sess-key-1"].token == "exchanged-token"
+
+    @pytest.mark.asyncio
+    async def test_resource_and_audience_passed_to_exchange(self):
+        """Configured resource/audience are forwarded to the STS exchange (RFC 8707/8693)."""
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = lambda state: state.get("subject-token")
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-token")
+        plugin = ADKTokenPropagationPlugin(sts, resource="https://mcp.example.com", audience="mcp-backend")
+        ic = self._make_invocation_context(
+            "sess-resource",
+            headers=None,
+            extra_state={"subject-token": "subject-jwt"},
+        )
+        result = await plugin.before_run_callback(invocation_context=ic)
+        assert result is None
+        sts.exchange_token.assert_called_once_with(
+            subject_token="subject-jwt",
+            subject_token_type=TokenType.JWT,
+            actor_token="actor-token",
+            actor_token_type=TokenType.JWT,
+            resource="https://mcp.example.com",
+            audience="mcp-backend",
+        )
 
     @pytest.mark.asyncio
     async def test_subject_token_callback_returns_none(self):
@@ -124,6 +151,8 @@ class TestADKTokenPropagationPlugin:
             subject_token_type=TokenType.JWT,
             actor_token="actor-token",
             actor_token_type=TokenType.JWT,
+            resource=None,
+            audience=None,
         )
         assert plugin.token_cache["sess-key-4"].token == "exchanged-via-headers"
 
@@ -173,6 +202,8 @@ class TestADKTokenPropagationPlugin:
                 subject_token_type=TokenType.JWT,
                 actor_token="actor-token",
                 actor_token_type=TokenType.JWT,
+                resource=None,
+                audience=None,
             )
             # optional debug log length check
             mock_logger.debug.assert_called()  # at least one debug log
@@ -260,6 +291,8 @@ class TestADKTokenPropagationPlugin:
                 subject_token_type=TokenType.JWT,
                 actor_token="dynamic-actor-token",
                 actor_token_type=TokenType.JWT,
+                resource=None,
+                audience=None,
             )
 
             # Verify debug log for dynamic fetch
@@ -297,6 +330,8 @@ class TestADKTokenPropagationPlugin:
                 subject_token_type=TokenType.JWT,
                 actor_token="dynamic-actor-token-async",
                 actor_token_type=TokenType.JWT,
+                resource=None,
+                audience=None,
             )
 
             # Verify debug log for dynamic fetch
