@@ -10,6 +10,12 @@ import type { ReactNode } from "react";
 export interface ChatMcpTool {
   namespace: string;
   serverName: string;
+  /**
+   * groupKind of the backing tool-server CRD (e.g. "RemoteMCPServer.kagent.dev")
+   * so MCP Apps calls resolve the right CRD when a RemoteMCPServer and MCPServer
+   * share a namespace/name.
+   */
+  groupKind: string;
   toolName: string;
   uiResourceUri?: string;
   inputSchema?: unknown;
@@ -39,6 +45,14 @@ function isRemoteMCPServer(tool: Tool): boolean {
   const kind = tool.mcpServer?.kind || "RemoteMCPServer";
   const apiGroup = tool.mcpServer?.apiGroup || "kagent.dev";
   return kind === "RemoteMCPServer" && (apiGroup === "" || apiGroup === "kagent.dev");
+}
+
+// groupKind of the tool's backing server CRD, used to disambiguate the MCP Apps
+// endpoint when a RemoteMCPServer and MCPServer share a namespace/name.
+function serverGroupKind(tool: Tool): string {
+  const kind = tool.mcpServer?.kind || "RemoteMCPServer";
+  const apiGroup = tool.mcpServer?.apiGroup || "kagent.dev";
+  return apiGroup ? `${kind}.${apiGroup}` : kind;
 }
 
 function resolveServerRef(tool: Tool, agentNamespace: string): { namespace: string; name: string } | undefined {
@@ -92,6 +106,7 @@ export function ChatMcpAppsProvider({ currentAgent, children }: ChatMcpAppsProvi
     const servers = new Map<string, {
       namespace: string;
       name: string;
+      groupKind: string;
       selectedToolNames: Set<string>;
       selectsAllTools: boolean;
     }>();
@@ -109,6 +124,7 @@ export function ChatMcpAppsProvider({ currentAgent, children }: ChatMcpAppsProvi
       const existing = servers.get(key) ?? {
         namespace: serverRef.namespace,
         name: serverRef.name,
+        groupKind: serverGroupKind(tool),
         selectedToolNames: new Set<string>(),
         selectsAllTools: false,
       };
@@ -140,7 +156,7 @@ export function ChatMcpAppsProvider({ currentAgent, children }: ChatMcpAppsProvi
       const ambiguousToolNames = new Set<string>();
 
       await Promise.all(configuredMcpServers.map(async (server) => {
-        const response = await listMcpAppTools(server.namespace, server.name);
+        const response = await listMcpAppTools(server.namespace, server.name, server.groupKind);
         if (cancelled || response.error || !response.data) {
           return;
         }
@@ -153,6 +169,7 @@ export function ChatMcpAppsProvider({ currentAgent, children }: ChatMcpAppsProvi
           const entry: ChatMcpTool = {
             namespace: server.namespace,
             serverName: server.name,
+            groupKind: server.groupKind,
             toolName: appTool.name,
             uiResourceUri: appTool.uiResourceUri,
             inputSchema: appTool.inputSchema,

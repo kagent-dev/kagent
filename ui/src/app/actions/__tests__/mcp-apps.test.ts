@@ -67,6 +67,34 @@ describe("mcp-apps server actions", () => {
     );
   });
 
+  it("appends groupKind so the backend resolves the right CRD", async () => {
+    await listMcpAppTools("kagent", "kanban-mcp", "MCPServer.kagent.dev");
+
+    expect(mockedFetchApi).toHaveBeenCalledWith(
+      "/mcp-apps/kagent/kanban-mcp/tools?groupKind=MCPServer.kagent.dev"
+    );
+  });
+
+  it("appends groupKind on tool calls", async () => {
+    await callMcpAppTool("kagent", "kanban-mcp", "refresh", undefined, "RemoteMCPServer.kagent.dev");
+
+    expect(mockedFetchApi).toHaveBeenCalledWith(
+      "/mcp-apps/kagent/kanban-mcp/tools/refresh/call?groupKind=RemoteMCPServer.kagent.dev",
+      {
+        method: "POST",
+        body: JSON.stringify({ arguments: {} }),
+      }
+    );
+  });
+
+  it("appends groupKind after the resource uri query", async () => {
+    await readMcpAppResource("kagent", "kanban-mcp", "ui://board", "MCPServer.kagent.dev");
+
+    expect(mockedFetchApi).toHaveBeenCalledWith(
+      "/mcp-apps/kagent/kanban-mcp/resources?uri=ui%3A%2F%2Fboard&groupKind=MCPServer.kagent.dev"
+    );
+  });
+
   it("returns an error response when fetchApi throws", async () => {
     mockedFetchApi.mockRejectedValueOnce(new Error("boom"));
 

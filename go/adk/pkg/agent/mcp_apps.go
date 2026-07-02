@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/adk/agent"
 	"google.golang.org/adk/agent/llmagent"
@@ -26,7 +25,7 @@ const mcpAppRenderedNotice = "The interactive UI for this tool has been rendered
 // streamed to the UI separately, so this only changes the model's view and
 // prevents the model from looping on the rendering tool. Errors are passed
 // through so the model can still react to and recover from failures.
-func MakeMCPAppModelResultCallback(appToolNames mcp.MCPAppToolNames) llmagent.BeforeModelCallback {
+func MakeMCPAppModelResultCallback(appToolNames map[string]bool) llmagent.BeforeModelCallback {
 	return func(_ agent.CallbackContext, req *adkmodel.LLMRequest) (*adkmodel.LLMResponse, error) {
 		for _, content := range req.Contents {
 			if content == nil {

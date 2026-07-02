@@ -88,7 +88,7 @@ describe("ChatMcpAppsProvider", () => {
     expect(screen.getByTestId("appOnly").textContent).toBe("none");
     expect(screen.getByTestId("plain").textContent).toBe("none");
     expect(screen.getByTestId("appOnlyTool").textContent).toBe("internal_widget:true");
-    expect(mockedListMcpAppTools).toHaveBeenCalledWith("kagent", "kanban-mcp");
+    expect(mockedListMcpAppTools).toHaveBeenCalledWith("kagent", "kanban-mcp", "RemoteMCPServer.kagent.dev");
   });
 
   it("registers no apps when the agent has no MCP servers", async () => {

@@ -297,6 +297,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
               <McpAppRenderer
                 namespace={mcpApp.namespace}
                 serverName={mcpApp.serverName}
+                groupKind={mcpApp.groupKind}
                 toolName={mcpApp.toolName}
                 toolResourceUri={mcpApp.uiResourceUri}
                 toolInput={mcpAppPayload.toolInput}

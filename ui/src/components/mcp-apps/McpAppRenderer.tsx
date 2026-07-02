@@ -19,6 +19,12 @@ type SandboxCsp = NonNullable<AppRendererProps["sandbox"]>["csp"];
 interface McpAppRendererProps {
   namespace: string;
   serverName: string;
+  /**
+   * groupKind of the backing tool-server CRD so proxied tool/resource calls
+   * resolve the right CRD when a RemoteMCPServer and MCPServer share a
+   * namespace/name.
+   */
+  groupKind?: string;
   toolName: string;
   toolResourceUri: string;
   toolInput?: Record<string, unknown>;
@@ -53,6 +59,7 @@ function requireData<T>(response: { data?: T; error?: string; message: string })
 export function McpAppRenderer({
   namespace,
   serverName,
+  groupKind,
   toolName,
   toolResourceUri,
   toolInput,
@@ -118,7 +125,7 @@ export function McpAppRenderer({
   }), []);
 
   const handleReadResource = useCallback<NonNullable<AppRendererProps["onReadResource"]>>(async ({ uri }) => {
-    const result = requireData(await readMcpAppResource(namespace, serverName, uri));
+    const result = requireData(await readMcpAppResource(namespace, serverName, uri, groupKind));
     // Capture _meta.ui.csp before the library renders the iframe so the sandbox
     // proxy can enforce the server-declared Content Security Policy.
     const ui = (result.contents?.[0]?._meta as { ui?: { csp?: SandboxCsp } } | undefined)?.ui;
@@ -126,7 +133,7 @@ export function McpAppRenderer({
       setCsp(ui.csp);
     }
     return result;
-  }, [namespace, serverName]);
+  }, [namespace, serverName, groupKind]);
 
   // An iframe-initiated tools/call is the app updating itself: proxy it to the
   // MCP server and return the result to the same widget so it re-renders in
@@ -145,8 +152,8 @@ export function McpAppRenderer({
       throw new Error(`MCP App requested tool ${requestedToolName}, but it is not configured as app-only or agent-visible.`);
     }
 
-    return requireData(await callMcpAppTool(namespace, serverName, requestedToolName, args));
-  }, [getMcpToolForAppCall, namespace, serverName, toolName]);
+    return requireData(await callMcpAppTool(namespace, serverName, requestedToolName, args, groupKind));
+  }, [getMcpToolForAppCall, namespace, serverName, toolName, groupKind]);
 
   // ui/message: the app asks the host to inject content into the conversation.
   // We forward it as a new chat turn so the agent can react (e.g. start

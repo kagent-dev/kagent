@@ -69,13 +69,25 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
 
   const q = searchQuery.trim().toLowerCase();
 
-  const loadAppTools = useCallback(async (serverName: string) => {
+  // The MCP Apps endpoints need the server's groupKind to resolve the right CRD
+  // when a RemoteMCPServer and MCPServer share a namespace/name.
+  const groupKindByRef = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of servers) {
+      if (s.ref && s.groupKind) {
+        map.set(s.ref, s.groupKind);
+      }
+    }
+    return map;
+  }, [servers]);
+
+  const loadAppTools = useCallback(async (serverName: string, groupKind?: string) => {
     if (fetchedAppServers.current.has(serverName) || !k8sRefUtils.isValidRef(serverName)) {
       return;
     }
     fetchedAppServers.current.add(serverName);
     const { namespace, name } = k8sRefUtils.fromRef(serverName);
-    const res = await listMcpAppTools(namespace, name);
+    const res = await listMcpAppTools(namespace, name, groupKind);
     // Fail-soft: servers the backend can't introspect for UI tools (e.g. an
     // MCPServer CRD) just show no app markers. ponytail: no retry on error.
     if (res.error || !res.data) {
@@ -151,11 +163,11 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       for (const serverName of expandedServers) {
-        void loadAppTools(serverName);
+        void loadAppTools(serverName, groupKindByRef.get(serverName));
       }
     });
     return () => cancelAnimationFrame(id);
-  }, [expandedServers, loadAppTools]);
+  }, [expandedServers, loadAppTools, groupKindByRef]);
 
   const handleDeleteServer = async (serverName: string) => {
     const response = await deleteServer(serverName);

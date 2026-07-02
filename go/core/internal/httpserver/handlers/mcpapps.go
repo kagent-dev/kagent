@@ -52,12 +52,12 @@ func NewMCPAppsHandler(base *Base) *MCPAppsHandler {
 }
 
 func (h *MCPAppsHandler) HandleListTools(w ErrorResponseWriter, r *http.Request) {
-	namespace, name, ok := h.remoteMCPServerRef(w, r)
+	namespace, name, groupKind, ok := h.mcpServerRef(w, r)
 	if !ok {
 		return
 	}
 
-	session, cancel, err := h.connect(r.Context(), namespace, name)
+	session, cancel, err := h.connect(r.Context(), namespace, name, groupKind)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to connect to MCP server", err))
 		return
@@ -90,7 +90,7 @@ func (h *MCPAppsHandler) HandleListTools(w ErrorResponseWriter, r *http.Request)
 }
 
 func (h *MCPAppsHandler) HandleCallTool(w ErrorResponseWriter, r *http.Request) {
-	namespace, name, ok := h.remoteMCPServerRef(w, r)
+	namespace, name, groupKind, ok := h.mcpServerRef(w, r)
 	if !ok {
 		return
 	}
@@ -115,7 +115,7 @@ func (h *MCPAppsHandler) HandleCallTool(w ErrorResponseWriter, r *http.Request) 
 		}
 	}
 
-	session, cancel, err := h.connect(r.Context(), namespace, name)
+	session, cancel, err := h.connect(r.Context(), namespace, name, groupKind)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to connect to MCP server", err))
 		return
@@ -154,7 +154,7 @@ func (h *MCPAppsHandler) HandleCallTool(w ErrorResponseWriter, r *http.Request) 
 }
 
 func (h *MCPAppsHandler) HandleReadResource(w ErrorResponseWriter, r *http.Request) {
-	namespace, name, ok := h.remoteMCPServerRef(w, r)
+	namespace, name, groupKind, ok := h.mcpServerRef(w, r)
 	if !ok {
 		return
 	}
@@ -168,7 +168,7 @@ func (h *MCPAppsHandler) HandleReadResource(w ErrorResponseWriter, r *http.Reque
 		return
 	}
 
-	session, cancel, err := h.connect(r.Context(), namespace, name)
+	session, cancel, err := h.connect(r.Context(), namespace, name, groupKind)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to connect to MCP server", err))
 		return
@@ -189,59 +189,122 @@ func (h *MCPAppsHandler) HandleReadResource(w ErrorResponseWriter, r *http.Reque
 	RespondWithJSON(w, http.StatusOK, api.NewResponse(result, "Successfully read MCP app resource", false))
 }
 
-func (h *MCPAppsHandler) remoteMCPServerRef(w ErrorResponseWriter, r *http.Request) (string, string, bool) {
+func (h *MCPAppsHandler) mcpServerRef(w ErrorResponseWriter, r *http.Request) (namespace, name, groupKind string, ok bool) {
 	namespace, err := GetPathParam(r, "namespace")
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
-		return "", "", false
+		return "", "", "", false
 	}
-	name, err := GetPathParam(r, "name")
+	name, err = GetPathParam(r, "name")
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
-		return "", "", false
+		return "", "", "", false
 	}
 	if err := Check(h.Authorizer, r, auth.Resource{Type: "ToolServer", Name: types.NamespacedName{Namespace: namespace, Name: name}.String()}); err != nil {
 		w.RespondWithError(err)
-		return "", "", false
+		return "", "", "", false
 	}
-	return namespace, name, true
+	// groupKind (e.g. "RemoteMCPServer.kagent.dev" or "MCPServer.kagent.dev")
+	// disambiguates the two tool-server CRDs when they share a namespace/name.
+	// Optional for backward compatibility; the UI sends the kind of the server
+	// the user selected.
+	return namespace, name, r.URL.Query().Get("groupKind"), true
 }
 
-// resolveRemoteMCPServer locates the MCP endpoint for the given ref, supporting
-// both RemoteMCPServer (external URL) and the kmcp MCPServer CRD (an in-cluster
-// Deployment+Service). An MCPServer is converted to the same RemoteMCPServer
-// shape the controller uses for tool discovery, so both kinds share one connect
-// path.
-func (h *MCPAppsHandler) resolveRemoteMCPServer(ctx context.Context, namespace, name string) (*v1alpha2.RemoteMCPServer, error) {
+// mcpServerCRDKind extracts the CRD kind from a groupKind string, ignoring the
+// API group so both "MCPServer" and "MCPServer.kagent.dev" resolve to the same
+// kind.
+func mcpServerCRDKind(groupKind string) string {
+	kind, _, _ := strings.Cut(groupKind, ".")
+	return kind
+}
+
+// resolveMCPServerEndpoint resolves the tool server named by the ref into the
+// RemoteMCPServer shape the controller uses for tool discovery, so both CRD
+// kinds share one connect path. An MCPServer is converted to that shape via
+// ConvertMCPServerToRemoteMCPServer.
+//
+// groupKind selects which CRD to read so a RemoteMCPServer and an MCPServer
+// that share a namespace/name resolve to the one the caller actually selected:
+//
+//   - "RemoteMCPServer": read the RemoteMCPServer only.
+//   - "MCPServer": read the kmcp MCPServer only.
+//   - empty/unknown: fall back to trying RemoteMCPServer first, then MCPServer
+//     (legacy behavior for callers that don't pass a kind).
+func (h *MCPAppsHandler) resolveMCPServerEndpoint(ctx context.Context, namespace, name, groupKind string) (*v1alpha2.RemoteMCPServer, error) {
 	key := client.ObjectKey{Namespace: namespace, Name: name}
 
-	server := &v1alpha2.RemoteMCPServer{}
-	err := h.KubeClient.Get(ctx, key, server)
-	if err == nil {
+	switch mcpServerCRDKind(groupKind) {
+	case "MCPServer":
+		server, found, err := h.getMCPServerEndpoint(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, fmt.Errorf("no MCPServer %s/%s found", namespace, name)
+		}
+		return server, nil
+	case "RemoteMCPServer":
+		server, found, err := h.getRemoteMCPServer(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, fmt.Errorf("no RemoteMCPServer %s/%s found", namespace, name)
+		}
+		return server, nil
+	default:
+		if server, found, err := h.getRemoteMCPServer(ctx, key); err != nil {
+			return nil, err
+		} else if found {
+			return server, nil
+		}
+		server, found, err := h.getMCPServerEndpoint(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			return nil, fmt.Errorf("no RemoteMCPServer or MCPServer %s/%s found", namespace, name)
+		}
 		return server, nil
 	}
-	if !apierrors.IsNotFound(err) {
-		return nil, fmt.Errorf("failed to get RemoteMCPServer %s/%s: %w", namespace, name, err)
-	}
+}
 
+// getRemoteMCPServer reads a RemoteMCPServer. found is false (with nil error)
+// when no such CRD exists, so callers can decide whether to try another kind.
+func (h *MCPAppsHandler) getRemoteMCPServer(ctx context.Context, key client.ObjectKey) (*v1alpha2.RemoteMCPServer, bool, error) {
+	server := &v1alpha2.RemoteMCPServer{}
+	if err := h.KubeClient.Get(ctx, key, server); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("failed to get RemoteMCPServer %s/%s: %w", key.Namespace, key.Name, err)
+	}
+	return server, true, nil
+}
+
+// getMCPServerEndpoint reads a kmcp MCPServer (an in-cluster Deployment+Service)
+// and converts it to the RemoteMCPServer shape. found is false (with nil error)
+// when no such CRD exists.
+func (h *MCPAppsHandler) getMCPServerEndpoint(ctx context.Context, key client.ObjectKey) (*v1alpha2.RemoteMCPServer, bool, error) {
 	mcpServer := &kmcp.MCPServer{}
 	if err := h.KubeClient.Get(ctx, key, mcpServer); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil, fmt.Errorf("no RemoteMCPServer or MCPServer %s/%s found", namespace, name)
+			return nil, false, nil
 		}
-		return nil, fmt.Errorf("failed to get MCPServer %s/%s: %w", namespace, name, err)
+		return nil, false, fmt.Errorf("failed to get MCPServer %s/%s: %w", key.Namespace, key.Name, err)
 	}
-	server, err = agent_translator.ConvertMCPServerToRemoteMCPServer(mcpServer)
+	server, err := agent_translator.ConvertMCPServerToRemoteMCPServer(mcpServer)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve MCPServer %s/%s endpoint: %w", namespace, name, err)
+		return nil, true, fmt.Errorf("failed to resolve MCPServer %s/%s endpoint: %w", key.Namespace, key.Name, err)
 	}
-	return server, nil
+	return server, true, nil
 }
 
-func (h *MCPAppsHandler) connect(ctx context.Context, namespace, name string) (*mcp.ClientSession, context.CancelFunc, error) {
-	log := ctrllog.FromContext(ctx).WithName("mcp-apps-handler").WithValues("namespace", namespace, "name", name)
+func (h *MCPAppsHandler) connect(ctx context.Context, namespace, name, groupKind string) (*mcp.ClientSession, context.CancelFunc, error) {
+	log := ctrllog.FromContext(ctx).WithName("mcp-apps-handler").WithValues("namespace", namespace, "name", name, "groupKind", groupKind)
 
-	server, err := h.resolveRemoteMCPServer(ctx, namespace, name)
+	server, err := h.resolveMCPServerEndpoint(ctx, namespace, name, groupKind)
 	if err != nil {
 		return nil, nil, err
 	}

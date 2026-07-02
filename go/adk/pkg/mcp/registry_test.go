@@ -185,8 +185,8 @@ func TestMCPAppToolNamesFromToolsets(t *testing.T) {
 
 	inner := &stubToolset{name: "mcp-server"}
 	toolsets := []tool.Toolset{
-		&mcpAppToolset{inner: inner, appToolNames: MCPAppToolNames{"show_board": true}},
-		&mcpAppToolset{inner: inner, appToolNames: MCPAppToolNames{"refresh": true}},
+		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"show_board": true}},
+		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"refresh": true}},
 		inner,
 	}
 

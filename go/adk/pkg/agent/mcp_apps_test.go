@@ -3,7 +3,6 @@ package agent
 import (
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	adkmodel "google.golang.org/adk/model"
 	"google.golang.org/genai"
 )
@@ -38,7 +37,7 @@ func TestMakeMCPAppModelResultCallbackReplacesRenderPayloadWithNotice(t *testing
 		}},
 	}
 
-	callback := MakeMCPAppModelResultCallback(mcp.MCPAppToolNames{"jenkins_monitor_build": true})
+	callback := MakeMCPAppModelResultCallback(map[string]bool{"jenkins_monitor_build": true})
 	if _, err := callback(nil, req); err != nil {
 		t.Fatalf("callback returned error: %v", err)
 	}
@@ -92,7 +91,7 @@ func TestMakeMCPAppModelResultCallbackPreservesIsError(t *testing.T) {
 		}},
 	}
 
-	callback := MakeMCPAppModelResultCallback(mcp.MCPAppToolNames{"jenkins_monitor_build": true})
+	callback := MakeMCPAppModelResultCallback(map[string]bool{"jenkins_monitor_build": true})
 	if _, err := callback(nil, req); err != nil {
 		t.Fatalf("callback returned error: %v", err)
 	}
@@ -132,7 +131,7 @@ func TestMakeMCPAppModelResultCallbackLeavesNonAppToolsAlone(t *testing.T) {
 		}},
 	}
 
-	callback := MakeMCPAppModelResultCallback(mcp.MCPAppToolNames{"some_app_tool": true})
+	callback := MakeMCPAppModelResultCallback(map[string]bool{"some_app_tool": true})
 	if _, err := callback(nil, req); err != nil {
 		t.Fatalf("callback returned error: %v", err)
 	}

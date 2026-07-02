@@ -43,22 +43,16 @@ func mcpUIClientCapabilities() *mcpsdk.ClientCapabilities {
 	return caps
 }
 
-// MCPAppToolNames is the set of MCP tool names whose results render as
-// interactive MCP App (UI) widgets in the chat (the tool declares a
-// `_meta.ui.resourceUri` and is visible to the model). It is used as a set, so
-// the bool value is always true and only key presence is meaningful. The agent
-// attaches the model-result compaction callback (see
-// agent.MakeMCPAppModelResultCallback) only to these tools. Collect them from
-// CreateToolsets output via MCPAppToolNamesFromToolsets.
-type MCPAppToolNames map[string]bool
-
 // mcpAppToolset wraps an MCP toolset and records which model-visible tools
 // render as MCP App widgets. Classification happens during ListTools inside
 // agentVisibleToolFilter because mcpsdk.Tool.Meta is not preserved on the ADK
 // tool.Tool values the toolset exposes later.
 type mcpAppToolset struct {
-	inner        tool.Toolset
-	appToolNames MCPAppToolNames
+	inner tool.Toolset
+	// appToolNames is this server's set of model-visible tool names whose
+	// results render as interactive MCP App (UI) widgets (the tool declares a
+	// `_meta.ui.resourceUri`). Used as a set, so only key presence is meaningful.
+	appToolNames map[string]bool
 }
 
 func (m *mcpAppToolset) Name() string {
@@ -70,9 +64,11 @@ func (m *mcpAppToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error)
 }
 
 // MCPAppToolNamesFromToolsets returns the union of MCP App-capable tool names
-// recorded on toolsets built by CreateToolsets.
-func MCPAppToolNamesFromToolsets(toolsets []tool.Toolset) MCPAppToolNames {
-	out := make(MCPAppToolNames)
+// recorded on toolsets built by CreateToolsets. The agent attaches the
+// model-result compaction callback (see agent.MakeMCPAppModelResultCallback)
+// only to these tools.
+func MCPAppToolNamesFromToolsets(toolsets []tool.Toolset) map[string]bool {
+	out := make(map[string]bool)
 	for _, ts := range toolsets {
 		aware, ok := ts.(*mcpAppToolset)
 		if !ok {
@@ -203,7 +199,7 @@ func normalizeVisibility(value any) []string {
 //
 // Classification must happen here because MCP Apps metadata lives on
 // mcpsdk.Tool.Meta, which ADK mcptoolset drops when converting to tool.Tool.
-func agentVisibleToolFilter(ctx context.Context, params mcpServerParams, configuredFilter map[string]bool) (tool.Predicate, MCPAppToolNames, error) {
+func agentVisibleToolFilter(ctx context.Context, params mcpServerParams, configuredFilter map[string]bool) (tool.Predicate, map[string]bool, error) {
 	mcpTransport, err := createTransport(ctx, params)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
@@ -222,7 +218,7 @@ func agentVisibleToolFilter(ctx context.Context, params mcpServerParams, configu
 	}
 
 	allowedTools := make([]string, 0, len(result.Tools))
-	appToolNames := make(MCPAppToolNames)
+	appToolNames := make(map[string]bool)
 	for _, t := range result.Tools {
 		if t == nil || t.Name == "" {
 			continue
