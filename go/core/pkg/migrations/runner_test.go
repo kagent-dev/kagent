@@ -837,9 +837,11 @@ func TestValidateSchemaName(t *testing.T) {
 // same tracking-table name in different schemas, or different tables in the same
 // schema, are allowed.
 func TestValidateSources_RejectsDuplicateSchemaAndTable(t *testing.T) {
+	dummy := fstest.MapFS{} // non-nil so the required-field checks pass
+
 	collide := []Source{
-		{Name: "a", Schema: "s1", TrackingTable: "schema_migrations", Dir: "a"},
-		{Name: "b", Schema: "s1", TrackingTable: "schema_migrations", Dir: "b"},
+		{Name: "a", Schema: "s1", TrackingTable: "schema_migrations", FS: dummy, Dir: "a"},
+		{Name: "b", Schema: "s1", TrackingTable: "schema_migrations", FS: dummy, Dir: "b"},
 	}
 	if err := validateSources(collide); err == nil {
 		t.Error("expected collision error for same (schema, tracking table), got nil")
@@ -847,11 +849,11 @@ func TestValidateSources_RejectsDuplicateSchemaAndTable(t *testing.T) {
 
 	ok := []Source{
 		// Same table name, different schema — fine.
-		{Name: "a", Schema: "s1", TrackingTable: "schema_migrations", Dir: "a"},
-		{Name: "b", Schema: "s2", TrackingTable: "schema_migrations", Dir: "b"},
+		{Name: "a", Schema: "s1", TrackingTable: "schema_migrations", FS: dummy, Dir: "a"},
+		{Name: "b", Schema: "s2", TrackingTable: "schema_migrations", FS: dummy, Dir: "b"},
 		// Different table, same (default) schema — fine.
-		{Name: "core", TrackingTable: "schema_migrations", Dir: "core"},
-		{Name: "vector", TrackingTable: "vector_schema_migrations", Dir: "vector"},
+		{Name: "core", TrackingTable: "schema_migrations", FS: dummy, Dir: "core"},
+		{Name: "vector", TrackingTable: "vector_schema_migrations", FS: dummy, Dir: "vector"},
 	}
 	if err := validateSources(ok); err != nil {
 		t.Errorf("validateSources(distinct sources) = %v, want nil", err)
@@ -860,11 +862,37 @@ func TestValidateSources_RejectsDuplicateSchemaAndTable(t *testing.T) {
 	// An invalid schema name on any source is rejected up front, before any
 	// source applies (fail-fast).
 	badSchema := []Source{
-		{Name: "good", TrackingTable: "schema_migrations", Dir: "core"},
-		{Name: "bad", Schema: "MixedCase", TrackingTable: "schema_migrations", Dir: "x"},
+		{Name: "good", TrackingTable: "schema_migrations", FS: dummy, Dir: "core"},
+		{Name: "bad", Schema: "MixedCase", TrackingTable: "schema_migrations", FS: dummy, Dir: "x"},
 	}
 	if err := validateSources(badSchema); err == nil {
 		t.Error("expected error for invalid schema name on a later source, got nil")
+	}
+}
+
+// TestValidateSources_RejectsMissingRequiredFields verifies Source's required
+// fields (Name, TrackingTable, FS, Dir) are enforced up front, while Schema
+// stays optional ("" = connection default).
+func TestValidateSources_RejectsMissingRequiredFields(t *testing.T) {
+	base := Source{Name: "x", TrackingTable: "x_migrations", FS: fstest.MapFS{}, Dir: "x"}
+
+	// The fully-populated base (with empty Schema) is valid.
+	if err := validateSources([]Source{base}); err != nil {
+		t.Fatalf("validateSources(valid source) = %v, want nil", err)
+	}
+
+	mutations := map[string]func(Source) Source{
+		"empty Name":          func(s Source) Source { s.Name = ""; return s },
+		"empty TrackingTable": func(s Source) Source { s.TrackingTable = ""; return s },
+		"nil FS":              func(s Source) Source { s.FS = nil; return s },
+		"empty Dir":           func(s Source) Source { s.Dir = ""; return s },
+	}
+	for name, mut := range mutations {
+		t.Run(name, func(t *testing.T) {
+			if err := validateSources([]Source{mut(base)}); err == nil {
+				t.Errorf("validateSources with %s = nil, want error", name)
+			}
+		})
 	}
 }
 
@@ -879,22 +907,38 @@ func TestRunUp_EmptyAndNilSources(t *testing.T) {
 	}
 }
 
-// TestWithSearchPath verifies a URL-form DSN gains the search_path param and a
-// libpq keyword/value DSN is rejected rather than silently corrupted.
+// TestWithSearchPath verifies a postgres:// or postgresql:// DSN gains the
+// search_path param (preserving existing params) and that anything else is
+// rejected rather than silently rewritten.
 func TestWithSearchPath(t *testing.T) {
-	got, err := withSearchPath("postgres://u:p@host:5432/db?sslmode=disable", "myschema")
-	if err != nil {
-		t.Fatalf("withSearchPath(url DSN) = %v, want nil", err)
+	for _, dsn := range []string{
+		"postgres://u:p@host:5432/db?sslmode=disable",
+		"postgresql://u:p@host:5432/db",
+	} {
+		got, err := withSearchPath(dsn, "myschema")
+		if err != nil {
+			t.Fatalf("withSearchPath(%q) = %v, want nil", dsn, err)
+		}
+		if !strings.Contains(got, "search_path=myschema") {
+			t.Errorf("withSearchPath(%q) = %q, missing search_path=myschema", dsn, got)
+		}
 	}
-	if !strings.Contains(got, "search_path=myschema") {
-		t.Errorf("result %q missing search_path=myschema", got)
-	}
-	if !strings.Contains(got, "sslmode=disable") {
+
+	// Existing query params are preserved.
+	if got, _ := withSearchPath("postgres://u:p@host:5432/db?sslmode=disable", "myschema"); !strings.Contains(got, "sslmode=disable") {
 		t.Errorf("result %q dropped existing sslmode param", got)
 	}
 
-	if _, err := withSearchPath("host=localhost dbname=foo user=bar", "myschema"); err == nil {
-		t.Error("withSearchPath(keyword/value DSN) = nil, want error")
+	// Non-postgres inputs fail fast rather than being silently rewritten.
+	for _, bad := range []string{
+		"host=localhost dbname=foo user=bar", // libpq keyword/value DSN (scheme "")
+		"localhost:5432/db",                  // parses as scheme "localhost"
+		"mysql://u:p@host/db",                // wrong scheme
+		"",                                   // empty
+	} {
+		if _, err := withSearchPath(bad, "myschema"); err == nil {
+			t.Errorf("withSearchPath(%q) = nil, want error", bad)
+		}
 	}
 }
 

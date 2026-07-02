@@ -144,6 +144,15 @@ func RunUp(ctx context.Context, url string, sources []Source) error {
 			// Compensating rollback: undo previously-applied sources in reverse
 			// order, each to its own pre-run version. The failing source has
 			// already rolled itself back in applySource.
+			//
+			// Run the rollback under a context detached from cancellation. If the
+			// caller's ctx is already canceled (e.g. SIGTERM arriving mid-startup
+			// as a source fails), using it here would abort the rollback at schema
+			// setup and leave the database mid-migration. WithoutCancel keeps any
+			// request-scoped values but lets best-effort cleanup finish;
+			// golang-migrate's own steps aren't ctx-aware regardless, so only the
+			// schema-setup ExecContext consults it.
+			rbCtx := context.WithoutCancel(ctx)
 			var compErrs []error
 			for _, a := range slices.Backward(done) {
 				if a.prev == 0 {
@@ -151,7 +160,7 @@ func RunUp(ctx context.Context, url string, sources []Source) error {
 					continue
 				}
 				log.Info("rolling back source after later failure", "source", a.src.Name, "targetVersion", a.prev)
-				if rbErr := rollbackSource(ctx, url, a.src, a.prev); rbErr != nil {
+				if rbErr := rollbackSource(rbCtx, url, a.src, a.prev); rbErr != nil {
 					compErrs = append(compErrs, rbErr)
 				}
 			}
@@ -170,27 +179,50 @@ func RunUp(ctx context.Context, url string, sources []Source) error {
 	return nil
 }
 
-// validateSources rejects two sources that share the same (schema, tracking
-// table). That pair is the collision unit: it is what determines the
-// golang-migrate version row and the advisory-lock id, so two such sources would
-// fight over one row and lock regardless of their Dir/FS. Distinct tracking
-// tables in the same schema are fine (each gets its own bookkeeping).
+// validateSources rejects a source set that cannot be run safely. It checks two
+// things.
 //
-// This keys on the *literal* Schema string and is intentionally DB-free so it
-// stays unit-testable. It therefore cannot see a collision between a source with
-// Schema == "" and one naming the connection's current_schema() explicitly, since
-// "" resolves to that schema only at connection time. checkResolvedSchemaCollisions
-// (called from RunUp, where a connection is available) closes that gap.
+// First, required fields. Source is a public extension point, so a source with a
+// missing field is a caller mistake that should fail fast with an actionable
+// error rather than surface later as a vague golang-migrate failure. Name, FS,
+// Dir, and TrackingTable are required; Schema is intentionally optional
+// ("" = the connection's default schema) and PreCheck is optional (nil = none).
+// TrackingTable has no safe default: sources can share a schema (core and vector
+// both live in the connection default), so an empty TrackingTable would silently
+// fall back to golang-migrate's "schema_migrations" and collide.
+//
+// Second, collisions on the (schema, tracking table) pair. That pair is the
+// collision unit: it determines the golang-migrate version row and the
+// advisory-lock id, so two such sources would fight over one row and lock
+// regardless of their Dir/FS. Distinct tracking tables in the same schema are
+// fine (each gets its own bookkeeping).
+//
+// The collision check keys on the *literal* Schema string and is intentionally
+// DB-free so it stays unit-testable. It therefore cannot see a collision between
+// a source with Schema == "" and one naming the connection's current_schema()
+// explicitly, since "" resolves to that schema only at connection time.
+// checkResolvedSchemaCollisions (called from RunUp, where a connection is
+// available) closes that gap.
 func validateSources(sources []Source) error {
 	seen := make(map[string]string, len(sources))
 	for _, s := range sources {
+		switch {
+		case s.Name == "":
+			return fmt.Errorf("migration source has empty Name")
+		case s.TrackingTable == "":
+			return fmt.Errorf("migration source %q has empty TrackingTable", s.Name)
+		case s.FS == nil:
+			return fmt.Errorf("migration source %q has nil FS", s.Name)
+		case s.Dir == "":
+			return fmt.Errorf("migration source %q has empty Dir", s.Name)
+		}
 		// Validate schema names up front so a bad name on a later source aborts
 		// the whole run before any earlier source applies, matching the fail-fast
 		// guarantee RunUp gives prechecks. newMigrate re-validates as a safety net
 		// for callers that bypass RunUp (e.g. applySource directly in tests).
 		if s.Schema != "" {
 			if err := validateSchemaName(s.Schema); err != nil {
-				return err
+				return fmt.Errorf("source %q: %w", s.Name, err)
 			}
 		}
 		key := s.Schema + "\x00" + s.TrackingTable
@@ -417,7 +449,7 @@ func newMigrate(ctx context.Context, dbURL string, src Source) (*migrate.Migrate
 	connURL := dbURL
 	if src.Schema != "" {
 		if err := validateSchemaName(src.Schema); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("source %q: %w", src.Name, err)
 		}
 		var err error
 		connURL, err = withSearchPath(dbURL, src.Schema)
@@ -465,17 +497,18 @@ func newMigrate(ctx context.Context, dbURL string, src Source) (*migrate.Migrate
 
 // withSearchPath returns dbURL with the search_path connection parameter set to
 // schema, so every connection in the pool (including the one golang-migrate
-// checks out) targets that schema for migration DDL. dbURL must be a URL-form
-// DSN (postgres://...); a libpq keyword/value DSN is rejected because net/url
-// parses it without error into a meaningless URL, which would silently corrupt
-// the connection string rather than fail here.
+// checks out) targets that schema for migration DDL. dbURL must be a postgres://
+// or postgresql:// URL. Other inputs are rejected: net/url parses a libpq
+// keyword/value DSN or a bare "host:port/db" without error (the latter as scheme
+// "host"), so requiring a known Postgres scheme is what makes this fail fast
+// rather than silently rewrite a meaningless URL.
 func withSearchPath(dbURL, schema string) (string, error) {
 	u, err := nurl.Parse(dbURL)
 	if err != nil {
 		return "", fmt.Errorf("parse database url: %w", err)
 	}
-	if u.Scheme == "" {
-		return "", fmt.Errorf("database url must be a URL-form DSN (postgres://...) to scope a schema; got a non-URL DSN")
+	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
+		return "", fmt.Errorf("database url must be a postgres:// or postgresql:// DSN to scope a schema; got scheme %q", u.Scheme)
 	}
 	q := u.Query()
 	q.Set("search_path", schema)
