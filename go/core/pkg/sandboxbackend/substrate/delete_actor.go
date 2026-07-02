@@ -47,6 +47,13 @@ func deleteActor(ctx context.Context, c *Client, actorID string) (bool, error) {
 			return false, fmt.Errorf("suspend actor %q: %w", actorID, err)
 		}
 		return false, nil
+	case ateapipb.Actor_STATUS_PAUSED:
+		if _, err := c.ResumeActor(ctx, actorID); err != nil && status.Code(err) != codes.NotFound {
+			return false, fmt.Errorf("resume paused actor %q before delete: %w", actorID, err)
+		}
+		return false, nil
+	case ateapipb.Actor_STATUS_PAUSING:
+		return false, nil
 	default:
 		_ = c.SuspendActor(ctx, actorID)
 		return false, nil

@@ -182,7 +182,8 @@ Bundled PostgreSQL image - constructs the full image reference from registry/rep
 */}}
 {{- define "kagent.postgresql.image" -}}
 {{- $pg := .Values.database.postgres.bundled -}}
-{{- printf "%s/%s/%s:%s" $pg.image.registry $pg.image.repository $pg.image.name $pg.image.tag -}}
+{{- $parts := compact (list $pg.image.registry $pg.image.repository $pg.image.name) -}}
+{{- printf "%s:%s" (join "/" $parts) $pg.image.tag -}}
 {{- end -}}
 
 {{/*

@@ -101,6 +101,17 @@ func buildSandboxAgentConfigSecret(sa *v1alpha2.SandboxAgent, in sandboxbackend.
 	}
 }
 
+func (b *AgentsBackend) ReconcileActorTemplate(ctx context.Context, desired client.Object) error {
+	tmpl, ok := desired.(*atev1alpha1.ActorTemplate)
+	if !ok {
+		return fmt.Errorf("substrate sandbox backend cannot reconcile %T as an ActorTemplate", desired)
+	}
+	if b.Lifecycle == nil || b.Lifecycle.Client == nil {
+		return fmt.Errorf("substrate lifecycle is not configured")
+	}
+	return reconcileActorTemplate(ctx, b.Lifecycle.Client, b.AteClient, tmpl)
+}
+
 func (b *AgentsBackend) ComputeReady(ctx context.Context, cl client.Client, nn types.NamespacedName) (metav1.ConditionStatus, string, string) {
 	sa := &v1alpha2.SandboxAgent{}
 	if err := cl.Get(ctx, nn, sa); err != nil {

@@ -1,22 +1,25 @@
 package embedding
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/ollama/ollama/api"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 	"google.golang.org/genai"
 )
 
@@ -39,7 +42,6 @@ type Client struct {
 // Config for creating an embedding client.
 type Config struct {
 	EmbeddingConfig *adk.EmbeddingConfig
-	HTTPClient      *http.Client
 }
 
 // New creates a new embedding client.
@@ -50,28 +52,28 @@ func New(cfg Config) (*Client, error) {
 	if cfg.EmbeddingConfig.Model == "" {
 		return nil, fmt.Errorf("embedding model is required")
 	}
-	httpClient := cfg.HTTPClient
-	if httpClient == nil {
-		httpClient = http.DefaultClient
+	p, err := newProvider(cfg.EmbeddingConfig)
+	if err != nil {
+		return nil, err
 	}
 	return &Client{
 		config: cfg.EmbeddingConfig,
-		p:      newProvider(cfg.EmbeddingConfig, httpClient),
+		p:      p,
 	}, nil
 }
 
-func newProvider(cfg *adk.EmbeddingConfig, httpClient *http.Client) provider {
+func newProvider(cfg *adk.EmbeddingConfig) (provider, error) {
 	switch cfg.Provider {
 	case "azure_openai":
-		return &azureOpenAIProvider{config: cfg, httpClient: httpClient}
+		return newAzureOpenAIProvider(cfg)
 	case "ollama":
-		return &ollamaProvider{config: cfg, httpClient: httpClient}
+		return newOllamaProvider(cfg)
 	case "gemini", "vertex_ai":
-		return &geminiProvider{config: cfg}
+		return &geminiProvider{config: cfg}, nil
 	case "bedrock":
-		return &bedrockProvider{config: cfg}
+		return &bedrockProvider{config: cfg}, nil
 	default: // "openai", "", and unknown providers
-		return &openAIProvider{config: cfg, httpClient: httpClient}
+		return newOpenAIProvider(cfg)
 	}
 }
 
@@ -87,177 +89,137 @@ func (c *Client) Generate(ctx context.Context, texts []string) ([][]float32, err
 }
 
 type openAIProvider struct {
-	config     *adk.EmbeddingConfig
-	httpClient *http.Client
+	config *adk.EmbeddingConfig
+	client openai.Client
+}
+
+func newOpenAIProvider(cfg *adk.EmbeddingConfig) (*openAIProvider, error) {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	opts := []option.RequestOption{
+		option.WithAPIKey(apiKey),
+		option.WithHTTPClient(defaultProviderHTTPClient()),
+	}
+	if cfg.BaseUrl != "" {
+		opts = append(opts, option.WithBaseURL(cfg.BaseUrl))
+	}
+	return &openAIProvider{
+		config: cfg,
+		client: openai.NewClient(opts...),
+	}, nil
 }
 
 func (p *openAIProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
-	baseURL := p.config.BaseUrl
-	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
-	}
-	url := fmt.Sprintf("%s/embeddings", baseURL)
-
-	reqBody := map[string]any{
-		"input":      texts,
-		"model":      p.config.Model,
-		"dimensions": TargetDimension,
-	}
-	bodyBytes, err := json.Marshal(reqBody)
+	resp, err := p.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
+		Model:      openai.EmbeddingModel(p.config.Model),
+		Input:      openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
+		Dimensions: openai.Int(int64(TargetDimension)),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+		return nil, fmt.Errorf("openai embeddings request failed: %w", err)
 	}
 
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+	raw := make([][]float32, len(resp.Data))
+	for i, item := range resp.Data {
+		raw[i] = float64ToFloat32(item.Embedding)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result openAIEmbeddingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	embeddings := make([][]float32, 0, len(result.Data))
-	for _, item := range result.Data {
-		embedding := item.Embedding
-		if len(embedding) > TargetDimension {
-			log.V(1).Info("Truncating embedding", "from", len(embedding), "to", TargetDimension)
-			embedding = normalizeL2(embedding[:TargetDimension])
-		} else if len(embedding) < TargetDimension {
-			return nil, fmt.Errorf("embedding dimension %d is less than required %d", len(embedding), TargetDimension)
-		}
-		embeddings = append(embeddings, embedding)
-	}
-	log.Info("Successfully generated embeddings", "count", len(embeddings))
-	return embeddings, nil
+	return processEmbeddings(log, raw, "openai")
 }
 
 type azureOpenAIProvider struct {
-	config     *adk.EmbeddingConfig
-	httpClient *http.Client
+	config *adk.EmbeddingConfig
+	client openai.Client
+}
+
+func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig) (*azureOpenAIProvider, error) {
+	apiVersion := os.Getenv("OPENAI_API_VERSION")
+	if apiVersion == "" {
+		apiVersion = "2024-02-15-preview"
+	}
+
+	azureEndpoint := cfg.BaseUrl
+	if azureEndpoint == "" {
+		azureEndpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
+	}
+	if azureEndpoint == "" {
+		return nil, fmt.Errorf("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var") //nolint:staticcheck // ST1005: keep product name readable
+	}
+
+	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	baseURL := strings.TrimSuffix(azureEndpoint, "/")
+	if !strings.Contains(baseURL, "/openai/deployments/") {
+		baseURL += "/openai/deployments/" + url.PathEscape(cfg.Model)
+	}
+	baseURL += "/"
+
+	opts := []option.RequestOption{
+		option.WithBaseURL(baseURL),
+		option.WithQueryAdd("api-version", apiVersion),
+		option.WithHeader("Api-Key", apiKey),
+		option.WithHTTPClient(defaultProviderHTTPClient()),
+	}
+	return &azureOpenAIProvider{
+		config: cfg,
+		client: openai.NewClient(opts...),
+	}, nil
 }
 
 func (p *azureOpenAIProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	if p.config.BaseUrl == "" {
-		return nil, fmt.Errorf("base_url is required for Azure OpenAI")
-	}
-	url := fmt.Sprintf("%s/embeddings", p.config.BaseUrl)
+	log := logr.FromContextOrDiscard(ctx)
 
-	reqBody := map[string]any{"input": texts}
-	bodyBytes, err := json.Marshal(reqBody)
+	resp, err := p.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
+		Model:      openai.EmbeddingModel(p.config.Model),
+		Input:      openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
+		Dimensions: openai.Int(int64(TargetDimension)),
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if apiKey := os.Getenv("AZURE_OPENAI_API_KEY"); apiKey != "" {
-		req.Header.Set("api-key", apiKey)
+		return nil, fmt.Errorf("azure openai embeddings request failed: %w", err)
 	}
 
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+	raw := make([][]float32, len(resp.Data))
+	for i, item := range resp.Data {
+		raw[i] = float64ToFloat32(item.Embedding)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result openAIEmbeddingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	embeddings := make([][]float32, 0, len(result.Data))
-	for _, item := range result.Data {
-		embedding := item.Embedding
-		if len(embedding) > TargetDimension {
-			embedding = normalizeL2(embedding[:TargetDimension])
-		}
-		embeddings = append(embeddings, embedding)
-	}
-	return embeddings, nil
+	return processEmbeddings(log, raw, "azure_openai")
 }
 
 type ollamaProvider struct {
-	config     *adk.EmbeddingConfig
-	httpClient *http.Client
+	config *adk.EmbeddingConfig
+	client *api.Client
+}
+
+func newOllamaProvider(cfg *adk.EmbeddingConfig) (*ollamaProvider, error) {
+	host := cfg.BaseUrl
+	if host == "" {
+		host = os.Getenv("OLLAMA_API_BASE")
+	}
+	if host == "" {
+		host = "http://localhost:11434"
+	}
+
+	baseURL, err := url.Parse(host)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Ollama host URL %q: %w", host, err)
+	}
+	return &ollamaProvider{
+		config: cfg,
+		client: api.NewClient(baseURL, defaultProviderHTTPClient()),
+	}, nil
 }
 
 func (p *ollamaProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
-	baseURL := p.config.BaseUrl
-	if baseURL == "" {
-		baseURL = os.Getenv("OLLAMA_API_BASE")
-	}
-	if baseURL == "" {
-		baseURL = "http://localhost:11434"
-	}
-	url := fmt.Sprintf("%s/v1/embeddings", strings.TrimSuffix(baseURL, "/"))
-
-	reqBody := map[string]any{
-		"input": texts,
-		"model": p.config.Model,
-	}
-	bodyBytes, err := json.Marshal(reqBody)
+	resp, err := p.client.Embed(ctx, &api.EmbedRequest{
+		Model:      p.config.Model,
+		Input:      texts,
+		Dimensions: TargetDimension,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("ollama embed request failed: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result openAIEmbeddingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	embeddings := make([][]float32, 0, len(result.Data))
-	for _, item := range result.Data {
-		embedding := item.Embedding
-		if len(embedding) > TargetDimension {
-			log.V(1).Info("Truncating embedding", "from", len(embedding), "to", TargetDimension)
-			embedding = normalizeL2(embedding[:TargetDimension])
-		} else if len(embedding) < TargetDimension {
-			return nil, fmt.Errorf("embedding dimension %d is less than required %d", len(embedding), TargetDimension)
-		}
-		embeddings = append(embeddings, embedding)
-	}
-	log.Info("Successfully generated embeddings with Ollama", "count", len(embeddings))
-	return embeddings, nil
+	return processEmbeddings(log, resp.Embeddings, "ollama")
 }
 
 type geminiProvider struct {
@@ -285,7 +247,7 @@ func (p *geminiProvider) generate(ctx context.Context, texts []string) ([][]floa
 	}
 
 	targetDim := int32(TargetDimension)
-	embeddings := make([][]float32, len(texts))
+	raw := make([][]float32, len(texts))
 	for i, text := range texts {
 		result, err := p.client.Models.EmbedContent(ctx, p.config.Model, genai.Text(text), &genai.EmbedContentConfig{
 			OutputDimensionality: &targetDim,
@@ -299,11 +261,10 @@ func (p *geminiProvider) generate(ctx context.Context, texts []string) ([][]floa
 			for j, v := range src {
 				emb[j] = float32(v)
 			}
-			embeddings[i] = emb
+			raw[i] = emb
 		}
 	}
-	log.Info("Successfully generated embeddings with Gemini", "count", len(embeddings))
-	return embeddings, nil
+	return processEmbeddings(log, raw, "gemini")
 }
 
 type bedrockProvider struct {
@@ -336,7 +297,7 @@ func (p *bedrockProvider) generate(ctx context.Context, texts []string) ([][]flo
 		return nil, p.initErr
 	}
 
-	embeddings := make([][]float32, 0, len(texts))
+	raw := make([][]float32, 0, len(texts))
 	for i, text := range texts {
 		reqBody, err := json.Marshal(map[string]string{"inputText": text})
 		if err != nil {
@@ -355,37 +316,40 @@ func (p *bedrockProvider) generate(ctx context.Context, texts []string) ([][]flo
 		if err := json.Unmarshal(output.Body, &result); err != nil {
 			return nil, fmt.Errorf("failed to decode Bedrock response for text %d: %w", i, err)
 		}
-		embedding := result.Embedding
-		if len(embedding) > TargetDimension {
-			log.V(1).Info("Truncating embedding", "from", len(embedding), "to", TargetDimension)
-			embedding = normalizeL2(embedding[:TargetDimension])
-		} else if len(embedding) < TargetDimension {
-			return nil, fmt.Errorf("embedding dimension %d is less than required %d", len(embedding), TargetDimension)
-		}
-		embeddings = append(embeddings, embedding)
+		raw = append(raw, result.Embedding)
 	}
-	log.Info("Successfully generated embeddings with Bedrock", "count", len(embeddings))
-	return embeddings, nil
+	return processEmbeddings(log, raw, "bedrock")
 }
 
 type bedrockEmbeddingResponse struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-type openAIEmbeddingResponse struct {
-	Data  []openAIEmbeddingData `json:"data"`
-	Model string                `json:"model"`
-	Usage openAIUsage           `json:"usage"`
+func defaultProviderHTTPClient() *http.Client {
+	return &http.Client{Timeout: 5 * time.Minute}
 }
 
-type openAIEmbeddingData struct {
-	Embedding []float32 `json:"embedding"`
-	Index     int       `json:"index"`
+func processEmbeddings(log logr.Logger, embeddings [][]float32, provider string) ([][]float32, error) {
+	result := make([][]float32, 0, len(embeddings))
+	for _, embedding := range embeddings {
+		if len(embedding) > TargetDimension {
+			log.V(1).Info("Truncating embedding", "from", len(embedding), "to", TargetDimension)
+			embedding = normalizeL2(embedding[:TargetDimension])
+		} else if len(embedding) < TargetDimension {
+			return nil, fmt.Errorf("embedding dimension %d is less than required %d", len(embedding), TargetDimension)
+		}
+		result = append(result, embedding)
+	}
+	log.Info("Successfully generated embeddings", "provider", provider, "count", len(result))
+	return result, nil
 }
 
-type openAIUsage struct {
-	PromptTokens int `json:"prompt_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+func float64ToFloat32(v []float64) []float32 {
+	out := make([]float32, len(v))
+	for i, x := range v {
+		out[i] = float32(x)
+	}
+	return out
 }
 
 // normalizeL2 normalizes a vector to unit length using L2 norm.
