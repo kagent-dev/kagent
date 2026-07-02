@@ -1,0 +1,112 @@
+name: Upgrade Test Setup
+
+description: >-
+  Shared prelude for the upgrade-tests and rolling-upgrade-tests jobs: resolve
+  the upgrade-from version (with the prev-stable == adjacent skip) and bring up
+  the build/cluster toolchain. Exposes the resolved version and skip flag so the
+  caller can gate its test step. The caller MUST run actions/checkout (with
+  fetch-depth: 0 + fetch-tags) before this action — a local action is loaded
+  from the checked-out workspace and the version resolvers need full history.
+
+inputs:
+  upgrade-from:
+    description: 'Which release to upgrade from: "adjacent" or "prev-stable".'
+    required: true
+
+outputs:
+  skip:
+    description: '"true" when this leg is redundant (prev-stable == adjacent) and the caller should skip its test step.'
+    value: ${{ steps.resolve.outputs.skip }}
+  version:
+    description: The resolved upgrade-from version (empty when skip is true).
+    value: ${{ steps.resolve.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    # The caller must run actions/checkout (fetch-depth: 0 + fetch-tags) before
+    # this action: a local action is loaded from the checked-out workspace, so
+    # its files don't exist on the runner until checkout has run.
+    - name: Resolve upgrade-from version
+      id: resolve
+      shell: bash
+      run: |
+        ADJ="$(./scripts/upgrade-from-version.sh)"
+        base_ref="${GITHUB_BASE_REF:-${GITHUB_REF_NAME:-}}"
+        is_release_line=false
+        if [[ "$base_ref" =~ ^release/v[0-9]+\.[0-9]+\.x$ ]]; then
+          is_release_line=true
+        fi
+
+        if [ "${{ inputs.upgrade-from }}" = "prev-stable" ]; then
+          # prev-stable = the previous minor line's latest patch (the rollback
+          # floor). On main this resolves to the newest release line overall
+          # (e.g. the 0.9.x tip); on a release branch, to the line below it
+          # (skipped when none exists).
+          V="$(./scripts/prev-stable-version.sh)"
+          if [ -z "$V" ]; then
+            echo "no stable line below the current line; skipping prev-stable leg."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$V" = "$ADJ" ]; then
+            echo "prev-stable ($V) == adjacent; skipping (covered by the adjacent leg)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        else
+          # adjacent = the same-line previous patch, i.e. the release just before
+          # the one being built on the SAME line. It is only meaningful when
+          # building a patch on a release branch. On main we are building the next
+          # MINOR, which has no same-line predecessor (git-describe would report a
+          # stale patch nobody upgrades from — the newest patch lives on the
+          # release branch, covered by prev-stable), so skip this leg there.
+          if [ "$is_release_line" != "true" ]; then
+            echo "base '$base_ref' is not a release line (building the next minor); skipping the adjacent leg (only prev-stable is meaningful)."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          V="$ADJ"
+        fi
+        echo "version=$V" >> "$GITHUB_OUTPUT"
+        echo "=== Upgrade test (${{ inputs.upgrade-from }} leg): will upgrade FROM v$V TO the current build — building images next ==="
+        echo "::notice title=Upgrade from::v$V (${{ inputs.upgrade-from }} leg) -> current build"
+    - name: Initialize Environment
+      if: steps.resolve.outputs.skip != 'true'
+      uses: ./.github/actions/initialize-environment
+    - name: Allow unprivileged user namespaces
+      if: steps.resolve.outputs.skip != 'true'
+      shell: bash
+      run: |
+        sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+    - name: Set up QEMU
+      if: steps.resolve.outputs.skip != 'true'
+      uses: docker/setup-qemu-action@v4
+      with:
+        platforms: linux/amd64,linux/arm64
+    - name: Set up Docker Buildx
+      if: steps.resolve.outputs.skip != 'true'
+      uses: docker/setup-buildx-action@v4
+      with:
+        # Builder name/version match the Makefile (BUILDKIT_VERSION) and the other
+        # workflows (e.g. tag.yaml); kept as literals for consistency.
+        name: kagent-builder-v0.23.0
+        version: v0.23.0
+        platforms: linux/amd64,linux/arm64
+        use: "true"
+        driver-opts: network=host
+    - name: Set up Helm
+      if: steps.resolve.outputs.skip != 'true'
+      uses: azure/setup-helm@v5.0.0
+      with:
+        version: v3.18.0
+    - name: Install Kind
+      if: steps.resolve.outputs.skip != 'true'
+      uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+      with:
+        install_only: true
+    - name: Create Kind cluster
+      if: steps.resolve.outputs.skip != 'true'
+      shell: bash
+      run: |
+        make create-kind-cluster
