@@ -24,10 +24,14 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
 
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS srt-builder
 ARG TOOLS_PYTHON_VERSION=3.13
+ARG TOOLS_NODE_VERSION=24
 
+# Pin nodejs to the major version passed via TOOLS_NODE_VERSION. Without the pin, apk
+# silently drifts to whatever Wolfi publishes as `nodejs`, which broke arm64 builds when
+# nodejs-26 shipped instructions QEMU couldn't emulate.
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add --no-cache \
-    bash git ca-certificates nodejs npm node-gyp bubblewrap python-${TOOLS_PYTHON_VERSION} libstdc++
+    bash git ca-certificates "nodejs~${TOOLS_NODE_VERSION}" npm node-gyp bubblewrap python-${TOOLS_PYTHON_VERSION} libstdc++
 
 # Keep the pinned sandbox-runtime revision, but replace its vulnerable locked package versions.
 # Both lodash-es and shell-quote are direct dependencies of sandbox-runtime, so pinning them
@@ -43,10 +47,11 @@ RUN --mount=type=cache,target=/root/.npm \
 
 FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest
 ARG TOOLS_PYTHON_VERSION=3.13
+ARG TOOLS_NODE_VERSION=24
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
     apk add --no-cache \
-    bash ca-certificates curl nodejs bubblewrap socat python-${TOOLS_PYTHON_VERSION} ripgrep libstdc++
+    bash ca-certificates curl "nodejs~${TOOLS_NODE_VERSION}" bubblewrap socat python-${TOOLS_PYTHON_VERSION} ripgrep libstdc++
 
 RUN addgroup -g 1001 goagent && \
     adduser -u 1001 -G goagent -s /bin/bash -D goagent
