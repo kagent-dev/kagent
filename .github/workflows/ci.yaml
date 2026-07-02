@@ -2,11 +2,11 @@ name: CI Build
 
 on:
   push:
-    branches: [main, release/v0.7.x]
+    branches: [main, "release/**"]
     paths-ignore:
       - "**/*.md"
   pull_request:
-    branches: [main, release/v0.7.x]
+    branches: [main, "release/**"]
     paths-ignore:
       - "**/*.md"
   workflow_dispatch:

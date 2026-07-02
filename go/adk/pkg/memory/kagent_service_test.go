@@ -36,7 +36,6 @@ func newMockEmbeddingClient(t *testing.T) (*embedding.Client, *httptest.Server) 
 			Model:    "test-model",
 			BaseUrl:  embServer.URL + "/v1",
 		},
-		HTTPClient: embServer.Client(),
 	})
 	if err != nil {
 		t.Fatalf("failed to create mock embedding client: %v", err)

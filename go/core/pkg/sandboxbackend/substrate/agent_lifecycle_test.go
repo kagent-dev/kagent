@@ -255,7 +255,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			c := tmpl.Spec.Containers[0]
 			require.Equal(t, pinnedImage, c.Image, "ActorTemplate must use the digest-pinned image")
 			require.Equal(t, tc.wantCommand, c.Command)
-			require.Equal(t, wpKey.Name, tmpl.Spec.WorkerPoolRef.Name)
+			require.Equal(t, wpKey.Name, tmpl.Spec.WorkerSelector.MatchLabels["kagent.dev/worker-pool"])
 
 			names := actorEnvNames(c.Env)
 			require.True(t, names["KAGENT_NAME"], "KAGENT_NAME must be a literal env var")

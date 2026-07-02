@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -86,6 +87,9 @@ func (r *SandboxAgentController) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if err := r.Reconciler.ReconcileKagentSandboxAgent(ctx, req); err != nil {
+		if errors.Is(err, substrate.ErrActorTemplateReconcilePending) {
+			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
