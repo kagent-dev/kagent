@@ -42,8 +42,13 @@ func (p *Lifecycle) CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha2.A
 	return true, nil
 }
 
+// GoldenActorAtespace is the reserved substrate atespace that per-template
+// golden actors live in. Mirrors substrate's internal/resources.GoldenActorAtespace,
+// duplicated here because that package is internal to the substrate module.
+const GoldenActorAtespace = "ate-golden"
+
 func deleteGoldenActor(ctx context.Context, ateClient *Client, actorID string) (bool, error) {
-	return deleteActor(ctx, ateClient, actorID)
+	return deleteActor(ctx, ateClient, GoldenActorAtespace, actorID)
 }
 
 func (p *Lifecycle) goldenActorID(ctx context.Context, tmplKey types.NamespacedName) (string, error) {
