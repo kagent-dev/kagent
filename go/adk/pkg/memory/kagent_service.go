@@ -64,7 +64,6 @@ func New(cfg Config) (*KagentMemoryService, error) {
 	}
 	embClient, err := embedding.New(embedding.Config{
 		EmbeddingConfig: cfg.EmbeddingConfig,
-		HTTPClient:      client,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedding client: %w", err)
