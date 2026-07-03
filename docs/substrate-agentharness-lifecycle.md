@@ -45,8 +45,7 @@ The substrate reconcile path should:
 2. Verify the `WorkerPool` exists.
 3. Create or update the generated `ActorTemplate` with an owner reference to the `AgentHarness`.
 4. Wait for `ActorTemplate.status.phase == Ready`.
-5. Create or resume the actor through `ate-api`.
-6. Mark `ActorReady` and aggregate `Ready`.
+5. Mark `ActorTemplateReady` and aggregate `Ready`. Actors are created on demand by the HTTP gateway on the first chat connection.
 
 ## Delete
 

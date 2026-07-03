@@ -45,13 +45,13 @@ make --version
 make create-kind-cluster
 ```
 
-1. Configure the cluster and set the default namespace `kagent`:
+2. Configure the cluster and set the default namespace `kagent`:
 
 ```shell
 make use-kind-cluster
 ```
 
-1. Set your model provider:
+3. Set your model provider:
 
 ```shell
 export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
@@ -59,7 +59,7 @@ export KAGENT_DEFAULT_MODEL_PROVIDER=openAI
 export KAGENT_DEFAULT_MODEL_PROVIDER=anthropic
 ```
 
-1. Set your providers API_KEY:
+4. Set your providers API_KEY:
 
 ```shell
 export OPENAI_API_KEY=your-openai-api-key
@@ -81,7 +81,7 @@ OPENAI_API_KEY=your-openai-api-key
 # GOOGLE_API_KEY=your-google-api-key
 ```
 
-1. Build images, load them into kind cluster and deploy everything using Helm:
+5. Build images, load them into kind cluster and deploy everything using Helm:
 
 ```shell
 make helm-install
@@ -99,10 +99,10 @@ KAGENT_HELM_EXTRA_ARGS=-f helm/kagent/values.local.yaml
 To access the UI, port-forward to the UI port on the `kagent-ui` service:
 
 ```shell
-kubectl port-forward svc/kagent-ui 8001:8080
+kubectl port-forward svc/kagent-ui 3000:8080
 ```
 
-Then open your browser and go to `http://localhost:8001`.
+Then open your browser and go to `http://localhost:3000`.
 
 ### Addons
 
