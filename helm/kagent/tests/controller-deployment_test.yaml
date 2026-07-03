@@ -77,6 +77,34 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8083
 
+  - it: should set global annotations on deployment
+    template: controller-deployment.yaml
+    set:
+      annotations:
+        app.kubernetes.io/managed-by: "custom"
+    asserts:
+      - isSubset:
+          path: metadata.annotations
+          content:
+            app.kubernetes.io/managed-by: "custom"
+
+  - it: should set controller annotations on deployment and override global ones
+    template: controller-deployment.yaml
+    set:
+      annotations:
+        global-key: "global-value"
+        shared-key: "global-wins"
+      controller:
+        annotations:
+          controller-key: "controller-value"
+          shared-key: "controller-wins"
+    asserts:
+      - isSubset:
+          path: metadata.annotations
+          content:
+            controller-key: "controller-value"
+            shared-key: "controller-wins"
+
   - it: should set substrate ate-api env vars and projected token when substrate is enabled
     template: controller-deployment.yaml
     set:

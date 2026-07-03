@@ -3,6 +3,10 @@ kind: Deployment
 metadata:
   name: {{ include "kagent.fullname" . }}-ui
   namespace: {{ include "kagent.namespace" . }}
+  {{- with .Values.ui.annotations | default .Values.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
