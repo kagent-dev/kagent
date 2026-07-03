@@ -170,3 +170,10 @@ tests:
       - equal:
           path: metadata.namespace
           value: custom-namespace
+
+  - it: should not render modelconfig when providers is set to null
+    set:
+      providers: null
+    asserts:
+      - hasDocuments:
+          count: 0
