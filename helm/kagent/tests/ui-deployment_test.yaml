@@ -101,6 +101,7 @@ tests:
       - isSubset:
           path: metadata.annotations
           content:
+            global-key: "global-value"
             ui-key: "ui-value"
             shared-key: "ui-wins"
 

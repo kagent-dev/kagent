@@ -102,6 +102,7 @@ tests:
       - isSubset:
           path: metadata.annotations
           content:
+            global-key: "global-value"
             controller-key: "controller-value"
             shared-key: "controller-wins"
 

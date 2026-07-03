@@ -3,9 +3,10 @@ kind: Deployment
 metadata:
   name: {{ include "kagent.fullname" . }}-ui
   namespace: {{ include "kagent.namespace" . }}
-  {{- with .Values.ui.annotations | default .Values.annotations }}
+  {{- $annotations := mergeOverwrite (dict) (default dict .Values.annotations) (default dict .Values.ui.annotations) }}
+  {{- if $annotations }}
   annotations:
-    {{- toYaml . | nindent 4 }}
+    {{- toYaml $annotations | nindent 4 }}
   {{- end }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
