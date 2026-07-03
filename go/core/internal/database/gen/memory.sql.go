@@ -58,7 +58,7 @@ WHERE id IN (
 )
 `
 
-// Lock rows in id order so concurrent increments over overlapping sets cannot deadlock.
+// Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
 func (q *Queries) IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error {
 	_, err := q.db.Exec(ctx, incrementMemoryAccessCount, dollar_1)
 	return err

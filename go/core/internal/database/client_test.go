@@ -728,12 +728,13 @@ func TestPruneExpiredMemories(t *testing.T) {
 }
 
 // TestSearchAgentMemoryConcurrentAccessCount verifies concurrent searches over
-// overlapping rows do not deadlock when incrementing access_count, and that
-// search results are always returned even if bookkeeping fails.
+// overlapping rows do not deadlock when incrementing access_count and still
+// return results.
 func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
 
 	agentName := "concurrent-agent"
 	userID := "concurrent-user"

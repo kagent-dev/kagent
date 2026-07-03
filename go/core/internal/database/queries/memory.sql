@@ -13,7 +13,7 @@ ORDER BY embedding <=> $1 ASC
 LIMIT $4;
 
 -- name: IncrementMemoryAccessCount :exec
--- Lock rows in id order so concurrent increments over overlapping sets cannot deadlock.
+-- Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
 UPDATE memory
 SET access_count = access_count + 1
 WHERE id IN (
