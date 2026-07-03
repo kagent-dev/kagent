@@ -534,6 +534,10 @@ spec:
                 type: object
               gemini:
                 description: Gemini-specific configuration
+                properties:
+                  maxOutputTokens:
+                    description: Maximum output tokens to generate for a single response
+                    type: integer
                 type: object
               geminiVertexAI:
                 description: Gemini Vertex AI-specific configuration
