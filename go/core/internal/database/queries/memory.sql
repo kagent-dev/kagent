@@ -13,8 +13,15 @@ ORDER BY embedding <=> $1 ASC
 LIMIT $4;
 
 -- name: IncrementMemoryAccessCount :exec
-UPDATE memory SET access_count = access_count + 1
-WHERE id = ANY($1::text[]);
+-- Lock rows in id order so concurrent increments over overlapping sets cannot deadlock.
+UPDATE memory
+SET access_count = access_count + 1
+WHERE id IN (
+    SELECT id FROM memory
+    WHERE id = ANY($1::text[])
+    ORDER BY id
+    FOR UPDATE
+);
 
 -- name: ListAgentMemories :many
 SELECT * FROM memory

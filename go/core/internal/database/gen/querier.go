@@ -25,6 +25,7 @@ type Querier interface {
 	GetTool(ctx context.Context, id string) (Tool, error)
 	GetToolServer(ctx context.Context, name string) (Toolserver, error)
 	HardDeleteCrewAIMemory(ctx context.Context, arg HardDeleteCrewAIMemoryParams) error
+	// Lock rows in id order so concurrent increments over overlapping sets cannot deadlock.
 	IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error
 	InsertEvent(ctx context.Context, arg InsertEventParams) error
 	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
