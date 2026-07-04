@@ -37,6 +37,11 @@ type KAgentExecutorConfig struct {
 	AppName            string
 	SkillsDirectory    string
 	Logger             logr.Logger
+	// ModelName and ProviderName label GenAI token-usage metrics
+	// (gen_ai.request.model / gen_ai.provider.name). Both may be empty, in
+	// which case the corresponding metric attributes are omitted.
+	ModelName    string
+	ProviderName string
 }
 
 // KAgentExecutor implements a2asrv.AgentExecutor
@@ -48,6 +53,8 @@ type KAgentExecutor struct {
 	appName            string
 	skillsDirectory    string
 	logger             logr.Logger
+	modelName          string
+	providerName       string
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
@@ -69,6 +76,8 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		appName:            cfg.AppName,
 		skillsDirectory:    skillsDir,
 		logger:             cfg.Logger.WithName("kagent-executor"),
+		modelName:          cfg.ModelName,
+		providerName:       cfg.ProviderName,
 	}
 }
 
@@ -287,6 +296,14 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 		// Build per-event metadata (inherits baseMeta + adds invocation_id, usage etc.).
 		eventMeta := buildEventMeta(baseMeta, adkEvent)
+
+		// Record GenAI token usage on the events that carry it. Output combines
+		// candidate + reasoning tokens.
+		if um := adkEvent.UsageMetadata; um != nil {
+			input := int64(um.PromptTokenCount)
+			output := int64(um.CandidatesTokenCount) + int64(um.ThoughtsTokenCount)
+			telemetry.RecordTokenUsage(e.modelName, e.providerName, input, output)
+		}
 
 		// Convert GenAI parts → A2A parts (with kagent stamping).
 		if adkEvent.Content == nil || len(adkEvent.Content.Parts) == 0 {
