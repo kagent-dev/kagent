@@ -74,6 +74,7 @@ type GeminiVertexAIConfig struct {
 
 	// Maximum output tokens
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
 
 	// Candidate count
@@ -244,6 +245,7 @@ type OllamaConfig struct {
 type GeminiConfig struct {
 	// Maximum output tokens to generate for a single response
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
 }
 

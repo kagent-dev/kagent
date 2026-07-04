@@ -294,7 +294,7 @@ class Anthropic(BaseLLM):
 
 
 class GeminiVertexAI(BaseLLM):
-    max_output_tokens: int | None = None
+    max_output_tokens: int | None = Field(default=None, ge=1)
     type: Literal["gemini_vertex_ai"]
 
 
@@ -308,7 +308,7 @@ class Ollama(BaseLLM):
 
 
 class Gemini(BaseLLM):
-    max_output_tokens: int | None = None
+    max_output_tokens: int | None = Field(default=None, ge=1)
     type: Literal["gemini"]
 
 

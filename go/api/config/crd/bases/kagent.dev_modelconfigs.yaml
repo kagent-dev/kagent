@@ -537,6 +537,7 @@ spec:
                 properties:
                   maxOutputTokens:
                     description: Maximum output tokens to generate for a single response
+                    minimum: 1
                     type: integer
                 type: object
               geminiVertexAI:
@@ -550,6 +551,7 @@ spec:
                     type: string
                   maxOutputTokens:
                     description: Maximum output tokens
+                    minimum: 1
                     type: integer
                   projectID:
                     description: The project ID

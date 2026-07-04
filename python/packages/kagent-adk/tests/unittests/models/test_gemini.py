@@ -4,8 +4,10 @@ import pytest
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+from pydantic import ValidationError
 
 from kagent.adk.models._gemini import _GeminiGenerationConfigMixin
+from kagent.adk.types import Gemini, GeminiVertexAI
 
 
 class _FakeBaseLlm:
@@ -58,3 +60,21 @@ async def test_noop_when_model_has_no_cap():
     _ = [r async for r in model.generate_content_async(req, stream=False)]
     assert req.config.max_output_tokens is None
     assert model.seen_max_output_tokens is None
+
+
+_GEMINI_TYPES = [(Gemini, "gemini"), (GeminiVertexAI, "gemini_vertex_ai")]
+
+
+@pytest.mark.parametrize("model_cls,type_name", _GEMINI_TYPES)
+@pytest.mark.parametrize("bad_value", [0, -1])
+def test_rejects_non_positive_max_output_tokens(model_cls, type_name, bad_value):
+    # The translator treats <= 0 as "unset"; reject it at parse time so an
+    # invalid config fails fast instead of being silently ignored.
+    with pytest.raises(ValidationError):
+        model_cls(type=type_name, model="gemini-2.5-flash", max_output_tokens=bad_value)
+
+
+@pytest.mark.parametrize("model_cls,type_name", _GEMINI_TYPES)
+def test_accepts_positive_max_output_tokens(model_cls, type_name):
+    model = model_cls(type=type_name, model="gemini-2.5-flash", max_output_tokens=1)
+    assert model.max_output_tokens == 1
