@@ -566,6 +566,8 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	if err := (&controller.MCPServerToolController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
+		Client:     mgr.GetClient(),
+		Recorder:   mgr.GetEventRecorder("mcpservertool-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Service")
 		os.Exit(1)
@@ -575,6 +577,8 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		Scheme:        mgr.GetScheme(),
 		Reconciler:    rcnclr,
 		AdkTranslator: apiTranslator,
+		Client:        mgr.GetClient(),
+		Recorder:      mgr.GetEventRecorder("agent-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Agent")
 		os.Exit(1)
@@ -622,6 +626,8 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	if err = (&controller.ModelConfigController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
+		Client:     mgr.GetClient(),
+		Recorder:   mgr.GetEventRecorder("modelconfig-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ModelConfig")
 		os.Exit(1)
@@ -638,6 +644,8 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	if err = (&controller.RemoteMCPServerController{
 		Scheme:     mgr.GetScheme(),
 		Reconciler: rcnclr,
+		Client:     mgr.GetClient(),
+		Recorder:   mgr.GetEventRecorder("remotemcpserver-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RemoteMCPServer")
 		os.Exit(1)
