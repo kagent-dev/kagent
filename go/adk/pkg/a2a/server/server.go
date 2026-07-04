@@ -41,13 +41,15 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 
 	mux := http.NewServeMux()
 	RegisterHealthEndpoints(mux)
+	// Expose GenAI token-usage (and standard Go/process) metrics for scraping.
+	mux.Handle("/metrics", telemetry.MetricsHandler())
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
-	// Health and agent-card requests are neither traced nor flushed; only A2A
-	// requests get an inbound server span and a span flush.
+	// Health, metrics and agent-card requests are neither traced nor flushed;
+	// only A2A requests get an inbound server span and a span flush.
 	isA2ARequest := func(r *http.Request) bool {
 		switch r.URL.Path {
-		case "/health", "/healthz", a2asrv.WellKnownAgentCardPath:
+		case "/health", "/healthz", "/metrics", a2asrv.WellKnownAgentCardPath:
 			return false
 		default:
 			return true
