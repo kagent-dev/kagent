@@ -328,7 +328,24 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		setupLog.Error(err, "failed to load configuration from environment variables")
 		os.Exit(1)
 	}
-	logger := zap.New(zap.UseFlagOptions(&opts))
+	// Initialize the OTLP logger provider before building the controller logger
+	// so the otelzap bridge core added by ControllerZapOpts binds to it. No-op
+	// unless OTEL_LOGGING_ENABLED.
+	shutdownLogging, err := telemetry.InitLoggerProvider(ctx, Version)
+	if err != nil {
+		ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+		setupLog.Error(err, "failed to initialize logging")
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownLogging(shutdownCtx); err != nil {
+			setupLog.Error(err, "failed to shutdown logging")
+		}
+	}()
+
+	logger := zap.New(append([]zap.Opts{zap.UseFlagOptions(&opts)}, telemetry.ControllerZapOpts()...)...)
 	ctrl.SetLogger(logger)
 
 	shutdownTracing, err := telemetry.InitTracerProvider(ctx, Version)

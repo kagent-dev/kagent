@@ -38,6 +38,29 @@ func InitTracerProvider(ctx context.Context, serviceVersion string) (func(contex
 		return nil, fmt.Errorf("create span exporter: %w", err)
 	}
 
+	res, err := newTelemetryResource(ctx, serviceVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	return tp.Shutdown, nil
+}
+
+// newTelemetryResource builds the OTel resource shared by the controller's
+// signal pipelines (traces and logs), keeping their resource attributes
+// identical.
+func newTelemetryResource(ctx context.Context, serviceVersion string) (*resource.Resource, error) {
 	instanceID, err := os.Hostname()
 	if err != nil || instanceID == "" {
 		instanceID = uuid.New().String()
@@ -67,17 +90,5 @@ func InitTracerProvider(ctx context.Context, serviceVersion string) (func(contex
 	if err != nil {
 		return nil, fmt.Errorf("create OTEL resource: %w", err)
 	}
-
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
-
-	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
-
-	return tp.Shutdown, nil
+	return res, nil
 }
