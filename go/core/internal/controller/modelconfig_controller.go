@@ -22,8 +22,10 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,6 +46,11 @@ var (
 type ModelConfigController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
+	// Client is used to fetch the reconciled object so Events can be emitted
+	// against it. Optional; event emission is skipped when nil.
+	Client client.Client
+	// Recorder emits Kubernetes Events on reconcile transitions. Optional.
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=modelconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -53,7 +60,29 @@ type ModelConfigController struct {
 
 func (r *ModelConfigController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileKagentModelConfig(ctx, req)
+	if err := r.Reconciler.ReconcileKagentModelConfig(ctx, req); err != nil {
+		r.recordEvent(ctx, req, "Warning", "ReconcileFailed", "Reconcile",
+			"failed to reconcile ModelConfig: %s", err.Error())
+		return ctrl.Result{}, err
+	}
+	r.recordEvent(ctx, req, "Normal", "Accepted", "Reconcile", "ModelConfig reconciled successfully")
+	return ctrl.Result{}, nil
+}
+
+// recordEvent emits a Kubernetes Event against the reconciled ModelConfig.
+// No-op when no Recorder/Client is wired or the object cannot be fetched.
+func (r *ModelConfigController) recordEvent(ctx context.Context, req ctrl.Request, eventtype, reason, action, note string, args ...any) {
+	if r.Recorder == nil || r.Client == nil {
+		return
+	}
+	mc := &v1alpha2.ModelConfig{}
+	if err := r.Client.Get(ctx, req.NamespacedName, mc); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.FromContext(ctx).V(1).Info("unable to fetch ModelConfig for event recording", "error", err.Error())
+		}
+		return
+	}
+	r.Recorder.Eventf(mc, nil, eventtype, reason, action, note, args...)
 }
 
 // SetupWithManager sets up the controller with the Manager.

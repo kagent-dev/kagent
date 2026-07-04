@@ -19,9 +19,11 @@ package controller
 import (
 	"context"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,6 +46,12 @@ type AgentController struct {
 	Scheme        *runtime.Scheme
 	Reconciler    reconciler.KagentReconciler
 	AdkTranslator agent_translator.AdkApiTranslator
+	// Client is used to fetch the reconciled object so Events can be emitted
+	// against it. Optional; event emission is skipped when nil.
+	Client client.Client
+	// Recorder emits Kubernetes Events on reconcile transitions. Optional;
+	// event emission is skipped when nil, keeping behaviour unchanged.
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=agents,verbs=get;list;watch;create;update;patch;delete
@@ -59,7 +67,29 @@ type AgentController struct {
 
 func (r *AgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
-	return ctrl.Result{}, r.Reconciler.ReconcileKagentAgent(ctx, req)
+	if err := r.Reconciler.ReconcileKagentAgent(ctx, req); err != nil {
+		r.recordEvent(ctx, req, "Warning", "ReconcileFailed", "Reconcile",
+			"failed to reconcile Agent: %s", err.Error())
+		return ctrl.Result{}, err
+	}
+	r.recordEvent(ctx, req, "Normal", "Accepted", "Reconcile", "Agent reconciled successfully")
+	return ctrl.Result{}, nil
+}
+
+// recordEvent emits a Kubernetes Event against the reconciled Agent. It is a
+// no-op when no Recorder/Client is wired or the object can no longer be fetched.
+func (r *AgentController) recordEvent(ctx context.Context, req ctrl.Request, eventtype, reason, action, note string, args ...any) {
+	if r.Recorder == nil || r.Client == nil {
+		return
+	}
+	agent := &v1alpha2.Agent{}
+	if err := r.Client.Get(ctx, req.NamespacedName, agent); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.FromContext(ctx).V(1).Info("unable to fetch Agent for event recording", "error", err.Error())
+		}
+		return
+	}
+	r.Recorder.Eventf(agent, nil, eventtype, reason, action, note, args...)
 }
 
 // SetupWithManager sets up the controller with the Manager.

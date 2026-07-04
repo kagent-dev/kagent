@@ -24,8 +24,10 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,6 +46,11 @@ var (
 type RemoteMCPServerController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
+	// Client is used to fetch the reconciled object so Events can be emitted
+	// against it. Optional; event emission is skipped when nil.
+	Client client.Client
+	// Recorder emits Kubernetes Events on reconcile transitions. Optional.
+	Recorder events.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers,verbs=get;list;watch;create;update;patch;delete
@@ -56,13 +63,32 @@ func (r *RemoteMCPServerController) Reconcile(ctx context.Context, req ctrl.Requ
 
 	err := r.Reconciler.ReconcileKagentRemoteMCPServer(ctx, req)
 	if err != nil {
+		r.recordEvent(ctx, req, "Warning", "ReconcileFailed", "Reconcile",
+			"failed to reconcile RemoteMCPServer: %s", err.Error())
 		// Return zero result when there's an error - controller-runtime will handle backoff
 		return ctrl.Result{}, err
 	}
+	r.recordEvent(ctx, req, "Normal", "Accepted", "Reconcile", "RemoteMCPServer reconciled successfully")
 	// Success - requeue after 60s to refresh tool server status
 	return ctrl.Result{
 		RequeueAfter: 60 * time.Second,
 	}, nil
+}
+
+// recordEvent emits a Kubernetes Event against the reconciled RemoteMCPServer.
+// No-op when no Recorder/Client is wired or the object cannot be fetched.
+func (r *RemoteMCPServerController) recordEvent(ctx context.Context, req ctrl.Request, eventtype, reason, action, note string, args ...any) {
+	if r.Recorder == nil || r.Client == nil {
+		return
+	}
+	server := &v1alpha2.RemoteMCPServer{}
+	if err := r.Client.Get(ctx, req.NamespacedName, server); err != nil {
+		if !apierrors.IsNotFound(err) {
+			log.FromContext(ctx).V(1).Info("unable to fetch RemoteMCPServer for event recording", "error", err.Error())
+		}
+		return
+	}
+	r.Recorder.Eventf(server, nil, eventtype, reason, action, note, args...)
 }
 
 // SetupWithManager sets up the controller with the Manager.
