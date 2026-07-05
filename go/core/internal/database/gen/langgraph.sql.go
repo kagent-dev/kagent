@@ -100,6 +100,58 @@ func (q *Queries) ListCheckpointWrites(ctx context.Context, arg ListCheckpointWr
 	return items, nil
 }
 
+const listCheckpointWritesForCheckpoints = `-- name: ListCheckpointWritesForCheckpoints :many
+SELECT user_id, thread_id, checkpoint_ns, checkpoint_id, write_idx, value, value_type, channel, task_id, created_at, updated_at, deleted_at FROM lg_checkpoint_write
+WHERE user_id = $1 AND thread_id = $2 AND checkpoint_ns = $3
+  AND checkpoint_id = ANY($4::text[]) AND deleted_at IS NULL
+ORDER BY checkpoint_id, task_id, write_idx
+`
+
+type ListCheckpointWritesForCheckpointsParams struct {
+	UserID       string
+	ThreadID     string
+	CheckpointNs string
+	Column4      []string
+}
+
+func (q *Queries) ListCheckpointWritesForCheckpoints(ctx context.Context, arg ListCheckpointWritesForCheckpointsParams) ([]LgCheckpointWrite, error) {
+	rows, err := q.db.Query(ctx, listCheckpointWritesForCheckpoints,
+		arg.UserID,
+		arg.ThreadID,
+		arg.CheckpointNs,
+		arg.Column4,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LgCheckpointWrite
+	for rows.Next() {
+		var i LgCheckpointWrite
+		if err := rows.Scan(
+			&i.UserID,
+			&i.ThreadID,
+			&i.CheckpointNs,
+			&i.CheckpointID,
+			&i.WriteIdx,
+			&i.Value,
+			&i.ValueType,
+			&i.Channel,
+			&i.TaskID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCheckpoints = `-- name: ListCheckpoints :many
 SELECT user_id, thread_id, checkpoint_ns, checkpoint_id, parent_checkpoint_id, created_at, updated_at, deleted_at, metadata, checkpoint, checkpoint_type, version FROM lg_checkpoint
 WHERE user_id = $1 AND thread_id = $2 AND checkpoint_ns = $3

@@ -37,6 +37,12 @@ WHERE user_id = $1 AND thread_id = $2 AND checkpoint_ns = $3
   AND checkpoint_id = $4 AND deleted_at IS NULL
 ORDER BY task_id, write_idx;
 
+-- name: ListCheckpointWritesForCheckpoints :many
+SELECT * FROM lg_checkpoint_write
+WHERE user_id = $1 AND thread_id = $2 AND checkpoint_ns = $3
+  AND checkpoint_id = ANY($4::text[]) AND deleted_at IS NULL
+ORDER BY checkpoint_id, task_id, write_idx;
+
 -- name: UpsertCheckpointWrite :exec
 INSERT INTO lg_checkpoint_write (
     user_id, thread_id, checkpoint_ns, checkpoint_id, write_idx,
