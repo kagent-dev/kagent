@@ -421,7 +421,10 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
                 if aggregated_text:
                     final_parts.append(types.Part.from_text(text=aggregated_text))
                 for tool_id, tool in tool_uses.items():
-                    args = json.loads(tool["input_json"]) if tool["input_json"] else {}
+                    try:
+                        args = json.loads(tool["input_json"]) if tool["input_json"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
                     part = types.Part.from_function_call(name=tool["name"], args=args)
                     if part.function_call:
                         part.function_call.id = tool_id
