@@ -101,7 +101,8 @@ class OpenAIAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Stream agent execution events and convert them to A2A events."""
-        session_context = SessionContext(session_id=session.session_id)
+        session_id = session.session_id if session else context.context_id
+        session_context = SessionContext(session_id=session_id)
         emitted_text = False
 
         try:
