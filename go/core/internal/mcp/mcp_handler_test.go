@@ -16,7 +16,9 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -80,6 +82,64 @@ func TestListAgentsInputSchemaHasProperties(t *testing.T) {
 	require.IsType(t, map[string]any{}, props, "properties must be a JSON object")
 	require.Empty(t, props, "list_agents takes no args, properties should be empty")
 	require.Equal(t, false, schema["additionalProperties"], "additionalProperties must remain false")
+}
+
+// readyConditions returns the Accepted=True and Ready=True conditions an agent
+// has once its workload is ready. The Ready reason differs by workload type:
+// declarative Agents report "DeploymentReady", SandboxAgents "WorkloadReady".
+func readyConditions(readyReason string) []metav1.Condition {
+	return []metav1.Condition{
+		{Type: "Accepted", Status: metav1.ConditionTrue, Reason: "AgentReconciled"},
+		{Type: "Ready", Status: metav1.ConditionTrue, Reason: readyReason},
+	}
+}
+
+// TestListReadyAgents_IncludesSandboxAgents asserts that listReadyAgents lists
+// both declarative Agents and SandboxAgents and that it treats an agent as ready
+// whether its Ready condition reason is "DeploymentReady" (Agent) or
+// "WorkloadReady" (SandboxAgent), matching the behaviour of the REST /agents API
+// and the A2A registrar. Regression test for
+// https://github.com/kagent-dev/kagent/issues/2123.
+func TestListReadyAgents_IncludesSandboxAgents(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	objs := []client.Object{
+		&v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "ready-agent"},
+			Spec:       v1alpha2.AgentSpec{Description: "declarative agent"},
+			Status:     v1alpha2.AgentStatus{Conditions: readyConditions("DeploymentReady")},
+		},
+		&v1alpha2.SandboxAgent{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "ready-sandbox"},
+			Spec:       v1alpha2.SandboxAgentSpec{AgentSpec: v1alpha2.AgentSpec{Description: "sandbox agent"}},
+			Status:     v1alpha2.AgentStatus{Conditions: readyConditions("WorkloadReady")},
+		},
+		&v1alpha2.SandboxAgent{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "pending-sandbox"},
+			Status: v1alpha2.AgentStatus{Conditions: []metav1.Condition{
+				{Type: "Accepted", Status: metav1.ConditionTrue, Reason: "AgentReconciled"},
+				{Type: "Ready", Status: metav1.ConditionFalse, Reason: "SandboxBackendNotConfigured"},
+			}},
+		},
+	}
+
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	h, err := NewMCPHandler(kubeClient, nil, nil)
+	require.NoError(t, err)
+
+	agents, err := h.listReadyAgents(context.Background())
+	require.NoError(t, err)
+
+	refs := make(map[string]string, len(agents))
+	for _, a := range agents {
+		refs[a.Ref] = a.Description
+	}
+
+	assert.Contains(t, refs, "default/ready-agent", "ready declarative Agent should be listed")
+	assert.Contains(t, refs, "default/ready-sandbox", "ready SandboxAgent should be listed")
+	assert.NotContains(t, refs, "default/pending-sandbox", "not-ready SandboxAgent must be excluded")
+	assert.Equal(t, "sandbox agent", refs["default/ready-sandbox"], "SandboxAgent description should be surfaced")
 }
 
 // a2aBackend is a fake A2A server that records whether it was called.

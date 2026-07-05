@@ -11,10 +11,12 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -83,7 +85,7 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 		server,
 		&mcpsdk.Tool{
 			Name:        "list_agents",
-			Description: "List invokable kagent agents (accepted + deploymentReady)",
+			Description: "List invokable kagent agents (accepted + ready)",
 			InputSchema: &jsonschema.Schema{
 				Type:                 "object",
 				Properties:           map[string]*jsonschema.Schema{},
@@ -108,7 +110,7 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 		&mcpsdk.Resource{
 			URI:         "kagent://agents",
 			Name:        "agents",
-			Description: "List of invokable kagent agents (accepted + deploymentReady)",
+			Description: "List of invokable kagent agents (accepted + ready)",
 			MIMEType:    "application/json",
 		},
 		handler.readAgentsResource,
@@ -129,33 +131,64 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 	return handler, nil
 }
 
-// listReadyAgents returns agents that are accepted and deployment-ready.
+// listReadyAgents returns agents that are accepted and ready. It covers both
+// declarative Agents and SandboxAgents; a SandboxAgent reports its Ready
+// condition with reason "WorkloadReady" while a declarative Agent uses
+// "DeploymentReady", so both are treated as ready here, matching the REST
+// /agents API and the A2A registrar.
 func (h *MCPHandler) listReadyAgents(ctx context.Context) ([]AgentSummary, error) {
 	agentList := &v1alpha2.AgentList{}
 	if err := h.kubeClient.List(ctx, agentList); err != nil {
 		return nil, err
 	}
-	agents := make([]AgentSummary, 0, len(agentList.Items))
-	for _, agent := range agentList.Items {
-		deploymentReady := false
-		accepted := false
-		for _, condition := range agent.Status.Conditions {
-			if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
-				deploymentReady = true
-			}
-			if condition.Type == "Accepted" && condition.Status == "True" {
-				accepted = true
-			}
+	sandboxAgentList := &v1alpha2.SandboxAgentList{}
+	if err := h.kubeClient.List(ctx, sandboxAgentList); err != nil {
+		return nil, err
+	}
+
+	agents := make([]AgentSummary, 0, len(agentList.Items)+len(sandboxAgentList.Items))
+	for i := range agentList.Items {
+		if summary, ok := readyAgentSummary(&agentList.Items[i]); ok {
+			agents = append(agents, summary)
 		}
-		if !accepted || !deploymentReady {
-			continue
+	}
+	for i := range sandboxAgentList.Items {
+		if summary, ok := readyAgentSummary(&sandboxAgentList.Items[i]); ok {
+			agents = append(agents, summary)
 		}
-		agents = append(agents, AgentSummary{
-			Ref:         agent.Namespace + "/" + agent.Name,
-			Description: agent.Spec.Description,
-		})
 	}
 	return agents, nil
+}
+
+// readyAgentSummary reports whether the given agent is accepted and ready, and
+// if so returns its AgentSummary.
+func readyAgentSummary(agent v1alpha2.AgentObject) (AgentSummary, bool) {
+	status := agent.GetAgentStatus()
+	if status == nil {
+		return AgentSummary{}, false
+	}
+	ready, accepted := false, false
+	for _, condition := range status.Conditions {
+		if condition.Type == v1alpha2.AgentConditionTypeReady && condition.Status == metav1.ConditionTrue {
+			switch condition.Reason {
+			case reconciler.AgentReadyReasonDeploymentReady, reconciler.AgentReadyReasonWorkloadReady:
+				ready = true
+			}
+		}
+		if condition.Type == v1alpha2.AgentConditionTypeAccepted && condition.Status == metav1.ConditionTrue {
+			accepted = true
+		}
+	}
+	if !accepted || !ready {
+		return AgentSummary{}, false
+	}
+	summary := AgentSummary{
+		Ref: agent.GetNamespace() + "/" + agent.GetName(),
+	}
+	if spec := agent.GetAgentSpec(); spec != nil {
+		summary.Description = spec.Description
+	}
+	return summary, true
 }
 
 // handleListAgents handles the list_agents MCP tool
