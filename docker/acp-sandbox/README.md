@@ -18,6 +18,7 @@ The [Dockerfile](Dockerfile) defines:
 | `node` / `node-base` | internal | `base` + Node.js 22 (trixie apt ships v20, below OpenClaw's >=22.19 requirement). |
 | `hermes` | `--target hermes` | `base` + Hermes installed via pip (`hermes-agent[acp]`). Child command: `hermes acp`. |
 | `openclaw` | `--target openclaw` | `node-base` + the OpenClaw CLI (`npm install -g openclaw`). Runs a sandbox-local `openclaw gateway` alongside the shim via a small launcher. |
+| `claude` | `--target claude` | `node-base` + the Claude Agent ACP adapter (`npm install -g @agentclientprotocol/claude-agent-acp`, wrapping `@anthropic-ai/claude-agent-sdk`). Child command: `claude-agent-acp`. No gateway — it speaks ACP over stdio directly. Requires `ANTHROPIC_API_KEY` at runtime. |
 
 The base↔agent contract is intentionally tiny:
 
@@ -44,6 +45,7 @@ From the repo root (build context is `go/`):
 docker build -f docker/acp-sandbox/Dockerfile --target base     -t kagent/acp-sandbox-base     go/
 docker build -f docker/acp-sandbox/Dockerfile --target hermes   -t kagent/acp-sandbox-hermes   go/
 docker build -f docker/acp-sandbox/Dockerfile --target openclaw -t kagent/acp-sandbox-openclaw go/
+docker build -f docker/acp-sandbox/Dockerfile --target claude   -t kagent/acp-sandbox-claude   go/
 ```
 
 ## Smoke test (no cluster needed)
@@ -54,6 +56,16 @@ gateway):
 ```sh
 docker run --rm -p 9000:9000 kagent/acp-sandbox-hermes
 # then from another shell, speak newline-delimited JSON-RPC over WS:
+websocat ws://localhost:9000/acp
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}
+```
+
+The `claude` target additionally needs an Anthropic API key at runtime — pass
+`-e ANTHROPIC_API_KEY=sk-...` on `docker run`, then use the same `websocat` /
+`initialize` handshake:
+
+```sh
+docker run --rm -p 9000:9000 -e ANTHROPIC_API_KEY=sk-... kagent/acp-sandbox-claude
 websocat ws://localhost:9000/acp
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}
 ```
@@ -92,3 +104,8 @@ controller. Each file's header comment has the full step-by-step; in short:
   belongs to the harness bootstrap, not these images.
 - Whether the shim is baked (this approach) or injected via init container
   + shared volume.
+- Claude target: `@agentclientprotocol/claude-agent-acp` is community-maintained
+  and was recently renamed from `@zed-industries/claude-code-acp`. Verify the
+  ACP `initialize` handshake end-to-end at the pinned version (0.55.0) before
+  relying on it, and confirm the child's in-memory session model holds across
+  bridge reconnects.
