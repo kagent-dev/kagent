@@ -3,9 +3,9 @@ package memory
 import (
 	"fmt"
 
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 )
 
 type saveMemoryInput struct {
@@ -17,7 +17,7 @@ func NewSaveMemoryTool(svc *KagentMemoryService) (tool.Tool, error) {
 	return functiontool.New(functiontool.Config{
 		Name:        "save_memory",
 		Description: "Saves a specific piece of information or text to long-term memory. Use this to remember important facts, user preferences, or specific details for future reference.",
-	}, func(toolCtx adkagent.ToolContext, in saveMemoryInput) (map[string]any, error) {
+	}, func(toolCtx adkagent.Context, in saveMemoryInput) (map[string]any, error) {
 		if in.Content == "" {
 			return nil, fmt.Errorf("missing required parameter: content")
 		}

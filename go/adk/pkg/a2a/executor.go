@@ -16,10 +16,10 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"go.opentelemetry.io/otel/attribute"
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	"google.golang.org/adk/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	"google.golang.org/adk/v2/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
+	adksession "google.golang.org/adk/v2/session"
 )
 
 const (
