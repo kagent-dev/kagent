@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"testing"
+	"unicode/utf8"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
@@ -63,5 +64,66 @@ func TestNewAgentStatusEvent_MessageCarriesIDs(t *testing.T) {
 	}
 	if ev.TaskID != a2atype.TaskID("task-xyz") {
 		t.Errorf("event TaskID = %q, want %q", ev.TaskID, a2atype.TaskID("task-xyz"))
+	}
+}
+
+// TestExtractSessionName verifies session names are truncated on rune boundaries.
+// A byte-wise cut can split a multi-byte UTF-8 rune and produce an invalid-UTF-8
+// name, which the Postgres session store rejects on session create. The result
+// must always be valid UTF-8, and pure-ASCII behavior must be unchanged.
+func TestExtractSessionName(t *testing.T) {
+	textMsg := func(s string) *a2atype.Message {
+		return &a2atype.Message{Parts: []a2atype.Part{a2atype.TextPart{Text: s}}}
+	}
+
+	tests := []struct {
+		name string
+		msg  *a2atype.Message
+		want string
+	}{
+		{name: "nil message", msg: nil, want: ""},
+		{name: "no parts", msg: &a2atype.Message{}, want: ""},
+		{name: "short ascii", msg: textMsg("hello"), want: "hello"},
+		{
+			name: "ascii at limit is not truncated",
+			msg:  textMsg("01234567890123456789"), // exactly 20 runes
+			want: "01234567890123456789",
+		},
+		{
+			name: "long ascii is truncated with ellipsis",
+			msg:  textMsg("012345678901234567890"), // 21 runes
+			want: "01234567890123456789...",
+		},
+		{
+			// 7 CJK runes = 21 bytes: byte-slicing at 20 splits the 7th rune.
+			name: "multibyte over byte limit stays valid utf8",
+			msg:  textMsg("こんにちは世界"),
+			want: "こんにちは世界",
+		},
+		{
+			name: "long multibyte truncated on rune boundary",
+			msg:  textMsg("あいうえおかきくけこさしすせそたちつてとな"), // 21 runes
+			want: "あいうえおかきくけこさしすせそたちつてと...",
+		},
+		{
+			name: "skips empty text part and uses first non-empty",
+			msg: &a2atype.Message{Parts: []a2atype.Part{
+				a2atype.TextPart{Text: ""},
+				a2atype.TextPart{Text: "hi"},
+			}},
+			want: "hi",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractSessionName(tt.msg)
+			if got != tt.want {
+				t.Errorf("extractSessionName() = %q, want %q", got, tt.want)
+			}
+			if !utf8.ValidString(got) {
+				t.Errorf("extractSessionName() returned invalid UTF-8: %q", got)
+			}
+		})
 	}
 }
