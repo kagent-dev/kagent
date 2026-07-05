@@ -106,8 +106,8 @@ controller. Each file's header comment has the full step-by-step; in short:
   + shared volume.
 - Claude target: `@agentclientprotocol/claude-agent-acp` is community-maintained
   and was recently renamed from `@zed-industries/claude-code-acp`. The ACP
-  `initialize` handshake is verified at the pinned version (0.55.0) — it reports
-  `protocolVersion: 1`, `agentInfo.version: "0.55.0"`, and `authMethods: []` (so
+  `initialize` handshake is verified at the pinned version (0.58.1) — it reports
+  `protocolVersion: 1`, `agentInfo.version: "0.58.1"`, and `authMethods: []` (so
   it authenticates from `ANTHROPIC_API_KEY` with no separate `authenticate`
   step). Still to verify: a full `session/prompt` round-trip reaches the model,
   and the child's in-memory session model holds across bridge reconnects.

@@ -141,7 +141,7 @@ CMD []
 ### sandbox-local gateway: `claude-agent-acp` is a stdio ACP server, so the
 ### shim runs it directly as its child.
 FROM node-base AS claude
-ARG CLAUDE_AGENT_ACP_VERSION=0.55.0
+ARG CLAUDE_AGENT_ACP_VERSION=0.58.1
 USER root
 RUN npm install -g "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}"
 USER agent
