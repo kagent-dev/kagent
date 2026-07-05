@@ -26,7 +26,7 @@ class KagentMemoryStorage:
         self.user_id = user_id
         self.base_url = base_url
 
-    def save(self, task_description: str, metadata: dict, timestamp: str, score: float) -> None:
+    def save(self, task_description: str, metadata: dict, datetime: str, score: float) -> None:
         """
         Saves a memory item to the Kagent backend.
         The agent_id is expected to be in the metadata.
@@ -39,7 +39,7 @@ class KagentMemoryStorage:
                 "task_description": task_description,
                 "score": score,
                 "metadata": metadata,
-                "datetime": timestamp,
+                "datetime": datetime,
             },
         )
 
