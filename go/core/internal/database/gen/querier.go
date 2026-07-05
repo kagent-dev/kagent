@@ -33,6 +33,7 @@ type Querier interface {
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListCheckpointWrites(ctx context.Context, arg ListCheckpointWritesParams) ([]LgCheckpointWrite, error)
+	ListCheckpointWritesForCheckpoints(ctx context.Context, arg ListCheckpointWritesForCheckpointsParams) ([]LgCheckpointWrite, error)
 	ListCheckpoints(ctx context.Context, arg ListCheckpointsParams) ([]LgCheckpoint, error)
 	ListCheckpointsLimit(ctx context.Context, arg ListCheckpointsLimitParams) ([]LgCheckpoint, error)
 	ListEventsByContextID(ctx context.Context, sessionID *string) ([]Event, error)

@@ -550,17 +550,33 @@ func (c *postgresClient) ListCheckpoints(ctx context.Context, userID, threadID, 
 			}
 		}
 
-		tuples = make([]*dbpkg.LangGraphCheckpointTuple, 0, len(checkpoints))
-		for _, cp := range checkpoints {
-			writes, err := q.ListCheckpointWrites(ctx, dbgen.ListCheckpointWritesParams{
-				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointID: cp.CheckpointID,
+		// Fetch all writes for the returned checkpoints in a single query and
+		// bucket them by checkpoint ID, instead of issuing one query per
+		// checkpoint (which turned reading a thread's history into 1+N round
+		// trips that grew with the conversation length).
+		checkpointIDs := make([]string, len(checkpoints))
+		for i, cp := range checkpoints {
+			checkpointIDs[i] = cp.CheckpointID
+		}
+
+		writesByCheckpoint := make(map[string][]*dbpkg.LangGraphCheckpointWrite, len(checkpoints))
+		if len(checkpointIDs) > 0 {
+			writes, err := q.ListCheckpointWritesForCheckpoints(ctx, dbgen.ListCheckpointWritesForCheckpointsParams{
+				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, Column4: checkpointIDs,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to get checkpoint writes: %w", err)
 			}
-			dbWrites := make([]*dbpkg.LangGraphCheckpointWrite, len(writes))
-			for i, w := range writes {
-				dbWrites[i] = toCheckpointWrite(w)
+			for _, w := range writes {
+				writesByCheckpoint[w.CheckpointID] = append(writesByCheckpoint[w.CheckpointID], toCheckpointWrite(w))
+			}
+		}
+
+		tuples = make([]*dbpkg.LangGraphCheckpointTuple, 0, len(checkpoints))
+		for _, cp := range checkpoints {
+			dbWrites := writesByCheckpoint[cp.CheckpointID]
+			if dbWrites == nil {
+				dbWrites = []*dbpkg.LangGraphCheckpointWrite{}
 			}
 			tuples = append(tuples, &dbpkg.LangGraphCheckpointTuple{
 				Checkpoint: toCheckpoint(cp),
