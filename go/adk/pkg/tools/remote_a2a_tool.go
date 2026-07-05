@@ -149,30 +149,44 @@ type remoteA2AState struct {
 	initOnce  sync.Once
 	initErr   error
 
+	// lastContextID is the stable A2A context_id used for every call to this
+	// sub-agent when isolateSessions is false (the default): all calls land
+	// in one shared sub-agent session, giving stateful sub-agents session
+	// continuity across calls.
 	lastContextID string
+
+	// isolateSessions mints a fresh context_id per call (see nextContextID)
+	// instead of reusing lastContextID, so each call runs in its own isolated
+	// sub-agent session. Required for parallel fan-out: without it, N
+	// parallel calls in one turn collapse into a single shared sub-agent
+	// session. See go/api/v1alpha2.Tool.IsolateSessions.
+	isolateSessions bool
 }
 
 // NewKAgentRemoteA2ATool creates a function tool that calls a remote A2A agent and
 // propagates HITL state. It returns:
 //   - the tool.Tool to register with the agent config
-//   - the initial A2A context/session ID for subagent session stamping
+//   - the initial A2A context/session ID for subagent session stamping, or ""
+//     when isolateSessions is true (there is no single pre-known session id
+//     to stamp in that case; see remoteA2AState.isolateSessions)
 //
 // The agent card is fetched lazily from baseURL/.well-known/agent.json.
 // If httpClient is nil, a default client is created. The client's transport is
 // wrapped with otelhttp to propagate W3C trace context to subagents.
-func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, propagateToken bool) (tool.Tool, string, error) {
+func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, propagateToken, isolateSessions bool) (tool.Tool, string, error) {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
 	httpClient = withOTelTransport(httpClient)
 	state := &remoteA2AState{
-		name:           name,
-		description:    description,
-		baseURL:        baseURL,
-		httpClient:     httpClient,
-		extraHeaders:   extraHeaders,
-		propagateToken: propagateToken,
-		lastContextID:  a2atype.NewContextID(),
+		name:            name,
+		description:     description,
+		baseURL:         baseURL,
+		httpClient:      httpClient,
+		extraHeaders:    extraHeaders,
+		propagateToken:  propagateToken,
+		lastContextID:   a2atype.NewContextID(),
+		isolateSessions: isolateSessions,
 	}
 	ft, err := functiontool.New(functiontool.Config{
 		Name:        name,
@@ -183,7 +197,21 @@ func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create remote A2A function tool for %s: %w", name, err)
 	}
+	if state.isolateSessions {
+		return ft, "", nil
+	}
 	return ft, state.lastContextID, nil
+}
+
+// nextContextID returns the A2A context_id to stamp on the next outbound
+// call: a fresh id when isolateSessions is enabled (isolated per-call
+// session), or the tool's stable lastContextID otherwise (shared session for
+// the lifetime of the tool).
+func (s *remoteA2AState) nextContextID() string {
+	if s.isolateSessions {
+		return a2atype.NewContextID()
+	}
+	return s.lastContextID
 }
 
 // ensureClient lazily resolves the agent card and initialises the A2A client.
@@ -257,11 +285,12 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.ToolContext, requestText s
 		return map[string]any{"error": err.Error()}, nil
 	}
 
+	contextID := s.nextContextID()
 	message := a2atype.NewMessage(
 		a2atype.MessageRoleUser,
 		a2atype.TextPart{Text: requestText},
 	)
-	message.ContextID = s.lastContextID
+	message.ContextID = contextID
 
 	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
 	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
@@ -271,7 +300,7 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.ToolContext, requestText s
 		return map[string]any{"error": fmt.Sprintf("Remote agent '%s' request failed: %v", s.name, err)}, nil
 	}
 
-	return s.processResult(ctx, result)
+	return s.processResult(ctx, contextID, result)
 }
 
 // handleResume is Phase 2: forward the user's decision to the remote agent's pending task.
@@ -322,7 +351,7 @@ func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (map[string]any,
 		return map[string]any{"error": fmt.Sprintf("Remote agent '%s' resume failed: %v", subagentName, err)}, nil
 	}
 
-	ret, retErr := s.processResult(ctx, result)
+	ret, retErr := s.processResult(ctx, contextID, result)
 	// Prefer the context_id from the confirmation payload (the original subagent
 	// session) over the pre-generated one. Mirrors Python's:
 	//   "subagent_session_id": context_id or self._last_context_id
@@ -337,7 +366,12 @@ func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (map[string]any,
 }
 
 // processResult converts a SendMessageResult into a tool return value.
-func (s *remoteA2AState) processResult(ctx adkagent.ToolContext, result a2atype.SendMessageResult) (map[string]any, error) {
+// contextID is the A2A context_id this call was sent under (from
+// nextContextID, or the confirmation payload on resume) and is reported back
+// as subagent_session_id so the UI's AgentCallDisplay links the card to the
+// session that actually ran the call — critical when isolateSessions is true
+// and every call has a different id.
+func (s *remoteA2AState) processResult(ctx adkagent.ToolContext, contextID string, result a2atype.SendMessageResult) (map[string]any, error) {
 	switch r := result.(type) {
 	case *a2atype.Message:
 		return map[string]any{"result": extractTextFromMessage(r)}, nil
@@ -358,7 +392,7 @@ func (s *remoteA2AState) processResult(ctx adkagent.ToolContext, result a2atype.
 			text := extractTextFromTask(r)
 			ret := map[string]any{
 				"result":              text,
-				"subagent_session_id": s.lastContextID,
+				"subagent_session_id": contextID,
 			}
 			if usage := extractUsageFromTask(r); usage != nil {
 				ret["kagent_usage_metadata"] = usage

@@ -65,10 +65,15 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 			log.Info("Skipping remote agent with empty URL", "name", remoteAgent.Name)
 			continue
 		}
-		remoteTool, sessionID, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken)
+		remoteTool, sessionID, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}
+		// Isolated tools mint a fresh context_id per call, so there is no
+		// single pre-known session id to stamp function_call parts with;
+		// NewKAgentRemoteA2ATool returns "" in that case and we skip the
+		// map entry. The UI instead links each sub-agent card via the
+		// per-call subagent_session_id in the tool's function_response.
 		if sessionID != "" {
 			subagentSessionIDs[remoteAgent.Name] = sessionID
 		}

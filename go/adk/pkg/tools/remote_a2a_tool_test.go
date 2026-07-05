@@ -124,3 +124,34 @@ func assertSingleHeader(t *testing.T, req *a2aclient.Request, key, want string) 
 		t.Errorf("%s: got %q, want %q", key, got[0], want)
 	}
 }
+
+// TestNextContextID_IsolateSessions covers the EP#2137 fix: isolated tools
+// mint a fresh context_id per call so parallel/serial calls to the same
+// sub-agent land in independent sessions, while non-isolated tools keep
+// reusing one context_id for session continuity.
+func TestNextContextID_IsolateSessions(t *testing.T) {
+	t.Run("isolated: each call gets a distinct, non-empty context_id", func(t *testing.T) {
+		s := &remoteA2AState{isolateSessions: true, lastContextID: "stable-id"}
+
+		first := s.nextContextID()
+		second := s.nextContextID()
+
+		if first == "" || second == "" {
+			t.Fatalf("expected non-empty context ids, got %q and %q", first, second)
+		}
+		if first == second {
+			t.Errorf("expected distinct context ids for isolated calls, got the same id %q twice", first)
+		}
+	})
+
+	t.Run("not isolated: every call reuses the stable lastContextID", func(t *testing.T) {
+		s := &remoteA2AState{isolateSessions: false, lastContextID: "stable-id"}
+
+		first := s.nextContextID()
+		second := s.nextContextID()
+
+		if first != "stable-id" || second != "stable-id" {
+			t.Errorf("expected both calls to reuse lastContextID %q, got %q and %q", "stable-id", first, second)
+		}
+	})
+}
