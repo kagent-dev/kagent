@@ -508,6 +508,7 @@ const (
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be specified for McpServer filter.type",rule="!(!has(self.mcpServer) && self.type == 'McpServer')"
 // +kubebuilder:validation:XValidation:message="type.agent must be nil if the type is not Agent",rule="!(has(self.agent) && self.type != 'Agent')"
 // +kubebuilder:validation:XValidation:message="type.agent must be specified for Agent filter.type",rule="!(!has(self.agent) && self.type == 'Agent')"
+// +kubebuilder:validation:XValidation:message="isolateSessions can only be set when type is Agent",rule="!(has(self.isolateSessions) && self.type != 'Agent')"
 type Tool struct {
 	// +optional
 	Type ToolProviderType `json:"type,omitempty"`
@@ -515,6 +516,26 @@ type Tool struct {
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
 	Agent *TypedReference `json:"agent,omitempty"`
+
+	// IsolateSessions controls per-call session isolation for Agent-type tools.
+	// Only valid when Type is Agent.
+	//
+	// When unset or false (default), every call this agent makes to the
+	// referenced sub-agent reuses the same A2A context_id, so all calls land
+	// in one shared sub-agent session (session continuity for stateful
+	// sub-agents).
+	//
+	// When true, each call mints a fresh context_id, so every invocation runs
+	// in its own isolated sub-agent session. This is required for parallel
+	// fan-out to a sub-agent: without it, N parallel calls in one turn
+	// collapse into a single shared sub-agent session instead of N
+	// independent ones.
+	//
+	// Cross-turn/conversation continuity for stateful sub-agents does not
+	// depend on this flag; it rides the x-kagent-root-context-id header,
+	// which stays stable regardless of IsolateSessions.
+	// +optional
+	IsolateSessions *bool `json:"isolateSessions,omitempty"`
 
 	// HeadersFrom specifies a list of configuration values to be added as
 	// headers to requests sent to the Tool from this agent. The value of
