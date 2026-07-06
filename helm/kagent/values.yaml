@@ -76,6 +76,10 @@ database:
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
     vectorEnabled: false
+    # -- Skip running database migrations at controller startup.
+    # The controller instead verifies the database is already migrated and fails if it is not.
+    # Migrations must be applied out-of-band (e.g. from a CI/CD pipeline) before install/upgrade.
+    skipMigrations: false
     # -- Bundled PostgreSQL instance — for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:

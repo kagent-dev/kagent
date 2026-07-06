@@ -179,6 +179,77 @@ func RunUp(ctx context.Context, url string, sources []Source) error {
 	return nil
 }
 
+// VerifyMigrated checks, without applying or reverting anything, that every
+// source's migrations have been applied to the database. It is the boot-time
+// guard for the SKIP_MIGRATIONS deployment mode, where migrations run
+// out-of-band (a pipeline or pre-upgrade hook) and the server must refuse to
+// serve a wrong-shaped schema. It issues only SELECTs — never golang-migrate,
+// which creates the tracking table on open — so it is safe on a connection
+// whose role has no DDL privileges.
+//
+// Per source: a missing tracking table or a version behind this binary's
+// embedded max is an error; a dirty tracking table is an error; a database
+// ahead of the binary is tolerated (compatibility mode), matching RunUp.
+func VerifyMigrated(ctx context.Context, url string, sources []Source) error {
+	if len(sources) == 0 {
+		return nil
+	}
+	if err := validateSources(sources); err != nil {
+		return err
+	}
+
+	db, err := sql.Open("pgx", url)
+	if err != nil {
+		return fmt.Errorf("open database to verify migrations: %w", err)
+	}
+	defer db.Close()
+
+	for _, src := range sources {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("migration verification cancelled before %s: %w", src.Name, err)
+		}
+		maxVer, err := maxEmbeddedVersion(src.FS, src.Dir)
+		if err != nil {
+			return fmt.Errorf("determine max embedded version for %s: %w", src.Name, err)
+		}
+
+		// For Schema == "" the unqualified name resolves via the connection's
+		// search_path — the same place RunUp put the table.
+		table := quoteIdentifier(src.TrackingTable)
+		if src.Schema != "" {
+			table = quoteIdentifier(src.Schema) + "." + table
+		}
+
+		var exists bool
+		if err := db.QueryRowContext(ctx, "SELECT to_regclass($1) IS NOT NULL", table).Scan(&exists); err != nil {
+			return fmt.Errorf("check tracking table for %s: %w", src.Name, err)
+		}
+		if !exists {
+			return fmt.Errorf("source %s: tracking table %s does not exist — the database has not been migrated; apply migrations out-of-band or unset SKIP_MIGRATIONS", src.Name, table)
+		}
+
+		var version int64
+		var dirty bool
+		err = db.QueryRowContext(ctx, "SELECT version, dirty FROM "+table+" LIMIT 1").Scan(&version, &dirty)
+		if errors.Is(err, sql.ErrNoRows) {
+			version, dirty = 0, false // table exists but nothing applied yet
+		} else if err != nil {
+			return fmt.Errorf("read tracking table for %s: %w", src.Name, err)
+		}
+
+		switch {
+		case dirty:
+			return fmt.Errorf("source %s is dirty at version %d: a previous migration attempt failed and must be resolved before starting with SKIP_MIGRATIONS", src.Name, version)
+		case version < int64(maxVer):
+			return fmt.Errorf("source %s is at version %d but this binary requires version %d: apply migrations out-of-band or unset SKIP_MIGRATIONS", src.Name, version, maxVer)
+		case version > int64(maxVer):
+			log.Info("database schema is ahead of this binary; running in compatibility mode",
+				"track", src.Name, "dbVersion", version, "binaryMax", maxVer)
+		}
+	}
+	return nil
+}
+
 // validateSources rejects a source set that cannot be run safely. It checks two
 // things.
 //
