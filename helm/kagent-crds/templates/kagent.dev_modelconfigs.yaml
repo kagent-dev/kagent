@@ -532,6 +532,28 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              foundry:
+                description: Azure AI Foundry-specific configuration
+                properties:
+                  apiVersion:
+                    default: "2024-10-21"
+                    description: APIVersion is the Foundry OpenAI-compatible data-plane
+                      API version.
+                    type: string
+                  deployment:
+                    description: Deployment is the Foundry model deployment name.
+                    type: string
+                  endpoint:
+                    description: |-
+                      Endpoint is the Foundry or Azure AI Services account endpoint
+                      (e.g., https://my-account.cognitiveservices.azure.com/).
+                    type: string
+                required:
+                - deployment
+                type: object
+                x-kubernetes-validations:
+                - message: foundry.endpoint is required
+                  rule: has(self.endpoint) && size(self.endpoint) > 0
               gemini:
                 description: Gemini-specific configuration
                 type: object
@@ -666,6 +688,7 @@ spec:
                 - AnthropicVertexAI
                 - Bedrock
                 - SAPAICore
+                - Foundry
                 type: string
               sapAICore:
                 description: SAP AI Core-specific configuration
@@ -761,6 +784,8 @@ spec:
               rule: '!(has(self.bedrock) && self.provider != ''Bedrock'')'
             - message: provider.sapAICore must be nil if the provider is not SAPAICore
               rule: '!(has(self.sapAICore) && self.provider != ''SAPAICore'')'
+            - message: provider.foundry must be nil if the provider is not Foundry
+              rule: '!(has(self.foundry) && self.provider != ''Foundry'')'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set (except
