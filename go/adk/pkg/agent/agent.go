@@ -347,6 +347,16 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		}
 		return models.NewSAPAICoreModelWithLogger(cfg, log)
 
+	case *adk.Foundry:
+		cfg := &models.FoundryConfig{
+			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+			Model:           m.Model,
+			Endpoint:        m.Endpoint,
+			Deployment:      m.Deployment,
+			APIVersion:      m.APIVersion,
+		}
+		return models.NewFoundryModelWithLogger(ctx, cfg, log)
+
 	default:
 		return nil, fmt.Errorf("unsupported model type: %s", m.GetType())
 	}
