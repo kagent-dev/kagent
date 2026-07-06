@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	cli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agent"
@@ -13,6 +14,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
+	dbcli "github.com/kagent-dev/kagent/go/core/pkg/cli/db"
+	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -449,9 +452,26 @@ Examples:
 	runCmd.Flags().StringVar(&runCfg.ProjectDir, "project-dir", "", "Project directory (default: current directory)")
 	runCmd.Flags().BoolVar(&runCfg.Build, "build", false, "Rebuild the Docker image before running")
 
-	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd())
+	rootCmd.AddCommand(installCmd, uninstallCmd, invokeCmd, bugReportCmd, versionCmd, dashboardCmd, getCmd, initCmd, buildCmd, deployCmd, addMcpCmd, runCmd, mcp.NewMCPCmd(), envdoc.NewEnvCmd(), dbcli.NewCommand(builtinMigrationSources()...))
 
 	return rootCmd
+}
+
+// builtinMigrationSources returns the built-in migration tracks for `kagent
+// db migrate`. The vector track is gated on the same DATABASE_VECTOR_ENABLED
+// env var the controller reads for --database-vector-enabled, with the same
+// default (enabled), so the CLI operates on the tracks the server migrates.
+func builtinMigrationSources() []migrations.Source {
+	vectorEnabled := true
+	if v := os.Getenv("DATABASE_VECTOR_ENABLED"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: invalid DATABASE_VECTOR_ENABLED=%q; assuming true\n", v)
+		} else {
+			vectorEnabled = b
+		}
+	}
+	return migrations.BuiltinSources(vectorEnabled)
 }
 
 func runInteractive(cmd *cobra.Command, args []string, cfg *config.Config) {
