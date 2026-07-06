@@ -225,7 +225,7 @@ func VerifyMigrated(ctx context.Context, url string, sources []Source) error {
 			return fmt.Errorf("check tracking table for %s: %w", src.Name, err)
 		}
 		if !exists {
-			return fmt.Errorf("source %s: tracking table %s does not exist — the database has not been migrated; apply migrations out-of-band or unset SKIP_MIGRATIONS", src.Name, table)
+			return fmt.Errorf("source %s: tracking table %s does not exist - the database has not been migrated; apply migrations out-of-band or unset SKIP_MIGRATIONS", src.Name, table)
 		}
 
 		var version int64
