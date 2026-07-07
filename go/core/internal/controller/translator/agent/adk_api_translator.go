@@ -887,6 +887,57 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return sapAICore, modelDeploymentData, secretHashBytes, nil
+	case v1alpha2.ModelProviderFoundry:
+		if model.Spec.Foundry == nil {
+			return nil, nil, nil, fmt.Errorf("foundry model config is required")
+		}
+		cfg := model.Spec.Foundry
+
+		// Implicit auth: mount the API key only when a secret is provided;
+		// otherwise the runtime uses DefaultAzureCredential (Workload Identity).
+		if model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.FoundryAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
+
+		if cfg.Endpoint != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  env.FoundryEndpoint.Name(),
+				Value: cfg.Endpoint,
+			})
+		}
+		if cfg.Deployment != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name:  env.FoundryDeployment.Name(),
+				Value: cfg.Deployment,
+			},
+			corev1.EnvVar{
+				Name:  env.FoundryAPIVersion.Name(),
+				Value: cfg.APIVersion,
+			},
+		)
+
+		foundry := &adk.Foundry{
+			BaseModel: adk.BaseModel{
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
+			},
+			Endpoint:   cfg.Endpoint,
+			Deployment: cfg.Deployment,
+			APIVersion: cfg.APIVersion,
+		}
+		populateTLSFields(&foundry.BaseModel, model.Spec.TLS)
+
+		return foundry, modelDeploymentData, secretHashBytes, nil
 	default:
 		return nil, nil, nil, fmt.Errorf("unsupported model provider: %s", model.Spec.Provider)
 	}

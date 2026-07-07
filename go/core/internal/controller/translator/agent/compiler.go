@@ -219,10 +219,22 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 	return nil
 }
 
+// requireFoundryGoRuntime returns an error if a Foundry model is used with a
+// non-go declarative runtime. Foundry is only supported by the Go ADK runtime.
+func requireFoundryGoRuntime(agent v1alpha2.AgentObject, modelType string) error {
+	if modelType == adk.ModelTypeFoundry && v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) != v1alpha2.DeclarativeRuntime_Go {
+		return fmt.Errorf("the Foundry model provider requires declarative runtime %q", v1alpha2.DeclarativeRuntime_Go)
+	}
+	return nil
+}
+
 func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alpha2.AgentObject) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
 	spec := agent.GetAgentSpec()
 	model, mdd, secretHashBytes, err := a.translateModel(ctx, agent.GetNamespace(), spec.Declarative.ModelConfig)
 	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err := requireFoundryGoRuntime(agent, model.GetType()); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -275,6 +287,9 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 					summarizerModel, summarizerMdd, summarizerSecretHash, err := a.translateModel(ctx, agent.GetNamespace(), summarizerModelName)
 					if err != nil {
 						return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", summarizerModelName, err)
+					}
+					if err := requireFoundryGoRuntime(agent, summarizerModel.GetType()); err != nil {
+						return nil, nil, nil, err
 					}
 					compCfg.SummarizerModel = summarizerModel
 					mergeDeploymentData(mdd, summarizerMdd)
