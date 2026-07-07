@@ -15,7 +15,7 @@ ipv6:
   enabled: false
 
 tag: ""
-registry: "cr.kagent.dev"
+registry: "ghcr.io"
 
 imagePullSecrets: []
 imagePullPolicy: IfNotPresent
