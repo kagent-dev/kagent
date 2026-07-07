@@ -77,6 +77,12 @@ export interface BedrockConfig {
   region: string;
 }
 
+export interface FoundryConfig {
+  endpoint?: string;
+  deployment: string;
+  apiVersion?: string;
+}
+
 export interface TLSConfig {
   disableVerify?: boolean;
   caCertSecretRef?: string;
@@ -101,6 +107,7 @@ export interface ModelConfigSpec {
   anthropicVertexAI?: AnthropicVertexAIConfig;
   bedrock?: BedrockConfig;
   sapAICore?: SAPAICoreConfigPayload;
+  foundry?: FoundryConfig;
 }
 
 export interface ModelConfig {
