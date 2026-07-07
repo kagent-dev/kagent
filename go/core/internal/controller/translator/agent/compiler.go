@@ -317,6 +317,11 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
 		}
+		// The Foundry embedding provider is implemented only in the Go ADK, so a
+		// Foundry memory ModelConfig requires the Go declarative runtime.
+		if err := requireFoundryGoRuntime(agent, embCfg.Provider); err != nil {
+			return nil, nil, nil, err
+		}
 
 		cfg.Memory = &adk.MemoryConfig{
 			TTLDays:   spec.Declarative.Memory.TTLDays,
