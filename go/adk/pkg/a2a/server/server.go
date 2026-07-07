@@ -21,9 +21,7 @@ type ServerConfig struct {
 	Host            string
 	Port            string
 	ShutdownTimeout time.Duration
-	// ExtraRoutes are additional handlers registered on the server mux, keyed by
-	// http.ServeMux pattern (e.g. "GET /local/sessions/{id}/events").
-	ExtraRoutes map[string]http.Handler
+	ExtraRoutes     map[string]http.Handler
 }
 
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.

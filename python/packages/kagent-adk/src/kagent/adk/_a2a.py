@@ -204,9 +204,7 @@ class KAgentApp:
                 no local rows yet is an empty list, not an error — the feature is on."""
                 session_id = request.path_params["session_id"]
                 user_id = request.query_params.get("user_id", "")
-                session = await local_store.get_session(
-                    app_name=self.app_name, user_id=user_id, session_id=session_id
-                )
+                session = await local_store.get_session(app_name=self.app_name, user_id=user_id, session_id=session_id)
                 rows = [
                     {
                         "id": event.id,
