@@ -83,7 +83,7 @@ func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	target, upstreamHost, err := h.resolveSubstrateGatewayTarget(r.Context(), ensureRes.Handle.ID)
+	target, upstreamHost, err := h.resolveSubstrateGatewayTarget(r.Context(), ensureRes.Handle.Atespace, ensureRes.Handle.ID)
 	if err != nil {
 		log.Info("resolve substrate gateway target failed", "error", err)
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
@@ -99,19 +99,20 @@ func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Requ
 	// explicitly suspends a session via the suspend endpoint.
 }
 
-func (h *Handlers) resolveSubstrateGatewayTarget(ctx context.Context, actorID string) (*url.URL, string, error) {
+func (h *Handlers) resolveSubstrateGatewayTarget(ctx context.Context, atespace, actorID string) (*url.URL, string, error) {
 	cfg := h.AgentHarnessGateway
 	if cfg == nil {
 		return nil, "", fmt.Errorf("substrate gateway is not configured")
 	}
 
 	actorID = strings.TrimSpace(actorID)
-	target, host, err := substrate.GatewayRouterTarget(cfg.AtenetRouterURL, actorID)
+	target, host, err := substrate.GatewayRouterTarget(cfg.AtenetRouterURL, atespace, actorID)
 	if err != nil {
 		return nil, "", fmt.Errorf("substrate actor %q: %w", actorID, err)
 	}
 	ctrllog.FromContext(ctx).WithName("agentharness-gateway").Info(
 		"proxying via atenet-router",
+		"atespace", atespace,
 		"actor", actorID,
 		"router", target.String(),
 		"host", host,
