@@ -854,3 +854,32 @@ otel:
         endpoint: ""
         timeout: 15000 # milliseconds
         insecure: true
+
+# ==============================================================================
+# EXTRA OBJECTS
+# ==============================================================================
+
+# -- Additional arbitrary Kubernetes manifests to deploy alongside the chart.
+# Each list entry is rendered through `tpl`, so values may reference the release
+# context (e.g. `{{ include "kagent.fullname" . }}`, `{{ .Release.Namespace }}`).
+# Both map and multi-line string entries are supported. Use this to manage
+# resources such as ExternalSecret, HTTPRoute, or NetworkPolicy within the same
+# chart lifecycle without maintaining a separate chart.
+# @default -- `[]`
+extraObjects: []
+  # - apiVersion: external-secrets.io/v1
+  #   kind: ExternalSecret
+  #   metadata:
+  #     name: '{{ include "kagent.fullname" . }}-openai'
+  #     namespace: '{{ .Release.Namespace }}'
+  #   spec:
+  #     secretStoreRef:
+  #       name: aws-secretsmanager
+  #       kind: ClusterSecretStore
+  #     target:
+  #       name: kagent-openai
+  #     data:
+  #       - secretKey: OPENAI_API_KEY
+  #         remoteRef:
+  #           key: prod/kagent/openai
+  #           property: api_key
