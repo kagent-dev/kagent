@@ -272,10 +272,9 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 	}
 }
 
-// TestBuildSandboxAgentActorTemplateDurableDirSessions covers the durable-dir session-store gate:
-// default-on for python declarative agents, kagent.dev/session-store: http as the opt-out, never
-// for Go declarative or BYO (the Go ADK has no local session store yet; BYO images manage their
-// own state).
+// TestBuildSandboxAgentActorTemplateDurableDirSessions covers the durable-dir session-store
+// wiring: always on for python declarative agents, never for Go declarative or BYO (the Go ADK
+// has no local session store yet; BYO images manage their own state).
 func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 	t.Parallel()
 
@@ -292,17 +291,14 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 	pythonSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}}
 	goSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}}
 	byoSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}}
-	optOut := map[string]string{sessionStoreAnnotation: sessionStoreHTTP}
-
 	for _, tc := range []struct {
 		name      string
 		sa        *v1alpha2.SandboxAgent
 		container corev1.Container
 		want      bool
 	}{
-		{name: "python defaults on", sa: agentFor(pythonSpec, nil), want: true},
-		{name: "python opts out via annotation", sa: agentFor(pythonSpec, optOut), want: false},
-		{name: "python with other annotation value stays on", sa: agentFor(pythonSpec, map[string]string{sessionStoreAnnotation: "durable-dir"}), want: true},
+		{name: "python always on", sa: agentFor(pythonSpec, nil), want: true},
+		{name: "python with unrelated annotations still on", sa: agentFor(pythonSpec, map[string]string{"kagent.dev/other": "x"}), want: true},
 		{name: "go stays on http", sa: agentFor(goSpec, nil), want: false},
 		{name: "byo stays on http", sa: agentFor(byoSpec, nil), container: corev1.Container{Command: []string{"/serve"}}, want: false},
 	} {

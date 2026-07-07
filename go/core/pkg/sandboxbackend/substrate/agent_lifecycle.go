@@ -60,14 +60,11 @@ const (
 
 	// Durable-dir session storage: the runtime keeps the session's ADK event log in a sqlite
 	// DB inside a durableDir volume in the session actor instead of round-tripping events to
-	// the controller database. Presence of the env var is the switch, its value the config.
-	// Default-on for python declarative substrate agents; the annotation is the opt-out
-	// escape hatch (it must be an annotation, not user env: kagent-set env wins dedup).
-	sessionStoreAnnotation = "kagent.dev/session-store"
-	sessionStoreHTTP       = "http"
-	durableDataVolume      = "data"
-	durableDataMount       = "/data"
-	sessionDBURLEnv        = "KAGENT_SESSION_DB_URL"
+	// the controller database. Presence of the env var is the switch, its value the config —
+	// an older runtime image without the feature simply ignores it and stays on HTTP sessions.
+	durableDataVolume = "data"
+	durableDataMount  = "/data"
+	sessionDBURLEnv   = "KAGENT_SESSION_DB_URL"
 	// google-adk's DatabaseSessionService uses SQLAlchemy's async engine, so the URL must name
 	// an async driver; aiosqlite is a core google-adk dependency, present in every runtime image.
 	sessionDBURL = "sqlite+aiosqlite:///" + durableDataMount + "/sessions.db"
@@ -180,11 +177,10 @@ func actorTemplateShapeHash(spec atev1alpha1.ActorTemplateSpec) (string, error) 
 
 // SandboxAgentUsesDurableDirSessions reports whether the agent's ADK session state lives in a
 // sqlite DB in a durableDir volume inside the session actor instead of the controller database.
-// This is the DEFAULT for declarative python-runtime substrate agents; the
-// kagent.dev/session-store: http annotation opts an agent back into HTTP sessions. The Go ADK
+// This is how ALL declarative python-runtime substrate agents store session state. The Go ADK
 // has no local session store yet, and BYO images manage their own state — both stay on HTTP.
 func SandboxAgentUsesDurableDirSessions(sa *v1alpha2.SandboxAgent) bool {
-	if sa == nil || sa.Annotations[sessionStoreAnnotation] == sessionStoreHTTP {
+	if sa == nil {
 		return false
 	}
 	spec := sa.GetAgentSpec()
