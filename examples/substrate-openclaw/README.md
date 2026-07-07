@@ -6,13 +6,36 @@ Follow these instructions to install Substrate on a kind cluster. This feature a
 
 This assumes you've configured a kind cluster using `make create-kind-cluster`.
 
-Create a `substrate-values.yaml` file:
+### Image-pull args for a local (kind) registry
+
+atelet is what pulls the ActorTemplate container image for each golden actor. It uses
+`go-containerregistry` directly (not containerd), so containerd's registry-mirror
+config on the kind node does **not** apply to atelet — you have to tell atelet how to
+reach the local kind registry with its own flags:
 
 ```yaml
 atelet:
+  # Skip the GCP application-default-credentials probe. Substrate defaults this
+  # to true (for GKE + Artifact Registry); on kind it just adds latency and a
+  # noisy log line before falling back to anonymous auth.
+  gcpAuthForImagePulls: false
+
+  # Rewrite `localhost:PORT/...` image refs (which is what `make helm-install`
+  # renders when `--set registry=localhost:5001` is in effect) to a hostname
+  # that atelet's puller can actually resolve from inside its pod. atelet also
+  # applies `name.Insecure` for any ref that was originally `localhost:*`, so
+  # the rewritten `kind-registry:5000` ref is fetched over HTTP (kind-registry
+  # is `registry:2` with no TLS by default). Without both parts of this — the
+  # rewrite AND the insecure flag it triggers — atelet errors out with either
+  #   `dial tcp [::1]:5001: connect: connection refused`  (no rewrite), or
+  #   `http: server gave HTTP response to HTTPS client`   (rewrite without Insecure).
   extraArgs:
     - --localhost-registry-replacement=kind-registry:5000
 ```
+
+When installing Substrate as a **subchart** of kagent (i.e. `--set substrate.enabled=true`
+on the kagent chart), prefix these keys with `substrate.` — e.g.
+`--set-json 'substrate.atelet.extraArgs=["--localhost-registry-replacement=kind-registry:5000"]'`.
 
 Then install the Substrate platform and kagent:
 

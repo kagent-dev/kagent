@@ -15,7 +15,7 @@ type stubActorGetter struct {
 	status atomic.Int32
 }
 
-func (s *stubActorGetter) GetActor(context.Context, string) (*ateapipb.Actor, error) {
+func (s *stubActorGetter) GetActor(context.Context, string, string) (*ateapipb.Actor, error) {
 	return &ateapipb.Actor{Status: ateapipb.Actor_Status(s.status.Load())}, nil
 }
 
@@ -33,7 +33,7 @@ func TestProbeActorViaAtenetRouterSetsActorHost(t *testing.T) {
 		context.Background(),
 		srv.Client(),
 		srv.URL+"/health",
-		"asr-kagent-demo.actors.resources.substrate.ate.dev",
+		"asr-kagent-demo.kagent.actors.resources.substrate.ate.dev",
 	)
 	if err != nil {
 		t.Fatalf("probeActorViaAtenetRouter() error = %v", err)
@@ -41,7 +41,7 @@ func TestProbeActorViaAtenetRouterSetsActorHost(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("status = %d, want 200", status)
 	}
-	if gotHost != "asr-kagent-demo.actors.resources.substrate.ate.dev" {
+	if gotHost != "asr-kagent-demo.kagent.actors.resources.substrate.ate.dev" {
 		t.Fatalf("Host = %q", gotHost)
 	}
 }
@@ -70,6 +70,7 @@ func TestWaitForActorReachableViaAtenetRetriesUntilHealthy(t *testing.T) {
 		actors,
 		srv.Client(),
 		srv.URL,
+		"kagent",
 		"asr-kagent-demo",
 	)
 	if err != nil {
@@ -104,6 +105,7 @@ func TestWaitForActorReachableViaAtenetWaitsForRunningStatus(t *testing.T) {
 		actors,
 		srv.Client(),
 		srv.URL,
+		"kagent",
 		"asr-kagent-demo",
 	)
 	if err != nil {
@@ -130,6 +132,7 @@ func TestWaitForActorReachableViaAtenetTimesOut(t *testing.T) {
 		actors,
 		srv.Client(),
 		srv.URL,
+		"kagent",
 		"asr-kagent-demo",
 	)
 	if err == nil {
