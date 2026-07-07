@@ -110,3 +110,52 @@ func TestFoundryBearerTokenMiddlewareSetsAuthorization(t *testing.T) {
 		t.Fatalf("middleware error = %v", err)
 	}
 }
+
+type erroringFoundryCredential struct{}
+
+func (erroringFoundryCredential) GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error) {
+	return azcore.AccessToken{}, fmt.Errorf("no ambient Azure credential")
+}
+
+// TestFoundryWorkloadIdentityEagerProbeFailsReadiness verifies that when no API
+// key is set and the credential cannot acquire a token, model construction fails
+// with an actionable error — which fails agent readiness at startup instead of
+// failing silently on the first request.
+func TestFoundryWorkloadIdentityEagerProbeFailsReadiness(t *testing.T) {
+	t.Setenv("FOUNDRY_API_KEY", "")
+
+	old := foundryCredentialFactory
+	foundryCredentialFactory = func() (foundryTokenCredential, error) { return erroringFoundryCredential{}, nil }
+	t.Cleanup(func() { foundryCredentialFactory = old })
+
+	_, err := NewFoundryModelWithLogger(context.Background(), &FoundryConfig{
+		Endpoint:   "https://example.cognitiveservices.azure.com/",
+		Deployment: "gpt-4-1-nano",
+	}, logr.Discard())
+	if err == nil || !strings.Contains(err.Error(), "no Foundry credential resolved") {
+		t.Fatalf("NewFoundryModelWithLogger() error = %v, want credential-not-resolved", err)
+	}
+}
+
+// TestFoundryWorkloadIdentityEagerProbeSucceeds verifies the model is created
+// when the credential can acquire a token at the cognitive services scope.
+func TestFoundryWorkloadIdentityEagerProbeSucceeds(t *testing.T) {
+	t.Setenv("FOUNDRY_API_KEY", "")
+
+	old := foundryCredentialFactory
+	foundryCredentialFactory = func() (foundryTokenCredential, error) {
+		return &fakeFoundryCredential{t: t, token: "entra-token"}, nil
+	}
+	t.Cleanup(func() { foundryCredentialFactory = old })
+
+	model, err := NewFoundryModelWithLogger(context.Background(), &FoundryConfig{
+		Endpoint:   "https://example.cognitiveservices.azure.com/",
+		Deployment: "gpt-4-1-nano",
+	}, logr.Discard())
+	if err != nil {
+		t.Fatalf("NewFoundryModelWithLogger() error = %v", err)
+	}
+	if model == nil || !model.IsAzure {
+		t.Fatalf("expected an Azure Foundry model")
+	}
+}

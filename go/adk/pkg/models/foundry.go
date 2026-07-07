@@ -83,15 +83,27 @@ func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logge
 	// DefaultAzureCredential (Workload Identity in-cluster, az CLI in dev).
 	if apiKey := os.Getenv("FOUNDRY_API_KEY"); apiKey != "" {
 		opts = append(opts, option.WithHeader("Api-Key", apiKey))
+		if logger.GetSink() != nil {
+			logger.Info("Foundry authenticating with API key", "deployment", deployment)
+		}
 	} else {
-		credential, err := azidentity.NewDefaultAzureCredential(nil)
+		credential, err := foundryCredentialFactory()
 		if err != nil {
-			return nil, fmt.Errorf("failed to create Azure credential: %w", err)
+			return nil, fmt.Errorf("failed to create Azure credential for Foundry: %w", err)
+		}
+		// Eagerly acquire a token so a missing or misconfigured Workload Identity
+		// fails readiness at startup with an actionable error, instead of failing
+		// silently on the first inference request.
+		if _, err := credential.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{foundryCognitiveServicesScope}}); err != nil {
+			return nil, fmt.Errorf("no Foundry credential resolved: set an API key (apiKeySecret / FOUNDRY_API_KEY) or configure Azure Workload Identity (pod label + ServiceAccount annotation + federated credential): %w", err)
 		}
 		opts = append(opts,
 			option.WithAPIKey("foundry-entra"),
 			option.WithMiddleware(foundryBearerTokenMiddleware(credential)),
 		)
+		if logger.GetSink() != nil {
+			logger.Info("Foundry authenticating with DefaultAzureCredential (Workload Identity)", "deployment", deployment)
+		}
 	}
 
 	client := openai.NewClient(opts...)
@@ -112,6 +124,13 @@ func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logge
 
 type foundryTokenCredential interface {
 	GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error)
+}
+
+// foundryCredentialFactory constructs the Azure credential used for the implicit
+// Workload Identity auth path. It is a package variable so tests can inject a
+// fake credential.
+var foundryCredentialFactory = func() (foundryTokenCredential, error) {
+	return azidentity.NewDefaultAzureCredential(nil)
 }
 
 // foundryBearerTokenMiddleware implements the implicit Workload Identity auth
