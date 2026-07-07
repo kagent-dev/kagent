@@ -65,6 +65,10 @@ type AppConfig struct {
 	// after the ones the builder creates (task store, push notifications, etc.).
 	HandlerOpts []a2asrv.RequestHandlerOption
 
+	// ExtraRoutes are additional handlers registered on the server mux, keyed by
+	// http.ServeMux pattern (e.g. "GET /local/sessions/{id}/events").
+	ExtraRoutes map[string]http.Handler
+
 	// Agent is the ADK agent used to enrich the agent card with skills via
 	// adka2a.BuildAgentSkills. Optional; when nil, the card is used as-is.
 	Agent adkagent.Agent
@@ -135,6 +139,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		Host:            cfg.Host,
 		Port:            cfg.Port,
 		ShutdownTimeout: cfg.ShutdownTimeout,
+		ExtraRoutes:     cfg.ExtraRoutes,
 	}
 
 	a2aServer, err := server.NewA2AServer(cfg.AgentCard, executor, log, serverConfig, handlerOpts...)

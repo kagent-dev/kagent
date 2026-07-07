@@ -33,7 +33,7 @@ func agentNameFromAppName(appName string) string {
 func CreateRunnerConfig(
 	ctx context.Context,
 	agentConfig *adk.AgentConfig,
-	sessionService *session.KAgentSessionService,
+	sessionService session.Service,
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
 	kagentURL string,

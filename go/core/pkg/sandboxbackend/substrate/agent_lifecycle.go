@@ -65,9 +65,12 @@ const (
 	durableDataVolume = "data"
 	durableDataMount  = "/data"
 	sessionDBURLEnv   = "KAGENT_SESSION_DB_URL"
-	// google-adk's DatabaseSessionService uses SQLAlchemy's async engine, so the URL must name
-	// an async driver; aiosqlite is a core google-adk dependency, present in every runtime image.
-	sessionDBURL = "sqlite+aiosqlite:///" + durableDataMount + "/sessions.db"
+	// The URL value is runtime-specific. Python: google-adk's DatabaseSessionService uses
+	// SQLAlchemy's async engine, so the URL must name an async driver (aiosqlite is a core
+	// google-adk dependency, present in every runtime image). Go: the Go ADK's local store
+	// parses a plain sqlite URL.
+	sessionDBURLPython = "sqlite+aiosqlite:///" + durableDataMount + "/sessions.db"
+	sessionDBURLGo     = "sqlite:///" + durableDataMount + "/sessions.db"
 )
 
 func (p *Lifecycle) buildSandboxAgentActorTemplate(
@@ -96,9 +99,13 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	}
 	durableDirSessions := SandboxAgentUsesDurableDirSessions(sa)
 	if durableDirSessions {
+		dbURL := sessionDBURLPython
+		if v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec()) == v1alpha2.DeclarativeRuntime_Go {
+			dbURL = sessionDBURLGo
+		}
 		// Prepended before the pod env so first-occurrence dedup makes the kagent-set value
-		// win over any user spec.env of the same name (users opt out via the annotation).
-		containerEnv = append(containerEnv, corev1.EnvVar{Name: sessionDBURLEnv, Value: sessionDBURL})
+		// win over any user spec.env of the same name.
+		containerEnv = append(containerEnv, corev1.EnvVar{Name: sessionDBURLEnv, Value: dbURL})
 	}
 
 	spec := atev1alpha1.ActorTemplateSpec{
@@ -178,17 +185,14 @@ func actorTemplateShapeHash(spec atev1alpha1.ActorTemplateSpec) (string, error) 
 
 // SandboxAgentUsesDurableDirSessions reports whether the agent's ADK session state lives in a
 // sqlite DB in a durableDir volume inside the session actor instead of the controller database.
-// This is how ALL declarative python-runtime substrate agents store session state. The Go ADK
-// has no local session store yet, and BYO images manage their own state — both stay on HTTP.
+// This is how ALL declarative substrate agents (python and go runtimes) store session state.
+// BYO images manage their own state and stay on HTTP.
 func SandboxAgentUsesDurableDirSessions(sa *v1alpha2.SandboxAgent) bool {
 	if sa == nil {
 		return false
 	}
 	spec := sa.GetAgentSpec()
-	if spec == nil || spec.Type == v1alpha2.AgentType_BYO {
-		return false
-	}
-	return v1alpha2.EffectiveDeclarativeRuntime(spec) == v1alpha2.DeclarativeRuntime_Python
+	return spec != nil && spec.Type != v1alpha2.AgentType_BYO
 }
 
 // applyDurableDirSessionStore mounts a durableDir volume at /data for the session sqlite DB,

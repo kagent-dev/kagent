@@ -32,7 +32,7 @@ const (
 type KAgentExecutorConfig struct {
 	RunnerConfig       runner.Config
 	SubagentSessionIDs map[string]string
-	SessionService     *session.KAgentSessionService
+	SessionService     session.Service
 	Stream             bool
 	AppName            string
 	SkillsDirectory    string
@@ -43,7 +43,7 @@ type KAgentExecutorConfig struct {
 type KAgentExecutor struct {
 	runnerConfig       runner.Config
 	subagentSessionIDs map[string]string
-	sessionService     *session.KAgentSessionService
+	sessionService     session.Service
 	stream             bool
 	appName            string
 	skillsDirectory    string

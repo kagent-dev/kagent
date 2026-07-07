@@ -263,9 +263,9 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			require.Equal(t, tc.wantConfigEnv, names["KAGENT_CONFIG_JSON"], "declarative agents materialize config from secret env; BYO does not")
 			require.Equal(t, tc.wantLibEnv, names["LD_LIBRARY_PATH"], "Python declarative re-supplies the image LD_LIBRARY_PATH that substrate drops")
 
-			// Durable-dir session storage defaults on for python declarative agents only
-			// (asserted in detail in TestBuildSandboxAgentActorTemplateDurableDirSessions).
-			wantDurableDir := tc.wantLibEnv // true exactly for python declarative
+			// Durable-dir session storage is on for all declarative agents (python and go), never
+			// BYO (asserted in detail in TestBuildSandboxAgentActorTemplateDurableDirSessions).
+			wantDurableDir := tc.wantConfigEnv // true exactly for declarative agents
 			require.Equal(t, wantDurableDir, len(tmpl.Spec.Volumes) == 1)
 			require.Equal(t, wantDurableDir, names[sessionDBURLEnv])
 		})
@@ -273,8 +273,9 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 }
 
 // TestBuildSandboxAgentActorTemplateDurableDirSessions covers the durable-dir session-store
-// wiring: always on for python declarative agents, never for Go declarative or BYO (the Go ADK
-// has no local session store yet; BYO images manage their own state).
+// wiring: always on for declarative agents with a runtime-specific DB URL (python needs the
+// async sqlite driver, go parses a plain sqlite URL), never for BYO (BYO images manage their
+// own state).
 func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 	t.Parallel()
 
@@ -296,10 +297,11 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 		sa        *v1alpha2.SandboxAgent
 		container corev1.Container
 		want      bool
+		wantDBURL string
 	}{
-		{name: "python always on", sa: agentFor(pythonSpec, nil), want: true},
-		{name: "python with unrelated annotations still on", sa: agentFor(pythonSpec, map[string]string{"kagent.dev/other": "x"}), want: true},
-		{name: "go stays on http", sa: agentFor(goSpec, nil), want: false},
+		{name: "python always on", sa: agentFor(pythonSpec, nil), want: true, wantDBURL: "sqlite+aiosqlite:////data/sessions.db"},
+		{name: "python with unrelated annotations still on", sa: agentFor(pythonSpec, map[string]string{"kagent.dev/other": "x"}), want: true, wantDBURL: "sqlite+aiosqlite:////data/sessions.db"},
+		{name: "go always on with plain sqlite url", sa: agentFor(goSpec, nil), want: true, wantDBURL: "sqlite:////data/sessions.db"},
 		{name: "byo stays on http", sa: agentFor(byoSpec, nil), container: corev1.Container{Command: []string{"/serve"}}, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -337,7 +339,7 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 					dbURL = *e.Value
 				}
 			}
-			require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", dbURL)
+			require.Equal(t, tc.wantDBURL, dbURL)
 			// Durable-dir sessions suspend with Data scope (cheap per-turn snapshots + config
 			// refresh on resume); pause keeps Full for the golden build.
 			require.Equal(t, atev1alpha1.SnapshotScopeData, tmpl.Spec.SnapshotsConfig.OnCommit)
