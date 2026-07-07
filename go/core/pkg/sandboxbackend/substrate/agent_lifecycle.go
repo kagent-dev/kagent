@@ -111,9 +111,10 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
 		}},
 		WorkerSelector: workerSelectorForPool(wpKey),
-		// Scopes are set explicitly to the API defaults: the server defaults empty scopes to
-		// Full/Full, and a desired spec that omits them would DeepEqual-drift against the
-		// stored spec on every reconcile, driving an endless golden delete/recreate loop.
+		// Mirror substrate's CRD defaults so kagent's spec-drift check
+		// (apiequality.Semantic.DeepEqual) treats them as equal to the
+		// values the API server fills in on admission — otherwise kagent
+		// re-creates the ActorTemplate every reconcile in a hot loop.
 		SnapshotsConfig: atev1alpha1.SnapshotsConfig{
 			Location: sandboxAgentSnapshotsLocation(sa),
 			OnPause:  atev1alpha1.SnapshotScopeFull,

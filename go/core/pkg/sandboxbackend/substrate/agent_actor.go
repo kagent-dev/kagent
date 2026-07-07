@@ -72,15 +72,19 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		return sandboxbackend.EnsureResult{}, err
 	}
 	tmplNS := sa.Namespace
+	atespace := sa.Namespace
 
 	created := false
 	wasRunning := false
-	actor, err := b.client.GetActor(ctx, actorID)
+	actor, err := b.client.GetActor(ctx, atespace, actorID)
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate GetActor %q: %w", actorID, err)
 		}
-		actor, err = b.client.CreateActor(ctx, actorID, tmplNS, tmplName)
+		if err := b.client.EnsureAtespace(ctx, atespace); err != nil {
+			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate EnsureAtespace %q: %w", atespace, err)
+		}
+		actor, err = b.client.CreateActor(ctx, atespace, actorID, tmplNS, tmplName)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, wrapCreateActorError(actorID, err)
 		}
@@ -94,19 +98,19 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		ateapipb.Actor_STATUS_PAUSED, ateapipb.Actor_STATUS_PAUSING:
 		// PAUSED/PAUSING keep a node-local snapshot; ResumeActor brings them back
 		// the same as a suspended actor.
-		_, err = b.client.ResumeActor(ctx, actorID)
+		_, err = b.client.ResumeActor(ctx, atespace, actorID)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, wrapResumeActorError(actorID, err)
 		}
 	}
 
-	if err := waitForActorReachableViaAtenet(ctx, b.client, nil, b.atenetRouterURL, actorID); err != nil {
+	if err := waitForActorReachableViaAtenet(ctx, b.client, nil, b.atenetRouterURL, atespace, actorID); err != nil {
 		return sandboxbackend.EnsureResult{}, err
 	}
 
-	host := ActorHost(actorID, "")
+	host := ActorHost(atespace, actorID, "")
 	return sandboxbackend.EnsureResult{
-		Handle:     sandboxbackend.Handle{ID: actorID},
+		Handle:     sandboxbackend.Handle{ID: actorID, Atespace: atespace},
 		Endpoint:   fmt.Sprintf("atenet-router Host %s", host),
 		WasRunning: wasRunning,
 	}, nil
@@ -146,7 +150,7 @@ func (b *SandboxAgentActorBackend) FetchLocalSessionEvents(ctx context.Context, 
 		}()
 	}
 
-	target, host, err := GatewayRouterTarget(b.atenetRouterURL, res.Handle.ID)
+	target, host, err := GatewayRouterTarget(b.atenetRouterURL, res.Handle.Atespace, res.Handle.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +191,8 @@ func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *
 	if err != nil {
 		return err
 	}
-	actor, err := b.client.GetActor(ctx, actorID)
+	atespace := sa.Namespace
+	actor, err := b.client.GetActor(ctx, atespace, actorID)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil
@@ -196,7 +201,7 @@ func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *
 	}
 	switch actor.GetStatus() {
 	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING, ateapipb.Actor_STATUS_SUSPENDING:
-		if err := b.client.SuspendActor(ctx, actorID); err != nil && status.Code(err) != codes.NotFound {
+		if err := b.client.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return fmt.Errorf("substrate SuspendActor %q: %w", actorID, err)
 		}
 	}
@@ -204,11 +209,11 @@ func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *
 }
 
 // DeleteSandboxAgentActor deletes a substrate actor by id.
-func (b *SandboxAgentActorBackend) DeleteSandboxAgentActor(ctx context.Context, actorID string) (bool, error) {
+func (b *SandboxAgentActorBackend) DeleteSandboxAgentActor(ctx context.Context, atespace, actorID string) (bool, error) {
 	if strings.TrimSpace(actorID) == "" {
 		return true, nil
 	}
-	return deleteActor(ctx, b.client, actorID)
+	return deleteActor(ctx, b.client, atespace, actorID)
 }
 
 // DeleteSandboxAgentSessionActor deletes the actor for a single chat session. One session ⇔ one
@@ -218,7 +223,7 @@ func (b *SandboxAgentActorBackend) DeleteSandboxAgentSessionActor(ctx context.Co
 	if sa == nil {
 		return true, nil
 	}
-	return b.DeleteSandboxAgentActor(ctx, SandboxAgentSessionActorID(sa, sessionID))
+	return b.DeleteSandboxAgentActor(ctx, sa.Namespace, SandboxAgentSessionActorID(sa, sessionID))
 }
 
 // sessionActorRef returns the session's stable actor id plus the agent's CURRENT template name.
@@ -258,7 +263,8 @@ func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Conte
 		ownedTemplates[t.Name] = struct{}{}
 	}
 
-	actors, err := b.client.ListActors(ctx)
+	// Session actors live in the agent's namespace atespace, so the sweep scopes its scan there.
+	actors, err := b.client.ListActors(ctx, sa.Namespace)
 	if err != nil {
 		return false, fmt.Errorf("list substrate actors: %w", err)
 	}
@@ -271,7 +277,7 @@ func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Conte
 		if !actorBelongsToSandboxAgent(sa, actor, prefix, ownedTemplates) {
 			continue
 		}
-		done, err := deleteActor(ctx, b.client, id)
+		done, err := deleteActor(ctx, b.client, sa.Namespace, id)
 		if err != nil {
 			return false, fmt.Errorf("delete substrate actor %q: %w", id, err)
 		}

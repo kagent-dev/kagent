@@ -9,8 +9,12 @@ import (
 
 // Handle is the opaque identifier an AsyncBackend uses to address a sandbox
 // it owns on an external control plane. Persisted in AgentHarness.Status.BackendRef.
+//
+// For Substrate backends, Atespace scopes the ID — an actor's identity on
+// substrate is (Atespace, ID). Non-substrate backends may leave Atespace empty.
 type Handle struct {
-	ID string
+	ID       string
+	Atespace string
 }
 
 // EnsureResult is returned by EnsureAgentHarness. Endpoint (if set) is surfaced

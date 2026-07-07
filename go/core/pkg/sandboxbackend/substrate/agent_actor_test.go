@@ -192,7 +192,7 @@ func TestFetchLocalSessionEvents(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.JSONEq(t, rows, string(body))
-				require.Equal(t, ActorHost(actorID, ""), gotHost, "events fetch must use actor Host routing")
+				require.Equal(t, ActorHost("kagent", actorID, ""), gotHost, "events fetch must use actor Host routing")
 			}
 			if tc.wantResume {
 				require.Equal(t, []string{actorID}, rec.resumes)

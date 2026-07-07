@@ -6,10 +6,10 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
-// ListActors returns all kagent-created actors reflected in ate-api (scoped to KagentAtespace;
-// golden actors live in ate-golden and are never listed). The list API is paginated — pages are
-// followed until the token drains.
-func (c *Client) ListActors(ctx context.Context) ([]*ateapipb.Actor, error) {
+// ListActors returns all actors in the given atespace (empty atespace = all atespaces,
+// including substrate's reserved golden atespace). The list API is paginated — pages are
+// followed until the token drains, since a single page may miss actors.
+func (c *Client) ListActors(ctx context.Context, atespace string) ([]*ateapipb.Actor, error) {
 	if c == nil {
 		return nil, nil
 	}
@@ -19,7 +19,7 @@ func (c *Client) ListActors(ctx context.Context) ([]*ateapipb.Actor, error) {
 	pageToken := ""
 	for {
 		resp, err := c.ControlClient.ListActors(ctx, &ateapipb.ListActorsRequest{
-			Atespace:  KagentAtespace,
+			Atespace:  atespace,
 			PageToken: pageToken,
 		})
 		if err != nil {

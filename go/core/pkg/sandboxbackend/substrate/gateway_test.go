@@ -6,7 +6,7 @@ import (
 
 func TestGatewayRouterTarget(t *testing.T) {
 	t.Parallel()
-	target, host, err := GatewayRouterTarget("", "ahr-kagent-my-claw")
+	target, host, err := GatewayRouterTarget("", "kagent", "ahr-kagent-my-claw")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestGatewayRouterTarget(t *testing.T) {
 
 func TestGatewayRouterTargetCustomURL(t *testing.T) {
 	t.Parallel()
-	target, host, err := GatewayRouterTarget("http://atenet-router.custom.svc:8080", "actor-1")
+	target, host, err := GatewayRouterTarget("http://atenet-router.custom.svc:8080", "kagent", "actor-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,8 +34,16 @@ func TestGatewayRouterTargetCustomURL(t *testing.T) {
 
 func TestGatewayRouterTargetRejectsEmptyActor(t *testing.T) {
 	t.Parallel()
-	_, _, err := GatewayRouterTarget("", "")
+	_, _, err := GatewayRouterTarget("", "kagent", "")
 	if err == nil {
 		t.Fatal("expected error for empty actor id")
+	}
+}
+
+func TestGatewayRouterTargetRejectsEmptyAtespace(t *testing.T) {
+	t.Parallel()
+	_, _, err := GatewayRouterTarget("", "", "actor-1")
+	if err == nil {
+		t.Fatal("expected error for empty atespace")
 	}
 }
