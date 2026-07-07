@@ -125,8 +125,8 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 
 	// RFC 8707 resource / RFC 8693 audience scope the exchanged token to a
 	// backend. Empty values are omitted from the exchange request.
-	resource := strings.TrimSpace(os.Getenv("KAGENT_TOKEN_RESOURCE"))
-	audience := strings.TrimSpace(os.Getenv("KAGENT_TOKEN_AUDIENCE"))
+	resource := strings.TrimSpace(os.Getenv("KAGENT_STS_RESOURCE"))
+	audience := strings.TrimSpace(os.Getenv("KAGENT_STS_AUDIENCE"))
 
 	log.Info("Enabling STS token propagation plugin", "wellKnownURI", stsWellKnownURI)
 	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil

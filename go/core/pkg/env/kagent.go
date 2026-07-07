@@ -77,17 +77,17 @@ var (
 		ComponentAgentRuntime,
 	)
 
-	KagentTokenResource = RegisterStringVar(
-		"KAGENT_TOKEN_RESOURCE",
+	KagentSTSResource = RegisterStringVar(
+		"KAGENT_STS_RESOURCE",
 		"",
 		"RFC 8707 resource indicator sent on STS token-exchange requests to scope the issued token to a target backend.",
 		ComponentAgentRuntime,
 	)
 
-	KagentTokenAudience = RegisterStringVar(
-		"KAGENT_TOKEN_AUDIENCE",
+	KagentSTSAudience = RegisterStringVar(
+		"KAGENT_STS_AUDIENCE",
 		"",
-		"RFC 8693 audience sent on STS token-exchange requests. Alternate to KAGENT_TOKEN_RESOURCE for servers that key on audience.",
+		"RFC 8693 audience sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience.",
 		ComponentAgentRuntime,
 	)
 )
