@@ -106,7 +106,7 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 	// Propagate-only mode: keep parity with Python by enabling plugin without STS exchange.
 	if stsWellKnownURI == "" {
 		log.Info("Enabling token propagation plugin without STS exchange")
-		return sts.NewTokenPropagationPlugin(nil, log), nil
+		return sts.NewTokenPropagationPlugin(nil, log, "", ""), nil
 	}
 	defaultSTSConfig := sts.DefaultSTSConfig(stsWellKnownURI)
 
@@ -124,10 +124,10 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 	}
 
 	// RFC 8707 resource / RFC 8693 audience scope the exchanged token to a
-	// backend. Empty values are omitted by WithExchangeTarget.
+	// backend. Empty values are omitted from the exchange request.
 	resource := strings.TrimSpace(os.Getenv("KAGENT_TOKEN_RESOURCE"))
 	audience := strings.TrimSpace(os.Getenv("KAGENT_TOKEN_AUDIENCE"))
 
 	log.Info("Enabling STS token propagation plugin", "wellKnownURI", stsWellKnownURI)
-	return sts.NewTokenPropagationPlugin(integration, log, sts.WithExchangeTarget(resource, audience)), nil
+	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil
 }

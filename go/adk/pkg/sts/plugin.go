@@ -38,41 +38,32 @@ type TokenPropagationPlugin struct {
 	mu              sync.RWMutex
 	logger          logr.Logger
 	bufferSeconds   int64
-	resource        any // RFC 8707 resource indicator passed to the STS exchange
-	audience        any // RFC 8693 audience passed to the STS exchange
+	resource        string // RFC 8707 resource indicator sent on the STS exchange; empty omits it
+	audience        string // RFC 8693 audience sent on the STS exchange; empty omits it
 }
 
-// Option configures a TokenPropagationPlugin.
-type Option func(*TokenPropagationPlugin)
-
-// WithExchangeTarget sets the RFC 8707 resource and RFC 8693 audience sent on
-// token-exchange requests. Empty values are omitted from the request, so an
-// unset target leaves the exchange unscoped. Values are single strings, which
-// the STS client always serializes; multi-valued resources are out of scope.
-func WithExchangeTarget(resource, audience string) Option {
-	return func(p *TokenPropagationPlugin) {
-		if resource != "" {
-			p.resource = resource
-		}
-		if audience != "" {
-			p.audience = audience
-		}
+// omitEmpty returns nil for an empty string so the STS client omits the
+// parameter entirely rather than sending it with an empty value.
+func omitEmpty(s string) any {
+	if s == "" {
+		return nil
 	}
+	return s
 }
 
 // NewTokenPropagationPlugin creates a new token propagation plugin.
 // If integration is nil, the plugin will pass through tokens without exchange.
-func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, opts ...Option) *TokenPropagationPlugin {
-	p := &TokenPropagationPlugin{
+// resource and audience scope the exchanged token to a backend; empty values
+// are omitted from the request, leaving the exchange unscoped.
+func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, resource, audience string) *TokenPropagationPlugin {
+	return &TokenPropagationPlugin{
 		integration:   integration,
 		tokenCache:    make(map[string]*TokenCacheEntry),
 		logger:        logger.WithName("sts-plugin"),
 		bufferSeconds: 5,
+		resource:      resource,
+		audience:      audience,
 	}
-	for _, opt := range opts {
-		opt(p)
-	}
-	return p
 }
 
 // getCachedToken retrieves a valid cached token for the session.
@@ -203,8 +194,8 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			subjectToken,
 			TokenTypeJWT,
 			actorToken,
-			p.resource,
-			p.audience,
+			omitEmpty(p.resource),
+			omitEmpty(p.audience),
 			"", // scope
 			"", // requestedTokenType
 		)

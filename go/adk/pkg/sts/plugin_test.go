@@ -59,7 +59,7 @@ func (f fakeSession) LastUpdateTime() time.Time { return time.Time{} }
 
 func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	t.Parallel()
-	plugin := NewTokenPropagationPlugin(nil, logr.Discard())
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), "", "")
 	plugin.setCachedToken("sess-123", "token-abc", 0)
 
 	headers := plugin.HeaderProvider(fakeSessionContext{
@@ -120,7 +120,7 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 		t.Fatalf("NewSTSIntegration() error = %v", err)
 	}
 
-	plugin := NewTokenPropagationPlugin(integration, logr.Discard())
+	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), "", "")
 	for _, sessionID := range []string{"sess-one", "sess-two"} {
 		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
 		if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{
@@ -144,19 +144,20 @@ func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		opts         []Option
+		resource     string
+		audience     string
 		wantResource string
 		wantAudience string
 	}{
 		{
 			name:         "configured target is sent",
-			opts:         []Option{WithExchangeTarget("https://mcp.example.com", "mcp-backend")},
+			resource:     "https://mcp.example.com",
+			audience:     "mcp-backend",
 			wantResource: "https://mcp.example.com",
 			wantAudience: "mcp-backend",
 		},
 		{
 			name:         "no target leaves resource and audience unset",
-			opts:         nil,
 			wantResource: "",
 			wantAudience: "",
 		},
@@ -208,7 +209,7 @@ func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
 				t.Fatalf("NewSTSIntegration() error = %v", err)
 			}
 
-			plugin := NewTokenPropagationPlugin(integration, logr.Discard(), tt.opts...)
+			plugin := NewTokenPropagationPlugin(integration, logr.Discard(), tt.resource, tt.audience)
 			ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
 			if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{
 				Context:   ctx,
