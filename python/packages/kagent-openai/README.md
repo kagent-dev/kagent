@@ -68,7 +68,7 @@ Sessions persist conversation history in KAgent backend:
 ```python
 from agents.agent import Agent
 from agents.run import Runner
-from kagent.openai.agent._session_service import KAgentSession
+from kagent.openai._session_service import KAgentSession
 import httpx
 
 client = httpx.AsyncClient(base_url="http://localhost:8083")
