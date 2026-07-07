@@ -100,3 +100,23 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].securityContext.runAsUser
           value: 1000
+
+  - it: should render the default container image
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mcp/grafana:latest
+
+  - it: should omit empty registry segment in image
+    template: deployment.yaml
+    set:
+      image:
+        registry: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: grafana:latest
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^/"          # no leading slash

@@ -72,7 +72,7 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 
 	// Proxy the A2A request through atenet-router to the session actor. The router
 	// selects the actor by HTTP Host; actor ID comes from EnsureSessionActor above.
-	actorRT, err := newSubstrateAgentRoundTripper(t.routerURL, res.Handle.ID, t.base)
+	actorRT, err := newSubstrateAgentRoundTripper(t.routerURL, res.Handle.Atespace, res.Handle.ID, t.base)
 	if err != nil {
 		return nil, err
 	}
