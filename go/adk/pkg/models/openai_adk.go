@@ -174,6 +174,9 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 	if cfg.MaxTokens != nil {
 		params.MaxTokens = openai.Int(int64(*cfg.MaxTokens))
 	}
+	if cfg.MaxCompletionTokens != nil {
+		params.MaxCompletionTokens = openai.Int(int64(*cfg.MaxCompletionTokens))
+	}
 	if cfg.TopP != nil {
 		params.TopP = openai.Float(*cfg.TopP)
 	}

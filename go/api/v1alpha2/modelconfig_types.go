@@ -151,9 +151,19 @@ type OpenAIConfig struct {
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 
-	// Maximum tokens to generate
+	// Maximum tokens to generate. Sent as the OpenAI `max_tokens` request
+	// parameter, which is deprecated and rejected by reasoning models
+	// (GPT-5 / o-series). For those models set maxCompletionTokens instead.
 	// +optional
 	MaxTokens int `json:"maxTokens,omitempty"`
+
+	// Maximum completion tokens to generate. Sent as the OpenAI
+	// `max_completion_tokens` request parameter (an upper bound on visible
+	// output plus reasoning tokens). This is the parameter reasoning models
+	// (GPT-5 / o-series) require in place of the deprecated maxTokens.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxCompletionTokens int `json:"maxCompletionTokens,omitempty"`
 
 	// Top-p sampling parameter
 	// +optional

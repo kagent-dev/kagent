@@ -248,6 +248,16 @@ func TestApplyOpenAIConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("config with max_completion_tokens", func(t *testing.T) {
+		n := 100
+		cfg := &OpenAIConfig{MaxCompletionTokens: &n}
+		var params openai.ChatCompletionNewParams
+		applyOpenAIConfig(&params, cfg)
+		if !params.MaxCompletionTokens.Valid() || params.MaxCompletionTokens.Value != 100 {
+			t.Errorf("MaxCompletionTokens: Valid=%v, Value=%v, want (true, 100)", params.MaxCompletionTokens.Valid(), params.MaxCompletionTokens.Value)
+		}
+	})
+
 	t.Run("config with reasoning_effort", func(t *testing.T) {
 		effort := "medium"
 		cfg := &OpenAIConfig{ReasoningEffort: &effort}

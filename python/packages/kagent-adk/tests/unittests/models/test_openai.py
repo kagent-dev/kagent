@@ -390,6 +390,27 @@ async def test_generate_content_async_with_max_tokens(llm_request, generate_cont
 
 
 @pytest.mark.asyncio
+async def test_generate_content_async_with_max_completion_tokens(
+    llm_request, generate_content_response, generate_llm_response
+):
+    # Reasoning models (GPT-5 / o-series) reject max_tokens and require
+    # max_completion_tokens instead; verify it is forwarded verbatim.
+    openai_llm = OpenAI(model="gpt-5", max_completion_tokens=4096, type="openai", api_key="fake")
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+
+        async def mock_coro(*args, **kwargs):
+            return generate_content_response
+
+        mock_client.chat.completions.create.return_value = mock_coro()
+
+        _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+        mock_client.chat.completions.create.assert_called_once()
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert kwargs["max_completion_tokens"] == 4096
+        assert "max_tokens" not in kwargs
+
+
+@pytest.mark.asyncio
 async def test_streaming_vs_non_streaming_equivalence(
     openai_llm, llm_request, generate_content_response, generate_streaming_content_response
 ):
