@@ -106,6 +106,25 @@ def _instrument_google_generativeai():
         pass
 
 
+def force_flush(timeout_millis: int = 3000) -> None:
+    """Export any spans still buffered in the tracer provider's batch processor.
+
+    Call before a response completes when the process may be suspended right
+    afterwards: Agent Substrate checkpoints the actor as soon as the A2A
+    response body closes, so unexported spans stay frozen in the snapshot
+    until the session's next resume (or forever, for a session's last
+    message). No-op when the provider has no force_flush (tracing disabled).
+    """
+    provider = trace.get_tracer_provider()
+    flush = getattr(provider, "force_flush", None)
+    if flush is None:
+        return
+    try:
+        flush(timeout_millis)
+    except Exception:
+        logging.warning("Failed to flush pending spans", exc_info=True)
+
+
 def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: FastAPI | None = None):
     """Configure OpenTelemetry tracing and logging for this service.
 

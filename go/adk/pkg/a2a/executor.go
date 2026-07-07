@@ -165,7 +165,13 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	}
 	ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
 	ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
-	defer invocationSpan.End()
+	defer func() {
+		invocationSpan.End()
+		// Flush after the root span ends so it is included: on Agent
+		// Substrate the actor is checkpointed as soon as the response
+		// closes, freezing any unexported spans into the snapshot.
+		telemetry.ForceFlush(ctx)
+	}()
 
 	telemetry.SetMessageMetadataAttributes(ctx, reqCtx.Message.Metadata)
 

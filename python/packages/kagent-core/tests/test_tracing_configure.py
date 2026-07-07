@@ -120,3 +120,30 @@ def test_resolve_otlp_timeout_seconds_uses_milliseconds(monkeypatch, signal, env
         monkeypatch.setenv(key, value)
 
     assert _utils._resolve_otlp_timeout_seconds(signal) == expected
+
+
+def test_force_flush_calls_provider_force_flush(monkeypatch):
+    calls = []
+    provider = SimpleNamespace(force_flush=lambda timeout: calls.append(timeout))
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: provider)
+
+    _utils.force_flush()
+
+    assert calls == [3000]
+
+
+def test_force_flush_noop_without_provider_support(monkeypatch):
+    # The default (no-op) provider has no force_flush; must not raise.
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: SimpleNamespace())
+
+    _utils.force_flush()
+
+
+def test_force_flush_swallows_exporter_errors(monkeypatch):
+    def boom(timeout):
+        raise RuntimeError("collector down")
+
+    provider = SimpleNamespace(force_flush=boom)
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: provider)
+
+    _utils.force_flush()

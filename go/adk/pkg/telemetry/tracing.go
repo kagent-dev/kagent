@@ -38,6 +38,26 @@ func StartInvocationSpan(ctx context.Context) (context.Context, trace.Span) {
 	return otel.Tracer("gcp.vertex.agent").Start(ctx, "invocation")
 }
 
+// ForceFlush exports any spans still buffered in the tracer provider's batch
+// processor. Call it before an A2A response completes when the process may be
+// suspended right afterwards: Agent Substrate checkpoints the actor as soon as
+// the response body closes, so unexported spans stay frozen in the snapshot
+// until the session's next resume (or forever, for a session's last message).
+// Uses its own detached timeout because the request context is typically
+// already canceled by the time deferred cleanup runs.
+func ForceFlush(ctx context.Context) {
+	type flusher interface{ ForceFlush(context.Context) error }
+	fp, ok := otel.GetTracerProvider().(flusher)
+	if !ok {
+		return
+	}
+	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	if err := fp.ForceFlush(flushCtx); err != nil {
+		otel.Handle(err)
+	}
+}
+
 // Init initializes OpenTelemetry providers for Go ADK, sets global providers and
 // propagators, and returns a shutdown function.
 func Init(ctx context.Context, serviceName string, serviceNamespace string) (shutdown func(context.Context) error, enabled bool, err error) {
