@@ -179,8 +179,12 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 				},
 			},
 			WorkerSelector: workerSelectorForPool(wpKey),
+			// Explicit API-default scopes; empty scopes DeepEqual-drift against the
+			// server-defaulted stored spec (see buildSandboxAgentActorTemplate).
 			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
 				Location: substrateSnapshotsLocation(ah),
+				OnPause:  atev1alpha1.SnapshotScopeFull,
+				OnCommit: atev1alpha1.SnapshotScopeFull,
 			},
 		},
 	}

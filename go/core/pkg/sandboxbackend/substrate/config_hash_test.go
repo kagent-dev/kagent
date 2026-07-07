@@ -47,23 +47,29 @@ func TestSandboxAgentActorTemplateNameWithHash(t *testing.T) {
 	require.LessOrEqual(t, len(sandboxAgentActorTemplateName(long, "deadbeefdeadbeef")), 63)
 }
 
-func TestSandboxAgentSessionActorIDVariesWithHash(t *testing.T) {
+func TestSandboxAgentSessionActorIDIsSessionStable(t *testing.T) {
 	t.Parallel()
 	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
 
-	id1 := SandboxAgentSessionActorID(sa, "abc123", "sess-1")
-	id2 := SandboxAgentSessionActorID(sa, "def456", "sess-1")
-	require.NotEqual(t, id1, id2, "config change must yield a new actor id so a fresh actor is created")
+	// One session ⇔ one actor: the id is derived from the session alone, so it survives config
+	// AND shape rollouts (the actor's template binding lives on the actor record, not in the id).
+	id := SandboxAgentSessionActorID(sa, "sess-1")
+	require.Equal(t, "asr-kagent-my-agent-sess-1", id)
+	require.Equal(t, id, SandboxAgentSessionActorID(sa, "sess-1"))
+	require.NotEqual(t, id, SandboxAgentSessionActorID(sa, "sess-2"), "sessions never share an actor")
 
-	// Same hash + session is stable so repeated messages resume the warm actor.
-	require.Equal(t, id1, SandboxAgentSessionActorID(sa, "abc123", "sess-1"))
-
-	// Keeps the per-agent prefix so DeleteAll / reaping still match by prefix.
+	// Keeps the per-agent prefix so agent-level cleanup still matches by prefix.
 	prefix := sandboxAgentActorPrefix(sa)
-	require.True(t, strings.HasPrefix(id1, prefix+"-"))
+	require.True(t, strings.HasPrefix(id, prefix+"-"))
+
+	// Over-budget ids fall back to a deterministic hashed form.
+	long := SandboxAgentSessionActorID(sa, strings.Repeat("s", 80))
+	require.LessOrEqual(t, len(long), 63)
+	require.True(t, strings.HasPrefix(long, sandboxAgentIDPrefix+"-"))
+	require.Equal(t, long, SandboxAgentSessionActorID(sa, strings.Repeat("s", 80)))
 }
 
-func TestBuildActorTemplateStampsConfigHash(t *testing.T) {
+func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	t.Parallel()
 	p := newTestLifecycle(t)
 	sa := &v1alpha2.SandboxAgent{
@@ -72,21 +78,38 @@ func TestBuildActorTemplateStampsConfigHash(t *testing.T) {
 			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
 		},
 	}
-	pod := corev1.PodTemplateSpec{
-		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{consts.ConfigHashAnnotation: "255"}},
-		Spec: corev1.PodSpec{Containers: []corev1.Container{{
-			Name:  defaultKagentContainer,
-			Image: "registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111",
-		}}},
+	podFor := func(configHash, image string) corev1.PodTemplateSpec {
+		return corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{consts.ConfigHashAnnotation: configHash}},
+			Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: defaultKagentContainer, Image: image}}},
+		}
 	}
+	const img1 = "registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	const img2 = "registry.example/app@sha256:2222222222222222222222222222222222222222222222222222222222222222"
 	wpKey := types.NamespacedName{Namespace: "kagent", Name: "kagent-default"}
-	tmpl, err := p.buildSandboxAgentActorTemplate(sa, wpKey, pod)
+
+	tmpl, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("255", img1))
 	require.NoError(t, err)
-	require.Equal(t, "py-agent-ff", tmpl.Name, "template name must carry the config-hash suffix")
-	require.Equal(t, "ff", tmpl.Annotations[consts.ConfigHashAnnotation])
+	shapeHash := tmpl.Annotations[shapeHashAnnotation]
+	require.NotEmpty(t, shapeHash)
+	require.Equal(t, "py-agent-"+shapeHash, tmpl.Name, "template name must carry the shape-hash suffix")
+	require.Equal(t, "ff", tmpl.Annotations[consts.ConfigHashAnnotation], "config hash is kept as an informational annotation")
+
+	// A soft config change (new config hash, same rendered shape) must keep the SAME template —
+	// that is what lets existing sessions keep their actor (and durable dir) across rollouts.
+	softChange, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("256", img1))
+	require.NoError(t, err)
+	require.Equal(t, tmpl.Name, softChange.Name, "config-only change must not fan out a new template")
+	require.Equal(t, shapeHash, softChange.Annotations[shapeHashAnnotation])
+
+	// A shape change (new image digest) must fan out a new template + golden.
+	shapeChange, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("256", img2))
+	require.NoError(t, err)
+	require.NotEqual(t, tmpl.Name, shapeChange.Name, "image change must produce a new template")
+	require.NotEqual(t, shapeHash, shapeChange.Annotations[shapeHashAnnotation])
 }
 
-func TestBuildSandboxClonesConfigSecretPerHash(t *testing.T) {
+func TestBuildSandboxPublishesStableConfigSecret(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
@@ -118,18 +141,18 @@ func TestBuildSandboxClonesConfigSecretPerHash(t *testing.T) {
 
 	objs, err := b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod, ConfigSecret: cfg})
 	require.NoError(t, err)
-	require.Len(t, objs, 2, "expect a per-hash config Secret plus the ActorTemplate")
+	require.Len(t, objs, 2, "expect the stable config Secret plus the ActorTemplate")
 
 	sec, ok := objs[0].(*corev1.Secret)
-	require.True(t, ok, "first object must be the cloned config Secret")
-	require.Equal(t, "py-agent-ff", sec.Name, "config Secret is named per config hash (paired with the template)")
-	require.Equal(t, `{"model":{"type":"gemini"}}`, sec.StringData["config.json"], "clone carries the rendered config verbatim")
+	require.True(t, ok, "first object must be the published config Secret")
+	require.Equal(t, "py-agent", sec.Name, "config Secret uses the agent's stable name, updated in place on config change")
+	require.Equal(t, `{"model":{"type":"gemini"}}`, sec.StringData["config.json"], "copy carries the rendered config verbatim")
 
 	tmpl, ok := objs[1].(*atev1alpha1.ActorTemplate)
 	require.True(t, ok)
-	require.Equal(t, "py-agent-ff", tmpl.Name, "ActorTemplate name matches its per-hash config Secret")
+	require.Equal(t, "py-agent-"+tmpl.Annotations[shapeHashAnnotation], tmpl.Name, "ActorTemplate is named for its shape hash")
 
-	// No config Secret in the input → no clone (falls back to the per-agent Secret), just the template.
+	// No config Secret in the input → nothing to publish, just the template.
 	objs, err = b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod})
 	require.NoError(t, err)
 	require.Len(t, objs, 1)
@@ -266,35 +289,4 @@ func TestActorBelongsToSandboxAgent(t *testing.T) {
 			require.Equal(t, tt.want, actorBelongsToSandboxAgent(sa, tt.actor, prefix, owned))
 		})
 	}
-}
-
-func TestRetainedSessionConfigHashes(t *testing.T) {
-	t.Parallel()
-	scheme := runtime.NewScheme()
-	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
-
-	tmplA := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
-		Name: "agent-abc123", Namespace: "kagent",
-		Labels:      map[string]string{SandboxAgentLabelKey: "agent"},
-		Annotations: map[string]string{consts.ConfigHashAnnotation: "abc123"},
-	}}
-	tmplB := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
-		Name: "agent-def456", Namespace: "kagent",
-		Labels:      map[string]string{SandboxAgentLabelKey: "agent"},
-		Annotations: map[string]string{consts.ConfigHashAnnotation: "def456"},
-	}}
-	other := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
-		Name: "other", Namespace: "kagent",
-		Labels:      map[string]string{SandboxAgentLabelKey: "other-agent"},
-		Annotations: map[string]string{consts.ConfigHashAnnotation: "zzz999"},
-	}}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tmplA, tmplB, other).Build()
-
-	b := &SandboxAgentActorBackend{kube: cl}
-	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"}}
-	hashes, err := b.retainedSessionConfigHashes(context.Background(), sa)
-	require.NoError(t, err)
-	// "" is always included (legacy/no-hash actors), plus each retained template's hash; the other
-	// agent's template hash is excluded.
-	require.ElementsMatch(t, []string{"", "abc123", "def456"}, hashes)
 }

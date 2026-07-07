@@ -14,7 +14,7 @@ import (
 
 func TestACPProxyForwardsToAtenetRouterWithActorHost(t *testing.T) {
 	t.Parallel()
-	const actorHost = "ahr-kagent-my-claw.actors.resources.substrate.ate.dev"
+	const actorHost = "ahr-kagent-my-claw.kagent.actors.resources.substrate.ate.dev"
 
 	var gotHost, gotAuth, gotPath string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func TestACPProxyForwardsToAtenetRouterWithActorHost(t *testing.T) {
 
 func TestACPProxyRewriteTargetsAtenetRouterHost(t *testing.T) {
 	t.Parallel()
-	const actorHost = "ahr-kagent-my-claw.actors.resources.substrate.ate.dev"
+	const actorHost = "ahr-kagent-my-claw.kagent.actors.resources.substrate.ate.dev"
 
 	target, host, err := substrate.GatewayRouterTarget(substrate.DefaultAtenetRouterURL, "ahr-kagent-my-claw")
 	if err != nil {

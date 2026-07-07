@@ -693,4 +693,85 @@ func TestSessionsHandler(t *testing.T) {
 			assert.NotNil(t, responseRecorder.errorReceived)
 		})
 	})
+
+	t.Run("HandleListEventsForSession", func(t *testing.T) {
+		storeEvents := func(t *testing.T, dbClient database.Client, sessionID, userID string) {
+			t.Helper()
+			require.NoError(t, dbClient.StoreEvents(context.Background(),
+				&database.Event{ID: "event-1", SessionID: sessionID, UserID: userID, CreatedAt: time.Now().Add(-2 * time.Hour), Data: "{}"},
+				&database.Event{ID: "event-2", SessionID: sessionID, UserID: userID, CreatedAt: time.Now().Add(-1 * time.Hour), Data: "{}"},
+			))
+		}
+
+		t.Run("DatabaseSourceIsTheDefault", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			userID := "test-user"
+			sessionID := "events-session-1"
+			createTestSession(t, dbClient, sessionID, userID, "1")
+			storeEvents(t, dbClient, sessionID, userID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/events?order=asc", nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, userID)
+			handler.HandleListEventsForSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[[]*database.Event]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			require.Len(t, response.Data, 2)
+			assert.Equal(t, "event-1", response.Data[0].ID)
+			assert.Equal(t, "event-2", response.Data[1].ID)
+		})
+
+		t.Run("SandboxSourceRequiresDurableDirSandboxAgent", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			userID := "test-user"
+			sessionID := "events-session-2"
+			// A Deployment-workload agent must be rejected: sandbox reads are explicit and
+			// expensive, and only substrate durable-dir agents can serve them.
+			agent := createTestAgent(t, dbClient, "deploy-agent")
+			createTestSession(t, dbClient, sessionID, userID, agent.ID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/events?source=sandbox", nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, userID)
+			handler.HandleListEventsForSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("UnknownSourceIsRejected", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			userID := "test-user"
+			sessionID := "events-session-3"
+			createTestSession(t, dbClient, sessionID, userID, "1")
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/events?source=bogus", nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, userID)
+			handler.HandleListEventsForSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("GetSessionCarriesEventsSourceDiscriminator", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			userID := "test-user"
+			sessionID := "events-session-4"
+			agent := createTestAgent(t, dbClient, "deploy-agent-2")
+			createTestSession(t, dbClient, sessionID, userID, agent.ID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, userID)
+			handler.HandleGetSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[handlers.SessionResponse]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			assert.Equal(t, "database", response.Data.EventsSource)
+		})
+	})
 }

@@ -10,8 +10,21 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
+)
+
+const (
+	// KagentAtespace is the ate-api atespace all kagent-created actors live in. Atespaces are
+	// part of the actor's identity (actor names are only unique within an atespace); kagent
+	// ensures this one exists before creating actors.
+	KagentAtespace = "kagent"
+	// goldenActorAtespace mirrors substrate's resources.GoldenActorAtespace — the reserved
+	// system atespace per-template golden actors are created in by atecontroller. kagent only
+	// ever addresses goldens here to delete them on template recreate/cleanup.
+	goldenActorAtespace = "ate-golden"
 )
 
 // Client wraps ate-api Control gRPC.
@@ -121,10 +134,19 @@ func (c *Client) callCtx(ctx context.Context) (context.Context, context.CancelFu
 	return context.WithTimeout(ctx, c.cfg.CallTimeout)
 }
 
+// Exported actor methods address kagent-created actors (KagentAtespace). The *In variants
+// exist for the golden-actor cleanup paths, which address substrate's ate-golden atespace.
+
 func (c *Client) GetActor(ctx context.Context, actorID string) (*ateapipb.Actor, error) {
+	return c.getActorIn(ctx, KagentAtespace, actorID)
+}
+
+func (c *Client) getActorIn(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.GetActor(ctx, &ateapipb.GetActorRequest{ActorId: actorID})
+	resp, err := c.ControlClient.GetActor(ctx, &ateapipb.GetActorRequest{
+		ActorRef: &ateapipb.ActorRef{Atespace: atespace, Name: actorID},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -132,10 +154,15 @@ func (c *Client) GetActor(ctx context.Context, actorID string) (*ateapipb.Actor,
 }
 
 func (c *Client) CreateActor(ctx context.Context, actorID, tmplNS, tmplName string) (*ateapipb.Actor, error) {
+	// Atespaces must exist before actors are created in them. Creations are rare (one per new
+	// session), so ensure unconditionally and treat AlreadyExists as success.
+	if err := c.ensureAtespace(ctx, KagentAtespace); err != nil {
+		return nil, err
+	}
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
 	resp, err := c.ControlClient.CreateActor(ctx, &ateapipb.CreateActorRequest{
-		ActorId:                actorID,
+		ActorRef:               &ateapipb.ActorRef{Atespace: KagentAtespace, Name: actorID},
 		ActorTemplateNamespace: tmplNS,
 		ActorTemplateName:      tmplName,
 	})
@@ -145,10 +172,26 @@ func (c *Client) CreateActor(ctx context.Context, actorID, tmplNS, tmplName stri
 	return resp.GetActor(), nil
 }
 
-func (c *Client) ResumeActor(ctx context.Context, actorID string) (*ateapipb.Actor, error) {
+func (c *Client) ensureAtespace(ctx context.Context, name string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.ResumeActor(ctx, &ateapipb.ResumeActorRequest{ActorId: actorID})
+	_, err := c.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{Name: name})
+	if err != nil && status.Code(err) != codes.AlreadyExists {
+		return fmt.Errorf("ensure atespace %q: %w", name, err)
+	}
+	return nil
+}
+
+func (c *Client) ResumeActor(ctx context.Context, actorID string) (*ateapipb.Actor, error) {
+	return c.resumeActorIn(ctx, KagentAtespace, actorID)
+}
+
+func (c *Client) resumeActorIn(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	resp, err := c.ControlClient.ResumeActor(ctx, &ateapipb.ResumeActorRequest{
+		ActorRef: &ateapipb.ActorRef{Atespace: atespace, Name: actorID},
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -156,15 +199,27 @@ func (c *Client) ResumeActor(ctx context.Context, actorID string) (*ateapipb.Act
 }
 
 func (c *Client) SuspendActor(ctx context.Context, actorID string) error {
+	return c.suspendActorIn(ctx, KagentAtespace, actorID)
+}
+
+func (c *Client) suspendActorIn(ctx context.Context, atespace, actorID string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{ActorId: actorID})
+	_, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{
+		ActorRef: &ateapipb.ActorRef{Atespace: atespace, Name: actorID},
+	})
 	return err
 }
 
 func (c *Client) DeleteActor(ctx context.Context, actorID string) error {
+	return c.deleteActorIn(ctx, KagentAtespace, actorID)
+}
+
+func (c *Client) deleteActorIn(ctx context.Context, atespace, actorID string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{ActorId: actorID})
+	_, err := c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{
+		ActorRef: &ateapipb.ActorRef{Atespace: atespace, Name: actorID},
+	})
 	return err
 }

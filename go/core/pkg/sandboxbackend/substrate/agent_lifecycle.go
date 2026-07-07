@@ -1,6 +1,8 @@
 package substrate
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -44,10 +46,31 @@ const (
 
 	// sandboxAgentTemplateNameMaxBase reserves room in the 63-char DNS-1123 budget for
 	// the "-<hash>" suffix (hash is up to 16 hex chars). A golden snapshot is an immutable
-	// memory image, so a config change must produce a NEW ActorTemplate (substrate snapshots
-	// once and no-ops in PhaseReady); folding the shared consts.ConfigHashAnnotation hash
-	// into the template name (and mirroring it as an annotation) is what achieves that.
+	// memory image, so a SHAPE change must produce a NEW ActorTemplate (substrate snapshots
+	// once and no-ops in PhaseReady); folding the shape hash into the template name (and
+	// mirroring it as an annotation) is what achieves that.
 	sandboxAgentTemplateNameMaxBase = 46
+
+	// shapeHashAnnotation carries the hash of the rendered ActorTemplateSpec ("shape"). The
+	// session actor id is keyed on it: soft config changes ride Secret contents and never touch
+	// the spec, so sessions keep their actor (and durable dir) across config rollouts; anything
+	// that does change the spec (image digest, command, scopes, literal env) fans out blue-green
+	// to a new template + new actors, resetting session state (accepted, plan §4.2).
+	shapeHashAnnotation = "kagent.dev/shape-hash"
+
+	// Durable-dir session storage: the runtime keeps the session's ADK event log in a sqlite
+	// DB inside a durableDir volume in the session actor instead of round-tripping events to
+	// the controller database. Presence of the env var is the switch, its value the config.
+	// Default-on for python declarative substrate agents; the annotation is the opt-out
+	// escape hatch (it must be an annotation, not user env: kagent-set env wins dedup).
+	sessionStoreAnnotation = "kagent.dev/session-store"
+	sessionStoreHTTP       = "http"
+	durableDataVolume      = "data"
+	durableDataMount       = "/data"
+	sessionDBURLEnv        = "KAGENT_SESSION_DB_URL"
+	// google-adk's DatabaseSessionService uses SQLAlchemy's async engine, so the URL must name
+	// an async driver; aiosqlite is a core google-adk dependency, present in every runtime image.
+	sessionDBURL = "sqlite+aiosqlite:///" + durableDataMount + "/sessions.db"
 )
 
 func (p *Lifecycle) buildSandboxAgentActorTemplate(
@@ -63,20 +86,50 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	if err != nil {
 		return nil, err
 	}
-	// The config hash is computed by the translator and stamped on the pod template.
-	// Folding it into the ActorTemplate name makes a config change create a new template
-	// (and thus a fresh golden snapshot) instead of mutating one substrate will never
-	// re-snapshot. The annotation carries the same hash for the chat path and reaper.
-	configHash := shortConfigHash(podTemplate.Annotations[consts.ConfigHashAnnotation])
-
-	// The config is read from a per-config-hash Secret (cloned in AgentsBackend.BuildSandbox),
-	// not the shared per-agent Secret. A golden snapshot materializes config.json from this
-	// Secret's env at build time; if every config revision shared one Secret name, substrate's
-	// secret-value cache could hand a stale revision to a new golden, so the golden would freeze
-	// the wrong provider's config (e.g. an OpenAI agent in a Gemini actor). The per-hash name is
-	// a cache-miss for each distinct config, so each golden captures exactly its own config.
-	secretName := sandboxAgentConfigSecretName(sa, configHash)
+	// Config reaches the actor exclusively through secretKeyRef env against the agent's STABLE
+	// config Secret (updated in place on config change). ate-api re-resolves secretKeyRef from
+	// the live Secret on every resume, and durable-dir templates suspend with Data scope so
+	// every resume is a cold boot: an existing session's next turn picks up new config without
+	// a new actor. Golden staleness degrades to the ate-api secret-cache TTL (~30s), which the
+	// per-hash clone used to guard against under Full-scope warm resumes.
+	secretName := sandboxAgentConfigSecretName(sa)
 	command, containerEnv, err := buildSubstrateKagentContainerCommand(sa, kagentContainer, secretName)
+	if err != nil {
+		return nil, err
+	}
+	durableDirSessions := SandboxAgentUsesDurableDirSessions(sa)
+	if durableDirSessions {
+		// Prepended before the pod env so first-occurrence dedup makes the kagent-set value
+		// win over any user spec.env of the same name (users opt out via the annotation).
+		containerEnv = append(containerEnv, corev1.EnvVar{Name: sessionDBURLEnv, Value: sessionDBURL})
+	}
+
+	spec := atev1alpha1.ActorTemplateSpec{
+		PauseImage:   p.Defaults.PauseImage,
+		SandboxClass: atev1alpha1.SandboxClassGvisor,
+		Containers: []atev1alpha1.Container{{
+			Name:    defaultKagentContainer,
+			Image:   image,
+			Command: command,
+			Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
+		}},
+		WorkerSelector: workerSelectorForPool(wpKey),
+		// Scopes are set explicitly to the API defaults: the server defaults empty scopes to
+		// Full/Full, and a desired spec that omits them would DeepEqual-drift against the
+		// stored spec on every reconcile, driving an endless golden delete/recreate loop.
+		SnapshotsConfig: atev1alpha1.SnapshotsConfig{
+			Location: sandboxAgentSnapshotsLocation(sa),
+			OnPause:  atev1alpha1.SnapshotScopeFull,
+			OnCommit: atev1alpha1.SnapshotScopeFull,
+		},
+	}
+	if durableDirSessions {
+		applyDurableDirSessionStore(&spec)
+	}
+
+	// The template is named for the hash of its rendered spec: same shape → same template (and
+	// same session actors, durable dirs included); changed shape → new template + fresh golden.
+	shapeHash, err := actorTemplateShapeHash(spec)
 	if err != nil {
 		return nil, err
 	}
@@ -84,42 +137,84 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	annotations := map[string]string{
 		// The agent generation at the time this template was (re)applied. It bumps only on a spec
 		// change, so the template matching the agent's CURRENT desired config always carries the
-		// highest generation — including on a flip-back to a retained older config, where the
+		// highest generation — including on a flip-back to a retained older shape, where the
 		// reused template is re-applied with the new generation. ResolveCurrentActorTemplate uses
 		// this (not creationTimestamp) to pick the desired template, so chat/readiness follow the
 		// current config rather than whichever golden was built most recently.
 		desiredGenerationAnnotation: strconv.FormatInt(sa.GetGeneration(), 10),
+		shapeHashAnnotation:         shapeHash,
 	}
-	if configHash != "" {
+	// The translator's config hash is kept as an informational annotation (it changes on soft
+	// config rollouts while the template stays put; nothing keys on it anymore).
+	if configHash := shortConfigHash(podTemplate.Annotations[consts.ConfigHashAnnotation]); configHash != "" {
 		annotations[consts.ConfigHashAnnotation] = configHash
 	}
 
 	desired := &atev1alpha1.ActorTemplate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        sandboxAgentActorTemplateName(sa, configHash),
+			Name:        sandboxAgentActorTemplateName(sa, shapeHash),
 			Namespace:   sa.Namespace,
 			Labels:      sandboxAgentLifecycleLabels(sa),
 			Annotations: annotations,
 		},
-		Spec: atev1alpha1.ActorTemplateSpec{
-			PauseImage:   p.Defaults.PauseImage,
-			SandboxClass: atev1alpha1.SandboxClassGvisor,
-			Containers: []atev1alpha1.Container{{
-				Name:    defaultKagentContainer,
-				Image:   image,
-				Command: command,
-				Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
-			}},
-			WorkerSelector: workerSelectorForPool(wpKey),
-			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
-				Location: sandboxAgentSnapshotsLocation(sa),
-			},
-		},
+		Spec: spec,
 	}
 	if err := controllerutil.SetControllerReference(sa, desired, p.Client.Scheme()); err != nil {
 		return nil, fmt.Errorf("set ActorTemplate owner ref: %w", err)
 	}
 	return desired, nil
+}
+
+// actorTemplateShapeHash returns a short, deterministic hash of a rendered ActorTemplateSpec.
+// It covers everything in the spec (image digest, command, env including secretKeyRef names,
+// mounts, readyz, scopes, worker selector) and nothing outside it — Secret CONTENTS in
+// particular are invisible, which is exactly what makes config rollouts soft.
+func actorTemplateShapeHash(spec atev1alpha1.ActorTemplateSpec) (string, error) {
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("hash ActorTemplate spec: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum[:8]), nil
+}
+
+// SandboxAgentUsesDurableDirSessions reports whether the agent's ADK session state lives in a
+// sqlite DB in a durableDir volume inside the session actor instead of the controller database.
+// This is the DEFAULT for declarative python-runtime substrate agents; the
+// kagent.dev/session-store: http annotation opts an agent back into HTTP sessions. The Go ADK
+// has no local session store yet, and BYO images manage their own state — both stay on HTTP.
+func SandboxAgentUsesDurableDirSessions(sa *v1alpha2.SandboxAgent) bool {
+	if sa == nil || sa.Annotations[sessionStoreAnnotation] == sessionStoreHTTP {
+		return false
+	}
+	spec := sa.GetAgentSpec()
+	if spec == nil || spec.Type == v1alpha2.AgentType_BYO {
+		return false
+	}
+	return v1alpha2.EffectiveDeclarativeRuntime(spec) == v1alpha2.DeclarativeRuntime_Python
+}
+
+// applyDurableDirSessionStore mounts a durableDir volume at /data for the session sqlite DB,
+// adds a /health readyz probe so resume RPCs don't return before the app can serve requests,
+// and flips the suspend scope to Data: per-turn suspends then capture only the durable dir
+// (KBs, not a full memory image), and every resume is a cold boot that re-resolves secretKeyRef
+// env from the live Secret — the only config-refresh channel on resume, which is what lets soft
+// config rollouts reach an existing session's actor (plan §4.2/§4.3). onPause stays Full so the
+// golden build and any future warm-pause tier keep a full snapshot available.
+func applyDurableDirSessionStore(spec *atev1alpha1.ActorTemplateSpec) {
+	spec.Volumes = append(spec.Volumes, atev1alpha1.Volume{
+		Name:         durableDataVolume,
+		VolumeSource: atev1alpha1.VolumeSource{DurableDir: &atev1alpha1.DurableDirVolumeSource{}},
+	})
+	c := &spec.Containers[0]
+	c.VolumeMounts = append(c.VolumeMounts, atev1alpha1.VolumeMount{
+		Name:      durableDataVolume,
+		MountPath: durableDataMount,
+	})
+	c.Readyz = &atev1alpha1.ContainerReadyz{
+		HTTPGet: &atev1alpha1.HTTPGetAction{Path: "/health", Port: substrateKagentListenPort},
+	}
+	spec.SnapshotsConfig.OnCommit = atev1alpha1.SnapshotScopeData
 }
 
 func findKagentContainer(containers []corev1.Container) *corev1.Container {
@@ -219,15 +314,11 @@ func buildSubstrateDeclarativeCommand(runtime v1alpha2.DeclarativeRuntime) []str
 	}
 }
 
-// sandboxAgentConfigSecretName returns the name of the Secret holding a SandboxAgent's rendered
-// config for a given config hash. It mirrors the ActorTemplate name so the config Secret and the
-// template that consumes it are paired per config. When the hash is empty (no config rendered) it
-// falls back to the translator's per-agent Secret name.
-func sandboxAgentConfigSecretName(sa *v1alpha2.SandboxAgent, configHash string) string {
-	if configHash == "" {
-		return sa.Name
-	}
-	return sandboxAgentActorTemplateName(sa, configHash)
+// sandboxAgentConfigSecretName returns the agent's STABLE config Secret name. Contents are
+// updated in place on config change; ate-api re-resolves secretKeyRef env from the live Secret
+// at every resume (Data-scope cold boot), which is what carries new config to existing actors.
+func sandboxAgentConfigSecretName(sa *v1alpha2.SandboxAgent) string {
+	return sa.Name
 }
 
 func kagentAgentSecretEnv(secretName string) []corev1.EnvVar {
@@ -269,16 +360,15 @@ func sandboxAgentActorTemplateBaseName(sa *v1alpha2.SandboxAgent) string {
 }
 
 // sandboxAgentActorTemplateName is the generated ActorTemplate name for a SandboxAgent at a
-// given config hash. The hash suffix makes each distinct config a distinct template (and
-// golden). When the hash is empty (no config materialized) it falls back to the stable base
-// name. Consumers must NOT assume this name — they resolve the live template via
-// ResolveCurrentActorTemplate, since the hash depends on rendered config they don't have.
-func sandboxAgentActorTemplateName(sa *v1alpha2.SandboxAgent, configHash string) string {
-	if configHash == "" {
+// given shape hash. The hash suffix makes each distinct shape a distinct template (and golden).
+// When the hash is empty it falls back to the stable base name. Consumers must NOT assume this
+// name — they resolve the live template via ResolveCurrentActorTemplate.
+func sandboxAgentActorTemplateName(sa *v1alpha2.SandboxAgent, shapeHash string) string {
+	if shapeHash == "" {
 		return sandboxAgentActorTemplateBaseName(sa)
 	}
 	base := truncateDNS1123To(sa.Name, sandboxAgentTemplateNameMaxBase)
-	return fmt.Sprintf("%s-%s", base, configHash)
+	return fmt.Sprintf("%s-%s", base, shapeHash)
 }
 
 // shortConfigHash converts the translator's decimal config-hash annotation into a short,

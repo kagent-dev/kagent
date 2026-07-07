@@ -20,57 +20,28 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+// recordingActorClient records deletes and reports every other actor as SUSPENDED.
+// The embedded nil interface panics on any RPC not overridden below.
 type recordingActorClient struct {
+	ateapipb.ControlClient
 	deleted []string
 }
 
 func (r *recordingActorClient) GetActor(_ context.Context, in *ateapipb.GetActorRequest, _ ...grpc.CallOption) (*ateapipb.GetActorResponse, error) {
-	if slices.Contains(r.deleted, in.GetActorId()) {
+	if slices.Contains(r.deleted, in.GetActorRef().GetName()) {
 		return nil, status.Error(codes.NotFound, "actor deleted")
 	}
 	return &ateapipb.GetActorResponse{
 		Actor: &ateapipb.Actor{
-			ActorId: in.GetActorId(),
+			ActorId: in.GetActorRef().GetName(),
 			Status:  ateapipb.Actor_STATUS_SUSPENDED,
 		},
 	}, nil
 }
 
 func (r *recordingActorClient) DeleteActor(_ context.Context, in *ateapipb.DeleteActorRequest, _ ...grpc.CallOption) (*ateapipb.DeleteActorResponse, error) {
-	r.deleted = append(r.deleted, in.GetActorId())
+	r.deleted = append(r.deleted, in.GetActorRef().GetName())
 	return &ateapipb.DeleteActorResponse{}, nil
-}
-
-func (r *recordingActorClient) CreateActor(context.Context, *ateapipb.CreateActorRequest, ...grpc.CallOption) (*ateapipb.CreateActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) SuspendActor(context.Context, *ateapipb.SuspendActorRequest, ...grpc.CallOption) (*ateapipb.SuspendActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) ResumeActor(context.Context, *ateapipb.ResumeActorRequest, ...grpc.CallOption) (*ateapipb.ResumeActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) PauseActor(context.Context, *ateapipb.PauseActorRequest, ...grpc.CallOption) (*ateapipb.PauseActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) UpdateActor(context.Context, *ateapipb.UpdateActorRequest, ...grpc.CallOption) (*ateapipb.UpdateActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) ListWorkers(context.Context, *ateapipb.ListWorkersRequest, ...grpc.CallOption) (*ateapipb.ListWorkersResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) ListActors(context.Context, *ateapipb.ListActorsRequest, ...grpc.CallOption) (*ateapipb.ListActorsResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) DebugClear(context.Context, *ateapipb.DebugClearRequest, ...grpc.CallOption) (*ateapipb.DebugClearResponse, error) {
-	panic("not used")
 }
 
 func TestLifecycleCleanupGeneratedTemplate_DeletesGoldenActor(t *testing.T) {

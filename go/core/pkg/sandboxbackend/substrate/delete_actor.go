@@ -9,9 +9,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// deleteActor performs at most one mutating ate-api step per call.
+// deleteActor performs at most one mutating ate-api step per call on a kagent-created actor.
 // Returns true when the actor no longer exists. Callers should requeue until true.
 func deleteActor(ctx context.Context, c *Client, actorID string) (bool, error) {
+	return deleteActorIn(ctx, c, KagentAtespace, actorID)
+}
+
+// deleteActorIn is deleteActor for an explicit atespace (golden actors live in ate-golden).
+func deleteActorIn(ctx context.Context, c *Client, atespace, actorID string) (bool, error) {
 	if actorID == "" {
 		return true, nil
 	}
@@ -19,7 +24,7 @@ func deleteActor(ctx context.Context, c *Client, actorID string) (bool, error) {
 		return false, fmt.Errorf("substrate ate-api client is required")
 	}
 
-	actor, err := c.GetActor(ctx, actorID)
+	actor, err := c.getActorIn(ctx, atespace, actorID)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return true, nil
@@ -29,7 +34,7 @@ func deleteActor(ctx context.Context, c *Client, actorID string) (bool, error) {
 
 	switch actor.GetStatus() {
 	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED:
-		if err := c.DeleteActor(ctx, actorID); err != nil {
+		if err := c.deleteActorIn(ctx, atespace, actorID); err != nil {
 			if status.Code(err) == codes.NotFound {
 				return true, nil
 			}
@@ -40,46 +45,22 @@ func deleteActor(ctx context.Context, c *Client, actorID string) (bool, error) {
 		}
 		return false, nil
 	case ateapipb.Actor_STATUS_SUSPENDING:
-		_ = c.SuspendActor(ctx, actorID)
+		_ = c.suspendActorIn(ctx, atespace, actorID)
 		return false, nil
 	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING:
-		if err := c.SuspendActor(ctx, actorID); err != nil && status.Code(err) != codes.NotFound {
+		if err := c.suspendActorIn(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return false, fmt.Errorf("suspend actor %q: %w", actorID, err)
 		}
 		return false, nil
 	case ateapipb.Actor_STATUS_PAUSED:
-		if _, err := c.ResumeActor(ctx, actorID); err != nil && status.Code(err) != codes.NotFound {
+		if _, err := c.resumeActorIn(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return false, fmt.Errorf("resume paused actor %q before delete: %w", actorID, err)
 		}
 		return false, nil
 	case ateapipb.Actor_STATUS_PAUSING:
 		return false, nil
 	default:
-		_ = c.SuspendActor(ctx, actorID)
-		return false, nil
-	}
-}
-
-// deleteActorIfSuspended deletes an actor only when it is in a SUSPENDED (idle) state
-func deleteActorIfSuspended(ctx context.Context, c *Client, actorID string) (done bool, err error) {
-	if actorID == "" || c == nil {
-		return true, nil
-	}
-	actor, err := c.GetActor(ctx, actorID)
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			return true, nil
-		}
-		return false, fmt.Errorf("get actor %q: %w", actorID, err)
-	}
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED:
-		if err := c.DeleteActor(ctx, actorID); err != nil && status.Code(err) != codes.NotFound {
-			return false, fmt.Errorf("delete actor %q: %w", actorID, err)
-		}
-		return true, nil
-	default:
-		// RUNNING / RESUMING / SUSPENDING — actively (or transitionally) in use; skip.
+		_ = c.suspendActorIn(ctx, atespace, actorID)
 		return false, nil
 	}
 }

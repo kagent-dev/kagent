@@ -2,6 +2,7 @@
 import faulthandler
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Callable, List, Optional
 
 import httpx
@@ -11,14 +12,14 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from google.adk.agents import BaseAgent
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.apps.app import EventsCompactionConfig
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
+from google.adk.sessions import DatabaseSessionService, InMemorySessionService
 from google.genai import types
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
@@ -90,6 +91,11 @@ class KAgentApp:
         token_service = None
         http_client: Optional[httpx.AsyncClient] = None
         memory_service = None
+        # Set by the controller for substrate sandbox agents with durable-dir session storage:
+        # session state lives in a sqlite DB inside the actor's durable dir instead of being
+        # round-tripped to the controller database. Presence is the switch, the value is the
+        # config, removal is the rollback. Everything else (tasks, memory, tokens) stays HTTP.
+        session_db_url = os.getenv("KAGENT_SESSION_DB_URL")
 
         if not local:
             token_service = KAgentTokenService(self.app_name)
@@ -98,7 +104,12 @@ class KAgentApp:
                 base_url=kagent_url_override or self.kagent_url,
                 event_hooks=token_service.event_hooks(),
             )
-            session_service = KAgentSessionService(http_client)
+            if session_db_url:
+                # Deliberately a separate, orthogonal code path from KAgentSessionService:
+                # the two share nothing but the BaseSessionService interface.
+                session_service = DatabaseSessionService(db_url=session_db_url)
+            else:
+                session_service = KAgentSessionService(http_client)
 
             if self.agent_config and self.agent_config.memory is not None:
                 memory_service = KagentMemoryService(
@@ -181,6 +192,32 @@ class KAgentApp:
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
         a2a_app.add_routes_to_app(app)
+
+        if not local and session_db_url:
+            local_store = session_service
+
+            async def local_session_events(request: Request) -> JSONResponse:
+                """Serve this session's events from the actor-local store, in the controller's
+                event wire shape ({id, data, created_at}, ascending). Registered only when
+                KAGENT_SESSION_DB_URL is set, so a controller read-through against an image or
+                config without durable-dir sessions fails loud with a 404. A session that has
+                no local rows yet is an empty list, not an error — the feature is on."""
+                session_id = request.path_params["session_id"]
+                user_id = request.query_params.get("user_id", "")
+                session = await local_store.get_session(
+                    app_name=self.app_name, user_id=user_id, session_id=session_id
+                )
+                rows = [
+                    {
+                        "id": event.id,
+                        "data": event.model_dump_json(),
+                        "created_at": datetime.fromtimestamp(event.timestamp, tz=timezone.utc).isoformat(),
+                    }
+                    for event in (session.events if session else [])
+                ]
+                return JSONResponse(rows)
+
+            app.add_route("/local/sessions/{session_id}/events", methods=["GET"], route=local_session_events)
 
         return app
 

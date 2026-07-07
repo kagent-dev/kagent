@@ -11,8 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // substrateSandboxSessionRoundTripper routes each A2A request to the session actor identified by contextId.
@@ -21,6 +24,7 @@ type substrateSandboxSessionRoundTripper struct {
 	sandboxAgent *v1alpha2.SandboxAgent
 	actorBackend *substrate.SandboxAgentActorBackend
 	base         http.RoundTripper
+	db           database.Client
 }
 
 func newSubstrateSandboxSessionRoundTripper(
@@ -28,6 +32,7 @@ func newSubstrateSandboxSessionRoundTripper(
 	sa *v1alpha2.SandboxAgent,
 	actorBackend *substrate.SandboxAgentActorBackend,
 	base http.RoundTripper,
+	db database.Client,
 ) (http.RoundTripper, error) {
 	routerURL = strings.TrimSpace(routerURL)
 	if routerURL == "" {
@@ -44,6 +49,7 @@ func newSubstrateSandboxSessionRoundTripper(
 		sandboxAgent: sa,
 		actorBackend: actorBackend,
 		base:         base,
+		db:           db,
 	}, nil
 }
 
@@ -63,6 +69,14 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 	}
 	if sessionID == "" {
 		return nil, fmt.Errorf("message contextId (session id) is required for substrate sandbox agents")
+	}
+
+	// Best-effort: the session row is controller-side metadata (session list, events
+	// read-through, delete cleanup); the chat's own state lives in the actor, so a failure
+	// here is logged once and must not block the message.
+	if err := t.ensureSessionRow(req.Context(), sessionID, req.Header.Get("X-User-Id")); err != nil {
+		ctrllog.FromContext(req.Context()).WithName("substrate-sandbox-transport").Error(err,
+			"failed to ensure session row; continuing without it", "sessionID", sessionID)
 	}
 
 	res, err := t.actorBackend.EnsureSessionActor(req.Context(), t.sandboxAgent, sessionID)
@@ -92,6 +106,31 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 		},
 	}
 	return resp, nil
+}
+
+// ensureSessionRow materializes the controller-side session row for sessions that arrive via
+// raw A2A. Ensures that headless sessions have a row.
+func (t *substrateSandboxSessionRoundTripper) ensureSessionRow(ctx context.Context, sessionID, userID string) error {
+	if t.db == nil || !substrate.SandboxAgentUsesDurableDirSessions(t.sandboxAgent) {
+		return nil
+	}
+	agentID := utils.ConvertToPythonIdentifier(t.sandboxAgent.Namespace + "/" + t.sandboxAgent.Name)
+	sessions, err := t.db.ListSessionsForAgentAllUsers(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("list sessions for agent %q: %w", agentID, err)
+	}
+	for i := range sessions {
+		if sessions[i].ID == sessionID {
+			return nil
+		}
+	}
+	if userID == "" {
+		return fmt.Errorf("request carries no X-User-Id header; session row cannot be attributed to a user")
+	}
+	if err := t.db.StoreSession(ctx, &database.Session{ID: sessionID, UserID: userID, AgentID: &agentID}); err != nil {
+		return fmt.Errorf("store session row: %w", err)
+	}
+	return nil
 }
 
 func (t *substrateSandboxSessionRoundTripper) scheduleSuspendSession(sessionID string) {

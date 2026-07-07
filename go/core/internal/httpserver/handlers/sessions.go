@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +20,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	"golang.org/x/sync/singleflight"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -25,6 +29,10 @@ import (
 type SessionsHandler struct {
 	*Base
 	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
+
+	// sandboxEventsGroup dedupes concurrent ?source=sandbox reads of the same session so they
+	// share one resume→fetch→suspend cycle
+	sandboxEventsGroup singleflight.Group
 }
 
 // NewSessionsHandler creates a new SessionsHandler
@@ -197,7 +205,15 @@ type SessionResponse struct {
 	Session  *database.Session `json:"session"`
 	Events   []*database.Event `json:"events"`
 	ReadOnly *bool             `json:"read_only,omitempty"`
+	// EventsSource discriminates where this session's events authoritatively live: "database"
+	// are for regular agents, while "sandbox" reads from the session's sandbox actor's durable dir
+	EventsSource string `json:"events_source"`
 }
+
+const (
+	eventsSourceDatabase = "database"
+	eventsSourceSandbox  = "sandbox"
+)
 
 // getEffectiveUserIDForSession returns the user ID to use for DB lookups on a specific session.
 // When the request carries a valid X-Share-Token scoped to sessionID, the share owner's user ID
@@ -234,29 +250,10 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
-	queryOptions := database.QueryOptions{
-		Limit: 0,
-	}
-	if r.URL.Query().Get("order") == "asc" {
-		queryOptions.OrderAsc = true
-	}
-	after := r.URL.Query().Get("after")
-	if after != "" {
-		afterTime, err := time.Parse(time.RFC3339, after)
-		if err != nil {
-			w.RespondWithError(errors.NewBadRequestError("Failed to parse after timestamp", err))
-			return
-		}
-		queryOptions.After = afterTime
-	}
-
-	limit := r.URL.Query().Get("limit")
-	if limit != "" {
-		queryOptions.Limit, err = strconv.Atoi(limit)
-		if err != nil {
-			w.RespondWithError(errors.NewBadRequestError("Failed to parse limit", err))
-			return
-		}
+	queryOptions, err := eventQueryOptionsFromRequest(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
 	}
 
 	events, err := h.DatabaseService.ListEventsForSession(r.Context(), sessionID, userID, queryOptions)
@@ -267,8 +264,15 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 
 	log.Info("Successfully retrieved session")
 	resp := SessionResponse{
-		Session: session,
-		Events:  events,
+		Session:      session,
+		Events:       events,
+		EventsSource: eventsSourceDatabase,
+	}
+	// Cheap discriminator so clients can tell "no events" from "events live in the actor".
+	// This endpoint itself never wakes actors — it must stay cheap on every chat page load.
+	if sa, saErr := h.substrateSandboxAgentForSession(r.Context(), session); saErr == nil &&
+		substrate.SandboxAgentUsesDurableDirSessions(sa) {
+		resp.EventsSource = eventsSourceSandbox
 	}
 	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID && sc.ReadOnly {
 		t := true
@@ -276,6 +280,167 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	}
 	data := api.NewResponse(resp, "Successfully retrieved session", false)
 	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// eventQueryOptionsFromRequest parses the shared order/after/limit query params for event listings.
+func eventQueryOptionsFromRequest(r *http.Request) (database.QueryOptions, error) {
+	opts := database.QueryOptions{}
+	if r.URL.Query().Get("order") == "asc" {
+		opts.OrderAsc = true
+	}
+	if after := r.URL.Query().Get("after"); after != "" {
+		afterTime, err := time.Parse(time.RFC3339, after)
+		if err != nil {
+			return opts, fmt.Errorf("failed to parse after timestamp: %w", err)
+		}
+		opts.After = afterTime
+	}
+	if limit := r.URL.Query().Get("limit"); limit != "" {
+		var err error
+		opts.Limit, err = strconv.Atoi(limit)
+		if err != nil {
+			return opts, fmt.Errorf("failed to parse limit: %w", err)
+		}
+	}
+	return opts, nil
+}
+
+// HandleListEventsForSession handles GET /api/sessions/{session_id}/events. Without ?source (or
+// with source=database) it serves the controller database rows — the cheap path for Deployment
+// agents and legacy rows. With ?source=sandbox it reads through to the session actor's local
+// store.
+func (h *SessionsHandler) HandleListEventsForSession(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "list-events")
+
+	sessionID, err := GetPathParam(r, "session_id")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("session_id", sessionID)
+
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+	log = log.WithValues("userID", userID)
+
+	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+		return
+	}
+
+	queryOptions, err := eventQueryOptionsFromRequest(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
+	}
+
+	source := r.URL.Query().Get("source")
+	switch source {
+	case "", eventsSourceDatabase:
+		events, err := h.DatabaseService.ListEventsForSession(r.Context(), sessionID, userID, queryOptions)
+		if err != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to get events for session", err))
+			return
+		}
+		log.Info("Successfully listed session events", "source", eventsSourceDatabase, "count", len(events))
+		RespondWithJSON(w, http.StatusOK, api.NewResponse(events, "Successfully listed session events", false))
+	case eventsSourceSandbox:
+		sa, err := h.substrateSandboxAgentForSession(r.Context(), session)
+		if err != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to resolve session agent", err))
+			return
+		}
+		if !substrate.SandboxAgentUsesDurableDirSessions(sa) {
+			w.RespondWithError(errors.NewBadRequestError(
+				"source=sandbox requires a substrate SandboxAgent with durable-dir session storage", nil))
+			return
+		}
+		events, err := h.fetchSandboxEvents(r.Context(), sa, sessionID, userID)
+		if err != nil {
+			switch {
+			case stderrors.Is(err, substrate.ErrNoFreeWorkers):
+				w.RespondWithError(errors.NewServiceUnavailableError("No free sandbox workers to resume the session actor", err))
+			default:
+				w.RespondWithError(errors.NewBadGatewayError("Failed to read session events from the session actor", err))
+			}
+			return
+		}
+		for _, e := range events {
+			e.SessionID = sessionID
+			e.UserID = userID
+		}
+		events = applyEventQueryOptions(events, queryOptions)
+		log.Info("Successfully listed session events", "source", eventsSourceSandbox, "count", len(events))
+		RespondWithJSON(w, http.StatusOK, api.NewResponse(events, "Successfully listed session events", false))
+	default:
+		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Unknown events source %q", source), nil))
+	}
+}
+
+// fetchSandboxEvents wraps the actor read-through with a single-flight group so concurrent
+// reads of the same session share one resume→fetch→suspend cycle.
+func (h *SessionsHandler) fetchSandboxEvents(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID, userID string) ([]*database.Event, error) {
+	key := sessionID + "\x00" + userID
+	body, err, _ := h.sandboxEventsGroup.Do(key, func() (any, error) {
+		return h.SubstrateSandboxActorBackend.FetchLocalSessionEvents(ctx, sa, sessionID, userID)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return decodeSandboxEvents(body.([]byte))
+}
+
+func decodeSandboxEvents(body []byte) ([]*database.Event, error) {
+	var events []*database.Event
+	if err := json.Unmarshal(body, &events); err != nil {
+		return nil, fmt.Errorf("decode actor local events response: %w", err)
+	}
+	return events, nil
+}
+
+// applyEventQueryOptions mirrors ListEventsForSession's semantics on actor-supplied rows
+// (ascending input): created_at strictly after the cutoff, newest-first unless asc, then limit.
+func applyEventQueryOptions(events []*database.Event, opts database.QueryOptions) []*database.Event {
+	if !opts.After.IsZero() {
+		filtered := make([]*database.Event, 0, len(events))
+		for _, e := range events {
+			if e.CreatedAt.After(opts.After) {
+				filtered = append(filtered, e)
+			}
+		}
+		events = filtered
+	}
+	if !opts.OrderAsc {
+		slices.Reverse(events)
+	}
+	if opts.Limit > 0 && len(events) > opts.Limit {
+		events = events[:opts.Limit]
+	}
+	return events
+}
+
+// substrateSandboxAgentForSession resolves the session's agent to a substrate SandboxAgent CR,
+// returning nil when the session has no agent or its agent is anything else.
+func (h *SessionsHandler) substrateSandboxAgentForSession(ctx context.Context, session *database.Session) (*v1alpha2.SandboxAgent, error) {
+	if session == nil || session.AgentID == nil {
+		return nil, nil
+	}
+	agent, err := h.DatabaseService.GetAgent(ctx, *session.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	if agent.WorkloadType != v1alpha2.WorkloadModeSandbox {
+		return nil, nil
+	}
+	sa, isSubstrate, err := h.lookupSubstrateSandboxAgent(ctx, utils.ConvertToKubernetesIdentifier(*session.AgentID))
+	if err != nil || !isSubstrate {
+		return nil, err
+	}
+	return sa, nil
 }
 
 // HandleUpdateSession handles PUT and PATCH /api/sessions/{session_id} requests.
@@ -359,14 +524,9 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 
 	var substrateCleanup *v1alpha2.SandboxAgent
 	if h.SubstrateSandboxActorBackend != nil {
-		session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
-		if getErr == nil && session.AgentID != nil {
-			if agent, agentErr := h.DatabaseService.GetAgent(r.Context(), *session.AgentID); agentErr == nil &&
-				agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
-				agentRef := utils.ConvertToKubernetesIdentifier(*session.AgentID)
-				if sa, isSubstrate, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), agentRef); lookupErr == nil && isSubstrate {
-					substrateCleanup = sa
-				}
+		if session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID); getErr == nil {
+			if sa, lookupErr := h.substrateSandboxAgentForSession(r.Context(), session); lookupErr == nil {
+				substrateCleanup = sa
 			}
 		}
 	}

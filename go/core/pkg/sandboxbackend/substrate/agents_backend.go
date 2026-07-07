@@ -6,7 +6,6 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -64,34 +63,26 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 		return nil, err
 	}
 
-	// Clone the rendered config into a per-config-hash Secret that the ActorTemplate references
-	// (see kagentAgentSecretEnv). The golden snapshot materializes config.json from this Secret at
-	// build time; a per-hash name guarantees each distinct config gets its own Secret, so substrate
-	// cannot hand a stale cached config value to a new golden (which previously froze the wrong
-	// provider's config into the golden). The Secret is owner-referenced to the SandboxAgent by the
-	// translator, so it is GC'd with the agent; like the ActorTemplate it is retained across config
-	// changes (the substrate prune list is empty) and removed only on agent delete.
+	// Publish the rendered config under the agent's STABLE Secret name, updated in place on
+	// every config change (the ActorTemplate references it via secretKeyRef env, re-resolved by
+	// ate-api at each Data-scope resume — that's how soft config rollouts reach existing
+	// actors). The Secret is owner-referenced to the SandboxAgent, so it is GC'd with the agent.
 	if configSecret := buildSandboxAgentConfigSecret(sa, in); configSecret != nil {
 		return []client.Object{configSecret, tmpl}, nil
 	}
 	return []client.Object{tmpl}, nil
 }
 
-// buildSandboxAgentConfigSecret clones the rendered config Secret under the per-config-hash name
-// the ActorTemplate references. Returns nil when there is no config to clone or no hash (the
-// ActorTemplate then falls back to the translator's per-agent Secret).
+// buildSandboxAgentConfigSecret copies the rendered config Secret under the agent's stable
+// Secret name. Returns nil when there is no rendered config.
 func buildSandboxAgentConfigSecret(sa *v1alpha2.SandboxAgent, in sandboxbackend.BuildInput) *corev1.Secret {
 	if in.ConfigSecret == nil {
-		return nil
-	}
-	configHash := shortConfigHash(in.PodTemplate.Annotations[consts.ConfigHashAnnotation])
-	if configHash == "" {
 		return nil
 	}
 	return &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      sandboxAgentConfigSecretName(sa, configHash),
+			Name:      sandboxAgentConfigSecretName(sa),
 			Namespace: sa.Namespace,
 			Labels:    sandboxAgentLifecycleLabels(sa),
 		},

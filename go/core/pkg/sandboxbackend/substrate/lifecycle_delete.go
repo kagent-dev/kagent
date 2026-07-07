@@ -43,7 +43,8 @@ func (p *Lifecycle) CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha2.A
 }
 
 func deleteGoldenActor(ctx context.Context, ateClient *Client, actorID string) (bool, error) {
-	return deleteActor(ctx, ateClient, actorID)
+	// Golden actors are created by atecontroller in substrate's reserved ate-golden atespace.
+	return deleteActorIn(ctx, ateClient, goldenActorAtespace, actorID)
 }
 
 func (p *Lifecycle) goldenActorID(ctx context.Context, tmplKey types.NamespacedName) (string, error) {

@@ -134,12 +134,13 @@ func ActorID(ah *v1alpha2.AgentHarness) string {
 	return raw
 }
 
-// ActorHost returns the atenet router Host header value for the actor.
+// ActorHost returns the atenet router Host header value for a kagent-created actor
+// ("<actor id>.<atespace>.<suffix>" — the atespace segment is part of the actor's DNS name).
 func ActorHost(actorID string, suffix string) string {
 	if suffix == "" {
 		suffix = defaultActorHostSuffix
 	}
-	return actorID + "." + suffix
+	return actorID + "." + KagentAtespace + "." + suffix
 }
 
 func generatedActorTemplateKey(ah *v1alpha2.AgentHarness) (string, string) {

@@ -262,6 +262,90 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			require.True(t, names["KAGENT_NAMESPACE"], "KAGENT_NAMESPACE must be a literal env var")
 			require.Equal(t, tc.wantConfigEnv, names["KAGENT_CONFIG_JSON"], "declarative agents materialize config from secret env; BYO does not")
 			require.Equal(t, tc.wantLibEnv, names["LD_LIBRARY_PATH"], "Python declarative re-supplies the image LD_LIBRARY_PATH that substrate drops")
+
+			// Durable-dir session storage defaults on for python declarative agents only
+			// (asserted in detail in TestBuildSandboxAgentActorTemplateDurableDirSessions).
+			wantDurableDir := tc.wantLibEnv // true exactly for python declarative
+			require.Equal(t, wantDurableDir, len(tmpl.Spec.Volumes) == 1)
+			require.Equal(t, wantDurableDir, names[sessionDBURLEnv])
+		})
+	}
+}
+
+// TestBuildSandboxAgentActorTemplateDurableDirSessions covers the durable-dir session-store gate:
+// default-on for python declarative agents, kagent.dev/session-store: http as the opt-out, never
+// for Go declarative or BYO (the Go ADK has no local session store yet; BYO images manage their
+// own state).
+func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
+	t.Parallel()
+
+	const pinnedImage = "registry.example/kagent-dev/kagent/app@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	cmd := "/serve"
+	wpKey := types.NamespacedName{Namespace: "kagent", Name: "kagent-default"}
+
+	agentFor := func(spec v1alpha2.AgentSpec, annotations map[string]string) *v1alpha2.SandboxAgent {
+		return &v1alpha2.SandboxAgent{
+			ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent", Annotations: annotations},
+			Spec:       v1alpha2.SandboxAgentSpec{AgentSpec: spec},
+		}
+	}
+	pythonSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}}
+	goSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}}
+	byoSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}}
+	optOut := map[string]string{sessionStoreAnnotation: sessionStoreHTTP}
+
+	for _, tc := range []struct {
+		name      string
+		sa        *v1alpha2.SandboxAgent
+		container corev1.Container
+		want      bool
+	}{
+		{name: "python defaults on", sa: agentFor(pythonSpec, nil), want: true},
+		{name: "python opts out via annotation", sa: agentFor(pythonSpec, optOut), want: false},
+		{name: "python with other annotation value stays on", sa: agentFor(pythonSpec, map[string]string{sessionStoreAnnotation: "durable-dir"}), want: true},
+		{name: "go stays on http", sa: agentFor(goSpec, nil), want: false},
+		{name: "byo stays on http", sa: agentFor(byoSpec, nil), container: corev1.Container{Command: []string{"/serve"}}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := newTestLifecycle(t)
+			container := tc.container
+			container.Name = defaultKagentContainer
+			container.Image = pinnedImage
+			podTemplate := corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{container}}}
+
+			tmpl, err := p.buildSandboxAgentActorTemplate(tc.sa, wpKey, podTemplate)
+			require.NoError(t, err)
+			require.Len(t, tmpl.Spec.Containers, 1)
+			c := tmpl.Spec.Containers[0]
+
+			if !tc.want {
+				require.Empty(t, tmpl.Spec.Volumes)
+				require.Empty(t, c.VolumeMounts)
+				require.Nil(t, c.Readyz)
+				require.False(t, actorEnvNames(c.Env)[sessionDBURLEnv])
+				return
+			}
+
+			require.Len(t, tmpl.Spec.Volumes, 1)
+			require.Equal(t, durableDataVolume, tmpl.Spec.Volumes[0].Name)
+			require.NotNil(t, tmpl.Spec.Volumes[0].DurableDir)
+			require.Equal(t, []atev1alpha1.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}}, c.VolumeMounts)
+			require.NotNil(t, c.Readyz)
+			require.Equal(t, "/health", c.Readyz.HTTPGet.Path)
+			require.Equal(t, substrateKagentListenPort, c.Readyz.HTTPGet.Port)
+			var dbURL string
+			for _, e := range c.Env {
+				if e.Name == sessionDBURLEnv {
+					require.NotNil(t, e.Value)
+					dbURL = *e.Value
+				}
+			}
+			require.Equal(t, "sqlite+aiosqlite:////data/sessions.db", dbURL)
+			// Durable-dir sessions suspend with Data scope (cheap per-turn snapshots + config
+			// refresh on resume); pause keeps Full for the golden build.
+			require.Equal(t, atev1alpha1.SnapshotScopeData, tmpl.Spec.SnapshotsConfig.OnCommit)
+			require.Equal(t, atev1alpha1.SnapshotScopeFull, tmpl.Spec.SnapshotsConfig.OnPause)
 		})
 	}
 }

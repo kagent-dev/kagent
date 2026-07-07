@@ -13,7 +13,7 @@ func TestGatewayRouterTarget(t *testing.T) {
 	if target.String() != DefaultAtenetRouterURL {
 		t.Fatalf("target = %s, want %s", target, DefaultAtenetRouterURL)
 	}
-	if host != "ahr-kagent-my-claw.actors.resources.substrate.ate.dev" {
+	if host != "ahr-kagent-my-claw.kagent.actors.resources.substrate.ate.dev" {
 		t.Fatalf("host = %q", host)
 	}
 }
@@ -27,7 +27,7 @@ func TestGatewayRouterTargetCustomURL(t *testing.T) {
 	if target.Host != "atenet-router.custom.svc:8080" {
 		t.Fatalf("target host = %q", target.Host)
 	}
-	if host != "actor-1.actors.resources.substrate.ate.dev" {
+	if host != "actor-1.kagent.actors.resources.substrate.ate.dev" {
 		t.Fatalf("host = %q", host)
 	}
 }
