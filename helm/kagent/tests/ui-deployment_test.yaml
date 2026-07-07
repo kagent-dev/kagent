@@ -76,6 +76,35 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8080
 
+  - it: should set global annotations on deployment
+    template: ui-deployment.yaml
+    set:
+      annotations:
+        app.kubernetes.io/managed-by: "custom"
+    asserts:
+      - isSubset:
+          path: metadata.annotations
+          content:
+            app.kubernetes.io/managed-by: "custom"
+
+  - it: should set ui annotations on deployment and override global ones
+    template: ui-deployment.yaml
+    set:
+      annotations:
+        global-key: "global-value"
+        shared-key: "global-wins"
+      ui:
+        annotations:
+          ui-key: "ui-value"
+          shared-key: "ui-wins"
+    asserts:
+      - isSubset:
+          path: metadata.annotations
+          content:
+            global-key: "global-value"
+            ui-key: "ui-value"
+            shared-key: "ui-wins"
+
   - it: should set podAnnotations
     template: ui-deployment.yaml
     set:
