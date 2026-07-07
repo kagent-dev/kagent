@@ -418,20 +418,40 @@ type EmbeddingConfig struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	BaseUrl  string `json:"base_url,omitempty"`
+	// Endpoint, Deployment, and APIVersion are the Azure data-plane coordinates
+	// (account endpoint / deployment name / api-version). They are currently
+	// populated only for the "foundry" provider, whose auth is implicit
+	// (FOUNDRY_API_KEY, else DefaultAzureCredential).
+	//
+	// TODO: these are not Foundry-specific. The "azure_openai" provider uses the
+	// same triplet (v1alpha2.AzureOpenAIConfig azureEndpoint/azureDeployment/
+	// apiVersion) and should be migrated onto these fields. Today
+	// azureOpenAIProvider reads EmbeddingConfig.BaseUrl, which
+	// ModelToEmbeddingConfig never sets for AzureOpenAI, so azure_openai memory
+	// embeddings do not work on the Go runtime.
+	Endpoint   string `json:"endpoint,omitempty"`
+	Deployment string `json:"deployment,omitempty"`
+	APIVersion string `json:"api_version,omitempty"`
 }
 
 func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Type     string `json:"type"`
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
-		BaseUrl  string `json:"base_url"`
+		Type       string `json:"type"`
+		Provider   string `json:"provider"`
+		Model      string `json:"model"`
+		BaseUrl    string `json:"base_url"`
+		Endpoint   string `json:"endpoint"`
+		Deployment string `json:"deployment"`
+		APIVersion string `json:"api_version"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
 	e.Model = tmp.Model
 	e.BaseUrl = tmp.BaseUrl
+	e.Endpoint = tmp.Endpoint
+	e.Deployment = tmp.Deployment
+	e.APIVersion = tmp.APIVersion
 	if tmp.Provider != "" {
 		e.Provider = tmp.Provider
 	} else {
@@ -469,6 +489,11 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 	case *SAPAICore:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+	case *Foundry:
+		e.Model = v.Model
+		e.Endpoint = v.Endpoint
+		e.Deployment = v.Deployment
+		e.APIVersion = v.APIVersion
 	default:
 		e.Model = ""
 	}
