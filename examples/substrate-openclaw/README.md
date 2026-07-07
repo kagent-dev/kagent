@@ -40,7 +40,7 @@ on the kagent chart), prefix these keys with `substrate.` — e.g.
 Then install the Substrate platform and kagent:
 
 ```bash
-export SUBSTRATE_VERSION=0.0.7
+export SUBSTRATE_VERSION=0.0.8
 
 helm upgrade --install substrate-crds \
   oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds \
