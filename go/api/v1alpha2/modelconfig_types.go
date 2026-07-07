@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha2
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -313,6 +314,16 @@ type SAPAICoreConfig struct {
 	AuthURL string `json:"authUrl,omitempty"`
 }
 
+// FoundryEndpointSource references an external source for the Foundry endpoint,
+// such as a ConfigMap populated by Azure Service Operator (ASO) when it
+// provisions the Azure AI Services / Foundry account.
+// +kubebuilder:validation:XValidation:message="configMapKeyRef is required",rule="has(self.configMapKeyRef)"
+type FoundryEndpointSource struct {
+	// ConfigMapKeyRef selects a key of a ConfigMap containing the Foundry endpoint.
+	// +optional
+	ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
+}
+
 // FoundryConfig contains Azure AI Foundry-specific configuration options.
 //
 // Authentication is implicit and mirrors the other cloud providers: if
@@ -320,12 +331,20 @@ type SAPAICoreConfig struct {
 // runtime falls back to DefaultAzureCredential (which resolves to Azure
 // Workload Identity in-cluster, or the az CLI in local development). There is
 // no auth-type selector.
-// +kubebuilder:validation:XValidation:message="foundry.endpoint is required",rule="has(self.endpoint) && size(self.endpoint) > 0"
+// +kubebuilder:validation:XValidation:message="foundry.endpoint and foundry.endpointFrom are mutually exclusive",rule="!(has(self.endpoint) && size(self.endpoint) > 0 && has(self.endpointFrom))"
+// +kubebuilder:validation:XValidation:message="foundry.endpoint or foundry.endpointFrom is required",rule="(has(self.endpoint) && size(self.endpoint) > 0) || has(self.endpointFrom)"
 type FoundryConfig struct {
 	// Endpoint is the Foundry or Azure AI Services account endpoint
 	// (e.g., https://my-account.cognitiveservices.azure.com/).
+	// Mutually exclusive with EndpointFrom.
 	// +optional
 	Endpoint string `json:"endpoint,omitempty"`
+
+	// EndpointFrom resolves the Foundry endpoint from an external source, such
+	// as a ConfigMap written by Azure Service Operator. Mutually exclusive with
+	// Endpoint.
+	// +optional
+	EndpointFrom *FoundryEndpointSource `json:"endpointFrom,omitempty"`
 
 	// Deployment is the Foundry model deployment name.
 	// +required

@@ -447,6 +447,31 @@ func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespa
 	return adk.ModelToEmbeddingConfig(embModel), embMdd, embHash, nil
 }
 
+// resolveFoundryEndpoint returns the Foundry endpoint, preferring the inline
+// value and otherwise resolving it from the referenced ConfigMap (endpointFrom),
+// which lets Azure Service Operator own the account endpoint.
+func (a *adkApiTranslator) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha2.FoundryConfig) (string, error) {
+	if cfg.Endpoint != "" {
+		return cfg.Endpoint, nil
+	}
+	if cfg.EndpointFrom == nil || cfg.EndpointFrom.ConfigMapKeyRef == nil {
+		return "", nil
+	}
+	ref := cfg.EndpointFrom.ConfigMapKeyRef
+	cm := &corev1.ConfigMap{}
+	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, cm); err != nil {
+		return "", fmt.Errorf("failed to get Foundry endpoint config map %s: %w", ref.Name, err)
+	}
+	value, ok := cm.Data[ref.Key]
+	if !ok {
+		if ref.Optional != nil && *ref.Optional {
+			return "", nil
+		}
+		return "", fmt.Errorf("the Foundry endpoint config map %s does not contain key %q", ref.Name, ref.Key)
+	}
+	return value, nil
+}
+
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, []byte, error) {
 	model := &v1alpha2.ModelConfig{}
 	err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: modelConfig}, model)
@@ -893,6 +918,16 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		cfg := model.Spec.Foundry
 
+		// Resolve the endpoint, which may come from an inline value or from a
+		// ConfigMap written by Azure Service Operator (endpointFrom).
+		endpoint, err := a.resolveFoundryEndpoint(ctx, namespace, cfg)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if endpoint == "" {
+			return nil, nil, nil, fmt.Errorf("foundry endpoint could not be resolved: set foundry.endpoint or a foundry.endpointFrom whose ConfigMap key exists")
+		}
+
 		// Implicit auth: mount the API key only when a secret is provided;
 		// otherwise the runtime uses DefaultAzureCredential (Workload Identity).
 		if model.Spec.APIKeySecret != "" {
@@ -909,14 +944,14 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			})
 		}
 
-		if cfg.Endpoint != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+		// Endpoint is validated above; Deployment (required) and APIVersion
+		// (defaulted) are guaranteed by the CRD — all three are always set.
+		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars,
+			corev1.EnvVar{
 				Name:  env.FoundryEndpoint.Name(),
-				Value: cfg.Endpoint,
-			})
-		}
-		if cfg.Deployment != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Value: endpoint,
+			},
+			corev1.EnvVar{
 				Name:  env.FoundryDeployment.Name(),
 				Value: cfg.Deployment,
 			},
@@ -931,7 +966,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				Model:   model.Spec.Model,
 				Headers: model.Spec.DefaultHeaders,
 			},
-			Endpoint:   cfg.Endpoint,
+			Endpoint:   endpoint,
 			Deployment: cfg.Deployment,
 			APIVersion: cfg.APIVersion,
 		}

@@ -86,7 +86,91 @@ func TestTranslateModelFoundryAPIKey(t *testing.T) {
 	assert.Equal(t, "2025-01-01", envVarValue(t, deploymentData.EnvVars, env.FoundryAPIVersion.Name()))
 }
 
-// TestRequireFoundryGoRuntime verifies Foundry is gated to the Go runtime.
+// TestTranslateModelFoundryEndpointFrom covers the ASO interop path: the
+// endpoint is resolved from a ConfigMap referenced by endpointFrom rather than
+// an inline value.
+func TestTranslateModelFoundryEndpointFrom(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := foundryModelConfig("foundry-model")
+	modelConfig.Spec.Foundry.Endpoint = ""
+	modelConfig.Spec.Foundry.EndpointFrom = &v1alpha2.FoundryEndpointSource{
+		ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+			Key:                  "endpoint",
+		},
+	}
+	endpointCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+		Data:       map[string]string{"endpoint": "https://aso.cognitiveservices.azure.com/"},
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig, endpointCM).Build()
+	tr := &adkApiTranslator{kube: kubeClient}
+
+	model, deploymentData, _, err := tr.translateModel(context.Background(), "default", "foundry-model")
+	require.NoError(t, err)
+
+	foundryModel, ok := model.(*adk.Foundry)
+	require.True(t, ok)
+	assert.Equal(t, "https://aso.cognitiveservices.azure.com/", foundryModel.Endpoint)
+	assert.Equal(t, "https://aso.cognitiveservices.azure.com/", envVarValue(t, deploymentData.EnvVars, env.FoundryEndpoint.Name()))
+}
+
+// TestTranslateModelFoundryEndpointFromMissingKey verifies a required
+// endpointFrom key that is absent from the ConfigMap surfaces an error.
+func TestTranslateModelFoundryEndpointFromMissingKey(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := foundryModelConfig("foundry-model")
+	modelConfig.Spec.Foundry.Endpoint = ""
+	modelConfig.Spec.Foundry.EndpointFrom = &v1alpha2.FoundryEndpointSource{
+		ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+			Key:                  "endpoint",
+		},
+	}
+	endpointCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+		Data:       map[string]string{"other": "value"},
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig, endpointCM).Build()
+	tr := &adkApiTranslator{kube: kubeClient}
+
+	model, _, _, err := tr.translateModel(context.Background(), "default", "foundry-model")
+	require.ErrorContains(t, err, "does not contain key")
+	require.Nil(t, model)
+}
+
+// TestTranslateModelFoundryEndpointUnresolved verifies that when the endpoint
+// resolves to empty (an optional endpointFrom key that is absent), translation
+// fails fast rather than emitting an agent with no endpoint.
+func TestTranslateModelFoundryEndpointUnresolved(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	optional := true
+	modelConfig := foundryModelConfig("foundry-model")
+	modelConfig.Spec.Foundry.Endpoint = ""
+	modelConfig.Spec.Foundry.EndpointFrom = &v1alpha2.FoundryEndpointSource{
+		ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+			Key:                  "endpoint",
+			Optional:             &optional,
+		},
+	}
+	endpointCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+		Data:       map[string]string{"other": "value"},
+	}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig, endpointCM).Build()
+	tr := &adkApiTranslator{kube: kubeClient}
+
+	model, _, _, err := tr.translateModel(context.Background(), "default", "foundry-model")
+	require.ErrorContains(t, err, "endpoint could not be resolved")
+	require.Nil(t, model)
+}
 func TestRequireFoundryGoRuntime(t *testing.T) {
 	tests := []struct {
 		name      string
