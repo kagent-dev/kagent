@@ -18,7 +18,7 @@ const (
 )
 
 type actorGetter interface {
-	GetActor(ctx context.Context, actorID string) (*ateapipb.Actor, error)
+	GetActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error)
 }
 
 // waitForActorReachableViaAtenet blocks until ate-api reports the actor RUNNING and
@@ -27,7 +27,7 @@ func waitForActorReachableViaAtenet(
 	ctx context.Context,
 	actors actorGetter,
 	httpClient *http.Client,
-	routerURL, actorID string,
+	routerURL, atespace, actorID string,
 ) error {
 	if actors == nil {
 		return fmt.Errorf("substrate ate-api client is required")
@@ -43,7 +43,7 @@ func waitForActorReachableViaAtenet(
 	waitCtx, cancel := context.WithTimeout(ctx, defaultActorReachabilityTimeout)
 	defer cancel()
 
-	target, host, err := GatewayRouterTarget(routerURL, actorID)
+	target, host, err := GatewayRouterTarget(routerURL, atespace, actorID)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func waitForActorReachableViaAtenet(
 	defer ticker.Stop()
 
 	for {
-		actor, getErr := actors.GetActor(waitCtx, actorID)
+		actor, getErr := actors.GetActor(waitCtx, atespace, actorID)
 		if getErr == nil && actor.GetStatus() == ateapipb.Actor_STATUS_RUNNING {
 			statusCode, probeErr := probeActorViaAtenetRouter(waitCtx, httpClient, probeURL, host)
 			if probeErr == nil && statusCode < http.StatusInternalServerError {
