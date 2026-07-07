@@ -503,6 +503,14 @@ func buildPodTemplate(
 	}
 	podTemplateAnnotations[configHashAnnotation] = fmt.Sprintf("%d", configHash)
 
+	// The Go ADK runtime serves GenAI Prometheus metrics (gen_ai.client.token.usage)
+	// on /metrics of the agent port; advertise it for Prometheus pod discovery.
+	if agentRuntime(manifestCtx.agent) == v1alpha2.DeclarativeRuntime_Go {
+		podTemplateAnnotations["prometheus.io/scrape"] = "true"
+		podTemplateAnnotations["prometheus.io/port"] = fmt.Sprintf("%d", dep.Port)
+		podTemplateAnnotations["prometheus.io/path"] = "/metrics"
+	}
+
 	probeConf := getRuntimeProbeConfig(agentRuntime(manifestCtx.agent))
 
 	var cmd []string

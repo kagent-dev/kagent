@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -486,4 +487,59 @@ func TestRuntime_CustomRepositoryPath_WithSkillsUsesFullTag(t *testing.T) {
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "my-registry.com/custom/golang-adk", "Image should use custom repository with golang-adk")
 	assert.Contains(t, container.Image, "@sha256:test-go-full", "Go runtime with skills should use digest-pinned golang-adk-full image")
+}
+
+// deployAgent translates an agent and returns its Deployment from the manifest.
+func deployAgent(t *testing.T, agent *v1alpha2.Agent, modelConfig *v1alpha2.ModelConfig) *appsv1.Deployment {
+	t.Helper()
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(agent, modelConfig).Build()
+	trans := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: agent.Namespace, Name: modelConfig.Name}, nil, "", nil)
+	result, err := translator.TranslateAgent(context.Background(), trans, agent)
+	require.NoError(t, err)
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			return dep
+		}
+	}
+	t.Fatal("Deployment not found in manifest")
+	return nil
+}
+
+func goOrPythonAgent(name string, runtime v1alpha2.DeclarativeRuntime) (*v1alpha2.Agent, *v1alpha2.ModelConfig) {
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Runtime: runtime, SystemMessage: "test", ModelConfig: "test-model",
+			},
+		},
+	}
+	mc := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-model", Namespace: "test"},
+		Spec:       v1alpha2.ModelConfigSpec{Provider: "OpenAI", Model: "gpt-4o"},
+	}
+	return agent, mc
+}
+
+// TestRuntime_GoRuntimeExposesMetricsScrapeAnnotations verifies Go-runtime agent
+// pods advertise the Prometheus /metrics endpoint (gen_ai.client.token.usage),
+// and that Python-runtime pods (not instrumented) do not.
+func TestRuntime_GoRuntimeExposesMetricsScrapeAnnotations(t *testing.T) {
+	withGoRuntimeDigests(t)
+	withPythonRuntimeDigest(t)
+
+	goAgent, mc := goOrPythonAgent("test-go-metrics", v1alpha2.DeclarativeRuntime_Go)
+	goDep := deployAgent(t, goAgent, mc)
+	ann := goDep.Spec.Template.Annotations
+	assert.Equal(t, "true", ann["prometheus.io/scrape"], "Go runtime pods should be scrape-annotated")
+	assert.Equal(t, "/metrics", ann["prometheus.io/path"])
+	require.Len(t, goDep.Spec.Template.Spec.Containers, 1)
+	assert.Equal(t, fmt.Sprintf("%d", goDep.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort), ann["prometheus.io/port"])
+
+	pyAgent, _ := goOrPythonAgent("test-py-metrics", v1alpha2.DeclarativeRuntime_Python)
+	pyDep := deployAgent(t, pyAgent, mc)
+	assert.Empty(t, pyDep.Spec.Template.Annotations["prometheus.io/scrape"], "Python runtime pods should not be scrape-annotated")
 }

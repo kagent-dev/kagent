@@ -242,7 +242,7 @@ func resolveModelLabels(agentConfig *adk.AgentConfig) (model, provider string) {
 	if agentConfig == nil || agentConfig.Model == nil {
 		return "", ""
 	}
-	return config.ModelName(agentConfig.Model), agentConfig.Model.GetType()
+	return config.ModelName(agentConfig.Model), telemetry.SemconvProviderName(agentConfig.Model.GetType())
 }
 
 func deriveAppName(kagentName, kagentNamespace string, agentCard *a2atype.AgentCard, logger logr.Logger) string {
