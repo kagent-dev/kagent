@@ -205,7 +205,18 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
             # body closes, freezing any unexported spans into the snapshot.
             # Run in a thread so the blocking gRPC export (bounded by the
             # flush timeout) doesn't stall the event loop.
-            await asyncio.to_thread(force_flush_tracing)
+            try:
+                await asyncio.to_thread(force_flush_tracing)
+            except asyncio.CancelledError:
+                # A cancellation landing during this await (same cross-task
+                # cancel-scope corruption handled above) must not escape
+                # execute() — that would 500 an otherwise-complete request.
+                # The flush is best-effort; clear the cancellation and move on.
+                current_task = asyncio.current_task()
+                if current_task is not None:
+                    while current_task.uncancel() > 0:
+                        pass
+                logger.warning("Cancelled while flushing spans; skipping flush")
 
     async def _execute_impl(
         self,
