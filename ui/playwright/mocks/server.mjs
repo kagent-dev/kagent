@@ -89,6 +89,8 @@ const json = (res, status, body) => {
 };
 
 const server = createServer((req, res) => {
+  // req.method/url are typed string|undefined; default them so a malformed
+  // request can't throw on the split below.
   const method = req.method ?? "GET";
   const url = req.url ?? "/";
   const pathname = url.split("?")[0];
