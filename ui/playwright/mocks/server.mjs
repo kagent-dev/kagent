@@ -89,7 +89,8 @@ const json = (res, status, body) => {
 };
 
 const server = createServer((req, res) => {
-  const { method, url } = req;
+  const method = req.method ?? "GET";
+  const url = req.url ?? "/";
   const pathname = url.split("?")[0];
 
   // Control + health endpoints.
