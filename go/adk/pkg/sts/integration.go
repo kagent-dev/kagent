@@ -132,8 +132,8 @@ func (i *STSIntegration) ExchangeToken(
 	ctx context.Context,
 	subjectToken string,
 	subjectTokenType TokenType,
-	resource any,
-	audience any,
+	resource []string,
+	audience []string,
 	scope string,
 	requestedTokenType TokenType,
 ) (*TokenExchangeResponse, error) {
@@ -153,8 +153,8 @@ func (i *STSIntegration) ExchangeTokenWithActorToken(
 	subjectToken string,
 	subjectTokenType TokenType,
 	actorToken string,
-	resource any,
-	audience any,
+	resource []string,
+	audience []string,
 	scope string,
 	requestedTokenType TokenType,
 ) (*TokenExchangeResponse, error) {

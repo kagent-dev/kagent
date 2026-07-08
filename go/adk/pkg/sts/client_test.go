@@ -93,13 +93,64 @@ func TestSTSClientDelegateBuildsRequestData(t *testing.T) {
 		"actor-token",
 		TokenTypeJWT,
 		nil,
-		"https://api.example.com",
+		[]string{"https://api.example.com"},
 		"read write",
 		"",
 		nil,
 	)
 	if err != nil {
 		t.Fatalf("Delegate() error = %v", err)
+	}
+}
+
+func TestBuildFormDataResourceAudience(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		resource []string
+		audience []string
+	}{
+		{name: "single", resource: []string{"https://mcp.example.com"}, audience: []string{"mcp-backend"}},
+		{name: "multiple resources", resource: []string{"https://a.example.com", "https://b.example.com"}},
+		{name: "audience only", audience: []string{"mcp-backend"}},
+		{name: "none omits both keys"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			data := (&STSClient{}).buildFormData(&TokenExchangeRequest{
+				GrantType:        GrantTypeTokenExchange,
+				SubjectToken:     "subject",
+				SubjectTokenType: TokenTypeJWT,
+				Resource:         tt.resource,
+				Audience:         tt.audience,
+			})
+			assertFormMulti(t, data, "resource", tt.resource)
+			assertFormMulti(t, data, "audience", tt.audience)
+		})
+	}
+}
+
+// assertFormMulti checks key carries exactly want in order; an empty want
+// means the key must be absent, never present-but-empty.
+func assertFormMulti(t *testing.T, form url.Values, key string, want []string) {
+	t.Helper()
+	got := form[key]
+	if len(want) == 0 {
+		if form.Has(key) {
+			t.Fatalf("%s = %v, want key absent", key, got)
+		}
+		return
+	}
+	if len(got) != len(want) {
+		t.Fatalf("%s = %v, want %v", key, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s[%d] = %q, want %q", key, i, got[i], want[i])
+		}
 	}
 }
 

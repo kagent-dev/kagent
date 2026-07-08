@@ -59,7 +59,7 @@ func (f fakeSession) LastUpdateTime() time.Time { return time.Time{} }
 
 func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	t.Parallel()
-	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), "", "")
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), nil, nil)
 	plugin.setCachedToken("sess-123", "token-abc", 0)
 
 	headers := plugin.HeaderProvider(fakeSessionContext{
@@ -120,7 +120,7 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 		t.Fatalf("NewSTSIntegration() error = %v", err)
 	}
 
-	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), "", "")
+	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), nil, nil)
 	for _, sessionID := range []string{"sess-one", "sess-two"} {
 		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
 		if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{
@@ -144,15 +144,15 @@ func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		resource     string
-		audience     string
+		resource     []string
+		audience     []string
 		wantResource string
 		wantAudience string
 	}{
 		{
 			name:         "configured target is sent",
-			resource:     "https://mcp.example.com",
-			audience:     "mcp-backend",
+			resource:     []string{"https://mcp.example.com"},
+			audience:     []string{"mcp-backend"},
 			wantResource: "https://mcp.example.com",
 			wantAudience: "mcp-backend",
 		},
