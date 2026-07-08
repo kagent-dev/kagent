@@ -121,7 +121,7 @@ Configures LLM provider credentials and model parameters.
 ```
 ModelConfigSpec
 ├── model: string (e.g. "gpt-4o", "claude-sonnet-4-5-20250514")
-├── provider: Anthropic | OpenAI | AzureOpenAI | Ollama | Gemini | GeminiVertexAI | AnthropicVertexAI | Bedrock
+├── provider: Anthropic | OpenAI | AzureOpenAI | Ollama | Gemini | GeminiVertexAI | AnthropicVertexAI | Bedrock | SAPAICore | Foundry
 ├── apiKeySecret: string (Secret name)
 ├── apiKeySecretKey: string (key within Secret)
 ├── apiKeyPassthrough: bool (use Bearer token from A2A request)
@@ -148,7 +148,11 @@ ModelConfigSpec
 │   └── projectID, location, temperature, maxOutputTokens, etc.
 ├── anthropicVertexAI: AnthropicVertexAIConfig
 │   └── projectID, location, temperature, maxTokens, etc.
-└── bedrock: BedrockConfig
+├── bedrock: BedrockConfig
+├── sapAICore: SAPAICoreConfig
+│   └── baseUrl, resourceGroup, authUrl
+└── foundry: FoundryConfig            # Go runtime only
+    └── endpoint, endpointFrom, deployment, apiVersion
     └── region
 ```
 
