@@ -38,24 +38,15 @@ type TokenPropagationPlugin struct {
 	mu              sync.RWMutex
 	logger          logr.Logger
 	bufferSeconds   int64
-	resource        string // RFC 8707 resource indicator sent on the STS exchange; empty omits it
-	audience        string // RFC 8693 audience sent on the STS exchange; empty omits it
-}
-
-// omitEmpty returns nil for an empty string so the STS client omits the
-// parameter entirely rather than sending it with an empty value.
-func omitEmpty(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
+	resource        []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
+	audience        []string // RFC 8693 audiences sent on the STS exchange; empty omits them
 }
 
 // NewTokenPropagationPlugin creates a new token propagation plugin.
 // If integration is nil, the plugin will pass through tokens without exchange.
 // resource and audience scope the exchanged token to a backend; empty values
 // are omitted from the request, leaving the exchange unscoped.
-func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, resource, audience string) *TokenPropagationPlugin {
+func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, resource, audience []string) *TokenPropagationPlugin {
 	return &TokenPropagationPlugin{
 		integration:   integration,
 		tokenCache:    make(map[string]*TokenCacheEntry),
@@ -194,8 +185,8 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			subjectToken,
 			TokenTypeJWT,
 			actorToken,
-			omitEmpty(p.resource),
-			omitEmpty(p.audience),
+			p.resource,
+			p.audience,
 			"", // scope
 			"", // requestedTokenType
 		)
