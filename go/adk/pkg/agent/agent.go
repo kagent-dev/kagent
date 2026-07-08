@@ -228,10 +228,14 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		if err != nil {
 			return nil, fmt.Errorf("failed to build HTTP client for Gemini: %w", err)
 		}
-		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
+		geminiModel, err := adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
 			APIKey:     apiKey,
 			HTTPClient: httpClient,
 		})
+		if err != nil {
+			return nil, err
+		}
+		return models.WrapGeminiWithGenerationConfig(geminiModel, m.MaxOutputTokens), nil
 
 	case *adk.GeminiVertexAI:
 		project := os.Getenv("GOOGLE_CLOUD_PROJECT")
@@ -246,11 +250,15 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		if modelName == "" {
 			modelName = DefaultGeminiModel
 		}
-		return adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
+		geminiModel, err := adkgemini.NewModel(ctx, modelName, &genai.ClientConfig{
 			Backend:  genai.BackendVertexAI,
 			Project:  project,
 			Location: location,
 		})
+		if err != nil {
+			return nil, err
+		}
+		return models.WrapGeminiWithGenerationConfig(geminiModel, m.MaxOutputTokens), nil
 
 	case *adk.Anthropic:
 		modelName := m.Model
