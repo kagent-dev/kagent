@@ -1,0 +1,228 @@
+suite: test agent nodeSelector configuration
+# The agent charts under helm/agents/* are subcharts of the kagent chart and rely
+# on parent-chart helpers (kagent.namespace, kagent.labels, ...), so their templates
+# are exercised here via the parent chart rather than standalone. Each agent renders
+# the shared "agent.deploymentSpec" helper, which emits
+# spec.declarative.deployment.nodeSelector only when the subchart's
+# .Values.nodeSelector is set.
+templates:
+  - charts/argo-rollouts-agent/templates/agent.yaml
+  - charts/cilium-debug-agent/templates/agent.yaml
+  - charts/cilium-manager-agent/templates/agent.yaml
+  - charts/cilium-policy-agent/templates/agent.yaml
+  - charts/helm-agent/templates/agent.yaml
+  - charts/istio-agent/templates/agent.yaml
+  - charts/k8s-agent/templates/agent.yaml
+  - charts/kgateway-agent/templates/agent.yaml
+  - charts/observability-agent/templates/agent.yaml
+  - charts/promql-agent/templates/agent.yaml
+tests:
+  # =============================================================================
+  # argo-rollouts-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for argo-rollouts-agent
+    template: charts/argo-rollouts-agent/templates/agent.yaml
+    set:
+      argo-rollouts-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for argo-rollouts-agent
+    template: charts/argo-rollouts-agent/templates/agent.yaml
+    set:
+      argo-rollouts-agent.enabled: true
+      argo-rollouts-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
+  # =============================================================================
+  # cilium-debug-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for cilium-debug-agent
+    template: charts/cilium-debug-agent/templates/agent.yaml
+    set:
+      cilium-debug-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for cilium-debug-agent
+    template: charts/cilium-debug-agent/templates/agent.yaml
+    set:
+      cilium-debug-agent.enabled: true
+      cilium-debug-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
+  # =============================================================================
+  # cilium-manager-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for cilium-manager-agent
+    template: charts/cilium-manager-agent/templates/agent.yaml
+    set:
+      cilium-manager-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for cilium-manager-agent
+    template: charts/cilium-manager-agent/templates/agent.yaml
+    set:
+      cilium-manager-agent.enabled: true
+      cilium-manager-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
+  # =============================================================================
+  # cilium-policy-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for cilium-policy-agent
+    template: charts/cilium-policy-agent/templates/agent.yaml
+    set:
+      cilium-policy-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for cilium-policy-agent
+    template: charts/cilium-policy-agent/templates/agent.yaml
+    set:
+      cilium-policy-agent.enabled: true
+      cilium-policy-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
+  # =============================================================================
+  # helm-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for helm-agent
+    template: charts/helm-agent/templates/agent.yaml
+    set:
+      helm-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for helm-agent
+    template: charts/helm-agent/templates/agent.yaml
+    set:
+      helm-agent.enabled: true
+      helm-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
+  # =============================================================================
+  # istio-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for istio-agent
+    template: charts/istio-agent/templates/agent.yaml
+    set:
+      istio-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for istio-agent
+    template: charts/istio-agent/templates/agent.yaml
+    set:
+      istio-agent.enabled: true
+      istio-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
+  # =============================================================================
+  # k8s-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for k8s-agent
+    template: charts/k8s-agent/templates/agent.yaml
+    set:
+      k8s-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for k8s-agent
+    template: charts/k8s-agent/templates/agent.yaml
+    set:
+      k8s-agent.enabled: true
+      k8s-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
+  # =============================================================================
+  # kgateway-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for kgateway-agent
+    template: charts/kgateway-agent/templates/agent.yaml
+    set:
+      kgateway-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for kgateway-agent
+    template: charts/kgateway-agent/templates/agent.yaml
+    set:
+      kgateway-agent.enabled: true
+      kgateway-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
+  # =============================================================================
+  # observability-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for observability-agent
+    template: charts/observability-agent/templates/agent.yaml
+    set:
+      observability-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for observability-agent
+    template: charts/observability-agent/templates/agent.yaml
+    set:
+      observability-agent.enabled: true
+      observability-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
+  # =============================================================================
+  # promql-agent
+  # =============================================================================
+  - it: should not set nodeSelector by default for promql-agent
+    template: charts/promql-agent/templates/agent.yaml
+    set:
+      promql-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for promql-agent
+    template: charts/promql-agent/templates/agent.yaml
+    set:
+      promql-agent.enabled: true
+      promql-agent.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
