@@ -380,11 +380,9 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 
 	var substrateCleanup *v1alpha2.SandboxAgent
 	if h.SubstrateSandboxActorBackend != nil {
-		if session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID); getErr == nil {
-			if session == nil || session.AgentID == nil {
-				w.RespondWithError(errors.NewNotFoundError("Session not found", fmt.Errorf("failed to find agent id for session %s", sessionID)))
-				return
-			}
+		// Best-effort preflight: a session without an agent (or whose agent is gone) simply has
+		// no actor to clean up — it must never block deleting the session row itself.
+		if session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID); getErr == nil && session != nil && session.AgentID != nil {
 			if sandboxAgent, lookupErr := h.substrateSandboxAgentForSession(r.Context(), session); lookupErr == nil {
 				substrateCleanup = sandboxAgent
 			}

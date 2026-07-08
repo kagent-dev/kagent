@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -107,25 +109,24 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 	return resp, nil
 }
 
-// ensureSessionRow materializes the controller-side session row for sessions that arrive via
-// raw A2A. Ensures that headless sessions have a row.
+// ensureSessionRow materializes the controller-side session row for sessions created by direct
+// A2A calls that never went through POST /api/sessions (no UI involvement). Without the row the
+// session is invisible to the sessions API: absent from listings, tasks unreadable, undeletable.
 func (t *substrateSandboxSessionRoundTripper) ensureSessionRow(ctx context.Context, sessionID, userID string) error {
 	if t.db == nil || !substrate.SandboxAgentUsesDurableDirSessions(t.sandboxAgent) {
 		return nil
 	}
-	agentID := utils.ConvertToPythonIdentifier(t.sandboxAgent.Namespace + "/" + t.sandboxAgent.Name)
-	sessions, err := t.db.ListSessionsForAgentAllUsers(ctx, agentID)
-	if err != nil {
-		return fmt.Errorf("list sessions for agent %q: %w", agentID, err)
-	}
-	for i := range sessions {
-		if sessions[i].ID == sessionID {
-			return nil
-		}
-	}
 	if userID == "" {
 		return fmt.Errorf("request carries no X-User-Id header; session row cannot be attributed to a user")
 	}
+	_, err := t.db.GetSession(ctx, sessionID, userID)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("get session %q: %w", sessionID, err)
+	}
+	agentID := utils.ConvertToPythonIdentifier(t.sandboxAgent.Namespace + "/" + t.sandboxAgent.Name)
 	if err := t.db.StoreSession(ctx, &database.Session{ID: sessionID, UserID: userID, AgentID: &agentID}); err != nil {
 		return fmt.Errorf("store session row: %w", err)
 	}

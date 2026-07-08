@@ -116,7 +116,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			Name:    defaultKagentContainer,
 			Image:   image,
 			Command: command,
-			Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
+			Env:     actorTemplateEnvFromPodEnv(env),
 		}},
 		WorkerSelector: workerSelectorForPool(wpKey),
 		SnapshotsConfig: atev1alpha1.SnapshotsConfig{
