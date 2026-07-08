@@ -21,11 +21,13 @@ const APP_URL = "http://localhost:8001";
 export default defineConfig({
   testDir: "./playwright/tests",
   outputDir: "./playwright/test-results",
-  fullyParallel: true,
+  // Parallelism stays off until Stage 1 per-test data isolation lands: one
+  // shared stub backend + one Next server means concurrent tests would race
+  // against shared state (see README). Flip both `fullyParallel` and `workers`
+  // together when isolation is in place.
+  fullyParallel: false,
   forbidOnly: CI,
   retries: CI ? 1 : 0,
-  // Single worker for now: one shared stub backend + one Next server. Per-test
-  // data isolation is a Stage 1 concern (see README).
   workers: 1,
   timeout: 30_000,
   expect: { timeout: 10_000 },
