@@ -463,7 +463,7 @@ func newStatusCmd(state *commandState) *cobra.Command {
 	return cmd
 }
 
-// statusJSON is the wire format for `kagent db migrate status -o json`.
+// statusJSON is the wire format for `kagent db migrate status --output json`.
 // Operators consume it via `jq`, so the field names and types are a frozen
 // contract; TestStatusJSONShape locks them and fails CI on a rename or
 // retype.
