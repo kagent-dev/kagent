@@ -26,7 +26,7 @@ export default defineConfig({
   retries: CI ? 1 : 0,
   // Single worker for now: one shared stub backend + one Next server. Per-test
   // data isolation is a Stage 1 concern (see README).
-  workers: CI ? 1 : undefined,
+  workers: 1,
   timeout: 30_000,
   expect: { timeout: 10_000 },
   reporter: [["html", { open: "never" }], ["list"]],
