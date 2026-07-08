@@ -11,8 +11,11 @@ KIND_IMAGE_VERSION=${KIND_IMAGE_VERSION:-1.35.0}
 CONTAINER_RUNTIME=${CONTAINER_RUNTIME:-$(command -v podman >/dev/null 2>&1 && echo podman || echo docker)}
 
 # 1. Create registry container unless it already exists
-reg_name='kind-registry'
-reg_port='5001'
+# Override REG_NAME / REG_PORT / REG_SCHEME to reuse an existing local registry
+# (e.g. an HTTPS registry on another port) instead of creating a fresh kind-registry.
+reg_name="${REG_NAME:-kind-registry}"
+reg_port="${REG_PORT:-5001}"
+reg_scheme="${REG_SCHEME:-http}"
 if [ "$("${CONTAINER_RUNTIME}" inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)" != 'true' ]; then
   "${CONTAINER_RUNTIME}" run \
     -d --restart=always -p "127.0.0.1:${reg_port}:5000" --network bridge --name "${reg_name}" \
@@ -38,11 +41,16 @@ fi
 #
 # We want a consistent name that works from both ends, so we tell containerd to
 # alias localhost:${reg_port} to the registry container when pulling images
+# Internal container port: registry:2 listens on 5000 by default. reg_port is the host-side
+# mapping; containerd inside the kind node reaches the registry container by its docker
+# network name on the internal port.
+reg_internal_port="${REG_INTERNAL_PORT:-5000}"
 REGISTRY_DIR="/etc/containerd/certs.d/localhost:${reg_port}"
 for node in $(kind get nodes --name "${KIND_CLUSTER_NAME}"); do
   "${CONTAINER_RUNTIME}" exec "${node}" mkdir -p "${REGISTRY_DIR}"
   cat <<EOF | "${CONTAINER_RUNTIME}" exec -i "${node}" cp /dev/stdin "${REGISTRY_DIR}/hosts.toml"
-[host."http://${reg_name}:5000"]
+[host."${reg_scheme}://${reg_name}:${reg_internal_port}"]
+  skip_verify = true
 EOF
 done
 
@@ -63,5 +71,6 @@ metadata:
 data:
   localRegistryHosting.v1: |
     host: "localhost:${reg_port}"
+    hostFromClusterNetwork: "${reg_name}:${reg_internal_port}"
     help: "https://kind.sigs.k8s.io/docs/user/local-registry/"
 EOF

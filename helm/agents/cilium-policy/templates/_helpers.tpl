@@ -11,6 +11,10 @@ podSecurityContext:
 securityContext:
   {{- toYaml . | nindent 2 }}
 {{- end }}
+{{- with .Values.nodeSelector }}
+nodeSelector:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 resources:
   {{- toYaml .Values.resources | nindent 2 }}
 {{- end }}

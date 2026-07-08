@@ -726,3 +726,58 @@ func TestPruneExpiredMemories(t *testing.T) {
 	assert.Contains(t, ids, hotMem.ID, "Expired popular memory should have TTL extended and be retained")
 	assert.Contains(t, ids, liveMem.ID, "Non-expired memory should be retained")
 }
+
+// TestSearchAgentMemoryConcurrentAccessCount verifies concurrent searches over
+// overlapping rows do not deadlock when incrementing access_count and still
+// return results.
+func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	agentName := "concurrent-agent"
+	userID := "concurrent-user"
+
+	// Small store so every search hits the same top rows (max overlap).
+	for i := range 5 {
+		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
+			AgentName: agentName,
+			UserID:    userID,
+			Content:   fmt.Sprintf("shared memory %d", i),
+			Embedding: makeEmbedding(float32(i+1) * 0.15),
+		})
+		require.NoError(t, err)
+	}
+
+	const numGoroutines = 20
+	const searchesPerGoroutine = 10
+
+	var wg sync.WaitGroup
+	errs := make(chan error, numGoroutines*searchesPerGoroutine)
+	wg.Add(numGoroutines)
+
+	for range numGoroutines {
+		go func() {
+			defer wg.Done()
+			for range searchesPerGoroutine {
+				results, err := client.SearchAgentMemory(ctx, agentName, userID, makeEmbedding(0.5), 5)
+				if err != nil {
+					errs <- err
+					return
+				}
+				if len(results) == 0 {
+					errs <- fmt.Errorf("expected search results, got none")
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err, "concurrent memory search must not fail")
+	}
+}

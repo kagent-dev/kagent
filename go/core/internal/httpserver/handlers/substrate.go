@@ -205,6 +205,7 @@ func (h *SubstrateHandler) listAteAPIState(ctx context.Context, namespaces []str
 func actorEntryFromPB(a *ateapipb.Actor) api.SubstrateActorEntry {
 	return api.SubstrateActorEntry{
 		ActorID:                a.GetActorId(),
+		Atespace:               a.GetAtespace(),
 		Status:                 substrate.ActorStatusLabel(a.GetStatus()),
 		ActorTemplateNamespace: a.GetActorTemplateNamespace(),
 		ActorTemplateName:      a.GetActorTemplateName(),
