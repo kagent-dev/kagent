@@ -2,7 +2,6 @@
 import faulthandler
 import logging
 import os
-from datetime import datetime, timezone
 from typing import Any, Callable, List, Optional
 
 import httpx
@@ -12,7 +11,7 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.apps.app import EventsCompactionConfig
@@ -192,30 +191,6 @@ class KAgentApp:
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
         a2a_app.add_routes_to_app(app)
-
-        if not local and session_db_url:
-            local_store = session_service
-
-            async def local_session_events(request: Request) -> JSONResponse:
-                """Serve this session's events from the actor-local store, in the controller's
-                event wire shape ({id, data, created_at}, ascending). Registered only when
-                KAGENT_SESSION_DB_URL is set, so a controller read-through against an image or
-                config without durable-dir sessions fails loud with a 404. A session that has
-                no local rows yet is an empty list, not an error — the feature is on."""
-                session_id = request.path_params["session_id"]
-                user_id = request.query_params.get("user_id", "")
-                session = await local_store.get_session(app_name=self.app_name, user_id=user_id, session_id=session_id)
-                rows = [
-                    {
-                        "id": event.id,
-                        "data": event.model_dump_json(),
-                        "created_at": datetime.fromtimestamp(event.timestamp, tz=timezone.utc).isoformat(),
-                    }
-                    for event in (session.events if session else [])
-                ]
-                return JSONResponse(rows)
-
-            app.add_route("/local/sessions/{session_id}/events", methods=["GET"], route=local_session_events)
 
         return app
 

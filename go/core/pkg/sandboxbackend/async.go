@@ -22,10 +22,6 @@ type Handle struct {
 type EnsureResult struct {
 	Handle   Handle
 	Endpoint string
-	// WasRunning reports if an actor was already running.
-	// This is so side-effectful readers such as session-events read-through
-	// can suspend only actors that they woke so in flight chats are not disrupted.
-	WasRunning bool
 }
 
 // AsyncBackend is the minimal surface a gRPC/HTTP-driven sandbox control

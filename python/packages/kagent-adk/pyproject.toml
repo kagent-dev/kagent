@@ -53,9 +53,6 @@ kagent-adk = "kagent.adk.cli:run_cli"
 test = [
   "pytest>=8.3.5",
   "pytest-asyncio>=0.25.3",
-  # SQLAlchemy's async engine (DatabaseSessionService) needs greenlet; sqlalchemy's own
-  # dependency marker skips macOS arm64, so pull it explicitly for local test runs.
-  "greenlet>=3.0",
 ]
 memory = [
   "psutil>=6.1.0",  # For memory monitoring

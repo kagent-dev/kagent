@@ -89,21 +89,3 @@ func NewForbiddenError(message string, err error) *APIError {
 		Err:     err,
 	}
 }
-
-// NewBadGatewayError reports a failure in an upstream the server proxied to (e.g. an agent actor).
-func NewBadGatewayError(message string, err error) *APIError {
-	return &APIError{
-		Code:    http.StatusBadGateway,
-		Message: message,
-		Err:     err,
-	}
-}
-
-// NewServiceUnavailableError reports a transient capacity failure (e.g. no free sandbox workers).
-func NewServiceUnavailableError(message string, err error) *APIError {
-	return &APIError{
-		Code:    http.StatusServiceUnavailable,
-		Message: message,
-		Err:     err,
-	}
-}

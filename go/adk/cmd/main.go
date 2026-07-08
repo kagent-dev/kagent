@@ -154,14 +154,12 @@ func main() {
 	// session state lives in a sqlite DB inside the actor's durableDir volume); otherwise
 	// session state is stored in the postgres database.
 	var sessionService session.Service
-	var localSessions *session.LocalSessionService
 	if sessionDBURL := os.Getenv("KAGENT_SESSION_DB_URL"); sessionDBURL != "" {
 		local, err := session.NewLocalSessionService(sessionDBURL)
 		if err != nil {
 			logger.Error(err, "Failed to open local session store", "url", sessionDBURL)
 			os.Exit(1)
 		}
-		localSessions = local
 		sessionService = local
 		logger.Info("Using local durable-dir session store", "url", sessionDBURL)
 	} else if kagentURL != "" {
@@ -222,15 +220,6 @@ func main() {
 
 	// Delegate server, task store, and remaining infrastructure to app.New.
 	// Passing HTTPClient prevents app.New from creating a second token service.
-	// The local-events route only exists when the local store is active, so a controller
-	// read-through against a runtime without durable-dir sessions fails loud with a 404.
-	var extraRoutes map[string]http.Handler
-	if localSessions != nil {
-		extraRoutes = map[string]http.Handler{
-			"GET /local/sessions/{id}/events": localSessions.EventsHandler(appName),
-		}
-	}
-
 	kagentApp, err := app.New(app.AppConfig{
 		AgentCard:       *agentCard,
 		Host:            *host,
@@ -241,7 +230,6 @@ func main() {
 		Logger:          logger,
 		HTTPClient:      httpClient,
 		Agent:           runnerConfig.Agent,
-		ExtraRoutes:     extraRoutes,
 	}, executor)
 	if err != nil {
 		logger.Error(err, "Failed to create app")

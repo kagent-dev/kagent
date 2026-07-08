@@ -247,7 +247,6 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut, http.MethodPatch)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/events", adaptHandler(s.handlers.Sessions.HandleAddEventToSession)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/events", adaptHandler(s.handlers.Sessions.HandleListEventsForSession)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleCreateSessionShare)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleListSessionShares)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares/{token}", adaptHandler(s.handlers.SessionShares.HandleDeleteSessionShare)).Methods(http.MethodDelete)

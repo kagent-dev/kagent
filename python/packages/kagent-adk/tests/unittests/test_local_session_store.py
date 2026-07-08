@@ -1,13 +1,9 @@
 """Tests for durable-dir session storage: KAGENT_SESSION_DB_URL selects the local
-DatabaseSessionService and enables the /local/sessions/{id}/events read-through route."""
-
-import asyncio
+DatabaseSessionService instead of the HTTP KAgentSessionService."""
 
 from a2a.types import AgentCapabilities, AgentCard
-from fastapi.testclient import TestClient
-from google.adk.events.event import Event
-from google.adk.sessions import DatabaseSessionService
 
+import kagent.adk._a2a as _a2a
 from kagent.adk import KAgentApp
 
 APP_NAME = "test-app"
@@ -33,59 +29,27 @@ def make_kagent_app() -> KAgentApp:
     )
 
 
-def seed_local_store(db_url: str, session_id: str, user_id: str, authors: list[str]) -> list[str]:
-    """Create a session and append one event per author; returns the event ids."""
-
-    async def _seed() -> list[str]:
-        svc = DatabaseSessionService(db_url=db_url)
-        session = await svc.create_session(app_name=APP_NAME, user_id=user_id, session_id=session_id)
-        ids = []
-        for author in authors:
-            event = Event(author=author, invocation_id="inv1")
-            await svc.append_event(session, event)
-            ids.append(event.id)
-        return ids
-
-    return asyncio.run(_seed())
-
-
-def test_local_events_endpoint_serves_controller_wire_shape(tmp_path, monkeypatch):
-    # google-adk's DatabaseSessionService uses SQLAlchemy's async engine: the URL must name an
-    # async driver (sqlite+aiosqlite), matching what the controller injects for durable-dir agents.
-    db_url = f"sqlite+aiosqlite:///{tmp_path}/sessions.db"
+def test_env_selects_local_database_session_service(monkeypatch):
+    db_url = "sqlite+aiosqlite:////data/sessions.db"
     monkeypatch.setenv("KAGENT_SESSION_DB_URL", db_url)
-    app = make_kagent_app().build()
 
-    event_ids = seed_local_store(db_url, "s1", "u1", ["user", "model"])
+    constructed = {}
 
-    client = TestClient(app)
-    resp = client.get("/local/sessions/s1/events", params={"user_id": "u1"})
-    assert resp.status_code == 200
-    rows = resp.json()
+    class FakeDatabaseSessionService:
+        def __init__(self, db_url):
+            constructed["db_url"] = db_url
 
-    # Rows use the controller event wire shape and come back in append order; the data blob
-    # round-trips as an ADK Event exactly like rows written through the HTTP session service.
-    assert [r["id"] for r in rows] == event_ids
-    assert [Event.model_validate_json(r["data"]).author for r in rows] == ["user", "model"]
-    assert all(r["created_at"] for r in rows)
+    monkeypatch.setattr(_a2a, "DatabaseSessionService", FakeDatabaseSessionService)
+    make_kagent_app().build()
+
+    assert constructed == {"db_url": db_url}
 
 
-def test_local_events_endpoint_empty_for_unknown_session(tmp_path, monkeypatch):
-    db_url = f"sqlite+aiosqlite:///{tmp_path}/sessions.db"
-    monkeypatch.setenv("KAGENT_SESSION_DB_URL", db_url)
-    app = make_kagent_app().build()
-
-    client = TestClient(app)
-    resp = client.get("/local/sessions/never-chatted/events", params={"user_id": "u1"})
-    # The feature is on, there are just no rows yet: an empty list, NOT a 404 — the controller
-    # treats 404 as "runtime does not support durable-dir sessions" and fails loud.
-    assert resp.status_code == 200
-    assert resp.json() == []
-
-
-def test_local_events_route_absent_without_env(monkeypatch):
+def test_no_env_selects_kagent_session_service(monkeypatch):
     monkeypatch.delenv("KAGENT_SESSION_DB_URL", raising=False)
-    app = make_kagent_app().build()
 
-    client = TestClient(app)
-    assert client.get("/local/sessions/s1/events", params={"user_id": "u1"}).status_code == 404
+    def boom(*args, **kwargs):
+        raise AssertionError("DatabaseSessionService must not be constructed without KAGENT_SESSION_DB_URL")
+
+    monkeypatch.setattr(_a2a, "DatabaseSessionService", boom)
+    make_kagent_app().build()

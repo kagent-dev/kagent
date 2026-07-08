@@ -2,14 +2,11 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/glebarez/sqlite"
-	"github.com/google/uuid"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/adk/session/database"
 	"gorm.io/gorm"
@@ -90,51 +87,4 @@ func (s *LocalSessionService) GetSession(ctx context.Context, appName, userID, s
 func (s *LocalSessionService) CreateSession(ctx context.Context, appName, userID string, state map[string]any, sessionID string) error {
 	_, err := s.Create(ctx, &adksession.CreateRequest{AppName: appName, UserID: userID, State: state, SessionID: sessionID})
 	return err
-}
-
-// localEventRow is the controller event wire shape ({id, data, created_at}), the same rows the
-// HTTP session service would have written to the controller database. The controller's
-// GET /api/sessions/{id}/events?source=sandbox splices these into its standard envelope.
-type localEventRow struct {
-	ID        string `json:"id"`
-	Data      string `json:"data"`
-	CreatedAt string `json:"created_at"`
-}
-
-// EventsHandler serves GET /local/sessions/{id}/events from the local store in the controller
-// event wire shape, ascending. A session with no local rows yet returns an empty list — the
-// route existing at all is what tells the controller the runtime supports durable-dir sessions
-// (a 404 means it does not).
-func (s *LocalSessionService) EventsHandler(appName string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sessionID := r.PathValue("id")
-		userID := r.URL.Query().Get("user_id")
-
-		rows := []localEventRow{}
-		sess, err := s.GetSession(r.Context(), appName, userID, sessionID)
-		if err != nil && err != ErrSessionNotFound {
-			http.Error(w, fmt.Sprintf("load session %q: %v", sessionID, err), http.StatusInternalServerError)
-			return
-		}
-		if sess != nil {
-			for event := range sess.Events().All() {
-				data, err := json.Marshal(event)
-				if err != nil {
-					http.Error(w, fmt.Sprintf("marshal event: %v", err), http.StatusInternalServerError)
-					return
-				}
-				id := event.ID
-				if id == "" {
-					id = uuid.New().String()
-				}
-				rows = append(rows, localEventRow{
-					ID:        id,
-					Data:      string(data),
-					CreatedAt: event.Timestamp.UTC().Format("2006-01-02T15:04:05.999999Z07:00"),
-				})
-			}
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(rows)
-	})
 }

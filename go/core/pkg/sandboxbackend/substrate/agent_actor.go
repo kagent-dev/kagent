@@ -3,13 +3,8 @@ package substrate
 import (
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"strings"
-	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -17,7 +12,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // SandboxAgentActorBackend manages ate-api actors for SandboxAgent workloads.
@@ -74,8 +68,6 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 	tmplNS := sa.Namespace
 	atespace := sa.Namespace
 
-	created := false
-	wasRunning := false
 	actor, err := b.client.GetActor(ctx, atespace, actorID)
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
@@ -88,16 +80,13 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, wrapCreateActorError(actorID, err)
 		}
-		created = true
 	}
 
 	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING:
-		wasRunning = !created
 	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED,
 		ateapipb.Actor_STATUS_PAUSED, ateapipb.Actor_STATUS_PAUSING:
 		// PAUSED/PAUSING keep a node-local snapshot; ResumeActor brings them back
-		// the same as a suspended actor.
+		// the same as a suspended actor. RUNNING/RESUMING actors need nothing.
 		_, err = b.client.ResumeActor(ctx, atespace, actorID)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, wrapResumeActorError(actorID, err)
@@ -110,76 +99,9 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 
 	host := ActorHost(atespace, actorID, "")
 	return sandboxbackend.EnsureResult{
-		Handle:     sandboxbackend.Handle{ID: actorID, Atespace: atespace},
-		Endpoint:   fmt.Sprintf("atenet-router Host %s", host),
-		WasRunning: wasRunning,
+		Handle:   sandboxbackend.Handle{ID: actorID, Atespace: atespace},
+		Endpoint: fmt.Sprintf("atenet-router Host %s", host),
 	}, nil
-}
-
-// localSessionEventsPathFmt is the kagent-adk runtime route serving the session's events from
-// the actor-local store, registered only when KAGENT_SESSION_DB_URL is set.
-const localSessionEventsPathFmt = "/local/sessions/%s/events"
-
-// ErrLocalSessionEventsUnsupported means the actor answered 404 for the local events route:
-// the runtime image predates durable-dir sessions or KAGENT_SESSION_DB_URL is not set.
-// Callers must surface this loudly (502), never as an empty event list.
-var ErrLocalSessionEventsUnsupported = errors.New(
-	"actor runtime does not serve local session events (image predates durable-dir sessions or KAGENT_SESSION_DB_URL is unset)")
-
-// FetchLocalSessionEvents resumes the session actor if needed, reads the session's events from
-// the runtime's local store through atenet-router, and suspends the actor again only when this
-// read woke it — an actor that was already RUNNING is serving an in-flight chat and its
-// lifecycle belongs to that chat's suspend-on-close. Returns the raw response body: a JSON
-// array of rows in the controller event wire shape ({id, data, created_at}, ascending).
-func (b *SandboxAgentActorBackend) FetchLocalSessionEvents(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID, userID string) ([]byte, error) {
-	res, err := b.EnsureSessionActor(ctx, sa, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	if !res.WasRunning {
-		// This read woke the actor: put it back to sleep on the way out, success or failure.
-		// A failed suspend must not fail the read; detach from ctx so a canceled request
-		// cannot leak a running actor.
-		defer func() {
-			suspendCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-			defer cancel()
-			if err := b.SuspendSessionActor(suspendCtx, sa, sessionID); err != nil {
-				ctrllog.FromContext(ctx).WithName("substrate-actor-backend").Error(err,
-					"failed to suspend session actor after events read", "actorID", res.Handle.ID)
-			}
-		}()
-	}
-
-	target, host, err := GatewayRouterTarget(b.atenetRouterURL, res.Handle.Atespace, res.Handle.ID)
-	if err != nil {
-		return nil, err
-	}
-	eventsURL := strings.TrimSuffix(target.String(), "/") + fmt.Sprintf(localSessionEventsPathFmt, url.PathEscape(sessionID))
-	if userID != "" {
-		eventsURL += "?user_id=" + url.QueryEscape(userID)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, eventsURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build local events request: %w", err)
-	}
-	req.Host = host
-
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch local session events from actor %q: %w", res.Handle.ID, err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read local session events from actor %q: %w", res.Handle.ID, err)
-	}
-	switch {
-	case resp.StatusCode == http.StatusNotFound:
-		return nil, fmt.Errorf("actor %q: %w", res.Handle.ID, ErrLocalSessionEventsUnsupported)
-	case resp.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("actor %q local events endpoint returned %d: %.200s", res.Handle.ID, resp.StatusCode, body)
-	}
-	return body, nil
 }
 
 // SuspendSessionActor checkpoints and frees the worker for a chat session actor.

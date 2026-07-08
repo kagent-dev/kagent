@@ -21,7 +21,6 @@ type ServerConfig struct {
 	Host            string
 	Port            string
 	ShutdownTimeout time.Duration
-	ExtraRoutes     map[string]http.Handler
 }
 
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
@@ -40,9 +39,6 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	mux := http.NewServeMux()
 	RegisterHealthEndpoints(mux)
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
-	for pattern, handler := range config.ExtraRoutes {
-		mux.Handle(pattern, handler)
-	}
 	mux.Handle("/", jsonrpcHandler)
 	// Wrap the whole server mux to enable trace context extraction and an inbound
 	// HTTP server span for each request.

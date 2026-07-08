@@ -2,23 +2,15 @@ package substrate
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
 	"testing"
 
-	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 // statusActorClient is a configurable fake ate-api ControlClient. It holds full actor records
@@ -105,105 +97,4 @@ func TestDeleteSandboxAgentSessionActor(t *testing.T) {
 // reapAgent is the SandboxAgent used by the reap tests.
 func reapAgent() *v1alpha2.SandboxAgent {
 	return &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"}}
-}
-
-// reapTemplate builds a labeled, config-hashed ActorTemplate for the reap-test agent.
-func reapTemplate(hash string, gen int64, phase atev1alpha1.PhaseType) *atev1alpha1.ActorTemplate {
-	return &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{
-		Name: "agent-" + hash, Namespace: "kagent",
-		Labels: map[string]string{SandboxAgentLabelKey: "agent"},
-		Annotations: map[string]string{
-			consts.ConfigHashAnnotation: hash,
-			desiredGenerationAnnotation: strconv.FormatInt(gen, 10),
-		},
-	}, Status: atev1alpha1.ActorTemplateStatus{Phase: phase}}
-}
-
-// TestFetchLocalSessionEvents covers the events read-through: resume when suspended, read the
-// runtime's local-events route via the router with actor Host routing, and suspend afterwards
-// ONLY when the read woke the actor (never checkpoint an in-flight chat). A 404 from the actor
-// (image without the route) must fail loud, not return an empty list.
-func TestFetchLocalSessionEvents(t *testing.T) {
-	t.Parallel()
-	rows := `[{"id":"e1","data":"{\"author\":\"user\"}","created_at":"2026-07-06T10:00:00Z"}]`
-
-	for _, tc := range []struct {
-		name         string
-		status       ateapipb.Actor_Status
-		routeMissing bool
-		wantResume   bool
-		wantSuspend  bool
-		wantErrIs    error
-	}{
-		{
-			name:        "suspended actor: resumed, read, suspended again",
-			status:      ateapipb.Actor_STATUS_SUSPENDED,
-			wantResume:  true,
-			wantSuspend: true,
-		},
-		{
-			name:        "running actor: read without touching its lifecycle",
-			status:      ateapipb.Actor_STATUS_RUNNING,
-			wantResume:  false,
-			wantSuspend: false,
-		},
-		{
-			name:         "actor without the local route: fails loud, still suspended",
-			status:       ateapipb.Actor_STATUS_SUSPENDED,
-			routeMissing: true,
-			wantResume:   true,
-			wantSuspend:  true,
-			wantErrIs:    ErrLocalSessionEventsUnsupported,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			scheme := runtime.NewScheme()
-			utilruntime.Must(atev1alpha1.AddToScheme(scheme))
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-				reapTemplate("cur", 1, atev1alpha1.PhaseReady),
-			).Build()
-			sa := reapAgent()
-			actorID := SandboxAgentSessionActorID(sa, "sess-1")
-
-			rec := &statusActorClient{actors: map[string]*ateapipb.Actor{}}
-			rec.add(&ateapipb.Actor{ActorId: actorID, Status: tc.status, ActorTemplateNamespace: "kagent", ActorTemplateName: "agent-cur"})
-
-			var gotHost string
-			router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				switch {
-				case r.URL.Path == "/health":
-					w.WriteHeader(http.StatusOK)
-				case r.URL.Path == "/local/sessions/sess-1/events" && !tc.routeMissing:
-					gotHost = r.Host
-					require.Equal(t, "jm@solo.io", r.URL.Query().Get("user_id"))
-					_, _ = w.Write([]byte(rows))
-				default:
-					http.NotFound(w, r)
-				}
-			}))
-			defer router.Close()
-
-			backend := NewSandboxAgentActorBackend(&Client{ControlClient: rec}, cl, router.URL)
-			body, err := backend.FetchLocalSessionEvents(context.Background(), sa, "sess-1", "jm@solo.io")
-
-			if tc.wantErrIs != nil {
-				require.ErrorIs(t, err, tc.wantErrIs)
-			} else {
-				require.NoError(t, err)
-				require.JSONEq(t, rows, string(body))
-				require.Equal(t, ActorHost("kagent", actorID, ""), gotHost, "events fetch must use actor Host routing")
-			}
-			if tc.wantResume {
-				require.Equal(t, []string{actorID}, rec.resumes)
-			} else {
-				require.Empty(t, rec.resumes)
-			}
-			if tc.wantSuspend {
-				require.Equal(t, []string{actorID}, rec.suspends, "read must re-suspend the actor it woke")
-			} else {
-				require.Empty(t, rec.suspends, "read must not suspend an actor it did not wake")
-			}
-		})
-	}
 }
