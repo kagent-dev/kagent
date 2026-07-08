@@ -12,6 +12,9 @@
     "test:watch": "jest --watch",
     "test:e2e:cypress": "cypress run --e2e",
     "test:e2e": "start-server-and-test dev http://localhost:8001 test:e2e:cypress",
+    "test:pw": "playwright test",
+    "test:pw:ui": "playwright test --ui",
+    "test:pw:debug": "playwright test --debug",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "chromatic": "chromatic --exit-zero-on-changes --storybook-build-dir storybook-static --project-token chpt_3e29f54d624610f"
@@ -75,6 +78,7 @@
     "@chromatic-com/storybook": "^5.2.1",
     "@eslint/eslintrc": "^3.3.6",
     "@jest/globals": "^30.4.1",
+    "@playwright/test": "^1.61.0",
     "@storybook/addon-a11y": "^10.5.0",
     "@storybook/addon-docs": "^10.5.0",
     "@storybook/addon-onboarding": "^10.5.0",
