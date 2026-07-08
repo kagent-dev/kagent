@@ -12,7 +12,7 @@ body:
       label: 📋 Prerequisites
       description: Please check these boxes before submitting the issue
       options:
-        - label: I have searched the [existing issues](./issues) to avoid creating a duplicate
+        - label: I have searched the [existing issues](https://github.com/kagent-dev/kagent/issues) to avoid creating a duplicate
           required: true
         - label: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/kagent-dev/kagent/blob/main/CODE_OF_CONDUCT.md)
           required: true
