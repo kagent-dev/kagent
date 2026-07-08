@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"io"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -126,8 +128,12 @@ func TestResolveSource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &commandState{sources: tt.sources, source: tt.flag}
-			got, err := s.resolveSource()
+			srcs := tt.sources
+			s := &commandState{
+				source:    tt.flag,
+				resolveFn: func(context.Context) ([]migrations.Source, error) { return srcs, nil },
+			}
+			got, err := s.resolveSource(context.Background())
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("resolveSource() error = %v, want containing %q", err, tt.wantErr)
@@ -170,6 +176,50 @@ func TestArgValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNewCommandFromFunc covers deferred source resolution: the resolver must
+// not run at construction, and its failures surface as command errors rather
+// than wiring-time panics.
+func TestNewCommandFromFunc(t *testing.T) {
+	t.Run("resolver is not called at construction", func(t *testing.T) {
+		called := false
+		NewCommandFromFunc(func(context.Context) ([]migrations.Source, error) {
+			called = true
+			return testSources(), nil
+		})
+		if called {
+			t.Fatal("resolver ran during command construction")
+		}
+	})
+
+	t.Run("resolver error surfaces as command error", func(t *testing.T) {
+		cmd := NewCommandFromFunc(func(context.Context) ([]migrations.Source, error) {
+			return nil, errors.New("cluster unreachable")
+		})
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs([]string{"version", "--db-url", "postgres://unused"})
+		err := cmd.ExecuteContext(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "cluster unreachable") {
+			t.Fatalf("error = %v, want resolver error", err)
+		}
+	})
+
+	t.Run("duplicate names from resolver error instead of panicking", func(t *testing.T) {
+		dup := []migrations.Source{
+			{Name: "core", TrackingTable: "a", FS: alphaFS, Dir: "alpha"},
+			{Name: "core", TrackingTable: "b", FS: betaFS, Dir: "beta"},
+		}
+		cmd := NewCommandFromFunc(func(context.Context) ([]migrations.Source, error) { return dup, nil })
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs([]string{"version", "--db-url", "postgres://unused"})
+		err := cmd.ExecuteContext(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "configured twice") {
+			t.Fatalf("error = %v, want duplicate-name error", err)
+		}
+	})
 }
 
 // TestStatusJSONShape freezes the `status -o json` wire format. Operators

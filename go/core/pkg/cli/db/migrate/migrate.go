@@ -46,10 +46,56 @@ const (
 // and operator-facing messages; the regex keeps those strings predictable.
 var sourceNameRE = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
+// SourcesFunc resolves the migration sources for a command invocation. It is
+// called when a subcommand actually executes — never at command construction —
+// so implementations may do real work (consult the environment, query a live
+// cluster) without taxing unrelated CLI commands. It is called at most once
+// per command execution; the result is memoized.
+type SourcesFunc func(ctx context.Context) ([]migrations.Source, error)
+
 type commandState struct {
-	dbURL   string
-	source  string
-	sources []migrations.Source
+	dbURL     string
+	source    string
+	resolveFn SourcesFunc
+
+	// memoized getSources result
+	resolved   bool
+	sources    []migrations.Source
+	sourcesErr error
+}
+
+// getSources resolves and validates the source list on first use, memoizing
+// the result for the rest of the command execution.
+func (s *commandState) getSources(ctx context.Context) ([]migrations.Source, error) {
+	if s.resolved {
+		return s.sources, s.sourcesErr
+	}
+	s.resolved = true
+	srcs, err := s.resolveFn(ctx)
+	if err != nil {
+		s.sourcesErr = fmt.Errorf("resolve migration sources: %w", err)
+		return nil, s.sourcesErr
+	}
+	if err := validateSourceNames(srcs); err != nil {
+		s.sourcesErr = err
+		return nil, s.sourcesErr
+	}
+	s.sources = append([]migrations.Source(nil), srcs...)
+	return s.sources, nil
+}
+
+func validateSourceNames(sources []migrations.Source) error {
+	seen := map[string]bool{}
+	for _, source := range sources {
+		if !sourceNameRE.MatchString(source.Name) {
+			return fmt.Errorf("migration source Name=%q must match %s", source.Name, sourceNameRE.String())
+		}
+		if seen[source.Name] {
+			return fmt.Errorf("migration source %q configured twice; each source must have a unique Name", source.Name)
+		}
+		seen[source.Name] = true
+	}
+	return nil
 }
 
 // NewCommand returns the `migrate` parent command with all subcommands
@@ -57,17 +103,22 @@ type commandState struct {
 // order. Panics on an invalid or duplicate source Name so misconfiguration
 // fails at wiring time, not mid-operation.
 func NewCommand(sources ...migrations.Source) *cobra.Command {
-	seen := map[string]bool{}
-	for _, source := range sources {
-		if !sourceNameRE.MatchString(source.Name) {
-			panic(fmt.Sprintf("migrate.NewCommand: source Name=%q must match %s", source.Name, sourceNameRE.String()))
-		}
-		if seen[source.Name] {
-			panic(fmt.Sprintf("migrate.NewCommand: source %q already configured; each source must have a unique Name", source.Name))
-		}
-		seen[source.Name] = true
+	if err := validateSourceNames(sources); err != nil {
+		panic("migrate.NewCommand: " + err.Error())
 	}
-	state := &commandState{sources: append([]migrations.Source(nil), sources...)}
+	static := append([]migrations.Source(nil), sources...)
+	return NewCommandFromFunc(func(context.Context) ([]migrations.Source, error) {
+		return static, nil
+	})
+}
+
+// NewCommandFromFunc is NewCommand with deferred source resolution: fn runs
+// when a subcommand executes, and an invalid source set surfaces as a command
+// error instead of a wiring-time panic. Use this when the source list depends
+// on state that shouldn't be consulted while merely constructing the command
+// tree (environment variables, a live cluster).
+func NewCommandFromFunc(fn SourcesFunc) *cobra.Command {
+	state := &commandState{resolveFn: fn}
 
 	cmd := &cobra.Command{
 		Use:   "migrate",
@@ -104,8 +155,11 @@ func (s *commandState) resolveDSN() (string, error) {
 // resolveSource picks the source for a per-source operation. With one source
 // registered it's returned directly; with more than one the operator must
 // pass --source and we report the registered set when they don't.
-func (s *commandState) resolveSource() (migrations.Source, error) {
-	srcs := s.sources
+func (s *commandState) resolveSource(ctx context.Context) (migrations.Source, error) {
+	srcs, err := s.getSources(ctx)
+	if err != nil {
+		return migrations.Source{}, err
+	}
 	if len(srcs) == 0 {
 		return migrations.Source{}, errors.New("no migration sources registered")
 	}
@@ -232,12 +286,15 @@ on the per-source subcommands (down/goto/force).`,
 			if err != nil {
 				return err
 			}
-			srcs := state.sources
+			ctx := cmd.Context()
+			srcs, err := state.getSources(ctx)
+			if err != nil {
+				return err
+			}
 			if len(srcs) == 0 {
 				return errors.New("no migration sources registered")
 			}
 
-			ctx := cmd.Context()
 			// One pre-pass over the sources: refuse dirty state, and snapshot
 			// pending counts so we can report "applied N migration(s)" after
 			// the orchestrator succeeds.
@@ -313,7 +370,7 @@ dirty; clear it with 'force' first.`,
 			if err != nil {
 				return err
 			}
-			src, err := state.resolveSource()
+			src, err := state.resolveSource(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -368,7 +425,10 @@ func newStatusCmd(state *commandState) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			srcs := state.sources
+			srcs, err := state.getSources(cmd.Context())
+			if err != nil {
+				return err
+			}
 			if len(srcs) == 0 {
 				return errors.New("no migration sources registered")
 			}
@@ -543,7 +603,10 @@ registered, --source filters to a single track.`,
 			if err != nil {
 				return err
 			}
-			srcs := state.sources
+			srcs, err := state.getSources(cmd.Context())
+			if err != nil {
+				return err
+			}
 			if len(srcs) == 0 {
 				return errors.New("no migration sources registered")
 			}
@@ -610,7 +673,7 @@ with 'force' first.`,
 			if err != nil {
 				return err
 			}
-			src, err := state.resolveSource()
+			src, err := state.resolveSource(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -659,7 +722,7 @@ version the binary cannot apply or roll back to, wedging the DB.`,
 			if err != nil {
 				return err
 			}
-			src, err := state.resolveSource()
+			src, err := state.resolveSource(cmd.Context())
 			if err != nil {
 				return err
 			}
