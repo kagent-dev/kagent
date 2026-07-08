@@ -14,5 +14,6 @@ export interface AgentFormValidationErrors {
   memoryTtl?: string;
   serviceAccountName?: string;
   promptSources?: string;
+  byoCmd?: string;
   agentHarness?: AgentHarnessFormValidationError;
 }

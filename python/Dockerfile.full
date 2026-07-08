@@ -1,0 +1,119 @@
+# Full Python ADK runtime image: includes the Anthropic sandbox-runtime (node, bubblewrap,
+# socat, ripgrep) and a bash tool venv for agents that execute code / run shell tools. Unlike
+# python/Dockerfile (distroless slim), this image needs a shell and package tooling, so it is
+# built on a digest-pinnable debian-slim base rather than distroless. The controller selects
+# this image (PythonADKFullImageDigest) for declarative agents that need SRT (skills,
+# executeCodeBlocks) and for sandboxed BYO agents.
+
+### STAGE 1: uv binary
+ARG UV_VERSION=0.11.15
+FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
+
+### STAGE 2: base os + sandbox runtime
+# node:20-bookworm-slim is a digest-pinnable debian-bookworm base that ships Node 20 (the
+# sandbox-runtime requires node >= 20; debian's own nodejs package is still on 18).
+# Digest = multi-arch index resolved via `docker buildx imagetools inspect node:20-bookworm-slim`.
+FROM node:26-bookworm-slim@sha256:b16ca7b4dcfb20184e1c70f9ee30c6a75ed1da669cfafd6d2add4761b123d79f AS python-os
+ARG TOOLS_PYTHON_VERSION=3.13
+
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+ENV PYTHONOPTIMIZE=2
+ENV PYTHONUNBUFFERED=1
+
+# Optimize malloc for containerized Python workloads
+ENV MALLOC_TRIM_THRESHOLD_=262144
+ENV MALLOC_ARENA_MAX=2
+ENV GIT_LFS_SKIP_SMUDGE=1
+
+ENV UV_LINK_MODE=copy
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_NO_PROGRESS=1
+ENV UV_HTTP_TIMEOUT=60
+ENV UV_CACHE_DIR=/.kagent/cache/packages
+ENV UV_TOOL_DIR=/.kagent/cache/tools
+ENV UV_PYTHON_DOWNLOADS_DIR=/.kagent/cache/downloads
+ENV UV_PROJECT_ENVIRONMENT=/.kagent/.venv
+ENV UV_PYTHON_INSTALL_DIR=/python
+ENV UV_PYTHON_PREFERENCE=only-managed
+
+# node/npm come from the base image; add the remaining runtime tooling.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl openssl bash git ca-certificates \
+        bubblewrap socat ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=uv-bin /uv /uvx /usr/local/bin/
+
+RUN groupadd -g 1001 pythongroup \
+    && useradd -u 1001 -g pythongroup -s /bin/bash -d /.kagent -m python \
+    && mkdir -p $UV_PYTHON_DOWNLOADS_DIR $UV_TOOL_DIR $UV_CACHE_DIR /python \
+    && chown -R 1001:1001 /.kagent /python
+
+# Install the Anthropic sandbox runtime from a pinned revision. Replace its vulnerable locked
+# transitive deps, build, then prune dev deps (matches the previous Chainguard-based image).
+# Fetch the pinned revision via init+fetch (debian's git predates `git clone --revision`).
+# GitHub allows fetching an arbitrary commit SHA directly.
+RUN --mount=type=cache,target=/root/.npm \
+    mkdir -p /opt/sandbox-runtime && cd /opt/sandbox-runtime \
+    && git init -q \
+    && git remote add origin https://github.com/anthropic-experimental/sandbox-runtime.git \
+    && git fetch --depth 1 origin ef4afdef4d711ba21a507d7f7369e305f7d3dbfa \
+    && git checkout -q FETCH_HEAD \
+    && npm pkg delete scripts.prepare \
+    && npm install --ignore-scripts --save-exact lodash-es@4.18.1 @types/lodash-es@4.17.12 \
+    && npm install --ignore-scripts --save-exact brace-expansion@5.0.6 \
+    && npm run build \
+    && npm prune --omit=dev \
+    && npm install -g --ignore-scripts
+
+ENV PATH="/opt/sandbox-runtime/node_modules/.bin:$PATH"
+
+USER python
+WORKDIR /.kagent
+
+### STAGE 3: final (install project)
+FROM python-os AS builder
+# Default kept here too: ARG defaults do not carry across stages, and this value is used below
+# in `uv venv --python=python$TOOLS_PYTHON_VERSION`, so an unset build-arg would break the build.
+ARG TOOLS_PYTHON_VERSION=3.13
+
+WORKDIR /.kagent
+ENV PATH=$PATH:/.kagent/bin:/.kagent/.venv/bin
+
+COPY --chown=python:pythongroup pyproject.toml .
+COPY --chown=python:pythongroup .python-version .
+COPY --chown=python:pythongroup uv.lock .
+COPY --chown=python:pythongroup packages/kagent-adk packages/kagent-adk
+COPY --chown=python:pythongroup packages/kagent-core packages/kagent-core
+COPY --chown=python:pythongroup packages/kagent-skills packages/kagent-skills
+COPY --chown=python:pythongroup packages/agentsts-adk packages/agentsts-adk
+COPY --chown=python:pythongroup packages/agentsts-core packages/agentsts-core
+COPY --chown=python:pythongroup README.md .
+
+ARG VERSION
+
+RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
+    echo "Creating virtual environment and installing dependencies..."        \
+    && uv venv --python=python$TOOLS_PYTHON_VERSION                           \
+    && uv lock && uv sync --package kagent-adk                                \
+    && uv cache prune                                                         \
+    && echo "Installation complete."
+
+# Separate venv for bash tool commands (sandbox environment); no pip installed.
+RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
+    mkdir -p /.kagent/sandbox-venv                                            \
+    && uv venv --python=python$TOOLS_PYTHON_VERSION /.kagent/sandbox-venv
+
+ENV PATH="/.kagent/.venv/bin:$PATH"
+ENV BASH_VENV_PATH=/.kagent/sandbox-venv
+ENV VIRTUAL_ENV=/.kagent/.venv
+
+LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent
+LABEL org.opencontainers.image.description="Kagent ADK Python runtime (full: includes sandbox runtime)."
+LABEL org.opencontainers.image.version="$VERSION"
+
+WORKDIR /app
+
+ENTRYPOINT ["/.kagent/.venv/bin/kagent-adk", "run", "--host", "0.0.0.0", "--port", "8080"]

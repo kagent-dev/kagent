@@ -13,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -137,19 +138,14 @@ func (h *SubstrateHandler) listSubstrateCRs(ctx context.Context, namespace strin
 			Phase:           string(tmpl.Status.Phase),
 			GoldenActorID:   tmpl.Status.GoldenActorID,
 			GoldenSnapshot:  tmpl.Status.GoldenSnapshot,
+			SandboxClass:    string(tmpl.Spec.SandboxClass),
+			WorkerSelector:  labelSelectorString(ctx, tmpl.Spec.WorkerSelector),
 			ManagedByKagent: tmpl.Labels["app.kubernetes.io/managed-by"] == "kagent",
 		}
 		if harness := strings.TrimSpace(tmpl.Labels[substrate.HarnessLabelKey]); harness != "" {
 			entry.HarnessName = harness
 		} else if agentName := substrate.SandboxAgentNameFromLabels(tmpl.Labels); agentName != "" {
 			entry.HarnessName = agentName
-		}
-		if ref := tmpl.Spec.WorkerPoolRef; ref.Name != "" {
-			wpNS := ref.Namespace
-			if wpNS == "" {
-				wpNS = tmpl.Namespace
-			}
-			entry.WorkerPoolRef = wpNS + "/" + ref.Name
 		}
 		templates = append(templates, entry)
 	}
@@ -209,16 +205,46 @@ func (h *SubstrateHandler) listAteAPIState(ctx context.Context, namespaces []str
 func actorEntryFromPB(a *ateapipb.Actor) api.SubstrateActorEntry {
 	return api.SubstrateActorEntry{
 		ActorID:                a.GetActorId(),
+		Atespace:               a.GetAtespace(),
 		Status:                 substrate.ActorStatusLabel(a.GetStatus()),
 		ActorTemplateNamespace: a.GetActorTemplateNamespace(),
 		ActorTemplateName:      a.GetActorTemplateName(),
 		AteomPodNamespace:      a.GetAteomPodNamespace(),
 		AteomPodName:           a.GetAteomPodName(),
 		AteomPodIP:             a.GetAteomPodIp(),
-		LastSnapshot:           a.GetLastSnapshot(),
+		LatestSnapshot:         snapshotInfoString(a.GetLatestSnapshotInfo()),
+		WorkerPoolName:         a.GetWorkerPoolName(),
 		InProgressSnapshot:     a.GetInProgressSnapshot(),
 		Version:                a.GetVersion(),
 	}
+}
+
+// snapshotInfoString renders a SnapshotInfo as a single location string.
+func snapshotInfoString(s *ateapipb.SnapshotInfo) string {
+	if s == nil {
+		return ""
+	}
+	if ext := s.GetExternal(); ext != nil {
+		return ext.GetSnapshotUriPrefix()
+	}
+	if loc := s.GetLocal(); loc != nil {
+		return loc.GetSnapshotPrefix()
+	}
+	return ""
+}
+
+// labelSelectorString renders a metav1.LabelSelector as a compact human-readable
+// string (e.g. "kagent.dev/worker-pool=kagent-default") for UI display.
+func labelSelectorString(ctx context.Context, sel *metav1.LabelSelector) string {
+	if sel == nil {
+		return ""
+	}
+	s, err := metav1.LabelSelectorAsSelector(sel)
+	if err != nil {
+		ctrllog.FromContext(ctx).Info("invalid ActorTemplate workerSelector", "error", err)
+		return "<invalid selector>"
+	}
+	return s.String()
 }
 
 func workerEntryFromPB(w *ateapipb.Worker) api.SubstrateWorkerEntry {

@@ -383,6 +383,7 @@ class AgentConfig(BaseModel):
     memory: MemoryConfig | None = None  # Memory configuration
     network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
+    share_tools: bool | None = None  # Enable built-in share link tools
 
     def to_agent(
         self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None, propagate_token: bool = False

@@ -3,6 +3,11 @@ kind: Deployment
 metadata:
   name: {{ include "kagent.fullname" . }}-ui
   namespace: {{ include "kagent.namespace" . }}
+  {{- $annotations := mergeOverwrite (dict) (default dict .Values.annotations) (default dict .Values.ui.annotations) }}
+  {{- if $annotations }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
@@ -62,6 +67,9 @@ spec:
               value: {{ .Values.ui.backendInternalUrl | default (include "kagent.controllerInternalHttpApiBase" .) | quote }}
             {{- if .Values.ui.auth }}
             - name: SSO_REDIRECT_PATH
+              value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
+            # Client components (e.g. AuthContext) can only read NEXT_PUBLIC_* vars at runtime.
+            - name: NEXT_PUBLIC_SSO_REDIRECT_PATH
               value: {{ .Values.ui.auth.ssoRedirectPath | default "/oauth2/start" | quote }}
             {{- end }}
             {{- if .Values.ui.streamTimeoutSeconds }}

@@ -10,7 +10,7 @@ dependencies:
     condition: kmcp.enabled
   - name: substrate
     version: ${SUBSTRATE_VERSION}
-    repository: oci://ghcr.io/kagent-dev/substrate/helm
+    repository: ${SUBSTRATE_REPO}
     condition: substrate.enabled
   - name: kagent-tools
     version: 0.2.1
