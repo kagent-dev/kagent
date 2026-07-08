@@ -138,6 +138,8 @@ type TokenExchangeConfig struct {
 }
 
 // OpenAIConfig contains OpenAI-specific configuration options
+//
+// +kubebuilder:validation:XValidation:message="maxTokens and maxCompletionTokens are mutually exclusive",rule="!(has(self.maxTokens) && has(self.maxCompletionTokens))"
 type OpenAIConfig struct {
 	// Base URL for the OpenAI API (overrides default)
 	// +optional
@@ -154,13 +156,16 @@ type OpenAIConfig struct {
 	// Maximum tokens to generate. Sent as the OpenAI `max_tokens` request
 	// parameter, which is deprecated and rejected by reasoning models
 	// (GPT-5 / o-series). For those models set maxCompletionTokens instead.
+	// Mutually exclusive with maxCompletionTokens.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MaxTokens int `json:"maxTokens,omitempty"`
 
 	// Maximum completion tokens to generate. Sent as the OpenAI
 	// `max_completion_tokens` request parameter (an upper bound on visible
 	// output plus reasoning tokens). This is the parameter reasoning models
 	// (GPT-5 / o-series) require in place of the deprecated maxTokens.
+	// Mutually exclusive with maxTokens.
 	// +optional
 	// +kubebuilder:validation:Minimum=1
 	MaxCompletionTokens int `json:"maxCompletionTokens,omitempty"`
