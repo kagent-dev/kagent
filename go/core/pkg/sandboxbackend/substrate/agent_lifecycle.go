@@ -142,7 +142,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 		// this (not creationTimestamp) to pick the desired template, so chat/readiness follow the
 		// current config rather than whichever golden was built most recently.
 		desiredGenerationAnnotation: strconv.FormatInt(sa.GetGeneration(), 10),
-		shapeHashAnnotation:         actorTemplateHash,
+		actorTemplateHashAnnotation: actorTemplateHash,
 	}
 	// The translator's config hash is kept as an informational annotation (it changes on soft
 	// config rollouts while the template stays put; nothing keys on it anymore).
@@ -152,7 +152,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 
 	desired := &atev1alpha1.ActorTemplate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        sandboxAgentActorTemplateName(sa, shapeHash),
+			Name:        sandboxAgentActorTemplateName(sa, actorTemplateHash),
 			Namespace:   sa.Namespace,
 			Labels:      sandboxAgentLifecycleLabels(sa),
 			Annotations: annotations,
