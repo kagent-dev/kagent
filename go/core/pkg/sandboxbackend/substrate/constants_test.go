@@ -34,12 +34,12 @@ func TestAcpSandboxImageResolve(t *testing.T) {
 	const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 	t.Run("composes registry repo name digest", func(t *testing.T) {
-		cfg := acpSandboxImageConfig{Registry: "cr.kagent.dev", Repository: "kagent-dev/kagent/app"}
+		cfg := acpSandboxImageConfig{Registry: "ghcr.io", Repository: "kagent-dev/kagent/app"}
 		got, err := cfg.resolve("acp-sandbox-openclaw", digest)
 		if err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
-		want := "cr.kagent.dev/kagent-dev/kagent/acp-sandbox-openclaw@" + digest
+		want := "ghcr.io/kagent-dev/kagent/acp-sandbox-openclaw@" + digest
 		if got != want {
 			t.Fatalf("resolve = %q, want %q", got, want)
 		}
@@ -58,19 +58,19 @@ func TestAcpSandboxImageResolve(t *testing.T) {
 	})
 
 	t.Run("adds sha256 prefix when missing", func(t *testing.T) {
-		cfg := acpSandboxImageConfig{Registry: "cr.kagent.dev", Repository: "kagent-dev/kagent/app"}
+		cfg := acpSandboxImageConfig{Registry: "ghcr.io", Repository: "kagent-dev/kagent/app"}
 		got, err := cfg.resolve("acp-sandbox-openclaw", strings.TrimPrefix(digest, "sha256:"))
 		if err != nil {
 			t.Fatalf("resolve: %v", err)
 		}
-		want := "cr.kagent.dev/kagent-dev/kagent/acp-sandbox-openclaw@" + digest
+		want := "ghcr.io/kagent-dev/kagent/acp-sandbox-openclaw@" + digest
 		if got != want {
 			t.Fatalf("resolve = %q, want %q", got, want)
 		}
 	})
 
 	t.Run("errors when digest missing", func(t *testing.T) {
-		cfg := acpSandboxImageConfig{Registry: "cr.kagent.dev", Repository: "kagent-dev/kagent/app"}
+		cfg := acpSandboxImageConfig{Registry: "ghcr.io", Repository: "kagent-dev/kagent/app"}
 		if _, err := cfg.resolve("acp-sandbox-openclaw", "  "); err == nil {
 			t.Fatal("expected error for missing digest")
 		}
@@ -84,7 +84,7 @@ func TestAcpSandboxImageResolve(t *testing.T) {
 	})
 
 	t.Run("errors when repository missing", func(t *testing.T) {
-		cfg := acpSandboxImageConfig{Registry: "cr.kagent.dev"}
+		cfg := acpSandboxImageConfig{Registry: "ghcr.io"}
 		if _, err := cfg.resolve("acp-sandbox-openclaw", digest); err == nil {
 			t.Fatal("expected error for missing repository")
 		}
