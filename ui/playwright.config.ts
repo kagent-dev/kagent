@@ -47,11 +47,18 @@ export default defineConfig({
       timeout: 30_000,
       stdout: "pipe",
       stderr: "pipe",
+      // Pin the port so a shell-exported STUB_PORT can't make the stub bind
+      // somewhere other than the health-check / BACKEND_INTERNAL_URL address.
+      env: { STUB_PORT: String(STUB_PORT) },
     },
     {
       command: "npm run dev",
       url: APP_URL,
-      reuseExistingServer: !CI,
+      // Never reuse an existing dev server: the BACKEND_INTERNAL_URL below is
+      // only applied to a server Playwright starts. A reused server (e.g. a
+      // hand-started `npm run dev`) would silently bypass the stub. Always
+      // boot our own so the redirect is guaranteed; a busy port fails loudly.
+      reuseExistingServer: false,
       timeout: 120_000,
       env: {
         // Redirect the server-side backend fetch to our stub.

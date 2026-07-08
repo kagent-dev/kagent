@@ -10,13 +10,16 @@ import type {
   AgentResponse,
   ModelConfig,
   ProviderModelsResponse,
+  RemoteMCPServerResponse,
   ToolsResponse,
 } from "@/types";
 
 export type Namespace = { name: string; status: string };
-export type ToolServerListEntry = { ref: string; groupKind: string; discoveredTools: unknown[] };
+export type ToolServerListEntry = RemoteMCPServerResponse;
 
-export function mockAgentResponse(overrides: Partial<AgentResponse> = {}): AgentResponse {
+export function mockAgentResponse(
+  overrides: Partial<AgentResponse> = {},
+): AgentResponse {
   return {
     id: "1",
     agent: {
@@ -37,7 +40,9 @@ export function mockModelsResponse(): ProviderModelsResponse {
   return { openai: [{ name: "gpt-4o", function_calling: true }] };
 }
 
-export function mockModelConfig(overrides: Partial<ModelConfig> = {}): ModelConfig {
+export function mockModelConfig(
+  overrides: Partial<ModelConfig> = {},
+): ModelConfig {
   return {
     ref: "default/default-model-config",
     spec: { model: "gpt-4o", provider: "OpenAI" },
@@ -49,7 +54,9 @@ export function mockNamespace(overrides: Partial<Namespace> = {}): Namespace {
   return { name: "default", status: "Active", ...overrides };
 }
 
-export function mockToolServer(overrides: Partial<ToolServerListEntry> = {}): ToolServerListEntry {
+export function mockToolServer(
+  overrides: Partial<ToolServerListEntry> = {},
+): ToolServerListEntry {
   return {
     ref: "default/e2e-tool-server",
     groupKind: "RemoteMCPServer.kagent.dev",
@@ -58,7 +65,9 @@ export function mockToolServer(overrides: Partial<ToolServerListEntry> = {}): To
   };
 }
 
-export function mockTool(overrides: Partial<ToolsResponse> = {}): ToolsResponse {
+export function mockTool(
+  overrides: Partial<ToolsResponse> = {},
+): ToolsResponse {
   return {
     id: "e2e-tool",
     server_name: "e2e-tool-server",
