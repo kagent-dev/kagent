@@ -150,7 +150,7 @@ func (b *SandboxAgentActorBackend) DeleteSandboxAgentSessionActor(ctx context.Co
 
 // sessionActorRef returns the session's stable actor id plus the agent's CURRENT template name.
 // The template name is only used when the actor does not exist yet (first message): an existing
-// actor is resumed under its BIRTH template — substrate stores the template name on the actor
+// actor is resumed under its original template — substrate stores the template name on the actor
 // record and rebuilds the workload spec from it — which is what pins a session to the shape it
 // was created under for its entire life.
 func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) (actorID, templateName string, err error) {

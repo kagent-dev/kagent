@@ -30,8 +30,7 @@ func TestSqlitePathFromURL(t *testing.T) {
 
 var eventClock = time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 
-// textEvent builds an event with a strictly increasing timestamp (the store orders events
-// chronologically; real runner events always carry timestamps).
+// textEvent builds an event with a strictly increasing timestamp
 func textEvent(id, author, text string) *adksession.Event {
 	eventClock = eventClock.Add(time.Second)
 	return &adksession.Event{

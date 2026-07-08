@@ -12,9 +12,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// Service is the session surface kagent wires through the runtime: the upstream ADK session
-// service plus the executor's convenience helpers. Implemented by KAgentSessionService (HTTP →
-// controller database) and LocalSessionService (sqlite in the actor's durableDir volume).
+// Service is the session surface kagent wires through the runtime:
+// Implemented by KAgentSessionService (HTTP → postgre database)
+// and LocalSessionService (sqlite in the actor's durableDir volume).
 type Service interface {
 	adksession.Service
 	GetSession(ctx context.Context, appName, userID, sessionID string) (adksession.Session, error)
@@ -26,11 +26,8 @@ var (
 	_ Service = (*LocalSessionService)(nil)
 )
 
-// LocalSessionService stores ADK session state in a local sqlite DB. On substrate sandbox
-// agents the DB lives inside the actor's durableDir volume (KAGENT_SESSION_DB_URL, injected by
-// the controller), so session state survives suspend/resume without round-tripping events to
-// the controller. It wraps the upstream ADK database session service, sharing nothing with the
-// HTTP KAgentSessionService but the Service interface.
+// LocalSessionService is used by substrate sandbox agents to store ADK session state in a local sqlite DB.
+// The DB lives inside the actor's durableDir volume (KAGENT_SESSION_DB_URL, injected by the controller)
 type LocalSessionService struct {
 	adksession.Service
 }

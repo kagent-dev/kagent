@@ -285,9 +285,6 @@ func eventQueryOptionsFromRequest(r *http.Request) (database.QueryOptions, error
 // substrateSandboxAgentForSession resolves the session's agent to a substrate SandboxAgent CR,
 // returning nil when the session has no agent or its agent is anything else.
 func (h *SessionsHandler) substrateSandboxAgentForSession(ctx context.Context, session *database.Session) (*v1alpha2.SandboxAgent, error) {
-	if session == nil || session.AgentID == nil {
-		return nil, nil
-	}
 	agent, err := h.DatabaseService.GetAgent(ctx, *session.AgentID)
 	if err != nil {
 		return nil, err
@@ -295,11 +292,11 @@ func (h *SessionsHandler) substrateSandboxAgentForSession(ctx context.Context, s
 	if agent.WorkloadType != v1alpha2.WorkloadModeSandbox {
 		return nil, nil
 	}
-	sa, isSubstrate, err := h.lookupSubstrateSandboxAgent(ctx, utils.ConvertToKubernetesIdentifier(*session.AgentID))
+	sandboxAgent, isSubstrate, err := h.lookupSubstrateSandboxAgent(ctx, utils.ConvertToKubernetesIdentifier(*session.AgentID))
 	if err != nil || !isSubstrate {
 		return nil, err
 	}
-	return sa, nil
+	return sandboxAgent, nil
 }
 
 // HandleUpdateSession handles PUT and PATCH /api/sessions/{session_id} requests.
@@ -384,8 +381,12 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 	var substrateCleanup *v1alpha2.SandboxAgent
 	if h.SubstrateSandboxActorBackend != nil {
 		if session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID); getErr == nil {
-			if sa, lookupErr := h.substrateSandboxAgentForSession(r.Context(), session); lookupErr == nil {
-				substrateCleanup = sa
+			if session == nil || session.AgentID == nil {
+				w.RespondWithError(errors.NewNotFoundError("Session not found", fmt.Errorf("failed to find agent id for session %s", sessionID)))
+				return
+			}
+			if sandboxAgent, lookupErr := h.substrateSandboxAgentForSession(r.Context(), session); lookupErr == nil {
+				substrateCleanup = sandboxAgent
 			}
 		}
 	}

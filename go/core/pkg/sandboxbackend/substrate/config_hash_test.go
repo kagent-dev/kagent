@@ -84,13 +84,13 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 			Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: defaultKagentContainer, Image: image}}},
 		}
 	}
-	const img1 = "registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111"
-	const img2 = "registry.example/app@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	const img1 = "registry.example/app@sha256:1111111"
+	const img2 = "registry.example/app@sha256:2222222"
 	wpKey := types.NamespacedName{Namespace: "kagent", Name: "kagent-default"}
 
 	tmpl, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("255", img1))
 	require.NoError(t, err)
-	shapeHash := tmpl.Annotations[shapeHashAnnotation]
+	shapeHash := tmpl.Annotations[actorTemplateHashAnnotation]
 	require.NotEmpty(t, shapeHash)
 	require.Equal(t, "py-agent-"+shapeHash, tmpl.Name, "template name must carry the shape-hash suffix")
 	require.Equal(t, "ff", tmpl.Annotations[consts.ConfigHashAnnotation], "config hash is kept as an informational annotation")
@@ -100,13 +100,13 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	softChange, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("256", img1))
 	require.NoError(t, err)
 	require.Equal(t, tmpl.Name, softChange.Name, "config-only change must not fan out a new template")
-	require.Equal(t, shapeHash, softChange.Annotations[shapeHashAnnotation])
+	require.Equal(t, shapeHash, softChange.Annotations[actorTemplateHashAnnotation])
 
-	// A shape change (new image digest) must fan out a new template + golden.
+	// A actor template shape change (new image digest) must fan out a new template + golden.
 	shapeChange, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("256", img2))
 	require.NoError(t, err)
 	require.NotEqual(t, tmpl.Name, shapeChange.Name, "image change must produce a new template")
-	require.NotEqual(t, shapeHash, shapeChange.Annotations[shapeHashAnnotation])
+	require.NotEqual(t, shapeHash, shapeChange.Annotations[actorTemplateHashAnnotation])
 }
 
 func TestBuildSandboxPublishesStableConfigSecret(t *testing.T) {
@@ -150,7 +150,7 @@ func TestBuildSandboxPublishesStableConfigSecret(t *testing.T) {
 
 	tmpl, ok := objs[1].(*atev1alpha1.ActorTemplate)
 	require.True(t, ok)
-	require.Equal(t, "py-agent-"+tmpl.Annotations[shapeHashAnnotation], tmpl.Name, "ActorTemplate is named for its shape hash")
+	require.Equal(t, "py-agent-"+tmpl.Annotations[actorTemplateHashAnnotation], tmpl.Name, "ActorTemplate is named for its shape hash")
 
 	// No config Secret in the input → nothing to publish, just the template.
 	objs, err = b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod})

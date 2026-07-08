@@ -56,21 +56,22 @@ const (
 	// the spec, so sessions keep their actor (and durable dir) across config rollouts; anything
 	// that does change the spec (image digest, command, scopes, literal env) fans out blue-green
 	// to a new template + new actors, resetting session state (accepted, plan §4.2).
-	shapeHashAnnotation = "kagent.dev/shape-hash"
+	actorTemplateHashAnnotation = "kagent.dev/actor-template-hash"
 
-	// Durable-dir session storage: the runtime keeps the session's ADK event log in a sqlite
-	// DB inside a durableDir volume in the session actor instead of round-tripping events to
-	// the controller database. Presence of the env var is the switch, its value the config —
-	// an older runtime image without the feature simply ignores it and stays on HTTP sessions.
 	durableDataVolume = "data"
 	durableDataMount  = "/data"
-	sessionDBURLEnv   = "KAGENT_SESSION_DB_URL"
+	// this env var is used by the declarative runtime to configure the local session store in
+	// the durable dir volume.
+	sessionDBURLEnv = "KAGENT_SESSION_DB_URL"
 	// The URL value is runtime-specific. Python: google-adk's DatabaseSessionService uses
 	// SQLAlchemy's async engine, so the URL must name an async driver (aiosqlite is a core
 	// google-adk dependency, present in every runtime image). Go: the Go ADK's local store
 	// parses a plain sqlite URL.
 	sessionDBURLPython = "sqlite+aiosqlite:///" + durableDataMount + "/sessions.db"
 	sessionDBURLGo     = "sqlite:///" + durableDataMount + "/sessions.db"
+
+	// optional annotation to enable durable-dir session storage for a sandbox BYO agent
+	durableDirSessionStorageAnnotation = "kagent.dev/local-session-storage"
 )
 
 func (p *Lifecycle) buildSandboxAgentActorTemplate(
@@ -86,26 +87,26 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	if err != nil {
 		return nil, err
 	}
-	// Config reaches the actor exclusively through secretKeyRef env against the agent's STABLE
-	// config Secret (updated in place on config change). ate-api re-resolves secretKeyRef from
-	// the live Secret on every resume, and durable-dir templates suspend with Data scope so
-	// every resume is a cold boot: an existing session's next turn picks up new config without
-	// a new actor. Golden staleness degrades to the ate-api secret-cache TTL (~30s), which the
-	// per-hash clone used to guard against under Full-scope warm resumes.
 	secretName := sandboxAgentConfigSecretName(sa)
 	command, containerEnv, err := buildSubstrateKagentContainerCommand(sa, kagentContainer, secretName)
 	if err != nil {
 		return nil, err
 	}
+
+	var env []corev1.EnvVar
+	env = append(env, containerEnv...)
+	env = append(env, kagentContainer.Env...)
+
 	durableDirSessions := SandboxAgentUsesDurableDirSessions(sa)
 	if durableDirSessions {
 		dbURL := sessionDBURLPython
 		if v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec()) == v1alpha2.DeclarativeRuntime_Go {
 			dbURL = sessionDBURLGo
 		}
-		// Prepended before the pod env so first-occurrence dedup makes the kagent-set value
-		// win over any user spec.env of the same name.
-		containerEnv = append(containerEnv, corev1.EnvVar{Name: sessionDBURLEnv, Value: dbURL})
+		// db url env is appended at the end so pod env vars win out
+		// this is intended to be an escape hatch for users who do not want to use durable dir session storage
+		// otherwise it is the default behavior for sandbox agents.
+		env = append(env, corev1.EnvVar{Name: sessionDBURLEnv, Value: dbURL})
 	}
 
 	spec := atev1alpha1.ActorTemplateSpec{
@@ -118,10 +119,6 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
 		}},
 		WorkerSelector: workerSelectorForPool(wpKey),
-		// Mirror substrate's CRD defaults so kagent's spec-drift check
-		// (apiequality.Semantic.DeepEqual) treats them as equal to the
-		// values the API server fills in on admission — otherwise kagent
-		// re-creates the ActorTemplate every reconcile in a hot loop.
 		SnapshotsConfig: atev1alpha1.SnapshotsConfig{
 			Location: sandboxAgentSnapshotsLocation(sa),
 			OnPause:  atev1alpha1.SnapshotScopeFull,
@@ -132,9 +129,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 		applyDurableDirSessionStore(&spec)
 	}
 
-	// The template is named for the hash of its rendered spec: same shape → same template (and
-	// same session actors, durable dirs included); changed shape → new template + fresh golden.
-	shapeHash, err := actorTemplateShapeHash(spec)
+	actorTemplateHash, err := actorTemplateShapeHash(spec)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +142,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 		// this (not creationTimestamp) to pick the desired template, so chat/readiness follow the
 		// current config rather than whichever golden was built most recently.
 		desiredGenerationAnnotation: strconv.FormatInt(sa.GetGeneration(), 10),
-		shapeHashAnnotation:         shapeHash,
+		shapeHashAnnotation:         actorTemplateHash,
 	}
 	// The translator's config hash is kept as an informational annotation (it changes on soft
 	// config rollouts while the template stays put; nothing keys on it anymore).
@@ -186,12 +181,16 @@ func actorTemplateShapeHash(spec atev1alpha1.ActorTemplateSpec) (string, error) 
 // SandboxAgentUsesDurableDirSessions reports whether the agent's ADK session state lives in a
 // sqlite DB in a durableDir volume inside the session actor instead of the controller database.
 // This is how ALL declarative substrate agents (python and go runtimes) store session state.
-// BYO images manage their own state and stay on HTTP.
+// Since storing session state is a runtime implementation, it has to be explicitly supported by
+// BYO agents by setting the kagent.dev/local-session-storage annotation to true.
 func SandboxAgentUsesDurableDirSessions(sa *v1alpha2.SandboxAgent) bool {
 	if sa == nil {
 		return false
 	}
 	spec := sa.GetAgentSpec()
+	if spec != nil && spec.Type == v1alpha2.AgentType_BYO {
+		return sa.Annotations[durableDirSessionStorageAnnotation] == "true"
+	}
 	return spec != nil && spec.Type != v1alpha2.AgentType_BYO
 }
 

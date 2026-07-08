@@ -71,9 +71,8 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 		return nil, fmt.Errorf("message contextId (session id) is required for substrate sandbox agents")
 	}
 
-	// Best-effort: the session row is controller-side metadata (session list, events
-	// read-through, delete cleanup); the chat's own state lives in the actor, so a failure
-	// here is logged once and must not block the message.
+	// non blocking attempt to ensure that sandbox agent session metadata is persisted to postgres
+	// to support session list, events read-through, and delete cleanup.
 	if err := t.ensureSessionRow(req.Context(), sessionID, req.Header.Get("X-User-Id")); err != nil {
 		ctrllog.FromContext(req.Context()).WithName("substrate-sandbox-transport").Error(err,
 			"failed to ensure session row; continuing without it", "sessionID", sessionID)
