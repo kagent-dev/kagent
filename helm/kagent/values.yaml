@@ -865,7 +865,7 @@ otel:
 # Both map and multi-line string entries are supported. Use this to manage
 # resources such as ExternalSecret, HTTPRoute, or NetworkPolicy within the same
 # chart lifecycle without maintaining a separate chart.
-# @default -- `[]`
+# @default -- []
 extraObjects: []
   # - apiVersion: external-secrets.io/v1
   #   kind: ExternalSecret
