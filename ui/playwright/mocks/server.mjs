@@ -69,6 +69,32 @@ const substrateStatus = {
   workers: [],
 };
 
+// Returned by POST /api/sessions (createSession). The fixed id is what the chat
+// UI uses for the new session and the streamed A2A contextId.
+const session = {
+  id: "e2e-session",
+  name: "e2e chat",
+  agent_id: "default/e2e-agent",
+  user_id: "admin@kagent.dev",
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  deleted_at: "",
+};
+
+// Prior conversation returned by GET /api/sessions/<id>/tasks (existing-chat load).
+// Agent messages need metadata.displaySource:"assistant" to render; state must not
+// be submitted/working (that would trigger stream resubscribe).
+const task = {
+  id: "e2e-task",
+  contextId: "e2e-session",
+  kind: "task",
+  status: { state: "completed" },
+  history: [
+    { kind: "message", messageId: "t1-u", role: "user", parts: [{ kind: "text", text: "Prior question" }], metadata: { timestamp: 1 } },
+    { kind: "message", messageId: "t1-a", role: "agent", parts: [{ kind: "text", text: "Prior answer" }], metadata: { displaySource: "assistant", timestamp: 2 } },
+  ],
+};
+
 // Default happy-path body per endpoint slug.
 const DEFAULTS = {
   agents: () => ok([agent], "Successfully fetched agents"),
@@ -184,6 +210,32 @@ const server = createServer(async (req, res) => {
       console.log(`[stub] ${method} ${url} -> 200`);
       return json(res, 200, DEFAULTS[slug]());
     }
+
+    // Dynamic GET routes (parameterized paths not in PATH_TO_SLUG).
+    if (/^\/api\/agents\/[^/]+\/[^/]+$/.test(pathname)) {
+      console.log(`[stub] ${method} ${url} -> 200 (agent detail)`);
+      return json(res, 200, ok(agent));
+    }
+    if (/^\/api\/sessions\/agent\/[^/]+\/[^/]+$/.test(pathname)) {
+      console.log(`[stub] ${method} ${url} -> 200 (sessions for agent)`);
+      return json(res, 200, ok([]));
+    }
+    // Session tasks (existing-chat history): /api/sessions/<id>/tasks.
+    if (/^\/api\/sessions\/[^/]+\/tasks$/.test(pathname)) {
+      console.log(`[stub] ${method} ${url} -> 200 (session tasks)`);
+      return json(res, 200, ok([task]));
+    }
+    // Single session (checkSessionExists): truthy for the seeded id, else 404 so
+    // the "Session not found" screen is reachable.
+    const sessionDetail = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+    if (sessionDetail) {
+      if (sessionDetail[1] === "e2e-session") {
+        console.log(`[stub] ${method} ${url} -> 200 (session detail)`);
+        return json(res, 200, ok({ session }));
+      }
+      console.log(`[stub] ${method} ${url} -> 404 (session not found)`);
+      return json(res, 404, { error: "Session not found" });
+    }
   }
 
   // Mutations to /api/*: capture the body (for payload assertions) and respond.
@@ -196,6 +248,12 @@ const server = createServer(async (req, res) => {
     if (override) {
       console.log(`[stub] ${method} ${url} -> ${override.status} (override)`);
       return json(res, override.status, override.body ?? {});
+    }
+    // createSession must return a session WITH an id (the UI uses it for the new
+    // chat's id + streamed contextId); the generic echo below wouldn't have one.
+    if (method === "POST" && pathname === "/api/sessions") {
+      console.log(`[stub] ${method} ${url} -> 200 (session created)`);
+      return json(res, 200, ok(session));
     }
     console.log(`[stub] ${method} ${url} -> 200 (captured)`);
     return json(res, 200, ok(body));
