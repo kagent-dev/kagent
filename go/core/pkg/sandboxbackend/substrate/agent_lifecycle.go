@@ -61,15 +61,13 @@ const (
 	durableDataVolume = "data"
 	durableDataMount  = "/data"
 	// The session-store URL reaches the runtime as AgentConfig.session_db_url inside the
-	// rendered config Secret (buildSandboxAgentConfigSecret). The value is runtime-specific.
+	// rendered config Secret (baked in by the translator via AgentsBackend.SessionDBURL).
+	// The value is runtime-specific.
 	// Python: google-adk's DatabaseSessionService uses SQLAlchemy's async engine, so the URL
 	// must name an async driver (aiosqlite is a core google-adk dependency, present in every
 	// runtime image). Go: the Go ADK's local store parses either form.
 	sessionDBURLPython = "sqlite+aiosqlite:///" + durableDataMount + "/sessions.db"
 	sessionDBURLGo     = "sqlite:///" + durableDataMount + "/sessions.db"
-
-	// optional annotation to enable durable-dir session storage for a sandbox BYO agent
-	durableDirSessionStorageAnnotation = "kagent.dev/local-session-storage"
 )
 
 func (p *Lifecycle) buildSandboxAgentActorTemplate(
@@ -91,8 +89,6 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 		return nil, err
 	}
 
-	durableDirSessions := SandboxAgentUsesDurableDirSessions(sa)
-
 	spec := atev1alpha1.ActorTemplateSpec{
 		PauseImage:   p.Defaults.PauseImage,
 		SandboxClass: atev1alpha1.SandboxClassGvisor,
@@ -109,9 +105,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			OnCommit: atev1alpha1.SnapshotScopeFull,
 		},
 	}
-	if durableDirSessions {
-		applyDurableDirSessionStore(&spec)
-	}
+	applyDurableDirSessionStore(&spec)
 
 	actorTemplateHash, err := actorTemplateShapeHash(spec)
 	if err != nil {
@@ -160,31 +154,6 @@ func actorTemplateShapeHash(spec atev1alpha1.ActorTemplateSpec) (string, error) 
 	}
 	sum := sha256.Sum256(raw)
 	return fmt.Sprintf("%x", sum[:8]), nil
-}
-
-// SandboxAgentUsesDurableDirSessions reports whether the agent's ADK session state lives in a
-// sqlite DB in a durableDir volume inside the session actor instead of the controller database.
-// This is how ALL declarative substrate agents (python and go runtimes) store session state.
-// Since storing session state is a runtime implementation, it has to be explicitly supported by
-// BYO agents by setting the kagent.dev/local-session-storage annotation to true.
-func SandboxAgentUsesDurableDirSessions(sa *v1alpha2.SandboxAgent) bool {
-	if sa == nil {
-		return false
-	}
-	spec := sa.GetAgentSpec()
-	if spec != nil && spec.Type == v1alpha2.AgentType_BYO {
-		return sa.Annotations[durableDirSessionStorageAnnotation] == "true"
-	}
-	return spec != nil && spec.Type != v1alpha2.AgentType_BYO
-}
-
-// sandboxAgentSessionDBURL returns the runtime-appropriate local session-store URL (python's
-// SQLAlchemy async engine needs the aiosqlite driver segment; the Go store accepts either form).
-func sandboxAgentSessionDBURL(sa *v1alpha2.SandboxAgent) string {
-	if v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec()) == v1alpha2.DeclarativeRuntime_Go {
-		return sessionDBURLGo
-	}
-	return sessionDBURLPython
 }
 
 // applyDurableDirSessionStore mounts a durableDir volume at /data for the session sqlite DB,
@@ -311,9 +280,8 @@ func buildSubstrateDeclarativeCommand(runtime v1alpha2.DeclarativeRuntime) []str
 	}
 }
 
-// sandboxAgentConfigSecretName returns the agent's STABLE config Secret name. Contents are
-// updated in place on config change; ate-api re-resolves secretKeyRef env from the live Secret
-// at every resume (Data-scope cold boot), which is what carries new config to existing actors.
+// sandboxAgentConfigSecretName returns the agent's STABLE config Secret name — the agent name,
+// matching the Secret the translator renders and emits in BuildManifest.
 func sandboxAgentConfigSecretName(sa *v1alpha2.SandboxAgent) string {
 	return sa.Name
 }

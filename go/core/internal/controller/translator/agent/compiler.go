@@ -156,6 +156,9 @@ func (a *adkApiTranslator) CompileAgent(
 	if runInSandbox && a.sandboxBackend == nil {
 		return nil, fmt.Errorf("sandbox backend is not configured")
 	}
+	if runInSandbox {
+		cfg.SessionDBURL = a.sandboxBackend.SessionDBURL(agent)
+	}
 	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
 		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
 			return nil, NewValidationError("%s", err.Error())

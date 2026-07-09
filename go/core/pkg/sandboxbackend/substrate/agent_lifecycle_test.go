@@ -210,8 +210,6 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 		sa          *v1alpha2.SandboxAgent
 		container   corev1.Container
 		wantCommand []string
-		// BYO agents skip durable-dir wiring (unless annotated) but still get the config env.
-		isBYO bool
 		// Python declarative re-supplies the image's LD_LIBRARY_PATH (substrate drops image ENV).
 		wantLibEnv bool
 	}{
@@ -249,7 +247,6 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			},
 			container:   corev1.Container{Command: []string{"/serve"}, Args: []string{"--host", "0.0.0.0", "--port", "80"}},
 			wantCommand: []string{"/serve", "--host", "0.0.0.0", "--port", "80"},
-			isBYO:       true,
 			wantLibEnv:  false,
 		},
 	} {
@@ -271,20 +268,20 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			require.True(t, names["KAGENT_CONFIG_JSON"], "every agent type gets the rendered config via secret env (BYO decides for itself whether to consume it)")
 			require.Equal(t, tc.wantLibEnv, names["LD_LIBRARY_PATH"], "Python declarative re-supplies the image LD_LIBRARY_PATH that substrate drops")
 
-			// Durable-dir session storage is on for all declarative agents (python and go), never
-			// plain BYO (asserted in detail in TestBuildSandboxAgentActorTemplateDurableDirSessions).
-			// The DB URL travels only as AgentConfig.session_db_url in the config Secret.
-			wantDurableDir := !tc.isBYO
-			require.Equal(t, wantDurableDir, len(tmpl.Spec.Volumes) == 1)
+			// Durable-dir session storage is on for every sandbox agent, BYO included (asserted
+			// in detail in TestBuildSandboxAgentActorTemplateDurableDirSessions). The DB URL
+			// travels only as AgentConfig.session_db_url in the config Secret.
+			require.Len(t, tmpl.Spec.Volumes, 1)
 			require.False(t, names["KAGENT_SESSION_DB_URL"], "the session DB URL must never be a template env var")
 		})
 	}
 }
 
 // TestBuildSandboxAgentActorTemplateDurableDirSessions covers the durable-dir session-store
-// wiring: always on for declarative agents, opt-in via annotation for BYO, off for plain BYO.
-// The store URL travels ONLY as AgentConfig.session_db_url in the rendered config Secret —
-// never as a template env var (asserted in TestBuildSandboxAgentConfigSecretSessionDBURL).
+// wiring: always on for every sandbox agent, BYO included (the image contract — /health,
+// state under /data — is documented on applyDurableDirSessionStore). The store URL travels
+// ONLY as AgentConfig.session_db_url in the rendered config Secret — never as a template env
+// var (asserted in TestBuildSandboxAgentConfigSecretSessionDBURL).
 func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 	t.Parallel()
 
@@ -305,14 +302,11 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 		name      string
 		sa        *v1alpha2.SandboxAgent
 		container corev1.Container
-		want      bool
 	}{
-		{name: "python always on", sa: agentFor(pythonSpec, nil), want: true},
-		{name: "python with unrelated annotations still on", sa: agentFor(pythonSpec, map[string]string{"kagent.dev/other": "x"}), want: true},
-		{name: "go always on", sa: agentFor(goSpec, nil), want: true},
-		{name: "byo stays on http", sa: agentFor(byoSpec, nil), container: corev1.Container{Command: []string{"/serve"}}, want: false},
-		{name: "byo opt-in via annotation", sa: agentFor(byoSpec, map[string]string{"kagent.dev/local-session-storage": "true"}),
-			container: corev1.Container{Command: []string{"/serve"}}, want: true},
+		{name: "python", sa: agentFor(pythonSpec, nil)},
+		{name: "python with unrelated annotations", sa: agentFor(pythonSpec, map[string]string{"kagent.dev/other": "x"})},
+		{name: "go", sa: agentFor(goSpec, nil)},
+		{name: "byo", sa: agentFor(byoSpec, nil), container: corev1.Container{Command: []string{"/serve"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -329,13 +323,6 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 
 			// The store URL never rides the template: it lives in the config Secret.
 			require.False(t, actorEnvNames(c.Env)["KAGENT_SESSION_DB_URL"])
-
-			if !tc.want {
-				require.Empty(t, tmpl.Spec.Volumes)
-				require.Empty(t, c.VolumeMounts)
-				require.Nil(t, c.Readyz)
-				return
-			}
 
 			require.Len(t, tmpl.Spec.Volumes, 1)
 			require.Equal(t, durableDataVolume, tmpl.Spec.Volumes[0].Name)

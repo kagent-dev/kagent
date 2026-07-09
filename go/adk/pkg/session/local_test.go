@@ -78,10 +78,19 @@ func TestLocalSessionServiceRoundTrip(t *testing.T) {
 	dbURL := "sqlite:///" + filepath.Join(t.TempDir(), "sessions.db")
 	ctx := context.Background()
 
+	get := func(svc *LocalSessionService, sessionID string) (adksession.Session, error) {
+		resp, err := svc.Get(ctx, &adksession.GetRequest{AppName: "app", UserID: "u1", SessionID: sessionID})
+		if err != nil {
+			return nil, err
+		}
+		return resp.Session, nil
+	}
+
 	svc, err := NewLocalSessionService(dbURL)
 	require.NoError(t, err)
-	require.NoError(t, svc.CreateSession(ctx, "app", "u1", nil, "s1"))
-	sess, err := svc.GetSession(ctx, "app", "u1", "s1")
+	_, err = svc.Create(ctx, &adksession.CreateRequest{AppName: "app", UserID: "u1", SessionID: "s1"})
+	require.NoError(t, err)
+	sess, err := get(svc, "s1")
 	require.NoError(t, err)
 	require.NoError(t, svc.AppendEvent(ctx, sess, textEvent("e1", "user", "my favorite color is teal")))
 
@@ -89,16 +98,16 @@ func TestLocalSessionServiceRoundTrip(t *testing.T) {
 	// accept more appends — this is the property suspend/resume durability rests on.
 	svc2, err := NewLocalSessionService(dbURL)
 	require.NoError(t, err)
-	sess2, err := svc2.GetSession(ctx, "app", "u1", "s1")
+	sess2, err := get(svc2, "s1")
 	require.NoError(t, err)
 	require.Equal(t, 1, sess2.Events().Len())
 	require.NoError(t, svc2.AppendEvent(ctx, sess2, textEvent("e2", "model", "noted: teal")))
 
-	sess3, err := svc2.GetSession(ctx, "app", "u1", "s1")
+	sess3, err := get(svc2, "s1")
 	require.NoError(t, err)
 	require.Equal(t, 2, sess3.Events().Len())
 
-	// Unknown sessions map to ErrSessionNotFound like the HTTP service.
-	_, err = svc2.GetSession(ctx, "app", "u1", "missing")
-	require.ErrorIs(t, err, ErrSessionNotFound)
+	// Unknown sessions fail the lookup.
+	_, err = get(svc2, "missing")
+	require.Error(t, err)
 }

@@ -1,8 +1,6 @@
 package session
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,21 +8,6 @@ import (
 	"github.com/glebarez/sqlite"
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/adk/session/database"
-	"gorm.io/gorm"
-)
-
-// Service is the session surface kagent wires through the runtime:
-// Implemented by KAgentSessionService (HTTP → postgre database)
-// and LocalSessionService (sqlite in the actor's durableDir volume).
-type Service interface {
-	adksession.Service
-	GetSession(ctx context.Context, appName, userID, sessionID string) (adksession.Session, error)
-	CreateSession(ctx context.Context, appName, userID string, state map[string]any, sessionID string) error
-}
-
-var (
-	_ Service = (*KAgentSessionService)(nil)
-	_ Service = (*LocalSessionService)(nil)
 )
 
 // LocalSessionService is used by substrate sandbox agents to store ADK session state in a local sqlite DB.
@@ -40,7 +23,7 @@ type LocalSessionService struct {
 // typically in-memory sessions). BYO agents building their own executor should use this to
 // populate KAgentExecutorConfig.SessionService so they honor the same contract as the
 // declarative runtime.
-func NewService(dbURL, kagentURL string, httpClient *http.Client) (Service, error) {
+func NewService(dbURL, kagentURL string, httpClient *http.Client) (adksession.Service, error) {
 	if dbURL != "" {
 		return NewLocalSessionService(dbURL)
 	}
@@ -81,26 +64,4 @@ func sqlitePathFromURL(dbURL string) (string, error) {
 		return "", fmt.Errorf("session DB URL %q has no path", dbURL)
 	}
 	return path, nil
-}
-
-// GetSession implements the executor's convenience lookup, mapping a missing session to
-// ErrSessionNotFound like the HTTP service does.
-func (s *LocalSessionService) GetSession(ctx context.Context, appName, userID, sessionID string) (adksession.Session, error) {
-	resp, err := s.Get(ctx, &adksession.GetRequest{AppName: appName, UserID: userID, SessionID: sessionID})
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrSessionNotFound
-		}
-		return nil, err
-	}
-	if resp == nil || resp.Session == nil {
-		return nil, ErrSessionNotFound
-	}
-	return resp.Session, nil
-}
-
-// CreateSession implements the executor's convenience create.
-func (s *LocalSessionService) CreateSession(ctx context.Context, appName, userID string, state map[string]any, sessionID string) error {
-	_, err := s.Create(ctx, &adksession.CreateRequest{AppName: appName, UserID: userID, State: state, SessionID: sessionID})
-	return err
 }

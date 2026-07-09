@@ -2,14 +2,11 @@ package substrate
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"maps"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -64,79 +61,19 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 	if err != nil {
 		return nil, err
 	}
-
-	// Publish the rendered config under the agent's STABLE Secret name, updated in place on
-	// every config change (the ActorTemplate references it via secretKeyRef env, re-resolved by
-	// ate-api at each Data-scope resume — that's how soft config rollouts reach existing
-	// actors). The Secret is owner-referenced to the SandboxAgent, so it is GC'd with the agent.
-	configSecret, err := buildSandboxAgentConfigSecret(sa, in)
-	if err != nil {
-		return nil, err
-	}
-	if configSecret != nil {
-		return []client.Object{configSecret, tmpl}, nil
-	}
 	return []client.Object{tmpl}, nil
 }
 
-// buildSandboxAgentConfigSecret copies the rendered config Secret under the agent's stable
-// Secret name, adding AgentConfig.session_db_url for durable-dir agents so the runtime learns
-// its session store from the config struct. Returns nil when there is no rendered config.
-func buildSandboxAgentConfigSecret(sa *v1alpha2.SandboxAgent, in sandboxbackend.BuildInput) (*corev1.Secret, error) {
-	if in.ConfigSecret == nil {
-		return nil, nil
+// SessionDBURL returns the durable-dir session-store URL the translator bakes into the rendered
+// config (AgentConfig.session_db_url) before building the config Secret. The value is
+// runtime-specific: python's google-adk DatabaseSessionService uses SQLAlchemy's async engine,
+// so the URL must name an async driver (aiosqlite, a core google-adk dependency); the Go ADK's
+// local store parses either form.
+func (b *AgentsBackend) SessionDBURL(agent v1alpha2.AgentObject) string {
+	if v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) == v1alpha2.DeclarativeRuntime_Go {
+		return sessionDBURLGo
 	}
-	data := in.ConfigSecret.Data
-	stringData := in.ConfigSecret.StringData
-	if SandboxAgentUsesDurableDirSessions(sa) {
-		dbURL := sandboxAgentSessionDBURL(sa)
-		if len(data["config.json"]) > 0 {
-			patched, err := withSessionDBURL(data["config.json"], dbURL)
-			if err != nil {
-				return nil, err
-			}
-			data = maps.Clone(data)
-			data["config.json"] = patched
-		} else {
-			// Covers StringData and an empty/absent rendering alike (withSessionDBURL treats
-			// empty as {}): a durable-dir agent must never ship a config without its store URL.
-			patched, err := withSessionDBURL([]byte(stringData["config.json"]), dbURL)
-			if err != nil {
-				return nil, err
-			}
-			if stringData == nil {
-				stringData = map[string]string{}
-			} else {
-				stringData = maps.Clone(stringData)
-			}
-			stringData["config.json"] = string(patched)
-		}
-	}
-	return &corev1.Secret{
-		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      sandboxAgentConfigSecretName(sa),
-			Namespace: sa.Namespace,
-			Labels:    sandboxAgentLifecycleLabels(sa),
-		},
-		Type:       in.ConfigSecret.Type,
-		Data:       data,
-		StringData: stringData,
-	}, nil
-}
-
-// withSessionDBURL sets session_db_url in the rendered config JSON. A generic map round-trip
-// (not adk.AgentConfig) so fields this package does not know about survive unchanged.
-func withSessionDBURL(configJSON []byte, dbURL string) ([]byte, error) {
-	if len(configJSON) == 0 {
-		configJSON = []byte("{}")
-	}
-	var cfg map[string]any
-	if err := json.Unmarshal(configJSON, &cfg); err != nil {
-		return nil, fmt.Errorf("parse rendered config.json to set session_db_url: %w", err)
-	}
-	cfg["session_db_url"] = dbURL
-	return json.Marshal(cfg)
+	return sessionDBURLPython
 }
 
 func (b *AgentsBackend) ReconcileActorTemplate(ctx context.Context, desired client.Object) error {

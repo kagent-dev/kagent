@@ -109,7 +109,10 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	require.NotEqual(t, shapeHash, shapeChange.Annotations[actorTemplateHashAnnotation])
 }
 
-func TestBuildSandboxPublishesStableConfigSecret(t *testing.T) {
+// TestBuildSandboxReturnsActorTemplate: the config Secret is rendered and emitted by the
+// translator (session_db_url baked in via Backend.SessionDBURL before rendering); BuildSandbox
+// contributes only the ActorTemplate, which references that Secret by the agent's stable name.
+func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
@@ -134,30 +137,13 @@ func TestBuildSandboxPublishesStableConfigSecret(t *testing.T) {
 			Image: "registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111",
 		}}},
 	}
-	cfg := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-		StringData: map[string]string{"config.json": `{"model":{"type":"gemini"}}`},
-	}
-
-	objs, err := b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod, ConfigSecret: cfg})
+	objs, err := b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod})
 	require.NoError(t, err)
-	require.Len(t, objs, 2, "expect the stable config Secret plus the ActorTemplate")
+	require.Len(t, objs, 1, "the ActorTemplate is the backend's only object; the config Secret is the translator's")
 
-	sec, ok := objs[0].(*corev1.Secret)
-	require.True(t, ok, "first object must be the published config Secret")
-	require.Equal(t, "py-agent", sec.Name, "config Secret uses the agent's stable name, updated in place on config change")
-	require.JSONEq(t, `{"model":{"type":"gemini"},"session_db_url":"sqlite+aiosqlite:////data/sessions.db"}`,
-		sec.StringData["config.json"],
-		"copy carries the rendered config plus the injected durable-dir session_db_url")
-
-	tmpl, ok := objs[1].(*atev1alpha1.ActorTemplate)
+	tmpl, ok := objs[0].(*atev1alpha1.ActorTemplate)
 	require.True(t, ok)
 	require.Equal(t, "py-agent-"+tmpl.Annotations[actorTemplateHashAnnotation], tmpl.Name, "ActorTemplate is named for its shape hash")
-
-	// No config Secret in the input → nothing to publish, just the template.
-	objs, err = b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod})
-	require.NoError(t, err)
-	require.Len(t, objs, 1)
 }
 
 func TestResolveCurrentActorTemplate(t *testing.T) {

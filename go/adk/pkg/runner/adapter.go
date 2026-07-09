@@ -10,7 +10,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
-	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
@@ -33,7 +32,7 @@ func agentNameFromAppName(appName string) string {
 func CreateRunnerConfig(
 	ctx context.Context,
 	agentConfig *adk.AgentConfig,
-	sessionService session.Service,
+	sessionService adksession.Service,
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
 	kagentURL string,
@@ -77,10 +76,8 @@ func CreateRunnerConfig(
 		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
 	}
 
-	var adkSessionService adksession.Service
-	if sessionService != nil {
-		adkSessionService = sessionService
-	} else {
+	adkSessionService := sessionService
+	if adkSessionService == nil {
 		adkSessionService = adksession.InMemoryService()
 	}
 

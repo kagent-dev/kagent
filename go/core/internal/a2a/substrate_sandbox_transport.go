@@ -74,7 +74,7 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 	}
 
 	// non blocking attempt to ensure that sandbox agent session metadata is persisted to postgres
-	// to support session list, events read-through, and delete cleanup.
+	// to support session list and delete cleanup.
 	if err := t.ensureSessionRow(req.Context(), sessionID, req.Header.Get("X-User-Id")); err != nil {
 		ctrllog.FromContext(req.Context()).WithName("substrate-sandbox-transport").Error(err,
 			"failed to ensure session row; continuing without it", "sessionID", sessionID)
@@ -113,7 +113,7 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 // A2A calls that never went through POST /api/sessions (no UI involvement). Without the row the
 // session is invisible to the sessions API: absent from listings, tasks unreadable, undeletable.
 func (t *substrateSandboxSessionRoundTripper) ensureSessionRow(ctx context.Context, sessionID, userID string) error {
-	if t.db == nil || !substrate.SandboxAgentUsesDurableDirSessions(t.sandboxAgent) {
+	if t.db == nil {
 		return nil
 	}
 	if userID == "" {
