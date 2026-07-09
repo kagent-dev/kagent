@@ -119,7 +119,7 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 
   ```go
   // ✗
-  cfg := map[string]interface{}{"model": "gpt-4o", "temperature": 0.2}
+  cfg := map[string]any{"model": "gpt-4o", "temperature": 0.2}
 
   // ✓
   type ModelParams struct {
