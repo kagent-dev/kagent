@@ -1,13 +1,14 @@
-// Typed, spec-side mock builders. Use these in specs to construct payloads for
-// assertions or (from Stage 1) to POST scenarios to the stub's /__mock/scenario
-// endpoint. The stub backend's runtime happy-path lives in server.mjs; keep the
-// shapes here in sync with it.
+// Typed, spec-side mock builders. Use these in specs (and the control seam in
+// control.ts) to construct payloads for assertions or to POST scenarios to the
+// stub's /__mock/scenario endpoint. The stub backend's runtime happy-path lives
+// in server.mjs; keep the shapes here in sync with it.
 //
 // Typed against the app's own types (via the @/ alias, see playwright/tsconfig.json)
 // so drift from the real API surface fails at compile time.
 
 import type {
   AgentResponse,
+  BaseResponse,
   ModelConfig,
   ProviderModelsResponse,
   RemoteMCPServerResponse,
@@ -16,6 +17,11 @@ import type {
 
 export type Namespace = { name: string; status: string };
 export type ToolServerListEntry = RemoteMCPServerResponse;
+
+/** Wrap data in the backend's success envelope: `{ message, data }`. */
+export function ok<T>(data: T, message = "OK"): BaseResponse<T> {
+  return { message, data };
+}
 
 export function mockAgentResponse(
   overrides: Partial<AgentResponse> = {},

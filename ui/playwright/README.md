@@ -36,12 +36,13 @@ browser-originated and `page.route`-able — used in the chat spec (Stage 2).
 ```
 playwright/
   tests/          # *.spec.ts, one per feature area
-  helpers/        # (Stage 1) reusable drivers: page, forms, select, dialog, nav
+  helpers/        # reusable drivers: page, nav (forms/select/dialog land with Stage 2)
   mocks/
-    server.mjs    # stub backend (runtime source of happy-path data)
-    data.ts       # typed spec-side builders (mirror server.mjs shapes)
+    server.mjs    # stub backend (happy-path data + /__mock/scenario overrides)
+    data.ts       # typed spec-side builders + ok() envelope (mirror server.mjs shapes)
+    control.ts    # semantic mock seam: mock.noAgents(), mock.agentsError(), …
   fixtures/
-    test.ts       # import { test, expect } from here in every spec
+    test.ts       # import { test, expect } from here; provides the `mock` fixture
   tsconfig.json
 ```
 
@@ -79,9 +80,11 @@ BACKEND_INTERNAL_URL=http://127.0.0.1:8899/api npm run dev
 ## Roadmap
 
 - **Stage 0 (done):** foundation — config, stub backend, CI, one smoke test.
-- **Stage 1:** helper/driver library (`helpers/*`) + per-test scenario overrides
-  via the stub's `/__mock/scenario` endpoint. Prefer stateless scenario selection
-  keyed by request content (e.g. `?namespace=empty-ns` → `[]`); fall back to the
-  control endpoint with `workers: 1` for endpoints lacking a discriminator.
-- **Stage 2:** feature flows (gap-scoped), ordered by importance —
-  Create Agent → Chat/session (A2A SSE mock) → Models → MCP → Onboarding completion.
+- **Stage 1 (done):** page/nav helpers (`helpers/*`) + per-test scenario overrides —
+  the `mock` fixture drives the stub's `/__mock/scenario` endpoint via `mocks/control.ts`
+  (e.g. `mock.noAgents()`, `mock.agentsError()`), verified by the home + nav specs.
+  Runs serially (`workers: 1`) against the shared stub; raising the worker count later
+  needs per-worker servers or stateless request-keyed scenarios.
+- **Stage 2:** feature flows (gap-scoped), ordered by importance — Create Agent →
+  Chat/session (A2A SSE mock) → Models → MCP → Onboarding completion. Adds the
+  `forms`/`select`/`dialog` helpers demand-driven against the create-agent form.
