@@ -150,7 +150,17 @@ func TestBuildSubstrateKagentContainerCommandBYO(t *testing.T) {
 	require.NoError(t, err)
 	// BYO uses the container command + args verbatim.
 	require.Equal(t, []string{"/serve", "--host", "0.0.0.0", "--port", "80"}, got)
-	require.NotEmpty(t, env)
+	// BYO also receives the rendered (minimal) config through the same secret-backed env as
+	// declaratives; whether the image consumes it is its own concern.
+	var hasConfigEnv bool
+	for _, e := range env {
+		if e.Name == "KAGENT_CONFIG_JSON" {
+			hasConfigEnv = true
+			require.NotNil(t, e.ValueFrom)
+			require.Equal(t, "byo-agent", e.ValueFrom.SecretKeyRef.Name)
+		}
+	}
+	require.True(t, hasConfigEnv)
 
 	// A BYO agent missing an explicit command is rejected.
 	_, _, err = buildSubstrateKagentContainerCommand(sa, &corev1.Container{}, "byo-agent")
@@ -200,8 +210,8 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 		sa          *v1alpha2.SandboxAgent
 		container   corev1.Container
 		wantCommand []string
-		// declarative agents carry secret-backed config env; BYO does not.
-		wantConfigEnv bool
+		// BYO agents skip durable-dir wiring (unless annotated) but still get the config env.
+		isBYO bool
 		// Python declarative re-supplies the image's LD_LIBRARY_PATH (substrate drops image ENV).
 		wantLibEnv bool
 	}{
@@ -213,10 +223,9 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}},
 				},
 			},
-			container:     corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
-			wantCommand:   []string{"/app", "--host", "0.0.0.0", "--port", "80"},
-			wantConfigEnv: true,
-			wantLibEnv:    false,
+			container:   corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
+			wantCommand: []string{"/app", "--host", "0.0.0.0", "--port", "80"},
+			wantLibEnv:  false,
 		},
 		{
 			name: "python declarative",
@@ -226,10 +235,9 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
 				},
 			},
-			container:     corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
-			wantCommand:   []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"},
-			wantConfigEnv: true,
-			wantLibEnv:    true,
+			container:   corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
+			wantCommand: []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"},
+			wantLibEnv:  true,
 		},
 		{
 			name: "byo",
@@ -239,10 +247,10 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}},
 				},
 			},
-			container:     corev1.Container{Command: []string{"/serve"}, Args: []string{"--host", "0.0.0.0", "--port", "80"}},
-			wantCommand:   []string{"/serve", "--host", "0.0.0.0", "--port", "80"},
-			wantConfigEnv: false,
-			wantLibEnv:    false,
+			container:   corev1.Container{Command: []string{"/serve"}, Args: []string{"--host", "0.0.0.0", "--port", "80"}},
+			wantCommand: []string{"/serve", "--host", "0.0.0.0", "--port", "80"},
+			isBYO:       true,
+			wantLibEnv:  false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -260,22 +268,23 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			names := actorEnvNames(c.Env)
 			require.True(t, names["KAGENT_NAME"], "KAGENT_NAME must be a literal env var")
 			require.True(t, names["KAGENT_NAMESPACE"], "KAGENT_NAMESPACE must be a literal env var")
-			require.Equal(t, tc.wantConfigEnv, names["KAGENT_CONFIG_JSON"], "declarative agents materialize config from secret env; BYO does not")
+			require.True(t, names["KAGENT_CONFIG_JSON"], "every agent type gets the rendered config via secret env (BYO decides for itself whether to consume it)")
 			require.Equal(t, tc.wantLibEnv, names["LD_LIBRARY_PATH"], "Python declarative re-supplies the image LD_LIBRARY_PATH that substrate drops")
 
 			// Durable-dir session storage is on for all declarative agents (python and go), never
-			// BYO (asserted in detail in TestBuildSandboxAgentActorTemplateDurableDirSessions).
-			wantDurableDir := tc.wantConfigEnv // true exactly for declarative agents
+			// plain BYO (asserted in detail in TestBuildSandboxAgentActorTemplateDurableDirSessions).
+			// The DB URL travels only as AgentConfig.session_db_url in the config Secret.
+			wantDurableDir := !tc.isBYO
 			require.Equal(t, wantDurableDir, len(tmpl.Spec.Volumes) == 1)
-			require.Equal(t, wantDurableDir, names[sessionDBURLEnv])
+			require.False(t, names["KAGENT_SESSION_DB_URL"], "the session DB URL must never be a template env var")
 		})
 	}
 }
 
 // TestBuildSandboxAgentActorTemplateDurableDirSessions covers the durable-dir session-store
-// wiring: always on for declarative agents with a runtime-specific DB URL (python needs the
-// async sqlite driver, go parses a plain sqlite URL), never for BYO (BYO images manage their
-// own state).
+// wiring: always on for declarative agents, opt-in via annotation for BYO, off for plain BYO.
+// The store URL travels ONLY as AgentConfig.session_db_url in the rendered config Secret —
+// never as a template env var (asserted in TestBuildSandboxAgentConfigSecretSessionDBURL).
 func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 	t.Parallel()
 
@@ -297,12 +306,13 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 		sa        *v1alpha2.SandboxAgent
 		container corev1.Container
 		want      bool
-		wantDBURL string
 	}{
-		{name: "python always on", sa: agentFor(pythonSpec, nil), want: true, wantDBURL: "sqlite+aiosqlite:////data/sessions.db"},
-		{name: "python with unrelated annotations still on", sa: agentFor(pythonSpec, map[string]string{"kagent.dev/other": "x"}), want: true, wantDBURL: "sqlite+aiosqlite:////data/sessions.db"},
-		{name: "go always on with plain sqlite url", sa: agentFor(goSpec, nil), want: true, wantDBURL: "sqlite:////data/sessions.db"},
+		{name: "python always on", sa: agentFor(pythonSpec, nil), want: true},
+		{name: "python with unrelated annotations still on", sa: agentFor(pythonSpec, map[string]string{"kagent.dev/other": "x"}), want: true},
+		{name: "go always on", sa: agentFor(goSpec, nil), want: true},
 		{name: "byo stays on http", sa: agentFor(byoSpec, nil), container: corev1.Container{Command: []string{"/serve"}}, want: false},
+		{name: "byo opt-in via annotation", sa: agentFor(byoSpec, map[string]string{"kagent.dev/local-session-storage": "true"}),
+			container: corev1.Container{Command: []string{"/serve"}}, want: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -317,11 +327,13 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 			require.Len(t, tmpl.Spec.Containers, 1)
 			c := tmpl.Spec.Containers[0]
 
+			// The store URL never rides the template: it lives in the config Secret.
+			require.False(t, actorEnvNames(c.Env)["KAGENT_SESSION_DB_URL"])
+
 			if !tc.want {
 				require.Empty(t, tmpl.Spec.Volumes)
 				require.Empty(t, c.VolumeMounts)
 				require.Nil(t, c.Readyz)
-				require.False(t, actorEnvNames(c.Env)[sessionDBURLEnv])
 				return
 			}
 
@@ -332,14 +344,6 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 			require.NotNil(t, c.Readyz)
 			require.Equal(t, "/health", c.Readyz.HTTPGet.Path)
 			require.Equal(t, substrateKagentListenPort, c.Readyz.HTTPGet.Port)
-			var dbURL string
-			for _, e := range c.Env {
-				if e.Name == sessionDBURLEnv {
-					require.NotNil(t, e.Value)
-					dbURL = *e.Value
-				}
-			}
-			require.Equal(t, tc.wantDBURL, dbURL)
 			// Durable-dir sessions suspend with Data scope (cheap per-turn snapshots + config
 			// refresh on resume); pause keeps Full for the golden build.
 			require.Equal(t, atev1alpha1.SnapshotScopeData, tmpl.Spec.SnapshotsConfig.OnCommit)

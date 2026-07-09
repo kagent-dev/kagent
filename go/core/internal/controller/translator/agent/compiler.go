@@ -141,6 +141,12 @@ func (a *adkApiTranslator) CompileAgent(
 		if err != nil {
 			return nil, err
 		}
+		// BYO currently does not share configuration with the declarative
+		// runtime so this is a minimal config to support propagating agent config
+		// to BYO agents through this format
+		cfg = &adk.AgentConfig{
+			Description: spec.Description,
+		}
 
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", spec.Type)

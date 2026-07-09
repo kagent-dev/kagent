@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/glebarez/sqlite"
@@ -27,9 +28,26 @@ var (
 )
 
 // LocalSessionService is used by substrate sandbox agents to store ADK session state in a local sqlite DB.
-// The DB lives inside the actor's durableDir volume (KAGENT_SESSION_DB_URL, injected by the controller)
+// The DB lives inside the actor's durableDir volume (AgentConfig.session_db_url, set by the controller
+// in the rendered config Secret).
 type LocalSessionService struct {
 	adksession.Service
+}
+
+// NewService builds the session service a runtime should use: dbURL (AgentConfig.session_db_url,
+// set by the controller for durable-dir sandbox agents) selects the actor-local sqlite store;
+// otherwise kagentURL selects the controller HTTP session service; otherwise nil (caller decides;
+// typically in-memory sessions). BYO agents building their own executor should use this to
+// populate KAgentExecutorConfig.SessionService so they honor the same contract as the
+// declarative runtime.
+func NewService(dbURL, kagentURL string, httpClient *http.Client) (Service, error) {
+	if dbURL != "" {
+		return NewLocalSessionService(dbURL)
+	}
+	if kagentURL != "" {
+		return NewKAgentSessionService(kagentURL, httpClient), nil
+	}
+	return nil, nil
 }
 
 // NewLocalSessionService opens (creating if needed) the sqlite DB named by dbURL
@@ -50,12 +68,13 @@ func NewLocalSessionService(dbURL string) (*LocalSessionService, error) {
 }
 
 // sqlitePathFromURL extracts the absolute file path from a sqlite session DB URL. The
-// controller injects "sqlite:////data/sessions.db" (scheme + empty authority + absolute path,
-// mirroring the python SQLAlchemy convention without a driver segment).
+// controller sets "sqlite:////data/sessions.db" for the Go runtime; python's SQLAlchemy form
+// with a driver segment ("sqlite+aiosqlite:////data/sessions.db") is accepted too so a BYO
+// image built with this SDK works regardless of which dialect it was handed.
 func sqlitePathFromURL(dbURL string) (string, error) {
-	rest, ok := strings.CutPrefix(dbURL, "sqlite:")
-	if !ok {
-		return "", fmt.Errorf("unsupported session DB URL %q: expected sqlite:////<path>", dbURL)
+	scheme, rest, ok := strings.Cut(dbURL, ":")
+	if !ok || (scheme != "sqlite" && !strings.HasPrefix(scheme, "sqlite+")) {
+		return "", fmt.Errorf("unsupported session DB URL %q: expected sqlite[+driver]:////<path>", dbURL)
 	}
 	path := "/" + strings.TrimLeft(rest, "/")
 	if path == "/" {

@@ -150,22 +150,19 @@ func main() {
 
 	// The executor needs a session service for its BeforeExecute callback
 	// (session creation/lookup). This must be created before the executor.
-	// KAGENT_SESSION_DB_URL selects the durable-dir local store (substrate sandbox agents:
-	// session state lives in a sqlite DB inside the actor's durableDir volume); otherwise
-	// session state is stored in the postgres database.
-	var sessionService session.Service
-	if sessionDBURL := os.Getenv("KAGENT_SESSION_DB_URL"); sessionDBURL != "" {
-		local, err := session.NewLocalSessionService(sessionDBURL)
-		if err != nil {
-			logger.Error(err, "Failed to open local session store", "url", sessionDBURL)
-			os.Exit(1)
-		}
-		sessionService = local
-		logger.Info("Using local durable-dir session store", "url", sessionDBURL)
-	} else if kagentURL != "" {
-		sessionService = session.NewKAgentSessionService(kagentURL, httpClient)
+	// AgentConfig.session_db_url (set by the controller for durable-dir substrate sandbox
+	// agents) selects the local store; otherwise sessions live in the controller database.
+	sessionService, err := session.NewService(agentConfig.SessionDBURL, kagentURL, httpClient)
+	if err != nil {
+		logger.Error(err, "Failed to open local session store", "url", agentConfig.SessionDBURL)
+		os.Exit(1)
+	}
+	switch sessionService.(type) {
+	case *session.LocalSessionService:
+		logger.Info("Using local durable-dir session store", "url", agentConfig.SessionDBURL)
+	case *session.KAgentSessionService:
 		logger.Info("Using KAgent session service", "url", kagentURL)
-	} else {
+	default:
 		logger.Info("No KAGENT_URL set, using in-memory session and no task persistence")
 	}
 

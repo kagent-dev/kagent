@@ -87,7 +87,9 @@ func (a *adkApiTranslator) BuildManifest(
 	if err != nil {
 		return nil, err
 	}
-	outputs.Manifest = append(outputs.Manifest, configSecret.secret)
+	if !manifestCtx.runInSandbox() {
+		outputs.Manifest = append(outputs.Manifest, configSecret.secret)
+	}
 
 	if sa := buildServiceAccount(manifestCtx); sa != nil {
 		outputs.Manifest = append(outputs.Manifest, sa)

@@ -2,7 +2,9 @@ package substrate
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -67,17 +69,48 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 	// every config change (the ActorTemplate references it via secretKeyRef env, re-resolved by
 	// ate-api at each Data-scope resume — that's how soft config rollouts reach existing
 	// actors). The Secret is owner-referenced to the SandboxAgent, so it is GC'd with the agent.
-	if configSecret := buildSandboxAgentConfigSecret(sa, in); configSecret != nil {
+	configSecret, err := buildSandboxAgentConfigSecret(sa, in)
+	if err != nil {
+		return nil, err
+	}
+	if configSecret != nil {
 		return []client.Object{configSecret, tmpl}, nil
 	}
 	return []client.Object{tmpl}, nil
 }
 
 // buildSandboxAgentConfigSecret copies the rendered config Secret under the agent's stable
-// Secret name. Returns nil when there is no rendered config.
-func buildSandboxAgentConfigSecret(sa *v1alpha2.SandboxAgent, in sandboxbackend.BuildInput) *corev1.Secret {
+// Secret name, adding AgentConfig.session_db_url for durable-dir agents so the runtime learns
+// its session store from the config struct. Returns nil when there is no rendered config.
+func buildSandboxAgentConfigSecret(sa *v1alpha2.SandboxAgent, in sandboxbackend.BuildInput) (*corev1.Secret, error) {
 	if in.ConfigSecret == nil {
-		return nil
+		return nil, nil
+	}
+	data := in.ConfigSecret.Data
+	stringData := in.ConfigSecret.StringData
+	if SandboxAgentUsesDurableDirSessions(sa) {
+		dbURL := sandboxAgentSessionDBURL(sa)
+		if len(data["config.json"]) > 0 {
+			patched, err := withSessionDBURL(data["config.json"], dbURL)
+			if err != nil {
+				return nil, err
+			}
+			data = maps.Clone(data)
+			data["config.json"] = patched
+		} else {
+			// Covers StringData and an empty/absent rendering alike (withSessionDBURL treats
+			// empty as {}): a durable-dir agent must never ship a config without its store URL.
+			patched, err := withSessionDBURL([]byte(stringData["config.json"]), dbURL)
+			if err != nil {
+				return nil, err
+			}
+			if stringData == nil {
+				stringData = map[string]string{}
+			} else {
+				stringData = maps.Clone(stringData)
+			}
+			stringData["config.json"] = string(patched)
+		}
 	}
 	return &corev1.Secret{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
@@ -87,9 +120,23 @@ func buildSandboxAgentConfigSecret(sa *v1alpha2.SandboxAgent, in sandboxbackend.
 			Labels:    sandboxAgentLifecycleLabels(sa),
 		},
 		Type:       in.ConfigSecret.Type,
-		Data:       in.ConfigSecret.Data,
-		StringData: in.ConfigSecret.StringData,
+		Data:       data,
+		StringData: stringData,
+	}, nil
+}
+
+// withSessionDBURL sets session_db_url in the rendered config JSON. A generic map round-trip
+// (not adk.AgentConfig) so fields this package does not know about survive unchanged.
+func withSessionDBURL(configJSON []byte, dbURL string) ([]byte, error) {
+	if len(configJSON) == 0 {
+		configJSON = []byte("{}")
 	}
+	var cfg map[string]any
+	if err := json.Unmarshal(configJSON, &cfg); err != nil {
+		return nil, fmt.Errorf("parse rendered config.json to set session_db_url: %w", err)
+	}
+	cfg["session_db_url"] = dbURL
+	return json.Marshal(cfg)
 }
 
 func (b *AgentsBackend) ReconcileActorTemplate(ctx context.Context, desired client.Object) error {

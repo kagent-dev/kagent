@@ -22,10 +22,38 @@ func TestSqlitePathFromURL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "/data/sessions.db", got)
 
+	// The python SQLAlchemy dialect must work too: a BYO image built with this SDK may be
+	// handed the python-form URL.
+	got, err = sqlitePathFromURL("sqlite+aiosqlite:////data/sessions.db")
+	require.NoError(t, err)
+	require.Equal(t, "/data/sessions.db", got)
+
 	_, err = sqlitePathFromURL("postgres://x")
 	require.Error(t, err)
 	_, err = sqlitePathFromURL("sqlite://")
 	require.Error(t, err)
+}
+
+// TestNewService covers the runtime session-service selection shared by the declarative binary
+// and BYO agents: AgentConfig.session_db_url (local sqlite store) > KAGENT_URL (controller HTTP
+// sessions) > nil (in-memory fallback).
+func TestNewService(t *testing.T) {
+	t.Parallel()
+
+	svc, err := NewService("sqlite:///"+filepath.Join(t.TempDir(), "sessions.db"), "http://kagent:8083", nil)
+	require.NoError(t, err)
+	require.IsType(t, &LocalSessionService{}, svc, "session_db_url must win over kagentURL")
+
+	svc, err = NewService("", "http://kagent:8083", nil)
+	require.NoError(t, err)
+	require.IsType(t, &KAgentSessionService{}, svc)
+
+	svc, err = NewService("", "", nil)
+	require.NoError(t, err)
+	require.Nil(t, svc)
+
+	_, err = NewService("postgres://nope", "", nil)
+	require.Error(t, err, "an invalid session DB URL must fail loud, not fall back")
 }
 
 var eventClock = time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)

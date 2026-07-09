@@ -60,13 +60,11 @@ const (
 
 	durableDataVolume = "data"
 	durableDataMount  = "/data"
-	// this env var is used by the declarative runtime to configure the local session store in
-	// the durable dir volume.
-	sessionDBURLEnv = "KAGENT_SESSION_DB_URL"
-	// The URL value is runtime-specific. Python: google-adk's DatabaseSessionService uses
-	// SQLAlchemy's async engine, so the URL must name an async driver (aiosqlite is a core
-	// google-adk dependency, present in every runtime image). Go: the Go ADK's local store
-	// parses a plain sqlite URL.
+	// The session-store URL reaches the runtime as AgentConfig.session_db_url inside the
+	// rendered config Secret (buildSandboxAgentConfigSecret). The value is runtime-specific.
+	// Python: google-adk's DatabaseSessionService uses SQLAlchemy's async engine, so the URL
+	// must name an async driver (aiosqlite is a core google-adk dependency, present in every
+	// runtime image). Go: the Go ADK's local store parses either form.
 	sessionDBURLPython = "sqlite+aiosqlite:///" + durableDataMount + "/sessions.db"
 	sessionDBURLGo     = "sqlite:///" + durableDataMount + "/sessions.db"
 
@@ -93,21 +91,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 		return nil, err
 	}
 
-	var env []corev1.EnvVar
-	env = append(env, containerEnv...)
-	env = append(env, kagentContainer.Env...)
-
 	durableDirSessions := SandboxAgentUsesDurableDirSessions(sa)
-	if durableDirSessions {
-		dbURL := sessionDBURLPython
-		if v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec()) == v1alpha2.DeclarativeRuntime_Go {
-			dbURL = sessionDBURLGo
-		}
-		// db url env is appended at the end so pod env vars win out
-		// this is intended to be an escape hatch for users who do not want to use durable dir session storage
-		// otherwise it is the default behavior for sandbox agents.
-		env = append(env, corev1.EnvVar{Name: sessionDBURLEnv, Value: dbURL})
-	}
 
 	spec := atev1alpha1.ActorTemplateSpec{
 		PauseImage:   p.Defaults.PauseImage,
@@ -116,7 +100,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			Name:    defaultKagentContainer,
 			Image:   image,
 			Command: command,
-			Env:     actorTemplateEnvFromPodEnv(env),
+			Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
 		}},
 		WorkerSelector: workerSelectorForPool(wpKey),
 		SnapshotsConfig: atev1alpha1.SnapshotsConfig{
@@ -194,6 +178,15 @@ func SandboxAgentUsesDurableDirSessions(sa *v1alpha2.SandboxAgent) bool {
 	return spec != nil && spec.Type != v1alpha2.AgentType_BYO
 }
 
+// sandboxAgentSessionDBURL returns the runtime-appropriate local session-store URL (python's
+// SQLAlchemy async engine needs the aiosqlite driver segment; the Go store accepts either form).
+func sandboxAgentSessionDBURL(sa *v1alpha2.SandboxAgent) string {
+	if v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec()) == v1alpha2.DeclarativeRuntime_Go {
+		return sessionDBURLGo
+	}
+	return sessionDBURLPython
+}
+
 // applyDurableDirSessionStore mounts a durableDir volume at /data for the session sqlite DB,
 // adds a /health readyz probe so resume RPCs don't return before the app can serve requests,
 // and flips the suspend scope to Data: per-turn suspends then capture only the durable dir
@@ -254,12 +247,16 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *
 	spec := sa.GetAgentSpec()
 	if spec != nil && spec.Type == v1alpha2.AgentType_BYO {
 		// BYO: use the explicit container command + args verbatim. Validation
-		// (ValidateSubstrateSandboxAgentSpec) guarantees a command is set.
+		// (ValidateSubstrateSandboxAgentSpec) guarantees a command is set. The rendered
+		// (minimal) config is exposed the same way as for declaratives — secret-backed env —
+		// so kagent-owned settings like session_db_url are available to the image; whether
+		// the image consumes them is its own concern.
 		if len(container.Command) == 0 {
 			return nil, nil, fmt.Errorf("BYO substrate agent %q is missing an explicit container command", sa.Name)
 		}
 		cmd := append([]string{}, container.Command...)
 		cmd = append(cmd, container.Args...)
+		env = append(env, kagentAgentSecretEnv(configSecretName)...)
 		return cmd, env, nil
 	}
 

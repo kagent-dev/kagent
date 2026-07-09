@@ -90,9 +90,10 @@ class KAgentApp:
         token_service = None
         http_client: Optional[httpx.AsyncClient] = None
         memory_service = None
-        # this env var controls whether or not to use the database session service
-        # currently only used for substrate sandbox agents with durable-dir session storage
-        session_db_url = os.getenv("KAGENT_SESSION_DB_URL")
+        # Substrate sandbox agents with durable-dir session storage keep session state in a
+        # local sqlite DB inside the actor's durableDir volume. The URL arrives as
+        # AgentConfig.session_db_url in the rendered config (set by the controller).
+        session_db_url = self.agent_config.session_db_url if self.agent_config else None
 
         if not local:
             token_service = KAgentTokenService(self.app_name)

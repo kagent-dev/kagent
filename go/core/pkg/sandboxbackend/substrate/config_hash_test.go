@@ -146,7 +146,9 @@ func TestBuildSandboxPublishesStableConfigSecret(t *testing.T) {
 	sec, ok := objs[0].(*corev1.Secret)
 	require.True(t, ok, "first object must be the published config Secret")
 	require.Equal(t, "py-agent", sec.Name, "config Secret uses the agent's stable name, updated in place on config change")
-	require.Equal(t, `{"model":{"type":"gemini"}}`, sec.StringData["config.json"], "copy carries the rendered config verbatim")
+	require.JSONEq(t, `{"model":{"type":"gemini"},"session_db_url":"sqlite+aiosqlite:////data/sessions.db"}`,
+		sec.StringData["config.json"],
+		"copy carries the rendered config plus the injected durable-dir session_db_url")
 
 	tmpl, ok := objs[1].(*atev1alpha1.ActorTemplate)
 	require.True(t, ok)
