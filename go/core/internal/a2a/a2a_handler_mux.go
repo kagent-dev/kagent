@@ -37,6 +37,7 @@ type handlerMux struct {
 	agentPathPrefix   string
 	sandboxPathPrefix string
 	authenticator     auth.AuthProvider
+	taskStore         TaskStore
 }
 
 var _ A2AHandlerMux = &handlerMux{}
@@ -45,12 +46,13 @@ type middleware interface {
 	Wrap(next http.Handler) http.Handler
 }
 
-func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth.AuthProvider) *handlerMux {
+func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth.AuthProvider, taskStore TaskStore) *handlerMux {
 	return &handlerMux{
 		handlers:          make(map[string]http.Handler),
 		agentPathPrefix:   agentPathPrefix,
 		sandboxPathPrefix: sandboxPathPrefix,
 		authenticator:     authenticator,
+		taskStore:         taskStore,
 	}
 }
 
@@ -61,8 +63,21 @@ func (a *handlerMux) SetAgentHandler(
 	tracing middleware,
 ) error {
 	requestHandler := NewPassthroughRequestHandler(client, &card)
-	legacyJSONRPCHandler := a2av0.NewJSONRPCHandler(requestHandler)
-	v1JSONRPCHandler := a2asrv.NewJSONRPCHandler(requestHandler)
+
+	// kagent persists tasks and is their source of truth, so serve ListTasks
+	// from the store instead of proxying it to the agent runtime (whose legacy
+	// 0.3 transport returns ErrUnsupportedOperation for it). Every other method,
+	// GetTask included, still delegates to the passthrough proxy.
+	var taskHandler a2asrv.RequestHandler = requestHandler
+	if a.taskStore != nil {
+		taskHandler = newStoreTaskQueryHandler(requestHandler, a.taskStore)
+	}
+
+	// v0 has no native tasks/list; wrap the legacy handler so that method is
+	// served from the store (lowercase TaskState) and every other method
+	// delegates unchanged. v1 is the spec-native, fully conformant surface.
+	legacyJSONRPCHandler := newV0TasksListInterceptor(a2av0.NewJSONRPCHandler(taskHandler), taskHandler)
+	v1JSONRPCHandler := a2asrv.NewJSONRPCHandler(taskHandler)
 	cardHandler := a2asrv.NewAgentCardHandler(a2av0.NewStaticAgentCardProducer(&card))
 	wellKnownPath := "/" + strings.TrimPrefix(a2asrv.WellKnownAgentCardPath, "/")
 
