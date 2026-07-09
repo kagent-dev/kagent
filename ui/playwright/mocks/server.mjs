@@ -270,6 +270,11 @@ const server = createServer(async (req, res) => {
       console.log(`[stub] ${method} ${url} -> 200 (session created)`);
       return json(res, 200, ok(session));
     }
+    // createAgentHarnessFromForm reads response.data.agent — echo needs .agent.
+    if (method === "POST" && pathname === "/api/agentharnesses") {
+      console.log(`[stub] ${method} ${url} -> 200 (harness created)`);
+      return json(res, 200, ok(agent));
+    }
     console.log(`[stub] ${method} ${url} -> 200 (captured)`);
     return json(res, 200, ok(body));
   }
