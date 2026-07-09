@@ -14,11 +14,22 @@ import (
 // given sources define the migration tracks the subcommands operate on, in
 // orchestrator registration order.
 func NewCommand(sources ...migrations.Source) *cobra.Command {
+	return newCommand(migrate.NewCommand(sources...))
+}
+
+// NewCommandFromFunc is NewCommand with deferred source resolution: fn runs
+// when a db subcommand executes, not while the command tree is constructed.
+// See migrate.NewCommandFromFunc.
+func NewCommandFromFunc(fn migrate.SourcesFunc) *cobra.Command {
+	return newCommand(migrate.NewCommandFromFunc(fn))
+}
+
+func newCommand(migrateCmd *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "db",
 		Short: "Database operations (migrations, inspection)",
 	}
-	cmd.AddCommand(migrate.NewCommand(sources...))
+	cmd.AddCommand(migrateCmd)
 
 	// Hide the root's API-oriented persistent flags from help across the
 	// entire `db` subtree. They target the kagent server / Kubernetes,

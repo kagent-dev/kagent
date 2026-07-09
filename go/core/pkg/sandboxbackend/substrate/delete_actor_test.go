@@ -4,7 +4,7 @@ import "testing"
 
 func TestDeleteActorEmptyID(t *testing.T) {
 	t.Parallel()
-	done, err := deleteActor(t.Context(), nil, "")
+	done, err := deleteActor(t.Context(), nil, "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -15,7 +15,7 @@ ipv6:
   enabled: false
 
 tag: ""
-registry: "cr.kagent.dev"
+registry: "ghcr.io"
 
 imagePullSecrets: []
 imagePullPolicy: IfNotPresent
@@ -26,6 +26,9 @@ fullnameOverride: ""
 # -- Override the namespace
 # @default -- `.Release.Namespace`
 namespaceOverride: ""
+
+# -- Additional annotations to add to all Kubernetes deployment resources
+annotations: {}
 
 podAnnotations: {}
 
@@ -218,6 +221,9 @@ controller:
   # off by default.
   mcpEgressPlaintext: false
 
+  # -- Additional annotations to add to the controller Deployment metadata
+  annotations: {}
+
   podAnnotations: {}
 
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
@@ -341,6 +347,9 @@ substrateWorkerPool:
 # ==============================================================================
 
 ui:
+  # -- Additional annotations to add to the UI Deployment metadata
+  annotations: {}
+
   # -- Public-facing base URL of the UI (e.g. https://kagent.example.com).
   # When set, the controller injects KAGENT_UI_URL into agent pods so that
   # share link tools return full clickable URLs instead of relative paths.

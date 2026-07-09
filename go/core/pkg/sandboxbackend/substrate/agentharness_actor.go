@@ -54,13 +54,17 @@ func (b *AgentHarnessSessionActorBackend) EnsureSessionActor(ctx context.Context
 
 	actorID := ActorID(ah)
 	tmplNS, tmplName := generatedActorTemplateKey(ah)
+	atespace := ah.Namespace
 
-	actor, err := b.client.GetActor(ctx, actorID)
+	actor, err := b.client.GetActor(ctx, atespace, actorID)
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate GetActor %q: %w", actorID, err)
 		}
-		actor, err = b.client.CreateActor(ctx, actorID, tmplNS, tmplName)
+		if err := b.client.EnsureAtespace(ctx, atespace); err != nil {
+			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate EnsureAtespace %q: %w", atespace, err)
+		}
+		actor, err = b.client.CreateActor(ctx, atespace, actorID, tmplNS, tmplName)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate CreateActor %q: %w", actorID, err)
 		}
@@ -73,18 +77,18 @@ func (b *AgentHarnessSessionActorBackend) EnsureSessionActor(ctx context.Context
 		ateapipb.Actor_STATUS_PAUSED, ateapipb.Actor_STATUS_PAUSING:
 		// PAUSED/PAUSING keep a node-local snapshot; ResumeActor brings them back
 		// the same as a suspended actor.
-		if _, err = b.client.ResumeActor(ctx, actorID); err != nil {
+		if _, err = b.client.ResumeActor(ctx, atespace, actorID); err != nil {
 			return sandboxbackend.EnsureResult{}, wrapResumeActorError(actorID, err)
 		}
 	}
 
-	if err := waitForActorReachableViaAtenet(ctx, b.client, nil, b.atenetRouterURL, actorID); err != nil {
+	if err := waitForActorReachableViaAtenet(ctx, b.client, nil, b.atenetRouterURL, atespace, actorID); err != nil {
 		return sandboxbackend.EnsureResult{}, err
 	}
 
-	host := ActorHost(actorID, "")
+	host := ActorHost(atespace, actorID, "")
 	return sandboxbackend.EnsureResult{
-		Handle:   sandboxbackend.Handle{ID: actorID},
+		Handle:   sandboxbackend.Handle{ID: actorID, Atespace: atespace},
 		Endpoint: fmt.Sprintf("atenet-router Host %s", host),
 	}, nil
 }
@@ -97,7 +101,8 @@ func (b *AgentHarnessSessionActorBackend) SuspendSessionActor(ctx context.Contex
 		return nil
 	}
 	actorID := ActorID(ah)
-	actor, err := b.client.GetActor(ctx, actorID)
+	atespace := ah.Namespace
+	actor, err := b.client.GetActor(ctx, atespace, actorID)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return nil
@@ -106,7 +111,7 @@ func (b *AgentHarnessSessionActorBackend) SuspendSessionActor(ctx context.Contex
 	}
 	switch actor.GetStatus() {
 	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING, ateapipb.Actor_STATUS_SUSPENDING:
-		if err := b.client.SuspendActor(ctx, actorID); err != nil && status.Code(err) != codes.NotFound {
+		if err := b.client.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return fmt.Errorf("substrate SuspendActor %q: %w", actorID, err)
 		}
 	}
@@ -114,11 +119,11 @@ func (b *AgentHarnessSessionActorBackend) SuspendSessionActor(ctx context.Contex
 }
 
 // DeleteSessionActor deletes a single per-session actor by id.
-func (b *AgentHarnessSessionActorBackend) DeleteSessionActor(ctx context.Context, actorID string) (bool, error) {
+func (b *AgentHarnessSessionActorBackend) DeleteSessionActor(ctx context.Context, atespace, actorID string) (bool, error) {
 	if strings.TrimSpace(actorID) == "" {
 		return true, nil
 	}
-	return deleteActor(ctx, b.client, actorID)
+	return deleteActor(ctx, b.client, atespace, actorID)
 }
 
 // SessionActorState is the coarse lifecycle state of a chat session's actor as
@@ -145,7 +150,8 @@ func (b *AgentHarnessSessionActorBackend) GetSessionActorState(ctx context.Conte
 		return SessionActorStateMissing, fmt.Errorf("session id is required")
 	}
 	actorID := ActorID(ah)
-	actor, err := b.client.GetActor(ctx, actorID)
+	atespace := ah.Namespace
+	actor, err := b.client.GetActor(ctx, atespace, actorID)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return SessionActorStateMissing, nil
@@ -181,7 +187,7 @@ func (b *AgentHarnessSessionActorBackend) DeleteAllAgentHarnessActors(ctx contex
 		if id != prefix && !strings.HasPrefix(id, prefix+"-") {
 			continue
 		}
-		done, err := deleteActor(ctx, b.client, id)
+		done, err := deleteActor(ctx, b.client, ah.Namespace, id)
 		if err != nil {
 			return false, fmt.Errorf("delete substrate actor %q: %w", id, err)
 		}
