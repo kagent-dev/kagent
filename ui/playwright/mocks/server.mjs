@@ -9,8 +9,13 @@
 //
 // Dependency-free (Node built-in http only) so it runs without a TS/build step.
 // Payloads mirror the shapes in src/types/index.ts; the typed spec-side builders
-// live in playwright/mocks/data.ts. Keep the two in sync until Stage 1 unifies
-// them behind the /__mock/scenario control endpoint.
+// live in playwright/mocks/data.ts and the semantic control seam in control.ts.
+//
+// Scenarios: default is the happy path below. A test can override any endpoint
+// via POST /__mock/scenario { endpoint, status?, body? } (used by control.ts to
+// force empty/error/custom responses) and clear all overrides via POST
+// /__mock/reset. State is a single in-memory map — correct only while the runner
+// is serial (workers: 1); see playwright/README.md.
 
 import { createServer } from "node:http";
 
@@ -64,16 +69,34 @@ const substrateStatus = {
   workers: [],
 };
 
-// GET route table keyed by pathname (query string stripped before lookup).
-const GET_ROUTES = {
-  "/api/agents": () => ok([agent], "Successfully fetched agents"),
-  "/api/models": () => ok({ openai: [{ name: "gpt-4o", function_calling: true }] }),
-  "/api/modelconfigs": () => ok([modelConfig]),
-  "/api/namespaces": () => ok([{ name: "default", status: "Active" }], "Namespaces fetched successfully"),
-  "/api/toolservers": () => ok([toolServer]),
-  "/api/tools": () => ok([tool]),
-  "/api/substrate/status": () => ok(substrateStatus, "Substrate status fetched"),
+// Default happy-path body per endpoint slug.
+const DEFAULTS = {
+  agents: () => ok([agent], "Successfully fetched agents"),
+  models: () => ok({ openai: [{ name: "gpt-4o", function_calling: true }] }),
+  modelconfigs: () => ok([modelConfig]),
+  namespaces: () => ok([{ name: "default", status: "Active" }], "Namespaces fetched successfully"),
+  toolservers: () => ok([toolServer]),
+  tools: () => ok([tool]),
+  substrate: () => ok(substrateStatus, "Substrate status fetched"),
 };
+
+// GET pathname -> endpoint slug (query string stripped before lookup).
+const PATH_TO_SLUG = {
+  "/api/agents": "agents",
+  "/api/models": "models",
+  "/api/modelconfigs": "modelconfigs",
+  "/api/namespaces": "namespaces",
+  "/api/toolservers": "toolservers",
+  "/api/tools": "tools",
+  "/api/substrate/status": "substrate",
+};
+
+// endregion
+
+// region Scenario state
+
+// slug -> { status, body } override set by POST /__mock/scenario. Empty = happy path.
+let overrides = {};
 
 // endregion
 
@@ -88,7 +111,24 @@ const json = (res, status, body) => {
   res.end(payload);
 };
 
-const server = createServer((req, res) => {
+const readJsonBody = (req) =>
+  new Promise((resolve) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+    });
+    req.on("end", () => {
+      if (!raw) return resolve({});
+      try {
+        resolve(JSON.parse(raw));
+      } catch {
+        resolve(null);
+      }
+    });
+    req.on("error", () => resolve(null));
+  });
+
+const server = createServer(async (req, res) => {
   // req.method/url are typed string|undefined; default them so a malformed
   // request can't throw on the split below.
   const method = req.method ?? "GET";
@@ -97,18 +137,33 @@ const server = createServer((req, res) => {
 
   // Control + health endpoints.
   if (pathname === "/__mock/health") return json(res, 200, { status: "ok" });
+
   if (method === "POST" && pathname === "/__mock/reset") {
-    // No scenario state yet — happy path only. Wired up in Stage 1.
+    overrides = {};
     return json(res, 200, { status: "reset" });
   }
+
   if (method === "POST" && pathname === "/__mock/scenario") {
-    // Placeholder for per-test overrides (Stage 1).
-    return json(res, 200, { status: "noop" });
+    const body = await readJsonBody(req);
+    if (!body || typeof body.endpoint !== "string") {
+      return json(res, 400, { error: "scenario requires { endpoint: string }" });
+    }
+    overrides[body.endpoint] = { status: body.status ?? 200, body: body.body };
+    console.log(`[stub] scenario set: ${body.endpoint} -> ${body.status ?? 200}`);
+    return json(res, 200, { status: "scenario-set", endpoint: body.endpoint });
   }
 
-  if (method === "GET" && GET_ROUTES[pathname]) {
-    console.log(`[stub] ${method} ${url} -> 200`);
-    return json(res, 200, GET_ROUTES[pathname]());
+  if (method === "GET") {
+    const slug = PATH_TO_SLUG[pathname];
+    if (slug) {
+      const override = overrides[slug];
+      if (override) {
+        console.log(`[stub] ${method} ${url} -> ${override.status} (override)`);
+        return json(res, override.status, override.body ?? {});
+      }
+      console.log(`[stub] ${method} ${url} -> 200`);
+      return json(res, 200, DEFAULTS[slug]());
+    }
   }
 
   // Anything unmocked is a real gap — make it loud so we notice leaks.
