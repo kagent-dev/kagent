@@ -18,7 +18,7 @@ The [Dockerfile](Dockerfile) defines:
 | `node` / `node-base` | internal | `base` + Node.js 22 (trixie apt ships v20, below OpenClaw's >=22.19 requirement). |
 | `hermes` | `--target hermes` | `base` + Hermes installed via pip (`hermes-agent[acp]`). Child command: `hermes acp`. |
 | `openclaw` | `--target openclaw` | `node-base` + the OpenClaw CLI (`npm install -g openclaw`). Runs a sandbox-local `openclaw gateway` alongside the shim via a small launcher. |
-| `claude` | `--target claude` | `node-base` + the Claude Agent ACP adapter (`npm install -g @agentclientprotocol/claude-agent-acp`, wrapping `@anthropic-ai/claude-agent-sdk`). Child command: `claude-agent-acp`. No gateway — it speaks ACP over stdio directly. Requires `ANTHROPIC_API_KEY` at runtime. |
+| `claude` | `--target claude` | `node-base` + the Claude Agent ACP adapter (`npm install -g @agentclientprotocol/claude-agent-acp`, wrapping `@anthropic-ai/claude-agent-sdk`). Child command: `claude-agent-acp`. No gateway — `claude-agent-acp` communicates with the shim over stdio; the shim still exposes `ws://0.0.0.0:9000/acp` externally. Requires `ANTHROPIC_API_KEY` at runtime. |
 
 The base↔agent contract is intentionally tiny:
 
@@ -66,9 +66,12 @@ The `claude` target additionally needs an Anthropic API key at runtime — pass
 
 ```sh
 docker run --rm -p 9000:9000 -e ANTHROPIC_API_KEY=sk-... kagent/acp-sandbox-claude
+# then from another shell, speak newline-delimited JSON-RPC over WS:
 websocat ws://localhost:9000/acp
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}
 ```
+
+> **Note:** A successful `initialize` response only verifies the ACP transport layer. It does not confirm that prompts reach the model — see the open item in [Open items](#open-items-tracked-in-the-ep) below.
 
 The shim does not authenticate the WebSocket handshake; in Substrate the actor's
 ingress is its only reachable surface and the controller proxies to it.
