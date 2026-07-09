@@ -74,11 +74,13 @@ require (
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
 	go.opentelemetry.io/contrib/bridges/otelzap v0.19.0
+	go.opentelemetry.io/contrib/processors/minsev v0.16.1
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.20.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.20.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0
 	go.opentelemetry.io/otel/log v0.20.0
+	go.opentelemetry.io/otel/log/logtest v0.20.0
 	go.opentelemetry.io/otel/sdk/log v0.20.0
 	google.golang.org/grpc v1.81.1
 	k8s.io/apiextensions-apiserver v0.36.2
