@@ -350,6 +350,23 @@ func applySource(ctx context.Context, url string, src Source) (prevVersion uint,
 	return prevVersion, nil
 }
 
+// WithMigrator opens a migrator for src against url, runs fn against it, and
+// closes it. The migrator carries the same schema handling, tracking-table
+// configuration, and advisory-lock identity as the orchestrator's own runs, so
+// out-of-band tooling (the `kagent db migrate` CLI) built on this serializes
+// correctly against a concurrently booting server and cannot drift from the
+// startup path. fn's migration operations (Up/Down/Steps/Migrate/Force) each
+// take golang-migrate's per-(database, schema) advisory lock; Version reads do
+// not.
+func WithMigrator(ctx context.Context, url string, src Source, fn func(*migrate.Migrate) error) error {
+	mg, err := newMigrate(ctx, url, src)
+	if err != nil {
+		return err
+	}
+	defer closeMigrate(src.Name, mg)
+	return fn(mg)
+}
+
 // rollbackSource opens a fresh migrate instance and rolls a source back to
 // targetVersion. Used to compensate a previously-succeeded source when a later
 // source fails. It returns an error (also logged) when the rollback fails, so
