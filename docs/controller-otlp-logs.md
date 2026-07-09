@@ -56,10 +56,20 @@ service:
 export OTEL_LOGGING_ENABLED=true
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://<collector>:4318
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-# controller logs now appear in the collector's debug output as LogRecords,
-# with the same resource attributes (service.name=kagent-controller, service.version, ...)
-# as the controller's traces.
+# controller logs now appear in the collector's debug output as LogRecords.
 ```
 
-<!-- TODO: add a screenshot of the collector debug exporter showing controller LogRecords once a
-     cluster/collector is available to capture one. -->
+The controller's log records show up in the `debug` exporter with the shared resource attributes
+(`service.name=kagent-controller`, …) and the bridge scope:
+
+```text
+Resource attributes:
+     -> k8s.namespace.name: Str(kagent)
+     -> k8s.pod.name: Str(kagent-controller-...)
+     -> service.name: Str(kagent-controller)
+     -> service.version: Str(v0.0.0-demo)
+InstrumentationScope github.com/kagent-dev/kagent/go/core
+LogRecord  SeverityText: info   Body: Str(reconciling Agent)             { controller=agent, agent=k8s-agent, namespace=kagent }
+LogRecord  SeverityText: info   Body: Str(Agent reconciled successfully) { controller=agent, agent=k8s-agent }
+LogRecord  SeverityText: error  Body: Str(example error log)             { reason=demo }
+```
