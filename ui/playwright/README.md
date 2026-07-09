@@ -85,6 +85,16 @@ BACKEND_INTERNAL_URL=http://127.0.0.1:8899/api npm run dev
   (e.g. `mock.noAgents()`, `mock.agentsError()`), verified by the home + nav specs.
   Runs serially (`workers: 1`) against the shared stub; raising the worker count later
   needs per-worker servers or stateless request-keyed scenarios.
-- **Stage 2:** feature flows (gap-scoped), ordered by importance — Create Agent →
-  Chat/session (A2A SSE mock) → Models → MCP → Onboarding completion. Adds the
-  `forms`/`select`/`dialog` helpers demand-driven against the create-agent form.
+- **Stage 2:** feature flows (gap-scoped), split into 8 sub-stages — one feature per
+  branch/PR (linear stack), so each is reviewable in isolation with
+  `npm run test:pw -- playwright/tests/<area>`. Shared infra (POST-capture, A2A SSE
+  mock, `forms`/`select`/`dialog` helpers) is demand-driven — introduced by the first
+  sub-stage that needs it. Ordered by importance:
+  - [ ] 2.1 Create Agent (declarative) — `tests/agents/create-agent.spec.ts`
+  - [ ] 2.2 Chat / session (A2A SSE mock) — `tests/chat/chat-session.spec.ts`
+  - [ ] 2.3 Models / providers — `tests/models/models.spec.ts`
+  - [ ] 2.4 MCP servers & tools — `tests/mcp/mcp-server.spec.ts`
+  - [ ] 2.5 Create Agent — harness/BYO — `tests/agents/create-harness.spec.ts`
+  - [ ] 2.6 Agent delete / lifecycle — `tests/agents/agent-lifecycle.spec.ts`
+  - [ ] 2.7 Prompt libraries — `tests/prompts/prompt-libraries.spec.ts`
+  - [ ] 2.8 Onboarding completion — `tests/onboarding/onboarding.spec.ts`
