@@ -34,6 +34,18 @@ composed of:
 - **MCP tool servers** — Model Context Protocol servers that expose tools to
   agents. The convenience `kagent-tools` server (separate repo/subchart) and
   user-registered `RemoteMCPServer`s.
+- **Skills** — extra content/code an `Agent` loads at startup from user-specified
+  **git repositories** (`spec.skills.gitRefs`) and/or **OCI images**
+  (`spec.skills.refs`), materialized under `/skills` in the agent pod by the
+  `skills-init` init container (`go/core/internal/skillsinit`). Fetch credentials
+  (`gitAuthSecretRef`, `imagePullSecrets`) are **same-namespace** Secrets.
+- **Sandboxing** — two distinct mechanisms:
+  - `spec.sandbox` (`SandboxConfig`) on a regular `Agent` — configures sandboxed
+    *declarative* execution, notably a **default-deny outbound network** allowlist
+    (`spec.sandbox.network.allowedDomains`; egress is denied when unset/empty).
+  - The `SandboxAgent` CRD — runs the agent as an isolated actor on an **external
+    Agent Substrate** (`agent-substrate/substrate`, a.k.a. `ate.dev`: WorkerPools,
+    actor templates, snapshots). `spec.skills` is *not* supported for SandboxAgents.
 - **Database** (PostgreSQL, `go/core/pkg/migrations`) — stores agents, sessions,
   events, and configuration. (SQLite is no longer supported.)
 - **LLM providers** — external model APIs (OpenAI, Anthropic, Azure, Vertex,
@@ -80,6 +92,49 @@ granted** — most importantly reaching **across a namespace** (e.g. reading Sec
 in a namespace they have no access to) or reaching in from **outside the cluster
 without authentication**.
 
+### 2.1 Skills: choosing code to run, not crossing a boundary
+
+`spec.skills` lets an `Agent` creator fetch content from arbitrary **git repos**
+(`gitRefs`) and **OCI images** (`refs`) into `/skills` in their own agent pod. By
+§2, this is the same act as choosing a container `image` for a `Deployment`: the
+creator is selecting what code runs **in their own namespace, as their own
+workload, using their own namespace's Secrets** (`gitAuthSecretRef` /
+`imagePullSecrets` are same-namespace by API contract). So:
+
+- **Not a threat:** "an `Agent` can fetch and run arbitrary skill code." That is
+  the feature, and it is namespace-bounded and Deployment-equivalent.
+- **Not a threat (but fix for hygiene):** injection *reachable only by the `Agent`
+  creator* — e.g. the historical `skills-init` `ENDVAL` heredoc breakout
+  (GHSA #1842). The creator already had code-exec in that namespace. The current
+  implementation is nonetheless hardened: user values flow through structured JSON
+  into **argv** `exec.Command` calls (never a shell), and archive extraction uses
+  `os.Root` + `filepath.Localize` to reject absolute paths, `..` traversal, and
+  escaping symlink targets (`go/core/internal/skillsinit/oci.go`, `git.go`).
+- **Potential threat (in scope):** if skills fetching can be steered to reach a
+  **cross-namespace or off-limits internal** target — i.e. **SSRF via a git/OCI
+  URL** to an internal service, or a `secretRef` resolving cross-namespace. The
+  namespace-scoping of secret refs and the fetch path should be treated as a
+  boundary to defend and verified (→ §6/§8).
+
+### 2.2 Sandboxing: an execution/isolation abstraction, not a claimed multi-tenant boundary
+
+kagent has two sandbox mechanisms; be precise about what each is trusted to do:
+
+- **`spec.sandbox.network` (egress allowlist)** is a genuine, useful **control**:
+  outbound network is **default-deny**, permitting only listed `allowedDomains`
+  (`SandboxConfig`, `go/core/pkg/sandboxbackend/network_host.go`). It constrains
+  where a sandboxed/declarative agent can send data — a real mitigation for
+  exfiltration and SSRF *from within* the agent. Treat weakening or bypassing this
+  allowlist as in scope.
+- **`SandboxAgent` / Agent Substrate** runs the agent as an isolated actor on an
+  **external substrate** (`agent-substrate/substrate`). For this threat model the
+  substrate is an **execution/isolation abstraction**, and the *strength* of its
+  isolation is a property of that external provider, **not a security boundary
+  kagent core claims or enforces**. kagent should not be assumed to provide
+  cross-tenant isolation via SandboxAgent (consistent with multi-tenancy being a
+  documented non-goal, §5). Over-claiming sandbox isolation is itself a
+  documentation risk to avoid.
+
 ---
 
 ## 3. Actors
@@ -116,6 +171,9 @@ Boundaries are labeled `TB-n`. Threats (§6) reference these.
 | **TB-7** | Agent runtime (Go & Python) → LLM provider | API key from Secret (or passthrough) | provider-side | Secret reference is user-controlled but namespace-scoped. |
 | **TB-8** | HTTP server / runtime → Database | DB credential | single DB user, **no row-level security** | A DB compromise exposes all users' data; relevant to A3/A4. |
 | **TB-9** | In-cluster pod → internal kagent / MCP endpoints | none by default (ClusterIP, no NetworkPolicy shipped) | none | The A3 surface: any pod on the cluster network can reach these ports. |
+| **TB-10** | `skills-init` init container → external git / OCI registries | same-namespace Secret (`gitAuthSecretRef` / `imagePullSecrets`) | n/a | Runs in the agent's namespace fetching creator-chosen content. Boundary to defend: fetch must not be steerable to a **cross-namespace/internal** target (SSRF) and secret refs must stay **namespace-scoped**. Hardened against path-traversal & shell injection (§2.1). |
+| **TB-11** | Sandboxed agent → outbound network | n/a | `spec.sandbox.network.allowedDomains` (**default-deny** egress) | A real egress control. In scope: bypassing/weakening the allowlist. **Not** a claimed cross-tenant isolation boundary. |
+| **TB-12** | `SandboxAgent` → external Agent Substrate (`ate.dev`) | substrate-provider dependent | substrate-provider dependent | Execution/isolation abstraction offloaded to an external substrate. Isolation strength is the provider's property, **not** a boundary kagent core enforces (§2.2). |
 
 ---
 
@@ -135,6 +193,8 @@ is **not** a new vulnerability (it may still be a valid *hardening* suggestion).
 | Bundled PostgreSQL with hardcoded `kagent/kagent` credentials | `helm/kagent/values.yaml` (`database.postgres.bundled`) | external managed DB |
 | `kagent-tools` convenience server: unauthenticated, `shell` tool, broad RBAC | `kagent-dev/tools` subchart | read-only / scoped RBAC / gateway auth / NetworkPolicy |
 | Credential forwarding (`KAGENT_PROPAGATE_TOKEN`, `apiKeyPassthrough`, `allowedHeaders`) | `go/adk/pkg/mcp/registry.go`; `go/api/v1alpha2` | avoid forwarding to untrusted MCP URLs |
+| `spec.skills.insecureSkipVerify` / `insecureOci` (HTTP + skip TLS verify on skill image pulls) | `go/api/v1alpha2/agent_types.go`; `go/core/internal/skillsinit` | leave false; use TLS registries |
+| `spec.sandbox.network` unset ⇒ **no egress restriction** on non-sandboxed agents | `go/api/v1alpha2/agent_types.go` (`SandboxConfig`) | set `allowedDomains` for sandboxed/declarative execution; egress is default-deny only when a `sandbox.network` block is present |
 
 The CNCF self-assessment states plainly that **secure multi-tenancy and session
 isolation are not yet implemented** (roadmap #476), and that Direct Cluster
@@ -226,6 +286,9 @@ crossed and the trusted actor/component, following the triage rubric.)*
 |-----------|----------------------------|
 | `Agent` creator sets a privileged `serviceAccountName` / mounts a Secret / adds a privileged `extraContainer` **in their own namespace** | No boundary crossed (§2). Identical to `Deployment` semantics; the namespace is the trust boundary; the creator already has code-exec there. |
 | `skills-init` / template injection reachable only by an `Agent` creator | Attacker (A7) already has arbitrary code-exec in the namespace via the workload they can create. Fix for hygiene, not a CVE (worked example B). |
+| `Agent` creator fetches arbitrary git/OCI **skills** into `/skills` in their own pod | No boundary crossed (§2.1). Selecting skill content is equivalent to choosing a `Deployment` image; runs in the creator's namespace with same-namespace secrets. |
+| `SandboxAgent` isolation "not strong enough" as a cross-tenant boundary | kagent core does not claim SandboxAgent/Substrate as a cross-tenant security boundary (§2.2); isolation strength is the external substrate provider's property. Multi-tenancy is a documented non-goal (§5). |
+| Sandbox egress allowlist "too permissive" because the creator set `allowedDomains: ["*"]` | No boundary crossed — the `Agent` creator opts into their own egress policy (Deployment-equivalent). Bypassing a *configured* allowlist, however, IS in scope (TB-11). |
 | Unauthenticated `kagent-tools` / broad tool RBAC / missing NetworkPolicy on default install | Documented getting-started default (§5); configuration-fixable; not production guidance (worked example A). |
 | Prompt injection / manipulated model (A5) driving unintended tool calls | Out of scope for kagent core. Model-behavior guardrails are the responsibility of a gateway/policy layer such as **agentgateway**. |
 | Malicious or over-permissioned user-registered `RemoteMCPServer` / external MCP tool (A6) | Out of scope for kagent core. Constraining external tool behavior and credential exposure is the responsibility of a gateway/policy layer such as **agentgateway**. |
