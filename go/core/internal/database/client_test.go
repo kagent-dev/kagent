@@ -232,6 +232,12 @@ func TestStoreSessionIdempotence(t *testing.T) {
 	retrieved, err := client.GetSession(ctx, session.ID, userID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", *retrieved.Name, "Session should have updated name")
+
+	_, err = client.GetSession(ctx, "no-such-session", userID)
+	require.ErrorIs(t, err, dbpkg.ErrNotFound)
+
+	_, err = client.GetSession(ctx, session.ID, "other-user")
+	require.ErrorIs(t, err, dbpkg.ErrNotFound, "another user's session must read as not found")
 }
 
 func TestListSessionsOrdersByRecentActivity(t *testing.T) {

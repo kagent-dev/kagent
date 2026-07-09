@@ -43,7 +43,7 @@ func (f *fakeTaskStore) addTask(sessionID string, task *a2atype.Task) {
 func (f *fakeTaskStore) GetSession(_ context.Context, sessionID, userID string) (*dbpkg.Session, error) {
 	s, ok := f.sessions[sessionID]
 	if !ok || s.UserID != userID {
-		return nil, fmt.Errorf("session %s not found for user %s", sessionID, userID)
+		return nil, fmt.Errorf("session %s for user %s: %w", sessionID, userID, dbpkg.ErrNotFound)
 	}
 	return &s, nil
 }
@@ -263,6 +263,33 @@ func TestListTasks_AcrossAllUserSessions(t *testing.T) {
 	require.ElementsMatch(t, []string{"t1", "t2"}, got)
 }
 
+// failingTaskStore fails every read with a backend error.
+type failingTaskStore struct{ err error }
+
+func (f failingTaskStore) GetSession(context.Context, string, string) (*dbpkg.Session, error) {
+	return nil, f.err
+}
+
+func (f failingTaskStore) ListSessions(context.Context, string) ([]dbpkg.Session, error) {
+	return nil, f.err
+}
+
+func (f failingTaskStore) ListTasksForSession(context.Context, string) ([]*a2atype.Task, error) {
+	return nil, f.err
+}
+
+func TestListTasks_BackendFailurePropagates(t *testing.T) {
+	backendErr := fmt.Errorf("failed to get session s1: connection refused")
+	h := newStoreTaskQueryHandler(&PassthroughRequestHandler{}, failingTaskStore{err: backendErr})
+
+	// A store failure must surface as an error, not an empty task list.
+	_, err := h.ListTasks(userCtx("alice"), &a2atype.ListTasksRequest{ContextID: "s1"})
+	require.ErrorContains(t, err, "connection refused")
+
+	_, err = h.ListTasks(userCtx("alice"), &a2atype.ListTasksRequest{})
+	require.ErrorContains(t, err, "connection refused")
+}
+
 // ── Wire tests: identical filtering, different enum casing ──────────────────
 
 func withUser(next http.Handler, user string) http.Handler {
@@ -329,4 +356,15 @@ func TestWire_V0UnknownMethodDelegates(t *testing.T) {
 	// which reports method-not-found rather than being swallowed here.
 	resp := rpcCall(t, v0, `{"jsonrpc":"2.0","id":1,"method":"tasks/frobnicate","params":{}}`)
 	require.Contains(t, resp, "error")
+}
+
+func TestWire_V0TasksListWithoutStoreIsMethodNotFound(t *testing.T) {
+	// Without a task store the v0 interceptor must not be installed: tasks/list
+	// keeps the legacy wire's native method-not-found instead of hitting the
+	// passthrough (which would surface ErrUnsupportedOperation).
+	_, legacy := newTaskQueryHandlers(&PassthroughRequestHandler{}, nil)
+	resp := rpcCall(t, withUser(legacy, "alice"), `{"jsonrpc":"2.0","id":1,"method":"tasks/list","params":{}}`)
+	require.Contains(t, resp, "error")
+	errObj := resp["error"].(map[string]any)
+	require.Equal(t, float64(-32601), errObj["code"], "expected JSON-RPC method-not-found")
 }
