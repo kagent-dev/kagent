@@ -95,8 +95,15 @@ const PATH_TO_SLUG = {
 
 // region Scenario state
 
-// slug -> { status, body } override set by POST /__mock/scenario. Empty = happy path.
+// Overrides set by POST /__mock/scenario. Empty = happy path.
+//   - GET reads keyed by endpoint slug ("agents", "models", …)
+//   - mutations keyed by "<METHOD> <pathname>" (e.g. "POST /api/agents")
 let overrides = {};
+
+// Captured mutation requests (POST/PUT/DELETE) so specs can assert payloads —
+// the app fetches server-side, so page.route can't see them. Read via
+// GET /__mock/requests; cleared by /__mock/reset.
+let requests = [];
 
 // endregion
 
@@ -138,19 +145,32 @@ const server = createServer(async (req, res) => {
   // Control + health endpoints.
   if (pathname === "/__mock/health") return json(res, 200, { status: "ok" });
 
+  if (method === "GET" && pathname === "/__mock/requests") {
+    return json(res, 200, { data: requests });
+  }
+
   if (method === "POST" && pathname === "/__mock/reset") {
     overrides = {};
+    requests = [];
     return json(res, 200, { status: "reset" });
   }
 
   if (method === "POST" && pathname === "/__mock/scenario") {
     const body = await readJsonBody(req);
-    if (!body || typeof body.endpoint !== "string") {
-      return json(res, 400, { error: "scenario requires { endpoint: string }" });
+    // Mutation override: { method, path, status?, body? } keyed by "<METHOD> <path>".
+    if (body && typeof body.method === "string" && typeof body.path === "string") {
+      const key = `${body.method} ${body.path}`;
+      overrides[key] = { status: body.status ?? 200, body: body.body };
+      console.log(`[stub] scenario set: ${key} -> ${body.status ?? 200}`);
+      return json(res, 200, { status: "scenario-set", key });
     }
-    overrides[body.endpoint] = { status: body.status ?? 200, body: body.body };
-    console.log(`[stub] scenario set: ${body.endpoint} -> ${body.status ?? 200}`);
-    return json(res, 200, { status: "scenario-set", endpoint: body.endpoint });
+    // GET override: { endpoint, status?, body? } keyed by endpoint slug.
+    if (body && typeof body.endpoint === "string") {
+      overrides[body.endpoint] = { status: body.status ?? 200, body: body.body };
+      console.log(`[stub] scenario set: ${body.endpoint} -> ${body.status ?? 200}`);
+      return json(res, 200, { status: "scenario-set", endpoint: body.endpoint });
+    }
+    return json(res, 400, { error: "scenario requires { endpoint } or { method, path }" });
   }
 
   if (method === "GET") {
@@ -164,6 +184,21 @@ const server = createServer(async (req, res) => {
       console.log(`[stub] ${method} ${url} -> 200`);
       return json(res, 200, DEFAULTS[slug]());
     }
+  }
+
+  // Mutations to /api/*: capture the body (for payload assertions) and respond.
+  // Default is 200 echoing the sent body in the success envelope; an override can
+  // force an error (e.g. 500) for failure-path tests.
+  if ((method === "POST" || method === "PUT" || method === "DELETE") && pathname.startsWith("/api/")) {
+    const body = await readJsonBody(req);
+    requests.push({ method, path: url, body });
+    const override = overrides[`${method} ${pathname}`];
+    if (override) {
+      console.log(`[stub] ${method} ${url} -> ${override.status} (override)`);
+      return json(res, override.status, override.body ?? {});
+    }
+    console.log(`[stub] ${method} ${url} -> 200 (captured)`);
+    return json(res, 200, ok(body));
   }
 
   // Anything unmocked is a real gap — make it loud so we notice leaks.
