@@ -28,8 +28,10 @@ func TestMCPServerToolController_RecordsEvents(t *testing.T) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 
+	// Generation != ObservedGeneration => a pending spec change, so the success
+	// Event is emitted (see the no-op case below for the periodic-refresh path).
 	server := &v1alpha1.MCPServer{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "test-server"},
+		ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "test-server", Generation: 1},
 	}
 	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "test", Name: "test-server"}}
 
@@ -69,6 +71,33 @@ func TestMCPServerToolController_RecordsEvents(t *testing.T) {
 				t.Fatalf("expected an event with reason %q, got none", tc.wantReason)
 			}
 		})
+	}
+}
+
+// TestMCPServerToolController_SkipsSuccessEventOnPeriodicRefresh verifies that a
+// successful reconcile with no pending spec change (generation ==
+// observedGeneration, i.e. a periodic 60s refresh) does NOT emit a success
+// Event, so the Events feed is not flooded.
+func TestMCPServerToolController_SkipsSuccessEventOnPeriodicRefresh(t *testing.T) {
+	scheme := runtime.NewScheme()
+	utilruntime.Must(v1alpha1.AddToScheme(scheme))
+
+	server := &v1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "test-server", Generation: 3},
+		Status:     v1alpha1.MCPServerStatus{ObservedGeneration: 3},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(server).Build()
+	recorder := events.NewFakeRecorder(1)
+	controller := &MCPServerToolController{Reconciler: &fakeReconciler{}, Client: cl, Recorder: recorder}
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "test", Name: "test-server"}}
+
+	if _, err := controller.Reconcile(context.Background(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	select {
+	case got := <-recorder.Events:
+		t.Fatalf("expected no success Event on a periodic refresh, got %q", got)
+	default:
 	}
 }
 

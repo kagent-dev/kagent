@@ -56,6 +56,11 @@ type MCPServerToolController struct {
 func (r *MCPServerToolController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
 
+	// This controller requeues every 60s to refresh tool status. Only emit the
+	// success Event on a meaningful transition (a spec change not yet observed
+	// in status), not on every periodic refresh, to avoid flooding Events.
+	specChanged := r.hasPendingGeneration(ctx, req)
+
 	err := r.Reconciler.ReconcileKagentMCPServer(ctx, req)
 	if err != nil {
 		// Check if this is a validation error that requires user action
@@ -72,11 +77,28 @@ func (r *MCPServerToolController) Reconcile(ctx context.Context, req ctrl.Reques
 		// Transient error - return error to trigger exponential backoff retry
 		return ctrl.Result{}, err
 	}
-	r.recordEvent(ctx, req, "Normal", "ToolsDiscovered", "Reconcile", "MCPServer tools discovered successfully")
+	if specChanged {
+		r.recordEvent(ctx, req, "Normal", "ToolsDiscovered", "Reconcile", "MCPServer tools discovered successfully")
+	}
 	// Success - requeue after 60s to refresh tool server status
 	return ctrl.Result{
 		RequeueAfter: 60 * time.Second,
 	}, nil
+}
+
+// hasPendingGeneration reports whether the MCPServer has spec changes not yet
+// reflected in status (generation != observedGeneration). It gates success
+// Events to meaningful transitions. Returns true (emit) when the object can't
+// be fetched, so events are not silently dropped.
+func (r *MCPServerToolController) hasPendingGeneration(ctx context.Context, req ctrl.Request) bool {
+	if r.Client == nil {
+		return true
+	}
+	server := &v1alpha1.MCPServer{}
+	if err := r.Client.Get(ctx, req.NamespacedName, server); err != nil {
+		return true
+	}
+	return server.Generation != server.Status.ObservedGeneration
 }
 
 // recordEvent emits a Kubernetes Event against the reconciled MCPServer.
