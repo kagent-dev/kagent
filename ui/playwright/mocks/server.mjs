@@ -111,6 +111,8 @@ const DEFAULTS = {
   configuredProviders: () => ok([]),
   // Tool server types (getToolServerTypes) — blocking on /mcp/new until it loads.
   toolservertypes: () => ok(["RemoteMCPServer", "MCPServer"]),
+  // Prompt libraries list (listPromptTemplates?namespace=<ns>).
+  prompttemplates: () => ok([]),
 };
 
 // GET pathname -> endpoint slug (query string stripped before lookup).
@@ -125,6 +127,7 @@ const PATH_TO_SLUG = {
   "/api/modelproviderconfigs/models": "providers",
   "/api/modelproviderconfigs/configured": "configuredProviders",
   "/api/toolservertypes": "toolservertypes",
+  "/api/prompttemplates": "prompttemplates",
 };
 
 // endregion
@@ -250,6 +253,12 @@ const server = createServer(async (req, res) => {
     if (/^\/api\/modelconfigs\/[^/]+\/[^/]+$/.test(pathname)) {
       console.log(`[stub] ${method} ${url} -> 200 (model config detail)`);
       return json(res, 200, ok(modelConfig));
+    }
+    // Prompt library detail (redirect target after create): /api/prompttemplates/<ns>/<name>.
+    const promptDetail = pathname.match(/^\/api\/prompttemplates\/([^/]+)\/([^/]+)$/);
+    if (promptDetail) {
+      console.log(`[stub] ${method} ${url} -> 200 (prompt template detail)`);
+      return json(res, 200, ok({ namespace: promptDetail[1], name: promptDetail[2], data: {} }));
     }
   }
 
