@@ -109,6 +109,8 @@ const DEFAULTS = {
   // Stock model providers (getSupportedModelProviders) — enables the model form.
   providers: () => ok([{ name: "OpenAI", type: "OpenAI", requiredParams: [], optionalParams: [] }]),
   configuredProviders: () => ok([]),
+  // Tool server types (getToolServerTypes) — blocking on /mcp/new until it loads.
+  toolservertypes: () => ok(["RemoteMCPServer", "MCPServer"]),
 };
 
 // GET pathname -> endpoint slug (query string stripped before lookup).
@@ -122,6 +124,7 @@ const PATH_TO_SLUG = {
   "/api/substrate/status": "substrate",
   "/api/modelproviderconfigs/models": "providers",
   "/api/modelproviderconfigs/configured": "configuredProviders",
+  "/api/toolservertypes": "toolservertypes",
 };
 
 // endregion
