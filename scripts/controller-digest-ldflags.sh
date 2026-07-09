@@ -19,6 +19,12 @@ CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-docker}"
 TRANSLATOR_PKG="github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 SUBSTRATE_PKG="github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 MANIFEST_ACCEPT="application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json"
+# Set DIGEST_CURL_INSECURE=true to skip TLS verification when resolving digests
+# against a self-signed local registry.
+CURL_INSECURE_ARG=""
+if [[ "${DIGEST_CURL_INSECURE:-false}" == "true" ]]; then
+	CURL_INSECURE_ARG="-k"
+fi
 
 : "${APP_IMG:?APP_IMG is required}"
 : "${APP_FULL_IMG:?APP_FULL_IMG is required}"
@@ -54,7 +60,7 @@ registry_manifest_digest() {
 	fi
 
 	if ! headers="$(
-		curl -fsSI \
+		curl -fsSI ${CURL_INSECURE_ARG} \
 			-H "Accept: ${MANIFEST_ACCEPT}" \
 			"${scheme}://${registry}/v2/${repository}/manifests/${tag}"
 	)"; then
