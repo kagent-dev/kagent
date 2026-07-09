@@ -13300,6 +13300,35 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              documentationUrl:
+                description: |-
+                  DocumentationURL is a URL to human-readable documentation for the agent. It
+                  is surfaced on the agent's A2A AgentCard.
+                type: string
+              iconUrl:
+                description: |-
+                  IconURL is a URL to an icon representing the agent. It is surfaced on the
+                  agent's A2A AgentCard.
+                type: string
+              provider:
+                description: |-
+                  Provider identifies the organization responsible for the agent. It is
+                  surfaced on the agent's A2A AgentCard.
+                properties:
+                  organization:
+                    description: Organization is the name of the agent provider's
+                      organization.
+                    minLength: 1
+                    type: string
+                  url:
+                    description: URL is a URL for the agent provider's website or
+                      relevant documentation.
+                    minLength: 1
+                    type: string
+                required:
+                - organization
+                - url
+                type: object
               sandbox:
                 description: |-
                   Sandbox configures sandboxed execution behavior shared across runtimes.
@@ -13642,6 +13671,10 @@ spec:
                 enum:
                 - Declarative
                 - BYO
+                type: string
+              version:
+                description: Version is the agent's version string, surfaced on the
+                  A2A AgentCard.
                 type: string
             type: object
             x-kubernetes-validations:
