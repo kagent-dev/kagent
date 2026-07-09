@@ -548,9 +548,15 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
-	model, err := ParseModel(tmp.Model)
-	if err != nil {
-		return err
+	// BYO agents carry a minimal config with no model (it marshals as "model":null); a config
+	// without a model is legal and must round-trip — ParseModel would reject it.
+	var model Model
+	if len(tmp.Model) > 0 && string(tmp.Model) != "null" {
+		var err error
+		model, err = ParseModel(tmp.Model)
+		if err != nil {
+			return err
+		}
 	}
 
 	var memory *MemoryConfig
