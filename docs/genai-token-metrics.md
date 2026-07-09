@@ -68,17 +68,23 @@ receivers:
 ## Verifying
 
 ```bash
-# 1. exec into a Go-runtime agent pod and curl its metrics endpoint
+# exec into a Go-runtime agent pod and curl its metrics endpoint
 kubectl exec <go-agent-pod> -- wget -qO- localhost:<agent-port>/metrics | grep gen_ai_client_token_usage
-
-# 2. after chatting with the agent you should see series like:
-# gen_ai_client_token_usage_count{gen_ai_token_type="input",gen_ai_provider_name="gcp.vertex_ai",
-#   gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",
-#   gen_ai_operation_name="chat",error_type=""} 1
 ```
 
-<!-- TODO: add a Grafana/Prometheus screenshot of gen_ai_client_token_usage once a cluster with a
-     scrape target is available. -->
+Live output from a Go ADK agent backed by Vertex AI `gemini-2.5-flash`, after **two** chat requests
+(the agent replied "Hello there!" etc.) — note `_count` equals the number of LLM calls, not stream
+chunks, and the semconv labels including `gen_ai.provider.name=gcp.vertex_ai`, response model, and an
+empty `error.type`:
+
+```text
+# HELP gen_ai_client_token_usage Measures the number of input and output tokens used by GenAI requests.
+# TYPE gen_ai_client_token_usage histogram
+gen_ai_client_token_usage_sum{error_type="",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="input"} 137
+gen_ai_client_token_usage_count{error_type="",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="input"} 2
+gen_ai_client_token_usage_sum{error_type="",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="output"} 91
+gen_ai_client_token_usage_count{error_type="",gen_ai_operation_name="chat",gen_ai_provider_name="gcp.vertex_ai",gen_ai_request_model="gemini-2.5-flash",gen_ai_response_model="gemini-2.5-flash",gen_ai_token_type="output"} 2
+```
 
 ## Follow-ups
 
