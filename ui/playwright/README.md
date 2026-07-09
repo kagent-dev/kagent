@@ -93,7 +93,7 @@ BACKEND_INTERNAL_URL=http://127.0.0.1:8899/api npm run dev
   - [x] 2.1 Create Agent (declarative) — `tests/agents/create-agent.spec.ts`
   - [ ] 2.2 Chat / session (A2A SSE mock) — `tests/chat/chat-session.spec.ts`
   - [x] 2.3 Models / providers — `tests/models/models.spec.ts`
-  - [ ] 2.4 MCP servers & tools — `tests/mcp/mcp-server.spec.ts`
+  - [x] 2.4 MCP servers & tools — `tests/mcp/mcp-server.spec.ts`
   - [ ] 2.5 Create Agent — harness/BYO — `tests/agents/create-harness.spec.ts`
   - [ ] 2.6 Agent delete / lifecycle — `tests/agents/agent-lifecycle.spec.ts`
   - [ ] 2.7 Prompt libraries — `tests/prompts/prompt-libraries.spec.ts`
