@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -16,6 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -357,17 +361,39 @@ func (h *AgentsHandler) parseAgentRef(log logr.Logger, agent client.Object, inva
 	), agentRef, nil
 }
 
+// agentGroupKind / sandboxAgentGroupKind are the groupKind values accepted by the
+// shared /api/agents routes to select which kind an operation targets.
+var (
+	agentGroupKind        = schema.GroupKind{Group: v1alpha2.GroupVersion.Group, Kind: "Agent"}.String()
+	sandboxAgentGroupKind = schema.GroupKind{Group: v1alpha2.GroupVersion.Group, Kind: "SandboxAgent"}.String()
+)
+
+// agentObjectForGroupKind maps a groupKind request parameter to the concrete kind
+// the shared /api/agents routes operate on. Empty selects Agent (the historical
+// behavior); anything else unrecognized is a bad request.
+func agentObjectForGroupKind(groupKind string) (v1alpha2.AgentObject, error) {
+	switch groupKind {
+	case "", agentGroupKind:
+		return &v1alpha2.Agent{}, nil
+	case sandboxAgentGroupKind:
+		return &v1alpha2.SandboxAgent{}, nil
+	default:
+		return nil, fmt.Errorf("unsupported groupKind %q (expected %q or %q)", groupKind, agentGroupKind, sandboxAgentGroupKind)
+	}
+}
+
 func (h *AgentsHandler) getAgentObject(
 	ctx context.Context,
 	key client.ObjectKey,
 	agent v1alpha2.AgentObject,
 	notFoundMsg string,
+	getFailedMsg string,
 ) (v1alpha2.AgentObject, error) {
 	if err := h.KubeClient.Get(ctx, key, agent); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, errors.NewNotFoundError(notFoundMsg, err)
 		}
-		return nil, errors.NewInternalServerError("Failed to get Agent", err)
+		return nil, errors.NewInternalServerError(getFailedMsg, err)
 	}
 	return agent, nil
 }
@@ -397,7 +423,7 @@ func (h *AgentsHandler) handleGetAgentObject(
 		return
 	}
 
-	obj, err := h.getAgentObject(r.Context(), client.ObjectKey{Namespace: agentNamespace, Name: agentName}, agent, notFoundMsg)
+	obj, err := h.getAgentObject(r.Context(), client.ObjectKey{Namespace: agentNamespace, Name: agentName}, agent, notFoundMsg, "Failed to get Agent")
 	if err != nil {
 		w.RespondWithError(err)
 		return
@@ -440,12 +466,8 @@ func (h *AgentsHandler) handleDeleteAgentObject(
 		return
 	}
 
-	if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Namespace: agentNamespace, Name: agentName}, agent); err != nil {
-		if apierrors.IsNotFound(err) {
-			w.RespondWithError(errors.NewNotFoundError(notFoundMsg, nil))
-			return
-		}
-		w.RespondWithError(errors.NewInternalServerError(getFailedMsg, err))
+	if _, err := h.getAgentObject(r.Context(), client.ObjectKey{Namespace: agentNamespace, Name: agentName}, agent, notFoundMsg, getFailedMsg); err != nil {
+		w.RespondWithError(err)
 		return
 	}
 
@@ -612,10 +634,17 @@ func (h *AgentsHandler) handleUpdateAgentObject(
 	respondWithObjectResponse(w, http.StatusOK, response, successMessage)
 }
 
-// HandleGetAgent handles GET /api/agents/{namespace}/{name} requests using database
+// HandleGetAgent handles GET /api/agents/{namespace}/{name}?groupKind=… requests.
+// HandleListAgents merges Agents and SandboxAgents, so the optional groupKind
+// query parameter selects which kind the name refers to; absent means Agent.
 func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "get-db")
-	h.handleGetAgentObject(w, r, log, &v1alpha2.Agent{}, "Agent not found", "Successfully retrieved agent")
+	agent, err := agentObjectForGroupKind(r.URL.Query().Get("groupKind"))
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
+	}
+	h.handleGetAgentObject(w, r, log, agent, "Agent not found", "Successfully retrieved agent")
 }
 
 // HandleGetAgentHarness handles GET /api/agentharnesses/{namespace}/{name} for known backends only.
@@ -681,21 +710,57 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 	)
 }
 
-// HandleUpdateAgent handles PUT /api/agents/{namespace}/{name} requests using database
+// HandleUpdateAgent handles PUT /api/agents requests using database.
+// The body's TypeMeta kind selects which kind is updated: "SandboxAgent" runs the
+// update with SandboxAgent types (so spec.substrate survives — decoding into Agent
+// would silently drop it); absent or "Agent" is the historical Agent behavior.
 func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "update-db")
+
+	// The route has no path params, so the target kind comes from the body's
+	// TypeMeta. Buffer the body: it is decoded once for the kind and again by
+	// the generic update handler.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	var typeMeta metav1.TypeMeta
+	if err := json.Unmarshal(body, &typeMeta); err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
+		return
+	}
+
+	var incoming, existing v1alpha2.AgentObject
+	var normalize func(v1alpha2.AgentObject)
+	switch typeMeta.Kind {
+	case "", "Agent":
+		incoming, existing = &v1alpha2.Agent{}, &v1alpha2.Agent{}
+	case "SandboxAgent":
+		incoming, existing = &v1alpha2.SandboxAgent{}, &v1alpha2.SandboxAgent{}
+		normalize = func(agent v1alpha2.AgentObject) {
+			normalizeSandboxAgentForAPI(agent.(*v1alpha2.SandboxAgent))
+		}
+	default:
+		w.RespondWithError(errors.NewBadRequestError(
+			fmt.Sprintf("unsupported kind %q (expected \"Agent\" or \"SandboxAgent\")", typeMeta.Kind), nil))
+		return
+	}
+
 	h.handleUpdateAgentObject(
 		w,
 		r,
 		log,
-		&v1alpha2.Agent{},
-		&v1alpha2.Agent{},
+		incoming,
+		existing,
 		"Invalid Agent metadata",
 		"Failed to get Agent",
 		"Failed to update Agent",
 		"Agent not found",
 		"Successfully updated agent",
-		nil,
+		normalize,
 		false,
 		func(_ context.Context, _ logr.Logger, agent v1alpha2.AgentObject) (any, error) {
 			return agent, nil
@@ -703,44 +768,26 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	)
 }
 
-// HandleDeleteAgent handles DELETE /api/agents/{namespace}/{name} requests using database
+// HandleDeleteAgent handles DELETE /api/agents/{namespace}/{name}?groupKind=… requests.
+// The optional groupKind query parameter selects which kind the name refers to
+// (see HandleGetAgent); absent means Agent.
 func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "delete-db")
-	agentName, err := GetPathParam(r, "name")
+	agent, err := agentObjectForGroupKind(r.URL.Query().Get("groupKind"))
 	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
 		return
 	}
-	agentNamespace, err := GetPathParam(r, "namespace")
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
-		return
-	}
-	log = log.WithValues("agentName", agentName, "agentNamespace", agentNamespace)
-	objKey := client.ObjectKey{Namespace: agentNamespace, Name: agentName}
-
-	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: types.NamespacedName{Namespace: agentNamespace, Name: agentName}.String()}); err != nil {
-		w.RespondWithError(err)
-		return
-	}
-
-	ctx := r.Context()
-	agent := &v1alpha2.Agent{}
-	err = h.KubeClient.Get(ctx, objKey, agent)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
-			return
-		}
-		w.RespondWithError(errors.NewInternalServerError("Failed to get Agent", err))
-		return
-	}
-	if err := h.KubeClient.Delete(ctx, agent); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to delete Agent", err))
-		return
-	}
-	log.Info("Successfully deleted agent")
-	RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted agent", false))
+	h.handleDeleteAgentObject(
+		w,
+		r,
+		log,
+		agent,
+		"Agent not found",
+		"Failed to get Agent",
+		"Failed to delete Agent",
+		"Successfully deleted agent",
+	)
 }
 
 // HandleDeleteAgentHarness handles DELETE /api/agentharnesses/{namespace}/{name} for known backends only.
