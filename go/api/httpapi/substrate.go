@@ -37,6 +37,7 @@ type SubstrateActorTemplateEntry struct {
 // SubstrateActorEntry is runtime state from ate-api (redis).
 type SubstrateActorEntry struct {
 	ActorID                string `json:"actorId"`
+	Atespace               string `json:"atespace,omitempty"`
 	Status                 string `json:"status"`
 	ActorTemplateNamespace string `json:"actorTemplateNamespace,omitempty"`
 	ActorTemplateName      string `json:"actorTemplateName,omitempty"`

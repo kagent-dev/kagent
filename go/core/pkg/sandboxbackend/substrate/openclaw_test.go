@@ -26,8 +26,8 @@ func TestActorID(t *testing.T) {
 }
 
 func TestActorHost(t *testing.T) {
-	got := ActorHost("ahr-kagent-my-claw", "")
-	if got != "ahr-kagent-my-claw.actors.resources.substrate.ate.dev" {
+	got := ActorHost("kagent", "ahr-kagent-my-claw", "")
+	if got != "ahr-kagent-my-claw.kagent.actors.resources.substrate.ate.dev" {
 		t.Fatalf("ActorHost = %q", got)
 	}
 }
