@@ -98,12 +98,17 @@ const task = {
 // Default happy-path body per endpoint slug.
 const DEFAULTS = {
   agents: () => ok([agent], "Successfully fetched agents"),
-  models: () => ok({ openai: [{ name: "gpt-4o", function_calling: true }] }),
+  // The provider→models map is keyed by the capitalized provider name ("OpenAI"),
+  // matching v1alpha2.ModelProviderOpenAI — the Model dropdown indexes on it.
+  models: () => ok({ OpenAI: [{ name: "gpt-4o", function_calling: true }] }),
   modelconfigs: () => ok([modelConfig]),
   namespaces: () => ok([{ name: "default", status: "Active" }], "Namespaces fetched successfully"),
   toolservers: () => ok([toolServer]),
   tools: () => ok([tool]),
   substrate: () => ok(substrateStatus, "Substrate status fetched"),
+  // Stock model providers (getSupportedModelProviders) — enables the model form.
+  providers: () => ok([{ name: "OpenAI", type: "OpenAI", requiredParams: [], optionalParams: [] }]),
+  configuredProviders: () => ok([]),
 };
 
 // GET pathname -> endpoint slug (query string stripped before lookup).
@@ -115,6 +120,8 @@ const PATH_TO_SLUG = {
   "/api/toolservers": "toolservers",
   "/api/tools": "tools",
   "/api/substrate/status": "substrate",
+  "/api/modelproviderconfigs/models": "providers",
+  "/api/modelproviderconfigs/configured": "configuredProviders",
 };
 
 // endregion
@@ -235,6 +242,11 @@ const server = createServer(async (req, res) => {
       }
       console.log(`[stub] ${method} ${url} -> 404 (session not found)`);
       return json(res, 404, { error: "Session not found" });
+    }
+    // Single model config (edit page load): /api/modelconfigs/<ns>/<name>.
+    if (/^\/api\/modelconfigs\/[^/]+\/[^/]+$/.test(pathname)) {
+      console.log(`[stub] ${method} ${url} -> 200 (model config detail)`);
+      return json(res, 200, ok(modelConfig));
     }
   }
 
