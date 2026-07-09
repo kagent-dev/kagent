@@ -77,6 +77,8 @@ Live output from a Go ADK agent backed by Vertex AI `gemini-2.5-flash`, after **
 chunks, and the semconv labels including `gen_ai.provider.name=gcp.vertex_ai`, response model, and an
 empty `error.type`:
 
+![gen_ai.client.token.usage on the agent /metrics endpoint](images/genai-token-metric.png)
+
 ```text
 # HELP gen_ai_client_token_usage Measures the number of input and output tokens used by GenAI requests.
 # TYPE gen_ai_client_token_usage histogram
