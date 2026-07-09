@@ -109,7 +109,7 @@ func normalizeImageDigest(digest string) string {
 }
 
 var DefaultImageConfig = ImageConfig{
-	Registry:   "cr.kagent.dev",
+	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
 	PullPolicy: string(corev1.PullIfNotPresent),
 	PullSecret: "",
@@ -127,7 +127,7 @@ var GoADKFullImageDigest string
 // DefaultSkillsInitImageConfig is the image config for the skills-init container
 // that clones skill repositories from Git and pulls OCI skill images.
 var DefaultSkillsInitImageConfig = ImageConfig{
-	Registry:   "cr.kagent.dev",
+	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
 	PullPolicy: string(corev1.PullIfNotPresent),
 	Repository: "kagent-dev/kagent/skills-init",
