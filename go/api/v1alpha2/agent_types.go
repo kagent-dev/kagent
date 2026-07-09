@@ -114,10 +114,12 @@ type AgentSpec struct {
 // AgentProvider identifies the organization responsible for an agent on its A2A AgentCard.
 type AgentProvider struct {
 	// Organization is the name of the agent provider's organization.
+	// +required
 	// +kubebuilder:validation:MinLength=1
 	Organization string `json:"organization"`
 
 	// URL is a URL for the agent provider's website or relevant documentation.
+	// +required
 	// +kubebuilder:validation:Format=uri
 	URL string `json:"url"`
 }
