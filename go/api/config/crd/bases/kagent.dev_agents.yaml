@@ -13304,11 +13304,13 @@ spec:
                 description: |-
                   DocumentationURL is a URL to human-readable documentation for the agent. It
                   is surfaced on the agent's A2A AgentCard.
+                format: uri
                 type: string
               iconUrl:
                 description: |-
                   IconURL is a URL to an icon representing the agent. It is surfaced on the
                   agent's A2A AgentCard.
+                format: uri
                 type: string
               provider:
                 description: |-
@@ -13323,7 +13325,7 @@ spec:
                   url:
                     description: URL is a URL for the agent provider's website or
                       relevant documentation.
-                    minLength: 1
+                    format: uri
                     type: string
                 required:
                 - organization

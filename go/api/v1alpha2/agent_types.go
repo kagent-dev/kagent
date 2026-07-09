@@ -73,11 +73,13 @@ type AgentSpec struct {
 	// IconURL is a URL to an icon representing the agent. It is surfaced on the
 	// agent's A2A AgentCard.
 	// +optional
+	// +kubebuilder:validation:Format=uri
 	IconURL string `json:"iconUrl,omitempty"`
 
 	// DocumentationURL is a URL to human-readable documentation for the agent. It
 	// is surfaced on the agent's A2A AgentCard.
 	// +optional
+	// +kubebuilder:validation:Format=uri
 	DocumentationURL string `json:"documentationUrl,omitempty"`
 
 	// Version is the agent's version string, surfaced on the A2A AgentCard.
@@ -116,7 +118,7 @@ type AgentProvider struct {
 	Organization string `json:"organization"`
 
 	// URL is a URL for the agent provider's website or relevant documentation.
-	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Format=uri
 	URL string `json:"url"`
 }
 
