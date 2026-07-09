@@ -1060,6 +1060,20 @@ func TestVerifyMigrated(t *testing.T) {
 		}
 	})
 
+	t.Run("resolved schema collision is refused", func(t *testing.T) {
+		// Schema "" resolves to public here, colliding with the explicit
+		// "public" source on the same tracking table — the same source set
+		// RunUp rejects.
+		collide := []Source{
+			coreSource(goodCoreFS),
+			{Name: "explicit", Schema: "public", TrackingTable: "schema_migrations", FS: goodCoreFS, Dir: "core"},
+		}
+		err := VerifyMigrated(ctx, connStr, collide)
+		if err == nil || !strings.Contains(err.Error(), "resolve to the same tracking table") {
+			t.Fatalf("error = %v, want resolved-schema collision refusal", err)
+		}
+	})
+
 	t.Run("no sources is a no-op", func(t *testing.T) {
 		if err := VerifyMigrated(ctx, "postgres://unused", nil); err != nil {
 			t.Fatalf("VerifyMigrated() with no sources = %v, want nil", err)

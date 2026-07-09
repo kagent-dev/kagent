@@ -197,6 +197,12 @@ func VerifyMigrated(ctx context.Context, url string, sources []Source) error {
 	if err := validateSources(sources); err != nil {
 		return err
 	}
+	// Reject the same resolved-schema collisions RunUp rejects: a colliding
+	// source set shares one tracking table, so verification would read the
+	// same row twice and "pass" an unsafe configuration.
+	if err := checkResolvedSchemaCollisions(ctx, url, sources); err != nil {
+		return err
+	}
 
 	db, err := sql.Open("pgx", url)
 	if err != nil {
