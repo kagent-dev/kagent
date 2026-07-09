@@ -96,5 +96,5 @@ BACKEND_INTERNAL_URL=http://127.0.0.1:8899/api npm run dev
   - [x] 2.4 MCP servers & tools — `tests/mcp/mcp-server.spec.ts`
   - [x] 2.5 Create Agent — harness/BYO — `tests/agents/create-harness.spec.ts`
   - [x] 2.6 Agent delete / lifecycle — `tests/agents/agent-lifecycle.spec.ts`
-  - [ ] 2.7 Prompt libraries — `tests/prompts/prompt-libraries.spec.ts`
+  - [x] 2.7 Prompt libraries — `tests/prompts/prompt-libraries.spec.ts`
   - [ ] 2.8 Onboarding completion — `tests/onboarding/onboarding.spec.ts`
