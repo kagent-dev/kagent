@@ -57,6 +57,20 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, dynamicHeaderProvider)
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
+
+	// subagentSessionIDs is threaded through to the executor for stamping a
+	// pre-known session id onto outbound function_call events (see
+	// go/adk/pkg/a2a/executor.go and converter.go's stampSubagentSessionID).
+	// Remote agent tools no longer report a constructor-time session id
+	// (NewKAgentRemoteA2ATool returns only an error now) because a single
+	// pre-known id doesn't fit isolateSessions, where the real session is
+	// per invocation. So this map stays empty today; stampSubagentSessionID
+	// already no-ops on an empty map. The per-call session id is instead
+	// reported in each tool's own response as subagent_session_id, which the
+	// UI reads as the single source of truth (see remoteA2AResponse). We are
+	// leaving the executor plumbing in place rather than removing it, since
+	// something else may want to populate this map in the future and ripping
+	// it out is a separate, bigger cleanup than this fix.
 	subagentSessionIDs := make(map[string]string)
 
 	var remoteAgentTools []tool.Tool
@@ -65,17 +79,9 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 			log.Info("Skipping remote agent with empty URL", "name", remoteAgent.Name)
 			continue
 		}
-		remoteTool, sessionID, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
+		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
-		}
-		// Isolated tools mint a fresh context_id per call, so there is no
-		// single pre-known session id to stamp function_call parts with;
-		// NewKAgentRemoteA2ATool returns "" in that case and we skip the
-		// map entry. The UI instead links each sub-agent card via the
-		// per-call subagent_session_id in the tool's function_response.
-		if sessionID != "" {
-			subagentSessionIDs[remoteAgent.Name] = sessionID
 		}
 		remoteAgentTools = append(remoteAgentTools, remoteTool)
 		log.Info("Wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
