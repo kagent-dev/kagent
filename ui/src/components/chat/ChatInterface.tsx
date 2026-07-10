@@ -30,7 +30,7 @@ import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, countSendGuardComparableMessages, countBackendBackedComparableMessages, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
-import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
+import { useChatAgentType, useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
 import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
@@ -53,6 +53,9 @@ interface ChatInterfaceProps {
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId, shareToken }: ChatInterfaceProps) {
   const runInSandbox = useChatRunInSandbox();
   const substrateSandbox = useChatSubstrateSandbox();
+  const agentType = useChatAgentType();
+  // Session requests must name the kind agent_ref refers to; absent means Agent.
+  const sessionGroupKind = agentType === "AgentHarness" ? "AgentHarness.kagent.dev" : runInSandbox ? "SandboxAgent.kagent.dev" : undefined;
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
@@ -325,6 +328,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
           const newSessionResponse = await createSession({
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
+            group_kind: sessionGroupKind,
             name: deriveSessionTitle(userMessageText),
           });
 
@@ -375,6 +379,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             const renameResponse = await createSession({
               id: currentSessionId,
               agent_ref: `${selectedNamespace}/${selectedAgentName}`,
+              group_kind: sessionGroupKind,
               name: title,
             });
             if (!renameResponse.error && renameResponse.data) {

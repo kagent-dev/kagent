@@ -1,7 +1,6 @@
 ### STAGE 1: base image
-ARG DOCKER_REGISTRY=ghcr.io
-ARG VERSION=latest
-FROM $DOCKER_REGISTRY/kagent-dev/kagent/kagent-adk:$VERSION
+ARG KAGENT_ADK_IMAGE=ghcr.io/kagent-dev/kagent/kagent-adk:latest
+FROM ${KAGENT_ADK_IMAGE}
 
 WORKDIR /app
 
@@ -11,6 +10,7 @@ COPY  README.md README.md
 COPY  .python-version .python-version
 COPY  uv.lock uv.lock
 
-RUN uv sync --locked --refresh
+# The base image already provides google-adk/kagent-adk. Do not run `uv sync` here:
+# syncing this sample's lockfile into the inherited ADK venv can downgrade runtime deps.
 
-CMD ["basic"]
+CMD ["--working-dir", "/app", "basic"]

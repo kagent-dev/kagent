@@ -152,7 +152,7 @@ func (h *AgentsHandler) appendAgentResponses(
 
 func (h *AgentsHandler) agentHarnessAgentResponse(ctx context.Context, log logr.Logger, sb *v1alpha2.AgentHarness) api.AgentResponse {
 	ref := utils.GetObjectRef(sb)
-	id := utils.ConvertToPythonIdentifier(ref)
+	id := utils.AgentDBID(utils.AgentHarnessKind, ref)
 
 	ready := false
 	accepted := false
@@ -261,8 +261,15 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 		}
 	}
 
+	// The kind-qualified DB id: with same-named agents of different kinds now
+	// occupying distinct rows, the bare python identifier would no longer be
+	// unique across a merged list response.
+	agentDBKind := utils.AgentKind
+	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
+		agentDBKind = utils.SandboxAgentKind
+	}
 	response := api.AgentResponse{
-		ID:              utils.ConvertToPythonIdentifier(agentRef),
+		ID:              utils.AgentDBID(agentDBKind, agentRef),
 		Agent:           api.AgentResourceFrom(agent),
 		DeploymentReady: deploymentReady,
 		Accepted:        accepted,

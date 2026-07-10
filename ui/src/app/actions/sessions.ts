@@ -54,9 +54,10 @@ export async function getSession(sessionId: string, shareToken?: string): Promis
  * Gets all sessions
  * @returns A promise with all sessions
  */
-export async function getSessionsForAgent(namespace: string, agentName: string): Promise<BaseResponse<Session[]>> {
+export async function getSessionsForAgent(namespace: string, agentName: string, groupKind?: string): Promise<BaseResponse<Session[]>> {
   try {
-    const data = await fetchApi<BaseResponse<Session[]>> (`/sessions/agent/${namespace}/${agentName}`);
+    const query = groupKind ? `?groupKind=${encodeURIComponent(groupKind)}` : "";
+    const data = await fetchApi<BaseResponse<Session[]>> (`/sessions/agent/${namespace}/${agentName}${query}`);
     return { message: "Sessions fetched successfully", data: data.data || [] };
   } catch (error) {
     return createErrorResponse<Session[]>(error, "Error getting sessions");

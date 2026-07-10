@@ -163,6 +163,60 @@ func TestSessionsHandler(t *testing.T) {
 			assert.False(t, response.Data.UpdatedAt.IsZero())
 		})
 
+		t.Run("SharedNameBindsByGroupKind", func(t *testing.T) {
+			handler, dbClient, _ := setupHandler(t)
+			userID := "test-user"
+			agentRef := "default/shared-name"
+			bareID := utils.AgentDBID(utils.AgentKind, agentRef)
+			sandboxID := utils.AgentDBID(utils.SandboxAgentKind, agentRef)
+
+			createTestAgent(t, dbClient, bareID)
+			require.NoError(t, dbClient.StoreAgent(context.Background(), &database.Agent{
+				ID:           sandboxID,
+				Type:         "SandboxAgent",
+				WorkloadType: v1alpha2.WorkloadModeSandbox,
+			}))
+
+			createVia := func(groupKind *string) (*mockErrorResponseWriter, *database.Session) {
+				sessionReq := api.SessionRequest{AgentRef: &agentRef, GroupKind: groupKind}
+				jsonBody, _ := json.Marshal(sessionReq)
+				req := httptest.NewRequest("POST", "/api/sessions", bytes.NewBuffer(jsonBody))
+				req.Header.Set("Content-Type", "application/json")
+				req = setUser(req, userID)
+				rec := newMockErrorResponseWriter()
+				handler.HandleCreateSession(rec, req)
+				if rec.Code != http.StatusCreated {
+					return rec, nil
+				}
+				var response api.StandardResponse[*database.Session]
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+				return rec, response.Data
+			}
+
+			// Absent group_kind binds the Agent row.
+			rec, session := createVia(nil)
+			require.Equal(t, http.StatusCreated, rec.Code)
+			assert.Equal(t, bareID, *session.AgentID)
+
+			// Explicit sandbox group_kind binds the SandboxAgent row.
+			sandboxGK := "SandboxAgent.kagent.dev"
+			rec, session = createVia(&sandboxGK)
+			require.Equal(t, http.StatusCreated, rec.Code)
+			assert.Equal(t, sandboxID, *session.AgentID)
+
+			// The sandbox single-session gate applies to the sandbox row only: a
+			// second sandbox session conflicts, while Agent sessions are unlimited.
+			rec, _ = createVia(&sandboxGK)
+			assert.Equal(t, http.StatusConflict, rec.Code)
+			rec, _ = createVia(nil)
+			assert.Equal(t, http.StatusCreated, rec.Code)
+
+			// Unknown group_kind is a bad request.
+			badGK := "Deployment.apps"
+			rec, _ = createVia(&badGK)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+
 		t.Run("MissingUserID", func(t *testing.T) {
 			handler, _, responseRecorder := setupHandler(t)
 			agentRef := utils.ConvertToPythonIdentifier("default/test-agent")

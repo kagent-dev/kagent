@@ -88,6 +88,7 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
         if (isSubstrateSandboxAgent(agentRes.data)) {
           const created = await createSession({
             agent_ref: `${namespace}/${name}`,
+            group_kind: "SandboxAgent.kagent.dev",
           });
           if (cancelled) return;
           if (!created.error && created.data) {

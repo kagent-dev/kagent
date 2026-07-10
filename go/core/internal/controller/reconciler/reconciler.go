@@ -129,7 +129,7 @@ func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Re
 	agent := &v1alpha2.Agent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
 		if apierrors.IsNotFound(err) {
-			return a.handleDeletedAgentResource(ctx, req, "agent")
+			return a.handleDeletedAgentResource(ctx, req, utils.AgentKind, "agent")
 		}
 		return fmt.Errorf("failed to get agent %s: %w", req.NamespacedName, err)
 	}
@@ -146,7 +146,7 @@ func (a *kagentReconciler) ReconcileKagentSandboxAgent(ctx context.Context, req 
 	sandboxAgent := &v1alpha2.SandboxAgent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, sandboxAgent); err != nil {
 		if apierrors.IsNotFound(err) {
-			return a.handleDeletedAgentResource(ctx, req, "sandbox agent")
+			return a.handleDeletedAgentResource(ctx, req, utils.SandboxAgentKind, "sandbox agent")
 		}
 		return fmt.Errorf("failed to get sandboxagent %s: %w", req.NamespacedName, err)
 	}
@@ -167,8 +167,8 @@ func (a *kagentReconciler) ReconcileKagentSandboxAgent(ctx context.Context, req 
 	return a.reconcileSandboxAgentStatus(ctx, sandboxAgent, err, false)
 }
 
-func (a *kagentReconciler) handleDeletedAgentResource(ctx context.Context, req ctrl.Request, resourceName string) error {
-	id := utils.ConvertToPythonIdentifier(req.String())
+func (a *kagentReconciler) handleDeletedAgentResource(ctx context.Context, req ctrl.Request, kind, resourceName string) error {
+	id := utils.AgentDBID(kind, req.String())
 	if err := a.dbClient.DeleteAgent(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete %s %s from db: %w", resourceName, req.String(), err)
 	}
@@ -1087,7 +1087,7 @@ func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.
 }
 
 func (a *kagentReconciler) upsertAgent(ctx context.Context, agent v1alpha2.AgentObject, agentOutputs *agent_translator.AgentOutputs) error {
-	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
+	id := utils.AgentDBID(agentKind(agent), utils.GetObjectRef(agent))
 	dbType := string(agent.GetAgentSpec().Type)
 	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
 		dbType = "SandboxAgent"
@@ -1108,9 +1108,9 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent v1alpha2.Agent
 
 func agentKind(agent v1alpha2.AgentObject) string {
 	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
-		return "SandboxAgent"
+		return utils.SandboxAgentKind
 	}
-	return "Agent"
+	return utils.AgentKind
 }
 
 func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServer) ([]*v1alpha2.MCPTool, error) {

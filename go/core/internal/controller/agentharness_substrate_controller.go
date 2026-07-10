@@ -240,7 +240,7 @@ func (r *SubstrateAgentHarnessController) upsertHarnessAgentRow(ctx context.Cont
 	if r.DbClient == nil {
 		return nil
 	}
-	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(ah))
+	id := utils.AgentDBID(utils.AgentHarnessKind, utils.GetObjectRef(ah))
 	dbAgent := &database.Agent{
 		ID:   id,
 		Type: agentHarnessDBType,
@@ -261,7 +261,7 @@ func (r *SubstrateAgentHarnessController) deleteHarnessAgentRow(ctx context.Cont
 	if r.DbClient == nil {
 		return nil
 	}
-	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(ah))
+	id := utils.AgentDBID(utils.AgentHarnessKind, utils.GetObjectRef(ah))
 	if err := r.DbClient.DeleteAgent(ctx, id); err != nil {
 		return fmt.Errorf("delete agent row for AgentHarness %s: %w", id, err)
 	}

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
 import { getSessionsForAgent } from "@/app/actions/sessions";
-import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "@/types";
+import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse, sessionGroupKindFor } from "@/types";
 import { toast } from "sonner";
 import { ChatAgentProvider } from "@/components/chat/ChatAgentContext";
 import { isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
@@ -57,7 +57,7 @@ export default function ChatLayoutUI({
     const refreshSessions = async () => {
       setIsLoadingSessions(true);
       try {
-        const sessionsResponse = await getSessionsForAgent(namespace, agentName);
+        const sessionsResponse = await getSessionsForAgent(namespace, agentName, sessionGroupKindFor(currentAgent));
         if (!sessionsResponse.error && sessionsResponse.data) {
           setSessions(sessionsResponse.data);
         } else {

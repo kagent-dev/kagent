@@ -173,11 +173,22 @@ func (m *workspaceModel) loadSessions() tea.Cmd {
 	}
 }
 
+// sessionGroupKind returns the group_kind for session requests targeting the
+// selected agent, nil for plain Agents (the server default).
+func sessionGroupKind(a *api.AgentResponse) *string {
+	if a == nil || a.Agent == nil || a.Agent.Kind == "" || a.Agent.Kind == "Agent" {
+		return nil
+	}
+	gk := a.Agent.Kind + ".kagent.dev"
+	return &gk
+}
+
 func (m *workspaceModel) createSession(name string) tea.Cmd {
 	return func() tea.Msg {
 		res, err := m.client.Session.CreateSession(context.Background(), &api.SessionRequest{
-			Name:     new(name),
-			AgentRef: new(m.agentRef),
+			Name:      new(name),
+			AgentRef:  new(m.agentRef),
+			GroupKind: sessionGroupKind(m.agent),
 		})
 		if err != nil {
 			return createSessionMsg{session: nil, err: err}
@@ -208,7 +219,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentChosenMsg:
 		a := msg.agent
 		m.agent = &a
-		m.agentRef = utils.ConvertToKubernetesIdentifier(a.ID)
+		_, m.agentRef = utils.ParseAgentDBID(a.ID)
 		// Clear current session and chat when switching agents
 		m.current = nil
 		m.chat = nil
@@ -237,7 +248,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a := msg.agent
 		m.agent = &a
-		m.agentRef = utils.ConvertToKubernetesIdentifier(a.ID)
+		_, m.agentRef = utils.ParseAgentDBID(a.ID)
 		// Clear current session and chat when switching agents
 		m.current = nil
 		m.chat = nil
@@ -390,7 +401,7 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.choosingAgent = false
 				a := it.AgentResponse
 				m.agent = &a
-				m.agentRef = utils.ConvertToKubernetesIdentifier(a.ID)
+				_, m.agentRef = utils.ParseAgentDBID(a.ID)
 				// Clear current session and chat when switching agents
 				m.current = nil
 				m.chat = nil
@@ -517,7 +528,8 @@ func (m *workspaceModel) renderDetails() {
 		return
 	}
 	m.details.Reset()
-	fmt.Fprintf(&m.details, "Agent: %s\n", utils.ConvertToKubernetesIdentifier(m.agent.ID))
+	_, agentDisplayRef := utils.ParseAgentDBID(m.agent.ID)
+	fmt.Fprintf(&m.details, "Agent: %s\n", agentDisplayRef)
 	if m.agent.Agent.Spec.Description != "" {
 		fmt.Fprintf(&m.details, "\n%s\n", m.agent.Agent.Spec.Description)
 	}

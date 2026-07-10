@@ -110,8 +110,18 @@ export interface ModelConfig {
 
 export interface CreateSessionRequest {
   agent_ref?: string;
+  /** Selects which kind agent_ref refers to (e.g. "SandboxAgent.kagent.dev"); absent means Agent. */
+  group_kind?: string;
   name?: string;
   id?: string;
+}
+
+/** group_kind value for session requests targeting this agent; undefined for plain Agents (the server default). */
+export function sessionGroupKindFor(agent?: { agent?: { kind?: string }; workloadMode?: string } | null): string | undefined {
+  if (!agent) return undefined;
+  if (agent.agent?.kind === "AgentHarness") return "AgentHarness.kagent.dev";
+  if (agent.workloadMode === "sandbox") return "SandboxAgent.kagent.dev";
+  return undefined;
 }
 
 export interface BaseResponse<T> {

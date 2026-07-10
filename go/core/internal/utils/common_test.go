@@ -283,3 +283,24 @@ func TestValidateDNS1123Subdomain(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentDBID(t *testing.T) {
+	tests := []struct {
+		kind, ref, wantID string
+	}{
+		{AgentKind, "default/my-agent", "default__NS__my_agent"},
+		{SandboxAgentKind, "default/my-agent", "sandboxagents__NS__default__NS__my_agent"},
+		{AgentHarnessKind, "default/my-agent", "agentharnesses__NS__default__NS__my_agent"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.kind, func(t *testing.T) {
+			if got := AgentDBID(tt.kind, tt.ref); got != tt.wantID {
+				t.Errorf("AgentDBID(%q, %q) = %q, want %q", tt.kind, tt.ref, got, tt.wantID)
+			}
+			kind, ref := ParseAgentDBID(tt.wantID)
+			if kind != tt.kind || ref != tt.ref {
+				t.Errorf("ParseAgentDBID(%q) = (%q, %q), want (%q, %q)", tt.wantID, kind, ref, tt.kind, tt.ref)
+			}
+		})
+	}
+}

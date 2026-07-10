@@ -146,6 +146,53 @@ func ConvertToPythonIdentifier(name string) string {
 	return strings.ReplaceAll(name, "/", "__NS__") // RFC 1123 will guarantee there will be no conflicts
 }
 
+// Agent-like kinds sharing the agent DB table. Values match the CRD kind names.
+const (
+	AgentKind        = "Agent"
+	SandboxAgentKind = "SandboxAgent"
+	AgentHarnessKind = "AgentHarness"
+)
+
+// Kind prefixes folded into the DB id for the experimental kinds. They mirror
+// the API route resources (/api/sandboxagents, /api/agentharnesses) and contain
+// no '-' or '_' so the python/kubernetes identifier conversions leave them intact.
+const (
+	sandboxAgentIDPrefix = "sandboxagents/"
+	agentHarnessIDPrefix = "agentharnesses/"
+)
+
+// AgentDBID returns the identity of an agent-like resource in the agent DB
+// table (and in session.agent_id). Agent rows keep the historical bare
+// ConvertToPythonIdentifier("ns/name"); SandboxAgent and AgentHarness rows are
+// kind-qualified so a same-named resource of another kind occupies a distinct
+// row. ref is "namespace/name"; kind is one of the *Kind constants (anything
+// else maps to the bare Agent format).
+func AgentDBID(kind, ref string) string {
+	switch kind {
+	case SandboxAgentKind:
+		return ConvertToPythonIdentifier(sandboxAgentIDPrefix + ref)
+	case AgentHarnessKind:
+		return ConvertToPythonIdentifier(agentHarnessIDPrefix + ref)
+	default:
+		return ConvertToPythonIdentifier(ref)
+	}
+}
+
+// ParseAgentDBID returns the kind and "namespace/name" ref encoded in an agent
+// DB id produced by AgentDBID (bare ids parse as Agent). A qualified ref always
+// contains a "/" after the prefix is stripped; without one the prefix match was
+// coincidental (an Agent in a namespace literally named "sandboxagents").
+func ParseAgentDBID(id string) (kind, ref string) {
+	k8s := ConvertToKubernetesIdentifier(id)
+	if rest, ok := strings.CutPrefix(k8s, sandboxAgentIDPrefix); ok && strings.Contains(rest, "/") {
+		return SandboxAgentKind, rest
+	}
+	if rest, ok := strings.CutPrefix(k8s, agentHarnessIDPrefix); ok && strings.Contains(rest, "/") {
+		return AgentHarnessKind, rest
+	}
+	return AgentKind, k8s
+}
+
 // ConvertToKubernetesIdentifier converts Python identifiers back to Kubernetes format
 // by replacing "__NS__" with slashes and underscores with hyphens.
 func ConvertToKubernetesIdentifier(name string) string {

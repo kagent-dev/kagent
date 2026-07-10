@@ -8,6 +8,7 @@ This sample demonstrates how to create a simple OpenAI agent that can:
 """
 
 import logging
+import os
 from pathlib import Path
 
 from a2a.types import AgentCard
@@ -19,6 +20,7 @@ from kagent.openai import KAgentApp
 logger = logging.getLogger(__name__)
 
 SKILLS_DIR = Path(__file__).parent.parent / "skills"
+PORT = int(os.getenv("PORT", "8080"))
 
 
 # Define tools for the agent
@@ -80,7 +82,7 @@ agent = Agent(
 agent_card = AgentCard(
     name="basic-openai-agent",
     description="A basic OpenAI agent with calculator and weather tools",
-    url="localhost:8000",
+    url=f"http://localhost:{PORT}",
     version="0.1.0",
     capabilities={"streaming": True},
     defaultInputModes=["text"],
@@ -102,6 +104,7 @@ app = KAgentApp(
     agent=agent,
     agent_card=agent_card,
     config=config,
+    tracing=False,
 )
 
 
@@ -114,6 +117,6 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
     logger.info("Starting Basic OpenAI Agent...")
-    logger.info("Server will be available at http://0.0.0.0:8080")
+    logger.info("Server will be available at http://0.0.0.0:%s", PORT)
 
-    uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=PORT)

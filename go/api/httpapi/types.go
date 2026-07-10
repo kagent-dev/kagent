@@ -167,10 +167,13 @@ type AgentResponse struct {
 
 // SessionRequest represents a session creation/update request
 type SessionRequest struct {
-	AgentRef *string                 `json:"agent_ref,omitempty"`
-	Name     *string                 `json:"name,omitempty"`
-	ID       *string                 `json:"id,omitempty"`
-	Source   *database.SessionSource `json:"source,omitempty"`
+	AgentRef *string `json:"agent_ref,omitempty"`
+	// GroupKind selects which kind agent_ref refers to: "Agent.kagent.dev",
+	// "SandboxAgent.kagent.dev", or "AgentHarness.kagent.dev". Absent means Agent.
+	GroupKind *string                 `json:"group_kind,omitempty"`
+	Name      *string                 `json:"name,omitempty"`
+	ID        *string                 `json:"id,omitempty"`
+	Source    *database.SessionSource `json:"source,omitempty"`
 }
 
 // Run types

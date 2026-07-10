@@ -40,6 +40,37 @@ type RunRequest struct {
 	Task string `json:"task"`
 }
 
+// agentKindForGroupKind maps a request's optional groupKind value ("SandboxAgent.kagent.dev"
+// style, matching the /api/agents routes) to the kind constants used by utils.AgentDBID.
+// Absent selects Agent, the historical behavior.
+func agentKindForGroupKind(groupKind string) (string, error) {
+	switch groupKind {
+	case "", "Agent.kagent.dev":
+		return utils.AgentKind, nil
+	case "SandboxAgent.kagent.dev":
+		return utils.SandboxAgentKind, nil
+	case "AgentHarness.kagent.dev":
+		return utils.AgentHarnessKind, nil
+	default:
+		return "", fmt.Errorf("unsupported groupKind %q (expected %q, %q, or %q)",
+			groupKind, "Agent.kagent.dev", "SandboxAgent.kagent.dev", "AgentHarness.kagent.dev")
+	}
+}
+
+// sessionRequestAgentDBID resolves a session request's agent_ref + group_kind to the
+// agent DB id.
+func sessionRequestAgentDBID(sessionRequest api.SessionRequest) (string, error) {
+	groupKind := ""
+	if sessionRequest.GroupKind != nil {
+		groupKind = *sessionRequest.GroupKind
+	}
+	kind, err := agentKindForGroupKind(groupKind)
+	if err != nil {
+		return "", err
+	}
+	return utils.AgentDBID(kind, *sessionRequest.AgentRef), nil
+}
+
 func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "get-sessions-for-agent")
 
@@ -63,9 +94,15 @@ func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *ht
 		return
 	}
 
-	// Get agent ID from agent ref. AgentHarnesses are recorded in the same
-	// agent table as regular agents, so the lookup is uniform.
-	agentID := utils.ConvertToPythonIdentifier(namespace + "/" + agentName)
+	// Get agent ID from agent ref. AgentHarnesses and SandboxAgents are recorded
+	// in the same agent table as regular agents under kind-qualified ids; the
+	// optional groupKind query parameter selects the kind (absent means Agent).
+	kind, err := agentKindForGroupKind(r.URL.Query().Get("groupKind"))
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
+	}
+	agentID := utils.AgentDBID(kind, namespace+"/"+agentName)
 	if _, err := h.DatabaseService.GetAgent(r.Context(), agentID); err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 		return
@@ -137,10 +174,15 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 
 	log.V(1).Info("Getting agent from database", "session_request", sessionRequest)
 
-	// AgentHarnesses are recorded in the same agent table as regular agents, so
-	// the lookup is uniform; harness rows use the deployment workload mode and
-	// therefore skip the sandbox single-session restriction below.
-	agentID := utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef)
+	// AgentHarnesses and SandboxAgents are recorded in the same agent table as
+	// regular agents under kind-qualified ids; the request's group_kind selects
+	// the kind (absent means Agent). Harness rows use the deployment workload
+	// mode and therefore skip the sandbox single-session restriction below.
+	agentID, err := sessionRequestAgentDBID(sessionRequest)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
+	}
 	agent, err := h.DatabaseService.GetAgent(r.Context(), agentID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", *sessionRequest.AgentRef), err))
@@ -321,7 +363,12 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 	}
 	if sessionRequest.AgentRef != nil {
 		log = log.WithValues("agentRef", *sessionRequest.AgentRef)
-		agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
+		agentID, err := sessionRequestAgentDBID(sessionRequest)
+		if err != nil {
+			w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+			return
+		}
+		agent, err := h.DatabaseService.GetAgent(r.Context(), agentID)
 		if err != nil {
 			w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 			return
@@ -363,7 +410,7 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 		if getErr == nil && session.AgentID != nil {
 			if agent, agentErr := h.DatabaseService.GetAgent(r.Context(), *session.AgentID); agentErr == nil &&
 				agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
-				agentRef := utils.ConvertToKubernetesIdentifier(*session.AgentID)
+				_, agentRef := utils.ParseAgentDBID(*session.AgentID)
 				if sa, isSubstrate, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), agentRef); lookupErr == nil && isSubstrate {
 					substrateCleanup = sa
 				}
@@ -485,9 +532,15 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 		return
 	}
 
-	if session.AgentID != nil && *session.AgentID != utils.ConvertToPythonIdentifier(principal.Agent.ID) {
-		w.RespondWithError(errors.NewForbiddenError("Session does not belong to this agent", nil))
-		return
+	// The agent identity (X-Agent-Name / upstream principal) carries no kind, so
+	// ownership is compared on the ns/name ref with the id's kind prefix stripped —
+	// same-named agents of different kinds share this identity.
+	if session.AgentID != nil {
+		_, sessionAgentRef := utils.ParseAgentDBID(*session.AgentID)
+		if utils.ConvertToPythonIdentifier(sessionAgentRef) != utils.ConvertToPythonIdentifier(principal.Agent.ID) {
+			w.RespondWithError(errors.NewForbiddenError("Session does not belong to this agent", nil))
+			return
+		}
 	}
 	event := &database.Event{
 		ID:        eventData.ID,
