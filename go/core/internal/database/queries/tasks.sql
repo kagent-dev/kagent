@@ -33,3 +33,6 @@ WHERE upserted_task.session_id IS NOT NULL
 
 -- name: SoftDeleteTask :exec
 UPDATE task SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: SoftDeleteTasksBySession :exec
+UPDATE task SET deleted_at = NOW() WHERE session_id = $1 AND deleted_at IS NULL;

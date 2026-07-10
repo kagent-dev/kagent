@@ -13,6 +13,7 @@ type Querier interface {
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
+	DeleteSessionSharesBySession(ctx context.Context, sessionID string) error
 	ExtendMemoryTTL(ctx context.Context) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
@@ -60,9 +61,11 @@ type Querier interface {
 	SoftDeleteCheckpointWrites(ctx context.Context, arg SoftDeleteCheckpointWritesParams) error
 	SoftDeleteCheckpoints(ctx context.Context, arg SoftDeleteCheckpointsParams) error
 	SoftDeleteEvent(ctx context.Context, id string) error
+	SoftDeleteEventsBySession(ctx context.Context, sessionID *string) error
 	SoftDeletePushNotification(ctx context.Context, taskID string) error
 	SoftDeleteSession(ctx context.Context, arg SoftDeleteSessionParams) error
 	SoftDeleteTask(ctx context.Context, id string) error
+	SoftDeleteTasksBySession(ctx context.Context, sessionID *string) error
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)

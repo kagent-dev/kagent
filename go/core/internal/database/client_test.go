@@ -234,6 +234,24 @@ func TestStoreSessionIdempotence(t *testing.T) {
 	assert.Equal(t, "Updated", *retrieved.Name, "Session should have updated name")
 }
 
+func TestStoreSessionRejectsIDUsedByAnotherUser(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	agentID := "agent-1"
+	first := &dbpkg.Session{ID: "shared-id", UserID: "user-a", AgentID: &agentID}
+	require.NoError(t, client.StoreSession(ctx, first), "first user should get the id")
+
+	second := &dbpkg.Session{ID: "shared-id", UserID: "user-b", AgentID: &agentID}
+	err := client.StoreSession(ctx, second)
+	require.ErrorIs(t, err, dbpkg.ErrSessionIDInUse, "a second user must not claim an id already active for another user")
+
+	// Once the first user's session is gone, the id is free again.
+	require.NoError(t, client.DeleteSession(ctx, "shared-id", "user-a"))
+	require.NoError(t, client.StoreSession(ctx, second), "id should be reusable after the original session is deleted")
+}
+
 func TestListSessionsOrdersByRecentActivity(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)

@@ -73,6 +73,15 @@ func (q *Queries) SoftDeleteTask(ctx context.Context, id string) error {
 	return err
 }
 
+const softDeleteTasksBySession = `-- name: SoftDeleteTasksBySession :exec
+UPDATE task SET deleted_at = NOW() WHERE session_id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) SoftDeleteTasksBySession(ctx context.Context, sessionID *string) error {
+	_, err := q.db.Exec(ctx, softDeleteTasksBySession, sessionID)
+	return err
+}
+
 const taskExists = `-- name: TaskExists :one
 SELECT EXISTS (
     SELECT 1 FROM task WHERE id = $1 AND deleted_at IS NULL

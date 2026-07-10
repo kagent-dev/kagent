@@ -2,12 +2,17 @@ package database
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/pgvector/pgvector-go"
 )
+
+// ErrSessionIDInUse means the requested session id is already active on a
+// different session (possibly owned by another user).
+var ErrSessionIDInUse = errors.New("session id already in use")
 
 type QueryOptions struct {
 	Limit    int
