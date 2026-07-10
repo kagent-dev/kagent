@@ -500,8 +500,8 @@ github.com/kagent-dev/mockllm v0.0.5 h1:mm9Ml3NH6/E/YKVMgMwWYMNsNGkDze6I6TC0ppHZ
 github.com/kagent-dev/mockllm v0.0.5/go.mod h1:tDLemRsTZa1NdHaDbg3sgFk9cT1QWvMPlBtLVD6I2mA=
 github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085 h1:5bYxRc6K6+JiFMYGSJpQ7y18PzTGXUmUtVXY7Fqh0Ew=
 github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085/go.mod h1:vTMste7c+XiDOQyhe6iGPKLbMy3chY/h2fL3Dox5fAE=
-github.com/kagent-dev/substrate v0.0.8 h1:rWTLRrf148GQfqKFSTfZx5KQ8jxN7VsP0ICSJrH1eJ8=
-github.com/kagent-dev/substrate v0.0.8/go.mod h1:2cvSnnHPwZRAhkrC2LH1bQd1tQBfL3p+zU6pZiHBUkA=
+github.com/kagent-dev/substrate v0.0.9 h1:c/DHs+OunYv4ivqkNzoo22JYCkaH+ykvwUCER0w93jc=
+github.com/kagent-dev/substrate v0.0.9/go.mod h1:rAUfpCpopU4JAp/62uM4+WBEEcszpre8kA1pu4PGCeM=
 github.com/karamaru-alpha/copyloopvar v1.2.2 h1:yfNQvP9YaGQR7VaWLYcfZUlRP2eo2vhExWKxD/fP6q0=
 github.com/karamaru-alpha/copyloopvar v1.2.2/go.mod h1:oY4rGZqZ879JkJMtX3RRkcXRkmUvH0x35ykgaKgsgJY=
 github.com/kisielk/errcheck v1.10.0 h1:Lvs/YAHP24YKg08LA8oDw2z9fJVme090RAXd90S+rrw=
