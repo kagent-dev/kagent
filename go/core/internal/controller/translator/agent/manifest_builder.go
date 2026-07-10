@@ -302,8 +302,11 @@ func buildPodRuntime(
 	volumeMounts := append([]corev1.VolumeMount{}, secretMounts...)
 	volumeMounts = append(volumeMounts, manifestCtx.deployment.VolumeMounts...)
 
-	needCodeExecIsolation := cfg != nil && cfg.GetExecuteCode()
-	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
+	// privileged is required whenever srt (the sandbox runtime) is present in the image:
+	// skills use BashTool which calls srt, and code execution also calls srt.
+	// needsSRTSettings captures exactly those cases.
+	needCodeExecIsolation := needsSRTSettings(manifestCtx.agent, sandboxCfg)
+	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +402,6 @@ func buildSkillsRuntime(
 	sharedEnv *[]corev1.EnvVar,
 	volumes *[]corev1.Volume,
 	volumeMounts *[]corev1.VolumeMount,
-	needCodeExecIsolation *bool,
 ) ([]corev1.Container, *corev1.ConfigMap, error) {
 	spec := manifestCtx.agent.GetAgentSpec()
 	if spec.Skills == nil {
@@ -412,7 +414,6 @@ func buildSkillsRuntime(
 		return nil, nil, nil
 	}
 
-	*needCodeExecIsolation = true
 	*sharedEnv = append(*sharedEnv, corev1.EnvVar{
 		Name:  env.KagentSkillsFolder.Name(),
 		Value: "/skills",
