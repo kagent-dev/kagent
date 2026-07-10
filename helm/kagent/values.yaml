@@ -865,21 +865,24 @@ otel:
 # Both map and multi-line string entries are supported. Use this to manage
 # resources such as ExternalSecret, HTTPRoute, or NetworkPolicy within the same
 # chart lifecycle without maintaining a separate chart.
+#
+# To use, replace the empty list below with your manifests, e.g.:
+#   extraObjects:
+#     - apiVersion: external-secrets.io/v1
+#       kind: ExternalSecret
+#       metadata:
+#         name: '{{ include "kagent.fullname" . }}-openai'
+#         namespace: '{{ .Release.Namespace }}'
+#       spec:
+#         secretStoreRef:
+#           name: aws-secretsmanager
+#           kind: ClusterSecretStore
+#         target:
+#           name: kagent-openai
+#         data:
+#           - secretKey: OPENAI_API_KEY
+#             remoteRef:
+#               key: prod/kagent/openai
+#               property: api_key
 # @default -- []
 extraObjects: []
-  # - apiVersion: external-secrets.io/v1
-  #   kind: ExternalSecret
-  #   metadata:
-  #     name: '{{ include "kagent.fullname" . }}-openai'
-  #     namespace: '{{ .Release.Namespace }}'
-  #   spec:
-  #     secretStoreRef:
-  #       name: aws-secretsmanager
-  #       kind: ClusterSecretStore
-  #     target:
-  #       name: kagent-openai
-  #     data:
-  #       - secretKey: OPENAI_API_KEY
-  #         remoteRef:
-  #           key: prod/kagent/openai
-  #           property: api_key
