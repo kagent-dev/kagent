@@ -71,7 +71,7 @@ websocat ws://localhost:9000/acp
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}
 ```
 
-> **Note:** A successful `initialize` response only verifies the ACP transport layer. It does not confirm that prompts reach the model — see the open item in [Open items](#open-items-tracked-in-the-ep) below.
+> **Note:** A successful `initialize` response only verifies the ACP transport layer. It does not confirm that prompts reach the model — see the Claude open item in [Open items](#open-items-tracked-in-the-ep) below.
 
 The shim does not authenticate the WebSocket handshake; in Substrate the actor's
 ingress is its only reachable surface and the controller proxies to it.
