@@ -153,6 +153,16 @@ const (
 	AgentHarnessKind = "AgentHarness"
 )
 
+// GroupKind strings API routes accept to select a kind (kind.group of the
+// kagent.dev CRDs). Absent always means Agent; which values a route accepts
+// varies (the /api/agents routes serve Agent/SandboxAgent only, the sessions
+// API additionally accepts AgentHarness).
+const (
+	AgentGroupKind        = AgentKind + ".kagent.dev"
+	SandboxAgentGroupKind = SandboxAgentKind + ".kagent.dev"
+	AgentHarnessGroupKind = AgentHarnessKind + ".kagent.dev"
+)
+
 // Kind prefixes folded into the DB id for the experimental kinds. They mirror
 // the API route resources (/api/sandboxagents, /api/agentharnesses) and contain
 // no '-' or '_' so the python/kubernetes identifier conversions leave them intact.

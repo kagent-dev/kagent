@@ -19,7 +19,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -361,24 +360,18 @@ func (h *AgentsHandler) parseAgentRef(log logr.Logger, agent client.Object, inva
 	), agentRef, nil
 }
 
-// agentGroupKind / sandboxAgentGroupKind are the groupKind values accepted by the
-// shared /api/agents routes to select which kind an operation targets.
-var (
-	agentGroupKind        = schema.GroupKind{Group: v1alpha2.GroupVersion.Group, Kind: "Agent"}.String()
-	sandboxAgentGroupKind = schema.GroupKind{Group: v1alpha2.GroupVersion.Group, Kind: "SandboxAgent"}.String()
-)
-
 // agentObjectForGroupKind maps a groupKind request parameter to the concrete kind
 // the shared /api/agents routes operate on. Empty selects Agent (the historical
-// behavior); anything else unrecognized is a bad request.
+// behavior); anything else unrecognized is a bad request. AgentHarness is not
+// served by these routes (it has its own /api/agentharnesses routes).
 func agentObjectForGroupKind(groupKind string) (v1alpha2.AgentObject, error) {
 	switch groupKind {
-	case "", agentGroupKind:
+	case "", utils.AgentGroupKind:
 		return &v1alpha2.Agent{}, nil
-	case sandboxAgentGroupKind:
+	case utils.SandboxAgentGroupKind:
 		return &v1alpha2.SandboxAgent{}, nil
 	default:
-		return nil, fmt.Errorf("unsupported groupKind %q (expected %q or %q)", groupKind, agentGroupKind, sandboxAgentGroupKind)
+		return nil, fmt.Errorf("unsupported groupKind %q (expected %q or %q)", groupKind, utils.AgentGroupKind, utils.SandboxAgentGroupKind)
 	}
 }
 

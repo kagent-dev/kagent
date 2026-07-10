@@ -40,20 +40,21 @@ type RunRequest struct {
 	Task string `json:"task"`
 }
 
-// agentKindForGroupKind maps a request's optional groupKind value ("SandboxAgent.kagent.dev"
-// style, matching the /api/agents routes) to the kind constants used by utils.AgentDBID.
-// Absent selects Agent, the historical behavior.
+// agentKindForGroupKind maps a request's optional groupKind value (same format as
+// the /api/agents routes) to the kind constants used by utils.AgentDBID. Absent
+// selects Agent, the historical behavior. Unlike the /api/agents routes, sessions
+// also serve AgentHarness chats, so its groupKind is accepted here.
 func agentKindForGroupKind(groupKind string) (string, error) {
 	switch groupKind {
-	case "", "Agent.kagent.dev":
+	case "", utils.AgentGroupKind:
 		return utils.AgentKind, nil
-	case "SandboxAgent.kagent.dev":
+	case utils.SandboxAgentGroupKind:
 		return utils.SandboxAgentKind, nil
-	case "AgentHarness.kagent.dev":
+	case utils.AgentHarnessGroupKind:
 		return utils.AgentHarnessKind, nil
 	default:
 		return "", fmt.Errorf("unsupported groupKind %q (expected %q, %q, or %q)",
-			groupKind, "Agent.kagent.dev", "SandboxAgent.kagent.dev", "AgentHarness.kagent.dev")
+			groupKind, utils.AgentGroupKind, utils.SandboxAgentGroupKind, utils.AgentHarnessGroupKind)
 	}
 }
 

@@ -147,7 +147,9 @@ export default function ChatLayoutUI({
       <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden px-4">
         <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-1 flex-col">
           <ChatAgentProvider
-            agentType={currentAgent.agent.spec.type}
+            // Harness responses carry the kind on agent.kind and leave spec.type
+            // empty, so spec.type alone would misreport harness chats as Agent.
+            agentType={currentAgent.agent.kind === "AgentHarness" ? "AgentHarness" : currentAgent.agent.spec.type}
             runInSandbox={currentAgent.workloadMode === "sandbox"}
             substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
           >

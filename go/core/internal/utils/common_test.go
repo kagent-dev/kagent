@@ -303,4 +303,16 @@ func TestAgentDBID(t *testing.T) {
 			}
 		})
 	}
+
+	// A bare Agent id whose namespace happens to equal a kind prefix must not be
+	// misparsed as that kind: the stripped remainder carries no "/" separator.
+	for _, tt := range []struct{ id, wantKind, wantRef string }{
+		{"sandboxagents__NS__foo", AgentKind, "sandboxagents/foo"},
+		{"agentharnesses__NS__foo", AgentKind, "agentharnesses/foo"},
+	} {
+		kind, ref := ParseAgentDBID(tt.id)
+		if kind != tt.wantKind || ref != tt.wantRef {
+			t.Errorf("ParseAgentDBID(%q) = (%q, %q), want (%q, %q)", tt.id, kind, ref, tt.wantKind, tt.wantRef)
+		}
+	}
 }

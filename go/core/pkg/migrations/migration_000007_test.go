@@ -90,3 +90,41 @@ func TestMigration000007_KindQualifiedIDs(t *testing.T) {
 		"session-sandboxagents__NS__foo": "sandboxagents__NS__foo",
 	})
 }
+
+// TestMigration000007_DownFailsOnSharedName pins the documented rollback limit:
+// once an Agent and a SandboxAgent legitimately share a namespace/name, stripping
+// the prefix would collide with the Agent row's primary key, so the down
+// migration must abort (with a unique violation) rather than merge or lose rows.
+func TestMigration000007_DownFailsOnSharedName(t *testing.T) {
+	connStr := startTestDB(t)
+	ctx := context.Background()
+	src := BuiltinSources(false)[0]
+
+	if err := WithMigrator(ctx, connStr, src, func(mg *migrate.Migrate) error {
+		return mg.Migrate(7)
+	}); err != nil {
+		t.Fatalf("migrate to version 7: %v", err)
+	}
+
+	db, err := sql.Open("pgx", connStr)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	for _, s := range []struct{ id, typ string }{
+		{"default__NS__dup", "Declarative"},
+		{"sandboxagents__NS__default__NS__dup", "SandboxAgent"},
+	} {
+		if _, err := db.ExecContext(ctx, `INSERT INTO agent (id, type) VALUES ($1, $2)`, s.id, s.typ); err != nil {
+			t.Fatalf("seed agent %s: %v", s.id, err)
+		}
+	}
+
+	err = WithMigrator(ctx, connStr, src, func(mg *migrate.Migrate) error {
+		return mg.Steps(-1)
+	})
+	if err == nil {
+		t.Fatal("down migration succeeded despite a shared-name collision; expected a unique violation")
+	}
+}
