@@ -25,19 +25,21 @@ type recordingActorClient struct {
 }
 
 func (r *recordingActorClient) GetActor(_ context.Context, in *ateapipb.GetActorRequest, _ ...grpc.CallOption) (*ateapipb.GetActorResponse, error) {
-	if slices.Contains(r.deleted, in.GetActorId()) {
+	name := in.GetActorRef().GetName()
+	if slices.Contains(r.deleted, name) {
 		return nil, status.Error(codes.NotFound, "actor deleted")
 	}
 	return &ateapipb.GetActorResponse{
 		Actor: &ateapipb.Actor{
-			ActorId: in.GetActorId(),
-			Status:  ateapipb.Actor_STATUS_SUSPENDED,
+			ActorId:  name,
+			Atespace: in.GetActorRef().GetAtespace(),
+			Status:   ateapipb.Actor_STATUS_SUSPENDED,
 		},
 	}, nil
 }
 
 func (r *recordingActorClient) DeleteActor(_ context.Context, in *ateapipb.DeleteActorRequest, _ ...grpc.CallOption) (*ateapipb.DeleteActorResponse, error) {
-	r.deleted = append(r.deleted, in.GetActorId())
+	r.deleted = append(r.deleted, in.GetActorRef().GetName())
 	return &ateapipb.DeleteActorResponse{}, nil
 }
 
@@ -70,6 +72,22 @@ func (r *recordingActorClient) ListActors(context.Context, *ateapipb.ListActorsR
 }
 
 func (r *recordingActorClient) DebugClear(context.Context, *ateapipb.DebugClearRequest, ...grpc.CallOption) (*ateapipb.DebugClearResponse, error) {
+	panic("not used")
+}
+
+func (r *recordingActorClient) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.CreateAtespaceResponse, error) {
+	return &ateapipb.CreateAtespaceResponse{Atespace: &ateapipb.Atespace{Name: in.GetName()}}, nil
+}
+
+func (r *recordingActorClient) GetAtespace(context.Context, *ateapipb.GetAtespaceRequest, ...grpc.CallOption) (*ateapipb.GetAtespaceResponse, error) {
+	panic("not used")
+}
+
+func (r *recordingActorClient) ListAtespaces(context.Context, *ateapipb.ListAtespacesRequest, ...grpc.CallOption) (*ateapipb.ListAtespacesResponse, error) {
+	panic("not used")
+}
+
+func (r *recordingActorClient) DeleteAtespace(context.Context, *ateapipb.DeleteAtespaceRequest, ...grpc.CallOption) (*ateapipb.DeleteAtespaceResponse, error) {
 	panic("not used")
 }
 

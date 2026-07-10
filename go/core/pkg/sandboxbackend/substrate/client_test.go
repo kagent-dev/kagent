@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"math/big"
 	"net"
 	"os"
@@ -13,9 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 )
 
 func TestAteAPITLSConfig(t *testing.T) {
@@ -84,6 +88,57 @@ func TestBearerTokenFile(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "read bearer token file")
 	})
+}
+
+func TestEnsureAtespace(t *testing.T) {
+	t.Run("returns nil when substrate reports AlreadyExists", func(t *testing.T) {
+		fake := &createAtespaceFake{err: status.Error(codes.AlreadyExists, "Atespace kagent already exists")}
+		c := &Client{ControlClient: fake}
+
+		require.NoError(t, c.EnsureAtespace(context.Background(), "kagent"))
+		require.Equal(t, "kagent", fake.lastName)
+	})
+
+	t.Run("returns nil on successful create", func(t *testing.T) {
+		fake := &createAtespaceFake{}
+		c := &Client{ControlClient: fake}
+
+		require.NoError(t, c.EnsureAtespace(context.Background(), "kagent"))
+	})
+
+	t.Run("propagates non-AlreadyExists errors", func(t *testing.T) {
+		fake := &createAtespaceFake{err: status.Error(codes.Internal, "boom")}
+		c := &Client{ControlClient: fake}
+
+		err := c.EnsureAtespace(context.Background(), "kagent")
+		require.Error(t, err)
+		require.Equal(t, codes.Internal, status.Code(err))
+	})
+
+	t.Run("propagates non-gRPC errors", func(t *testing.T) {
+		fake := &createAtespaceFake{err: errors.New("dial failed")}
+		c := &Client{ControlClient: fake}
+
+		err := c.EnsureAtespace(context.Background(), "kagent")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "dial failed")
+	})
+}
+
+// createAtespaceFake is a partial ControlClient stand-in that captures the last
+// CreateAtespace request and returns a preset error. All other methods panic.
+type createAtespaceFake struct {
+	ateapipb.ControlClient
+	lastName string
+	err      error
+}
+
+func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.CreateAtespaceResponse, error) {
+	f.lastName = in.GetName()
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &ateapipb.CreateAtespaceResponse{Atespace: &ateapipb.Atespace{Name: in.GetName()}}, nil
 }
 
 func newTestTLSCert(t *testing.T) tls.Certificate {

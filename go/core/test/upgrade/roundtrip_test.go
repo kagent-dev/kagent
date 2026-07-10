@@ -126,7 +126,7 @@ func buildCleanInstallSchema(t *testing.T, env upgradeEnv, dbName string, vector
 	defer stop()
 
 	url := fmt.Sprintf("postgres://kagent:kagent@127.0.0.1:%d/%s?sslmode=disable", localPort, dbName)
-	require.NoError(t, migrations.RunUp(url, migrations.FS, vectorEnabled),
+	require.NoError(t, migrations.RunUp(t.Context(), url, migrations.BuiltinSources(vectorEnabled)),
 		"apply embedded migrations to clean reference database %s", dbName)
 
 	return pgSchemaDump(t, env, dbName)

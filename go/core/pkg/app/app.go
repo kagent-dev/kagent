@@ -137,9 +137,10 @@ type Config struct {
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
 	Database           struct {
-		Url           string
-		UrlFile       string
-		VectorEnabled bool
+		Url            string
+		UrlFile        string
+		VectorEnabled  bool
+		SkipMigrations bool
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
@@ -181,6 +182,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
+	commandLine.BoolVar(&cfg.Database.SkipMigrations, "skip-migrations", false, "Do not run database migrations at startup; instead verify the database is already migrated and fail if it is not. Migrations must be applied out-of-band (e.g. from a pipeline or pre-upgrade hook). Settable via the SKIP_MIGRATIONS env var.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -300,17 +302,11 @@ type ExtensionConfig struct {
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
 
-// MigrationRunner applies database migrations given the resolved connection URL.
-// vectorEnabled mirrors the --database-vector-enabled flag; custom runners can use it
-// to conditionally apply vector-specific migrations.
-// Returning a non-nil error causes the app to exit.
-//
-// Pass nil to Start to use the default migration runner (migrations.RunUp with migrations.FS).
-// Provide a custom runner to take over the migration process entirely.
-// Custom runners that want to include the built-in migrations can call migrations.RunUp directly.
-type MigrationRunner func(ctx context.Context, url string, vectorEnabled bool) error
-
-func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunner) {
+// Start boots the controller. extraSources registers additional migration
+// tracks beyond the built-in sources; they are applied after the built-in
+// (core, vector) tracks, in the order given. Pass nil to run only the built-in
+// migrations.
+func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Source) {
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
 
@@ -474,20 +470,27 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
-	// Use the built-in migration runner when none is provided.
-	if migrationRunner == nil {
-		migrationRunner = func(_ context.Context, url string, vectorEnabled bool) error {
-			return migrations.RunUp(url, migrations.FS, vectorEnabled)
-		}
-	}
-
 	// Run migrations before connecting; schema must exist before queries.
-	setupLog.Info("running database migrations")
-	if err := migrationRunner(ctx, dbURL, cfg.Database.VectorEnabled); err != nil {
-		setupLog.Error(err, "database migration failed")
-		os.Exit(1)
+	// Built-in sources run first, then any downstream-registered extras.
+	// With --skip-migrations (SKIP_MIGRATIONS) the server applies nothing and
+	// instead verifies the database is already migrated, so migrations can run
+	// out-of-band and this connection needs no DDL privileges.
+	sources := append(migrations.BuiltinSources(cfg.Database.VectorEnabled), extraSources...)
+	if cfg.Database.SkipMigrations {
+		setupLog.Info("skipping database migrations; verifying schema is migrated")
+		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
+			setupLog.Error(err, "database migration verification failed")
+			os.Exit(1)
+		}
+		setupLog.Info("database schema verified")
+	} else {
+		setupLog.Info("running database migrations")
+		if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
+			setupLog.Error(err, "database migration failed")
+			os.Exit(1)
+		}
+		setupLog.Info("database migrations complete")
 	}
-	setupLog.Info("database migrations complete")
 
 	// Connect to database
 	db, err := database.Connect(ctx, &database.PostgresConfig{

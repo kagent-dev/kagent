@@ -113,6 +113,12 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			WorkerSelector: workerSelectorForPool(wpKey),
 			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
 				Location: sandboxAgentSnapshotsLocation(sa),
+				// Mirror substrate's CRD defaults so kagent's spec-drift check
+				// (apiequality.Semantic.DeepEqual) treats them as equal to the
+				// values the API server fills in on admission — otherwise kagent
+				// re-creates the ActorTemplate every reconcile in a hot loop.
+				OnPause:  atev1alpha1.SnapshotScopeFull,
+				OnCommit: atev1alpha1.SnapshotScopeFull,
 			},
 		},
 	}
