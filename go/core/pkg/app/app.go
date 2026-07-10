@@ -681,6 +681,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		extensionCfg.Authenticator,
 		mcpHandler,
 		substrateSandboxActorBackend,
+		dbClient,
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create a2a registrar")
