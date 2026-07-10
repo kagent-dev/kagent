@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -127,8 +128,8 @@ func TestListReadyAgentsIncludesSandboxAgents(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []AgentSummary{
-		{Ref: "default/regular-agent", Description: "regular"},
-		{Ref: "default/sandbox-agent", Description: "sandbox"},
+		{Ref: "default/regular-agent", GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "Agent"}.String(), Description: "regular"},
+		{Ref: "default/sandbox-agent", GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "SandboxAgent"}.String(), Description: "sandbox"},
 	}, agents)
 }
 
@@ -177,6 +178,14 @@ func newA2ABackend(t *testing.T) *a2aBackend {
 // newTestRegistry builds an AgentClientRegistry with a single agent pre-registered.
 func newTestRegistry(t *testing.T, namespace, name, backendURL string) *a2a.AgentClientRegistry {
 	t.Helper()
+	c := newTestA2AClient(t, namespace, name, backendURL)
+	registry := a2a.NewAgentClientRegistry()
+	registry.Register(namespace, name, c)
+	return registry
+}
+
+func newTestA2AClient(t *testing.T, namespace, name, backendURL string) *a2aclient.Client {
+	t.Helper()
 	interfaces := []*a2atype.AgentInterface{
 		{
 			URL:             backendURL + "/" + namespace + "/" + name + "/",
@@ -186,9 +195,7 @@ func newTestRegistry(t *testing.T, namespace, name, backendURL string) *a2a.Agen
 	}
 	c, err := a2aclient.NewFromEndpoints(context.Background(), interfaces, a2aclient.WithJSONRPCTransport(&http.Client{}))
 	require.NoError(t, err)
-	registry := a2a.NewAgentClientRegistry()
-	registry.Register(namespace, name, c)
-	return registry
+	return c
 }
 
 // TestInvokeAgent_InvalidAgentRef verifies that invoke_agent returns a tool
@@ -283,4 +290,44 @@ func TestInvokeAgent_RoutesViaRegistry(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError, "unexpected tool error: %v", result.Content)
 	assert.True(t, backend.wasCalled(), "A2A backend should have received the forwarded request")
+}
+
+func TestInvokeAgent_RoutesSandboxAgentByGroupKind(t *testing.T) {
+	regularBackend := newA2ABackend(t)
+	sandboxBackend := newA2ABackend(t)
+
+	registry := newTestRegistry(t, "default", "shared-name", regularBackend.server.URL)
+	sandboxClient := newTestA2AClient(t, "default", "shared-name", sandboxBackend.server.URL)
+	sandboxGroupKind := schema.GroupKind{Group: "kagent.dev", Kind: "SandboxAgent"}.String()
+	require.NoError(t, registry.RegisterForGroupKind(sandboxGroupKind, "default", "shared-name", sandboxClient))
+
+	mcpHandler, err := NewMCPHandler(nil, registry, nil)
+	require.NoError(t, err)
+
+	mcpServer := httptest.NewServer(mcpHandler)
+	t.Cleanup(mcpServer.Close)
+
+	transport := &mcpsdk.StreamableClientTransport{
+		Endpoint:             mcpServer.URL,
+		DisableStandaloneSSE: true,
+	}
+
+	ctx := context.Background()
+	cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "1.0"}, nil).
+		Connect(ctx, transport, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { cs.Close() })
+
+	result, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name: "invoke_agent",
+		Arguments: map[string]any{
+			"agent":     "default/shared-name",
+			"groupKind": sandboxGroupKind,
+			"task":      "say hello",
+		},
+	})
+	require.NoError(t, err)
+	assert.False(t, result.IsError, "unexpected tool error: %v", result.Content)
+	assert.False(t, regularBackend.wasCalled(), "regular Agent backend should not receive SandboxAgent invocation")
+	assert.True(t, sandboxBackend.wasCalled(), "SandboxAgent backend should receive the invocation")
 }

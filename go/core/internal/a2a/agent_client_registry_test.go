@@ -11,9 +11,10 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-func TestAgentClientRegistrySendMessageFallsBackToSandboxRoute(t *testing.T) {
+func TestAgentClientRegistrySendMessageRoutesByGroupKind(t *testing.T) {
 	var called atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called.Store(true)
@@ -47,7 +48,18 @@ func TestAgentClientRegistrySendMessageFallsBackToSandboxRoute(t *testing.T) {
 	require.NoError(t, err)
 
 	registry := NewAgentClientRegistry()
-	registry.set(routeKey(true, "default", "sandbox-agent"), client)
+	sandboxGroupKind := schema.GroupKind{Group: "kagent.dev", Kind: "SandboxAgent"}.String()
+	require.NoError(t, registry.RegisterForGroupKind(sandboxGroupKind, "default", "sandbox-agent", client))
+
+	_, err = registry.SendMessageForGroupKind(
+		context.Background(),
+		sandboxGroupKind,
+		"default",
+		"sandbox-agent",
+		&a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))},
+	)
+	require.NoError(t, err)
+	require.True(t, called.Load())
 
 	_, err = registry.SendMessage(
 		context.Background(),
@@ -55,6 +67,5 @@ func TestAgentClientRegistrySendMessageFallsBackToSandboxRoute(t *testing.T) {
 		"sandbox-agent",
 		&a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))},
 	)
-	require.NoError(t, err)
-	require.True(t, called.Load())
+	require.Error(t, err)
 }

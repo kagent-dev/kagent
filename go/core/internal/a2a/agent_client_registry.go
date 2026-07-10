@@ -7,6 +7,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
 // AgentClientRegistry maps agent route keys to their A2A clients.
@@ -38,17 +39,43 @@ func (r *AgentClientRegistry) Register(namespace, name string, c *a2aclient.Clie
 	r.set(namespace+"/"+name, c)
 }
 
+// RegisterForGroupKind adds or replaces the A2A client for the given agent GroupKind.
+func (r *AgentClientRegistry) RegisterForGroupKind(groupKind, namespace, name string, c *a2aclient.Client) error {
+	key, err := routeKeyForGroupKind(groupKind, namespace, name)
+	if err != nil {
+		return err
+	}
+	r.set(key, c)
+	return nil
+}
+
 // SendMessage invokes an agent directly via its cached A2A client.
 func (r *AgentClientRegistry) SendMessage(ctx context.Context, namespace, name string, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
-	key := namespace + "/" + name
+	return r.SendMessageForGroupKind(ctx, schema.GroupKind{Group: "kagent.dev", Kind: "Agent"}.String(), namespace, name, req)
+}
+
+// SendMessageForGroupKind invokes an agent directly via its cached A2A client.
+func (r *AgentClientRegistry) SendMessageForGroupKind(ctx context.Context, groupKind, namespace, name string, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+	key, err := routeKeyForGroupKind(groupKind, namespace, name)
+	if err != nil {
+		return nil, err
+	}
 	r.mu.RLock()
 	c, ok := r.clients[key]
-	if !ok {
-		c, ok = r.clients[routeKey(true, namespace, name)]
-	}
 	r.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("agent %s/%s not found or not ready", namespace, name)
+		return nil, fmt.Errorf("agent %s %s/%s not found or not ready", groupKind, namespace, name)
 	}
 	return c.SendMessage(ctx, req)
+}
+
+func routeKeyForGroupKind(groupKind, namespace, name string) (string, error) {
+	switch groupKind {
+	case "", schema.GroupKind{Group: "kagent.dev", Kind: "Agent"}.String(), "Agent":
+		return routeKey(false, namespace, name), nil
+	case schema.GroupKind{Group: "kagent.dev", Kind: "SandboxAgent"}.String(), "SandboxAgent":
+		return routeKey(true, namespace, name), nil
+	default:
+		return "", fmt.Errorf("unsupported agent groupKind %q", groupKind)
+	}
 }
