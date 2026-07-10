@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -134,6 +135,31 @@ type remoteA2AInput struct {
 	Request string `json:"request"`
 }
 
+// remoteA2AResponse is the single typed return value for every remote A2A tool
+// outcome — success, input_required, and failure alike. Using one shared struct
+// instead of ad-hoc map[string]any literals per branch makes SubagentSessionID
+// (the per-call context_id == sub-agent session id) a field every path sets, so
+// it cannot be present in one branch and silently forgotten in another. This
+// matters most with isolateSessions=true: there is no stable, pre-known session
+// id to stamp on the outbound function_call, so this per-call id in the response
+// is the single source of truth the UI (AgentCallDisplay) links each sub-agent
+// card from. functiontool.New infers the tool's output schema from this type.
+type remoteA2AResponse struct {
+	Result              string         `json:"result,omitempty"`
+	Error               string         `json:"error,omitempty"`
+	ErrorType           string         `json:"error_type,omitempty"`
+	ErrorStep           string         `json:"error_step,omitempty"`
+	ErrorMessage        string         `json:"error_message,omitempty"`
+	RemediationHint     string         `json:"remediation_hint,omitempty"`
+	Status              string         `json:"status,omitempty"`
+	WaitingFor          string         `json:"waiting_for,omitempty"`
+	Subagent            string         `json:"subagent,omitempty"`
+	SubagentSessionID   string         `json:"subagent_session_id,omitempty"`
+	SubagentTaskID      string         `json:"subagent_task_id,omitempty"`
+	SubagentTaskState   string         `json:"subagent_task_state,omitempty"`
+	KAgentUsageMetadata map[string]any `json:"kagent_usage_metadata,omitempty"`
+}
+
 // remoteA2AState holds the mutable state for one remote A2A agent connection.
 // All external interaction goes through the tool.Tool returned by NewKAgentRemoteA2ATool.
 type remoteA2AState struct {
@@ -150,38 +176,77 @@ type remoteA2AState struct {
 	initErr   error
 
 	lastContextID string
+	// isolateSessions mints a fresh context_id per call so each invocation runs
+	// in its own isolated sub-agent session (parallel fan-out). When false, all
+	// calls reuse lastContextID for session continuity.
+	isolateSessions bool
+}
+
+// contextIDForCall returns the A2A context_id (== sub-agent session id) to stamp
+// on this call. With isolation enabled every call gets a fresh id; otherwise the
+// stable per-tool id is reused so calls share one sub-agent session.
+func (s *remoteA2AState) contextIDForCall() string {
+	if s.isolateSessions {
+		return a2atype.NewContextID()
+	}
+	return s.lastContextID
+}
+
+// RemoteA2AToolConfig configures a remote A2A agent tool. A config struct is
+// used instead of positional parameters so booleans like IsolateSessions cannot
+// be transposed at the call site.
+type RemoteA2AToolConfig struct {
+	Name           string
+	Description    string
+	BaseURL        string
+	HTTPClient     *http.Client // optional; wrapped with otelhttp
+	ExtraHeaders   map[string]string
+	PropagateToken bool
+	// IsolateSessions mints a fresh context_id per call so each invocation
+	// runs in its own isolated sub-agent session (enables parallel fan-out).
+	IsolateSessions bool
 }
 
 // NewKAgentRemoteA2ATool creates a function tool that calls a remote A2A agent and
 // propagates HITL state. It returns:
 //   - the tool.Tool to register with the agent config
-//   - the initial A2A context/session ID for subagent session stamping
+//   - the initial A2A context/session ID for subagent session stamping (empty when
+//     IsolateSessions is true, since each call mints its own id and reports it in
+//     the tool response as subagent_session_id instead)
 //
-// The agent card is fetched lazily from baseURL/.well-known/agent.json.
-// If httpClient is nil, a default client is created. The client's transport is
+// The agent card is fetched lazily from BaseURL/.well-known/agent.json.
+// If HTTPClient is nil, a default client is created. The client's transport is
 // wrapped with otelhttp to propagate W3C trace context to subagents.
-func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.Client, extraHeaders map[string]string, propagateToken bool) (tool.Tool, string, error) {
+func NewKAgentRemoteA2ATool(cfg RemoteA2AToolConfig) (tool.Tool, string, error) {
+	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
 	httpClient = withOTelTransport(httpClient)
 	state := &remoteA2AState{
-		name:           name,
-		description:    description,
-		baseURL:        baseURL,
-		httpClient:     httpClient,
-		extraHeaders:   extraHeaders,
-		propagateToken: propagateToken,
-		lastContextID:  a2atype.NewContextID(),
+		name:            cfg.Name,
+		description:     cfg.Description,
+		baseURL:         cfg.BaseURL,
+		httpClient:      httpClient,
+		extraHeaders:    cfg.ExtraHeaders,
+		propagateToken:  cfg.PropagateToken,
+		lastContextID:   a2atype.NewContextID(),
+		isolateSessions: cfg.IsolateSessions,
 	}
 	ft, err := functiontool.New(functiontool.Config{
-		Name:        name,
-		Description: description,
-	}, func(ctx adkagent.ToolContext, in remoteA2AInput) (map[string]any, error) {
+		Name:        cfg.Name,
+		Description: cfg.Description,
+	}, func(ctx adkagent.ToolContext, in remoteA2AInput) (remoteA2AResponse, error) {
 		return state.run(ctx, in.Request)
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to create remote A2A function tool for %s: %w", name, err)
+		return nil, "", fmt.Errorf("failed to create remote A2A function tool for %s: %w", cfg.Name, err)
+	}
+	// Isolated tools have no stable, pre-known session id to stamp on the
+	// outgoing function_call: each call's id is returned in the function_response
+	// (subagent_session_id) instead.
+	if cfg.IsolateSessions {
+		return ft, "", nil
 	}
 	return ft, state.lastContextID, nil
 }
@@ -239,7 +304,7 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 }
 
 // run dispatches to handleResume or handleFirstCall based on ToolConfirmation presence.
-func (s *remoteA2AState) run(ctx adkagent.ToolContext, requestText string) (map[string]any, error) {
+func (s *remoteA2AState) run(ctx adkagent.ToolContext, requestText string) (remoteA2AResponse, error) {
 	if ctx.ToolConfirmation() != nil {
 		return s.handleResume(ctx)
 	}
@@ -247,35 +312,39 @@ func (s *remoteA2AState) run(ctx adkagent.ToolContext, requestText string) (map[
 }
 
 // handleFirstCall is Phase 1: send the request to the remote agent.
-func (s *remoteA2AState) handleFirstCall(ctx adkagent.ToolContext, requestText string) (map[string]any, error) {
+func (s *remoteA2AState) handleFirstCall(ctx adkagent.ToolContext, requestText string) (remoteA2AResponse, error) {
 	if requestText == "" {
-		return map[string]any{"error": "missing or empty 'request' argument"}, nil
+		return remoteA2AResponse{Error: "missing or empty 'request' argument"}, nil
 	}
 
 	client, err := s.ensureClient(ctx)
 	if err != nil {
-		return map[string]any{"error": err.Error()}, nil
+		return remoteA2AResponse{Error: err.Error()}, nil
 	}
 
+	contextID := s.contextIDForCall()
 	message := a2atype.NewMessage(
 		a2atype.MessageRoleUser,
 		a2atype.TextPart{Text: requestText},
 	)
-	message.ContextID = s.lastContextID
+	message.ContextID = contextID
 
 	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
 	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
 	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
 	if err != nil {
 		slog.Error("Remote agent request failed", "tool", s.name, "error", err)
-		return map[string]any{"error": fmt.Sprintf("Remote agent '%s' request failed: %v", s.name, err)}, nil
+		return remoteA2AResponse{
+			Error:             fmt.Sprintf("Remote agent '%s' request failed: %v", s.name, err),
+			SubagentSessionID: contextID,
+		}, nil
 	}
 
-	return s.processResult(ctx, result)
+	return s.processResult(ctx, result, contextID)
 }
 
 // handleResume is Phase 2: forward the user's decision to the remote agent's pending task.
-func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (map[string]any, error) {
+func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (remoteA2AResponse, error) {
 	confirmation := ctx.ToolConfirmation()
 	payload, _ := confirmation.Payload.(map[string]any)
 	hitlPayload := a2a.ParseHitlConfirmationPayload(payload)
@@ -289,7 +358,7 @@ func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (map[string]any,
 
 	if taskID == "" {
 		slog.Error("Resume for remote agent but no task_id in confirmation payload", "tool", s.name)
-		return map[string]any{"error": fmt.Sprintf("Cannot resume remote agent '%s': missing task context.", subagentName)}, nil
+		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing task context.", subagentName)}, nil
 	}
 
 	decisionData := buildDecisionData(confirmation.Confirmed, hitlPayload)
@@ -311,7 +380,15 @@ func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (map[string]any,
 
 	client, err := s.ensureClient(ctx)
 	if err != nil {
-		return map[string]any{"error": err.Error()}, nil
+		return remoteA2AResponse{Error: err.Error()}, nil
+	}
+
+	// Prefer the context_id from the confirmation payload (the original subagent
+	// session) over the pre-generated one. Mirrors Python's:
+	//   "subagent_session_id": context_id or self._last_context_id
+	sessionID := contextID
+	if sessionID == "" {
+		sessionID = s.lastContextID
 	}
 
 	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
@@ -319,63 +396,175 @@ func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (map[string]any,
 	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
 	if err != nil {
 		slog.Error("Remote agent resume failed", "tool", subagentName, "error", err)
-		return map[string]any{"error": fmt.Sprintf("Remote agent '%s' resume failed: %v", subagentName, err)}, nil
+		return remoteA2AResponse{
+			Error:             fmt.Sprintf("Remote agent '%s' resume failed: %v", subagentName, err),
+			SubagentSessionID: sessionID,
+		}, nil
 	}
 
-	ret, retErr := s.processResult(ctx, result)
-	// Prefer the context_id from the confirmation payload (the original subagent
-	// session) over the pre-generated one. Mirrors Python's:
-	//   "subagent_session_id": context_id or self._last_context_id
-	if retErr == nil && ret != nil {
-		sessionID := contextID
-		if sessionID == "" {
-			sessionID = s.lastContextID
-		}
-		ret["subagent_session_id"] = sessionID
-	}
-	return ret, retErr
+	return s.processResult(ctx, result, sessionID)
 }
 
-// processResult converts a SendMessageResult into a tool return value.
-func (s *remoteA2AState) processResult(ctx adkagent.ToolContext, result a2atype.SendMessageResult) (map[string]any, error) {
+// processResult converts a SendMessageResult into a tool return value with an
+// explicit switch on the task state: only `completed` is a success;
+// failed/canceled/rejected become typed errors with sub-agent linkage;
+// non-terminal states are never treated as success. contextID is the A2A
+// context_id used for this call and is reported back as subagent_session_id on
+// every branch so the UI can link the sub-agent's session.
+func (s *remoteA2AState) processResult(ctx adkagent.ToolContext, result a2atype.SendMessageResult, contextID string) (remoteA2AResponse, error) {
 	switch r := result.(type) {
 	case *a2atype.Message:
-		return map[string]any{"result": extractTextFromMessage(r)}, nil
+		return remoteA2AResponse{
+			Result:            extractTextFromMessage(r),
+			SubagentSessionID: contextID,
+		}, nil
 	case *a2atype.Task:
 		switch r.Status.State {
-		case a2atype.TaskStateInputRequired:
-			return s.handleInputRequired(ctx, r), nil
-		case a2atype.TaskStateFailed:
-			text := extractTextFromTask(r)
-			if text == "" {
-				text = fmt.Sprintf("Remote agent '%s' failed.", s.name)
-			}
-			return map[string]any{"error": text}, nil
-		default:
-			// completed — include sub-agent's final LLM usage from task.metadata
-			// so the parent can display it on the AgentCall card in the UI.
+		case a2atype.TaskStateCompleted:
+			// Include sub-agent's final LLM usage from task.metadata so the
+			// parent can display it on the AgentCall card in the UI.
 			// Mirrors Python's _extract_usage_from_task(task).
-			text := extractTextFromTask(r)
-			ret := map[string]any{
-				"result":              text,
-				"subagent_session_id": s.lastContextID,
+			resp := remoteA2AResponse{
+				Result:            extractTextFromTask(r),
+				SubagentSessionID: contextID,
+				SubagentTaskID:    string(r.ID),
 			}
 			if usage := extractUsageFromTask(r); usage != nil {
-				ret["kagent_usage_metadata"] = usage
+				resp.KAgentUsageMetadata = usage
 			}
-			return ret, nil
+			return resp, nil
+		case a2atype.TaskStateInputRequired:
+			return s.handleInputRequired(ctx, r, contextID), nil
+		case a2atype.TaskStateFailed, a2atype.TaskStateCanceled, a2atype.TaskStateRejected:
+			return s.failureResult(r, contextID), nil
+		default:
+			// working / submitted / auth-required / unknown after the call
+			// ended: never treat a non-terminal child as success.
+			return remoteA2AResponse{
+				Error:             fmt.Sprintf("Remote agent '%s' ended in non-terminal state %q.", s.name, r.Status.State),
+				ErrorType:         "subagent_non_terminal",
+				SubagentSessionID: contextID,
+				SubagentTaskID:    string(r.ID),
+				SubagentTaskState: string(r.Status.State),
+			}, nil
 		}
 	default:
-		return map[string]any{"error": fmt.Sprintf("Remote agent '%s' returned no result.", s.name)}, nil
+		return remoteA2AResponse{
+			Error:             fmt.Sprintf("Remote agent '%s' returned no result.", s.name),
+			SubagentSessionID: contextID,
+		}, nil
 	}
+}
+
+// structuredFailureKeys are child-provided failure fields passed through to the
+// parent so it can act deterministically without re-parsing tool text.
+var structuredFailureKeys = []string{"error_type", "error_step", "error_message", "remediation_hint"}
+
+// failureResult builds a typed error for a terminal failed/canceled/rejected
+// child task, preserving sub-agent linkage and passing through any structured
+// failure fields the child provided.
+func (s *remoteA2AState) failureResult(task *a2atype.Task, contextID string) remoteA2AResponse {
+	state := task.Status.State
+	text := extractTextFromTask(task)
+	if text == "" {
+		text = fmt.Sprintf("Remote agent '%s' ended in state %q.", s.name, state)
+	}
+	// The child's own reported session takes precedence for linkage when the
+	// task carries one; otherwise fall back to the id we sent the call under.
+	sessionID := contextID
+	if task.ContextID != "" {
+		sessionID = task.ContextID
+	}
+	resp := remoteA2AResponse{
+		Error:             text,
+		ErrorType:         "subagent_" + string(state),
+		SubagentSessionID: sessionID,
+		SubagentTaskID:    string(task.ID),
+		SubagentTaskState: string(state),
+	}
+	applyStructuredFailure(&resp, structuredFailureFields(task, text))
+	return resp
+}
+
+// applyStructuredFailure overlays child-provided failure fields onto the
+// response; a child-supplied value wins over the default (e.g. a domain-specific
+// error_type replaces the generic subagent_<state>).
+func applyStructuredFailure(resp *remoteA2AResponse, fields map[string]any) {
+	if v, ok := fields["error_type"].(string); ok && v != "" {
+		resp.ErrorType = v
+	}
+	if v, ok := fields["error_step"].(string); ok && v != "" {
+		resp.ErrorStep = v
+	}
+	if v, ok := fields["error_message"].(string); ok && v != "" {
+		resp.ErrorMessage = v
+	}
+	if v, ok := fields["remediation_hint"].(string); ok && v != "" {
+		resp.RemediationHint = v
+	}
+}
+
+// structuredFailureFields extracts child-provided failure fields from the
+// task's status-message data parts, or from a JSON object embedded in the
+// failure text (optionally fenced in a markdown code block).
+func structuredFailureFields(task *a2atype.Task, text string) map[string]any {
+	fields := make(map[string]any)
+	if task.Status.Message != nil {
+		for _, part := range task.Status.Message.Parts {
+			if dp, ok := part.(a2atype.DataPart); ok {
+				collectFailureKeys(fields, dp.Data)
+			}
+		}
+	}
+	if len(fields) == 0 {
+		if payload := parseJSONObject(text); payload != nil {
+			collectFailureKeys(fields, payload)
+		}
+	}
+	return fields
+}
+
+func collectFailureKeys(dst map[string]any, src map[string]any) {
+	for _, key := range structuredFailureKeys {
+		if value, ok := src[key]; ok && value != nil && value != "" {
+			dst[key] = value
+		}
+	}
+}
+
+// parseJSONObject attempts to decode text (or its first fenced code block)
+// as a JSON object; it returns nil when text carries none.
+func parseJSONObject(text string) map[string]any {
+	candidate := strings.TrimSpace(text)
+	if idx := strings.Index(candidate, "```"); idx >= 0 {
+		candidate = candidate[idx+3:]
+		candidate = strings.TrimPrefix(candidate, "json")
+		if end := strings.Index(candidate, "```"); end >= 0 {
+			candidate = candidate[:end]
+		}
+		candidate = strings.TrimSpace(candidate)
+	}
+	if !strings.HasPrefix(candidate, "{") {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(candidate), &payload); err != nil {
+		return nil
+	}
+	return payload
 }
 
 // handleInputRequired pauses parent agent execution via RequestConfirmation.
-func (s *remoteA2AState) handleInputRequired(ctx adkagent.ToolContext, task *a2atype.Task) map[string]any {
+// contextID is the id this call was sent under; it (or the paused task's own
+// context_id, preferred when present) is reported back as SubagentSessionID so
+// the UI can link the pending Activity panel to the paused sub-agent session
+// before the human decision is forwarded and a final result comes back.
+func (s *remoteA2AState) handleInputRequired(ctx adkagent.ToolContext, task *a2atype.Task, contextID string) remoteA2AResponse {
 	if task == nil {
 		slog.Error("Subagent returned input_required without task", "tool", s.name)
-		return map[string]any{
-			"error": fmt.Sprintf("Remote agent '%s' returned input_required without task context.", s.name),
+		return remoteA2AResponse{
+			Error:             fmt.Sprintf("Remote agent '%s' returned input_required without task context.", s.name),
+			SubagentSessionID: contextID,
 		}
 	}
 
@@ -412,10 +601,15 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.ToolContext, task *a2a
 	if err := ctx.RequestConfirmation(hint, confirmPayload.ToMap()); err != nil {
 		slog.Error("Failed to request confirmation", "tool", s.name, "error", err)
 	}
-	return map[string]any{
-		"status":      "pending",
-		"waiting_for": "subagent_approval",
-		"subagent":    s.name,
+	sessionID := contextID
+	if task.ContextID != "" {
+		sessionID = task.ContextID
+	}
+	return remoteA2AResponse{
+		Status:            "pending",
+		WaitingFor:        "subagent_approval",
+		Subagent:          s.name,
+		SubagentSessionID: sessionID,
 	}
 }
 

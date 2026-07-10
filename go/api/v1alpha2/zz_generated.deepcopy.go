@@ -1949,6 +1949,11 @@ func (in *Tool) DeepCopyInto(out *Tool) {
 		*out = new(TypedReference)
 		**out = **in
 	}
+	if in.IsolateSessions != nil {
+		in, out := &in.IsolateSessions, &out.IsolateSessions
+		*out = new(bool)
+		**out = **in
+	}
 	if in.HeadersFrom != nil {
 		in, out := &in.HeadersFrom, &out.HeadersFrom
 		*out = make([]ValueRef, len(*in))
