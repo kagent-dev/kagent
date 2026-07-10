@@ -97,6 +97,18 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			Image:   image,
 			Command: command,
 			Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
+			// Gate actor readiness (the golden snapshot, and resume RPCs) on the app
+			// actually serving A2A traffic, so a startup crash or wrong listen port
+			// surfaces as Ready=False instead of a broken-chat "ready" agent. The
+			// agent-card path mirrors the k8s Deployment readiness probe contract and
+			// is served by both ADKs and any A2A-conformant BYO image; substrate's
+			// default Readyz path (/readyz) is served by neither.
+			Readyz: &atev1alpha1.ContainerReadyz{
+				HTTPGet: &atev1alpha1.HTTPGetAction{
+					Path: "/.well-known/agent-card.json",
+					Port: substrateKagentListenPort,
+				},
+			},
 		}},
 		WorkerSelector: workerSelectorForPool(wpKey),
 		SnapshotsConfig: atev1alpha1.SnapshotsConfig{
@@ -156,8 +168,7 @@ func actorTemplateShapeHash(spec atev1alpha1.ActorTemplateSpec) (string, error) 
 	return fmt.Sprintf("%x", sum[:8]), nil
 }
 
-// applyDurableDirSessionStore mounts a durableDir volume at /data for the session sqlite DB,
-// adds a /health readyz probe so resume RPCs don't return before the app can serve requests,
+// applyDurableDirSessionStore mounts a durableDir volume at /data for the session sqlite DB
 // and flips the suspend scope to Data: per-turn suspends then capture only the durable dir
 // (KBs, not a full memory image), and every resume is a cold boot that re-resolves secretKeyRef
 // env from the live Secret — the only config-refresh channel on resume, which is what lets soft
@@ -173,9 +184,6 @@ func applyDurableDirSessionStore(spec *atev1alpha1.ActorTemplateSpec) {
 		Name:      durableDataVolume,
 		MountPath: durableDataMount,
 	})
-	c.Readyz = &atev1alpha1.ContainerReadyz{
-		HTTPGet: &atev1alpha1.HTTPGetAction{Path: "/health", Port: substrateKagentListenPort},
-	}
 	spec.SnapshotsConfig.OnCommit = atev1alpha1.SnapshotScopeData
 }
 

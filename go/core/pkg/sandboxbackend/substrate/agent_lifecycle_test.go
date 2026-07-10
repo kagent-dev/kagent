@@ -262,6 +262,11 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			require.Equal(t, tc.wantCommand, c.Command)
 			require.Equal(t, wpKey.Name, tmpl.Spec.WorkerSelector.MatchLabels["kagent.dev/worker-pool"])
 
+			require.NotNil(t, c.Readyz, "actor readiness must be gated on the app serving traffic")
+			require.NotNil(t, c.Readyz.HTTPGet)
+			require.Equal(t, "/.well-known/agent-card.json", c.Readyz.HTTPGet.Path)
+			require.Equal(t, substrateKagentListenPort, c.Readyz.HTTPGet.Port)
+
 			names := actorEnvNames(c.Env)
 			require.True(t, names["KAGENT_NAME"], "KAGENT_NAME must be a literal env var")
 			require.True(t, names["KAGENT_NAMESPACE"], "KAGENT_NAMESPACE must be a literal env var")
@@ -278,8 +283,8 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 }
 
 // TestBuildSandboxAgentActorTemplateDurableDirSessions covers the durable-dir session-store
-// wiring: always on for every sandbox agent, BYO included (the image contract — /health,
-// state under /data — is documented on applyDurableDirSessionStore). The store URL travels
+// wiring: always on for every sandbox agent, BYO included (the image contract — state under
+// /data — is documented on applyDurableDirSessionStore). The store URL travels
 // ONLY as AgentConfig.session_db_url in the rendered config Secret — never as a template env
 // var (asserted in TestBuildSandboxAgentConfigSecretSessionDBURL).
 func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
@@ -329,7 +334,7 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 			require.NotNil(t, tmpl.Spec.Volumes[0].DurableDir)
 			require.Equal(t, []atev1alpha1.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}}, c.VolumeMounts)
 			require.NotNil(t, c.Readyz)
-			require.Equal(t, "/health", c.Readyz.HTTPGet.Path)
+			require.Equal(t, "/.well-known/agent-card.json", c.Readyz.HTTPGet.Path)
 			require.Equal(t, substrateKagentListenPort, c.Readyz.HTTPGet.Port)
 			// Durable-dir sessions suspend with Data scope (cheap per-turn snapshots + config
 			// refresh on resume); pause keeps Full for the golden build.
