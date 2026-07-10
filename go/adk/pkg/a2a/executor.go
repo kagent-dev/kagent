@@ -20,6 +20,7 @@ import (
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
+	adksession "google.golang.org/adk/session"
 )
 
 const (
@@ -37,6 +38,11 @@ type KAgentExecutorConfig struct {
 	AppName            string
 	SkillsDirectory    string
 	Logger             logr.Logger
+	// ModelName and ProviderName label GenAI token-usage metrics
+	// (gen_ai.request.model / gen_ai.provider.name). Both may be empty, in
+	// which case the corresponding metric attributes are omitted.
+	ModelName    string
+	ProviderName string
 }
 
 // KAgentExecutor implements a2asrv.AgentExecutor
@@ -48,6 +54,8 @@ type KAgentExecutor struct {
 	appName            string
 	skillsDirectory    string
 	logger             logr.Logger
+	modelName          string
+	providerName       string
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
@@ -69,7 +77,29 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		appName:            cfg.AppName,
 		skillsDirectory:    skillsDir,
 		logger:             cfg.Logger.WithName("kagent-executor"),
+		modelName:          cfg.ModelName,
+		providerName:       cfg.ProviderName,
 	}
+}
+
+// recordTokenUsage records GenAI token usage for a single agent event on the
+// gen_ai.client.token.usage histogram. Partial (streaming) events are skipped:
+// a streamed LLM call emits many Partial chunks but usage is reported once on
+// the aggregated non-partial event, so this counts one observation per LLM
+// call, not per stream chunk. Output combines candidate + reasoning tokens.
+func (e *KAgentExecutor) recordTokenUsage(adkEvent *adksession.Event) {
+	um := adkEvent.UsageMetadata
+	if um == nil || adkEvent.Partial {
+		return
+	}
+	telemetry.RecordTokenUsage(telemetry.TokenUsage{
+		RequestModel:  e.modelName,
+		ResponseModel: adkEvent.ModelVersion,
+		Provider:      e.providerName,
+		ErrorType:     adkEvent.ErrorCode,
+		InputTokens:   int64(um.PromptTokenCount),
+		OutputTokens:  int64(um.CandidatesTokenCount) + int64(um.ThoughtsTokenCount),
+	})
 }
 
 // UserIDCallInterceptor returns an a2asrv.CallInterceptor that extracts the
@@ -287,6 +317,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 		// Build per-event metadata (inherits baseMeta + adds invocation_id, usage etc.).
 		eventMeta := buildEventMeta(baseMeta, adkEvent)
+
+		// Record GenAI token usage for this event.
+		e.recordTokenUsage(adkEvent)
 
 		// Convert GenAI parts → A2A parts (with kagent stamping).
 		if adkEvent.Content == nil || len(adkEvent.Content.Parts) == 0 {

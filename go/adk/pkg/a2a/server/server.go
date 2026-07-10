@@ -14,6 +14,8 @@ import (
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 )
 
 // ServerConfig holds configuration for the A2A server.
@@ -38,6 +40,8 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 
 	mux := http.NewServeMux()
 	RegisterHealthEndpoints(mux)
+	// Expose GenAI token-usage (and standard Go/process) metrics for scraping.
+	mux.Handle("/metrics", telemetry.MetricsHandler())
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
 	// Wrap the whole server mux to enable trace context extraction and an inbound
@@ -50,7 +54,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		}),
 		otelhttp.WithFilter(func(r *http.Request) bool {
 			switch r.URL.Path {
-			case "/health", "/healthz", a2asrv.WellKnownAgentCardPath:
+			case "/health", "/healthz", "/metrics", a2asrv.WellKnownAgentCardPath:
 				return false
 			default:
 				return true

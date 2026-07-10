@@ -129,6 +129,13 @@ func GetAgentConfigSummary(config *adk.AgentConfig) string {
 	return summary
 }
 
+// ModelName returns the configured model identifier (e.g. "gpt-4o",
+// "claude-3-5-sonnet"), or "unknown" for an unrecognized model type. It is the
+// exported form of getModelName, used to label GenAI telemetry.
+func ModelName(m adk.Model) string {
+	return getModelName(m)
+}
+
 func getModelName(m adk.Model) string {
 	switch m := m.(type) {
 	case *adk.OpenAI:
