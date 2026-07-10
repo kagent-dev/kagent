@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2aclient"
 	"github.com/a2aproject/a2a-go/a2asrv"
 )
@@ -125,16 +126,16 @@ func assertSingleHeader(t *testing.T, req *a2aclient.Request, key, want string) 
 	}
 }
 
-// TestNextContextID_IsolateSessions covers the EP#2137 fix: isolated tools
+// TestContextIDForCall_IsolateSessions covers the EP#2137 fix: isolated tools
 // mint a fresh context_id per call so parallel/serial calls to the same
 // sub-agent land in independent sessions, while non-isolated tools keep
 // reusing one context_id for session continuity.
-func TestNextContextID_IsolateSessions(t *testing.T) {
+func TestContextIDForCall_IsolateSessions(t *testing.T) {
 	t.Run("isolated: each call gets a distinct, non-empty context_id", func(t *testing.T) {
-		s := &remoteA2AState{isolateSessions: true, lastContextID: "stable-id"}
+		s := &remoteA2AState{isolateSessions: true, sharedContextID: "stable-id"}
 
-		first := s.nextContextID()
-		second := s.nextContextID()
+		first := s.contextIDForCall()
+		second := s.contextIDForCall()
 
 		if first == "" || second == "" {
 			t.Fatalf("expected non-empty context ids, got %q and %q", first, second)
@@ -144,14 +145,63 @@ func TestNextContextID_IsolateSessions(t *testing.T) {
 		}
 	})
 
-	t.Run("not isolated: every call reuses the stable lastContextID", func(t *testing.T) {
-		s := &remoteA2AState{isolateSessions: false, lastContextID: "stable-id"}
+	t.Run("not isolated: every call reuses the stable sharedContextID", func(t *testing.T) {
+		s := &remoteA2AState{isolateSessions: false, sharedContextID: "stable-id"}
 
-		first := s.nextContextID()
-		second := s.nextContextID()
+		first := s.contextIDForCall()
+		second := s.contextIDForCall()
 
 		if first != "stable-id" || second != "stable-id" {
-			t.Errorf("expected both calls to reuse lastContextID %q, got %q and %q", "stable-id", first, second)
+			t.Errorf("expected both calls to reuse sharedContextID %q, got %q and %q", "stable-id", first, second)
+		}
+	})
+}
+
+// TestProcessResult_SetsSubagentSessionIDOnEveryBranch covers the review
+// feedback on #2153: subagent_session_id must be present in the response for
+// every result shape (direct Message, completed Task, input_required Task,
+// failed Task, and the unrecognised-result fallback) — not just the
+// completed-Task branch — since it is the UI's only source of truth for
+// linking the AgentCallDisplay Activity panel to the correct subagent
+// session, especially when isolateSessions means every call has a distinct id.
+func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
+	const contextID = "call-specific-context-id"
+	s := &remoteA2AState{name: "worker"}
+	ctx := context.Background()
+
+	t.Run("direct Message result", func(t *testing.T) {
+		msg := &a2atype.Message{Parts: a2atype.ContentParts{a2atype.TextPart{Text: "hi"}}}
+		resp, err := s.processResult(nil, contextID, msg)
+		_ = ctx
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.SubagentSessionID != contextID {
+			t.Errorf("SubagentSessionID = %q, want %q", resp.SubagentSessionID, contextID)
+		}
+	})
+
+	t.Run("failed Task result", func(t *testing.T) {
+		task := &a2atype.Task{Status: a2atype.TaskStatus{State: a2atype.TaskStateFailed}}
+		resp, err := s.processResult(nil, contextID, task)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.SubagentSessionID != contextID {
+			t.Errorf("SubagentSessionID = %q, want %q", resp.SubagentSessionID, contextID)
+		}
+		if resp.Error == "" {
+			t.Errorf("expected a non-empty Error for a failed task")
+		}
+	})
+
+	t.Run("unrecognised result type", func(t *testing.T) {
+		resp, err := s.processResult(nil, contextID, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.SubagentSessionID != contextID {
+			t.Errorf("SubagentSessionID = %q, want %q", resp.SubagentSessionID, contextID)
 		}
 	})
 }
