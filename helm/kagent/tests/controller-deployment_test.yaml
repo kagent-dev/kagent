@@ -36,7 +36,7 @@ tests:
           value: controller
       - matchRegex:
           path: spec.template.spec.containers[0].image
-          pattern: "^cr\\.kagent\\.dev/kagent-dev/kagent/controller:.+"
+          pattern: "^ghcr\\.io/kagent-dev/kagent/controller:.+"
 
   - it: should use global tag when set
     template: controller-deployment.yaml
@@ -45,7 +45,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: cr.kagent.dev/kagent-dev/kagent/controller:v1.0.0
+          value: ghcr.io/kagent-dev/kagent/controller:v1.0.0
 
   - it: should have correct controller resources
     template: controller-deployment.yaml
