@@ -508,6 +508,7 @@ const (
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be specified for McpServer filter.type",rule="!(!has(self.mcpServer) && self.type == 'McpServer')"
 // +kubebuilder:validation:XValidation:message="type.agent must be nil if the type is not Agent",rule="!(has(self.agent) && self.type != 'Agent')"
 // +kubebuilder:validation:XValidation:message="type.agent must be specified for Agent filter.type",rule="!(!has(self.agent) && self.type == 'Agent')"
+// +kubebuilder:validation:XValidation:message="isolateSessions can only be set for Agent tools",rule="!(has(self.isolateSessions) && self.type != 'Agent')"
 type Tool struct {
 	// +optional
 	Type ToolProviderType `json:"type,omitempty"`
@@ -515,6 +516,16 @@ type Tool struct {
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
 	Agent *TypedReference `json:"agent,omitempty"`
+
+	// IsolateSessions applies only to Agent tools (type=Agent). When true, each
+	// call the parent makes to this sub-agent uses a fresh A2A context_id, so
+	// every invocation runs in its own isolated sub-agent session. This enables
+	// parallel fan-out (e.g. batch dispatch) where calls must not share
+	// history/state. When false (default) all calls to the sub-agent reuse one
+	// stable context_id (session continuity for stateful sub-agents). Honored by
+	// the Go agent runtime.
+	// +optional
+	IsolateSessions *bool `json:"isolateSessions,omitempty"`
 
 	// HeadersFrom specifies a list of configuration values to be added as
 	// headers to requests sent to the Tool from this agent. The value of
