@@ -162,7 +162,8 @@ func (h *SubstrateHandler) listAteAPIState(ctx context.Context, namespaces []str
 		}
 	}
 
-	actorPB, err := h.AteClient.ListActors(ctx)
+	// Status view spans all atespaces (per-namespace actor atespaces + the golden atespace).
+	actorPB, err := h.AteClient.ListActors(ctx, "")
 	if err != nil {
 		return nil, nil, err
 	}
