@@ -43,6 +43,9 @@ func (r *AgentClientRegistry) SendMessage(ctx context.Context, namespace, name s
 	key := namespace + "/" + name
 	r.mu.RLock()
 	c, ok := r.clients[key]
+	if !ok {
+		c, ok = r.clients[routeKey(true, namespace, name)]
+	}
 	r.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("agent %s/%s not found or not ready", namespace, name)

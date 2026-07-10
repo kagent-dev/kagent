@@ -13,9 +13,11 @@ import (
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -80,6 +82,54 @@ func TestListAgentsInputSchemaHasProperties(t *testing.T) {
 	require.IsType(t, map[string]any{}, props, "properties must be a JSON object")
 	require.Empty(t, props, "list_agents takes no args, properties should be empty")
 	require.Equal(t, false, schema["additionalProperties"], "additionalProperties must remain false")
+}
+
+func TestListReadyAgentsIncludesSandboxAgents(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	regularAgent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "regular-agent", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Description: "regular",
+		},
+		Status: v1alpha2.AgentStatus{
+			Conditions: []metav1.Condition{
+				{Type: v1alpha2.AgentConditionTypeAccepted, Status: metav1.ConditionTrue},
+				{Type: v1alpha2.AgentConditionTypeReady, Status: metav1.ConditionTrue, Reason: reconciler.AgentReadyReasonDeploymentReady},
+			},
+		},
+	}
+	sandboxAgent := &v1alpha2.SandboxAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-agent", Namespace: "default"},
+		Spec: v1alpha2.SandboxAgentSpec{
+			AgentSpec: v1alpha2.AgentSpec{
+				Description: "sandbox",
+			},
+		},
+		Status: v1alpha2.AgentStatus{
+			Conditions: []metav1.Condition{
+				{Type: v1alpha2.AgentConditionTypeAccepted, Status: metav1.ConditionTrue},
+				{Type: v1alpha2.AgentConditionTypeReady, Status: metav1.ConditionTrue, Reason: reconciler.AgentReadyReasonWorkloadReady},
+			},
+		},
+	}
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(&v1alpha2.Agent{}, &v1alpha2.SandboxAgent{}).
+		WithObjects(regularAgent, sandboxAgent).
+		Build()
+
+	h, err := NewMCPHandler(kubeClient, nil, nil)
+	require.NoError(t, err)
+
+	agents, err := h.listReadyAgents(context.Background())
+	require.NoError(t, err)
+
+	assert.ElementsMatch(t, []AgentSummary{
+		{Ref: "default/regular-agent", Description: "regular"},
+		{Ref: "default/sandbox-agent", Description: "sandbox"},
+	}, agents)
 }
 
 // a2aBackend is a fake A2A server that records whether it was called.

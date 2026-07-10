@@ -11,10 +11,12 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -129,33 +131,62 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 	return handler, nil
 }
 
-// listReadyAgents returns agents that are accepted and deployment-ready.
+// listReadyAgents returns agents that are accepted and workload-ready.
 func (h *MCPHandler) listReadyAgents(ctx context.Context) ([]AgentSummary, error) {
 	agentList := &v1alpha2.AgentList{}
 	if err := h.kubeClient.List(ctx, agentList); err != nil {
 		return nil, err
 	}
-	agents := make([]AgentSummary, 0, len(agentList.Items))
-	for _, agent := range agentList.Items {
-		deploymentReady := false
-		accepted := false
-		for _, condition := range agent.Status.Conditions {
-			if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
-				deploymentReady = true
-			}
-			if condition.Type == "Accepted" && condition.Status == "True" {
-				accepted = true
-			}
-		}
-		if !accepted || !deploymentReady {
-			continue
-		}
-		agents = append(agents, AgentSummary{
-			Ref:         agent.Namespace + "/" + agent.Name,
-			Description: agent.Spec.Description,
-		})
+	sandboxAgentList := &v1alpha2.SandboxAgentList{}
+	if err := h.kubeClient.List(ctx, sandboxAgentList); err != nil {
+		return nil, err
+	}
+
+	agents := make([]AgentSummary, 0, len(agentList.Items)+len(sandboxAgentList.Items))
+	for i := range agentList.Items {
+		agents = appendReadyAgentSummary(agents, &agentList.Items[i])
+	}
+	for i := range sandboxAgentList.Items {
+		agents = appendReadyAgentSummary(agents, &sandboxAgentList.Items[i])
 	}
 	return agents, nil
+}
+
+func appendReadyAgentSummary(agents []AgentSummary, agent v1alpha2.AgentObject) []AgentSummary {
+	if !isReadyForMCP(agent) {
+		return agents
+	}
+	spec := agent.GetAgentSpec()
+	description := ""
+	if spec != nil {
+		description = spec.Description
+	}
+	return append(agents, AgentSummary{
+		Ref:         agent.GetNamespace() + "/" + agent.GetName(),
+		Description: description,
+	})
+}
+
+func isReadyForMCP(agent v1alpha2.AgentObject) bool {
+	status := agent.GetAgentStatus()
+	if status == nil {
+		return false
+	}
+
+	workloadReady := false
+	accepted := false
+	for _, condition := range status.Conditions {
+		if condition.Type == v1alpha2.AgentConditionTypeReady && condition.Status == metav1.ConditionTrue {
+			switch condition.Reason {
+			case reconciler.AgentReadyReasonDeploymentReady, reconciler.AgentReadyReasonWorkloadReady:
+				workloadReady = true
+			}
+		}
+		if condition.Type == v1alpha2.AgentConditionTypeAccepted && condition.Status == metav1.ConditionTrue {
+			accepted = true
+		}
+	}
+	return accepted && workloadReady
 }
 
 // handleListAgents handles the list_agents MCP tool
