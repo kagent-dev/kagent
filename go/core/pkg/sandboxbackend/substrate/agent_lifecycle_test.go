@@ -82,13 +82,12 @@ func TestBuildSubstrateKagentContainerCommandDeclarative(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name       string
-		runtime    v1alpha2.DeclarativeRuntime
-		wantCmd    []string
-		wantLibEnv bool // Python needs LD_LIBRARY_PATH re-supplied (substrate drops image ENV); Go does not.
+		name    string
+		runtime v1alpha2.DeclarativeRuntime
+		wantCmd []string
 	}{
-		{"go", v1alpha2.DeclarativeRuntime_Go, []string{"/app", "--host", "0.0.0.0", "--port", "80"}, false},
-		{"python", v1alpha2.DeclarativeRuntime_Python, []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"}, true},
+		{"go", v1alpha2.DeclarativeRuntime_Go, []string{"/app", "--host", "0.0.0.0", "--port", "80"}},
+		{"python", v1alpha2.DeclarativeRuntime_Python, []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sa := declarativeSandboxAgent(tc.runtime)
@@ -115,17 +114,10 @@ func TestBuildSubstrateKagentContainerCommandDeclarative(t *testing.T) {
 				}
 			}
 
-			// Substrate ignores the image's ENV, so the Python runtime image's
-			// LD_LIBRARY_PATH and PATH must be re-supplied (or numpy fails to load
-			// libz.so.1, and bare-name console scripts aren't found).
-			if tc.wantLibEnv {
-				require.Equal(t, pythonRuntimeLibPath, envByName["LD_LIBRARY_PATH"])
-				require.Equal(t, "1", envByName["PYTHONUNBUFFERED"])
-				require.Contains(t, envByName["PATH"], pythonVenvPath+"/bin", "venv bin must be on PATH")
-			} else {
-				_, ok := envByName["LD_LIBRARY_PATH"]
-				require.False(t, ok, "Go declarative must not carry the Python runtime ENV")
-			}
+			// Substrate v0.0.9's atelet applies the image's ENV directives, so kagent no
+			// longer re-supplies LD_LIBRARY_PATH/PATH; neither runtime carries it.
+			_, ok := envByName["LD_LIBRARY_PATH"]
+			require.False(t, ok, "kagent must not re-supply the image runtime ENV")
 		})
 	}
 }
@@ -202,8 +194,6 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 		wantCommand []string
 		// declarative agents carry secret-backed config env; BYO does not.
 		wantConfigEnv bool
-		// Python declarative re-supplies the image's LD_LIBRARY_PATH (substrate drops image ENV).
-		wantLibEnv bool
 	}{
 		{
 			name: "go declarative",
@@ -215,9 +205,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			},
 			container:     corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
 			wantCommand:   []string{"/app", "--host", "0.0.0.0", "--port", "80"},
-			wantConfigEnv: true,
-			wantLibEnv:    false,
-		},
+			wantConfigEnv: true},
 		{
 			name: "python declarative",
 			sa: &v1alpha2.SandboxAgent{
@@ -228,9 +216,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			},
 			container:     corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
 			wantCommand:   []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"},
-			wantConfigEnv: true,
-			wantLibEnv:    true,
-		},
+			wantConfigEnv: true},
 		{
 			name: "byo",
 			sa: &v1alpha2.SandboxAgent{
@@ -241,9 +227,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			},
 			container:     corev1.Container{Command: []string{"/serve"}, Args: []string{"--host", "0.0.0.0", "--port", "80"}},
 			wantCommand:   []string{"/serve", "--host", "0.0.0.0", "--port", "80"},
-			wantConfigEnv: false,
-			wantLibEnv:    false,
-		},
+			wantConfigEnv: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -261,7 +245,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			require.True(t, names["KAGENT_NAME"], "KAGENT_NAME must be a literal env var")
 			require.True(t, names["KAGENT_NAMESPACE"], "KAGENT_NAMESPACE must be a literal env var")
 			require.Equal(t, tc.wantConfigEnv, names["KAGENT_CONFIG_JSON"], "declarative agents materialize config from secret env; BYO does not")
-			require.Equal(t, tc.wantLibEnv, names["LD_LIBRARY_PATH"], "Python declarative re-supplies the image LD_LIBRARY_PATH that substrate drops")
+			require.False(t, names["LD_LIBRARY_PATH"], "kagent no longer re-supplies the image runtime ENV (substrate v0.0.9 atelet applies it)")
 		})
 	}
 }

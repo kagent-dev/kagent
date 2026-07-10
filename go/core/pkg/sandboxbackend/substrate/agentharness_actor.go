@@ -180,7 +180,7 @@ func (b *AgentHarnessSessionActorBackend) DeleteAllAgentHarnessActors(ctx contex
 	}
 	allDone := true
 	for _, actor := range actors {
-		id := strings.TrimSpace(actor.GetActorId())
+		id := strings.TrimSpace(actorName(actor))
 		if id == "" {
 			continue
 		}

@@ -30,17 +30,6 @@ const (
 	// Python Dockerfile's UV_PROJECT_ENVIRONMENT (/.kagent/.venv).
 	defaultPythonEntrypoint         = "/.kagent/.venv/bin/kagent-adk"
 	substrateKagentListenPort int32 = 80
-	// pythonRuntimeLibPath / pythonVenvPath mirror the Python ADK image layout
-	// (python/Dockerfile): bundled shared libs live on LD_LIBRARY_PATH and the project
-	// venv at UV_PROJECT_ENVIRONMENT. Substrate ignores the image's ENV directives (see
-	// pythonRuntimeImageEnv), so these are re-supplied via the ActorTemplate env.
-	pythonRuntimeLibPath = "/usr/lib/kagent-libs"
-	pythonVenvPath       = "/.kagent/.venv"
-	// pythonRuntimePath mirrors the image's `ENV PATH="/.kagent/.venv/bin:$PATH"`. Substrate
-	// builds the OCI Process.Env from a hardcoded PATH that does NOT include the venv bin, so any
-	// bare-name console-script execution (or locating the venv interpreter without an absolute
-	// path) would fail; re-supply it with the venv bin first, then the standard system dirs.
-	pythonRuntimePath = "/.kagent/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 	// sandboxAgentTemplateNameMaxBase reserves room in the 63-char DNS-1123 budget for
 	// the "-<hash>" suffix (hash is up to 16 hex chars). A golden snapshot is an immutable

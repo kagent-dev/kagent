@@ -232,32 +232,32 @@ func TestActorBelongsToSandboxAgent(t *testing.T) {
 			// The case comment #2 flags: a long agent name / session id forces the prefix-less
 			// asr-<hash> fallback id, which id-prefix matching misses — but the owning template matches.
 			name:  "prefix-less fallback id matched by owning template",
-			actor: &ateapipb.Actor{ActorId: sandboxAgentIDPrefix + "-deadbeefdeadbeefdeadbeef", ActorTemplateNamespace: "kagent", ActorTemplateName: "my-agent-abc123"},
+			actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: sandboxAgentIDPrefix + "-deadbeefdeadbeefdeadbeef"}, ActorTemplateNamespace: "kagent", ActorTemplateName: "my-agent-abc123"},
 			want:  true,
 		},
 		{
 			name:  "normal session id matched by prefix",
-			actor: &ateapipb.Actor{ActorId: prefix + "-sess-1", ActorTemplateNamespace: "kagent", ActorTemplateName: "my-agent-abc123"},
+			actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: prefix + "-sess-1"}, ActorTemplateNamespace: "kagent", ActorTemplateName: "my-agent-abc123"},
 			want:  true,
 		},
 		{
 			name:  "legacy per-agent id matched exactly",
-			actor: &ateapipb.Actor{ActorId: SandboxAgentActorID(sa)},
+			actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: SandboxAgentActorID(sa)}},
 			want:  true,
 		},
 		{
 			name:  "orphan actor whose template was already deleted still matched by prefix",
-			actor: &ateapipb.Actor{ActorId: prefix + "-sess-2", ActorTemplateName: "gone"},
+			actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: prefix + "-sess-2"}, ActorTemplateName: "gone"},
 			want:  true,
 		},
 		{
 			name:  "unrelated actor not matched",
-			actor: &ateapipb.Actor{ActorId: "asr-other-ns-other-agent-sess", ActorTemplateNamespace: "kagent", ActorTemplateName: "other-agent"},
+			actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: "asr-other-ns-other-agent-sess"}, ActorTemplateNamespace: "kagent", ActorTemplateName: "other-agent"},
 			want:  false,
 		},
 		{
 			name:  "same template name in a different namespace not matched",
-			actor: &ateapipb.Actor{ActorId: "asr-xyz", ActorTemplateNamespace: "elsewhere", ActorTemplateName: "my-agent-abc123"},
+			actor: &ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: "asr-xyz"}, ActorTemplateNamespace: "elsewhere", ActorTemplateName: "my-agent-abc123"},
 			want:  false,
 		},
 	}
