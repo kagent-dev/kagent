@@ -114,7 +114,7 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 ### Typed data over generic maps
 
 - When the shape of data is known at compile time, define a named struct.
-  `map[string]interface{}` **MUST NOT** be used for data whose schema you
+  `map[string]any` **MUST NOT** be used for data whose schema you
   control; it is reserved for genuinely schema-less JSON.
 
   ```go
