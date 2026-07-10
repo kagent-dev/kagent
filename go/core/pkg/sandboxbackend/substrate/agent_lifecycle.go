@@ -109,6 +109,18 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 				Image:   image,
 				Command: command,
 				Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
+				// Gate actor readiness (and the golden snapshot) on the app actually
+				// serving A2A traffic, so a startup crash or wrong listen port surfaces
+				// as Ready=False instead of a broken-chat "ready" agent. The agent-card
+				// path mirrors the k8s Deployment readiness probe contract and is served
+				// by both ADKs and any A2A-conformant BYO image; substrate's default
+				// Readyz path (/readyz) is served by neither.
+				Readyz: &atev1alpha1.ContainerReadyz{
+					HTTPGet: &atev1alpha1.HTTPGetAction{
+						Path: "/.well-known/agent-card.json",
+						Port: substrateKagentListenPort,
+					},
+				},
 			}},
 			WorkerSelector: workerSelectorForPool(wpKey),
 			SnapshotsConfig: atev1alpha1.SnapshotsConfig{

@@ -257,6 +257,11 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			require.Equal(t, tc.wantCommand, c.Command)
 			require.Equal(t, wpKey.Name, tmpl.Spec.WorkerSelector.MatchLabels["kagent.dev/worker-pool"])
 
+			require.NotNil(t, c.Readyz, "actor readiness must be gated on the app serving traffic")
+			require.NotNil(t, c.Readyz.HTTPGet)
+			require.Equal(t, "/.well-known/agent-card.json", c.Readyz.HTTPGet.Path)
+			require.Equal(t, substrateKagentListenPort, c.Readyz.HTTPGet.Port)
+
 			names := actorEnvNames(c.Env)
 			require.True(t, names["KAGENT_NAME"], "KAGENT_NAME must be a literal env var")
 			require.True(t, names["KAGENT_NAMESPACE"], "KAGENT_NAMESPACE must be a literal env var")
