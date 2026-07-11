@@ -194,13 +194,21 @@ Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWO
 {{- end -}}
 
 {{/*
+Expand the DNS domain of the cluster.
+Allows overriding it for clusters not using the default `cluster.local` domain.
+*/}}
+{{- define "kagent.clusterDomain" -}}
+{{- default "cluster.local" .Values.clusterDomain -}}
+{{- end }}
+
+{{/*
 A2A Base URL - computes the default URL based on the controller service name if not explicitly set
 */}}
 {{- define "kagent.a2aBaseUrl" -}}
 {{- if .Values.controller.a2aBaseUrl -}}
 {{- .Values.controller.a2aBaseUrl -}}
 {{- else -}}
-{{- printf "http://%s-controller.%s.svc.cluster.local:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
+{{- printf "http://%s-controller.%s.svc.%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (include "kagent.clusterDomain" .) (.Values.controller.service.ports.port | int) -}}
 {{- end -}}
 {{- end -}}
 
@@ -208,7 +216,7 @@ A2A Base URL - computes the default URL based on the controller service name if 
 Controller Service host:port for nginx upstream (no scheme).
 */}}
 {{- define "kagent.controllerServiceAuthority" -}}
-{{- printf "%s-controller.%s.svc.cluster.local:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.port | int) -}}
+{{- printf "%s-controller.%s.svc.%s:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (include "kagent.clusterDomain" .) (.Values.controller.service.ports.port | int) -}}
 {{- end -}}
 
 {{/*
