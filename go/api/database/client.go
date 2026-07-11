@@ -39,8 +39,6 @@ type Client interface {
 
 	// Get methods
 
-	// GetSession returns an error wrapping ErrNotFound when no session with
-	// that id exists for the user.
 	GetSession(ctx context.Context, sessionID string, userID string) (*Session, error)
 	GetAgent(ctx context.Context, name string) (*Agent, error)
 	GetTask(ctx context.Context, id string) (*a2a.Task, error)

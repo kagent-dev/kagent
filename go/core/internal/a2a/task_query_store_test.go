@@ -43,7 +43,7 @@ func (f *fakeTaskStore) addTask(sessionID string, task *a2atype.Task) {
 func (f *fakeTaskStore) GetSession(_ context.Context, sessionID, userID string) (*dbpkg.Session, error) {
 	s, ok := f.sessions[sessionID]
 	if !ok || s.UserID != userID {
-		return nil, fmt.Errorf("session %s for user %s: %w", sessionID, userID, dbpkg.ErrNotFound)
+		return nil, fmt.Errorf("session %s for user %s not found", sessionID, userID)
 	}
 	return &s, nil
 }
@@ -142,11 +142,9 @@ func TestListTasks_NextPageTokenAlwaysPresentEmptyOnLastPage(t *testing.T) {
 	require.Len(t, resp.Tasks, 2)
 	require.Equal(t, "", resp.NextPageToken, "nextPageToken must be empty string on the final page")
 
-	// Empty result set still reports an (empty) nextPageToken.
-	empty, err := h.ListTasks(userCtx("alice"), &a2atype.ListTasksRequest{ContextID: "does-not-exist"})
-	require.NoError(t, err)
-	require.Empty(t, empty.Tasks)
-	require.Equal(t, "", empty.NextPageToken)
+	// A context the caller can't see (missing or not theirs) surfaces as an error.
+	_, err = h.ListTasks(userCtx("alice"), &a2atype.ListTasksRequest{ContextID: "does-not-exist"})
+	require.Error(t, err)
 }
 
 func TestListTasks_IncludeArtifacts(t *testing.T) {
@@ -209,13 +207,13 @@ func TestCrossUserIsolation(t *testing.T) {
 	store.addTask("s1", newTask("t1", "s1", a2atype.TaskStateWorking, 0, 0))
 	h := newStoreTaskQueryHandler(&PassthroughRequestHandler{}, store)
 
-	// mallory asks for alice's context id: gets nothing.
-	resp, err := h.ListTasks(userCtx("mallory"), &a2atype.ListTasksRequest{ContextID: "s1"})
-	require.NoError(t, err)
-	require.Empty(t, resp.Tasks)
-	require.Equal(t, 0, resp.TotalSize)
+	// mallory asks for alice's context id: denied, and the error does not
+	// distinguish "not yours" from "does not exist".
+	_, err := h.ListTasks(userCtx("mallory"), &a2atype.ListTasksRequest{ContextID: "s1"})
+	require.Error(t, err)
 
-	// Unauthenticated context: empty, never a leak.
+	// Unauthenticated context: empty, never a leak (no user id, so the
+	// session lookup is never attempted).
 	respAnon, err := h.ListTasks(context.Background(), &a2atype.ListTasksRequest{ContextID: "s1"})
 	require.NoError(t, err)
 	require.Empty(t, respAnon.Tasks)
@@ -236,9 +234,8 @@ func TestListTasks_ShareContextGrantsOwnerSession(t *testing.T) {
 
 	// A share token for a different session must not grant s1.
 	ctxOther := auth.ShareContextTo(userCtx("bob"), &auth.ShareContext{SessionID: "s2", UserID: "alice"})
-	respOther, err := h.ListTasks(ctxOther, &a2atype.ListTasksRequest{ContextID: "s1"})
-	require.NoError(t, err)
-	require.Empty(t, respOther.Tasks)
+	_, err = h.ListTasks(ctxOther, &a2atype.ListTasksRequest{ContextID: "s1"})
+	require.Error(t, err)
 
 	// The share token must not widen an all-sessions query to the owner's tasks.
 	respAll, err := h.ListTasks(ctx, &a2atype.ListTasksRequest{})

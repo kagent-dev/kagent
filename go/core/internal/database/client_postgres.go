@@ -101,9 +101,6 @@ func (c *postgresClient) StoreSession(ctx context.Context, session *dbpkg.Sessio
 func (c *postgresClient) GetSession(ctx context.Context, sessionID, userID string) (*dbpkg.Session, error) {
 	row, err := c.q.GetSession(ctx, dbgen.GetSessionParams{ID: sessionID, UserID: userID})
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("session %s: %w", sessionID, dbpkg.ErrNotFound)
-		}
 		return nil, fmt.Errorf("failed to get session %s: %w", sessionID, err)
 	}
 	return toSession(row), nil

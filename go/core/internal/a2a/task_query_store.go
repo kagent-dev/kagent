@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -21,9 +20,8 @@ const (
 )
 
 // TaskStore is the subset of the persistent store ListTasks reads from.
-// *database.Client satisfies it. GetSession reports a missing (or
-// other-user) session by wrapping database.ErrNotFound; any other error is
-// a backend failure and is surfaced to the caller.
+// *database.Client satisfies it. GetSession errors (including a missing or
+// other-user session) surface to the caller.
 type TaskStore interface {
 	GetSession(ctx context.Context, sessionID, userID string) (*dbpkg.Session, error)
 	ListSessions(ctx context.Context, userID string) ([]dbpkg.Session, error)
@@ -122,10 +120,6 @@ func (h *storeTaskQueryHandler) ListTasks(ctx context.Context, req *a2atype.List
 func (h *storeTaskQueryHandler) collectUserTasks(ctx context.Context, userID, contextID string) ([]*a2atype.Task, error) {
 	if contextID != "" {
 		if _, err := h.store.GetSession(ctx, contextID, userID); err != nil {
-			// Session does not exist or is not the caller's: no tasks to return.
-			if errors.Is(err, dbpkg.ErrNotFound) {
-				return nil, nil
-			}
 			return nil, fmt.Errorf("get session %s: %w", contextID, err)
 		}
 		return h.store.ListTasksForSession(ctx, contextID)
