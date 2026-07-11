@@ -25,14 +25,15 @@ securityContext:
     drop:
       - ALL
   readOnlyRootFilesystem: true
-  # runAsUser / runAsGroup are left unset so the chart installs on OpenShift,
-  # where the restricted-v2 SCC assigns a per-namespace UID range and rejects a
-  # pinned UID outside it. runAsNonRoot (in podSecurityContext) enforces
-  # non-root: with runAsUser unset the container runs as the image's USER, so
-  # the mcp/querydoc image must ship a non-root USER or the pod will fail to
-  # start. Set a fixed UID below on clusters that allow it:
-  # runAsUser: 14000
-  # runAsGroup: 14000
+  # A fixed non-root UID/GID is set so the chart installs on vanilla Kubernetes:
+  # runAsNonRoot (in podSecurityContext) needs a numeric non-root user and the
+  # querydoc image does not ship one. On OpenShift, where the restricted-v2 SCC
+  # assigns a per-namespace UID range and rejects a pinned UID outside it,
+  # override these to null so the SCC injects an in-range UID:
+  #   --set tools.querydoc.securityContext.runAsUser=null
+  #   --set tools.querydoc.securityContext.runAsGroup=null
+  runAsUser: 14000
+  runAsGroup: 14000
 
 tolerations: []
 

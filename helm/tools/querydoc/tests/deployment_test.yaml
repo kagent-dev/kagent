@@ -112,10 +112,12 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
           value: true
-      - isNull:
+      - equal:
           path: spec.template.spec.containers[0].securityContext.runAsUser
-      - isNull:
+          value: 14000
+      - equal:
           path: spec.template.spec.containers[0].securityContext.runAsGroup
+          value: 14000
       - isNull:
           path: spec.template.spec.containers[0].securityContext.seccompProfile
 
