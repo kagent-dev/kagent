@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -80,27 +79,14 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 	return defaultLabels
 }
 
-// getRuntimeImageRepository returns the image repository for a given runtime.
-// For the Go runtime: returns DefaultGoImageConfig.Repository when set; otherwise derives
-// it from DefaultImageConfig.Repository by replacing the last path segment with "golang-adk".
-// For the Python runtime (and default): returns DefaultImageConfig.Repository.
+// getRuntimeImageRepository returns the image repository for a given runtime:
+// DefaultGoImageConfig.Repository for the Go runtime, DefaultImageConfig.Repository
+// otherwise.
 func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
-	switch runtime {
-	case v1alpha2.DeclarativeRuntime_Go:
-		if DefaultGoImageConfig.Repository != "" {
-			return DefaultGoImageConfig.Repository
-		}
-		pythonRepo := DefaultImageConfig.Repository
-		lastSlash := strings.LastIndex(pythonRepo, "/")
-		if lastSlash == -1 {
-			return "golang-adk"
-		}
-		return pythonRepo[:lastSlash] + "/golang-adk"
-	case v1alpha2.DeclarativeRuntime_Python:
-		return DefaultImageConfig.Repository
-	default:
-		return DefaultImageConfig.Repository
+	if runtime == v1alpha2.DeclarativeRuntime_Go {
+		return DefaultGoImageConfig.Repository
 	}
+	return DefaultImageConfig.Repository
 }
 
 // validateExtraContainers checks that none of the extra containers use the
@@ -171,17 +157,12 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 	// Determine runtime (defaults to python if not set; substrate SandboxAgents use Go).
 	runtime := v1alpha2.EffectiveDeclarativeRuntimeForAgent(agent)
 
-	// Resolve base registry and pull policy; Go runtime uses DefaultGoImageConfig fields
-	// when set, falling back to DefaultImageConfig for any unset field.
+	// Resolve base registry and pull policy; the Go runtime uses DefaultGoImageConfig.
 	baseRegistry := DefaultImageConfig.Registry
 	basePullPolicy := DefaultImageConfig.PullPolicy
 	if runtime == v1alpha2.DeclarativeRuntime_Go {
-		if DefaultGoImageConfig.Registry != "" {
-			baseRegistry = DefaultGoImageConfig.Registry
-		}
-		if DefaultGoImageConfig.PullPolicy != "" {
-			basePullPolicy = DefaultGoImageConfig.PullPolicy
-		}
+		baseRegistry = DefaultGoImageConfig.Registry
+		basePullPolicy = DefaultGoImageConfig.PullPolicy
 	}
 
 	// Per-agent spec overrides take precedence over all defaults.

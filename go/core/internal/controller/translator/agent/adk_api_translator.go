@@ -122,12 +122,14 @@ var PythonADKImageDigest string
 var GoADKImageDigest string
 var GoADKFullImageDigest string
 
-// DefaultGoImageConfig overrides the image used for the Go (ADK) runtime agent.
-// Any field left empty falls back to DefaultImageConfig for registry/pullPolicy, or to
-// the derived repository (last segment of DefaultImageConfig.Repository replaced with
-// "golang-adk") when Repository is empty. Tag is unused — Go runtime images are
-// digest-pinned at controller link time via GoADKImageDigest / GoADKFullImageDigest.
-var DefaultGoImageConfig = ImageConfig{}
+// DefaultGoImageConfig is the image config for the Go (ADK) runtime agent.
+// Tag is unused: Go runtime images are digest-pinned at controller link time
+// via GoADKImageDigest / GoADKFullImageDigest.
+var DefaultGoImageConfig = ImageConfig{
+	Registry:   "cr.kagent.dev",
+	PullPolicy: string(corev1.PullIfNotPresent),
+	Repository: "kagent-dev/kagent/golang-adk",
+}
 
 // DefaultSkillsInitImageConfig is the image config for the skills-init container
 // that clones skill repositories from Git and pulls OCI skill images.
