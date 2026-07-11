@@ -175,6 +175,24 @@ tests:
           path: data.A2A_BASE_URL
           value: "http://RELEASE-NAME-controller.NAMESPACE.svc.mycluster.k8s.example.net:8083"
 
+  - it: should strip surrounding dots and whitespace from a fully-qualified clusterDomain
+    template: controller-configmap.yaml
+    set:
+      clusterDomain: "  mycluster.k8s.example.net.  "
+    asserts:
+      - equal:
+          path: data.A2A_BASE_URL
+          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.mycluster.k8s.example.net:8083"
+
+  - it: should fall back to cluster.local when clusterDomain is blank
+    template: controller-configmap.yaml
+    set:
+      clusterDomain: ""
+    asserts:
+      - equal:
+          path: data.A2A_BASE_URL
+          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083"
+
   - it: should set PROXY_URL when set
     template: controller-configmap.yaml
     set:

@@ -196,9 +196,12 @@ Password secret name - returns the chart-managed Secret name for POSTGRES_PASSWO
 {{/*
 Expand the DNS domain of the cluster.
 Allows overriding it for clusters not using the default `cluster.local` domain.
+Surrounding whitespace and dots are stripped so that the fully-qualified form
+(`example.net.`) does not render an empty label into the service authority.
 */}}
 {{- define "kagent.clusterDomain" -}}
-{{- default "cluster.local" .Values.clusterDomain -}}
+{{- $domain := .Values.clusterDomain | default "cluster.local" | trim | trimAll "." -}}
+{{- $domain | default "cluster.local" -}}
 {{- end }}
 
 {{/*
