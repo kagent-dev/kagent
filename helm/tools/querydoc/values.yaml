@@ -26,10 +26,12 @@ securityContext:
       - ALL
   readOnlyRootFilesystem: true
   # A fixed non-root UID/GID is set so the chart installs on vanilla Kubernetes:
-  # runAsNonRoot (in podSecurityContext) needs a numeric non-root user and the
-  # querydoc image does not ship one. On OpenShift, where the restricted-v2 SCC
-  # assigns a per-namespace UID range and rejects a pinned UID outside it,
-  # override these to null so the SCC injects an in-range UID:
+  # runAsNonRoot (in podSecurityContext) needs a numeric non-root user, and the
+  # querydoc image (doc2vec/mcp) does not currently run as one. Once that image
+  # ships a numeric non-root USER, this pin can be dropped and kubelet will read
+  # the UID from the image. On OpenShift, where the restricted-v2 SCC assigns a
+  # per-namespace UID range and rejects a pinned UID outside it, override these
+  # to null so the SCC injects an in-range UID:
   #   --set tools.querydoc.securityContext.runAsUser=null
   #   --set tools.querydoc.securityContext.runAsGroup=null
   runAsUser: 14000
