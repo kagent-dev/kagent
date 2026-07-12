@@ -27,8 +27,20 @@ import { getScheduledRuns, deleteScheduledRun, triggerScheduledRun } from "@/app
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { formatDateTime } from "@/lib/formatDateTime";
-import { formatScheduledRunAgentRef, getScheduledRunDisplayStatus } from "@/lib/scheduledRuns";
+import { formatScheduledRunTargetRef, getScheduledRunDisplayStatus } from "@/lib/scheduledRuns";
 import { toast } from "sonner";
+
+function scheduleDetailPath(namespace: string, name: string): string {
+  return `/schedules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+}
+
+function scheduleEditPath(namespace: string, name: string): string {
+  return `/schedules/new?${new URLSearchParams({
+    edit: "true",
+    name,
+    namespace,
+  }).toString()}`;
+}
 
 export function ScheduledRunList() {
   const router = useRouter();
@@ -62,7 +74,7 @@ export function ScheduledRunList() {
   const handleEdit = (sr: ScheduledRun) => {
     const ns = sr.metadata.namespace || "";
     const name = sr.metadata.name;
-    router.push(`/schedules/new?edit=true&name=${name}&namespace=${ns}`);
+    router.push(scheduleEditPath(ns, name));
   };
 
   const handleDelete = (sr: ScheduledRun) => {
@@ -123,7 +135,7 @@ export function ScheduledRunList() {
   const handleRowClick = (sr: ScheduledRun) => {
     const ns = sr.metadata.namespace || "";
     const name = sr.metadata.name;
-    router.push(`/schedules/${ns}/${name}`);
+    router.push(scheduleDetailPath(ns, name));
   };
 
   if (error) {
@@ -131,11 +143,11 @@ export function ScheduledRunList() {
   }
 
   return (
-    <div className="min-h-screen p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center mb-8">
           <h1 className="text-2xl font-bold">Scheduled Runs</h1>
-          <Button variant="default" asChild>
+          <Button variant="default" asChild className="w-full sm:w-auto">
             <Link href="/schedules/new">
               <Plus className="h-4 w-4 mr-2" />
               New Schedule
@@ -150,8 +162,8 @@ export function ScheduledRunList() {
             No scheduled runs found. Create one to get started.
           </div>
         ) : (
-          <div className="border rounded-lg overflow-hidden">
-            <Table>
+          <div className="border rounded-lg overflow-x-auto">
+            <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
@@ -169,9 +181,9 @@ export function ScheduledRunList() {
                   const ns = sr.metadata.namespace || "";
                   const name = sr.metadata.name;
                   const key = `${ns}/${name}`;
-                  const agentDisplay = formatScheduledRunAgentRef(sr);
+                  const agentDisplay = formatScheduledRunTargetRef(sr);
                   const status = getScheduledRunDisplayStatus(sr);
-                  const triggerDisabled = triggeringItems.has(key) || Boolean(sr.spec.suspend);
+                  const triggerDisabled = triggeringItems.has(key);
 
                   return (
                     <TableRow
@@ -201,12 +213,11 @@ export function ScheduledRunList() {
                             size="sm"
                             onClick={() => handleTrigger(sr)}
                             disabled={triggerDisabled}
+                            aria-label={`Trigger scheduled run ${ns}/${name}`}
                             title={
-                              sr.spec.suspend
-                                ? "Schedule is suspended"
-                                : triggeringItems.has(key)
-                                  ? "Running... up to 5 min"
-                                  : "Trigger now"
+                              triggeringItems.has(key)
+                                ? "Running... up to 5 min"
+                                : "Trigger now"
                             }
                           >
                             {triggeringItems.has(key) ? (
@@ -219,6 +230,7 @@ export function ScheduledRunList() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleEdit(sr)}
+                            aria-label={`Edit scheduled run ${ns}/${name}`}
                             title="Edit"
                           >
                             <Pencil className="h-4 w-4" />
@@ -227,6 +239,7 @@ export function ScheduledRunList() {
                             variant="destructive"
                             size="sm"
                             onClick={() => handleDelete(sr)}
+                            aria-label={`Delete scheduled run ${ns}/${name}`}
                             title="Delete"
                           >
                             <Trash2 className="h-4 w-4" />

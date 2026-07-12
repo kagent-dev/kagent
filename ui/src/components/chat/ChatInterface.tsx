@@ -18,7 +18,7 @@ import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
-import { createSession, getSessionTasks, checkSessionExists, getSessionWithEvents } from "@/app/actions/sessions";
+import { createSession, getSessionTasks, getSessionWithEvents } from "@/app/actions/sessions";
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
 import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 import ShareButton from "@/components/chat/ShareButton";
@@ -158,23 +158,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       let activeTask: Task | undefined;
 
       try {
-        if (shareToken) {
-          // Fetch session info to get authoritative read_only status from the server.
-          const sessionInfoResponse = await getSessionWithEvents(sessionId, shareToken);
-          if (sessionInfoResponse.error || !sessionInfoResponse.data) {
-            setSessionNotFound(true);
-            setIsLoading(false);
-            return;
-          }
-          setShareReadOnly(sessionInfoResponse.data.read_only === true);
-        } else {
-          const sessionExistsResponse = await checkSessionExists(sessionId);
-          if (sessionExistsResponse.error || !sessionExistsResponse.data) {
-            setSessionNotFound(true);
-            setIsLoading(false);
-            return;
-          }
+        // Fetch session info to get authoritative read_only status from the
+        // server. ScheduledRun-owned sessions are exposed as read-only even
+        // without a share token.
+        const sessionInfoResponse = await getSessionWithEvents(sessionId, shareToken);
+        if (sessionInfoResponse.error || !sessionInfoResponse.data) {
+          setSessionNotFound(true);
+          setIsLoading(false);
+          return;
         }
+        setShareReadOnly(sessionInfoResponse.data.read_only === true);
 
         const messagesResponse = await getSessionTasks(sessionId, shareToken);
         if (messagesResponse.error) {

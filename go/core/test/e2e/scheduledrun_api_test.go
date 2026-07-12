@@ -11,12 +11,25 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 )
+
+func scheduledRunTargetRef(kind, name string) corev1.TypedLocalObjectReference {
+	apiGroup := v1alpha2.ScheduledRunTargetAPIGroup
+	if kind == "" {
+		kind = v1alpha2.ScheduledRunTargetKindAgent
+	}
+	return corev1.TypedLocalObjectReference{
+		APIGroup: &apiGroup,
+		Kind:     kind,
+		Name:     name,
+	}
+}
 
 // TestScheduledRunAPI tests the ScheduledRun REST API lifecycle end-to-end.
 // Requires a deployed kagent instance (set KAGENT_URL or default http://localhost:8083).
@@ -25,7 +38,7 @@ func TestE2EScheduledRunAPI(t *testing.T) {
 	baseURL := kagentURL() + "/api/scheduledruns"
 	namespace := utils.GetResourceNamespace()
 
-	// Create an Agent so the ScheduledRun controller can validate agentRef.
+	// Create an Agent so the ScheduledRun controller can validate targetRef.
 	agent := &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{
 			GenerateName: "e2e-sr-agent-",
@@ -53,11 +66,8 @@ func TestE2EScheduledRunAPI(t *testing.T) {
 				Namespace: namespace,
 			},
 			Spec: v1alpha2.ScheduledRunSpec{
-				Schedule: "0 */2 * * *",
-				AgentRef: v1alpha2.AgentReference{
-					Name:      agent.Name,
-					Namespace: namespace,
-				},
+				Schedule:      "0 */2 * * *",
+				TargetRef:     scheduledRunTargetRef("", agent.Name),
 				Prompt:        "run e2e test task",
 				MaxRunHistory: 5,
 			},
@@ -81,18 +91,15 @@ func TestE2EScheduledRunAPI(t *testing.T) {
 		var result api.StandardResponse[v1alpha2.ScheduledRun]
 		require.NoError(t, json.Unmarshal(body, &result))
 		assert.Equal(t, "0 */2 * * *", result.Data.Spec.Schedule)
-		assert.Equal(t, agent.Name, result.Data.Spec.AgentRef.Name)
+		assert.Equal(t, agent.Name, result.Data.Spec.TargetRef.Name)
 		assert.Equal(t, "run e2e test task", result.Data.Spec.Prompt)
 	})
 
 	t.Run("update", func(t *testing.T) {
 		sr := v1alpha2.ScheduledRun{
 			Spec: v1alpha2.ScheduledRunSpec{
-				Schedule: "0 */3 * * *",
-				AgentRef: v1alpha2.AgentReference{
-					Name:      agent.Name,
-					Namespace: namespace,
-				},
+				Schedule:      "0 */3 * * *",
+				TargetRef:     scheduledRunTargetRef("", agent.Name),
 				Prompt:        "updated prompt",
 				MaxRunHistory: 10,
 			},
@@ -117,12 +124,9 @@ func TestE2EScheduledRunAPI(t *testing.T) {
 				Namespace: namespace,
 			},
 			Spec: v1alpha2.ScheduledRunSpec{
-				Schedule: "not-a-valid-cron", // syntactically invalid
-				AgentRef: v1alpha2.AgentReference{
-					Name:      agent.Name,
-					Namespace: namespace,
-				},
-				Prompt: "should fail",
+				Schedule:  "not-a-valid-cron", // syntactically invalid
+				TargetRef: scheduledRunTargetRef("", agent.Name),
+				Prompt:    "should fail",
 			},
 		}
 		body, _ := json.Marshal(sr)
@@ -131,14 +135,11 @@ func TestE2EScheduledRunAPI(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
 
-	t.Run("suspended_trigger_conflict", func(t *testing.T) {
+	t.Run("suspended_manual_trigger_allowed", func(t *testing.T) {
 		sr := v1alpha2.ScheduledRun{
 			Spec: v1alpha2.ScheduledRunSpec{
-				Schedule: "0 */3 * * *",
-				AgentRef: v1alpha2.AgentReference{
-					Name:      agent.Name,
-					Namespace: namespace,
-				},
+				Schedule:      "0 */3 * * *",
+				TargetRef:     scheduledRunTargetRef("", agent.Name),
 				Prompt:        "updated prompt",
 				Suspend:       true,
 				MaxRunHistory: 10,
@@ -150,17 +151,14 @@ func TestE2EScheduledRunAPI(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode, "body: %s", respBody)
 
 		resp, _ = doRequest(t, "POST", baseURL+"/"+namespace+"/"+srName+"/trigger", nil)
-		assert.Equal(t, http.StatusConflict, resp.StatusCode)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
 	})
 
 	t.Run("resume", func(t *testing.T) {
 		sr := v1alpha2.ScheduledRun{
 			Spec: v1alpha2.ScheduledRunSpec{
-				Schedule: "0 */3 * * *",
-				AgentRef: v1alpha2.AgentReference{
-					Name:      agent.Name,
-					Namespace: namespace,
-				},
+				Schedule:      "0 */3 * * *",
+				TargetRef:     scheduledRunTargetRef("", agent.Name),
 				Prompt:        "updated prompt",
 				MaxRunHistory: 10,
 			},

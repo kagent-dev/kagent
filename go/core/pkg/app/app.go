@@ -46,6 +46,7 @@ import (
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -654,7 +655,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 
 	clientRegistry := a2a.NewAgentClientRegistry()
 
-	scheduledRunScheduler, err := controller.NewScheduledRunScheduler(mgr.GetClient(), dbClient, clientRegistry)
+	scheduledRunScheduler, err := scheduledrun.NewScheduledRunScheduler(mgr.GetClient(), dbClient, clientRegistry)
 	if err != nil {
 		setupLog.Error(err, "unable to create scheduled run scheduler")
 		os.Exit(1)

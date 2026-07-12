@@ -21,7 +21,7 @@ import (
 	"fmt"
 	"time"
 
-	scheduledrunutil "github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	"github.com/robfig/cron/v3"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -47,7 +47,7 @@ const (
 type ScheduledRunController struct {
 	Scheme    *runtime.Scheme
 	Kube      client.Client
-	Scheduler *ScheduledRunScheduler
+	Scheduler *scheduledrun.ScheduledRunScheduler
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=scheduledruns,verbs=get;list;watch;create;update;patch;delete
@@ -69,26 +69,26 @@ func (r *ScheduledRunController) Reconcile(ctx context.Context, req ctrl.Request
 	// Validate spec.timeZone is a known IANA name. Done before the cron
 	// parse so a bad TZ surfaces as "InvalidTimeZone" instead of being
 	// re-reported as a generic "InvalidSchedule" by the parser.
-	timeZone := scheduledRunTimeZone(&sr)
+	timeZone := scheduledrun.ScheduledRunTimeZone(&sr)
 	if _, err := time.LoadLocation(timeZone); err != nil {
 		return ctrl.Result{}, r.rejectScheduledRun(ctx, req.NamespacedName, &sr, "InvalidTimeZone", fmt.Sprintf("Invalid time zone %q: %v", timeZone, err))
 	}
 
 	// Validate cron expression (with optional CRON_TZ embedded via spec.timeZone).
-	sched, err := cron.ParseStandard(scheduleSpecForCron(&sr))
+	sched, err := cron.ParseStandard(scheduledrun.ScheduleSpecForCron(&sr))
 	if err != nil {
 		return ctrl.Result{}, r.rejectScheduledRun(ctx, req.NamespacedName, &sr, "InvalidSchedule", fmt.Sprintf("Invalid cron expression: %v", err))
 	}
 
-	if err := scheduledrunutil.ValidateSameNamespace(sr.Namespace, sr.Spec.AgentRef); err != nil {
-		return ctrl.Result{}, r.rejectScheduledRun(ctx, req.NamespacedName, &sr, "InvalidAgentRef", err.Error())
+	if err := scheduledrun.ValidateTargetRef(sr.Spec.TargetRef); err != nil {
+		return ctrl.Result{}, r.rejectScheduledRun(ctx, req.NamespacedName, &sr, "InvalidTargetRef", err.Error())
 	}
 
-	agentKey := scheduledrunutil.TargetKey(sr.Namespace, sr.Spec.AgentRef)
-	agentKind := scheduledrunutil.TargetKind(sr.Spec.AgentRef)
-	if _, err := scheduledrunutil.GetTarget(ctx, r.Kube, sr.Namespace, sr.Spec.AgentRef); err != nil {
+	agentKind := scheduledrun.TargetKind(sr.Spec.TargetRef)
+	agentKey := scheduledrun.TargetKey(sr.Namespace, sr.Spec.TargetRef)
+	if _, err := scheduledrun.GetTarget(ctx, r.Kube, sr.Namespace, sr.Spec.TargetRef); err != nil {
 		if client.IgnoreNotFound(err) == nil {
-			// Agent disappeared (or agentRef was edited to a missing one).
+			// Agent disappeared (or targetRef was edited to a missing one).
 			// Stop firing the cron entry — otherwise every tick would
 			// uselessly append a Failed history entry.
 			return ctrl.Result{}, r.rejectScheduledRun(ctx, req.NamespacedName, &sr, "AgentNotFound", fmt.Sprintf("%s %s not found", agentKind, agentKey))
@@ -153,23 +153,23 @@ func (r *ScheduledRunController) SetupWithManager(mgr ctrl.Manager) error {
 		For(&v1alpha2.ScheduledRun{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&v1alpha2.Agent{},
-			handler.EnqueueRequestsFromMapFunc(r.enqueueScheduledRunsForTarget(v1alpha2.AgentReferenceKindAgent)),
+			handler.EnqueueRequestsFromMapFunc(r.enqueueScheduledRunsForTarget(v1alpha2.ScheduledRunTargetKindAgent)),
 		).
 		Watches(
 			&v1alpha2.SandboxAgent{},
-			handler.EnqueueRequestsFromMapFunc(r.enqueueScheduledRunsForTarget(v1alpha2.AgentReferenceKindSandboxAgent)),
+			handler.EnqueueRequestsFromMapFunc(r.enqueueScheduledRunsForTarget(v1alpha2.ScheduledRunTargetKindSandboxAgent)),
 		).
 		Named("scheduledrun").
 		Complete(r)
 }
 
 // enqueueScheduledRunsForTarget returns a map func that finds ScheduledRuns in
-// the target's namespace whose AgentRef points at it. AgentRef is restricted to
+// the target's namespace whose TargetRef points at it. TargetRef is restricted to
 // the same namespace (validated in Reconcile), so we don't have to scan
 // cluster-wide. Reconciling on target create/delete lets the controller
 // schedule a previously-missing target's SR or stop firing once a target
 // disappears.
-func (r *ScheduledRunController) enqueueScheduledRunsForTarget(kind v1alpha2.AgentReferenceKind) handler.MapFunc {
+func (r *ScheduledRunController) enqueueScheduledRunsForTarget(kind string) handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
 		var list v1alpha2.ScheduledRunList
 		if err := r.Kube.List(ctx, &list, client.InNamespace(obj.GetNamespace())); err != nil {
@@ -179,10 +179,10 @@ func (r *ScheduledRunController) enqueueScheduledRunsForTarget(kind v1alpha2.Age
 		var requests []reconcile.Request
 		for i := range list.Items {
 			sr := &list.Items[i]
-			if scheduledrunutil.TargetKind(sr.Spec.AgentRef) != kind {
+			if scheduledrun.TargetKind(sr.Spec.TargetRef) != kind {
 				continue
 			}
-			if sr.Spec.AgentRef.Name != obj.GetName() {
+			if sr.Spec.TargetRef.Name != obj.GetName() {
 				continue
 			}
 			requests = append(requests, reconcile.Request{

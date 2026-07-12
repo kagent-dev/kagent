@@ -17,8 +17,9 @@ import {
   updateScheduledRun,
   getScheduledRun,
 } from "@/app/actions/scheduledRuns";
-import { getSchedulableAgents } from "@/app/actions/agents";
+import { getAgents } from "@/app/actions/agents";
 import { LoadingState } from "@/components/LoadingState";
+import { ErrorState } from "@/components/ErrorState";
 import { toast } from "sonner";
 
 interface FormState {
@@ -31,7 +32,7 @@ interface FormState {
   agentKind: ScheduledRunTargetKind;
   prompt: string;
   suspend: boolean;
-  maxRunHistory: number;
+  maxRunHistory: string;
   isSubmitting: boolean;
   isLoading: boolean;
 }
@@ -86,17 +87,18 @@ function ScheduledRunFormContent() {
     agentKind: "Agent",
     prompt: "",
     suspend: false,
-    maxRunHistory: 10,
+    maxRunHistory: "10",
     isSubmitting: false,
-    isLoading: isEditMode,
+    isLoading: isEditMode && Boolean(editName && editNamespace),
   });
   const [errors, setErrors] = useState<ValidationErrors>({});
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Fetch agents list
   useEffect(() => {
     const loadAgents = async () => {
       try {
-        const response = await getSchedulableAgents();
+        const response = await getAgents();
         if (response.error) {
           toast.error(`Failed to load agents: ${response.error}`);
           return;
@@ -119,8 +121,10 @@ function ScheduledRunFormContent() {
         try {
           setState((prev) => ({ ...prev, isLoading: true }));
           const response = await getScheduledRun(editName, editNamespace);
-          if (!response.data) {
-            toast.error("Scheduled run not found");
+          if (response.error || !response.data) {
+            const msg = response.error || "Scheduled run not found";
+            toast.error(msg);
+            setLoadError(msg);
             setState((prev) => ({ ...prev, isLoading: false }));
             return;
           }
@@ -131,17 +135,18 @@ function ScheduledRunFormContent() {
             namespace: sr.metadata.namespace || "",
             schedule: sr.spec.schedule,
             timeZone: sr.spec.timeZone || "UTC",
-            agentName: sr.spec.agentRef.name,
-            agentNamespace: sr.spec.agentRef.namespace || sr.metadata.namespace || "",
-            agentKind: sr.spec.agentRef.kind ?? "Agent",
+            agentName: sr.spec.targetRef.name,
+            agentNamespace: sr.metadata.namespace || "",
+            agentKind: sr.spec.targetRef.kind,
             prompt: sr.spec.prompt,
             suspend: sr.spec.suspend ?? false,
-            maxRunHistory: sr.spec.maxRunHistory ?? 10,
+            maxRunHistory: String(sr.spec.maxRunHistory ?? 10),
             isLoading: false,
           }));
         } catch (err) {
-          console.error("Error fetching scheduled run:", err);
-          toast.error("Failed to load scheduled run data");
+          const msg = err instanceof Error ? err.message : "Failed to load scheduled run data";
+          toast.error(msg);
+          setLoadError(msg);
           setState((prev) => ({ ...prev, isLoading: false }));
         }
       }
@@ -175,8 +180,10 @@ function ScheduledRunFormContent() {
       newErrors.prompt = "Prompt is required";
     }
 
-    if (state.maxRunHistory < 1 || state.maxRunHistory > 100) {
-      newErrors.maxRunHistory = "Must be between 1 and 100";
+    const maxRunHistoryInput = state.maxRunHistory.trim();
+    const maxRunHistory = Number.parseInt(maxRunHistoryInput, 10);
+    if (!/^\d+$/.test(maxRunHistoryInput) || maxRunHistory < 0 || maxRunHistory > 100) {
+      newErrors.maxRunHistory = "Must be 0 or between 1 and 100";
     }
 
     setErrors(newErrors);
@@ -189,6 +196,7 @@ function ScheduledRunFormContent() {
     setState((prev) => ({ ...prev, isSubmitting: true }));
 
     try {
+      const maxRunHistory = Number.parseInt(state.maxRunHistory, 10);
       const sr: ScheduledRun = {
         apiVersion: "kagent.dev/v1alpha2",
         kind: "ScheduledRun",
@@ -199,14 +207,14 @@ function ScheduledRunFormContent() {
         spec: {
           schedule: state.schedule.trim(),
           timeZone: state.timeZone.trim() || "UTC",
-          agentRef: {
+          targetRef: {
+            apiGroup: "kagent.dev",
             kind: state.agentKind,
             name: state.agentName,
-            namespace: state.agentNamespace || undefined,
           },
           prompt: state.prompt,
           suspend: state.suspend,
-          maxRunHistory: state.maxRunHistory,
+          maxRunHistory,
         },
       };
 
@@ -240,8 +248,16 @@ function ScheduledRunFormContent() {
     return <LoadingState />;
   }
 
+  if (loadError) {
+    return <ErrorState message={loadError} />;
+  }
+
+  if (isEditMode && (!editName || !editNamespace)) {
+    return <ErrorState message="Scheduled run edit URL is missing name or namespace" />;
+  }
+
   return (
-    <div className="min-h-screen p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-3xl mx-auto">
         <h1 className="text-2xl font-bold mb-8">
           {isEditMode ? "Edit Scheduled Run" : "Create Scheduled Run"}
@@ -432,7 +448,7 @@ function ScheduledRunFormContent() {
                     Suspend
                   </Label>
                   <p className="text-xs text-muted-foreground">
-                    When enabled, cron and manual triggers are paused.
+                    When enabled, automatic cron runs are paused.
                   </p>
                 </div>
                 <Switch
@@ -450,18 +466,15 @@ function ScheduledRunFormContent() {
                   Max Run History
                 </Label>
                 <p className="text-xs mb-2 block text-muted-foreground">
-                  Number of completed run records to retain (1-100).
+                  Number of completed run records to retain (0 uses default 10; otherwise 1-100).
                 </p>
                 <Input
                   type="number"
-                  min={1}
+                  min={0}
                   max={100}
                   value={state.maxRunHistory}
                   onChange={(e) => {
-                    const val = parseInt(e.target.value, 10);
-                    if (!isNaN(val)) {
-                      setState((prev) => ({ ...prev, maxRunHistory: val }));
-                    }
+                    setState((prev) => ({ ...prev, maxRunHistory: e.target.value }));
                   }}
                   className={errors.maxRunHistory ? "border-red-500" : ""}
                   disabled={isFormDisabled}

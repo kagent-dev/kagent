@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -15,13 +16,26 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 )
 
-func newControllerTestScheduledRunScheduler(t *testing.T, kube client.Client) *ScheduledRunScheduler {
+func newControllerTestScheduledRunScheduler(t *testing.T, kube client.Client) *scheduledrun.ScheduledRunScheduler {
 	t.Helper()
-	scheduler, err := NewScheduledRunScheduler(kube, nil, a2a.NewAgentClientRegistry())
+	scheduler, err := scheduledrun.NewScheduledRunScheduler(kube, nil, a2a.NewAgentClientRegistry())
 	require.NoError(t, err)
 	return scheduler
+}
+
+func scheduledRunTargetRef(kind, name string) corev1.TypedLocalObjectReference {
+	apiGroup := v1alpha2.ScheduledRunTargetAPIGroup
+	if kind == "" {
+		kind = v1alpha2.ScheduledRunTargetKindAgent
+	}
+	return corev1.TypedLocalObjectReference{
+		APIGroup: &apiGroup,
+		Kind:     kind,
+		Name:     name,
+	}
 }
 
 func TestScheduledRunController_Reconcile(t *testing.T) {
@@ -46,7 +60,7 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 		}
 	}
 
-	newScheduledRun := func(namespace, name, schedule, agentName, agentNamespace string) *v1alpha2.ScheduledRun {
+	newScheduledRun := func(namespace, name, schedule, agentName string) *v1alpha2.ScheduledRun {
 		return &v1alpha2.ScheduledRun{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:       name,
@@ -54,11 +68,8 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 				Generation: 1,
 			},
 			Spec: v1alpha2.ScheduledRunSpec{
-				Schedule: schedule,
-				AgentRef: v1alpha2.AgentReference{
-					Name:      agentName,
-					Namespace: agentNamespace,
-				},
+				Schedule:      schedule,
+				TargetRef:     scheduledRunTargetRef("", agentName),
 				Prompt:        "test prompt",
 				MaxRunHistory: 10,
 			},
@@ -78,7 +89,7 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 		{
 			name: "valid schedule - accepted",
 			objects: []runtime.Object{
-				newScheduledRun("default", "my-sr", "0 */2 * * *", "my-agent", "default"),
+				newScheduledRun("default", "my-sr", "0 */2 * * *", "my-agent"),
 				newAgent("default", "my-agent"),
 			},
 			reqName:       "my-sr",
@@ -90,7 +101,7 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 		{
 			name: "invalid cron expression",
 			objects: []runtime.Object{
-				newScheduledRun("default", "my-sr", "invalid-cron", "my-agent", "default"),
+				newScheduledRun("default", "my-sr", "invalid-cron", "my-agent"),
 				newAgent("default", "my-agent"),
 			},
 			reqName:       "my-sr",
@@ -100,22 +111,10 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 			wantReason:    "InvalidSchedule",
 		},
 		{
-			name: "sub-hourly schedule allowed - every 5 minutes",
-			objects: []runtime.Object{
-				newScheduledRun("default", "my-sr", "*/5 * * * *", "my-agent", "default"),
-				newAgent("default", "my-agent"),
-			},
-			reqName:       "my-sr",
-			reqNamespace:  "default",
-			wantErr:       false,
-			wantCondition: metav1.ConditionTrue,
-			wantReason:    "ScheduleAccepted",
-		},
-		{
 			name: "suspended schedule accepted without next run",
 			objects: []runtime.Object{
 				func() runtime.Object {
-					sr := newScheduledRun("default", "suspended-sr", "0 */2 * * *", "my-agent", "default")
+					sr := newScheduledRun("default", "suspended-sr", "0 */2 * * *", "my-agent")
 					sr.Spec.Suspend = true
 					return sr
 				}(),
@@ -128,21 +127,9 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 			wantReason:    "ScheduleAccepted",
 		},
 		{
-			name: "sub-hourly schedule allowed - every 30 minutes",
-			objects: []runtime.Object{
-				newScheduledRun("default", "my-sr", "*/30 * * * *", "my-agent", "default"),
-				newAgent("default", "my-agent"),
-			},
-			reqName:       "my-sr",
-			reqNamespace:  "default",
-			wantErr:       false,
-			wantCondition: metav1.ConditionTrue,
-			wantReason:    "ScheduleAccepted",
-		},
-		{
 			name: "agent not found",
 			objects: []runtime.Object{
-				newScheduledRun("default", "my-sr", "0 */2 * * *", "nonexistent-agent", "default"),
+				newScheduledRun("default", "my-sr", "0 */2 * * *", "nonexistent-agent"),
 			},
 			reqName:       "my-sr",
 			reqNamespace:  "default",
@@ -154,8 +141,8 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 			name: "sandbox agent target - accepted",
 			objects: []runtime.Object{
 				func() runtime.Object {
-					sr := newScheduledRun("default", "sandbox-sr", "0 */2 * * *", "my-sandbox", "default")
-					sr.Spec.AgentRef.Kind = v1alpha2.AgentReferenceKindSandboxAgent
+					sr := newScheduledRun("default", "sandbox-sr", "0 */2 * * *", "my-sandbox")
+					sr.Spec.TargetRef = scheduledRunTargetRef(v1alpha2.ScheduledRunTargetKindSandboxAgent, "my-sandbox")
 					return sr
 				}(),
 				newSandboxAgent("default", "my-sandbox"),
@@ -167,16 +154,16 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 			wantReason:    "ScheduleAccepted",
 		},
 		{
-			name: "cross namespace target rejected",
+			name: "local reference ignores same-named target in other namespace",
 			objects: []runtime.Object{
-				newScheduledRun("default", "cross-sr", "0 */2 * * *", "my-agent", "other"),
+				newScheduledRun("default", "cross-sr", "0 */2 * * *", "my-agent"),
 				newAgent("other", "my-agent"),
 			},
 			reqName:       "cross-sr",
 			reqNamespace:  "default",
 			wantErr:       false,
 			wantCondition: metav1.ConditionFalse,
-			wantReason:    "InvalidAgentRef",
+			wantReason:    "AgentNotFound",
 		},
 		{
 			name:         "scheduledrun not found - deleted",
@@ -187,34 +174,10 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 			wantNotFound: true,
 		},
 		{
-			name: "agent ref namespace defaults to scheduledrun namespace",
-			objects: []runtime.Object{
-				newScheduledRun("mynamespace", "my-sr", "0 */2 * * *", "my-agent", ""),
-				newAgent("mynamespace", "my-agent"),
-			},
-			reqName:       "my-sr",
-			reqNamespace:  "mynamespace",
-			wantErr:       false,
-			wantCondition: metav1.ConditionTrue,
-			wantReason:    "ScheduleAccepted",
-		},
-		{
-			name: "valid schedule - exactly 1 hour interval",
-			objects: []runtime.Object{
-				newScheduledRun("default", "my-sr", "0 * * * *", "my-agent", "default"),
-				newAgent("default", "my-agent"),
-			},
-			reqName:       "my-sr",
-			reqNamespace:  "default",
-			wantErr:       false,
-			wantCondition: metav1.ConditionTrue,
-			wantReason:    "ScheduleAccepted",
-		},
-		{
 			name: "invalid time zone",
 			objects: []runtime.Object{
 				func() runtime.Object {
-					sr := newScheduledRun("default", "tz-bad", "0 9 * * *", "my-agent", "default")
+					sr := newScheduledRun("default", "tz-bad", "0 9 * * *", "my-agent")
 					sr.Spec.TimeZone = "Mars/Olympus_Mons"
 					return sr
 				}(),
@@ -230,7 +193,7 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 			name: "valid time zone accepted",
 			objects: []runtime.Object{
 				func() runtime.Object {
-					sr := newScheduledRun("default", "tz-ok", "0 9 * * *", "my-agent", "default")
+					sr := newScheduledRun("default", "tz-ok", "0 9 * * *", "my-agent")
 					sr.Spec.TimeZone = "America/Los_Angeles"
 					return sr
 				}(),
@@ -314,7 +277,7 @@ func TestScheduledRunController_Reconcile(t *testing.T) {
 }
 
 // TestScheduledRunController_AgentNotFound_RemovesCronEntry verifies that when
-// a previously-accepted SR has its agentRef change to a non-existent agent,
+// a previously-accepted SR has its targetRef change to a non-existent agent,
 // the controller removes the cron entry. Otherwise every tick would
 // uselessly create a Failed history entry.
 func TestScheduledRunController_AgentNotFound_RemovesCronEntry(t *testing.T) {
@@ -328,9 +291,9 @@ func TestScheduledRunController_AgentNotFound_RemovesCronEntry(t *testing.T) {
 			Generation: 1,
 		},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 */2 * * *",
-			AgentRef: v1alpha2.AgentReference{Name: "ghost", Namespace: "default"},
-			Prompt:   "test",
+			Schedule:  "0 */2 * * *",
+			TargetRef: scheduledRunTargetRef("", "ghost"),
+			Prompt:    "test",
 		},
 	}
 	kube := fake.NewClientBuilder().
@@ -344,15 +307,13 @@ func TestScheduledRunController_AgentNotFound_RemovesCronEntry(t *testing.T) {
 	// agent existed.
 	require.NoError(t, scheduler.UpdateSchedule(sr))
 	key := types.NamespacedName{Name: "sr", Namespace: "default"}
-	_, ok := scheduler.entries[key]
-	require.True(t, ok, "precondition: entry registered")
+	require.True(t, scheduler.HasSchedule(key), "precondition: entry registered")
 
 	c := &ScheduledRunController{Scheme: scheme, Kube: kube, Scheduler: scheduler}
 	_, err := c.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
 	require.NoError(t, err)
 
-	_, ok = scheduler.entries[key]
-	assert.False(t, ok, "entry must be removed when referenced agent disappears")
+	assert.False(t, scheduler.HasSchedule(key), "entry must be removed when referenced agent disappears")
 }
 
 func TestScheduledRunController_InvalidSchedule_RemovesCronEntry(t *testing.T) {
@@ -366,9 +327,9 @@ func TestScheduledRunController_InvalidSchedule_RemovesCronEntry(t *testing.T) {
 			Generation: 1,
 		},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "invalid",
-			AgentRef: v1alpha2.AgentReference{Name: "agent", Namespace: "default"},
-			Prompt:   "test",
+			Schedule:  "invalid",
+			TargetRef: scheduledRunTargetRef("", "agent"),
+			Prompt:    "test",
 		},
 	}
 	kube := fake.NewClientBuilder().
@@ -384,14 +345,11 @@ func TestScheduledRunController_InvalidSchedule_RemovesCronEntry(t *testing.T) {
 	require.NoError(t, kube.Update(context.Background(), sr))
 
 	key := types.NamespacedName{Name: "sr", Namespace: "default"}
-	_, ok := scheduler.entries[key]
-	require.True(t, ok, "precondition: entry registered")
+	require.True(t, scheduler.HasSchedule(key), "precondition: entry registered")
 
 	c := &ScheduledRunController{Scheme: scheme, Kube: kube, Scheduler: scheduler}
 	_, err := c.Reconcile(context.Background(), ctrl.Request{NamespacedName: key})
 	require.NoError(t, err)
 
-	_, ok = scheduler.entries[key]
-	assert.False(t, ok, "entry must be removed when schedule becomes invalid")
+	assert.False(t, scheduler.HasSchedule(key), "entry must be removed when schedule becomes invalid")
 }
-

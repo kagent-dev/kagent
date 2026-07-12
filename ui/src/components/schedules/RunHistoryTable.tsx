@@ -22,6 +22,7 @@ function formatDuration(startTime: string, endTime?: string): string {
   if (!endTime) return "-";
   const start = new Date(startTime).getTime();
   const end = new Date(endTime).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return "-";
   const diffMs = end - start;
   if (diffMs < 0) return "-";
 
@@ -66,7 +67,7 @@ export function RunHistoryTable({ entries, agentNamespace, agentName }: RunHisto
   );
 
   return (
-    <Table>
+    <Table className="min-w-[860px]">
       <TableHeader>
         <TableRow>
           <TableHead>Start Time</TableHead>
@@ -99,8 +100,10 @@ export function RunHistoryTable({ entries, agentNamespace, agentName }: RunHisto
                 {entry.sessionId ? (
                   agentNamespace && agentName ? (
                     <a
-                      href={`/agents/${agentNamespace}/${agentName}/chat/${entry.sessionId}`}
+                      href={`/agents/${encodeURIComponent(agentNamespace)}/${encodeURIComponent(agentName)}/chat/${encodeURIComponent(entry.sessionId)}`}
                       className="text-blue-500 hover:underline"
+                      aria-label={`Open session ${entry.sessionId}`}
+                      title={entry.sessionId}
                     >
                       {entry.sessionId.slice(0, 8)}...
                     </a>

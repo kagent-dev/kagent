@@ -656,23 +656,3 @@ export async function getAgents(opts: { namespace?: string } = {}): Promise<Base
     return createErrorResponse<AgentResponse[]>(error, "Error getting agents");
   }
 }
-
-export async function getSchedulableAgents(opts: { namespace?: string } = {}): Promise<BaseResponse<AgentResponse[]>> {
-  try {
-    const params = new URLSearchParams({ includeAgentHarness: "false" });
-    if (opts.namespace) {
-      params.set("namespace", opts.namespace);
-    }
-    const { data } = await fetchApi<BaseResponse<AgentResponse[]>>(`/agents?${params.toString()}`);
-
-    const sortedData = (data ?? []).sort((a, b) => {
-      const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name);
-      const bRef = k8sRefUtils.toRef(b.agent.metadata.namespace || "", b.agent.metadata.name);
-      return aRef.localeCompare(bRef);
-    });
-
-    return { message: "Successfully fetched schedulable agents", data: sortedData };
-  } catch (error) {
-    return createErrorResponse<AgentResponse[]>(error, "Error getting schedulable agents");
-  }
-}

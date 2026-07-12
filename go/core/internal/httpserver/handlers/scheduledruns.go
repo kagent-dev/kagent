@@ -11,15 +11,18 @@ import (
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
-	scheduledrunutil "github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+const maxScheduledRunHistory = 100
 
 // ScheduledRunTrigger is the interface for triggering scheduled runs manually.
 // Implementations run synchronously and return the recorded RunHistoryEntry
@@ -39,11 +42,11 @@ func NewScheduledRunsHandler(base *Base, scheduler ScheduledRunTrigger) *Schedul
 	return &ScheduledRunsHandler{Base: base, Scheduler: scheduler}
 }
 
-// ValidateSchedule validates the cron expression syntax and the IANA time
+// validateSchedule validates the cron expression syntax and the IANA time
 // zone. Both are checked at the API edge so a bad request is
 // rejected with 400 before it ever reaches the controller, where the same
 // invariants are re-checked against the persisted object.
-func ValidateSchedule(schedule, timeZone string) *errors.APIError {
+func validateSchedule(schedule, timeZone string) *errors.APIError {
 	schedule = strings.TrimSpace(schedule)
 	timeZone = strings.TrimSpace(timeZone)
 	if schedule == "" {
@@ -68,11 +71,15 @@ func normalizeScheduledRun(sr *v1alpha2.ScheduledRun) {
 	if sr.Spec.TimeZone == "" {
 		sr.Spec.TimeZone = v1alpha2.DefaultScheduledRunTimeZone
 	}
-	if sr.Spec.AgentRef.Kind == "" {
-		sr.Spec.AgentRef.Kind = v1alpha2.AgentReferenceKindAgent
+	if sr.Spec.TargetRef.Kind == "" {
+		sr.Spec.TargetRef.Kind = v1alpha2.ScheduledRunTargetKindAgent
 	}
-	if sr.Spec.AgentRef.Namespace == "" {
-		sr.Spec.AgentRef.Namespace = sr.Namespace
+	if sr.Spec.TargetRef.APIGroup == nil || *sr.Spec.TargetRef.APIGroup == "" {
+		apiGroup := v1alpha2.ScheduledRunTargetAPIGroup
+		sr.Spec.TargetRef.APIGroup = &apiGroup
+	}
+	if sr.Spec.MaxRunHistory == 0 {
+		sr.Spec.MaxRunHistory = v1alpha2.DefaultScheduledRunMaxRunHistory
 	}
 }
 
@@ -83,23 +90,36 @@ func validateScheduledRunPrompt(prompt string) *errors.APIError {
 	return nil
 }
 
+func validateScheduledRunMaxHistory(maxRunHistory int) *errors.APIError {
+	if maxRunHistory < 0 || maxRunHistory > maxScheduledRunHistory {
+		return errors.NewBadRequestError(
+			fmt.Sprintf("spec.maxRunHistory must be between 1 and %d, or 0 to use the default", maxScheduledRunHistory),
+			nil,
+		)
+	}
+	return nil
+}
+
 func (h *ScheduledRunsHandler) validateScheduledRunObject(r *http.Request, sr *v1alpha2.ScheduledRun) *errors.APIError {
-	if apiErr := ValidateSchedule(sr.Spec.Schedule, sr.Spec.TimeZone); apiErr != nil {
+	if apiErr := validateSchedule(sr.Spec.Schedule, sr.Spec.TimeZone); apiErr != nil {
 		return apiErr
 	}
 	if apiErr := validateScheduledRunPrompt(sr.Spec.Prompt); apiErr != nil {
 		return apiErr
 	}
-	return h.validateScheduledRunTarget(r, sr.Namespace, sr.Spec.AgentRef)
+	if apiErr := validateScheduledRunMaxHistory(sr.Spec.MaxRunHistory); apiErr != nil {
+		return apiErr
+	}
+	return h.validateScheduledRunTarget(r, sr.Namespace, sr.Spec.TargetRef)
 }
 
-func (h *ScheduledRunsHandler) validateScheduledRunTarget(r *http.Request, srNamespace string, ref v1alpha2.AgentReference) *errors.APIError {
-	if err := scheduledrunutil.ValidateSameNamespace(srNamespace, ref); err != nil {
+func (h *ScheduledRunsHandler) validateScheduledRunTarget(r *http.Request, srNamespace string, ref corev1.TypedLocalObjectReference) *errors.APIError {
+	if err := scheduledrun.ValidateTargetRef(ref); err != nil {
 		return errors.NewBadRequestError(err.Error(), nil)
 	}
-	kind := scheduledrunutil.TargetKind(ref)
-	key := scheduledrunutil.TargetKey(srNamespace, ref)
-	target, err := scheduledrunutil.NewTargetObject(kind)
+	kind := scheduledrun.TargetKind(ref)
+	key := scheduledrun.TargetKey(srNamespace, ref)
+	target, err := scheduledrun.NewTargetObject(kind)
 	if err != nil {
 		return errors.NewBadRequestError(err.Error(), nil)
 	}
@@ -209,18 +229,13 @@ func (h *ScheduledRunsHandler) HandleCreateScheduledRun(w ErrorResponseWriter, r
 		return
 	}
 
-	// Record the creating user so the scheduler can attribute sessions back
-	// to them — without this the session is invisible to the UI.
-	if userID, err := getUserIDOrAgentUser(r); err == nil && userID != "" {
-		if sr.Annotations == nil {
-			sr.Annotations = map[string]string{}
-		}
-		sr.Annotations[v1alpha2.AnnotationCreatedBy] = userID
-	}
-
 	log = log.WithValues("namespace", sr.Namespace, "name", sr.Name)
 
 	if err := h.KubeClient.Create(r.Context(), &sr); err != nil {
+		if apierrors.IsInvalid(err) {
+			w.RespondWithError(errors.NewBadRequestError("Invalid ScheduledRun", err))
+			return
+		}
 		w.RespondWithError(errors.NewInternalServerError("Failed to create ScheduledRun", err))
 		return
 	}
@@ -259,6 +274,7 @@ func (h *ScheduledRunsHandler) HandleUpdateScheduledRun(w ErrorResponseWriter, r
 		return
 	}
 
+	preserveMaxRunHistory := incoming.Spec.MaxRunHistory == 0
 	incoming.Name = name
 	incoming.Namespace = namespace
 	normalizeScheduledRun(&incoming)
@@ -274,18 +290,14 @@ func (h *ScheduledRunsHandler) HandleUpdateScheduledRun(w ErrorResponseWriter, r
 			return err
 		}
 
-		existing.Spec = incoming.Spec
-
-		// Preserve created-by annotation across updates; if missing, set from
-		// current request user.
-		if existing.Annotations == nil {
-			existing.Annotations = map[string]string{}
-		}
-		if existing.Annotations[v1alpha2.AnnotationCreatedBy] == "" {
-			if userID, err := getUserIDOrAgentUser(r); err == nil && userID != "" {
-				existing.Annotations[v1alpha2.AnnotationCreatedBy] = userID
+		updatedSpec := incoming.Spec
+		if preserveMaxRunHistory {
+			updatedSpec.MaxRunHistory = existing.Spec.MaxRunHistory
+			if updatedSpec.MaxRunHistory == 0 {
+				updatedSpec.MaxRunHistory = v1alpha2.DefaultScheduledRunMaxRunHistory
 			}
 		}
+		existing.Spec = updatedSpec
 
 		if err := h.KubeClient.Update(r.Context(), existing); err != nil {
 			return err
@@ -295,6 +307,10 @@ func (h *ScheduledRunsHandler) HandleUpdateScheduledRun(w ErrorResponseWriter, r
 	}); err != nil {
 		if apierrors.IsNotFound(err) {
 			w.RespondWithError(errors.NewNotFoundError("ScheduledRun not found", err))
+			return
+		}
+		if apierrors.IsInvalid(err) {
+			w.RespondWithError(errors.NewBadRequestError("Invalid ScheduledRun", err))
 			return
 		}
 		w.RespondWithError(errors.NewInternalServerError("Failed to update ScheduledRun", err))
@@ -381,12 +397,8 @@ func (h *ScheduledRunsHandler) HandleTriggerScheduledRun(w ErrorResponseWriter, 
 		w.RespondWithError(errors.NewInternalServerError("Failed to get ScheduledRun", err))
 		return
 	}
-	if apiErr := h.validateScheduledRunTarget(r, sr.Namespace, sr.Spec.AgentRef); apiErr != nil {
+	if apiErr := h.validateScheduledRunTarget(r, sr.Namespace, sr.Spec.TargetRef); apiErr != nil {
 		w.RespondWithError(apiErr)
-		return
-	}
-	if sr.Spec.Suspend {
-		w.RespondWithError(errors.NewConflictError("ScheduledRun is suspended", nil))
 		return
 	}
 

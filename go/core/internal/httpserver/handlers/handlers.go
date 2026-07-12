@@ -103,9 +103,7 @@ func NewHandlers(
 		CrewAI:                   NewCrewAIHandler(base),
 		CurrentUser:              NewCurrentUserHandler(),
 		Substrate:                NewSubstrateHandler(base, substrateAteClient),
-	}
-	if scheduledRunTrigger != nil {
-		handlers.ScheduledRuns = NewScheduledRunsHandler(base, scheduledRunTrigger)
+		ScheduledRuns:            NewScheduledRunsHandler(base, scheduledRunTrigger),
 	}
 	return handlers
 }

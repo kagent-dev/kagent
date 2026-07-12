@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,11 +13,13 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -36,6 +39,28 @@ type mockScheduledRunTrigger struct {
 func (m *mockScheduledRunTrigger) TriggerManualRun(key types.NamespacedName) (*v1alpha2.RunHistoryEntry, error) {
 	m.triggered = append(m.triggered, key)
 	return m.entry, m.err
+}
+
+func scheduledRunTargetRef(kind, name string) corev1.TypedLocalObjectReference {
+	apiGroup := v1alpha2.ScheduledRunTargetAPIGroup
+	if kind == "" {
+		kind = v1alpha2.ScheduledRunTargetKindAgent
+	}
+	return corev1.TypedLocalObjectReference{
+		APIGroup: &apiGroup,
+		Kind:     kind,
+		Name:     name,
+	}
+}
+
+func invalidScheduledRunError(name string) error {
+	return apierrors.NewInvalid(
+		schema.GroupKind{Group: "kagent.dev", Kind: "ScheduledRun"},
+		name,
+		field.ErrorList{
+			field.Invalid(field.NewPath("spec", "maxRunHistory"), 101, "must be between 1 and 100"),
+		},
+	)
 }
 
 func TestScheduledRunsHandler(t *testing.T) {
@@ -68,11 +93,8 @@ func TestScheduledRunsHandler(t *testing.T) {
 				Namespace: namespace,
 			},
 			Spec: v1alpha2.ScheduledRunSpec{
-				Schedule: schedule,
-				AgentRef: v1alpha2.AgentReference{
-					Name:      "my-agent",
-					Namespace: namespace,
-				},
+				Schedule:      schedule,
+				TargetRef:     scheduledRunTargetRef("", "my-agent"),
 				Prompt:        "test prompt",
 				MaxRunHistory: 10,
 			},
@@ -145,9 +167,9 @@ func TestScheduledRunsHandler(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: v1alpha2.ScheduledRunSpec{
-					Schedule: "0 */2 * * *",
-					AgentRef: v1alpha2.AgentReference{Name: "agent", Namespace: "default"},
-					Prompt:   "do something",
+					Schedule:  "0 */2 * * *",
+					TargetRef: scheduledRunTargetRef("", "agent"),
+					Prompt:    "do something",
 				},
 			}
 			body, _ := json.Marshal(sr)
@@ -159,6 +181,11 @@ func TestScheduledRunsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusCreated, w.Code)
 			assert.Contains(t, w.Body.String(), "new-sr")
+			var response struct {
+				Data v1alpha2.ScheduledRun `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+			assert.Equal(t, v1alpha2.DefaultScheduledRunMaxRunHistory, response.Data.Spec.MaxRunHistory)
 		})
 
 		t.Run("success with sandbox agent target", func(t *testing.T) {
@@ -170,13 +197,9 @@ func TestScheduledRunsHandler(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: v1alpha2.ScheduledRunSpec{
-					Schedule: "0 */2 * * *",
-					AgentRef: v1alpha2.AgentReference{
-						Kind:      v1alpha2.AgentReferenceKindSandboxAgent,
-						Name:      "sandbox-agent",
-						Namespace: "default",
-					},
-					Prompt: "do something",
+					Schedule:  "0 */2 * * *",
+					TargetRef: scheduledRunTargetRef(v1alpha2.ScheduledRunTargetKindSandboxAgent, "sandbox-agent"),
+					Prompt:    "do something",
 				},
 			}
 			body, _ := json.Marshal(sr)
@@ -199,9 +222,9 @@ func TestScheduledRunsHandler(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: v1alpha2.ScheduledRunSpec{
-					Schedule: "0 */2 * * *",
-					AgentRef: v1alpha2.AgentReference{Name: "missing", Namespace: "default"},
-					Prompt:   "do something",
+					Schedule:  "0 */2 * * *",
+					TargetRef: scheduledRunTargetRef("", "missing"),
+					Prompt:    "do something",
 				},
 			}
 			body, _ := json.Marshal(sr)
@@ -214,7 +237,7 @@ func TestScheduledRunsHandler(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, w.Code)
 		})
 
-		t.Run("rejects cross namespace target", func(t *testing.T) {
+		t.Run("uses scheduledrun namespace for target lookup", func(t *testing.T) {
 			handler, _, w := setupHandler(newAgent("other", "agent"))
 
 			sr := v1alpha2.ScheduledRun{
@@ -223,9 +246,33 @@ func TestScheduledRunsHandler(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: v1alpha2.ScheduledRunSpec{
-					Schedule: "0 */2 * * *",
-					AgentRef: v1alpha2.AgentReference{Name: "agent", Namespace: "other"},
-					Prompt:   "do something",
+					Schedule:  "0 */2 * * *",
+					TargetRef: scheduledRunTargetRef("", "agent"),
+					Prompt:    "do something",
+				},
+			}
+			body, _ := json.Marshal(sr)
+
+			req := httptest.NewRequest("POST", "/api/scheduledruns", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+			handler.HandleCreateScheduledRun(w, req)
+
+			assert.Equal(t, http.StatusNotFound, w.Code)
+		})
+
+		t.Run("invalid schedule - bad cron syntax", func(t *testing.T) {
+			handler, _, w := setupHandler()
+
+			sr := v1alpha2.ScheduledRun{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "new-sr",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.ScheduledRunSpec{
+					Schedule:  "not-a-cron",
+					TargetRef: scheduledRunTargetRef("", "agent"),
+					Prompt:    "do something",
 				},
 			}
 			body, _ := json.Marshal(sr)
@@ -238,8 +285,53 @@ func TestScheduledRunsHandler(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, w.Code)
 		})
 
-		t.Run("invalid schedule - bad cron syntax", func(t *testing.T) {
-			handler, _, w := setupHandler()
+		t.Run("rejects invalid max run history", func(t *testing.T) {
+			for _, maxRunHistory := range []int{-1, 101} {
+				t.Run(fmt.Sprintf("%d", maxRunHistory), func(t *testing.T) {
+					handler, _, w := setupHandler(newAgent("default", "agent"))
+
+					sr := v1alpha2.ScheduledRun{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "new-sr",
+							Namespace: "default",
+						},
+						Spec: v1alpha2.ScheduledRunSpec{
+							Schedule:      "0 */2 * * *",
+							TargetRef:     scheduledRunTargetRef("", "agent"),
+							Prompt:        "do something",
+							MaxRunHistory: maxRunHistory,
+						},
+					}
+					body, _ := json.Marshal(sr)
+
+					req := httptest.NewRequest("POST", "/api/scheduledruns", bytes.NewBuffer(body))
+					req.Header.Set("Content-Type", "application/json")
+					req = setUser(req, "test-user")
+					handler.HandleCreateScheduledRun(w, req)
+
+					assert.Equal(t, http.StatusBadRequest, w.Code)
+				})
+			}
+		})
+
+		t.Run("maps apiserver invalid to bad request", func(t *testing.T) {
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithRuntimeObjects(newAgent("default", "agent")).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, c ctrlclient.WithWatch, obj ctrlclient.Object, opts ...ctrlclient.CreateOption) error {
+						if _, ok := obj.(*v1alpha2.ScheduledRun); ok {
+							return invalidScheduledRunError(obj.GetName())
+						}
+						return c.Create(ctx, obj, opts...)
+					},
+				}).
+				Build()
+			handler := handlers.NewScheduledRunsHandler(&handlers.Base{
+				KubeClient: kubeClient,
+				Authorizer: &auth.NoopAuthorizer{},
+			}, &mockScheduledRunTrigger{})
+			w := newMockErrorResponseWriter()
 
 			sr := v1alpha2.ScheduledRun{
 				ObjectMeta: metav1.ObjectMeta{
@@ -247,9 +339,10 @@ func TestScheduledRunsHandler(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: v1alpha2.ScheduledRunSpec{
-					Schedule: "not-a-cron",
-					AgentRef: v1alpha2.AgentReference{Name: "agent", Namespace: "default"},
-					Prompt:   "do something",
+					Schedule:      "0 */2 * * *",
+					TargetRef:     scheduledRunTargetRef("", "agent"),
+					Prompt:        "do something",
+					MaxRunHistory: 100,
 				},
 			}
 			body, _ := json.Marshal(sr)
@@ -277,13 +370,14 @@ func TestScheduledRunsHandler(t *testing.T) {
 	t.Run("HandleUpdateScheduledRun", func(t *testing.T) {
 		t.Run("success", func(t *testing.T) {
 			existing := newSR("default", "sr-1", "0 */2 * * *")
+			existing.Spec.MaxRunHistory = 42
 			handler, _, w := setupHandler(existing, newAgent("default", "my-agent"))
 
 			updated := v1alpha2.ScheduledRun{
 				Spec: v1alpha2.ScheduledRunSpec{
-					Schedule: "0 */3 * * *",
-					AgentRef: v1alpha2.AgentReference{Name: "my-agent", Namespace: "default"},
-					Prompt:   "updated prompt",
+					Schedule:  "0 */3 * * *",
+					TargetRef: scheduledRunTargetRef("", "my-agent"),
+					Prompt:    "updated prompt",
 				},
 			}
 			body, _ := json.Marshal(updated)
@@ -295,6 +389,36 @@ func TestScheduledRunsHandler(t *testing.T) {
 			handler.HandleUpdateScheduledRun(w, req)
 
 			assert.Equal(t, http.StatusOK, w.Code)
+			got := &v1alpha2.ScheduledRun{}
+			require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sr-1"}, got))
+			assert.Equal(t, 42, got.Spec.MaxRunHistory)
+		})
+
+		t.Run("updates explicit max run history", func(t *testing.T) {
+			existing := newSR("default", "sr-1", "0 */2 * * *")
+			existing.Spec.MaxRunHistory = 42
+			handler, _, w := setupHandler(existing, newAgent("default", "my-agent"))
+
+			updated := v1alpha2.ScheduledRun{
+				Spec: v1alpha2.ScheduledRunSpec{
+					Schedule:      "0 */3 * * *",
+					TargetRef:     scheduledRunTargetRef("", "my-agent"),
+					Prompt:        "updated prompt",
+					MaxRunHistory: 20,
+				},
+			}
+			body, _ := json.Marshal(updated)
+
+			req := httptest.NewRequest("PUT", "/api/scheduledruns/default/sr-1", bytes.NewBuffer(body))
+			req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sr-1"})
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+			handler.HandleUpdateScheduledRun(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			got := &v1alpha2.ScheduledRun{}
+			require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sr-1"}, got))
+			assert.Equal(t, 20, got.Spec.MaxRunHistory)
 		})
 
 		t.Run("retries resource version conflict", func(t *testing.T) {
@@ -329,9 +453,9 @@ func TestScheduledRunsHandler(t *testing.T) {
 
 			updated := v1alpha2.ScheduledRun{
 				Spec: v1alpha2.ScheduledRunSpec{
-					Schedule: "0 */3 * * *",
-					AgentRef: v1alpha2.AgentReference{Name: "my-agent", Namespace: "default"},
-					Prompt:   "updated prompt",
+					Schedule:  "0 */3 * * *",
+					TargetRef: scheduledRunTargetRef("", "my-agent"),
+					Prompt:    "updated prompt",
 				},
 			}
 			body, _ := json.Marshal(updated)
@@ -355,9 +479,9 @@ func TestScheduledRunsHandler(t *testing.T) {
 
 			updated := v1alpha2.ScheduledRun{
 				Spec: v1alpha2.ScheduledRunSpec{
-					Schedule: "0 */3 * * *",
-					AgentRef: v1alpha2.AgentReference{Name: "agent", Namespace: "default"},
-					Prompt:   "updated prompt",
+					Schedule:  "0 */3 * * *",
+					TargetRef: scheduledRunTargetRef("", "agent"),
+					Prompt:    "updated prompt",
 				},
 			}
 			body, _ := json.Marshal(updated)
@@ -377,9 +501,50 @@ func TestScheduledRunsHandler(t *testing.T) {
 
 			updated := v1alpha2.ScheduledRun{
 				Spec: v1alpha2.ScheduledRunSpec{
-					Schedule: "not-a-cron",
-					AgentRef: v1alpha2.AgentReference{Name: "agent", Namespace: "default"},
-					Prompt:   "updated prompt",
+					Schedule:  "not-a-cron",
+					TargetRef: scheduledRunTargetRef("", "agent"),
+					Prompt:    "updated prompt",
+				},
+			}
+			body, _ := json.Marshal(updated)
+
+			req := httptest.NewRequest("PUT", "/api/scheduledruns/default/sr-1", bytes.NewBuffer(body))
+			req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sr-1"})
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+			handler.HandleUpdateScheduledRun(w, req)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+		})
+
+		t.Run("maps apiserver invalid to bad request", func(t *testing.T) {
+			existing := newSR("default", "sr-1", "0 */2 * * *")
+			agent := newAgent("default", "my-agent")
+			kubeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(&v1alpha2.ScheduledRun{}).
+				WithRuntimeObjects(existing, agent).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Update: func(ctx context.Context, c ctrlclient.WithWatch, obj ctrlclient.Object, opts ...ctrlclient.UpdateOption) error {
+						if _, ok := obj.(*v1alpha2.ScheduledRun); ok {
+							return invalidScheduledRunError(obj.GetName())
+						}
+						return c.Update(ctx, obj, opts...)
+					},
+				}).
+				Build()
+			handler := handlers.NewScheduledRunsHandler(&handlers.Base{
+				KubeClient: kubeClient,
+				Authorizer: &auth.NoopAuthorizer{},
+			}, &mockScheduledRunTrigger{})
+			w := newMockErrorResponseWriter()
+
+			updated := v1alpha2.ScheduledRun{
+				Spec: v1alpha2.ScheduledRunSpec{
+					Schedule:      "0 */3 * * *",
+					TargetRef:     scheduledRunTargetRef("", "my-agent"),
+					Prompt:        "updated prompt",
+					MaxRunHistory: 100,
 				},
 			}
 			body, _ := json.Marshal(updated)
@@ -454,8 +619,9 @@ func TestScheduledRunsHandler(t *testing.T) {
 			req = setUser(req, "test-user")
 			handler.HandleTriggerScheduledRun(w, req)
 
-			assert.Equal(t, http.StatusConflict, w.Code)
-			assert.Empty(t, trigger.triggered)
+			assert.Equal(t, http.StatusOK, w.Code)
+			require.Len(t, trigger.triggered, 1)
+			assert.Equal(t, types.NamespacedName{Namespace: "default", Name: "sr-1"}, trigger.triggered[0])
 		})
 
 		t.Run("not found", func(t *testing.T) {
@@ -469,69 +635,6 @@ func TestScheduledRunsHandler(t *testing.T) {
 			assert.Equal(t, http.StatusNotFound, w.Code)
 		})
 	})
-}
-
-func TestValidateSchedule(t *testing.T) {
-	tests := []struct {
-		name     string
-		schedule string
-		timeZone string
-		wantErr  bool
-	}{
-		{
-			name:     "valid - every 2 hours",
-			schedule: "0 */2 * * *",
-			wantErr:  false,
-		},
-		{
-			name:     "valid - daily at midnight",
-			schedule: "0 0 * * *",
-			wantErr:  false,
-		},
-		{
-			name:     "valid - exactly 1 hour",
-			schedule: "0 * * * *",
-			wantErr:  false,
-		},
-		{
-			name:     "valid - every 5 minutes (sub-hourly allowed)",
-			schedule: "*/5 * * * *",
-			wantErr:  false,
-		},
-		{
-			name:     "valid - every 30 minutes (sub-hourly allowed)",
-			schedule: "*/30 * * * *",
-			wantErr:  false,
-		},
-		{
-			name:     "invalid cron expression",
-			schedule: "not-a-cron",
-			wantErr:  true,
-		},
-		{
-			name:     "valid - with time zone",
-			schedule: "0 9 * * *",
-			timeZone: "America/Los_Angeles",
-			wantErr:  false,
-		},
-		{
-			name:     "invalid time zone",
-			schedule: "0 9 * * *",
-			timeZone: "Mars/Olympus_Mons",
-			wantErr:  true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := handlers.ValidateSchedule(tt.schedule, tt.timeZone)
-			if tt.wantErr {
-				assert.NotNil(t, err)
-			} else {
-				assert.Nil(t, err)
-			}
-		})
-	}
 }
 
 func TestScheduledRunsHandler_CreateDefaultsNamespace(t *testing.T) {
@@ -556,9 +659,9 @@ func TestScheduledRunsHandler_CreateDefaultsNamespace(t *testing.T) {
 			Name: "no-namespace-sr",
 		},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 */2 * * *",
-			AgentRef: v1alpha2.AgentReference{Name: "agent"},
-			Prompt:   "test",
+			Schedule:  "0 */2 * * *",
+			TargetRef: scheduledRunTargetRef("", "agent"),
+			Prompt:    "test",
 		},
 	}
 	body, _ := json.Marshal(sr)

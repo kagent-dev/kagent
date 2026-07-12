@@ -17,17 +17,25 @@ limitations under the License.
 package v1alpha2
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-// AnnotationCreatedBy records the user identity that created a ScheduledRun.
-// The scheduler uses this value as the session userID so the user who created
-// the schedule can read the resulting session in the UI.
-const AnnotationCreatedBy = "kagent.dev/created-by"
-
 // DefaultScheduledRunTimeZone is used when spec.timeZone is omitted.
 const DefaultScheduledRunTimeZone = "UTC"
+
+// DefaultScheduledRunMaxRunHistory is used when spec.maxRunHistory is omitted.
+const DefaultScheduledRunMaxRunHistory = 10
+
+const (
+	// ScheduledRunTargetAPIGroup is the API group for built-in ScheduledRun targets.
+	ScheduledRunTargetAPIGroup = "kagent.dev"
+	// ScheduledRunTargetKindAgent is the Agent target kind.
+	ScheduledRunTargetKindAgent = "Agent"
+	// ScheduledRunTargetKindSandboxAgent is the SandboxAgent target kind.
+	ScheduledRunTargetKindSandboxAgent = "SandboxAgent"
+)
 
 // RunStatus reflects the lifecycle state of a single scheduled run. It folds
 // together the synchronous dispatch outcome and the asynchronous session
@@ -52,36 +60,6 @@ const (
 	RunStatusTimeout        RunStatus = "Timeout"
 )
 
-// AgentReferenceKind is the supported ScheduledRun target kind.
-// +kubebuilder:validation:Enum=Agent;SandboxAgent
-type AgentReferenceKind string
-
-const (
-	AgentReferenceKindAgent        AgentReferenceKind = "Agent"
-	AgentReferenceKindSandboxAgent AgentReferenceKind = "SandboxAgent"
-)
-
-// AgentReference holds a reference to an Agent or SandboxAgent resource.
-// Namespace defaults to the ScheduledRun's namespace. Cross-namespace targets
-// are not accepted by the controller or HTTP API.
-type AgentReference struct {
-	// Kind selects the resource kind to run. Defaults to Agent.
-	// +optional
-	// +kubebuilder:default=Agent
-	Kind AgentReferenceKind `json:"kind,omitempty"`
-
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
-	// +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?)(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
-	Name string `json:"name"`
-
-	// +optional
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
-	Namespace string `json:"namespace,omitempty"`
-}
-
 // ScheduledRunSpec defines the desired state of ScheduledRun.
 type ScheduledRunSpec struct {
 	// Schedule is a cron expression defining when to run the agent. Standard
@@ -96,17 +74,18 @@ type ScheduledRunSpec struct {
 	// +kubebuilder:default=UTC
 	TimeZone string `json:"timeZone,omitempty"`
 
-	// AgentRef is a reference to the Agent or SandboxAgent to execute. If
-	// Namespace is empty it defaults to the ScheduledRun's namespace.
+	// TargetRef is a local reference to the Agent or SandboxAgent to execute.
+	// The target must live in the same namespace as the ScheduledRun.
 	// +required
-	AgentRef AgentReference `json:"agentRef"`
+	TargetRef corev1.TypedLocalObjectReference `json:"targetRef"`
 
 	// Prompt is the text prompt to send to the agent on each run.
 	// +required
 	// +kubebuilder:validation:MinLength=1
 	Prompt string `json:"prompt"`
 
-	// Suspend pauses scheduling and manual triggers when set to true.
+	// Suspend pauses automatic scheduling when set to true. Manual triggers
+	// are still allowed.
 	// +optional
 	// +kubebuilder:default=false
 	Suspend bool `json:"suspend,omitempty"`

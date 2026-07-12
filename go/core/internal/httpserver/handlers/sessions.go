@@ -13,11 +13,13 @@ import (
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -199,6 +201,37 @@ type SessionResponse struct {
 	ReadOnly *bool             `json:"read_only,omitempty"`
 }
 
+func (h *SessionsHandler) scheduledRunSessionUserID(r *http.Request, sessionID string) (string, bool) {
+	if h.KubeClient == nil || h.Authorizer == nil {
+		return "", false
+	}
+	principal, err := GetPrincipal(r)
+	if err != nil {
+		return "", false
+	}
+
+	var list v1alpha2.ScheduledRunList
+	if err := h.KubeClient.List(r.Context(), &list); err != nil {
+		ctrllog.FromContext(r.Context()).Error(err, "Failed to list ScheduledRuns while resolving scheduled session", "sessionID", sessionID)
+		return "", false
+	}
+	for i := range list.Items {
+		sr := &list.Items[i]
+		for _, entry := range sr.Status.RunHistory {
+			if entry.SessionID != sessionID {
+				continue
+			}
+			key := types.NamespacedName{Namespace: sr.Namespace, Name: sr.Name}
+			err := h.Authorizer.Check(r.Context(), principal, auth.VerbGet, auth.Resource{Type: "ScheduledRun", Name: key.String()})
+			if err != nil {
+				return "", false
+			}
+			return scheduledrun.SessionUserID, true
+		}
+	}
+	return "", false
+}
+
 // getEffectiveUserIDForSession returns the user ID to use for DB lookups on a specific session.
 // When the request carries a valid X-Share-Token scoped to sessionID, the share owner's user ID
 // is returned so that shared access works transparently.
@@ -229,6 +262,18 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 
 	log.V(1).Info("Getting session from database")
 	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+	scheduledRunReadOnly := false
+	if err != nil {
+		if scheduledRunUserID, ok := h.scheduledRunSessionUserID(r, sessionID); ok {
+			if scheduledSession, scheduledErr := h.DatabaseService.GetSession(r.Context(), sessionID, scheduledRunUserID); scheduledErr == nil {
+				userID = scheduledRunUserID
+				session = scheduledSession
+				err = nil
+				scheduledRunReadOnly = true
+				log = log.WithValues("scheduledRunSession", true)
+			}
+		}
+	}
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
@@ -271,6 +316,10 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		Events:  events,
 	}
 	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID && sc.ReadOnly {
+		t := true
+		resp.ReadOnly = &t
+	}
+	if scheduledRunReadOnly {
 		t := true
 		resp.ReadOnly = &t
 	}
@@ -407,6 +456,14 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 
 	// Verify session exists
 	_, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+	if err != nil {
+		if scheduledRunUserID, ok := h.scheduledRunSessionUserID(r, sessionID); ok {
+			if _, scheduledErr := h.DatabaseService.GetSession(r.Context(), sessionID, scheduledRunUserID); scheduledErr == nil {
+				err = nil
+				log = log.WithValues("scheduledRunSession", true)
+			}
+		}
+	}
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found for given ID", err))
 		return

@@ -26,11 +26,19 @@ import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { formatDateTime } from "@/lib/formatDateTime";
 import {
-  formatScheduledRunAgentRef,
+  formatScheduledRunTargetRef,
   getScheduledRunDisplayStatus,
   hasPendingRunHistory,
 } from "@/lib/scheduledRuns";
 import { toast } from "sonner";
+
+function scheduleEditPath(namespace: string, name: string): string {
+  return `/schedules/new?${new URLSearchParams({
+    edit: "true",
+    name,
+    namespace,
+  }).toString()}`;
+}
 
 export default function ScheduledRunDetailPage() {
   const router = useRouter();
@@ -74,7 +82,7 @@ export default function ScheduledRunDetailPage() {
   }, [fetchData, sr]);
 
   const handleEdit = () => {
-    router.push(`/schedules/new?edit=true&name=${name}&namespace=${namespace}`);
+    router.push(scheduleEditPath(namespace, name));
   };
 
   const handleDelete = async () => {
@@ -93,10 +101,6 @@ export default function ScheduledRunDetailPage() {
   };
 
   const handleTrigger = async () => {
-    if (sr?.spec.suspend) {
-      toast.error("Schedule is suspended");
-      return;
-    }
     setIsTriggering(true);
     try {
       const response = await triggerScheduledRun(name, namespace);
@@ -150,22 +154,22 @@ export default function ScheduledRunDetailPage() {
   if (error) return <ErrorState message={error} />;
   if (!sr) return <ErrorState message="Scheduled run not found" />;
 
-  const agentRef = sr.spec.agentRef;
-  const agentDisplay = formatScheduledRunAgentRef(sr);
+  const targetRef = sr.spec.targetRef;
+  const agentDisplay = formatScheduledRunTargetRef(sr);
   const status = getScheduledRunDisplayStatus(sr);
 
   return (
-    <div className="min-h-screen p-8">
+    <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col gap-4 lg:flex-row lg:justify-between lg:items-center mb-8">
           <div>
-            <h1 className="text-2xl font-bold">{sr.metadata.name}</h1>
+            <h1 className="text-2xl font-bold break-all">{sr.metadata.name}</h1>
             <p className="text-sm text-muted-foreground">
               {sr.metadata.namespace}
             </p>
           </div>
-          <div className="flex space-x-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               onClick={handleToggleSuspend}
@@ -183,13 +187,11 @@ export default function ScheduledRunDetailPage() {
             <Button
               variant="outline"
               onClick={handleTrigger}
-              disabled={isTriggering || sr.spec.suspend}
+              disabled={isTriggering}
               title={
-                sr.spec.suspend
-                  ? "Schedule is suspended"
-                  : isTriggering
-                    ? "Dispatching to agent - outcome appears in run history"
-                    : undefined
+                isTriggering
+                  ? "Dispatching to agent - outcome appears in run history"
+                  : undefined
               }
             >
               {isTriggering ? (
@@ -239,7 +241,7 @@ export default function ScheduledRunDetailPage() {
                 <p className="text-sm font-medium text-muted-foreground">
                   Agent
                 </p>
-                <p>{agentDisplay}</p>
+                <p className="break-all">{agentDisplay}</p>
               </div>
               <div>
                 <p className="text-sm font-medium text-muted-foreground">
@@ -272,7 +274,7 @@ export default function ScheduledRunDetailPage() {
               <p className="text-sm font-medium text-muted-foreground mb-1">
                 Prompt
               </p>
-              <div className="bg-muted p-3 rounded-md text-sm whitespace-pre-wrap">
+              <div className="bg-muted p-3 rounded-md text-sm whitespace-pre-wrap break-words">
                 {sr.spec.prompt}
               </div>
             </div>
@@ -284,11 +286,11 @@ export default function ScheduledRunDetailPage() {
           <CardHeader>
             <CardTitle>Run History</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <RunHistoryTable
               entries={sr.status?.runHistory || []}
-              agentNamespace={agentRef.namespace || sr.metadata.namespace}
-              agentName={agentRef.name}
+              agentNamespace={sr.metadata.namespace}
+              agentName={targetRef.name}
             />
           </CardContent>
         </Card>

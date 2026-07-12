@@ -1,4 +1,4 @@
-package controller
+package scheduledrun
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -26,6 +27,18 @@ func newTestScheduledRunScheduler(t *testing.T, kube client.Client) *ScheduledRu
 	scheduler, err := NewScheduledRunScheduler(kube, nil, a2a.NewAgentClientRegistry())
 	require.NoError(t, err)
 	return scheduler
+}
+
+func testTargetRef(kind, name string) corev1.TypedLocalObjectReference {
+	apiGroup := v1alpha2.ScheduledRunTargetAPIGroup
+	if kind == "" {
+		kind = v1alpha2.ScheduledRunTargetKindAgent
+	}
+	return corev1.TypedLocalObjectReference{
+		APIGroup: &apiGroup,
+		Kind:     kind,
+		Name:     name,
+	}
 }
 
 func TestScheduledRunScheduler_UpdateSchedule(t *testing.T) {
@@ -149,7 +162,7 @@ func TestScheduledRunScheduler_UpdateSchedule(t *testing.T) {
 				Prompt:   "hello",
 			},
 		}
-		assert.Equal(t, "CRON_TZ=UTC 0 9 * * *", scheduleSpecForCron(sr))
+		assert.Equal(t, "CRON_TZ=UTC 0 9 * * *", ScheduleSpecForCron(sr))
 	})
 }
 
@@ -211,26 +224,26 @@ func newSchedulerWithFake(t *testing.T, sr *v1alpha2.ScheduledRun) (*ScheduledRu
 func TestRouteKeyForScheduledRunTarget(t *testing.T) {
 	key := types.NamespacedName{Namespace: "default", Name: "agent"}
 
-	got, err := routeKeyForScheduledRunTarget(v1alpha2.AgentReferenceKindAgent, key)
+	got, err := routeKeyForScheduledRunTarget(v1alpha2.ScheduledRunTargetKindAgent, key)
 	require.NoError(t, err)
 	assert.Equal(t, "default/agent", got)
 
-	got, err = routeKeyForScheduledRunTarget(v1alpha2.AgentReferenceKindSandboxAgent, key)
+	got, err = routeKeyForScheduledRunTarget(v1alpha2.ScheduledRunTargetKindSandboxAgent, key)
 	require.NoError(t, err)
 	assert.Equal(t, "sandboxes/default/agent", got)
 
-	_, err = routeKeyForScheduledRunTarget(v1alpha2.AgentReferenceKind("Other"), key)
+	_, err = routeKeyForScheduledRunTarget("Other", key)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported agentRef.kind")
+	assert.Contains(t, err.Error(), "unsupported targetRef.kind")
 }
 
 func TestRunAgentCall_RequiresDatabaseClient(t *testing.T) {
 	sr := &v1alpha2.ScheduledRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "needs-db", Namespace: "default"},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 * * * *",
-			Prompt:   "hi",
-			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+			Schedule:  "0 * * * *",
+			Prompt:    "hi",
+			TargetRef: testTargetRef("", "a"),
 		},
 	}
 	s, _ := newSchedulerWithFake(t, sr)
@@ -244,9 +257,9 @@ func TestRunOnce_RecordsDispatched(t *testing.T) {
 	sr := &v1alpha2.ScheduledRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "ok", Namespace: "default"},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 * * * *",
-			Prompt:   "hi",
-			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+			Schedule:  "0 * * * *",
+			Prompt:    "hi",
+			TargetRef: testTargetRef("", "a"),
 		},
 	}
 	s, key := newSchedulerWithFake(t, sr)
@@ -272,15 +285,15 @@ func TestRunOnce_RecordsDispatched(t *testing.T) {
 	assert.Empty(t, got.Status.RunHistory[0].Message)
 }
 
-func TestRunOnce_SuspendedManualTriggerDoesNotDispatch(t *testing.T) {
+func TestRunOnce_SuspendedManualTriggerDispatches(t *testing.T) {
 	existingNextRunTime := metav1.NewTime(time.Now().Add(time.Hour))
 	sr := &v1alpha2.ScheduledRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "suspended", Namespace: "default"},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 * * * *",
-			Prompt:   "hi",
-			Suspend:  true,
-			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+			Schedule:  "0 * * * *",
+			Prompt:    "hi",
+			Suspend:   true,
+			TargetRef: testTargetRef("", "a"),
 		},
 		Status: v1alpha2.ScheduledRunStatus{NextRunTime: &existingNextRunTime},
 	}
@@ -293,14 +306,13 @@ func TestRunOnce_SuspendedManualTriggerDoesNotDispatch(t *testing.T) {
 	}
 
 	entry, err := s.TriggerManualRun(key)
-	require.Error(t, err)
-	require.Nil(t, entry)
-	assert.ErrorIs(t, err, errScheduledRunSuspended)
-	assert.False(t, called)
+	require.NoError(t, err)
+	require.NotNil(t, entry)
+	assert.True(t, called)
 
 	got := &v1alpha2.ScheduledRun{}
 	require.NoError(t, s.kube.Get(context.Background(), key, got))
-	require.Empty(t, got.Status.RunHistory)
+	require.Len(t, got.Status.RunHistory, 1)
 	assert.Nil(t, got.Status.NextRunTime)
 }
 
@@ -308,9 +320,9 @@ func TestRunOnce_RecordsDispatchFailed(t *testing.T) {
 	sr := &v1alpha2.ScheduledRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "boom", Namespace: "default"},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 * * * *",
-			Prompt:   "hi",
-			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+			Schedule:  "0 * * * *",
+			Prompt:    "hi",
+			TargetRef: testTargetRef("", "a"),
 		},
 	}
 	s, key := newSchedulerWithFake(t, sr)
@@ -340,9 +352,9 @@ func TestRunOnce_RecoversFromDispatchPanic(t *testing.T) {
 	sr := &v1alpha2.ScheduledRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "panicky", Namespace: "default"},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 * * * *",
-			Prompt:   "hi",
-			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+			Schedule:  "0 * * * *",
+			Prompt:    "hi",
+			TargetRef: testTargetRef("", "a"),
 		},
 	}
 	s, key := newSchedulerWithFake(t, sr)
@@ -377,7 +389,7 @@ func TestRunOnce_TrimsHistory(t *testing.T) {
 		Spec: v1alpha2.ScheduledRunSpec{
 			Schedule:      "0 * * * *",
 			Prompt:        "hi",
-			AgentRef:      v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+			TargetRef:     testTargetRef("", "a"),
 			MaxRunHistory: 5,
 		},
 		Status: v1alpha2.ScheduledRunStatus{RunHistory: existing},
@@ -399,9 +411,9 @@ func TestRunOnce_TruncatesLongDispatchMessage(t *testing.T) {
 	sr := &v1alpha2.ScheduledRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "longmsg", Namespace: "default"},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 * * * *",
-			Prompt:   "hi",
-			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+			Schedule:  "0 * * * *",
+			Prompt:    "hi",
+			TargetRef: testTargetRef("", "a"),
 		},
 	}
 	s, key := newSchedulerWithFake(t, sr)
@@ -416,7 +428,8 @@ func TestRunOnce_TruncatesLongDispatchMessage(t *testing.T) {
 
 	entry, err := s.TriggerManualRun(key)
 	require.NoError(t, err)
-	require.LessOrEqual(t, len(entry.Message), messageMaxBytes+len("…(truncated)"))
+	require.LessOrEqual(t, len(entry.Message), messageMaxBytes)
+	assert.Contains(t, entry.Message, truncatedSuffix)
 }
 
 // --- poller path tests -----------------------------------------------------
@@ -494,9 +507,9 @@ func TestSpawnOutcomePoller_UpdatesMatchingEntry(t *testing.T) {
 	sr := &v1alpha2.ScheduledRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "sr", Namespace: "default"},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 * * * *",
-			Prompt:   "hi",
-			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+			Schedule:  "0 * * * *",
+			Prompt:    "hi",
+			TargetRef: testTargetRef("", "a"),
 		},
 		Status: v1alpha2.ScheduledRunStatus{
 			RunHistory: []v1alpha2.RunHistoryEntry{
@@ -538,9 +551,9 @@ func TestResumePendingPollers(t *testing.T) {
 	sr := &v1alpha2.ScheduledRun{
 		ObjectMeta: metav1.ObjectMeta{Name: "sr", Namespace: "default"},
 		Spec: v1alpha2.ScheduledRunSpec{
-			Schedule: "0 * * * *",
-			Prompt:   "hi",
-			AgentRef: v1alpha2.AgentReference{Name: "a", Namespace: "default"},
+			Schedule:  "0 * * * *",
+			Prompt:    "hi",
+			TargetRef: testTargetRef("", "a"),
 		},
 		Status: v1alpha2.ScheduledRunStatus{
 			RunHistory: []v1alpha2.RunHistoryEntry{

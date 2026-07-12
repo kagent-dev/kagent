@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package scheduledrun
 
 import (
 	"context"
@@ -39,7 +39,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/metrics"
-	scheduledrunutil "github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
@@ -50,6 +49,7 @@ const (
 	// messageMaxBytes caps RunHistoryEntry.Message so a flood of long error
 	// strings cannot blow past the apiserver's status size limit.
 	messageMaxBytes = 1024
+	truncatedSuffix = "...(truncated)"
 	// drainTimeout bounds how long Start() waits for in-flight runs to finish
 	// after the manager context is cancelled. Should be less than the pod's
 	// terminationGracePeriodSeconds.
@@ -195,7 +195,7 @@ func (s *ScheduledRunScheduler) resumePendingPollers(ctx context.Context) {
 	for i := range list.Items {
 		sr := &list.Items[i]
 		key := types.NamespacedName{Namespace: sr.Namespace, Name: sr.Name}
-		userID := sessionUserID(sr)
+		userID := sessionUserID()
 		for _, entry := range sr.Status.RunHistory {
 			if entry.Status == v1alpha2.RunStatusPending && entry.SessionID != "" && entry.EndTime == nil {
 				s.spawnOutcomePoller(key, entry.SessionID, userID)
@@ -204,28 +204,28 @@ func (s *ScheduledRunScheduler) resumePendingPollers(ctx context.Context) {
 	}
 }
 
-// scheduleSpecForCron builds the cron expression handed to robfig/cron,
+// ScheduleSpecForCron builds the cron expression handed to robfig/cron,
 // embedding the SR's TimeZone via the parser-supported CRON_TZ= prefix
 // (parser.go:95 in robfig/cron v3).
-func scheduleSpecForCron(sr *v1alpha2.ScheduledRun) string {
-	return "CRON_TZ=" + scheduledRunTimeZone(sr) + " " + strings.TrimSpace(sr.Spec.Schedule)
+func ScheduleSpecForCron(sr *v1alpha2.ScheduledRun) string {
+	return "CRON_TZ=" + ScheduledRunTimeZone(sr) + " " + strings.TrimSpace(sr.Spec.Schedule)
 }
 
-func scheduledRunTimeZone(sr *v1alpha2.ScheduledRun) string {
+func ScheduledRunTimeZone(sr *v1alpha2.ScheduledRun) string {
 	if timeZone := strings.TrimSpace(sr.Spec.TimeZone); timeZone != "" {
 		return timeZone
 	}
 	return v1alpha2.DefaultScheduledRunTimeZone
 }
 
-func routeKeyForScheduledRunTarget(kind v1alpha2.AgentReferenceKind, key types.NamespacedName) (string, error) {
+func routeKeyForScheduledRunTarget(kind string, key types.NamespacedName) (string, error) {
 	switch kind {
-	case "", v1alpha2.AgentReferenceKindAgent:
+	case "", v1alpha2.ScheduledRunTargetKindAgent:
 		return a2a.RouteKeyForAgent(key.Namespace, key.Name), nil
-	case v1alpha2.AgentReferenceKindSandboxAgent:
+	case v1alpha2.ScheduledRunTargetKindSandboxAgent:
 		return a2a.RouteKeyForSandboxAgent(key.Namespace, key.Name), nil
 	default:
-		return "", fmt.Errorf("unsupported agentRef.kind %q", kind)
+		return "", fmt.Errorf("unsupported targetRef.kind %q", kind)
 	}
 }
 
@@ -245,8 +245,8 @@ func (s *ScheduledRunScheduler) UpdateSchedule(sr *v1alpha2.ScheduledRun) error 
 		return nil
 	}
 
-	entryID, err := s.cronEngine.AddFunc(scheduleSpecForCron(sr), func() {
-		if _, err := s.runOnce(key); err != nil &&
+	entryID, err := s.cronEngine.AddFunc(ScheduleSpecForCron(sr), func() {
+		if _, err := s.runOnce(key, false); err != nil &&
 			!errors.Is(err, errScheduledRunNotFound) &&
 			!errors.Is(err, errScheduledRunSuspended) {
 			schedulerLog.Error(err, "Scheduled run tick failed", "scheduledRun", key)
@@ -273,11 +273,18 @@ func (s *ScheduledRunScheduler) RemoveSchedule(key types.NamespacedName) {
 	metrics.SetActiveSchedules(len(s.entries))
 }
 
-// TriggerManualRun fires a run synchronously through the same code path as
-// the cron tick and returns the recorded RunHistoryEntry. Suspended schedules
-// cannot be triggered manually.
+func (s *ScheduledRunScheduler) HasSchedule(key types.NamespacedName) bool {
+	s.entriesMu.Lock()
+	defer s.entriesMu.Unlock()
+	_, ok := s.entries[key]
+	return ok
+}
+
+// TriggerManualRun fires a run synchronously through the same dispatch/history
+// path as the cron tick and returns the recorded RunHistoryEntry. A suspended
+// schedule may still be manually triggered; suspend only pauses automatic ticks.
 func (s *ScheduledRunScheduler) TriggerManualRun(key types.NamespacedName) (*v1alpha2.RunHistoryEntry, error) {
-	entry, err := s.runOnce(key)
+	entry, err := s.runOnce(key, true)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +294,7 @@ func (s *ScheduledRunScheduler) TriggerManualRun(key types.NamespacedName) (*v1a
 // runOnce performs a single agent invocation: read the SR, send the prompt,
 // append the outcome to RunHistory, and (for successful dispatches) spawn a
 // background poller that resolves the session's terminal state into Outcome.
-func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName) (*v1alpha2.RunHistoryEntry, error) {
+func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName, manual bool) (*v1alpha2.RunHistoryEntry, error) {
 	log := schedulerLog.WithValues("scheduledRun", key)
 	ctx := s.baseCtx()
 
@@ -299,7 +306,7 @@ func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName) (*v1alpha2.Run
 		log.Error(err, "Failed to fetch ScheduledRun")
 		return nil, fmt.Errorf("failed to fetch ScheduledRun %s: %w", key, err)
 	}
-	if sr.Spec.Suspend {
+	if sr.Spec.Suspend && !manual {
 		log.Info("Skipping suspended ScheduledRun")
 		writeCtx, cancel := context.WithTimeout(context.Background(), statusWriteTimeout)
 		defer cancel()
@@ -359,7 +366,7 @@ func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName) (*v1alpha2.Run
 		// computed by the last reconcile (which may now be in the past).
 		if latest.Spec.Suspend {
 			latest.Status.NextRunTime = nil
-		} else if sched, err := cron.ParseStandard(scheduleSpecForCron(latest)); err == nil {
+		} else if sched, err := cron.ParseStandard(ScheduleSpecForCron(latest)); err == nil {
 			next := metav1.NewTime(sched.Next(completionTime.Time))
 			latest.Status.NextRunTime = &next
 		}
@@ -376,7 +383,7 @@ func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName) (*v1alpha2.Run
 		// Tests can disable async outcome polling by clearing the hook so
 		// RunHistory entries stay deterministic at Status=Pending.
 		if s.outcomePollerHook != nil {
-			s.spawnOutcomePoller(key, sessionID, sessionUserID(&sr))
+			s.spawnOutcomePoller(key, sessionID, sessionUserID())
 		}
 	}
 	// DispatchFailed runs are already terminal in metrics terms: the
@@ -390,7 +397,11 @@ func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName) (*v1alpha2.Run
 // updates the matching RunHistoryEntry. Match is by SessionID, not by index,
 // because RunHistory may be trimmed before polling completes.
 func (s *ScheduledRunScheduler) spawnOutcomePoller(key types.NamespacedName, sessionID, userID string) {
-	s.pollersWG.Go(func() {
+	s.pollersWG.Add(1)
+	//nolint:modernize // Explicit Add/Done is intentional per review feedback.
+	go func() {
+		defer s.pollersWG.Done()
+
 		log := schedulerLog.WithValues("scheduledRun", key, "sessionID", sessionID)
 
 		pollCtx, cancel := context.WithTimeout(s.baseCtx(), outcomePollTimeout)
@@ -419,7 +430,7 @@ func (s *ScheduledRunScheduler) spawnOutcomePoller(key types.NamespacedName, ses
 			log.Error(err, "Failed to write outcome")
 		}
 		metrics.ObserveScheduledRunOutcome(key.Namespace, key.Name, string(status))
-	})
+	}()
 }
 
 // pollSessionOutcome polls the session's task list until a terminal state
@@ -467,14 +478,14 @@ func (s *ScheduledRunScheduler) pollSessionOutcome(ctx context.Context, sessionI
 // runAgentCall is the production dispatchHook: persist the session, resolve
 // the agent's A2A endpoint, and send the prompt.
 func (s *ScheduledRunScheduler) runAgentCall(ctx context.Context, sr *v1alpha2.ScheduledRun, sessionID string) error {
-	if err := scheduledrunutil.ValidateSameNamespace(sr.Namespace, sr.Spec.AgentRef); err != nil {
+	if err := ValidateTargetRef(sr.Spec.TargetRef); err != nil {
 		return err
 	}
-	agentKey := scheduledrunutil.TargetKey(sr.Namespace, sr.Spec.AgentRef)
-	agentKind := scheduledrunutil.TargetKind(sr.Spec.AgentRef)
+	agentKind := TargetKind(sr.Spec.TargetRef)
+	agentKey := TargetKey(sr.Namespace, sr.Spec.TargetRef)
 	agentID := utils.ConvertToPythonIdentifier(utils.ResourceRefString(agentKey.Namespace, agentKey.Name))
 
-	userID := sessionUserID(sr)
+	userID := sessionUserID()
 	if s.dbClient == nil {
 		return fmt.Errorf("database client is not configured")
 	}
@@ -489,7 +500,7 @@ func (s *ScheduledRunScheduler) runAgentCall(ctx context.Context, sr *v1alpha2.S
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	if _, err := scheduledrunutil.GetTarget(ctx, s.kube, sr.Namespace, sr.Spec.AgentRef); err != nil {
+	if _, err := GetTarget(ctx, s.kube, sr.Namespace, sr.Spec.TargetRef); err != nil {
 		return fmt.Errorf("failed to fetch %s: %w", agentKind, err)
 	}
 	agentRouteKey, err := routeKeyForScheduledRunTarget(agentKind, agentKey)
@@ -519,11 +530,8 @@ func (s scheduledRunSession) Principal() pkgauth.Principal {
 	return s.principal
 }
 
-func sessionUserID(sr *v1alpha2.ScheduledRun) string {
-	if v := sr.Annotations[v1alpha2.AnnotationCreatedBy]; v != "" {
-		return v
-	}
-	return "scheduled-run"
+func sessionUserID() string {
+	return SessionUserID
 }
 
 // updateStatusWithRetry refetches the SR and applies mutate, retrying on
@@ -552,7 +560,7 @@ func (s *ScheduledRunScheduler) updateStatusWithRetry(
 func trimRunHistory(sr *v1alpha2.ScheduledRun) {
 	maxHistory := sr.Spec.MaxRunHistory
 	if maxHistory <= 0 {
-		maxHistory = 10
+		maxHistory = v1alpha2.DefaultScheduledRunMaxRunHistory
 	}
 	if len(sr.Status.RunHistory) > maxHistory {
 		sr.Status.RunHistory = sr.Status.RunHistory[len(sr.Status.RunHistory)-maxHistory:]
@@ -563,5 +571,8 @@ func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "…(truncated)"
+	if max <= len(truncatedSuffix) {
+		return s[:max]
+	}
+	return s[:max-len(truncatedSuffix)] + truncatedSuffix
 }

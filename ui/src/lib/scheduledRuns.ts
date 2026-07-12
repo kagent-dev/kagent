@@ -1,13 +1,13 @@
 import type { ScheduledRun, ScheduledRunTargetKind } from "@/types";
 
 export function scheduledRunTargetKind(sr: ScheduledRun): ScheduledRunTargetKind {
-  return sr.spec.agentRef.kind ?? "Agent";
+  return sr.spec.targetRef.kind;
 }
 
-export function formatScheduledRunAgentRef(sr: ScheduledRun): string {
-  const agentRef = sr.spec.agentRef;
-  const namespace = agentRef.namespace || sr.metadata.namespace || "";
-  const ref = namespace ? `${namespace}/${agentRef.name}` : agentRef.name;
+export function formatScheduledRunTargetRef(sr: ScheduledRun): string {
+  const targetRef = sr.spec.targetRef;
+  const namespace = sr.metadata.namespace || "";
+  const ref = namespace ? `${namespace}/${targetRef.name}` : targetRef.name;
   return `${ref} (${scheduledRunTargetKind(sr)})`;
 }
 

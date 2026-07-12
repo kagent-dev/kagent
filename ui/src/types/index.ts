@@ -733,10 +733,10 @@ export type RunStatus = "DispatchFailed" | "Pending" | "Succeeded" | "Failed" | 
 
 export type ScheduledRunTargetKind = "Agent" | "SandboxAgent";
 
-export interface AgentReference {
-  kind?: ScheduledRunTargetKind;
+export interface ScheduledRunTargetReference {
+  apiGroup?: string;
+  kind: ScheduledRunTargetKind;
   name: string;
-  namespace?: string;
 }
 
 export interface RunHistoryEntry {
@@ -750,7 +750,7 @@ export interface RunHistoryEntry {
 export interface ScheduledRunSpec {
   schedule: string;
   timeZone?: string;
-  agentRef: AgentReference;
+  targetRef: ScheduledRunTargetReference;
   prompt: string;
   suspend?: boolean;
   maxRunHistory?: number;

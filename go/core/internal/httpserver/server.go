@@ -344,14 +344,12 @@ func (s *HTTPServer) setupRoutes() {
 	)
 
 	// ScheduledRuns
-	if s.handlers.ScheduledRuns != nil {
-		s.router.HandleFunc(APIPathScheduledRuns, adaptHandler(s.handlers.ScheduledRuns.HandleListScheduledRuns)).Methods(http.MethodGet)
-		s.router.HandleFunc(APIPathScheduledRuns, adaptHandler(s.handlers.ScheduledRuns.HandleCreateScheduledRun)).Methods(http.MethodPost)
-		s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleGetScheduledRun)).Methods(http.MethodGet)
-		s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleUpdateScheduledRun)).Methods(http.MethodPut)
-		s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleDeleteScheduledRun)).Methods(http.MethodDelete)
-		s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}/trigger", adaptHandler(s.handlers.ScheduledRuns.HandleTriggerScheduledRun)).Methods(http.MethodPost)
-	}
+	s.router.HandleFunc(APIPathScheduledRuns, adaptHandler(s.handlers.ScheduledRuns.HandleListScheduledRuns)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathScheduledRuns, adaptHandler(s.handlers.ScheduledRuns.HandleCreateScheduledRun)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleGetScheduledRun)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleUpdateScheduledRun)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleDeleteScheduledRun)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}/trigger", adaptHandler(s.handlers.ScheduledRuns.HandleTriggerScheduledRun)).Methods(http.MethodPost)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)

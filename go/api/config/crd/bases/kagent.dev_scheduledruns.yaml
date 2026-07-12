@@ -52,31 +52,6 @@ spec:
           spec:
             description: ScheduledRunSpec defines the desired state of ScheduledRun.
             properties:
-              agentRef:
-                description: |-
-                  AgentRef is a reference to the Agent or SandboxAgent to execute. If
-                  Namespace is empty it defaults to the ScheduledRun's namespace.
-                properties:
-                  kind:
-                    default: Agent
-                    description: Kind selects the resource kind to run. Defaults to
-                      Agent.
-                    enum:
-                    - Agent
-                    - SandboxAgent
-                    type: string
-                  name:
-                    maxLength: 253
-                    minLength: 1
-                    pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?)(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
-                    type: string
-                  namespace:
-                    maxLength: 63
-                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
-                    type: string
-                required:
-                - name
-                type: object
               maxRunHistory:
                 default: 10
                 description: MaxRunHistory is the maximum number of run history entries
@@ -97,9 +72,32 @@ spec:
                 type: string
               suspend:
                 default: false
-                description: Suspend pauses scheduling and manual triggers when set
-                  to true.
+                description: |-
+                  Suspend pauses automatic scheduling when set to true. Manual triggers
+                  are still allowed.
                 type: boolean
+              targetRef:
+                description: |-
+                  TargetRef is a local reference to the Agent or SandboxAgent to execute.
+                  The target must live in the same namespace as the ScheduledRun.
+                properties:
+                  apiGroup:
+                    description: |-
+                      APIGroup is the group for the resource being referenced.
+                      If APIGroup is not specified, the specified Kind must be in the core API group.
+                      For any other third-party types, APIGroup is required.
+                    type: string
+                  kind:
+                    description: Kind is the type of resource being referenced
+                    type: string
+                  name:
+                    description: Name is the name of resource being referenced
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+                x-kubernetes-map-type: atomic
               timeZone:
                 default: UTC
                 description: |-
@@ -107,9 +105,9 @@ spec:
                   to interpret Schedule. Defaults to UTC.
                 type: string
             required:
-            - agentRef
             - prompt
             - schedule
+            - targetRef
             type: object
           status:
             description: ScheduledRunStatus defines the observed state of ScheduledRun.
@@ -203,6 +201,18 @@ spec:
                       format: date-time
                       type: string
                     status:
+                      description: |-
+                        RunStatus reflects the lifecycle state of a single scheduled run. It folds
+                        together the synchronous dispatch outcome and the asynchronous session
+                        terminal state into one field — readers only need to look at one value to
+                        answer "did this run succeed".
+
+                        Lifecycle:
+                          - DispatchFailed: terminal, the A2A SendMessage call never reached the agent.
+                          - Pending:        dispatched, terminal state not yet observed.
+                          - Succeeded:      terminal, session's last task reached TaskStateCompleted.
+                          - Failed:         terminal, session's last task reached failed/canceled/rejected.
+                          - Timeout:        terminal, polling exceeded the configured budget.
                       enum:
                       - DispatchFailed
                       - Pending
