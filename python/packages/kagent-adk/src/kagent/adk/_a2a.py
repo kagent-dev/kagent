@@ -18,7 +18,7 @@ from google.adk.apps.app import EventsCompactionConfig
 from google.adk.artifacts import InMemoryArtifactService
 from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
+from google.adk.sessions import DatabaseSessionService, InMemorySessionService
 from google.genai import types
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
@@ -90,6 +90,10 @@ class KAgentApp:
         token_service = None
         http_client: Optional[httpx.AsyncClient] = None
         memory_service = None
+        # Substrate sandbox agents with durable-dir session storage keep session state in a
+        # local sqlite DB inside the actor's durableDir volume. The URL arrives as
+        # AgentConfig.session_db_url in the rendered config (set by the controller).
+        session_db_url = self.agent_config.session_db_url if self.agent_config else None
 
         if not local:
             token_service = KAgentTokenService(self.app_name)
@@ -98,7 +102,10 @@ class KAgentApp:
                 base_url=kagent_url_override or self.kagent_url,
                 event_hooks=token_service.event_hooks(),
             )
-            session_service = KAgentSessionService(http_client)
+            if session_db_url:
+                session_service = DatabaseSessionService(db_url=session_db_url)
+            else:
+                session_service = KAgentSessionService(http_client)
 
             if self.agent_config and self.agent_config.memory is not None:
                 memory_service = KagentMemoryService(

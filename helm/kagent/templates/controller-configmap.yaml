@@ -55,6 +55,7 @@ data:
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
   DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
+  SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
   {{- if .Values.controller.a2aClientTimeout }}
