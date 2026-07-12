@@ -539,6 +539,10 @@ kagent-tools:
   enabled: true
   nameOverride: tools
   replicaCount: 1
+  # -- Node taints which will be tolerated for `Pod` scheduling.
+  tolerations: []
+  # -- Node labels to match for `Pod` scheduling.
+  nodeSelector: {}
   podSecurityContext:
     runAsNonRoot: true
     seccompProfile:
