@@ -731,13 +731,14 @@ export interface AdkRequestConfirmationData {
 
 // --- ScheduledRun CRD types ---
 
-export type RunStatus = "DispatchFailed" | "Pending" | "Succeeded" | "Failed" | "Timeout";
+export type RunStatus = "DispatchFailed" | "InProgress" | "Succeeded" | "Failed" | "Timeout";
 
 export type ScheduledRunTargetKind = "Agent" | "SandboxAgent";
 
-export interface ScheduledRunTargetReference {
+export interface TypedObjectReference<K extends string = string> {
   apiGroup?: string;
-  kind: ScheduledRunTargetKind;
+  kind: K;
+  namespace?: string;
   name: string;
 }
 
@@ -752,7 +753,7 @@ export interface RunHistoryEntry {
 export interface ScheduledRunSpec {
   schedule: string;
   timeZone?: string;
-  targetRef: ScheduledRunTargetReference;
+  targetRef: TypedObjectReference<ScheduledRunTargetKind>;
   prompt: string;
   suspend?: boolean;
   maxRunHistory?: number;

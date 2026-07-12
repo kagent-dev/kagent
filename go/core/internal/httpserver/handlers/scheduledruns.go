@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -78,6 +79,10 @@ func normalizeScheduledRun(sr *v1alpha2.ScheduledRun) {
 		apiGroup := v1alpha2.ScheduledRunTargetAPIGroup
 		sr.Spec.TargetRef.APIGroup = &apiGroup
 	}
+	if sr.Spec.TargetRef.Namespace == nil || *sr.Spec.TargetRef.Namespace == "" {
+		targetNamespace := sr.Namespace
+		sr.Spec.TargetRef.Namespace = &targetNamespace
+	}
 	if sr.Spec.MaxRunHistory == 0 {
 		sr.Spec.MaxRunHistory = v1alpha2.DefaultScheduledRunMaxRunHistory
 	}
@@ -91,9 +96,9 @@ func validateScheduledRunPrompt(prompt string) *errors.APIError {
 }
 
 func validateScheduledRunMaxHistory(maxRunHistory int) *errors.APIError {
-	if maxRunHistory < 0 || maxRunHistory > maxScheduledRunHistory {
+	if maxRunHistory < 1 || maxRunHistory > maxScheduledRunHistory {
 		return errors.NewBadRequestError(
-			fmt.Sprintf("spec.maxRunHistory must be between 1 and %d, or 0 to use the default", maxScheduledRunHistory),
+			fmt.Sprintf("spec.maxRunHistory must be between 1 and %d", maxScheduledRunHistory),
 			nil,
 		)
 	}
@@ -113,24 +118,27 @@ func (h *ScheduledRunsHandler) validateScheduledRunObject(r *http.Request, sr *v
 	return h.validateScheduledRunTarget(r, sr.Namespace, sr.Spec.TargetRef)
 }
 
-func (h *ScheduledRunsHandler) validateScheduledRunTarget(r *http.Request, srNamespace string, ref corev1.TypedLocalObjectReference) *errors.APIError {
+func (h *ScheduledRunsHandler) validateScheduledRunTarget(r *http.Request, scheduledRunNamespace string, ref corev1.TypedObjectReference) *errors.APIError {
 	if err := scheduledrun.ValidateTargetRef(ref); err != nil {
 		return errors.NewBadRequestError(err.Error(), nil)
 	}
 	kind := scheduledrun.TargetKind(ref)
-	key := scheduledrun.TargetKey(srNamespace, ref)
-	target, err := scheduledrun.NewTargetObject(kind)
-	if err != nil {
-		return errors.NewBadRequestError(err.Error(), nil)
+	key := scheduledrun.TargetKey(scheduledRunNamespace, ref)
+	if key.Namespace != scheduledRunNamespace && len(h.WatchedNamespaces) > 0 && !slices.Contains(h.WatchedNamespaces, key.Namespace) {
+		return errors.NewBadRequestError(fmt.Sprintf("Target namespace %q is not watched by the controller", key.Namespace), nil)
 	}
 	if apiErr := h.checkScheduledRunTargetAccess(r, key); apiErr != nil {
 		return apiErr
 	}
-	if err := h.KubeClient.Get(r.Context(), key, target); err != nil {
+	target, err := scheduledrun.GetTarget(r.Context(), h.KubeClient, scheduledRunNamespace, ref)
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return errors.NewNotFoundError(fmt.Sprintf("%s %s not found", kind, key), err)
 		}
 		return errors.NewInternalServerError(fmt.Sprintf("Failed to get %s %s", kind, key), err)
+	}
+	if err := scheduledrun.ValidateTargetNamespaceAccess(r.Context(), h.KubeClient, scheduledRunNamespace, target); err != nil {
+		return errors.NewBadRequestError(err.Error(), nil)
 	}
 	return nil
 }
@@ -141,7 +149,7 @@ func (h *ScheduledRunsHandler) checkScheduledRunTargetAccess(r *http.Request, ke
 		return errors.NewBadRequestError("Failed to get user ID", err)
 	}
 	if err := h.Authorizer.Check(r.Context(), principal, auth.VerbGet, auth.Resource{Type: "Agent", Name: key.String()}); err != nil {
-		return errors.NewForbiddenError("Not authorized to reference target agent", err)
+		return errors.NewForbiddenError("Not authorized to reference target resource", err)
 	}
 	return nil
 }

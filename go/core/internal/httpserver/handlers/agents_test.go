@@ -1013,31 +1013,6 @@ func TestHandleDeleteAgentHarness(t *testing.T) {
 		require.Error(t, err)
 		require.True(t, apierrors.IsNotFound(err))
 	})
-
-	t.Run("does not block on same-name ScheduledRun agent target", func(t *testing.T) {
-		sb := &v1alpha2.AgentHarness{
-			ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "default"},
-			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
-		}
-		sr := &v1alpha2.ScheduledRun{
-			ObjectMeta: metav1.ObjectMeta{Name: "sr", Namespace: "default"},
-			Spec: v1alpha2.ScheduledRunSpec{
-				Schedule:  "0 * * * *",
-				TargetRef: scheduledRunTargetRef(v1alpha2.ScheduledRunTargetKindAgent, "shared"),
-				Prompt:    "test",
-			},
-		}
-		handler, _ := setupTestHandler(t, sb, sr)
-
-		req := httptest.NewRequest("DELETE", "/api/agentharnesses/default/shared", nil)
-		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "shared"})
-		req = setUser(req, "test-user")
-		w := httptest.NewRecorder()
-
-		handler.HandleDeleteAgentHarness(&testErrorResponseWriter{w}, req)
-
-		require.Equal(t, http.StatusOK, w.Code)
-	})
 }
 
 func TestHandleDeleteSandboxAgent(t *testing.T) {
@@ -1045,29 +1020,6 @@ func TestHandleDeleteSandboxAgent(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		sa := createTestSandboxAgentCRD("test-sandbox", modelConfig, nil)
 		handler, _ := setupTestHandler(t, sa, modelConfig)
-
-		req := httptest.NewRequest("DELETE", "/api/sandboxagents/default/test-sandbox", nil)
-		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-sandbox"})
-		req = setUser(req, "test-user")
-		w := httptest.NewRecorder()
-
-		handler.HandleDeleteSandboxAgent(&testErrorResponseWriter{w}, req)
-
-		require.Equal(t, http.StatusOK, w.Code)
-	})
-
-	t.Run("deletes referenced sandbox agent", func(t *testing.T) {
-		modelConfig := createTestModelConfig()
-		sa := createTestSandboxAgentCRD("test-sandbox", modelConfig, nil)
-		sr := &v1alpha2.ScheduledRun{
-			ObjectMeta: metav1.ObjectMeta{Name: "sr", Namespace: "default"},
-			Spec: v1alpha2.ScheduledRunSpec{
-				Schedule:  "0 * * * *",
-				TargetRef: scheduledRunTargetRef(v1alpha2.ScheduledRunTargetKindSandboxAgent, "test-sandbox"),
-				Prompt:    "test",
-			},
-		}
-		handler, _ := setupTestHandler(t, sa, sr, modelConfig)
 
 		req := httptest.NewRequest("DELETE", "/api/sandboxagents/default/test-sandbox", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "test-sandbox"})

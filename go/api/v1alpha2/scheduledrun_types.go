@@ -38,23 +38,22 @@ const (
 )
 
 // RunStatus reflects the lifecycle state of a single scheduled run. It folds
-// together the synchronous dispatch outcome and the asynchronous session
-// terminal state into one field — readers only need to look at one value to
-// answer "did this run succeed".
+// together the synchronous A2A result and any asynchronous task outcome into
+// one field, so readers only need one value to answer "did this run succeed".
 //
 // Lifecycle:
-//   - DispatchFailed: terminal, the A2A SendMessage call never reached the agent.
-//   - Pending:        dispatched, terminal state not yet observed.
-//   - Succeeded:      terminal, session's last task reached TaskStateCompleted.
-//   - Failed:         terminal, session's last task reached failed/canceled/rejected.
+//   - DispatchFailed: terminal, the A2A SendMessage call did not return a valid result.
+//   - InProgress:     dispatched, terminal state not yet observed.
+//   - Succeeded:      terminal, the agent returned a Message or completed Task.
+//   - Failed:         terminal, the agent returned a failed/canceled/rejected Task.
 //   - Timeout:        terminal, polling exceeded the configured budget.
 //
-// +kubebuilder:validation:Enum=DispatchFailed;Pending;Succeeded;Failed;Timeout
+// +kubebuilder:validation:Enum=DispatchFailed;InProgress;Succeeded;Failed;Timeout
 type RunStatus string
 
 const (
 	RunStatusDispatchFailed RunStatus = "DispatchFailed"
-	RunStatusPending        RunStatus = "Pending"
+	RunStatusInProgress     RunStatus = "InProgress"
 	RunStatusSucceeded      RunStatus = "Succeeded"
 	RunStatusFailed         RunStatus = "Failed"
 	RunStatusTimeout        RunStatus = "Timeout"
@@ -74,10 +73,15 @@ type ScheduledRunSpec struct {
 	// +kubebuilder:default=UTC
 	TimeZone string `json:"timeZone,omitempty"`
 
-	// TargetRef is a local reference to the Agent or SandboxAgent to execute.
-	// The target must live in the same namespace as the ScheduledRun.
+	// TargetRef identifies the resource to invoke. The namespace defaults to the
+	// ScheduledRun's namespace when omitted. Currently, only kagent.dev Agents
+	// and SandboxAgents are supported; the typed reference allows additional
+	// target kinds to be added in the future. Cross-namespace references require
+	// the target namespace to be watched and the target's allowedNamespaces
+	// policy to permit the ScheduledRun's namespace.
 	// +required
-	TargetRef corev1.TypedLocalObjectReference `json:"targetRef"`
+	// +kubebuilder:validation:XValidation:rule="has(self.apiGroup) && self.apiGroup == 'kagent.dev'",message="targetRef.apiGroup must be kagent.dev"
+	TargetRef corev1.TypedObjectReference `json:"targetRef"`
 
 	// Prompt is the text prompt to send to the agent on each run.
 	// +required
@@ -98,14 +102,14 @@ type ScheduledRunSpec struct {
 	MaxRunHistory int `json:"maxRunHistory,omitempty"`
 }
 
-// RunHistoryEntry records one execution of a scheduled run. Status starts as
-// either DispatchFailed (terminal) or Pending, then transitions to a terminal
-// state once outcome polling resolves.
+// RunHistoryEntry records one execution of a scheduled run. A synchronous result
+// is recorded in its terminal state; an asynchronous task starts as InProgress
+// and transitions when outcome polling resolves.
 type RunHistoryEntry struct {
 	// +optional
 	StartTime metav1.Time `json:"startTime"`
-	// EndTime is set when Status reaches a terminal state — either
-	// immediately on DispatchFailed, or when outcome polling resolves.
+	// EndTime is set when Status reaches a terminal state, either from the
+	// initial SendMessage result or when outcome polling resolves.
 	// +optional
 	EndTime *metav1.Time `json:"endTime,omitempty"`
 	// +optional
@@ -117,6 +121,9 @@ type RunHistoryEntry struct {
 	// +optional
 	Message string `json:"message,omitempty"`
 }
+
+// ScheduledRunConditionTypeAccepted reports whether controller validation succeeded.
+const ScheduledRunConditionTypeAccepted = "Accepted"
 
 // ScheduledRunStatus defines the observed state of ScheduledRun.
 type ScheduledRunStatus struct {

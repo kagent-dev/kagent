@@ -5,30 +5,30 @@ import (
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
-// ScheduledRun metrics. The label cardinality is bounded by the number of
-// ScheduledRun resources, which is operator-controlled and typically small.
+// ScheduledRun metrics use only bounded lifecycle labels. Resource identity is
+// available from logs and Kubernetes status without creating unbounded
+// Prometheus series as ScheduledRuns are created and deleted.
 var (
 	scheduledRunDispatchTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "kagent_scheduledrun_dispatch_total",
 			Help: "Total number of ScheduledRun dispatch attempts, labelled by dispatch status.",
 		},
-		[]string{"namespace", "name", "status"},
+		[]string{"status"},
 	)
 	scheduledRunOutcomeTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "kagent_scheduledrun_outcome_total",
-			Help: "Total number of ScheduledRun resolved outcomes (post async session-state polling).",
+			Help: "Total number of ScheduledRun outcomes resolved by asynchronous task polling.",
 		},
-		[]string{"namespace", "name", "outcome"},
+		[]string{"outcome"},
 	)
-	scheduledRunDispatchDurationSeconds = prometheus.NewHistogramVec(
+	scheduledRunDispatchDurationSeconds = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "kagent_scheduledrun_dispatch_duration_seconds",
 			Help:    "Duration of the synchronous A2A dispatch call.",
 			Buckets: prometheus.ExponentialBuckets(0.1, 2, 10),
 		},
-		[]string{"namespace", "name"},
 	)
 	scheduledRunActiveSchedules = prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -48,14 +48,14 @@ func init() {
 }
 
 // ObserveScheduledRunDispatch records a dispatch attempt and its duration.
-func ObserveScheduledRunDispatch(namespace, name, status string, durationSeconds float64) {
-	scheduledRunDispatchTotal.WithLabelValues(namespace, name, status).Inc()
-	scheduledRunDispatchDurationSeconds.WithLabelValues(namespace, name).Observe(durationSeconds)
+func ObserveScheduledRunDispatch(status string, durationSeconds float64) {
+	scheduledRunDispatchTotal.WithLabelValues(status).Inc()
+	scheduledRunDispatchDurationSeconds.Observe(durationSeconds)
 }
 
-// ObserveScheduledRunOutcome records a resolved outcome (post-polling).
-func ObserveScheduledRunOutcome(namespace, name, outcome string) {
-	scheduledRunOutcomeTotal.WithLabelValues(namespace, name, outcome).Inc()
+// ObserveScheduledRunOutcome records an asynchronously resolved outcome.
+func ObserveScheduledRunOutcome(outcome string) {
+	scheduledRunOutcomeTotal.WithLabelValues(outcome).Inc()
 }
 
 // SetActiveSchedules updates the gauge of active cron entries.

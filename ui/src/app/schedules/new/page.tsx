@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
 import { getAgents } from "@/app/actions/agents";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
+import { isResourceNameValid } from "@/lib/utils";
 import { toast } from "sonner";
 
 interface FormState {
@@ -46,7 +47,6 @@ interface ValidationErrors {
   maxRunHistory?: string;
 }
 
-const RFC1123_REGEX = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 const CRON_FIELD_COUNT = 5;
 
 function validateCronExpression(expr: string): string | undefined {
@@ -79,7 +79,7 @@ function ScheduledRunFormContent() {
   const [agents, setAgents] = useState<AgentResponse[]>([]);
   const [state, setState] = useState<FormState>({
     name: "",
-    namespace: "default",
+    namespace: "",
     schedule: "",
     timeZone: "UTC",
     agentName: "",
@@ -136,7 +136,7 @@ function ScheduledRunFormContent() {
             schedule: sr.spec.schedule,
             timeZone: sr.spec.timeZone || "UTC",
             agentName: sr.spec.targetRef.name,
-            agentNamespace: sr.metadata.namespace || "",
+            agentNamespace: sr.spec.targetRef.namespace || sr.metadata.namespace || "",
             agentKind: sr.spec.targetRef.kind,
             prompt: sr.spec.prompt,
             suspend: sr.spec.suspend ?? false,
@@ -159,8 +159,8 @@ function ScheduledRunFormContent() {
 
     if (!state.name.trim()) {
       newErrors.name = "Name is required";
-    } else if (!RFC1123_REGEX.test(state.name)) {
-      newErrors.name = "Name must be a valid RFC 1123 label (lowercase alphanumeric and hyphens, max 63 chars)";
+    } else if (!isResourceNameValid(state.name)) {
+      newErrors.name = "Name must be a valid RFC 1123 subdomain (lowercase alphanumeric, '-' or '.', max 253 characters)";
     }
 
     if (!state.namespace.trim()) {
@@ -182,8 +182,8 @@ function ScheduledRunFormContent() {
 
     const maxRunHistoryInput = state.maxRunHistory.trim();
     const maxRunHistory = Number.parseInt(maxRunHistoryInput, 10);
-    if (!/^\d+$/.test(maxRunHistoryInput) || maxRunHistory < 0 || maxRunHistory > 100) {
-      newErrors.maxRunHistory = "Must be 0 or between 1 and 100";
+    if (!/^\d+$/.test(maxRunHistoryInput) || maxRunHistory < 1 || maxRunHistory > 100) {
+      newErrors.maxRunHistory = "Must be between 1 and 100";
     }
 
     setErrors(newErrors);
@@ -210,6 +210,7 @@ function ScheduledRunFormContent() {
           targetRef: {
             apiGroup: "kagent.dev",
             kind: state.agentKind,
+            namespace: state.agentNamespace,
             name: state.agentName,
           },
           prompt: state.prompt,
@@ -276,7 +277,7 @@ function ScheduledRunFormContent() {
               <div>
                 <Label className="text-base mb-2 block font-bold">Name</Label>
                 <p className="text-xs mb-2 block text-muted-foreground">
-                  Unique identifier for this scheduled run (RFC 1123 compliant).
+                  Schedule name can only contain lowercase alphanumeric characters, &quot;-&quot; or &quot;.&quot;, and must start and end with an alphanumeric character.
                 </p>
                 <Input
                   value={state.name}
@@ -392,20 +393,18 @@ function ScheduledRunFormContent() {
                     <SelectValue placeholder="Select an agent" />
                   </SelectTrigger>
                   <SelectContent>
-                    {agents
-                      .filter((a) => (a.agent.metadata.namespace || "") === state.namespace)
-                      .map((a) => {
-                        const kind = getSchedulableAgentKind(a);
-                        if (!kind) return null;
-                        const ns = a.agent.metadata.namespace || "";
-                        const n = a.agent.metadata.name;
-                        const val = agentSelectValue(kind, ns, n);
-                        return (
-                          <SelectItem key={val} value={val}>
-                            {ns}/{n} ({kind})
-                          </SelectItem>
-                        );
-                      })}
+                    {agents.map((a) => {
+                      const kind = getSchedulableAgentKind(a);
+                      if (!kind) return null;
+                      const ns = a.agent.metadata.namespace || "";
+                      const n = a.agent.metadata.name;
+                      const val = agentSelectValue(kind, ns, n);
+                      return (
+                        <SelectItem key={val} value={val}>
+                          {ns}/{n} ({kind})
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
                 {errors.agent && (
@@ -466,11 +465,11 @@ function ScheduledRunFormContent() {
                   Max Run History
                 </Label>
                 <p className="text-xs mb-2 block text-muted-foreground">
-                  Number of completed run records to retain (0 uses default 10; otherwise 1-100).
+                  Maximum number of run records to retain (1-100).
                 </p>
                 <Input
                   type="number"
-                  min={0}
+                  min={1}
                   max={100}
                   value={state.maxRunHistory}
                   onChange={(e) => {

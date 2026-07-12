@@ -46,10 +46,6 @@ import (
 var schedulerLog = ctrl.Log.WithName("scheduledrun-scheduler")
 
 const (
-	// messageMaxBytes caps RunHistoryEntry.Message so a flood of long error
-	// strings cannot blow past the apiserver's status size limit.
-	messageMaxBytes = 1024
-	truncatedSuffix = "...(truncated)"
 	// drainTimeout bounds how long Start() waits for in-flight runs to finish
 	// after the manager context is cancelled. Should be less than the pod's
 	// terminationGracePeriodSeconds.
@@ -62,11 +58,11 @@ const (
 // Poll cadence is exposed as vars so tests can shrink them without waiting on
 // the production 5s/15m schedule. Production code never reassigns these.
 var (
-	// outcomePollInterval is the interval between session-state polls when
+	// outcomePollInterval is the interval between outcome polls when
 	// resolving the run's terminal RunStatus.
 	outcomePollInterval = 5 * time.Second
 	// outcomePollTimeout is the maximum total time spent polling for a
-	// session's terminal state before giving up and recording Outcome=Timeout.
+	// task terminal state before recording Status=Timeout.
 	outcomePollTimeout = 15 * time.Minute
 )
 
@@ -105,12 +101,11 @@ type ScheduledRunScheduler struct {
 	pollersWG sync.WaitGroup
 
 	// dispatchHook is the agent invocation; tests override it so they don't
-	// need a real A2A server to verify the cron→record-result flow.
-	dispatchHook func(ctx context.Context, sr *v1alpha2.ScheduledRun, sessionID string) error
-	// outcomePollerHook resolves a session to a terminal RunStatus; tests
-	// override it (or set it to nil) so they don't need a populated database
-	// and so async writes are deterministic.
-	outcomePollerHook func(ctx context.Context, sessionID, userID string) (v1alpha2.RunStatus, string, error)
+	// need a real A2A server to verify the cron-to-record-result flow.
+	dispatchHook func(ctx context.Context, sr *v1alpha2.ScheduledRun, sessionID string) (a2atype.SendMessageResult, error)
+	// outcomePollerHook resolves an asynchronous task to a terminal RunStatus.
+	// Tests can replace or disable it to keep history writes deterministic.
+	outcomePollerHook func(ctx context.Context, routeKey, taskID string) (v1alpha2.RunStatus, string)
 }
 
 // NewScheduledRunScheduler constructs a scheduler.
@@ -129,7 +124,7 @@ func NewScheduledRunScheduler(kube client.Client, dbClient database.Client, agen
 		entries:    make(map[types.NamespacedName]cron.EntryID),
 	}
 	s.dispatchHook = s.runAgentCall
-	s.outcomePollerHook = s.pollSessionOutcome
+	s.outcomePollerHook = s.pollRunOutcome
 	return s, nil
 }
 
@@ -142,7 +137,6 @@ func (s *ScheduledRunScheduler) Start(ctx context.Context) error {
 	s.runCtx.Store(&ctx)
 
 	s.cronEngine.Start()
-	s.resumePendingPollers(ctx)
 	<-ctx.Done()
 
 	schedulerLog.Info("Stopping scheduled run scheduler, draining in-flight runs")
@@ -179,31 +173,6 @@ func (s *ScheduledRunScheduler) baseCtx() context.Context {
 	return context.Background()
 }
 
-// resumePendingPollers re-spawns outcome pollers for any Pending RunHistory
-// entries left behind by a previous controller instance. Without this, a
-// restart between dispatch and terminal resolution leaves entries stuck at
-// Pending forever — the in-memory poller goroutine died with the pod.
-func (s *ScheduledRunScheduler) resumePendingPollers(ctx context.Context) {
-	if s.outcomePollerHook == nil {
-		return
-	}
-	var list v1alpha2.ScheduledRunList
-	if err := s.kube.List(ctx, &list); err != nil {
-		schedulerLog.Error(err, "Failed to list ScheduledRuns for poller resume")
-		return
-	}
-	for i := range list.Items {
-		sr := &list.Items[i]
-		key := types.NamespacedName{Namespace: sr.Namespace, Name: sr.Name}
-		userID := sessionUserID()
-		for _, entry := range sr.Status.RunHistory {
-			if entry.Status == v1alpha2.RunStatusPending && entry.SessionID != "" && entry.EndTime == nil {
-				s.spawnOutcomePoller(key, entry.SessionID, userID)
-			}
-		}
-	}
-}
-
 // ScheduleSpecForCron builds the cron expression handed to robfig/cron,
 // embedding the SR's TimeZone via the parser-supported CRON_TZ= prefix
 // (parser.go:95 in robfig/cron v3).
@@ -220,7 +189,7 @@ func ScheduledRunTimeZone(sr *v1alpha2.ScheduledRun) string {
 
 func routeKeyForScheduledRunTarget(kind string, key types.NamespacedName) (string, error) {
 	switch kind {
-	case "", v1alpha2.ScheduledRunTargetKindAgent:
+	case v1alpha2.ScheduledRunTargetKindAgent:
 		return a2a.RouteKeyForAgent(key.Namespace, key.Name), nil
 	case v1alpha2.ScheduledRunTargetKindSandboxAgent:
 		return a2a.RouteKeyForSandboxAgent(key.Namespace, key.Name), nil
@@ -284,16 +253,11 @@ func (s *ScheduledRunScheduler) HasSchedule(key types.NamespacedName) bool {
 // path as the cron tick and returns the recorded RunHistoryEntry. A suspended
 // schedule may still be manually triggered; suspend only pauses automatic ticks.
 func (s *ScheduledRunScheduler) TriggerManualRun(key types.NamespacedName) (*v1alpha2.RunHistoryEntry, error) {
-	entry, err := s.runOnce(key, true)
-	if err != nil {
-		return nil, err
-	}
-	return entry, nil
+	return s.runOnce(key, true)
 }
 
-// runOnce performs a single agent invocation: read the SR, send the prompt,
-// append the outcome to RunHistory, and (for successful dispatches) spawn a
-// background poller that resolves the session's terminal state into Outcome.
+// runOnce performs a single target invocation, records its immediate A2A result,
+// and starts a background poller only when the agent returns a non-terminal Task.
 func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName, manual bool) (*v1alpha2.RunHistoryEntry, error) {
 	log := schedulerLog.WithValues("scheduledRun", key)
 	ctx := s.baseCtx()
@@ -322,35 +286,39 @@ func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName, manual bool) (
 	startTime := metav1.Now()
 	dispatchStart := time.Now()
 
-	// Recover from panics inside dispatchHook so the run still ends up in
-	// RunHistory as a Failed entry instead of vanishing into the cron
-	// engine's recovery handler.
-	var dispatchErr error
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				dispatchErr = fmt.Errorf("dispatch panic: %v", r)
-				log.Error(dispatchErr, "Recovered from dispatch panic")
-			}
-		}()
-		dispatchErr = s.dispatchHook(ctx, &sr, sessionID)
-	}()
+	dispatchResult, dispatchErr := s.dispatchHook(ctx, &sr, sessionID)
 
 	completionTime := metav1.Now()
 	entry := v1alpha2.RunHistoryEntry{
 		StartTime: startTime,
-		SessionID: sessionID,
-		Status:    v1alpha2.RunStatusPending,
+		Status:    v1alpha2.RunStatusInProgress,
 	}
+	var outcome sendMessageOutcome
 	if dispatchErr != nil {
 		log.Error(dispatchErr, "Scheduled run failed")
 		entry.Status = v1alpha2.RunStatusDispatchFailed
-		entry.Message = truncate(dispatchErr.Error(), messageMaxBytes)
+		entry.Message = dispatchErr.Error()
 		entry.EndTime = &completionTime
+	} else {
+		entry.SessionID = sessionID
+		classified, err := classifySendMessageResult(dispatchResult)
+		if err != nil {
+			entry.SessionID = ""
+			entry.Status = v1alpha2.RunStatusDispatchFailed
+			entry.Message = err.Error()
+			entry.EndTime = &completionTime
+		} else {
+			outcome = classified
+			entry.Status = outcome.status
+			entry.Message = outcome.message
+			if outcome.terminal {
+				entry.EndTime = &completionTime
+			}
+		}
 	}
 
 	metrics.ObserveScheduledRunDispatch(
-		key.Namespace, key.Name, string(entry.Status),
+		string(entry.Status),
 		time.Since(dispatchStart).Seconds(),
 	)
 
@@ -371,7 +339,7 @@ func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName, manual bool) (
 			latest.Status.NextRunTime = &next
 		}
 	}); err != nil {
-		// Status write failed — the entry is not in RunHistory, so don't
+		// Status write failed: the entry is not in RunHistory, so don't
 		// spawn the outcome poller (it would never find a matching SessionID
 		// to update) and surface the error to the caller. Manual triggers
 		// must not report success when the run was never recorded.
@@ -379,11 +347,16 @@ func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName, manual bool) (
 		return nil, fmt.Errorf("failed to record run outcome for %s: %w", key, err)
 	}
 
-	if entry.Status == v1alpha2.RunStatusPending {
+	if entry.Status == v1alpha2.RunStatusInProgress {
 		// Tests can disable async outcome polling by clearing the hook so
-		// RunHistory entries stay deterministic at Status=Pending.
+		// RunHistory entries stay deterministic at Status=InProgress.
 		if s.outcomePollerHook != nil {
-			s.spawnOutcomePoller(key, sessionID, sessionUserID())
+			routeKey, err := routeKeyForScheduledRunTarget(TargetKind(sr.Spec.TargetRef), TargetKey(sr.Namespace, sr.Spec.TargetRef))
+			if err != nil {
+				log.Error(err, "Unable to poll scheduled run task")
+			} else {
+				s.spawnOutcomePoller(key, entry.SessionID, routeKey, outcome.taskID)
+			}
 		}
 	}
 	// DispatchFailed runs are already terminal in metrics terms: the
@@ -393,26 +366,19 @@ func (s *ScheduledRunScheduler) runOnce(key types.NamespacedName, manual bool) (
 	return &entry, nil
 }
 
-// spawnOutcomePoller resolves the session's terminal state asynchronously and
-// updates the matching RunHistoryEntry. Match is by SessionID, not by index,
-// because RunHistory may be trimmed before polling completes.
-func (s *ScheduledRunScheduler) spawnOutcomePoller(key types.NamespacedName, sessionID, userID string) {
+// spawnOutcomePoller resolves an asynchronous task and updates its history entry.
+func (s *ScheduledRunScheduler) spawnOutcomePoller(key types.NamespacedName, sessionID, routeKey, taskID string) {
 	s.pollersWG.Add(1)
 	//nolint:modernize // Explicit Add/Done is intentional per review feedback.
 	go func() {
 		defer s.pollersWG.Done()
 
-		log := schedulerLog.WithValues("scheduledRun", key, "sessionID", sessionID)
+		log := schedulerLog.WithValues("scheduledRun", key, "sessionID", sessionID, "taskID", taskID)
 
 		pollCtx, cancel := context.WithTimeout(s.baseCtx(), outcomePollTimeout)
 		defer cancel()
 
-		status, msg, err := s.outcomePollerHook(pollCtx, sessionID, userID)
-		if err != nil {
-			log.Error(err, "Outcome polling failed")
-			status = v1alpha2.RunStatusTimeout
-			msg = err.Error()
-		}
+		status, msg := s.outcomePollerHook(pollCtx, routeKey, taskID)
 
 		now := metav1.Now()
 		writeCtx, writeCancel := context.WithTimeout(context.Background(), statusWriteTimeout)
@@ -421,7 +387,7 @@ func (s *ScheduledRunScheduler) spawnOutcomePoller(key types.NamespacedName, ses
 			for i := range latest.Status.RunHistory {
 				if latest.Status.RunHistory[i].SessionID == sessionID {
 					latest.Status.RunHistory[i].Status = status
-					latest.Status.RunHistory[i].Message = truncate(msg, messageMaxBytes)
+					latest.Status.RunHistory[i].Message = msg
 					latest.Status.RunHistory[i].EndTime = &now
 					break
 				}
@@ -429,67 +395,119 @@ func (s *ScheduledRunScheduler) spawnOutcomePoller(key types.NamespacedName, ses
 		}); err != nil {
 			log.Error(err, "Failed to write outcome")
 		}
-		metrics.ObserveScheduledRunOutcome(key.Namespace, key.Name, string(status))
+		metrics.ObserveScheduledRunOutcome(string(status))
 	}()
 }
 
-// pollSessionOutcome polls the session's task list until a terminal state
-// is observed. Returns Succeeded for completed, Failed for the negative
-// terminal states, and Timeout if the deadline elapses first.
-func (s *ScheduledRunScheduler) pollSessionOutcome(ctx context.Context, sessionID, userID string) (v1alpha2.RunStatus, string, error) {
-	if s.dbClient == nil {
-		return v1alpha2.RunStatusTimeout, "", fmt.Errorf("database client is not configured")
-	}
-
+// pollRunOutcome polls the A2A task until it reaches a terminal state.
+func (s *ScheduledRunScheduler) pollRunOutcome(ctx context.Context, routeKey, taskID string) (v1alpha2.RunStatus, string) {
+	pollCtx := pkgauth.AuthSessionTo(ctx, scheduledRunSession{
+		principal: pkgauth.Principal{User: pkgauth.User{ID: SessionUserID}},
+	})
 	t := time.NewTicker(outcomePollInterval)
 	defer t.Stop()
 	for {
+		task, err := s.agentClients.GetTaskFromRoute(pollCtx, routeKey, &a2atype.GetTaskRequest{ID: a2atype.TaskID(taskID)})
+		if err == nil {
+			if status, msg, terminal := runStatusForTask(task); terminal {
+				return status, msg
+			}
+		}
+
 		select {
 		case <-ctx.Done():
-			return v1alpha2.RunStatusTimeout, "polling deadline exceeded", nil
+			return v1alpha2.RunStatusTimeout, "polling deadline exceeded"
 		case <-t.C:
-		}
-		tasks, err := s.dbClient.ListTasksForSession(ctx, sessionID)
-		if err != nil {
-			// Session row may not exist yet (race with StoreSession commit) —
-			// keep polling rather than treating transient errors as terminal.
-			continue
-		}
-		for _, task := range tasks {
-			switch task.Status.State {
-			case a2atype.TaskStateCompleted:
-				return v1alpha2.RunStatusSucceeded, "", nil
-			case a2atype.TaskStateFailed, a2atype.TaskStateCanceled, a2atype.TaskStateRejected:
-				msg := ""
-				if task.Status.Message != nil {
-					for _, p := range task.Status.Message.Parts {
-						if text := p.Text(); text != "" {
-							msg = text
-							break
-						}
-					}
-				}
-				return v1alpha2.RunStatusFailed, msg, nil
-			}
 		}
 	}
 }
 
-// runAgentCall is the production dispatchHook: persist the session, resolve
-// the agent's A2A endpoint, and send the prompt.
-func (s *ScheduledRunScheduler) runAgentCall(ctx context.Context, sr *v1alpha2.ScheduledRun, sessionID string) error {
-	if err := ValidateTargetRef(sr.Spec.TargetRef); err != nil {
-		return err
-	}
-	agentKind := TargetKind(sr.Spec.TargetRef)
-	agentKey := TargetKey(sr.Namespace, sr.Spec.TargetRef)
-	agentID := utils.ConvertToPythonIdentifier(utils.ResourceRefString(agentKey.Namespace, agentKey.Name))
+type sendMessageOutcome struct {
+	status   v1alpha2.RunStatus
+	message  string
+	taskID   string
+	terminal bool
+}
 
-	userID := sessionUserID()
+func classifySendMessageResult(result a2atype.SendMessageResult) (sendMessageOutcome, error) {
+	switch typed := result.(type) {
+	case *a2atype.Message:
+		return sendMessageOutcome{
+			status:   v1alpha2.RunStatusSucceeded,
+			terminal: true,
+		}, nil
+	case *a2atype.Task:
+		if typed == nil {
+			return sendMessageOutcome{}, fmt.Errorf("agent invocation returned no result")
+		}
+		status, message, terminal := runStatusForTask(typed)
+		taskID := string(typed.ID)
+		if !terminal && taskID == "" {
+			return sendMessageOutcome{}, fmt.Errorf("agent invocation returned an asynchronous task without an ID")
+		}
+		return sendMessageOutcome{
+			status:   status,
+			message:  message,
+			taskID:   taskID,
+			terminal: terminal,
+		}, nil
+	case nil:
+		return sendMessageOutcome{}, fmt.Errorf("agent invocation returned no result")
+	default:
+		return sendMessageOutcome{}, fmt.Errorf("agent invocation returned unsupported result %T", result)
+	}
+}
+
+func runStatusForTask(task *a2atype.Task) (v1alpha2.RunStatus, string, bool) {
+	if task == nil {
+		return v1alpha2.RunStatusInProgress, "", false
+	}
+	switch task.Status.State {
+	case a2atype.TaskStateCompleted:
+		return v1alpha2.RunStatusSucceeded, "", true
+	case a2atype.TaskStateFailed, a2atype.TaskStateCanceled, a2atype.TaskStateRejected:
+		return v1alpha2.RunStatusFailed, taskStatusMessage(task), true
+	default:
+		return v1alpha2.RunStatusInProgress, "", false
+	}
+}
+
+func taskStatusMessage(task *a2atype.Task) string {
+	if task == nil || task.Status.Message == nil {
+		return ""
+	}
+	for _, part := range task.Status.Message.Parts {
+		if text := part.Text(); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+// runAgentCall is the production dispatchHook: resolve the target, persist the
+// session, and send the prompt through the target's A2A route.
+func (s *ScheduledRunScheduler) runAgentCall(ctx context.Context, sr *v1alpha2.ScheduledRun, sessionID string) (a2atype.SendMessageResult, error) {
 	if s.dbClient == nil {
-		return fmt.Errorf("database client is not configured")
+		return nil, fmt.Errorf("database client is not configured")
 	}
 
+	target, err := GetTarget(ctx, s.kube, sr.Namespace, sr.Spec.TargetRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve target: %w", err)
+	}
+	if err := ValidateTargetNamespaceAccess(ctx, s.kube, sr.Namespace, target); err != nil {
+		return nil, err
+	}
+
+	targetKind := TargetKind(sr.Spec.TargetRef)
+	targetKey := TargetKey(sr.Namespace, sr.Spec.TargetRef)
+	agentRouteKey, err := routeKeyForScheduledRunTarget(targetKind, targetKey)
+	if err != nil {
+		return nil, err
+	}
+
+	userID := SessionUserID
+	agentID := utils.ConvertToPythonIdentifier(utils.ResourceRefString(targetKey.Namespace, targetKey.Name))
 	storeCtx, storeCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer storeCancel()
 	if err := s.dbClient.StoreSession(storeCtx, &database.Session{
@@ -497,15 +515,7 @@ func (s *ScheduledRunScheduler) runAgentCall(ctx context.Context, sr *v1alpha2.S
 		UserID:  userID,
 		AgentID: &agentID,
 	}); err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
-	}
-
-	if _, err := GetTarget(ctx, s.kube, sr.Namespace, sr.Spec.TargetRef); err != nil {
-		return fmt.Errorf("failed to fetch %s: %w", agentKind, err)
-	}
-	agentRouteKey, err := routeKeyForScheduledRunTarget(agentKind, agentKey)
-	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
 	ctx = pkgauth.AuthSessionTo(ctx, scheduledRunSession{
@@ -516,10 +526,11 @@ func (s *ScheduledRunScheduler) runAgentCall(ctx context.Context, sr *v1alpha2.S
 
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(sr.Spec.Prompt))
 	message.ContextID = sessionID
-	if _, err := s.agentClients.SendMessageToRoute(ctx, agentRouteKey, &a2atype.SendMessageRequest{Message: message}); err != nil {
-		return fmt.Errorf("agent invocation failed: %w", err)
+	result, err := s.agentClients.SendMessageToRoute(ctx, agentRouteKey, &a2atype.SendMessageRequest{Message: message})
+	if err != nil {
+		return nil, fmt.Errorf("agent invocation failed: %w", err)
 	}
-	return nil
+	return result, nil
 }
 
 type scheduledRunSession struct {
@@ -528,10 +539,6 @@ type scheduledRunSession struct {
 
 func (s scheduledRunSession) Principal() pkgauth.Principal {
 	return s.principal
-}
-
-func sessionUserID() string {
-	return SessionUserID
 }
 
 // updateStatusWithRetry refetches the SR and applies mutate, retrying on
@@ -565,14 +572,4 @@ func trimRunHistory(sr *v1alpha2.ScheduledRun) {
 	if len(sr.Status.RunHistory) > maxHistory {
 		sr.Status.RunHistory = sr.Status.RunHistory[len(sr.Status.RunHistory)-maxHistory:]
 	}
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	if max <= len(truncatedSuffix) {
-		return s[:max]
-	}
-	return s[:max-len(truncatedSuffix)] + truncatedSuffix
 }

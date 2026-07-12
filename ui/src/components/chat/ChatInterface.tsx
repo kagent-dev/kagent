@@ -60,7 +60,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
   const [session, setSession] = useState<Session | null>(selectedSession || null);
-  const [shareReadOnly, setShareReadOnly] = useState<boolean>(false);
+  const [sessionReadOnly, setSessionReadOnly] = useState<boolean>(false);
   const [storedMessages, setStoredMessages] = useState<Message[]>([]);
   const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string>("");
@@ -153,7 +153,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
       setIsLoading(true);
       setSessionNotFound(false);
-      setShareReadOnly(false);
+      setSessionReadOnly(false);
 
       let activeTask: Task | undefined;
 
@@ -167,7 +167,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           setIsLoading(false);
           return;
         }
-        setShareReadOnly(sessionInfoResponse.data.read_only === true);
+        setSessionReadOnly(sessionInfoResponse.data.read_only === true);
 
         const messagesResponse = await getSessionTasks(sessionId, shareToken);
         if (messagesResponse.error) {
@@ -994,9 +994,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     message={message}
                     allMessages={allMessages}
                     agentContext={agentContext}
-                    onApprove={shareReadOnly ? undefined : handleApprove}
-                    onReject={shareReadOnly ? undefined : handleReject}
-                    onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
+                    onApprove={sessionReadOnly ? undefined : handleApprove}
+                    onReject={sessionReadOnly ? undefined : handleReject}
+                    onAskUserSubmit={sessionReadOnly ? undefined : handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
                   />
                 })}
@@ -1008,9 +1008,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     message={message}
                     allMessages={allMessages}
                     agentContext={agentContext}
-                    onApprove={shareReadOnly ? undefined : handleApprove}
-                    onReject={shareReadOnly ? undefined : handleReject}
-                    onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
+                    onApprove={sessionReadOnly ? undefined : handleApprove}
+                    onReject={sessionReadOnly ? undefined : handleReject}
+                    onAskUserSubmit={sessionReadOnly ? undefined : handleAskUserSubmit}
                     pendingDecisions={pendingDecisions}
                   />
                 })}
@@ -1027,10 +1027,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       </div>
 
       <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
-        {shareReadOnly ? (
+        {sessionReadOnly ? (
           <div className="flex items-center justify-between py-2">
             <p className="text-sm text-muted-foreground">
-              This is a read-only shared session. You can view the conversation but cannot send messages.
+              This is a read-only session. You can view the conversation but cannot send messages.
             </p>
             {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
           </div>

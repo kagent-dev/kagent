@@ -101,9 +101,9 @@ export async function deleteScheduledRun(name: string, namespace: string): Promi
 }
 
 /**
- * Triggers a manual run of a scheduled run. The backend runs synchronously
- * and returns the resulting RunHistoryEntry; callers should inspect
- * `data.status` to know whether the dispatch actually succeeded.
+ * Triggers a manual run of a scheduled run. The backend dispatches synchronously
+ * and returns the initial RunHistoryEntry. Succeeded and Failed are terminal;
+ * InProgress is resolved asynchronously in run history.
  */
 export async function triggerScheduledRun(name: string, namespace: string): Promise<BaseResponse<RunHistoryEntry>> {
   try {

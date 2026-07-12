@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -21,26 +21,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, Play, Loader2 } from "lucide-react";
+import { Clock, Plus, Pencil, Trash2, Play, Loader2 } from "lucide-react";
 import { ScheduledRun } from "@/types";
 import { getScheduledRuns, deleteScheduledRun, triggerScheduledRun } from "@/app/actions/scheduledRuns";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { formatDateTime } from "@/lib/formatDateTime";
-import { formatScheduledRunTargetRef, getScheduledRunDisplayStatus } from "@/lib/scheduledRuns";
+import {
+  formatScheduledRunTargetRef,
+  getScheduledRunDisplayStatus,
+  scheduledRunDetailPath,
+  scheduledRunEditPath,
+} from "@/lib/scheduledRuns";
 import { toast } from "sonner";
-
-function scheduleDetailPath(namespace: string, name: string): string {
-  return `/schedules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
-}
-
-function scheduleEditPath(namespace: string, name: string): string {
-  return `/schedules/new?${new URLSearchParams({
-    edit: "true",
-    name,
-    namespace,
-  }).toString()}`;
-}
 
 export function ScheduledRunList() {
   const router = useRouter();
@@ -54,10 +47,11 @@ export function ScheduledRunList() {
     try {
       setLoading(true);
       const response = await getScheduledRuns();
-      if (response.error || !response.data) {
-        throw new Error(response.error || "Failed to fetch scheduled runs");
+      if (response.error) {
+        throw new Error(response.error);
       }
-      setScheduledRuns(response.data);
+      setScheduledRuns(response.data ?? []);
+      setError(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch scheduled runs";
       setError(errorMessage);
@@ -74,7 +68,7 @@ export function ScheduledRunList() {
   const handleEdit = (sr: ScheduledRun) => {
     const ns = sr.metadata.namespace || "";
     const name = sr.metadata.name;
-    router.push(scheduleEditPath(ns, name));
+    router.push(scheduledRunEditPath(ns, name));
   };
 
   const handleDelete = (sr: ScheduledRun) => {
@@ -90,7 +84,7 @@ export function ScheduledRunList() {
     try {
       const response = await deleteScheduledRun(name, ns);
       if (response.error) {
-        throw new Error(response.error || "Failed to delete scheduled run");
+        throw new Error(response.error);
       }
       toast.success(`Scheduled run "${name}" deleted successfully`);
       setItemToDelete(null);
@@ -112,10 +106,12 @@ export function ScheduledRunList() {
     try {
       const response = await triggerScheduledRun(name, ns);
       if (response.error) {
-        throw new Error(response.error || "Failed to trigger scheduled run");
+        throw new Error(response.error);
       }
-      if (response.data?.status === "DispatchFailed") {
-        toast.error(`Dispatch failed for "${name}": ${response.data.message ?? "agent dispatch error"}`);
+      if (response.data?.status === "DispatchFailed" || response.data?.status === "Failed") {
+        toast.error(response.data.message || `Run for "${name}" failed`);
+      } else if (response.data?.status === "Succeeded") {
+        toast.success(`Run for "${name}" succeeded`);
       } else {
         toast.success(`Run for "${name}" dispatched`);
       }
@@ -135,7 +131,7 @@ export function ScheduledRunList() {
   const handleRowClick = (sr: ScheduledRun) => {
     const ns = sr.metadata.namespace || "";
     const name = sr.metadata.name;
-    router.push(scheduleDetailPath(ns, name));
+    router.push(scheduledRunDetailPath(ns, name));
   };
 
   if (error) {
@@ -158,8 +154,18 @@ export function ScheduledRunList() {
         {loading ? (
           <LoadingState />
         ) : scheduledRuns.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            No scheduled runs found. Create one to get started.
+          <div className="flex min-h-72 flex-col items-center justify-center text-center">
+            <Clock className="mb-4 h-12 w-12 text-muted-foreground/40" aria-hidden />
+            <h2 className="text-lg font-medium">No scheduled runs yet</h2>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              Create a schedule to invoke an agent automatically.
+            </p>
+            <Button className="mt-5" asChild>
+              <Link href="/schedules/new">
+                <Plus className="mr-2 h-4 w-4" aria-hidden />
+                New Schedule
+              </Link>
+            </Button>
           </div>
         ) : (
           <div className="border rounded-lg overflow-x-auto">
@@ -215,12 +221,12 @@ export function ScheduledRunList() {
                             disabled={triggerDisabled}
                             aria-label={`Trigger scheduled run ${ns}/${name}`}
                             title={
-                              triggeringItems.has(key)
-                                ? "Running... up to 5 min"
+                              triggerDisabled
+                                ? "Triggering..."
                                 : "Trigger now"
                             }
                           >
-                            {triggeringItems.has(key) ? (
+                            {triggerDisabled ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Play className="h-4 w-4" />

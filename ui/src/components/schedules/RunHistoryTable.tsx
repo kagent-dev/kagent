@@ -46,7 +46,7 @@ function statusBadge(entry: RunHistoryEntry): { label: string; variant: "default
       return { label: "Failed", variant: "destructive", className: "bg-red-600 hover:bg-red-600/80 text-white" };
     case "Timeout":
       return { label: "Timeout", variant: "destructive", className: "bg-amber-600 hover:bg-amber-600/80 text-white" };
-    case "Pending":
+    case "InProgress":
       return { label: "Running", variant: "secondary", className: "bg-blue-500 hover:bg-blue-500/80 text-white" };
     default:
       return { label: "Unknown", variant: "outline", className: "" };
@@ -54,7 +54,7 @@ function statusBadge(entry: RunHistoryEntry): { label: string; variant: "default
 }
 
 export function RunHistoryTable({ entries, agentNamespace, agentName }: RunHistoryTableProps) {
-  if (!entries || entries.length === 0) {
+  if (entries.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
         No runs yet

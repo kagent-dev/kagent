@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,17 +28,11 @@ import { formatDateTime } from "@/lib/formatDateTime";
 import {
   formatScheduledRunTargetRef,
   getScheduledRunDisplayStatus,
-  hasPendingRunHistory,
+  hasInProgressRunHistory,
+  scheduledRunEditPath,
+  scheduledRunTargetNamespace,
 } from "@/lib/scheduledRuns";
 import { toast } from "sonner";
-
-function scheduleEditPath(namespace: string, name: string): string {
-  return `/schedules/new?${new URLSearchParams({
-    edit: "true",
-    name,
-    namespace,
-  }).toString()}`;
-}
 
 export default function ScheduledRunDetailPage() {
   const router = useRouter();
@@ -61,9 +55,12 @@ export default function ScheduledRunDetailPage() {
         throw new Error(response.error || "Scheduled run not found");
       }
       setSr(response.data);
+      setError(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to fetch scheduled run";
-      setError(errorMessage);
+      if (showLoading) {
+        setError(errorMessage);
+      }
     } finally {
       if (showLoading) setLoading(false);
     }
@@ -74,7 +71,7 @@ export default function ScheduledRunDetailPage() {
   }, [fetchData]);
 
   useEffect(() => {
-    if (!sr || !hasPendingRunHistory(sr)) return;
+    if (!sr || !hasInProgressRunHistory(sr)) return;
     const interval = window.setInterval(() => {
       fetchData(false);
     }, 5000);
@@ -82,7 +79,7 @@ export default function ScheduledRunDetailPage() {
   }, [fetchData, sr]);
 
   const handleEdit = () => {
-    router.push(scheduleEditPath(namespace, name));
+    router.push(scheduledRunEditPath(namespace, name));
   };
 
   const handleDelete = async () => {
@@ -107,12 +104,12 @@ export default function ScheduledRunDetailPage() {
       if (response.error) {
         throw new Error(response.error);
       }
-      // Manual trigger returns the dispatch result only — outcome resolves
-      // asynchronously via the background poller, so we surface dispatch
-      // status here and let the run-history table reflect the eventual
-      // outcome.
-      if (response.data?.status === "DispatchFailed") {
-        toast.error(`Dispatch failed: ${response.data.message ?? "agent dispatch error"}`);
+      // Immediate Message and terminal Task results are final; an asynchronous
+      // Task stays InProgress until the run-history poller resolves it.
+      if (response.data?.status === "DispatchFailed" || response.data?.status === "Failed") {
+        toast.error(response.data.message || `Run for "${name}" failed`);
+      } else if (response.data?.status === "Succeeded") {
+        toast.success(`Run for "${name}" succeeded`);
       } else {
         toast.success(`Run for "${name}" dispatched`);
       }
@@ -161,7 +158,6 @@ export default function ScheduledRunDetailPage() {
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
-        {/* Header */}
         <div className="flex flex-col gap-4 lg:flex-row lg:justify-between lg:items-center mb-8">
           <div>
             <h1 className="text-2xl font-bold break-all">{sr.metadata.name}</h1>
@@ -199,7 +195,7 @@ export default function ScheduledRunDetailPage() {
               ) : (
                 <Play className="h-4 w-4 mr-2" />
               )}
-              {isTriggering ? "Dispatching…" : "Trigger Now"}
+              {isTriggering ? "Dispatching..." : "Trigger Now"}
             </Button>
             <Button variant="outline" onClick={handleEdit}>
               <Pencil className="h-4 w-4 mr-2" />
@@ -215,7 +211,6 @@ export default function ScheduledRunDetailPage() {
           </div>
         </div>
 
-        {/* Details Card */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -281,7 +276,6 @@ export default function ScheduledRunDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Run History */}
         <Card>
           <CardHeader>
             <CardTitle>Run History</CardTitle>
@@ -289,13 +283,12 @@ export default function ScheduledRunDetailPage() {
           <CardContent className="overflow-x-auto">
             <RunHistoryTable
               entries={sr.status?.runHistory || []}
-              agentNamespace={sr.metadata.namespace}
+              agentNamespace={scheduledRunTargetNamespace(sr)}
               agentName={targetRef.name}
             />
           </CardContent>
         </Card>
 
-        {/* Delete Dialog */}
         <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
           <DialogContent>
             <DialogHeader>

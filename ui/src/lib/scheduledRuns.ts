@@ -1,22 +1,30 @@
-import type { ScheduledRun, ScheduledRunTargetKind } from "@/types";
+import type { ScheduledRun } from "@/types";
 
-export function scheduledRunTargetKind(sr: ScheduledRun): ScheduledRunTargetKind {
-  return sr.spec.targetRef.kind;
+export function scheduledRunTargetNamespace(sr: ScheduledRun): string {
+  return sr.spec.targetRef.namespace || sr.metadata.namespace || "";
 }
 
 export function formatScheduledRunTargetRef(sr: ScheduledRun): string {
   const targetRef = sr.spec.targetRef;
-  const namespace = sr.metadata.namespace || "";
+  const namespace = scheduledRunTargetNamespace(sr);
   const ref = namespace ? `${namespace}/${targetRef.name}` : targetRef.name;
-  return `${ref} (${scheduledRunTargetKind(sr)})`;
+  return `${ref} (${targetRef.kind})`;
 }
 
-export function getScheduledRunAcceptedCondition(sr: ScheduledRun) {
-  return sr.status?.conditions?.find((condition) => condition.type === "Accepted");
+export function scheduledRunDetailPath(namespace: string, name: string): string {
+  return `/schedules/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
+}
+
+export function scheduledRunEditPath(namespace: string, name: string): string {
+  return `/schedules/new?${new URLSearchParams({
+    edit: "true",
+    name,
+    namespace,
+  }).toString()}`;
 }
 
 export function getScheduledRunDisplayStatus(sr: ScheduledRun) {
-  const accepted = getScheduledRunAcceptedCondition(sr);
+  const accepted = sr.status?.conditions?.find((condition) => condition.type === "Accepted");
   if (accepted?.status === "False") {
     return {
       label: accepted.reason || "Rejected",
@@ -49,8 +57,8 @@ export function getScheduledRunDisplayStatus(sr: ScheduledRun) {
   };
 }
 
-export function hasPendingRunHistory(sr: ScheduledRun): boolean {
+export function hasInProgressRunHistory(sr: ScheduledRun): boolean {
   return Boolean(
-    sr.status?.runHistory?.some((entry) => entry.status === "Pending")
+    sr.status?.runHistory?.some((entry) => entry.status === "InProgress")
   );
 }

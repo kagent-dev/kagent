@@ -649,6 +649,11 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 
 	clientRegistry := a2a.NewAgentClientRegistry()
 
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1alpha2.ScheduledRun{}, scheduledrun.TargetRefIndexField, scheduledrun.IndexTargetRef); err != nil {
+		setupLog.Error(err, "unable to index ScheduledRun target references")
+		os.Exit(1)
+	}
+
 	scheduledRunScheduler, err := scheduledrun.NewScheduledRunScheduler(mgr.GetClient(), dbClient, clientRegistry)
 	if err != nil {
 		setupLog.Error(err, "unable to create scheduled run scheduler")
@@ -659,9 +664,9 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 	if err = (&controller.ScheduledRunController{
-		Scheme:    mgr.GetScheme(),
-		Kube:      mgr.GetClient(),
-		Scheduler: scheduledRunScheduler,
+		Kube:              mgr.GetClient(),
+		Scheduler:         scheduledRunScheduler,
+		WatchedNamespaces: watchNamespacesList,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ScheduledRun")
 		os.Exit(1)

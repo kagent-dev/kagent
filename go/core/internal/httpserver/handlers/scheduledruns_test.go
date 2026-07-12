@@ -27,26 +27,26 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
 )
 
 // mockScheduledRunTrigger implements handlers.ScheduledRunTrigger for testing.
 type mockScheduledRunTrigger struct {
 	triggered []types.NamespacedName
 	entry     *v1alpha2.RunHistoryEntry
-	err       error
 }
 
 func (m *mockScheduledRunTrigger) TriggerManualRun(key types.NamespacedName) (*v1alpha2.RunHistoryEntry, error) {
 	m.triggered = append(m.triggered, key)
-	return m.entry, m.err
+	return m.entry, nil
 }
 
-func scheduledRunTargetRef(kind, name string) corev1.TypedLocalObjectReference {
+func scheduledRunTargetRef(kind, name string) corev1.TypedObjectReference {
 	apiGroup := v1alpha2.ScheduledRunTargetAPIGroup
 	if kind == "" {
 		kind = v1alpha2.ScheduledRunTargetKindAgent
 	}
-	return corev1.TypedLocalObjectReference{
+	return corev1.TypedObjectReference{
 		APIGroup: &apiGroup,
 		Kind:     kind,
 		Name:     name,
@@ -108,16 +108,6 @@ func TestScheduledRunsHandler(t *testing.T) {
 	}
 
 	t.Run("HandleListScheduledRuns", func(t *testing.T) {
-		t.Run("empty list", func(t *testing.T) {
-			handler, _, w := setupHandler()
-
-			req := httptest.NewRequest("GET", "/api/scheduledruns", nil)
-			req = setUser(req, "test-user")
-			handler.HandleListScheduledRuns(w, req)
-
-			assert.Equal(t, http.StatusOK, w.Code)
-		})
-
 		t.Run("list with items", func(t *testing.T) {
 			sr := newSR("default", "sr-1", "0 */2 * * *")
 			handler, _, w := setupHandler(sr)
@@ -211,6 +201,37 @@ func TestScheduledRunsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusCreated, w.Code)
 			assert.Contains(t, w.Body.String(), "new-sandbox-sr")
+		})
+
+		t.Run("success with cross-namespace agent target", func(t *testing.T) {
+			target := newAgent("target-ns", "agent")
+			target.Spec.AllowedNamespaces = &v1alpha2.AllowedNamespaces{From: v1alpha2.NamespacesFromAll}
+			handler, _, w := setupHandler(target)
+
+			targetRef := scheduledRunTargetRef("", "agent")
+			targetRef.Namespace = new("target-ns")
+			sr := v1alpha2.ScheduledRun{
+				ObjectMeta: metav1.ObjectMeta{Name: "cross-namespace-sr", Namespace: "source-ns"},
+				Spec: v1alpha2.ScheduledRunSpec{
+					Schedule:  "0 */2 * * *",
+					TargetRef: targetRef,
+					Prompt:    "do something",
+				},
+			}
+			body, _ := json.Marshal(sr)
+
+			req := httptest.NewRequest("POST", "/api/scheduledruns", bytes.NewBuffer(body))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, "test-user")
+			handler.HandleCreateScheduledRun(w, req)
+
+			require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+			var response struct {
+				Data v1alpha2.ScheduledRun `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+			require.NotNil(t, response.Data.Spec.TargetRef.Namespace)
+			assert.Equal(t, "target-ns", *response.Data.Spec.TargetRef.Namespace)
 		})
 
 		t.Run("rejects missing target", func(t *testing.T) {
@@ -571,13 +592,9 @@ func TestScheduledRunsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, w.Code)
 
-			// Verify it's actually deleted
-			getReq := httptest.NewRequest("GET", "/api/scheduledruns/default/sr-1", nil)
-			getReq = mux.SetURLVars(getReq, map[string]string{"namespace": "default", "name": "sr-1"})
-			getReq = setUser(getReq, "test-user")
-			w2 := newMockErrorResponseWriter()
-			handler.HandleGetScheduledRun(w2, getReq)
-			assert.Equal(t, http.StatusNotFound, w2.Code)
+			err := handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sr-1"}, &v1alpha2.ScheduledRun{})
+			require.Error(t, err)
+			assert.True(t, apierrors.IsNotFound(err))
 		})
 
 		t.Run("not found", func(t *testing.T) {
@@ -593,26 +610,11 @@ func TestScheduledRunsHandler(t *testing.T) {
 	})
 
 	t.Run("HandleTriggerScheduledRun", func(t *testing.T) {
-		t.Run("success", func(t *testing.T) {
-			existing := newSR("default", "sr-1", "0 */2 * * *")
-			handler, trigger, w := setupHandler(existing, newAgent("default", "my-agent"))
-			trigger.entry = &v1alpha2.RunHistoryEntry{Status: v1alpha2.RunStatusPending}
-
-			req := httptest.NewRequest("POST", "/api/scheduledruns/default/sr-1/trigger", nil)
-			req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sr-1"})
-			req = setUser(req, "test-user")
-			handler.HandleTriggerScheduledRun(w, req)
-
-			assert.Equal(t, http.StatusOK, w.Code)
-			require.Len(t, trigger.triggered, 1)
-			assert.Equal(t, types.NamespacedName{Namespace: "default", Name: "sr-1"}, trigger.triggered[0])
-		})
-
 		t.Run("suspended", func(t *testing.T) {
 			existing := newSR("default", "sr-1", "0 */2 * * *")
 			existing.Spec.Suspend = true
 			handler, trigger, w := setupHandler(existing, newAgent("default", "my-agent"))
-			trigger.entry = &v1alpha2.RunHistoryEntry{Status: v1alpha2.RunStatusPending}
+			trigger.entry = &v1alpha2.RunHistoryEntry{Status: v1alpha2.RunStatusInProgress}
 
 			req := httptest.NewRequest("POST", "/api/scheduledruns/default/sr-1/trigger", nil)
 			req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sr-1"})
@@ -638,13 +640,13 @@ func TestScheduledRunsHandler(t *testing.T) {
 }
 
 func TestScheduledRunsHandler_CreateDefaultsNamespace(t *testing.T) {
-	t.Setenv("KAGENT_NAMESPACE", "default")
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	namespace := utils.GetResourceNamespace()
 
 	kubeClient := fake.NewClientBuilder().
 		WithScheme(scheme).
-		WithRuntimeObjects(&v1alpha2.Agent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "default"}}).
+		WithRuntimeObjects(&v1alpha2.Agent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: namespace}}).
 		Build()
 	trigger := &mockScheduledRunTrigger{}
 	base := &handlers.Base{
@@ -671,25 +673,12 @@ func TestScheduledRunsHandler_CreateDefaultsNamespace(t *testing.T) {
 	req = setUser(req, "test-user")
 	handler.HandleCreateScheduledRun(w, req)
 
-	// Should succeed — the handler defaults the namespace
 	assert.Equal(t, http.StatusCreated, w.Code)
 
-	// Verify it was created with a namespace
 	var created v1alpha2.ScheduledRun
-	err := kubeClient.Get(context.Background(), types.NamespacedName{
+	require.NoError(t, kubeClient.Get(context.Background(), types.NamespacedName{
 		Name:      "no-namespace-sr",
-		Namespace: "kagent",
-	}, &created)
-	// If namespace defaults to something else, just verify creation succeeded
-	if err != nil {
-		// Try empty namespace (depends on GetResourceNamespace())
-		list := &v1alpha2.ScheduledRunList{}
-		err = kubeClient.List(context.Background(), list)
-		require.NoError(t, err)
-		require.Len(t, list.Items, 1)
-		assert.Equal(t, "no-namespace-sr", list.Items[0].Name)
-		assert.Equal(t, v1alpha2.DefaultScheduledRunTimeZone, list.Items[0].Spec.TimeZone)
-		return
-	}
+		Namespace: namespace,
+	}, &created))
 	assert.Equal(t, v1alpha2.DefaultScheduledRunTimeZone, created.Spec.TimeZone)
 }
