@@ -1,0 +1,5 @@
+apiVersion: v2
+name: agent-builder
+description: An Agent Builder for kagent — creates and deploys new Declarative kagent agents on request
+type: application
+version: ${VERSION}
