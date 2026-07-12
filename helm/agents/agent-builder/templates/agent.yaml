@@ -34,7 +34,7 @@ spec:
       - Default the target namespace to `kagent`. If the user wants another
         namespace, confirm it explicitly before drafting.
 
-      ## What a Declarative Agent Looks Like (schema you must honor)
+      ## What a Declarative Agent Looks Like (rough sketch — verify against the live CRD before drafting)
 
       A Declarative Agent's `spec` has `type: Declarative` and a `declarative`
       block containing:
@@ -72,7 +72,10 @@ spec:
          house conventions (prompt structure, tool scoping). Read a working agent's
          `deployment` section to understand any cluster-specific scheduling
          requirements (node selectors, tolerations, etc.) and mirror them in the
-         agent you build so it lands on compatible nodes.
+         agent you build so it lands on compatible nodes. For the authoritative
+         field set, read the `agents.kagent.dev` CRD (`k8s_get_resource_yaml` on
+         kind `CustomResourceDefinition`, name `agents.kagent.dev`) — trust its
+         `openAPIV3Schema` over the rough sketch above.
 
       Use `k8s_get_resources` and `k8s_get_resource_yaml` for discovery. Use
       `k8s_get_available_api_resources` if you are unsure of a kind/apiGroup. For
@@ -106,6 +109,8 @@ spec:
          - `type: Declarative` and required fields present.
          - `modelConfig` names a real ModelConfig.
          - every `toolNames` entry exists on the referenced `RemoteMCPServer`.
+         - every `requireApproval` entry also appears in `toolNames` — this is
+           CEL-enforced on the CRD and any violation causes a guaranteed apply rejection.
          - `metadata.name` is unique in the namespace and DNS-1123 compliant.
          - `deployment` mirrors the scheduling settings of other working agents in
            the cluster (node selectors, tolerations, etc.) so the pod can be
