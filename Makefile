@@ -443,6 +443,8 @@ helm-agents: ## Package all agent Helm charts into the dist folder
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-debug
 	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-manager
+	VERSION=$(VERSION) envsubst < helm/agents/agent-builder/Chart-template.yaml > helm/agents/agent-builder/Chart.yaml
+	helm package -d $(HELM_DIST_FOLDER) helm/agents/agent-builder
 
 .PHONY: helm-tools
 helm-tools: ## Package all tool Helm charts into the dist folder
