@@ -10,7 +10,7 @@ import (
 const DefaultAtenetRouterURL = "http://atenet-router.ate-system.svc:80"
 
 // GatewayRouterTarget returns the atenet-router reverse-proxy URL and Host header for an actor.
-func GatewayRouterTarget(routerURL, actorID string) (*url.URL, string, error) {
+func GatewayRouterTarget(routerURL, atespace, actorID string) (*url.URL, string, error) {
 	routerURL = strings.TrimSpace(routerURL)
 	if routerURL == "" {
 		routerURL = DefaultAtenetRouterURL
@@ -19,6 +19,10 @@ func GatewayRouterTarget(routerURL, actorID string) (*url.URL, string, error) {
 	if actorID == "" {
 		return nil, "", fmt.Errorf("actor id is required")
 	}
+	atespace = strings.TrimSpace(atespace)
+	if atespace == "" {
+		return nil, "", fmt.Errorf("atespace is required")
+	}
 	target, err := url.Parse(routerURL)
 	if err != nil {
 		return nil, "", fmt.Errorf("parse atenet-router URL %q: %w", routerURL, err)
@@ -26,6 +30,6 @@ func GatewayRouterTarget(routerURL, actorID string) (*url.URL, string, error) {
 	if target.Scheme == "" {
 		return nil, "", fmt.Errorf("atenet-router URL %q must include a scheme (http or https)", routerURL)
 	}
-	host := ActorHost(actorID, "")
+	host := ActorHost(atespace, actorID, "")
 	return target, host, nil
 }

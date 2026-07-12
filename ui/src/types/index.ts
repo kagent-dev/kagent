@@ -491,7 +491,8 @@ export interface SubstrateActorTemplateEntry {
   phase?: string;
   goldenActorId?: string;
   goldenSnapshot?: string;
-  workerPoolRef?: string;
+  sandboxClass?: string;
+  workerSelector?: string;
   harnessName?: string;
   managedByKagent: boolean;
 }
@@ -504,7 +505,8 @@ export interface SubstrateActorEntry {
   ateomPodNamespace?: string;
   ateomPodName?: string;
   ateomPodIp?: string;
-  lastSnapshot?: string;
+  latestSnapshot?: string;
+  workerPoolName?: string;
   inProgressSnapshot?: string;
   version?: number;
 }

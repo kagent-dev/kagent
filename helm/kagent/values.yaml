@@ -15,7 +15,7 @@ ipv6:
   enabled: false
 
 tag: ""
-registry: "cr.kagent.dev"
+registry: "ghcr.io"
 
 imagePullSecrets: []
 imagePullPolicy: IfNotPresent
@@ -26,6 +26,9 @@ fullnameOverride: ""
 # -- Override the namespace
 # @default -- `.Release.Namespace`
 namespaceOverride: ""
+
+# -- Additional annotations to add to all Kubernetes deployment resources
+annotations: {}
 
 podAnnotations: {}
 
@@ -76,6 +79,10 @@ database:
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
     vectorEnabled: false
+    # -- Skip running database migrations at controller startup.
+    # The controller instead verifies the database is already migrated and fails if it is not.
+    # Migrations must be applied out-of-band (e.g. from a CI/CD pipeline) before install/upgrade.
+    skipMigrations: false
     # -- Bundled PostgreSQL instance — for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:
@@ -191,6 +198,16 @@ controller:
   # internally. These values have no effect and will be removed in a future release.
   streaming: null
 
+  # -- HTTP client timeout for A2A requests from the controller to agent pods.
+  # 0 (the default) means no timeout, which is correct for SSE-based streaming agents
+  # that can run for an arbitrarily long time. The previous implicit default was 3m
+  # (inherited from the a2a-go SDK), which caused `context deadline exceeded` errors
+  # for agents that take longer than 3 minutes to complete.
+  # Set a positive Go duration string (e.g. "30m", "1h") only if you need a hard
+  # upper bound on individual A2A calls.
+  # @default -- "" (no timeout)
+  a2aClientTimeout: ""
+
   # -- Namespaces the controller should watch.
   # If empty, the controller will watch ALL available namespaces.
   # @default -- [] (watches all available namespaces)
@@ -203,6 +220,9 @@ controller:
   # traffic egresses in plaintext to a proxy that originates TLS upstream
   # off by default.
   mcpEgressPlaintext: false
+
+  # -- Additional annotations to add to the controller Deployment metadata
+  annotations: {}
 
   podAnnotations: {}
 
@@ -272,10 +292,6 @@ controller:
       namespace: ""
       name: ""
     # pauseImage: "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
-    # runscAMD64URL: "gs://gvisor/releases/nightly/2026-06-02/x86_64/runsc"
-    # runscAMD64SHA256: "efd12935f6654c91a1389710eb8dfa4d12b6b9be00db87526dc2eb584ad00119"
-    # runscARM64URL: "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc"
-    # runscARM64SHA256: "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9"
     # Example when enabled:
     #   enabled: true
     #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
@@ -316,12 +332,24 @@ substrateWorkerPool:
   name: kagent-default
   replicas: 1
   ateomImage: ""
+  # sandboxClass selects the sandbox runtime family (gvisor|microvm). kagent-generated
+  # ActorTemplates currently hardcode gvisor; set this to gvisor until microvm is supported.
+  sandboxClass: gvisor
+  # Extra labels merged onto the WorkerPool metadata (in addition to the
+  # kagent.dev/worker-pool label used by generated ActorTemplates to select this pool).
+  labels: {}
+  # Optional pod scheduling/resources for worker pods (WorkerPool.spec.template).
+  # nodeSelector / tolerations / priorityClassName / nodeAffinity / resources.
+  template: {}
 
 # ==============================================================================
 # UI CONFIGURATION
 # ==============================================================================
 
 ui:
+  # -- Additional annotations to add to the UI Deployment metadata
+  annotations: {}
+
   # -- Public-facing base URL of the UI (e.g. https://kagent.example.com).
   # When set, the controller injects KAGENT_UI_URL into agent pods so that
   # share link tools return full clickable URLs instead of relative paths.
@@ -438,6 +466,44 @@ ui:
   openshiftRoute:
     annotations:
       haproxy.router.openshift.io/timeout: 120m
+
+  # -- Gateway API `HTTPRoute` for the UI. Requires the Gateway API CRDs
+  # (`gateway.networking.k8s.io/v1`) and an existing `Gateway` to attach to via
+  # `parentRefs`. Disabled by default; enable to front the UI with a Gateway API
+  # implementation (kgateway, Istio, Envoy Gateway, etc.) instead of the
+  # OpenShift Route or bundled oauth2-proxy.
+  httpRoute:
+    enabled: false
+    # -- Extra labels to add to the `HTTPRoute` (merged with the chart labels).
+    labels: {}
+    # -- Annotations to add to the `HTTPRoute`.
+    annotations: {}
+    # -- Gateways this route attaches to. Required when `enabled` is `true`.
+    parentRefs: []
+    #   - name: my-gateway
+    #     namespace: gateway-system
+    #     sectionName: https
+    # -- Hostnames matched by the route.
+    hostnames: []
+    #   - kagent.example.com
+    # -- Routing rules. When a rule omits `backendRefs`, it defaults to the UI
+    # `Service` on `ui.service.ports.port`. Each rule may also set `matches`,
+    # `filters`, and `timeouts`.
+    rules: []
+    #   - matches:
+    #       - path:
+    #           type: PathPrefix
+    #           value: /
+    #     filters:
+    #       - type: RequestHeaderModifier
+    #         requestHeaderModifier:
+    #           set:
+    #             - name: X-Forwarded-Proto
+    #               value: https
+    #     timeouts:
+    #       request: "0s"
+    #       backendRequest: "0s"
+
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================

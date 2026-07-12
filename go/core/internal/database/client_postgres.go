@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -712,13 +713,14 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 		}
 	}
 
+	// Access-count bookkeeping is best-effort: a failure must not fail the search.
 	if len(results) > 0 {
 		ids := make([]string, len(results))
 		for i, r := range results {
 			ids[i] = r.ID
 		}
 		if err := c.q.IncrementMemoryAccessCount(ctx, ids); err != nil {
-			return nil, fmt.Errorf("failed to increment access count: %w", err)
+			log.Printf("failed to increment memory access count: %v", err)
 		}
 	}
 

@@ -119,6 +119,26 @@ tests:
           path: spec.template.spec.containers[0].image
           value: my-registry.example.com/myorg/postgres:15
 
+  - it: should omit empty repository segment in image
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      database:
+        postgres:
+          bundled:
+            image:
+              registry: docker.io
+              repository: ""
+              name: postgres
+              tag: "18.3-alpine"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/postgres:18.3-alpine
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "//"
+
   - it: should read POSTGRES_PASSWORD from chart-managed secret
     template: postgresql.yaml
     documentIndex: 2

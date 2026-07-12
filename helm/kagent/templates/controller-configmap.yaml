@@ -55,8 +55,12 @@ data:
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
   DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
+  SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
+  {{- if .Values.controller.a2aClientTimeout }}
+  KAGENT_A2A_CLIENT_TIMEOUT: {{ .Values.controller.a2aClientTimeout | quote }}
+  {{- end }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
   {{- $agentHost := "" }}
   {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.host (not (eq .Values.controller.agentDeployment.host "")) }}

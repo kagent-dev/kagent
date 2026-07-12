@@ -16,10 +16,6 @@ type BuildInput struct {
 	PodTemplate  corev1.PodTemplateSpec
 	WorkloadName string
 	ExtraLabels  map[string]string
-	// ConfigSecret is the rendered agent config Secret (config.json / agent-card.json /
-	// srt-settings.json). The substrate backend clones it under a per-config-hash name so each
-	// golden snapshot materializes its own config (see AgentsBackend.BuildSandbox). May be nil.
-	ConfigSecret *corev1.Secret
 }
 
 // Backend builds sandbox CRD objects and evaluates their readiness.
@@ -28,6 +24,11 @@ type Backend interface {
 	GetOwnedResourceTypes() []client.Object
 	// OwnedResourceTypesFor returns owned types for the agent's sandbox platform (for reconcile lists).
 	OwnedResourceTypesFor(agent v1alpha2.AgentObject) ([]client.Object, error)
+
+	// SessionDBURL returns the backend-specific session-store URL the translator bakes into the
+	// agent's rendered config (AgentConfig.session_db_url) before building the config Secret,
+	// or "" when the backend keeps sessions in the controller database.
+	SessionDBURL(agent v1alpha2.AgentObject) string
 
 	// ComputeReady reflects implementation-specific status into condition pieces for Agent.status.
 	ComputeReady(ctx context.Context, cl client.Client, nn types.NamespacedName) (status metav1.ConditionStatus, reason, message string)

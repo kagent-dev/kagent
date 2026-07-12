@@ -1,11 +1,13 @@
+from enum import Enum
 from unittest.mock import Mock
 
 import pytest
 from a2a.types import TaskState, TaskStatusUpdateEvent
 from google.genai import types as genai_types
 from kagent.core.a2a import get_kagent_metadata_key
+from pydantic import BaseModel, Field
 
-from kagent.adk.converters.event_converter import convert_event_to_a2a_events
+from kagent.adk.converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
 
 
 def _create_mock_invocation_context():
@@ -117,3 +119,48 @@ class TestEventConverter:
         error_code_key = get_kagent_metadata_key("error_code")
         assert error_code_key in error_event.metadata
         assert error_event.metadata[error_code_key] == str(genai_types.FinishReason.MALFORMED_FUNCTION_CALL)
+
+    def test_message_carries_task_and_context_ids(self):
+        """The converted message stamps task_id/context_id so consumers that
+        flatten task.history can key it to its task without backfilling."""
+        invocation_context = _create_mock_invocation_context()
+        content = genai_types.Content(parts=[genai_types.Part(text="hello world")])
+        event = _create_mock_event(content=content, invocation_id="test_invocation_ids")
+
+        result = convert_event_to_a2a_events(event, invocation_context, task_id="task-xyz", context_id="ctx-xyz")
+
+        working_events = [
+            e for e in result if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+        ]
+        assert len(working_events) == 1
+        message = working_events[0].status.message
+        assert message is not None
+        assert message.task_id == "task-xyz"
+        assert message.context_id == "ctx-xyz"
+
+
+class TestSerializeMetadataValue:
+    """Test cases for serialize_metadata_value."""
+
+    def test_pydantic_value_serializes_to_dump_dict(self):
+        """A Pydantic value serializes to its JSON-compatible model_dump dict so
+        structured metadata (e.g. usage_metadata token counts) stays
+        machine-readable for consumers such as the UI."""
+
+        class _Status(Enum):
+            READY = "ready"
+
+        class _Model(BaseModel):
+            a: int
+            b: str | None = None
+            status: _Status
+            alias_value: str = Field(alias="aliasValue")
+
+        value = _Model(a=1, status=_Status.READY, aliasValue="x")
+
+        result = serialize_metadata_value(value)
+
+        assert result == {"a": 1, "status": "ready", "aliasValue": "x"}
+
+    def test_plain_value_serializes_to_str(self):
+        assert serialize_metadata_value(42) == "42"

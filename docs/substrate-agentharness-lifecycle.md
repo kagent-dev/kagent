@@ -1,6 +1,6 @@
 # Substrate AgentHarness Lifecycle
 
-This branch should use a single ownership model for `runtime: substrate` harnesses.
+kagent uses a single ownership model for `runtime: substrate` harnesses.
 
 ## Ownership
 

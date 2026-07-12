@@ -1,10 +1,10 @@
 # OIDC Proxy Authentication Architecture
 
-This document describes the authentication architecture introduced in the `feature/oidc-proxy-auth` branch.
+This document describes the OIDC proxy-based authentication architecture in kagent.
 
 ## Overview
 
-This PR adds OIDC proxy-based authentication to Kagent, allowing integration with enterprise identity providers via oauth2-proxy. The architecture follows a "trust the proxy" model where an upstream reverse proxy (oauth2-proxy) handles OIDC authentication and injects JWT tokens into requests.
+kagent supports OIDC proxy-based authentication, allowing integration with enterprise identity providers via oauth2-proxy. The architecture follows a "trust the proxy" model where an upstream reverse proxy (oauth2-proxy) handles OIDC authentication and injects JWT tokens into requests.
 
 ## Authentication Flow
 
@@ -51,7 +51,7 @@ flowchart TB
     subgraph UI["UI Layer (Next.js)"]
         LoginPage["/login Page<br/>SSO redirect button"]
         AuthContext["AuthContext Provider<br/>- User state management<br/>- Loading/error states"]
-        AuthActions["Server Actions<br/>getCurrentUser()"]
+        AuthActions["Server Actions<br/>getAuthResult()"]
         JWTLib["JWT Library<br/>- Decode tokens<br/>- Check expiry"]
         AuthLib["Auth Library<br/>- Header forwarding"]
     end
@@ -129,14 +129,19 @@ flowchart TD
     B -->|Yes| D[Inject JWT header]
     D --> E[Forward to UI/Backend]
     E --> F{AuthContext:<br/>JWT valid?}
-    F -->|Yes| G[Set user state]
-    F -->|No| H[Set error state]
+    F -->|authenticated| G[Set user state]
+    F -->|expired| I[Re-run OIDC via /oauth2/start]
+    F -->|unsecured| J[No user, no redirect]
 
     style C fill:#f96,stroke:#333
-    style H fill:#ff9,stroke:#333
+    style I fill:#ff9,stroke:#333
 ```
 
-**Design rationale**: The UI does not redirect on auth failure. If `getCurrentUser()` fails, it indicates a misconfiguration (oauth2-proxy should have intercepted the request) rather than a normal session expiry. The error state surfaces this for debugging rather than masking it with a redirect loop.
+**Design rationale**: oauth2-proxy gates access using its session cookie (valid up to `cookie-expire`, default 168h), while the UI derives the user from the forwarded id_token. These lifetimes are decoupled, so the id_token can go stale while the session cookie is still valid. To keep them aligned, oauth2-proxy *can* be configured with `cookie-refresh` (and the `offline_access` scope) to refresh the id_token — note the chart's defaults do **not** enable these (default scope is `openid profile email groups`), so operators must opt in. As a safety net regardless of refresh configuration, `getAuthResult()` distinguishes three states:
+
+- **authenticated** — valid token → set user state.
+- **expired** — `Authorization` header present but token missing/expired → the UI re-runs the OIDC flow (`/oauth2/start`) to mint a fresh token, guarded against redirect loops.
+- **unsecured** — no `Authorization` header (no oauth2-proxy in front) → no user and no redirect (there is no `/oauth2` endpoint to redirect to).
 
 ## Service Account Fallback
 

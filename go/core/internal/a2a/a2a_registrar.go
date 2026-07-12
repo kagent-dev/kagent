@@ -11,6 +11,7 @@ import (
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
@@ -36,6 +37,7 @@ type A2ARegistrar struct {
 	authenticator                auth.AuthProvider
 	agentObserver                AgentObserver
 	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend
+	dbService                    database.Client
 }
 
 type AgentObserver interface {
@@ -54,6 +56,7 @@ func NewA2ARegistrar(
 	authenticator auth.AuthProvider,
 	agentObserver AgentObserver,
 	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend,
+	dbService database.Client,
 ) (*A2ARegistrar, error) {
 	if clientRegistry == nil {
 		return nil, fmt.Errorf("clientRegistry must not be nil")
@@ -68,6 +71,7 @@ func NewA2ARegistrar(
 		authenticator:                authenticator,
 		substrateSandboxActorBackend: substrateSandboxActorBackend,
 		agentObserver:                agentObserver,
+		dbService:                    dbService,
 	}
 
 	return reg, nil
@@ -216,7 +220,7 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 
 	provider := resolveProviderName(ctx, a.cache, agent)
 
-	httpClient := debugHTTPClient()
+	httpClient := a2aHTTPClient()
 	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok &&
 		a.substrateSandboxActorBackend != nil {
 		routerURL := a.ateneRouterURL
@@ -227,7 +231,7 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 		if httpClient != nil && httpClient.Transport != nil {
 			baseTransport = httpClient.Transport
 		}
-		transport, err := newSubstrateSandboxSessionRoundTripper(routerURL, sa, a.substrateSandboxActorBackend, baseTransport)
+		transport, err := newSubstrateSandboxSessionRoundTripper(routerURL, sa, a.substrateSandboxActorBackend, baseTransport, a.dbService)
 		if err != nil {
 			return fmt.Errorf("substrate sandbox A2A transport for %s: %w", agentRef, err)
 		}
@@ -274,22 +278,22 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 	return nil
 }
 
-// debugHTTPClient returns nil in normal operation, letting the a2aclient SDK apply its
-// default 3-minute request timeout. In debug mode it overrides the dial target so all
-// A2A traffic is redirected to a fixed address (e.g. a local proxy).
-func debugHTTPClient() *http.Client {
-	debugAddr := env.KagentA2ADebugAddr.Get()
-	if debugAddr == "" {
-		return nil
-	}
-	return &http.Client{
-		Transport: &http.Transport{
+// a2aHTTPClient returns the HTTP client to use for A2A requests to agent pods.
+// It respects KAGENT_A2A_CLIENT_TIMEOUT (default 0 = no timeout), overriding the
+// a2a-go SDK's built-in 3-minute default which is too short for long-running
+// streaming agents. When KAGENT_A2A_DEBUG_ADDR is set, the dial target is
+// redirected to that fixed address (e.g. a local proxy) for debugging.
+func a2aHTTPClient() *http.Client {
+	client := &http.Client{Timeout: env.KagentA2AClientTimeout.Get()}
+	if debugAddr := env.KagentA2ADebugAddr.Get(); debugAddr != "" {
+		client.Transport = &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				var zeroDialer net.Dialer
 				return zeroDialer.DialContext(ctx, network, debugAddr)
 			},
-		},
+		}
 	}
+	return client
 }
 
 func (a *A2ARegistrar) a2aRouteURL(agent v1alpha2.AgentObject) string {

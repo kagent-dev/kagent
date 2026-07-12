@@ -3,6 +3,8 @@
 from unittest import mock
 
 from anthropic import AsyncAnthropic
+from anthropic.types import ThinkingBlock
+from google.adk.models.anthropic_llm import content_block_to_part
 
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 
@@ -63,3 +65,23 @@ class TestKAgentAnthropicLlm:
         assert isinstance(result, KAgentAnthropicLlm)
         assert result.model == "claude-3-sonnet-20240229"
         assert result.base_url == "https://api.anthropic.com"
+
+
+class TestAnthropicThinkingBlock:
+    """Regression guard for the google-adk floor that KAgentAnthropicLlm relies on.
+
+    KAgentAnthropicLlm inherits response decoding from google-adk's AnthropicLlm.
+    Models that emit thinking blocks (Claude Sonnet 5 does so by default) return a
+    ThinkingBlock, which google-adk only learned to decode in 1.32.0. On an older
+    pinned version content_block_to_part raises NotImplementedError, so every
+    request against such a model fails. This asserts the resolved dependency can
+    decode a thinking block, catching a silent downgrade below that floor.
+    """
+
+    def test_thinking_block_decodes_to_thought_part(self):
+        block = ThinkingBlock(type="thinking", thinking="working through it", signature="sig")
+
+        part = content_block_to_part(block)
+
+        assert part.thought is True
+        assert part.text == "working through it"
