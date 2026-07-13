@@ -14,6 +14,7 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
+import ToolCallGroup, { groupToolCallMessages, buildToolCallResultsIndex } from "@/components/chat/ToolCallGroup";
 import ChatMinimap from "@/components/chat/ChatMinimap";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
@@ -150,6 +151,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   }), [selectedNamespace, selectedAgentName]);
 
   const allMessages = useMemo(() => [...storedMessages, ...streamingMessages], [storedMessages, streamingMessages]);
+
+  // Fold consecutive runs of tool-call messages into collapsible groups.
+  const storedRenderItems = useMemo(() => groupToolCallMessages(storedMessages), [storedMessages]);
+  const streamingRenderItems = useMemo(() => groupToolCallMessages(streamingMessages), [streamingMessages]);
+  // Shared call_id -> is_error lookup so each group summary is O(group size).
+  const toolResultsByCallId = useMemo(() => buildToolCallResultsIndex(allMessages), [allMessages]);
 
   const { handleMessageEvent } = useMemo(() => createMessageHandlers({
     setMessages: setStreamingMessages,
@@ -1026,6 +1033,36 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   };
 
+  const renderChatMessage = (message: Message, key: string) => (
+    <ChatMessage
+      key={key}
+      message={message}
+      allMessages={allMessages}
+      agentContext={agentContext}
+      onApprove={shareReadOnly ? undefined : handleApprove}
+      onReject={shareReadOnly ? undefined : handleReject}
+      onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
+      pendingDecisions={pendingDecisions}
+      getMcpAppForTool={getMcpAppForTool}
+      onMcpAppSendMessage={handleMcpAppSendMessage}
+    />
+  );
+
+  const renderMessageItems = (items: ReturnType<typeof groupToolCallMessages>, keyPrefix: string) =>
+    items.map(item =>
+      item.kind === "group" ? (
+        <div key={`${keyPrefix}-group-${item.startIndex}`} data-mm-item data-mm-role="assistant">
+          <ToolCallGroup messages={item.messages} resultsByCallId={toolResultsByCallId}>
+            {item.messages.map((message, j) => renderChatMessage(message, `${keyPrefix}-${item.startIndex + j}`))}
+          </ToolCallGroup>
+        </div>
+      ) : (
+        <div key={`${keyPrefix}-${item.startIndex}`} data-mm-item data-mm-role={item.message.role === "user" ? "user" : "assistant"}>
+          {renderChatMessage(item.message, `${keyPrefix}-msg-${item.startIndex}`)}
+        </div>
+      )
+    );
+
   if (sessionNotFound) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center p-4 text-center">
@@ -1070,38 +1107,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             ) : (
               <>
                 {/* Display stored messages from session */}
-                {storedMessages.map((message, index) => {
-                  return <div key={`stored-${index}`} data-mm-item data-mm-role={message.role === "user" ? "user" : "assistant"}>
-                    <ChatMessage
-                      message={message}
-                      allMessages={allMessages}
-                      agentContext={agentContext}
-                      onApprove={shareReadOnly ? undefined : handleApprove}
-                      onReject={shareReadOnly ? undefined : handleReject}
-                      onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
-                      pendingDecisions={pendingDecisions}
-                      getMcpAppForTool={getMcpAppForTool}
-                      onMcpAppSendMessage={handleMcpAppSendMessage}
-                    />
-                  </div>
-                })}
+                {renderMessageItems(storedRenderItems, "stored")}
 
                 {/* Display streaming messages */}
-                {streamingMessages.map((message, index) => {
-                  return <div key={`stream-${index}`} data-mm-item data-mm-role={message.role === "user" ? "user" : "assistant"}>
-                    <ChatMessage
-                      message={message}
-                      allMessages={allMessages}
-                      agentContext={agentContext}
-                      onApprove={shareReadOnly ? undefined : handleApprove}
-                      onReject={shareReadOnly ? undefined : handleReject}
-                      onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
-                      pendingDecisions={pendingDecisions}
-                      getMcpAppForTool={getMcpAppForTool}
-                      onMcpAppSendMessage={handleMcpAppSendMessage}
-                    />
-                  </div>
-                })}
+                {renderMessageItems(streamingRenderItems, "stream")}
 
                 {isStreaming && (
                   <div data-mm-item data-mm-role="assistant">
