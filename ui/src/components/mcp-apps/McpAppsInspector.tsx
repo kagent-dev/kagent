@@ -18,11 +18,13 @@ import { McpAppRenderer } from "./McpAppRenderer";
 interface McpAppsInspectorProps {
   namespace: string;
   name: string;
+  /** When set, scope the inspector to a single app (tool) instead of listing all of them. */
+  focusToolName?: string;
 }
 
 type UiMcpAppTool = McpAppTool & { uiResourceUri: string };
 
-export function McpAppsInspector({ namespace, name }: McpAppsInspectorProps) {
+export function McpAppsInspector({ namespace, name, focusToolName }: McpAppsInspectorProps) {
   const [tools, setTools] = useState<UiMcpAppTool[]>([]);
   const [selectedToolName, setSelectedToolName] = useState<string>("");
   const [argsText, setArgsText] = useState("{}");
@@ -46,8 +48,9 @@ export function McpAppsInspector({ namespace, name }: McpAppsInspectorProps) {
         setTools([]);
       } else {
         const uiTools = response.data.filter((tool): tool is UiMcpAppTool => !!tool.uiResourceUri);
-        setTools(uiTools);
-        setSelectedToolName((current) => current || uiTools[0]?.name || "");
+        const scoped = focusToolName ? uiTools.filter((tool) => tool.name === focusToolName) : uiTools;
+        setTools(scoped);
+        setSelectedToolName((current) => current || scoped[0]?.name || "");
       }
       setLoading(false);
     }
@@ -55,7 +58,7 @@ export function McpAppsInspector({ namespace, name }: McpAppsInspectorProps) {
     return () => {
       cancelled = true;
     };
-  }, [namespace, name]);
+  }, [namespace, name, focusToolName]);
 
   const selectedTool = useMemo(
     () => tools.find((tool) => tool.name === selectedToolName),
