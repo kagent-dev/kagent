@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +14,7 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
-import ToolCallGroup, { groupToolCallMessages, buildToolCallResultsIndex } from "@/components/chat/ToolCallGroup";
+import ToolCallGroup, { groupToolCallMessages, buildToolCallResultsIndex, collectPendingApprovalIds } from "@/components/chat/ToolCallGroup";
 import ChatMinimap from "@/components/chat/ChatMinimap";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
@@ -153,8 +153,23 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const allMessages = useMemo(() => [...storedMessages, ...streamingMessages], [storedMessages, streamingMessages]);
 
   // Fold consecutive runs of tool-call messages into collapsible groups.
-  const storedRenderItems = useMemo(() => groupToolCallMessages(storedMessages), [storedMessages]);
-  const streamingRenderItems = useMemo(() => groupToolCallMessages(streamingMessages), [streamingMessages]);
+  // MCP app calls render interactive UI, so they stay outside the groups.
+  // Approval requests stay outside only while undecided (pendingDecisions
+  // makes decided approvals fold in immediately, before the server responds).
+  const isMcpAppToolName = useCallback((toolName: string) => !!getMcpAppForTool(toolName), [getMcpAppForTool]);
+  const pendingApprovalIds = useMemo(
+    () => collectPendingApprovalIds(allMessages, pendingDecisions),
+    [allMessages, pendingDecisions],
+  );
+  const groupingOptions = useMemo(
+    () => ({ isStandaloneToolName: isMcpAppToolName, pendingDecisions, pendingApprovalIds }),
+    [isMcpAppToolName, pendingDecisions, pendingApprovalIds],
+  );
+  // Group over the COMBINED transcript (stored + streaming) so a run that
+  // spans the boundary — e.g. an approval request persisted at
+  // input_required and its tool result arriving on the post-approval stream —
+  // folds into a single group instead of two.
+  const renderItems = useMemo(() => groupToolCallMessages(allMessages, groupingOptions), [allMessages, groupingOptions]);
   // Shared call_id -> is_error lookup so each group summary is O(group size).
   const toolResultsByCallId = useMemo(() => buildToolCallResultsIndex(allMessages), [allMessages]);
 
@@ -1106,11 +1121,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               </div>
             ) : (
               <>
-                {/* Display stored messages from session */}
-                {renderMessageItems(storedRenderItems, "stored")}
-
-                {/* Display streaming messages */}
-                {renderMessageItems(streamingRenderItems, "stream")}
+                {/* Display all messages (stored + streaming) as one grouped list */}
+                {renderMessageItems(renderItems, "msg")}
 
                 {isStreaming && (
                   <div data-mm-item data-mm-role="assistant">

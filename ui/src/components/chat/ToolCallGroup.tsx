@@ -6,6 +6,7 @@ import { ChevronRight, Wrench, Loader2, CheckCircle, XCircle } from "lucide-reac
 import { cn, convertToUserFriendlyName } from "@/lib/utils";
 import { extractToolCallRequests, extractToolCallResults } from "@/lib/toolCallExtraction";
 import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
+import { ToolDecision } from "@/types";
 
 /**
  * A render item produced by {@link groupToolCallMessages}: either a single
@@ -17,7 +18,7 @@ export type ChatRenderItem =
   | { kind: "group"; messages: Message[]; startIndex: number };
 
 /** Message types that always render standalone, even when tool-related. */
-const NEVER_GROUPED_TYPES = new Set(["AskUserRequest", "ToolApprovalRequest"]);
+const NEVER_GROUPED_TYPES = new Set(["AskUserRequest"]);
 
 /** Tool-related originalType values that carry no data parts (streaming format). */
 const STREAMING_TOOL_TYPES = new Set([
@@ -26,56 +27,164 @@ const STREAMING_TOOL_TYPES = new Set([
   "ToolCallSummaryMessage",
 ]);
 
+export interface GroupingOptions {
+  /** Tools that always render standalone (e.g. MCP apps with interactive UI). */
+  isStandaloneToolName?: (toolName: string) => boolean;
+  /** Local (optimistic) approval decisions keyed by tool call id. */
+  pendingDecisions?: Record<string, ToolDecision>;
+  /**
+   * Call ids still awaiting a user decision, built from the FULL transcript
+   * with {@link collectPendingApprovalIds}. The approve/reject card renders
+   * under the first message that introduces a call id (which is usually the
+   * plain request message, not the ToolApprovalRequest itself), so every
+   * message referencing a pending id must stay outside the group.
+   */
+  pendingApprovalIds?: ReadonlySet<string>;
+}
+
 /**
- * True when a message renders as tool-call chrome (request/result/summary) and
- * can be folded into a ToolCallGroup. Approval and ask-user messages are
- * excluded: they demand user attention and must never be hidden.
+ * True when every tool call in a ToolApprovalRequest message has been decided
+ * — either persisted in `metadata.approvalDecision` (uniform string or
+ * per-tool map) or recorded locally in `pendingDecisions`. Undecided
+ * approvals must stay visible outside any collapsed group.
  */
-export const isGroupableToolMessage = (message: Message): boolean => {
-  if (message.role === "user") return false;
+const isApprovalResolved = (message: Message, pendingDecisions?: Record<string, ToolDecision>): boolean => {
+  const requests = extractToolCallRequests(message);
+  if (requests.length === 0) return false;
+
+  const rawDecision = (message.metadata as ADKMetadata)?.approvalDecision;
+  return requests.every(request => {
+    if (!request.id) return false;
+    if (typeof rawDecision === "object" && rawDecision !== null) {
+      if ((rawDecision as Record<string, ToolDecision>)[request.id]) return true;
+    } else if (rawDecision) {
+      return true;
+    }
+    return !!pendingDecisions?.[request.id];
+  });
+};
+
+/**
+ * Collect the call ids of every unresolved ToolApprovalRequest in the
+ * transcript. Compute once over the full message list (memoized in the
+ * parent) and pass to {@link groupToolCallMessages} so that the request and
+ * result messages tied to a pending approval stay visible outside groups.
+ */
+export const collectPendingApprovalIds = (
+  messages: Message[],
+  pendingDecisions?: Record<string, ToolDecision>,
+): Set<string> => {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    if ((message.metadata as ADKMetadata)?.originalType !== "ToolApprovalRequest") continue;
+    if (isApprovalResolved(message, pendingDecisions)) continue;
+    for (const request of extractToolCallRequests(message)) {
+      if (request.id) ids.add(request.id);
+    }
+  }
+  return ids;
+};
+
+/**
+ * How a message participates in tool-call grouping:
+ * - "group":      folds into the current ToolCallGroup run.
+ * - "standalone": tool-related but must stay visible (MCP apps, ask-user,
+ *                 undecided approvals). Rendered outside the group WITHOUT
+ *                 breaking the run — models issue parallel tool batches where
+ *                 e.g. an MCP app call or an approval is interleaved with
+ *                 regular calls, and breaking the run would shatter one
+ *                 logical batch into several groups.
+ * - "other":      regular chat content (text, user messages); closes the run.
+ */
+type ToolMessageKind = "group" | "standalone" | "other";
+
+const classifyToolMessage = (message: Message, options?: GroupingOptions): ToolMessageKind => {
+  if (message.role === "user") return "other";
 
   const metadata = message.metadata as ADKMetadata;
   const originalType = metadata?.originalType;
-  if (originalType && NEVER_GROUPED_TYPES.has(originalType)) return false;
-  if (originalType && STREAMING_TOOL_TYPES.has(originalType)) return true;
+  if (originalType && NEVER_GROUPED_TYPES.has(originalType)) return "standalone";
 
-  return (
-    message.parts?.some(part => {
+  const isToolMessage =
+    (originalType !== undefined && STREAMING_TOOL_TYPES.has(originalType)) ||
+    originalType === "ToolApprovalRequest" ||
+    (message.parts?.some(part => {
       if (part.kind === "data" && part.metadata) {
         const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
         return partType === "function_call" || partType === "function_response";
       }
       return false;
-    }) ?? false
-  );
+    }) ?? false);
+  if (!isToolMessage) return "other";
+
+  if (originalType === "ToolApprovalRequest" && !isApprovalResolved(message, options?.pendingDecisions)) {
+    return "standalone";
+  }
+
+  const { isStandaloneToolName, pendingApprovalIds } = options ?? {};
+  if (isStandaloneToolName || pendingApprovalIds?.size) {
+    const requests = extractToolCallRequests(message);
+    const results = extractToolCallResults(message);
+
+    // MCP app calls render interactive UI — always standalone.
+    if (isStandaloneToolName) {
+      const hasStandaloneCall =
+        requests.some(request => isStandaloneToolName(request.name)) ||
+        results.some(result => result.name && isStandaloneToolName(result.name));
+      if (hasStandaloneCall) return "standalone";
+    }
+
+    // The approve/reject card renders under the first message introducing a
+    // call id — keep every message tied to a pending approval outside groups.
+    if (pendingApprovalIds?.size) {
+      const referencesPendingApproval =
+        requests.some(request => request.id && pendingApprovalIds.has(request.id)) ||
+        results.some(result => result.call_id && pendingApprovalIds.has(result.call_id));
+      if (referencesPendingApproval) return "standalone";
+    }
+  }
+
+  return "group";
 };
 
 /**
- * Partition a message list into render items, folding consecutive runs of
- * tool-call messages into groups. Text messages, approvals, and ask-user
- * requests break a run and render standalone.
+ * True when a message renders as tool-call chrome (request/result/summary) and
+ * can be folded into a ToolCallGroup. Ask-user messages and *undecided*
+ * approval requests are excluded: they demand user attention and must never
+ * be hidden. Once the user responds, approval messages become groupable.
+ *
+ * `options.isStandaloneToolName` additionally excludes calls by tool name —
+ * e.g. MCP app tools that render interactive UI and must stay visible
+ * outside the group.
  */
-export const groupToolCallMessages = (messages: Message[]): ChatRenderItem[] => {
-  const items: ChatRenderItem[] = [];
-  let run: Message[] = [];
-  let runStart = 0;
+export const isGroupableToolMessage = (message: Message, options?: GroupingOptions): boolean =>
+  classifyToolMessage(message, options) === "group";
 
-  const flush = () => {
-    if (run.length === 0) return;
-    items.push({ kind: "group", messages: run, startIndex: runStart });
-    run = [];
-  };
+/**
+ * Partition a message list into render items, folding runs of tool-call
+ * messages into groups. Standalone tool messages (MCP apps, ask-user,
+ * undecided approvals) are emitted as singles but do NOT close the current
+ * run — a parallel tool batch with an interleaved MCP app or approval stays
+ * one group, with the standalone cards floating right after it. Regular chat
+ * content (text, user messages) closes the run.
+ */
+export const groupToolCallMessages = (messages: Message[], options?: GroupingOptions): ChatRenderItem[] => {
+  const items: ChatRenderItem[] = [];
+  let openGroup: { kind: "group"; messages: Message[]; startIndex: number } | null = null;
 
   messages.forEach((message, index) => {
-    if (isGroupableToolMessage(message)) {
-      if (run.length === 0) runStart = index;
-      run.push(message);
+    const kind = classifyToolMessage(message, options);
+    if (kind === "group") {
+      if (!openGroup) {
+        openGroup = { kind: "group", messages: [], startIndex: index };
+        items.push(openGroup);
+      }
+      openGroup.messages.push(message);
     } else {
-      flush();
       items.push({ kind: "single", message, startIndex: index });
+      if (kind === "other") openGroup = null;
     }
   });
-  flush();
 
   return items;
 };

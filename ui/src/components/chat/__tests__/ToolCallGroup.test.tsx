@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { Message } from "@a2a-js/sdk";
-import ToolCallGroup, { groupToolCallMessages, isGroupableToolMessage, buildToolCallResultsIndex } from "@/components/chat/ToolCallGroup";
+import ToolCallGroup, { groupToolCallMessages, isGroupableToolMessage, buildToolCallResultsIndex, collectPendingApprovalIds } from "@/components/chat/ToolCallGroup";
 
 const textMessage = (text: string, role: "user" | "agent" = "agent"): Message => ({
   kind: "message",
@@ -36,11 +36,11 @@ const responseMessage = (id: string, name: string, isError = false): Message => 
   ],
 });
 
-const approvalMessage = (id: string): Message => ({
+const approvalMessage = (id: string, approvalDecision?: unknown): Message => ({
   kind: "message",
   messageId: `approval-${id}`,
   role: "agent",
-  metadata: { originalType: "ToolApprovalRequest" },
+  metadata: { originalType: "ToolApprovalRequest", ...(approvalDecision !== undefined ? { approvalDecision } : {}) },
   parts: [
     {
       kind: "data",
@@ -61,7 +61,7 @@ describe("isGroupableToolMessage", () => {
     expect(isGroupableToolMessage(textMessage("hello"))).toBe(false);
   });
 
-  it("never groups approval or ask-user messages", () => {
+  it("never groups undecided approval or ask-user messages", () => {
     expect(isGroupableToolMessage(approvalMessage("c1"))).toBe(false);
     expect(
       isGroupableToolMessage({
@@ -72,6 +72,17 @@ describe("isGroupableToolMessage", () => {
         parts: [],
       }),
     ).toBe(false);
+  });
+
+  it("groups approval messages once decided", () => {
+    // Persisted decision (uniform string)
+    expect(isGroupableToolMessage(approvalMessage("c1", "approve"))).toBe(true);
+    // Persisted decision (per-tool map)
+    expect(isGroupableToolMessage(approvalMessage("c1", { c1: "reject" }))).toBe(true);
+    // Local optimistic decision
+    expect(isGroupableToolMessage(approvalMessage("c1"), { pendingDecisions: { c1: "approve" } })).toBe(true);
+    // Map decision for a different call id does not count
+    expect(isGroupableToolMessage(approvalMessage("c1", { other: "approve" }))).toBe(false);
   });
 });
 
@@ -94,7 +105,7 @@ describe("groupToolCallMessages", () => {
     expect(items[2]).toMatchObject({ kind: "single", startIndex: 5 });
   });
 
-  it("breaks a run on approval messages so they stay visible", () => {
+  it("floats undecided approvals outside without breaking the run; decided ones fold in", () => {
     const messages = [
       requestMessage("c1", "tool_a"),
       responseMessage("c1", "tool_a"),
@@ -103,7 +114,97 @@ describe("groupToolCallMessages", () => {
     ];
 
     const items = groupToolCallMessages(messages);
-    expect(items.map(i => i.kind)).toEqual(["group", "single", "group"]);
+    // The pending approval floats out as a single, but the run stays open so
+    // c1 and c3 share one group.
+    expect(items.map(i => i.kind)).toEqual(["group", "single"]);
+    expect((items[0] as { messages: Message[] }).messages).toHaveLength(3);
+
+    // Same transcript after the user decides: one contiguous group.
+    const decided = groupToolCallMessages(messages, { pendingDecisions: { c2: "approve" } });
+    expect(decided.map(i => i.kind)).toEqual(["group"]);
+    expect((decided[0] as { messages: Message[] }).messages).toHaveLength(4);
+  });
+
+  it("keeps the request message that carries a pending approval card outside the group", () => {
+    // The approve/reject buttons render under the FIRST message introducing
+    // the call id — the plain function_call request — not the
+    // ToolApprovalRequest message itself.
+    const messages = [
+      requestMessage("c1", "tool_a"),
+      responseMessage("c1", "tool_a"),
+      requestMessage("c2", "dangerous_tool"),
+      approvalMessage("c2"),
+      requestMessage("c3", "tool_c"),
+    ];
+
+    const pending = groupToolCallMessages(messages, {
+      pendingApprovalIds: collectPendingApprovalIds(messages),
+    });
+    // Both the request (owning the approval card) and the approval message
+    // float out as singles; the run stays open so c1 and c3 share one group.
+    expect(pending.map(i => i.kind)).toEqual(["group", "single", "single"]);
+    expect((pending[0] as { messages: Message[] }).messages).toHaveLength(3);
+
+    // After the user decides, everything folds into one group.
+    const pendingDecisions = { c2: "approve" as const };
+    const decided = groupToolCallMessages(messages, {
+      pendingDecisions,
+      pendingApprovalIds: collectPendingApprovalIds(messages, pendingDecisions),
+    });
+    expect(decided.map(i => i.kind)).toEqual(["group"]);
+  });
+
+  it("floats standalone tools (e.g. MCP apps) outside without breaking the run", () => {
+    const isMcpApp = (name: string) => name === "mcp_app_tool";
+    const messages = [
+      requestMessage("c1", "tool_a"),
+      responseMessage("c1", "tool_a"),
+      requestMessage("c2", "mcp_app_tool"),
+      responseMessage("c2", "mcp_app_tool"),
+      requestMessage("c3", "tool_c"),
+    ];
+
+    const items = groupToolCallMessages(messages, { isStandaloneToolName: isMcpApp });
+    expect(items.map(i => i.kind)).toEqual(["group", "single", "single"]);
+    expect(items[0]).toMatchObject({ kind: "group", startIndex: 0 });
+    // The run stays open across the MCP app call: c1 and c3 share one group.
+    expect((items[0] as { messages: Message[] }).messages).toHaveLength(3);
+    expect(items[1]).toMatchObject({ kind: "single", startIndex: 2 });
+    expect(items[2]).toMatchObject({ kind: "single", startIndex: 3 });
+  });
+
+  it("keeps an interleaved parallel batch as one group (MCP app + approval mid-batch)", () => {
+    // Models issue parallel batches: [events, logs, weather(MCP), datetime(approval)].
+    // The MCP app and the decided approval must not shatter the batch.
+    const isMcpApp = (name: string) => name === "show-weather-dashboard";
+    const messages = [
+      requestMessage("c1", "k8s_get_events"),
+      requestMessage("c2", "k8s_get_pod_logs"),
+      requestMessage("c3", "show-weather-dashboard"),
+      requestMessage("c4", "datetime_get_current_time"),
+      responseMessage("c1", "k8s_get_events"),
+      responseMessage("c2", "k8s_get_pod_logs"),
+      responseMessage("c3", "show-weather-dashboard"),
+      approvalMessage("c4", "approve"),
+      responseMessage("c4", "datetime_get_current_time"),
+      requestMessage("c5", "k8s_get_pod_logs"),
+      responseMessage("c5", "k8s_get_pod_logs"),
+      textMessage("answer"),
+    ];
+
+    const items = groupToolCallMessages(messages, { isStandaloneToolName: isMcpApp });
+    // One group for the whole batch + the two MCP app singles + final text.
+    expect(items.map(i => i.kind)).toEqual(["group", "single", "single", "single"]);
+    const group = items[0] as { messages: Message[] };
+    expect(group.messages).toHaveLength(9);
+
+    // The approval card repeats c4's request — the summary must dedupe by id.
+    render(
+      <ToolCallGroup messages={group.messages} resultsByCallId={buildToolCallResultsIndex(messages)}>
+        <div />
+      </ToolCallGroup>,
+    );
+    expect(screen.getByRole("button")).toHaveTextContent("4 tool calls");
   });
 });
 
