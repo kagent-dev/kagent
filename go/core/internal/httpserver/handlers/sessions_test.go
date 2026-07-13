@@ -25,6 +25,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
@@ -648,6 +649,28 @@ func TestSessionsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)
+		})
+
+		t.Run("AgentlessSessionSkipsSubstrateCleanup", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			// Non-nil backend so the cleanup preflight runs: a session with no AgentID has no
+			// actor to clean up and must still delete (not 404).
+			handler.SubstrateSandboxActorBackend = &substrate.SandboxAgentActorBackend{}
+			userID := "test-user"
+			sessionID := "agentless-session"
+			require.NoError(t, dbClient.StoreSession(context.Background(), &database.Session{
+				ID: sessionID, UserID: userID,
+			}))
+
+			req := httptest.NewRequest("DELETE", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, userID)
+
+			handler.HandleDeleteSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			_, err := dbClient.GetSession(context.Background(), sessionID, userID)
+			assert.Error(t, err, "session row must be deleted")
 		})
 	})
 

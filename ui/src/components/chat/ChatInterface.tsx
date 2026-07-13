@@ -14,6 +14,7 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
+import ChatMinimap from "@/components/chat/ChatMinimap";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
@@ -27,19 +28,28 @@ import { getUiRuntimeConfig } from "@/app/actions/config";
 import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, countSendGuardComparableMessages, countBackendBackedComparableMessages, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
+import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatAgentType, useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
 import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
+import { useChatMcpApps } from "@/components/chat/ChatMcpAppsContext";
 
 // Task states where the agent is actively processing — resubscribe to live stream.
 const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
 // Task states that mean the session is busy (used by the cross-tab send guard).
 const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
 
+// Server-authoritative high-water mark for cross-tab staleness detection.
+// Counts persisted history messages across all tasks — a value the DB assigns
+// and every tab reads identically, independent of how each tab rendered them
+// (synthetic tool/artifact/summary cards never land here). Comparing this against
+// the count a tab last synced reliably detects when another tab advanced the
+// conversation, without depending on fragile rendered-message-count parity.
+const countServerMessages = (tasks: Task[]): number =>
+  tasks.reduce((sum, task) => sum + (task.history?.length ?? 0), 0);
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -52,6 +62,7 @@ interface ChatInterfaceProps {
 
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId, shareToken }: ChatInterfaceProps) {
   const runInSandbox = useChatRunInSandbox();
+  const { getMcpAppForTool } = useChatMcpApps();
   const substrateSandbox = useChatSubstrateSandbox();
   const agentType = useChatAgentType();
   // Session requests must name the kind agent_ref refers to; absent means Agent.
@@ -83,6 +94,29 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
   // Stream inactivity timeout (ms), configurable via Helm (ui.streamTimeoutSeconds).
   const streamTimeoutMsRef = useRef<number>(DEFAULT_STREAM_TIMEOUT_MS);
+
+  // Count of server history messages this tab has incorporated. Updated wherever
+  // the tab consumes server state (DB load/reload, end of a stream); the send
+  // guard blocks when the server has advanced past it (another tab acted).
+  const syncedServerMsgCountRef = useRef<number>(0);
+
+  // Single place that computes the high-water mark, so every update site stays
+  // consistent. Accepts the raw server Task[] (artifacts/synthetic cards are
+  // intentionally ignored — only persisted history counts).
+  const setServerMark = (tasks: Task[] | undefined) => {
+    syncedServerMsgCountRef.current = countServerMessages(tasks ?? []);
+  };
+
+  // Re-read the server's current count and advance the mark. Best-effort: a
+  // failed/stale read only risks a benign reload on the next send.
+  const refreshServerMark = async (markSessionId: string) => {
+    try {
+      const res = await getSessionTasks(markSessionId);
+      if (res.data) setServerMark(res.data);
+    } catch {
+      // Leave the mark as-is.
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -141,6 +175,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       pendingDecisionsRef.current = {};
       pendingRejectionReasonsRef.current = {};
       pendingTurnStatsRef.current = undefined;
+      syncedServerMsgCountRef.current = 0;
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -213,6 +248,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             );
           }
         }
+        setServerMark(messagesResponse.data);
       } catch (error) {
         console.error("Error loading messages:", error);
         toast.error("Error loading messages");
@@ -242,20 +278,30 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   }, [storedMessages, streamingMessages, streamingContent]);
 
-
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
+  const sendChatMessageText = async (
+    userMessageText: string,
+    options: {
+      clearInput?: boolean;
+      restoreInputOnError?: boolean;
+      errorLabel?: string;
+      rethrowOnError?: boolean;
+    } = {},
+  ) => {
+    if (!userMessageText.trim() || !selectedAgentName || !selectedNamespace) {
+      return;
+    }
+    if (chatStatus !== "ready") {
+      const error = new Error("Agent is busy. Try again after the current response finishes.");
+      toast.error(error.message);
+      if (options.rethrowOnError) {
+        throw error;
+      }
       return;
     }
 
-    // Stop voice recording if active before sending
-    if (isListening) {
-      stopListening();
+    if (options.clearInput ?? true) {
+      setCurrentInputMessage("");
     }
-
-    const userMessageText = currentInputMessage;
 
     // Cross-tab guard: fetch the latest session state before mutating anything.
     // Two cases: (1) another tab is still streaming — reconnect instead of sending;
@@ -263,11 +309,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     // the full context before their next message goes out.
     const guardSessionId = session?.id || sessionId;
     if (guardSessionId) {
-      // Compare visible messages against the backend snapshot. Completed
-      // same-tab stream messages remain in streamingMessages until the next
-      // send promotes them, but only backend-backed matches count as local.
       const guardResult = await checkAndSyncSessionBeforeAction(guardSessionId, {
-        localMessages: allMessages,
         messages: {
           inFlight: "This session is already being processed — reconnecting to live updates",
           inputRequired: "Session is awaiting your input — please review before sending",
@@ -326,10 +368,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           isCreatingSessionRef.current = true;
           setIsFirstMessage(true);
 
+          const sessionName = deriveSessionTitle(userMessageText);
           const newSessionResponse = await createSession({
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
             group_kind: sessionGroupKind,
-            name: deriveSessionTitle(userMessageText),
+            name: sessionName,
           });
 
           if (newSessionResponse.error || !newSessionResponse.data) {
@@ -412,10 +455,39 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       });
     } catch (error) {
       console.error("Error sending message or creating session:", error);
-      toast.error("Error sending message or creating session");
+      toast.error(options.errorLabel || "Error sending message or creating session");
       setChatStatus("error");
-      setCurrentInputMessage(userMessageText);
+      if (options.restoreInputOnError ?? true) {
+        setCurrentInputMessage(userMessageText);
+      }
+      if (options.rethrowOnError) {
+        throw error;
+      }
     }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isListening) {
+      stopListening();
+    }
+    if (!currentInputMessage.trim()) {
+      return;
+    }
+
+    await sendChatMessageText(currentInputMessage);
+  };
+
+  // An MCP App pushed a message into the conversation via the ui/message
+  // channel (e.g. "Build #N triggered, monitor it"). Inject it as a normal user
+  // turn so the agent can act on it.
+  const handleMcpAppSendMessage = async (text: string) => {
+    await sendChatMessageText(text, {
+      clearInput: false,
+      restoreInputOnError: false,
+      errorLabel: "MCP app message failed",
+      rethrowOnError: true,
+    });
   };
 
   const consumeStream = async (stream: AsyncIterable<unknown>) => {
@@ -467,6 +539,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (!currentSessionId) return;
       const latest = await getSessionTasks(currentSessionId, shareToken);
       if (latest.data && latest.data.length > 0) {
+        setServerMark(latest.data);
         const extractedMessages = extractMessagesFromTasks(latest.data);
         const { messages: pendingApprovalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(latest.data);
         setStoredMessages(
@@ -548,6 +621,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       );
 
       await consumeStream(stream);
+
+      // The turn this tab just sent is now persisted; advance our high-water mark
+      // to the server's post-turn count so the next send's guard doesn't mistake
+      // our own new messages for another tab's changes. Best-effort, no reload.
+      if (sid) {
+        await refreshServerMark(sid);
+      }
     } catch (error: unknown) {
       if (error instanceof Error && error.name === "AbortError") {
         setChatStatus("ready");
@@ -613,15 +693,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
    * HITL mode (expectedTaskId provided): verifies the specific task is still
    * input-required; resubscribes or reloads if another tab already responded.
    *
-   * Send-guard mode (no expectedTaskId): checks for any active task and for
-   * stale local messages; blocks and syncs if either is detected.
+   * Send-guard mode (no expectedTaskId): checks for any active task and compares
+   * the server's message high-water mark against what this tab has synced; blocks
+   * and reloads if another tab advanced the conversation.
    */
   const checkAndSyncSessionBeforeAction = async (
     guardSessionId: string,
     opts: {
       expectedTaskId?: string;
-      localMessages?: Message[];
-      localMessageCount?: number;
       messages: {
         inFlight: string;
         inputRequired?: string;
@@ -672,17 +751,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       return "blocked";
     }
 
-    if (opts.localMessages !== undefined || opts.localMessageCount !== undefined) {
-      const dbMessages = extractMessagesFromTasks(tasksCheck.data);
-      const dbMessageCount = countSendGuardComparableMessages(dbMessages);
-      const localMessageCount = opts.localMessages !== undefined
-        ? countBackendBackedComparableMessages(opts.localMessages, dbMessages)
-        : opts.localMessageCount;
-      if (localMessageCount !== undefined && dbMessageCount > localMessageCount) {
-        await reloadSessionFromDB();
-        toast.info(opts.messages.staleOrChanged);
-        return "blocked";
-      }
+    // Send-guard mode: no specific task to verify. If the server holds more
+    // persisted messages than this tab has synced, another tab advanced the
+    // conversation — reload and block so the user sees the latest context first.
+    if (countServerMessages(tasksCheck.data) > syncedServerMsgCountRef.current) {
+      await reloadSessionFromDB();
+      toast.info(opts.messages.staleOrChanged);
+      return "blocked";
     }
 
     return "proceed";
@@ -971,10 +1046,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     );
   }
   return (
-    <div className="flex h-full w-full min-w-0 flex-col items-center justify-center transition-all duration-300 ease-in-out">
-      <div className="flex-1 w-full overflow-hidden relative">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col items-center transition-all duration-300 ease-in-out">
+      <div className="relative min-h-0 w-full flex-1 overflow-hidden">
         <ScrollArea ref={containerRef} className="w-full h-full py-12">
-          <div className="flex flex-col space-y-5 px-4">
+          <div className="flex w-full min-w-0 max-w-full flex-col space-y-5 overflow-x-hidden px-4">
             {/* Never show loading for first message/new session */}
             {isLoading && sessionId && !isFirstMessage && !isCreatingSessionRef.current ? (
               <div
@@ -1001,44 +1076,53 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               <>
                 {/* Display stored messages from session */}
                 {storedMessages.map((message, index) => {
-                  return <ChatMessage
-                    key={`stored-${index}`}
-                    message={message}
-                    allMessages={allMessages}
-                    agentContext={agentContext}
-                    onApprove={shareReadOnly ? undefined : handleApprove}
-                    onReject={shareReadOnly ? undefined : handleReject}
-                    onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
-                    pendingDecisions={pendingDecisions}
-                  />
+                  return <div key={`stored-${index}`} data-mm-item data-mm-role={message.role === "user" ? "user" : "assistant"}>
+                    <ChatMessage
+                      message={message}
+                      allMessages={allMessages}
+                      agentContext={agentContext}
+                      onApprove={shareReadOnly ? undefined : handleApprove}
+                      onReject={shareReadOnly ? undefined : handleReject}
+                      onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
+                      pendingDecisions={pendingDecisions}
+                      getMcpAppForTool={getMcpAppForTool}
+                      onMcpAppSendMessage={handleMcpAppSendMessage}
+                    />
+                  </div>
                 })}
 
                 {/* Display streaming messages */}
                 {streamingMessages.map((message, index) => {
-                  return <ChatMessage
-                    key={`stream-${index}`}
-                    message={message}
-                    allMessages={allMessages}
-                    agentContext={agentContext}
-                    onApprove={shareReadOnly ? undefined : handleApprove}
-                    onReject={shareReadOnly ? undefined : handleReject}
-                    onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
-                    pendingDecisions={pendingDecisions}
-                  />
+                  return <div key={`stream-${index}`} data-mm-item data-mm-role={message.role === "user" ? "user" : "assistant"}>
+                    <ChatMessage
+                      message={message}
+                      allMessages={allMessages}
+                      agentContext={agentContext}
+                      onApprove={shareReadOnly ? undefined : handleApprove}
+                      onReject={shareReadOnly ? undefined : handleReject}
+                      onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
+                      pendingDecisions={pendingDecisions}
+                      getMcpAppForTool={getMcpAppForTool}
+                      onMcpAppSendMessage={handleMcpAppSendMessage}
+                    />
+                  </div>
                 })}
 
                 {isStreaming && (
-                  <StreamingMessage
-                    content={streamingContent}
-                  />
+                  <div data-mm-item data-mm-role="assistant">
+                    <StreamingMessage
+                      content={streamingContent}
+                    />
+                  </div>
                 )}
               </>
             )}
           </div>
         </ScrollArea>
+        <ChatMinimap containerRef={containerRef} revision={allMessages.length} />
       </div>
 
-      <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
+      <div className="w-full shrink-0 overflow-hidden rounded-none border bg-secondary p-4 transition-all duration-300 ease-in-out md:rounded-lg">
         {shareReadOnly ? (
           <div className="flex items-center justify-between py-2">
             <p className="text-sm text-muted-foreground">

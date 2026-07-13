@@ -277,29 +277,10 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
-	queryOptions := database.QueryOptions{
-		Limit: 0,
-	}
-	if r.URL.Query().Get("order") == "asc" {
-		queryOptions.OrderAsc = true
-	}
-	after := r.URL.Query().Get("after")
-	if after != "" {
-		afterTime, err := time.Parse(time.RFC3339, after)
-		if err != nil {
-			w.RespondWithError(errors.NewBadRequestError("Failed to parse after timestamp", err))
-			return
-		}
-		queryOptions.After = afterTime
-	}
-
-	limit := r.URL.Query().Get("limit")
-	if limit != "" {
-		queryOptions.Limit, err = strconv.Atoi(limit)
-		if err != nil {
-			w.RespondWithError(errors.NewBadRequestError("Failed to parse limit", err))
-			return
-		}
+	queryOptions, err := eventQueryOptionsFromRequest(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
 	}
 
 	events, err := h.DatabaseService.ListEventsForSession(r.Context(), sessionID, userID, queryOptions)
@@ -319,6 +300,49 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	}
 	data := api.NewResponse(resp, "Successfully retrieved session", false)
 	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// eventQueryOptionsFromRequest parses the shared order/after/limit query params for event listings.
+func eventQueryOptionsFromRequest(r *http.Request) (database.QueryOptions, error) {
+	opts := database.QueryOptions{}
+	if r.URL.Query().Get("order") == "asc" {
+		opts.OrderAsc = true
+	}
+	if after := r.URL.Query().Get("after"); after != "" {
+		afterTime, err := time.Parse(time.RFC3339, after)
+		if err != nil {
+			return opts, fmt.Errorf("failed to parse after timestamp: %w", err)
+		}
+		opts.After = afterTime
+	}
+	if limit := r.URL.Query().Get("limit"); limit != "" {
+		var err error
+		opts.Limit, err = strconv.Atoi(limit)
+		if err != nil {
+			return opts, fmt.Errorf("failed to parse limit: %w", err)
+		}
+	}
+	return opts, nil
+}
+
+// substrateSandboxAgentForSession resolves the session's agent to a substrate SandboxAgent CR,
+// returning nil when the session has no agent or its agent is anything else.
+func (h *SessionsHandler) substrateSandboxAgentForSession(ctx context.Context, session *database.Session) (*v1alpha2.SandboxAgent, error) {
+	agent, err := h.DatabaseService.GetAgent(ctx, *session.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	if agent.WorkloadType != v1alpha2.WorkloadModeSandbox {
+		return nil, nil
+	}
+	// The stored agent id is kind-qualified for sandbox rows; strip the prefix to
+	// recover the ns/name ref the CR lookup needs.
+	_, agentRef := utils.ParseAgentDBID(*session.AgentID)
+	sandboxAgent, isSubstrate, err := h.lookupSubstrateSandboxAgent(ctx, agentRef)
+	if err != nil || !isSubstrate {
+		return nil, err
+	}
+	return sandboxAgent, nil
 }
 
 // HandleUpdateSession handles PUT and PATCH /api/sessions/{session_id} requests.
@@ -407,14 +431,11 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 
 	var substrateCleanup *v1alpha2.SandboxAgent
 	if h.SubstrateSandboxActorBackend != nil {
-		session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
-		if getErr == nil && session.AgentID != nil {
-			if agent, agentErr := h.DatabaseService.GetAgent(r.Context(), *session.AgentID); agentErr == nil &&
-				agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
-				_, agentRef := utils.ParseAgentDBID(*session.AgentID)
-				if sa, isSubstrate, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), agentRef); lookupErr == nil && isSubstrate {
-					substrateCleanup = sa
-				}
+		// Best-effort preflight: a session without an agent (or whose agent is gone) simply has
+		// no actor to clean up — it must never block deleting the session row itself.
+		if session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID); getErr == nil && session != nil && session.AgentID != nil {
+			if sandboxAgent, lookupErr := h.substrateSandboxAgentForSession(r.Context(), session); lookupErr == nil {
+				substrateCleanup = sandboxAgent
 			}
 		}
 	}

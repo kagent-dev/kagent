@@ -92,6 +92,16 @@ DOCUMENTATION:
     database.postgres.bundled.enabled=false
 {{- end }}
 {{- end }}
+{{- if .Values.database.postgres.skipMigrations }}
+################################################################################
+# NOTE: STARTUP MIGRATIONS ARE DISABLED                                        #
+################################################################################
+  database.postgres.skipMigrations is set: the controller will not run database
+  migrations at startup. It verifies the schema is already migrated and fails
+  to start if it is not.
+
+  Ensure migrations are applied out-of-band before installing or upgrading.
+{{- end }}
 {{- if .Values.substrate.enabled }}
 ################################################################################
 # WARNING: SUBSTRATE IS EXPERIMENTAL, USE AT OWN RISK                          #

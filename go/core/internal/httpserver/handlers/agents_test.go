@@ -95,6 +95,7 @@ func (stubSandboxBackend) GetOwnedResourceTypes() []client.Object { return nil }
 func (stubSandboxBackend) OwnedResourceTypesFor(v1alpha2.AgentObject) ([]client.Object, error) {
 	return nil, nil
 }
+func (stubSandboxBackend) SessionDBURL(v1alpha2.AgentObject) string { return "" }
 func (stubSandboxBackend) ComputeReady(context.Context, client.Client, types.NamespacedName) (metav1.ConditionStatus, string, string) {
 	return metav1.ConditionFalse, "", ""
 }
