@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -39,4 +40,28 @@ func TestForceFlush(t *testing.T) {
 
 	otel.SetTracerProvider(noop.NewTracerProvider())
 	ForceFlush(context.Background()) // must not panic
+}
+
+// flushTimeout reads KAGENT_TRACE_FLUSH_TIMEOUT_MS and falls back to 3s on
+// unset, non-numeric, or non-positive values.
+func TestFlushTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want time.Duration
+	}{
+		{name: "unset", env: "", want: 3 * time.Second},
+		{name: "valid", env: "500", want: 500 * time.Millisecond},
+		{name: "invalid", env: "not-a-number", want: 3 * time.Second},
+		{name: "non-positive", env: "0", want: 3 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS", tt.env)
+			if got := flushTimeout(); got != tt.want {
+				t.Errorf("flushTimeout() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,18 +45,30 @@ func StartInvocationSpan(ctx context.Context) (context.Context, trace.Span) {
 // the response body closes, so unexported spans stay frozen in the snapshot
 // until the session's next resume (or forever, for a session's last message).
 // Uses its own detached timeout because the request context is typically
-// already canceled by the time deferred cleanup runs.
+// already canceled by the time deferred cleanup runs. The timeout defaults to
+// 3s and is configurable via KAGENT_TRACE_FLUSH_TIMEOUT_MS.
 func ForceFlush(ctx context.Context) {
 	type flusher interface{ ForceFlush(context.Context) error }
 	fp, ok := otel.GetTracerProvider().(flusher)
 	if !ok {
 		return
 	}
-	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), flushTimeout())
 	defer cancel()
 	if err := fp.ForceFlush(flushCtx); err != nil {
 		otel.Handle(err)
 	}
+}
+
+// flushTimeout returns KAGENT_TRACE_FLUSH_TIMEOUT_MS as a duration, or 3s
+// when unset or invalid.
+func flushTimeout() time.Duration {
+	if v := strings.TrimSpace(os.Getenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS")); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return 3 * time.Second
 }
 
 // Init initializes OpenTelemetry providers for Go ADK, sets global providers and

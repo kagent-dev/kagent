@@ -132,6 +132,26 @@ def test_force_flush_calls_provider_force_flush(monkeypatch):
     assert calls == [3000]
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("500", 500),
+        ("not-a-number", 3000),
+        ("0", 3000),
+        ("-100", 3000),
+    ],
+)
+def test_force_flush_timeout_env_override(monkeypatch, raw, expected):
+    calls = []
+    provider = SimpleNamespace(force_flush=lambda timeout: calls.append(timeout))
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: provider)
+    monkeypatch.setenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS", raw)
+
+    _utils.force_flush()
+
+    assert calls == [expected]
+
+
 def test_force_flush_noop_without_provider_support(monkeypatch):
     # The default (no-op) provider has no force_flush; must not raise.
     monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: SimpleNamespace())

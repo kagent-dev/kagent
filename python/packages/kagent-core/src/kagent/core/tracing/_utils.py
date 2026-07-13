@@ -106,7 +106,22 @@ def _instrument_google_generativeai():
         pass
 
 
-def force_flush(timeout_millis: int = 3000) -> None:
+def _resolve_flush_timeout_millis() -> int:
+    """Resolve KAGENT_TRACE_FLUSH_TIMEOUT_MS, falling back to 3000ms when unset or invalid."""
+    raw = os.getenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS")
+    if raw is None:
+        return 3000
+    try:
+        timeout_millis = int(raw)
+    except ValueError:
+        timeout_millis = -1
+    if timeout_millis <= 0:
+        logging.warning("Invalid KAGENT_TRACE_FLUSH_TIMEOUT_MS value %r; falling back to 3000ms", raw)
+        return 3000
+    return timeout_millis
+
+
+def force_flush(timeout_millis: int | None = None) -> None:
     """Export any spans still buffered in the tracer provider's batch processor.
 
     Call before a response completes when the process may be suspended right
@@ -114,7 +129,11 @@ def force_flush(timeout_millis: int = 3000) -> None:
     response body closes, so unexported spans stay frozen in the snapshot
     until the session's next resume (or forever, for a session's last
     message). No-op when the provider has no force_flush (tracing disabled).
+    The timeout defaults to 3000ms, configurable via
+    KAGENT_TRACE_FLUSH_TIMEOUT_MS.
     """
+    if timeout_millis is None:
+        timeout_millis = _resolve_flush_timeout_millis()
     provider = trace.get_tracer_provider()
     flush = getattr(provider, "force_flush", None)
     if flush is None:

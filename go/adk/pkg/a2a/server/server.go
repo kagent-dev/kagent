@@ -14,6 +14,8 @@ import (
 	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 )
 
 // ServerConfig holds configuration for the A2A server.
@@ -57,6 +59,14 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 			}
 		}),
 	)
+	// Flush buffered spans after the otelhttp server span ends (when the inner
+	// handler returns) but before net/http closes the response body: Agent
+	// Substrate checkpoints the actor as soon as the body closes, and a flush
+	// issued inside the executor can never include the still-open server span.
+	flushingHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		instrumentedHandler.ServeHTTP(w, r)
+		telemetry.ForceFlush(r.Context())
+	})
 
 	addr := ":" + config.Port
 	if config.Host != "" {
@@ -66,7 +76,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	return &A2AServer{
 		httpServer: &http.Server{
 			Addr:    addr,
-			Handler: instrumentedHandler,
+			Handler: flushingHandler,
 		},
 		logger: logger,
 		config: config,
