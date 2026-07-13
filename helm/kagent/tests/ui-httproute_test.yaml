@@ -1,0 +1,130 @@
+suite: test ui httproute
+templates:
+  - ui-httproute.yaml
+tests:
+  - it: should not render the HTTPRoute by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render the HTTPRoute when disabled
+    set:
+      ui.httpRoute.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render the HTTPRoute when enabled
+    set:
+      ui.httpRoute.enabled: true
+      ui.httpRoute.parentRefs:
+        - name: my-gateway
+          namespace: gateway-system
+          sectionName: https
+      ui.httpRoute.hostnames:
+        - kagent.example.com
+      ui.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: HTTPRoute
+      - equal:
+          path: apiVersion
+          value: gateway.networking.k8s.io/v1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-ui
+      - equal:
+          path: metadata.namespace
+          value: NAMESPACE
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: ui
+      - equal:
+          path: spec.parentRefs[0].name
+          value: my-gateway
+      - equal:
+          path: spec.hostnames[0]
+          value: kagent.example.com
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /
+
+  - it: should default backendRefs to the UI service when omitted
+    set:
+      ui.httpRoute.enabled: true
+      ui.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0].kind
+          value: Service
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: RELEASE-NAME-ui
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 8080
+      - equal:
+          path: spec.rules[0].backendRefs[0].weight
+          value: 1
+
+  - it: should honor explicit backendRefs, filters, and timeouts
+    set:
+      ui.httpRoute.enabled: true
+      ui.httpRoute.rules:
+        - backendRefs:
+            - group: ""
+              kind: Service
+              name: custom-svc
+              port: 9090
+              weight: 5
+          filters:
+            - type: RequestHeaderModifier
+              requestHeaderModifier:
+                set:
+                  - name: X-Forwarded-Proto
+                    value: https
+          timeouts:
+            request: "0s"
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: custom-svc
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 9090
+      - equal:
+          path: spec.rules[0].filters[0].type
+          value: RequestHeaderModifier
+      - equal:
+          path: spec.rules[0].timeouts.request
+          value: "0s"
+
+  - it: should add custom labels and annotations
+    set:
+      ui.httpRoute.enabled: true
+      ui.httpRoute.labels:
+        custom-label: custom-value
+      ui.httpRoute.annotations:
+        custom-annotation: custom-value
+      ui.httpRoute.rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+    asserts:
+      - equal:
+          path: metadata.labels["custom-label"]
+          value: custom-value
+      - equal:
+          path: metadata.annotations["custom-annotation"]
+          value: custom-value

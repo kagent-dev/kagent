@@ -13,13 +13,13 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
+	adksession "google.golang.org/adk/session"
 )
 
 const (
@@ -32,7 +32,7 @@ const (
 type KAgentExecutorConfig struct {
 	RunnerConfig       runner.Config
 	SubagentSessionIDs map[string]string
-	SessionService     *session.KAgentSessionService
+	SessionService     adksession.Service
 	Stream             bool
 	AppName            string
 	SkillsDirectory    string
@@ -43,7 +43,7 @@ type KAgentExecutorConfig struct {
 type KAgentExecutor struct {
 	runnerConfig       runner.Config
 	subagentSessionIDs map[string]string
-	sessionService     *session.KAgentSessionService
+	sessionService     adksession.Service
 	stream             bool
 	appName            string
 	skillsDirectory    string
@@ -185,10 +185,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 	// 4. Create / lookup session via sessionService.
 	if e.sessionService != nil {
-		sess, err := e.sessionService.GetSession(ctx, e.appName, userID, sessionID)
+		var sess adksession.Session
+		resp, err := e.sessionService.Get(ctx, &adksession.GetRequest{AppName: e.appName, UserID: userID, SessionID: sessionID})
 		if err != nil {
 			e.logger.V(1).Info("Session lookup failed, will create", "error", err, "sessionID", sessionID)
-			sess = nil
+		} else if resp != nil {
+			sess = resp.Session
 		}
 		if sess == nil {
 			sessionName := extractSessionName(reqCtx.Message)
@@ -204,7 +206,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 					}
 				}
 			}
-			if err = e.sessionService.CreateSession(ctx, e.appName, userID, state, sessionID); err != nil {
+			if _, err := e.sessionService.Create(ctx, &adksession.CreateRequest{AppName: e.appName, UserID: userID, State: state, SessionID: sessionID}); err != nil {
 				return fmt.Errorf("failed to create session: %w", err)
 			}
 		}
