@@ -61,9 +61,8 @@ reads and tool calls back to the originating MCP server).
 - **`components/mcp-apps/McpAppRenderer.tsx`** — renders an MCP app resource via
   `@mcp-ui/client` in a sandbox, wiring its `onUIAction`/resource-read/tool-call
   callbacks to the backend; `McpAppsInspector.tsx` is a standalone inspector view
-  (also surfaced at `app/servers/[namespace]/[name]/apps/page.tsx`, and reachable
-  from an **"MCP Apps"** entry added to the per-server menu in
-  `components/mcp/McpServersView.tsx`).
+  (surfaced at `app/apps/[appName]/page.tsx`, reachable by clicking an MCP app
+  listed alongside a server's tools in `components/mcp/McpServersView.tsx`).
 - **`components/chat/ChatMcpAppsContext.tsx`** — context that maps a tool name to its
   MCP app (`getMcpAppForTool`) and brokers `sendMessage` / `McpAppVisibleToolCall`
   between an app and the chat.
