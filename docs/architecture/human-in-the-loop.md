@@ -1,6 +1,6 @@
 # Human-in-the-Loop
 
-Kagent implements Human-in-the-Loop (HITL) tool approval by combining a custom extension on top of A2A Task-driven communication and Google ADK's built-in `ToolContext.request_confirmation()` mechanism. When an agent or a subagent calls a tool marked with `requireApproval` the system pauses execution and asks the user to approve or reject the call before proceeding. This design avoids as much homebrewed Kagent constants and HITL logic as possible.
+Kagent implements Human-in-the-Loop (HITL) tool approval by combining a custom extension on top of A2A Task-driven communication and Google ADK's built-in `ToolContext.request_confirmation()` mechanism. When an agent or a subagent calls a tool marked with `requireApproval` the system pauses execution and asks the user to approve or reject the call before proceeding. This design avoids as much homebrewed HITL logic as possible.
 
 Below documents, in depth, how the HITL logic works in Kagent, and how relevant features are designed.
 
@@ -86,7 +86,7 @@ sequenceDiagram
 ### Detailed Sequence Diagrams
 
 You should only review the following diagrams if you are developing HITL features in Kagent. 
-They are extremely specific and you can almost find exact function representing each step in kagent / ADK code.
+They are extremely specific and you can almost find the exact function representing each step in kagent / ADK code.
 
 #### Direct HITL Flow
 
