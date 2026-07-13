@@ -379,6 +379,10 @@ type RemoteAgentConfig struct {
 	Url         string            `json:"url"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Description string            `json:"description,omitempty"`
+	// IsolateSessions mints a fresh A2A context_id per call so each invocation
+	// runs in its own isolated sub-agent session (enables parallel fan-out).
+	// When false (default) all calls reuse one stable context_id.
+	IsolateSessions bool `json:"isolate_sessions,omitempty"`
 }
 
 // EmbeddingConfig is the embedding model config for memory tools.

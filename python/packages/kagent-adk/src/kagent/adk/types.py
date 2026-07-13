@@ -238,6 +238,10 @@ class RemoteAgentConfig(BaseModel):
     headers: dict[str, Any] | None = None
     timeout: float = DEFAULT_TIMEOUT
     description: str = ""
+    # Mints a fresh A2A context_id per call so each invocation runs in its own
+    # isolated sub-agent session (parallel fan-out). Honored by the Go runtime;
+    # accepted here for config-schema parity.
+    isolate_sessions: bool = False
 
 
 class BaseLLM(BaseModel):
