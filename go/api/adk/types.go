@@ -267,6 +267,13 @@ type Bedrock struct {
 	// cost/compatibility trade-offs of "1h".
 	CacheTTL  string            `json:"cache_ttl,omitempty"`
 	Guardrail *BedrockGuardrail `json:"guardrail,omitempty"`
+	// ReadTimeout is the Bedrock HTTP client read timeout in seconds. Overrides
+	// botocore's ~60s default, which otherwise aborts long completions with a
+	// ReadTimeoutError. Nil keeps botocore's default.
+	ReadTimeout *int `json:"read_timeout,omitempty"`
+	// ConnectTimeout is the Bedrock HTTP client connect timeout in seconds. Nil
+	// keeps botocore's default.
+	ConnectTimeout *int `json:"connect_timeout,omitempty"`
 }
 
 type BedrockGuardrail struct {

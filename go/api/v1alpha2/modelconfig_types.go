@@ -319,6 +319,21 @@ type BedrockConfig struct {
 
 	// +optional
 	Guardrail *BedrockGuardrailConfig `json:"guardrail,omitempty"`
+
+	// ReadTimeout is the Bedrock HTTP client read timeout in seconds. The
+	// underlying botocore client defaults to ~60s, which aborts long
+	// completions (large tool-augmented turns, extended reasoning) with a
+	// ReadTimeoutError. Raise this for agents that make long Converse calls.
+	// When unset, botocore's default is used.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ReadTimeout *int `json:"readTimeout,omitempty"`
+
+	// ConnectTimeout is the Bedrock HTTP client connect timeout in seconds.
+	// When unset, botocore's default is used.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ConnectTimeout *int `json:"connectTimeout,omitempty"`
 }
 
 type BedrockGuardrailConfig struct {
