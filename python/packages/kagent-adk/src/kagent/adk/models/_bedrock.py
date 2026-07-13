@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 import boto3
 from botocore.config import Config as BotocoreConfig
 from google.adk.models import BaseLlm
+from pydantic import Field
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
@@ -296,9 +297,10 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
     cache_ttl: Optional[str] = None
     # Bedrock HTTP client timeouts in seconds. read_timeout overrides botocore's
     # ~60s default, which otherwise aborts long completions with a
-    # ReadTimeoutError. None keeps botocore's defaults.
-    read_timeout: Optional[int] = None
-    connect_timeout: Optional[int] = None
+    # ReadTimeoutError. None keeps botocore's defaults. Constrained to >= 1 so
+    # invalid values can't reach the boto3 client (matches the CRD contract).
+    read_timeout: Optional[int] = Field(default=None, ge=1)
+    connect_timeout: Optional[int] = Field(default=None, ge=1)
 
     model_config = {"arbitrary_types_allowed": True}
 

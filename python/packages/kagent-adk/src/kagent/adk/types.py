@@ -329,9 +329,10 @@ class Bedrock(BaseLLM):
     cache_ttl: Literal["5m", "1h"] | None = None
     # Bedrock HTTP client timeouts in seconds. read_timeout overrides botocore's
     # ~60s default, which otherwise aborts long completions with a
-    # ReadTimeoutError. None keeps botocore's defaults.
-    read_timeout: int | None = None
-    connect_timeout: int | None = None
+    # ReadTimeoutError. None keeps botocore's defaults. Constrained to >= 1 to
+    # match the ModelConfig CRD (readTimeout/connectTimeout minimum: 1).
+    read_timeout: int | None = Field(default=None, ge=1)
+    connect_timeout: int | None = Field(default=None, ge=1)
     type: Literal["bedrock"]
 
 
