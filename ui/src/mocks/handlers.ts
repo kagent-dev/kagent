@@ -201,3 +201,19 @@ export function slowSessionTasksHandler(tasks: unknown[], ms = 2000) {
     return HttpResponse.json({ message: "Tasks fetched successfully", data: tasks });
   });
 }
+
+/**
+ * GET /mcp-apps/:namespace/:name/tools – returns the UI-capable tools (MCP Apps)
+ * discovered for a server. Tools without `uiResourceUri` are filtered out by the UI.
+ */
+export function mcpAppToolsHandler(
+  apps: Array<{ name: string; description?: string; uiResourceUri?: string }>,
+  ms = 0,
+) {
+  return http.get(`${BACKEND_URL}/mcp-apps/:namespace/:name/tools`, async () => {
+    if (ms > 0) {
+      await delay(ms);
+    }
+    return HttpResponse.json({ message: "Tools fetched successfully", data: apps });
+  });
+}
