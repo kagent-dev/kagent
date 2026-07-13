@@ -82,7 +82,7 @@ func NewHandlers(
 		MCPEgressPlaintext: mcpEgressPlaintext,
 	}
 
-	handlers := &Handlers{
+	return &Handlers{
 		KubeClient:               kubeClient,
 		AgentHarnessGateway:      agentHarnessGateway,
 		AgentHarnessSessionActor: agentHarnessSessionActorBackend,
@@ -107,5 +107,4 @@ func NewHandlers(
 		Substrate:                NewSubstrateHandler(base, substrateAteClient),
 		ScheduledRuns:            NewScheduledRunsHandler(base, scheduledRunTrigger),
 	}
-	return handlers
 }
