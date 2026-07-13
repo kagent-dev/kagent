@@ -27,14 +27,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version-file: "ui/.nvmrc"
           cache: "npm"
           cache-dependency-path: ui/package-lock.json
 
       - name: Install dependencies
         working-directory: ./ui
-        env:
-          CYPRESS_INSTALL_BINARY: 0
         run: npm ci
 
       - name: Install Playwright browser

@@ -11,10 +11,10 @@ flows across components**.
 | Atoms (`src/components/ui/*`) | shadcn primitives | skip |
 | Visual / render states | Storybook + Vitest-browser + Chromatic | skip |
 | Unit / logic | Jest (`*.test.ts(x)`) | skip |
-| Page-load smoke (`h1` renders, page reachable, onboarding steps 1–2, model-edit page opens) | Cypress (`cypress/e2e/smoke.cy.ts`) | skip |
+| Page-load smoke (`h1` renders, page reachable) | Playwright (`tests/smoke.spec.ts`, Stage 0) | — |
 | **Multi-step flows: form submission, payload correctness, streaming, wizard completion, error/edge states** | **Playwright (this suite)** | — |
 
-Rule: if Cypress / Chromatic / Jest already assert it, Playwright does not.
+Rule: if Chromatic / Jest already assert it, Playwright does not.
 
 ## How mocking works (important)
 
@@ -73,8 +73,8 @@ BACKEND_INTERNAL_URL=http://127.0.0.1:8899/api npm run dev
 - **`data-testid` policy:** prefer `getByRole` / `getByLabel`. Add `data-testid`
   only where role/text is ambiguous or unstable (list rows, per-item action
   buttons, wizard steps, combobox options). Add incrementally — no upfront sweep.
-  Do **not** remove/rename the existing `data-test` model-edit hooks; Cypress
-  depends on them.
+  Keep the existing `data-test` model-edit hooks; the Stage 2 Models flow relies
+  on them.
 
 ## Roadmap
 
