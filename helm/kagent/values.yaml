@@ -486,10 +486,8 @@ providers:
     #   caCertSecretRef: ""
     #   caCertSecretKey: ""
     #   disableSystemCAs: false
-    # Optional annotations added to the generated default ModelConfig's metadata.
-    # Applied only to the provider selected by `providers.default`. Useful for
-    # integrations that key off resource annotations (e.g. a UI display name).
-    # This same block can be used under any provider.
+    # -- Optional annotations added to the generated default ModelConfig's metadata.
+    # Applied only to the provider selected by `providers.default`.
     annotations: {}
   ollama:
     provider: Ollama
