@@ -178,12 +178,15 @@ class TestGetBedrockClient:
             assert "config" not in mock_boto.call_args.kwargs
 
     def test_read_timeout_sets_botocore_config(self):
+        from botocore.config import Config as BotocoreConfig
+
         with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
             _get_bedrock_client(read_timeout=1800)
             config = mock_boto.call_args.kwargs["config"]
             assert config.read_timeout == 1800
-            # connect_timeout untouched -> botocore keeps its 60s default
-            assert config.connect_timeout == 60
+            # connect_timeout untouched -> botocore keeps its own default,
+            # whatever that is for the installed version (don't hard-code it).
+            assert config.connect_timeout == BotocoreConfig().connect_timeout
 
     def test_read_and_connect_timeout(self):
         with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
@@ -201,6 +204,19 @@ class TestKAgentBedrockLlm:
     def test_non_anthropic_model_accepted(self):
         llm = KAgentBedrockLlm(model="meta.llama3-8b-instruct-v1:0")
         assert llm.model == "meta.llama3-8b-instruct-v1:0"
+
+    def test_positive_timeouts_accepted(self):
+        llm = KAgentBedrockLlm(model="meta.llama3-8b-instruct-v1:0", read_timeout=1800, connect_timeout=10)
+        assert llm.read_timeout == 1800
+        assert llm.connect_timeout == 10
+
+    @pytest.mark.parametrize("field", ["read_timeout", "connect_timeout"])
+    @pytest.mark.parametrize("value", [0, -5])
+    def test_non_positive_timeouts_rejected(self, field, value):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            KAgentBedrockLlm(model="meta.llama3-8b-instruct-v1:0", **{field: value})
 
     @pytest.mark.asyncio
     async def test_generate_calls_converse(self):
