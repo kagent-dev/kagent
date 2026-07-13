@@ -172,6 +172,26 @@ class TestGetBedrockClient:
                 _get_bedrock_client()
                 assert mock_boto.call_args.kwargs["region_name"] == "us-east-1"
 
+    def test_no_config_when_timeouts_unset(self):
+        with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
+            _get_bedrock_client()
+            assert "config" not in mock_boto.call_args.kwargs
+
+    def test_read_timeout_sets_botocore_config(self):
+        with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
+            _get_bedrock_client(read_timeout=1800)
+            config = mock_boto.call_args.kwargs["config"]
+            assert config.read_timeout == 1800
+            # connect_timeout untouched -> botocore keeps its 60s default
+            assert config.connect_timeout == 60
+
+    def test_read_and_connect_timeout(self):
+        with mock.patch("kagent.adk.models._bedrock.boto3.client") as mock_boto:
+            _get_bedrock_client(read_timeout=900, connect_timeout=10)
+            config = mock_boto.call_args.kwargs["config"]
+            assert config.read_timeout == 900
+            assert config.connect_timeout == 10
+
 
 class TestKAgentBedrockLlm:
     def test_default_construction(self):

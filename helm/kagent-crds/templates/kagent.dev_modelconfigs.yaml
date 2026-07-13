@@ -503,6 +503,12 @@ spec:
                     - 5m
                     - 1h
                     type: string
+                  connectTimeout:
+                    description: |-
+                      ConnectTimeout is the Bedrock HTTP client connect timeout in seconds.
+                      When unset, botocore's default is used.
+                    minimum: 1
+                    type: integer
                   promptCaching:
                     default: false
                     description: |-
@@ -521,6 +527,15 @@ spec:
                       See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
                       for the current list of supported models and minimum prefix sizes.
                     type: boolean
+                  readTimeout:
+                    description: |-
+                      ReadTimeout is the Bedrock HTTP client read timeout in seconds. The
+                      underlying botocore client defaults to ~60s, which aborts long
+                      completions (large tool-augmented turns, extended reasoning) with a
+                      ReadTimeoutError. Raise this for agents that make long Converse calls.
+                      When unset, botocore's default is used.
+                    minimum: 1
+                    type: integer
                   region:
                     description: AWS region where the Bedrock model is available (e.g.,
                       us-east-1, us-west-2)

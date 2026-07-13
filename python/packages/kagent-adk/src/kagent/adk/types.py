@@ -327,6 +327,11 @@ class Bedrock(BaseLLM):
     # extended-TTL caching. "1h" is supported on fewer models and billed at a
     # higher cache-write rate, so it is not strictly better than "5m".
     cache_ttl: Literal["5m", "1h"] | None = None
+    # Bedrock HTTP client timeouts in seconds. read_timeout overrides botocore's
+    # ~60s default, which otherwise aborts long completions with a
+    # ReadTimeoutError. None keeps botocore's defaults.
+    read_timeout: int | None = None
+    connect_timeout: int | None = None
     type: Literal["bedrock"]
 
 
@@ -709,6 +714,8 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             additional_model_request_fields=model_config.additional_model_request_fields,
             prompt_caching=model_config.prompt_caching,
             cache_ttl=model_config.cache_ttl,
+            read_timeout=model_config.read_timeout,
+            connect_timeout=model_config.connect_timeout,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "sap_ai_core":

@@ -263,6 +263,13 @@ type Bedrock struct {
 	// "5m" (default) or "1h". See the v1alpha2.BedrockConfig CRD doc for the
 	// cost/compatibility trade-offs of "1h".
 	CacheTTL string `json:"cache_ttl,omitempty"`
+	// ReadTimeout is the Bedrock HTTP client read timeout in seconds. Overrides
+	// botocore's ~60s default, which otherwise aborts long completions with a
+	// ReadTimeoutError. Nil keeps botocore's default.
+	ReadTimeout *int `json:"read_timeout,omitempty"`
+	// ConnectTimeout is the Bedrock HTTP client connect timeout in seconds. Nil
+	// keeps botocore's default.
+	ConnectTimeout *int `json:"connect_timeout,omitempty"`
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {

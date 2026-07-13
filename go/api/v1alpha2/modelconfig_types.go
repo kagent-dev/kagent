@@ -294,6 +294,21 @@ type BedrockConfig struct {
 	// +kubebuilder:validation:Enum="5m";"1h"
 	// +kubebuilder:default="5m"
 	CacheTTL string `json:"cacheTTL,omitempty"`
+
+	// ReadTimeout is the Bedrock HTTP client read timeout in seconds. The
+	// underlying botocore client defaults to ~60s, which aborts long
+	// completions (large tool-augmented turns, extended reasoning) with a
+	// ReadTimeoutError. Raise this for agents that make long Converse calls.
+	// When unset, botocore's default is used.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ReadTimeout *int `json:"readTimeout,omitempty"`
+
+	// ConnectTimeout is the Bedrock HTTP client connect timeout in seconds.
+	// When unset, botocore's default is used.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ConnectTimeout *int `json:"connectTimeout,omitempty"`
 }
 
 // SAPAICoreConfig contains SAP AI Core-specific configuration options.
