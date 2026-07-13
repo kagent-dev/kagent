@@ -16,10 +16,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import {
   checkPluginBackend,
+  getPlugins,
   type PluginItem,
   type PluginBackendStatus,
 } from "../actions/plugins";
 import Link from "next/link";
+
+// Route to the plugin frame, honoring the plugin's configured defaultPath.
+function pluginHref(pathPrefix: string, defaultPath?: string): string {
+  const base = `/plugins/${pathPrefix}`;
+  const sub = defaultPath?.replace(/^\/+/, "");
+  return sub ? `${base}/${sub}` : base;
+}
 
 interface PluginWithStatus extends PluginItem {
   backendStatus: PluginBackendStatus;
@@ -37,24 +45,12 @@ export default function PluginsStatusPage() {
   const loadPlugins = useCallback(async () => {
     setLoading(true);
     setApiError(null);
-    const response = await fetch("/api/plugins", {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-    });
-    const result = await response.json().catch(() => ({}));
-    const message = result.error ?? result.message ?? "Failed to load plugins";
-    const isMissingPlugins =
-      response.status === 404 ||
-      (typeof message === "string" && message.includes("Request failed with status 404"));
+    const result = await getPlugins();
 
-    if (isMissingPlugins) {
-      setPlugins([]);
-      setLoading(false);
-      return;
-    }
-
-    if (!response.ok || result.error || !result.data) {
-      setApiError(message);
+    if (result.error || !result.data) {
+      // getPlugins() maps a 404 (feature not deployed) to an empty list, so an
+      // error here is a real failure worth surfacing.
+      if (result.error) setApiError(result.error);
       setPlugins([]);
       setLoading(false);
       return;
@@ -126,7 +122,7 @@ export default function PluginsStatusPage() {
               Plugins status
             </h1>
             <p className="text-muted-foreground mt-1">
-              Internal view of <code className="text-xs bg-muted px-1 rounded">/api/plugins</code> and
+              Internal view of the <code className="text-xs bg-muted px-1 rounded">GET /plugins</code> registry and
               backend proxy health.
             </p>
           </div>
@@ -171,7 +167,7 @@ export default function PluginsStatusPage() {
               Plugin registry
             </CardTitle>
             <CardDescription>
-              Plugins with UI enabled are listed by the backend from <code className="text-xs bg-muted px-1 rounded">GET /api/plugins</code>.
+              Plugins with UI enabled are listed by the backend from <code className="text-xs bg-muted px-1 rounded">GET /plugins</code>.
               Backend status is checked by requesting <code className="text-xs bg-muted px-1 rounded">/_p/&#123;pathPrefix&#125;/</code>.
             </CardDescription>
           </CardHeader>
@@ -198,7 +194,7 @@ export default function PluginsStatusPage() {
                       <StatusBadge status={p.backendStatus} statusCode={p.statusCode} />
                     </div>
                     <div className="flex items-center gap-2">
-                      <Link href={`/plugins/${p.pathPrefix}`}>
+                      <Link href={pluginHref(p.pathPrefix, p.defaultPath)}>
                         <Button variant="outline" size="sm">
                           <ExternalLink className="h-4 w-4 mr-2" />
                           Open plugin

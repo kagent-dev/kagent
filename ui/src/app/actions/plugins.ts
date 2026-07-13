@@ -7,10 +7,12 @@ import type { BaseResponse } from "@/types";
 
 export interface PluginItem {
   name: string;
+  namespace: string;
   pathPrefix: string;
   displayName: string;
   icon: string;
   section: string;
+  defaultPath?: string;
 }
 
 export type PluginBackendStatus = "ok" | "unreachable" | "not_found" | "checking";

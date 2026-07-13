@@ -77,56 +77,58 @@ export function NamespaceSelector({ value, onValueChange }: NamespaceSelectorPro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (isCollapsed) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 shrink-0"
-              aria-label={`Namespace: ${value || "none"}`}
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Network className="h-4 w-4" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {value || "No namespace"}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
+  // Collapsed and expanded states share the same Popover + Command list so the
+  // namespace can still be changed when the sidebar is collapsed; only the
+  // trigger button differs.
+  const trigger = isCollapsed ? (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            role="combobox"
+            aria-expanded={open}
+            className="h-8 w-8 shrink-0"
+            aria-label={`Namespace: ${value || "none"}`}
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Network className="h-4 w-4" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">{value || "No namespace"}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  ) : (
+    <Button
+      variant="ghost"
+      role="combobox"
+      aria-expanded={open}
+      className="w-full justify-between h-8 px-2 text-xs"
+      disabled={loading}
+    >
+      {loading ? (
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          <span>Loading...</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 truncate">
+          <Network className="h-3 w-3 shrink-0" />
+          <span className="truncate">{value || "Select namespace..."}</span>
+        </div>
+      )}
+      <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+    </Button>
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          role="combobox"
-          aria-expanded={open}
-          className="w-full justify-between h-8 px-2 text-xs"
-          disabled={loading}
-        >
-          {loading ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              <span>Loading...</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 truncate">
-              <Network className="h-3 w-3 shrink-0" />
-              <span className="truncate">{value || "Select namespace..."}</span>
-            </div>
-          )}
-          <ChevronDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent className="w-[200px] p-0" align="start" side="right">
         <Command>
           <CommandInput placeholder="Search namespaces..." />
