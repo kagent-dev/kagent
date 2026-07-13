@@ -38,10 +38,12 @@ interface NavSection {
 
 export interface PluginNav {
   name: string;
+  namespace: string;
   pathPrefix: string;
   displayName: string;
   icon: string;
   section: string;
+  defaultPath?: string;
 }
 
 interface PluginBadge {
@@ -59,6 +61,14 @@ function getIconByName(name: string): LucideIcon {
     .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
     .join("");
   return (LucideIcons as unknown as Record<string, LucideIcon>)[pascalCase] ?? Puzzle;
+}
+
+// Route to the plugin frame, honoring the plugin's configured defaultPath so it
+// opens at its intended start route (e.g. "/namespaces/kagent") instead of "/".
+function pluginHref(pathPrefix: string, defaultPath?: string): string {
+  const base = `/plugins/${pathPrefix}`;
+  const sub = defaultPath?.replace(/^\/+/, "");
+  return sub ? `${base}/${sub}` : base;
 }
 
 export const NAV_SECTIONS: NavSection[] = [
@@ -113,7 +123,7 @@ export function AppSidebarNav() {
       .filter((p) => p.section === section.label)
       .map((p) => ({
         label: p.displayName,
-        href: `/plugins/${p.pathPrefix}`,
+        href: pluginHref(p.pathPrefix, p.defaultPath),
         icon: getIconByName(p.icon),
         badge: badges[p.pathPrefix],
       }));
@@ -140,7 +150,7 @@ export function AppSidebarNav() {
     const items = extraSections.get(label) ?? [];
     items.push({
       label: p.displayName,
-      href: `/plugins/${p.pathPrefix}`,
+      href: pluginHref(p.pathPrefix, p.defaultPath),
       icon: getIconByName(p.icon),
       badge: badges[p.pathPrefix],
     });

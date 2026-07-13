@@ -4,9 +4,17 @@ import {
   SidebarStatusProvider,
   useSidebarStatus,
 } from "@/lib/sidebar-status-context";
+import { getPlugins } from "@/app/actions/plugins";
+
+jest.mock("@/app/actions/plugins", () => ({
+  getPlugins: jest.fn(),
+}));
+
+const mockedGetPlugins = getPlugins as jest.Mock;
 
 const plugin = {
   name: "kanban",
+  namespace: "kagent",
   pathPrefix: "kanban",
   displayName: "Kanban",
   icon: "kanban",
@@ -25,19 +33,12 @@ function Probe() {
 }
 
 describe("SidebarStatusProvider", () => {
-  const originalFetch = global.fetch;
-
   afterEach(() => {
-    global.fetch = originalFetch;
     jest.clearAllMocks();
   });
 
-  it("loads plugins from /api/plugins and reports ok", async () => {
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ data: [plugin] }),
-    });
-    global.fetch = fetchMock as unknown as typeof fetch;
+  it("loads plugins via the getPlugins action and reports ok", async () => {
+    mockedGetPlugins.mockResolvedValue({ data: [plugin], message: "OK" });
 
     render(
       <SidebarStatusProvider>
@@ -47,13 +48,26 @@ describe("SidebarStatusProvider", () => {
 
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("ok"));
     expect(screen.getByTestId("plugins").textContent).toBe("kanban");
-    expect(fetchMock).toHaveBeenCalledWith("/api/plugins");
+    expect(mockedGetPlugins).toHaveBeenCalled();
   });
 
-  it("reports plugins-failed when the request fails", async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValue({ ok: false, status: 500 }) as unknown as typeof fetch;
+  it("reports plugins-failed when the action returns an error", async () => {
+    mockedGetPlugins.mockResolvedValue({ error: "boom", message: "boom" });
+
+    render(
+      <SidebarStatusProvider>
+        <Probe />
+      </SidebarStatusProvider>
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("status").textContent).toBe("plugins-failed")
+    );
+    expect(screen.getByTestId("plugins").textContent).toBe("");
+  });
+
+  it("reports plugins-failed when the action rejects", async () => {
+    mockedGetPlugins.mockRejectedValue(new Error("network down"));
 
     render(
       <SidebarStatusProvider>
@@ -68,11 +82,9 @@ describe("SidebarStatusProvider", () => {
   });
 
   it("re-fetches when retry() is called", async () => {
-    const fetchMock = jest
-      .fn()
-      .mockResolvedValueOnce({ ok: false, status: 503 })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ data: [plugin] }) });
-    global.fetch = fetchMock as unknown as typeof fetch;
+    mockedGetPlugins
+      .mockResolvedValueOnce({ error: "unavailable", message: "unavailable" })
+      .mockResolvedValueOnce({ data: [plugin], message: "OK" });
 
     render(
       <SidebarStatusProvider>
@@ -90,6 +102,6 @@ describe("SidebarStatusProvider", () => {
 
     await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("ok"));
     expect(screen.getByTestId("plugins").textContent).toBe("kanban");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockedGetPlugins).toHaveBeenCalledTimes(2);
   });
 });

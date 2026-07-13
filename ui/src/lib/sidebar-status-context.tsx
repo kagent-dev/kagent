@@ -8,13 +8,16 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { getPlugins } from "@/app/actions/plugins";
 
 export interface SidebarPluginNav {
   name: string;
+  namespace: string;
   pathPrefix: string;
   displayName: string;
   icon: string;
   section: string;
+  defaultPath?: string;
 }
 
 export type SidebarStatus = "ok" | "plugins-failed" | "loading";
@@ -42,12 +45,11 @@ export function SidebarStatusProvider({ children }: { children: ReactNode }) {
 
   const load = useCallback(() => {
     setStatus("loading");
-    fetch("/api/plugins")
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
+    // Call the server action directly instead of a dedicated /api/plugins route:
+    // it runs on the server, reaches the in-cluster backend, and forwards auth.
+    getPlugins()
       .then((res) => {
+        if (res.error) throw new Error(res.error);
         setPlugins(res.data ?? []);
         setStatus("ok");
       })
