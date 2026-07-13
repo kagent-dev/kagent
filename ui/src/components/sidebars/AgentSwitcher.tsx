@@ -5,7 +5,7 @@ import { ChevronsUpDown, Plus } from "lucide-react";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
-import type { AgentResponse } from "@/types";
+import { agentChatBase, type AgentResponse } from "@/types";
 import KagentLogo from "../kagent-logo";
 import { useRouter } from "next/navigation";
 import { k8sRefUtils } from "@/lib/k8sUtils";
@@ -57,9 +57,9 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
               const agentRef = k8sRefUtils.toRef(agent.metadata.namespace || "", agent.metadata.name)
               return (
                 <DropdownMenuItem
-                  key={agentRef}
+                  key={`${agent.kind ?? "Agent"}/${agentRef}`}
                   onClick={() => {
-                    router.push(`/agents/${agentRef}/chat`);
+                    router.push(agentChatBase(agent.kind, agent.metadata.namespace || "", agent.metadata.name));
                   }}
                   className="gap-2 p-2"
                 >

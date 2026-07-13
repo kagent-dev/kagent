@@ -1,7 +1,8 @@
 "use client";
 import { useMemo, useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import ChatGroup from "./SessionGroup";
-import type { Session } from "@/types";
+import { agentChatBase, chatPathKind, type Session } from "@/types";
 import { isToday, isYesterday } from "date-fns";
 import { EmptyState } from "./EmptyState";
 import { deleteSession, getSessionTasks, createSession } from "@/app/actions/sessions";
@@ -25,6 +26,8 @@ interface GroupedChatsProps {
   chatMode?: SandboxChatMode;
   /** When true, this is a substrate AgentHarness: show per-session actor state. */
   isHarness?: boolean;
+  /** group_kind for sessions created here; absent means Agent (see sessionGroupKindFor). */
+  sessionGroupKind?: string;
 }
 
 export default function GroupedChats({
@@ -34,7 +37,11 @@ export default function GroupedChats({
   acpSessions = [],
   chatMode = "default",
   isHarness = false,
+  sessionGroupKind,
 }: GroupedChatsProps) {
+  // In-sidebar navigation reuses the current route prefix so a sandbox chat
+  // stays under /sandbox-agents (the prefix is what carries the kind).
+  const chatBase = agentChatBase(chatPathKind(usePathname()), agentNamespace, agentName);
   const hideNewChat = false;
   const hideSessionDelete = false;
   const provisionSessionOnNewChat = chatMode === "multi-session";
@@ -182,13 +189,14 @@ export default function GroupedChats({
     // matches the actor's ACP session, so the chat could not be stored/resumed.)
     // The full page reload also guarantees the chat hook mounts with clean state.
     if (isHarness) {
-      window.location.href = `/agents/${agentNamespace}/${agentName}/chat?new=1`;
+      window.location.href = `${chatBase}?new=1`;
       return;
     }
     if (provisionSessionOnNewChat) {
       try {
         const created = await createSession({
           agent_ref: `${agentNamespace}/${agentName}`,
+          group_kind: sessionGroupKind,
         });
         if (created.error || !created.data) {
           toast.error(formatA2AClientError(created.error ?? "Failed to create session"));
@@ -200,7 +208,7 @@ export default function GroupedChats({
             detail: { agentRef, session: created.data },
           })
         );
-        window.location.href = `/agents/${agentNamespace}/${agentName}/chat/${created.data.id}`;
+        window.location.href = `${chatBase}/${created.data.id}`;
         return;
       } catch (error) {
         console.error("Error creating session:", error);
@@ -209,7 +217,7 @@ export default function GroupedChats({
       }
     }
     // Force a full page reload instead of client-side navigation
-    window.location.href = `/agents/${agentNamespace}/${agentName}/chat`;
+    window.location.href = chatBase;
   };
 
   const hasNoSessions = !groupedChats.today.length && !groupedChats.yesterday.length && !groupedChats.older.length && acpSessions.length === 0;

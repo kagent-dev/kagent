@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Agent, AgentResponse } from "@/types";
+import { agentChatBase, type Agent, type AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
 import { MemoriesDialog } from "@/components/MemoriesDialog";
 import KagentLogo from "@/components/kagent-logo";
@@ -262,8 +262,8 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
   const nSkills = countSkills(agent);
 
   const chatPath = useMemo(
-    () => `/agents/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`,
-    [namespace, name],
+    () => agentChatBase(agent.kind, namespace, name),
+    [namespace, name, agent.kind],
   );
 
   const goChat = useCallback(() => {

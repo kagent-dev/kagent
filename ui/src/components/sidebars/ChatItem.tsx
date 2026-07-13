@@ -12,6 +12,8 @@ import {
 import { MoreHorizontal, Trash2, Download, Users, PauseCircle, Circle } from "lucide-react";
 import { SidebarMenu, SidebarMenuAction, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { agentChatBase, chatPathKind } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "../ui/button";
 
@@ -37,6 +39,9 @@ interface ChatItemProps {
 }
 
 const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName, onDownload, activityAt, hideDelete, shareToken, shareReadOnly, sessionStatus }: ChatItemProps) => {
+  // Session links reuse the current route prefix so a sandbox chat stays under
+  // /sandbox-agents (the prefix is what carries the kind).
+  const chatBase = agentChatBase(chatPathKind(usePathname()), agentNamespace || "", agentName || "");
   const title = sessionName || "Untitled";
 
   // Format timestamp based on how recent it is
@@ -76,7 +81,7 @@ const ChatItem = ({ sessionId, agentName, agentNamespace, onDelete, sessionName,
       <SidebarMenu>
         <SidebarMenuItem key={sessionId}>
           <SidebarMenuButton asChild className="overflow-hidden relative group/chatitem">
-            <Link href={`/agents/${agentNamespace}/${agentName}/chat/${sessionId}${shareToken ? `?share=${shareToken}` : ""}`} className="flex items-center w-full">
+            <Link href={`${chatBase}/${sessionId}${shareToken ? `?share=${shareToken}` : ""}`} className="flex items-center w-full">
               {shareToken && <span title={shareReadOnly ? "Shared (read-only)" : "Shared session"}><Users className="h-3 w-3 shrink-0 mr-1 text-muted-foreground" /></span>}
               {statusIcon}
               <span className="text-sm whitespace-nowrap" title={title}>{title}</span>

@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { AgentResponse } from "@/types";
+import { agentChatBase, type AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
 import { MemoriesDialog } from "@/components/MemoriesDialog";
 import KagentLogo from "@/components/kagent-logo";
@@ -175,7 +175,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
     </Card>
   );
 
-  const chatHref = `/agents/${agent.metadata.namespace}/${agent.metadata.name}/chat`;
+  const chatHref = agentChatBase(agent.kind, agent.metadata.namespace || "", agent.metadata.name);
 
   return (
     <>

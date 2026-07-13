@@ -116,6 +116,19 @@ export interface CreateSessionRequest {
   id?: string;
 }
 
+/** Chat route base for an agent. SandboxAgents live under /sandbox-agents so the
+ * kind is carried by the path and cannot be dropped in navigation; other kinds
+ * resolve by namespace/name lookup under /agents. */
+export function agentChatBase(kind: string | undefined, namespace: string, name: string): string {
+  const prefix = kind === "SandboxAgent" ? "/sandbox-agents" : "/agents";
+  return `${prefix}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`;
+}
+
+/** Kind pinned by the chat route prefix; undefined under /agents (resolved by lookup). */
+export function chatPathKind(pathname: string): string | undefined {
+  return pathname.startsWith("/sandbox-agents/") ? "SandboxAgent" : undefined;
+}
+
 /** group_kind value for session requests targeting this agent; undefined for plain Agents (the server default). */
 export function sessionGroupKindFor(agent?: { agent?: { kind?: string }; workloadMode?: string } | null): string | undefined {
   if (!agent) return undefined;

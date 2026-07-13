@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import ChatInterface from "@/components/chat/ChatInterface";
 import AcpHarnessChat from "@/components/chat/AcpHarnessChat";
 import { getAgentWithResolvedKind } from "@/app/actions/agents";
@@ -9,7 +9,7 @@ import { createSession } from "@/app/actions/sessions";
 import { isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
 import { Button } from "@/components/ui/button";
 import { Loader2, PlusCircle } from "lucide-react";
-import type { Session } from "@/types";
+import { agentChatBase, chatPathKind, type Session } from "@/types";
 
 function notifySidebarSession(agentRef: string, session: Session) {
   if (typeof window === "undefined") return;
@@ -23,11 +23,14 @@ function notifySidebarSession(agentRef: string, session: Session) {
 export default function ChatAgentPage({ params }: { params: Promise<{ name: string; namespace: string }> }) {
   const { name, namespace } = use(params);
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const apcSessionId = searchParams.get("sessionId") || undefined;
   // The sidebar "New Chat" button lands here with ?new=1 to start a fresh
   // harness chat actor-first (no pre-created session).
   const wantNewHarnessChat = searchParams.get("new") === "1";
+  // /sandbox-agents pins the kind; under /agents it resolves via list lookup.
+  const kindParam = chatPathKind(pathname);
   const [gate, setGate] = useState<"loading" | "ready">("loading");
   const [harnessSession, setHarnessSession] = useState<{ acpPath: string; sessionId?: string; isNew?: boolean } | null>(null);
   // The harness's /acp WebSocket base, captured once we resolve the agent, so
@@ -42,7 +45,7 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
     let cancelled = false;
     (async () => {
       try {
-        const agentRes = await getAgentWithResolvedKind(name, namespace);
+        const agentRes = await getAgentWithResolvedKind(name, namespace, kindParam);
         if (cancelled) return;
         if (agentRes.error || !agentRes.data) {
           setGate("ready");
@@ -93,7 +96,7 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
           if (cancelled) return;
           if (!created.error && created.data) {
             notifySidebarSession(`${namespace}/${name}`, created.data);
-            router.replace(`/agents/${namespace}/${name}/chat/${created.data.id}`);
+            router.replace(`${agentChatBase(kindParam, namespace, name)}/${created.data.id}`);
             return;
           }
           setGate("ready");
@@ -107,7 +110,7 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
     return () => {
       cancelled = true;
     };
-  }, [name, namespace, router, apcSessionId, wantNewHarnessChat]);
+  }, [name, namespace, router, apcSessionId, wantNewHarnessChat, kindParam]);
 
   const startNewHarnessChat = async () => {
     if (!harnessAcpBase) return;

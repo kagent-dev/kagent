@@ -4,7 +4,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from "../ui/sidebar";
 import { AgentSwitcher } from "./AgentSwitcher";
 import GroupedChats from "./GroupedChats";
-import type { AgentResponse, Session } from "@/types";
+import { sessionGroupKindFor, type AgentResponse, type Session } from "@/types";
 import { Loader2 } from "lucide-react";
 import { sandboxChatMode } from "@/lib/sandboxAgentForm";
 
@@ -49,6 +49,7 @@ export default function SessionsSidebar({
               acpSessions={acpSessions}
               onAcpSessionClick={onAcpSessionClick}
               chatMode={sandboxChatMode(currentAgent)}
+              sessionGroupKind={sessionGroupKindFor(currentAgent)}
               isHarness={Boolean(currentAgent.substrateAgentHarness?.acpPath)}
             />
           )}

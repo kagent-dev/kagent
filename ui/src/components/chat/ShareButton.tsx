@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { agentChatBase, chatPathKind } from "@/types";
 import {
   createSessionShare,
   deleteSessionShare,
@@ -39,7 +40,8 @@ export default function ShareButton({ sessionId, namespace, agentName }: ShareBu
   }, []);
 
   const shareUrl = (token: string) =>
-    origin ? `${origin}/agents/${namespace}/${agentName}/chat/${sessionId}?share=${token}` : null;
+    // Share links reuse the current route prefix so shared sandbox sessions open under /sandbox-agents.
+    origin ? `${origin}${agentChatBase(chatPathKind(window.location.pathname), namespace, agentName)}/${sessionId}?share=${token}` : null;
 
   const loadShares = async () => {
     const result = await listSessionShares(sessionId);

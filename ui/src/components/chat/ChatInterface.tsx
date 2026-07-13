@@ -17,7 +17,7 @@ import ChatMessage from "@/components/chat/ChatMessage";
 import ChatMinimap from "@/components/chat/ChatMinimap";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
-import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
+import { agentChatBase, chatPathKind, type TokenStats, type Session, type ChatStatus, type ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists, getSessionWithEvents } from "@/app/actions/sessions";
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
@@ -386,8 +386,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           currentSessionId = newSessionResponse.data.id;
           setSession(normalizeSessionTimestamps(newSessionResponse.data));
 
-          // Update URL without triggering navigation or component reload
-          const newUrl = `/agents/${selectedNamespace}/${selectedAgentName}/chat/${currentSessionId}`;
+          // Update URL without triggering navigation or component reload.
+          // Derive the route prefix from the current path so a sandbox chat
+          // stays under /sandbox-agents (the prefix is what carries the kind).
+          const newUrl = `${agentChatBase(chatPathKind(window.location.pathname), selectedNamespace, selectedAgentName)}/${currentSessionId}`;
           window.history.replaceState({}, '', newUrl);
 
           // Dispatch a custom event to notify that a new session was created
@@ -591,7 +593,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         try {
           if (substrateSandbox) {
             // ActorTemplate readiness only; per-session actors resume on the A2A request.
-            const agentRes = await getAgentWithResolvedKind(selectedAgentName, selectedNamespace);
+            // The chat context already knows this is a sandbox agent — state the kind
+            // instead of list-resolving, which picks the Agent on a shared name.
+            const agentRes = await getAgentWithResolvedKind(selectedAgentName, selectedNamespace, "SandboxAgent");
             if (!agentRes.data?.deploymentReady) {
               throw new Error("Sandbox agent is still starting. Wait a moment and try again.");
             }
@@ -1038,7 +1042,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         <p className="mb-6 text-muted-foreground">This chat session may have been deleted or does not exist.</p>
         <Button
           type="button"
-          onClick={() => router.push(`/agents/${selectedNamespace}/${selectedAgentName}/chat`)}
+          onClick={() => router.push(agentChatBase(chatPathKind(window.location.pathname), selectedNamespace, selectedAgentName))}
         >
           Start a new chat
         </Button>

@@ -419,6 +419,7 @@ function revalidateAgentListAndChat(namespace: string | undefined, name: string)
   const agentRef = k8sRefUtils.toRef(namespace || "", name);
   revalidatePath("/agents");
   revalidatePath(`/agents/${agentRef}/chat`);
+  revalidatePath(`/sandbox-agents/${agentRef}/chat`);
 }
 
 /** Mutates `agentConfig` — strips namespace/name ref to name only for API payloads. */
@@ -529,12 +530,18 @@ export async function getAgent(
 }
 
 /**
- * Lists agents then GETs using the row's `kind` (for chat links and edit when kind is not in the URL).
+ * Resolves an agent's kind and GETs it. A caller-supplied kind (from a ?kind=
+ * link param) wins; otherwise the kind is looked up from the merged list, which
+ * resolves a namespace/name shared across kinds to the Agent.
  */
 export async function getAgentWithResolvedKind(
   agentName: string,
-  namespace: string
+  namespace: string,
+  kubernetesKind?: string
 ): Promise<BaseResponse<AgentResponse>> {
+  if (kubernetesKind) {
+    return getAgent(agentName, namespace, kubernetesKind);
+  }
   const list = await getAgents();
   if (list.error || !list.data) {
     return createErrorResponse<AgentResponse>(

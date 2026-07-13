@@ -1,10 +1,11 @@
 "use client";
 import { use, Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import ChatInterface from "@/components/chat/ChatInterface";
 import AcpHarnessChat from "@/components/chat/AcpHarnessChat";
 import { getAgentWithResolvedKind } from "@/app/actions/agents";
 import { Loader2 } from "lucide-react";
+import { chatPathKind } from "@/types";
 
 function ChatPageViewInner({ params }: { params: Promise<{ name: string; namespace: string; chatId: string }> }) {
   const { name, namespace, chatId } = use(params);
@@ -14,6 +15,8 @@ function ChatPageViewInner({ params }: { params: Promise<{ name: string; namespa
   // idle until the user sends a message; any other navigation (sidebar click,
   // reload) auto-connects and resumes the actor's prior transcript.
   const isNew = searchParams.get("new") === "1";
+  // /sandbox-agents pins the kind; under /agents it resolves via list lookup.
+  const kindParam = chatPathKind(usePathname());
   const [gate, setGate] = useState<"loading" | "ready">("loading");
   const [harnessAcpPath, setHarnessAcpPath] = useState<string | null>(null);
 
@@ -21,7 +24,7 @@ function ChatPageViewInner({ params }: { params: Promise<{ name: string; namespa
     let cancelled = false;
     (async () => {
       try {
-        const agentRes = await getAgentWithResolvedKind(name, namespace);
+        const agentRes = await getAgentWithResolvedKind(name, namespace, kindParam);
         if (cancelled) return;
         const substrateHarness = agentRes.data?.substrateAgentHarness;
         if (substrateHarness) {
@@ -41,7 +44,7 @@ function ChatPageViewInner({ params }: { params: Promise<{ name: string; namespa
     return () => {
       cancelled = true;
     };
-  }, [name, namespace, chatId, isNew]);
+  }, [name, namespace, chatId, isNew, kindParam]);
 
   if (gate === "loading") {
     return (
