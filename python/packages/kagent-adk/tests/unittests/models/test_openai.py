@@ -416,9 +416,7 @@ async def test_max_tokens_and_max_completion_tokens_are_mutually_exclusive(
 ):
     # If both are configured, only max_completion_tokens is sent (it takes
     # precedence); sending both would 400 on reasoning models.
-    openai_llm = OpenAI(
-        model="gpt-5", max_tokens=1024, max_completion_tokens=4096, type="openai", api_key="fake"
-    )
+    openai_llm = OpenAI(model="gpt-5", max_tokens=1024, max_completion_tokens=4096, type="openai", api_key="fake")
     with mock.patch.object(openai_llm, "_client") as mock_client:
 
         async def mock_coro(*args, **kwargs):
