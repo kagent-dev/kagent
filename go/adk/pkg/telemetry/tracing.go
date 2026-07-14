@@ -19,7 +19,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.36.0"
 	"go.opentelemetry.io/otel/trace"
-	adktelemetry "google.golang.org/adk/telemetry"
+	adktelemetry "google.golang.org/adk/v2/telemetry"
 )
 
 // SetKAgentSpanAttributes sets kagent span attributes in the OpenTelemetry context
