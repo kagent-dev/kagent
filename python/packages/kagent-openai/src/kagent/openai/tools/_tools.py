@@ -180,6 +180,6 @@ def get_skill_tools(skills_directory: str | Path = "/skills") -> list[FunctionTo
         skills_directory: Path to the directory containing skills.
 
     Returns:
-        A list of FunctionTool instances: skills tool, read_file, write_file, edit_file
+        A list of FunctionTool instances: skills tool, read_file, write_file, edit_file, and bash
     """
     return [get_skill_tool(skills_directory), read_file, write_file, edit_file, bash]

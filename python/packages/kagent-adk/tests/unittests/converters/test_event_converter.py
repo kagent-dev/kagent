@@ -1,11 +1,13 @@
+from enum import Enum
 from unittest.mock import Mock
 
 import pytest
 from a2a.types import TaskState, TaskStatusUpdateEvent
 from google.genai import types as genai_types
 from kagent.core.a2a import get_kagent_metadata_key
+from pydantic import BaseModel, Field
 
-from kagent.adk.converters.event_converter import convert_event_to_a2a_events
+from kagent.adk.converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
 
 
 def _create_mock_invocation_context():
@@ -135,3 +137,30 @@ class TestEventConverter:
         assert message is not None
         assert message.task_id == "task-xyz"
         assert message.context_id == "ctx-xyz"
+
+
+class TestSerializeMetadataValue:
+    """Test cases for serialize_metadata_value."""
+
+    def test_pydantic_value_serializes_to_dump_dict(self):
+        """A Pydantic value serializes to its JSON-compatible model_dump dict so
+        structured metadata (e.g. usage_metadata token counts) stays
+        machine-readable for consumers such as the UI."""
+
+        class _Status(Enum):
+            READY = "ready"
+
+        class _Model(BaseModel):
+            a: int
+            b: str | None = None
+            status: _Status
+            alias_value: str = Field(alias="aliasValue")
+
+        value = _Model(a=1, status=_Status.READY, aliasValue="x")
+
+        result = serialize_metadata_value(value)
+
+        assert result == {"a": 1, "status": "ready", "aliasValue": "x"}
+
+    def test_plain_value_serializes_to_str(self):
+        assert serialize_metadata_value(42) == "42"
