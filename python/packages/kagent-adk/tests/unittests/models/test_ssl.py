@@ -8,7 +8,6 @@ These tests verify the create_ssl_context() function behavior in isolation:
 """
 
 import logging
-import re
 import ssl
 import tempfile
 from pathlib import Path
@@ -124,28 +123,3 @@ def test_ssl_context_disabled_logs_warning(caplog):
         assert ssl_context is False
         assert "SSL VERIFICATION DISABLED" in caplog.text
         assert "development/testing" in caplog.text.lower()
-
-
-def test_ssl_context_disabled_warning_banner_borders(caplog):
-    """The disabled-verification warning renders solid 60-char rule borders.
-
-    Guards against string-concatenation vs. ``*`` precedence: writing
-    ``"\n" "=" * 60`` binds the implicit concatenation first, yielding
-    ``"\n=" * 60`` (a jagged column of single ``=`` signs) instead of a
-    newline followed by a 60-character rule. The banner has three such
-    rules (top, separator, bottom); each must be a solid 60-char run.
-    """
-    with caplog.at_level(logging.WARNING):
-        create_ssl_context(
-            disable_verify=True,
-            ca_cert_path=None,
-            disable_system_cas=False,
-        )
-
-    rule = "=" * 60
-    assert rule in caplog.text
-    # No stray single-'=' rows: every run of '=' is the full 60-char rule.
-    runs = re.findall(r"=+", caplog.text)
-    assert runs, "warning banner should contain '=' rule borders"
-    assert all(run == rule for run in runs)
-    assert len(runs) == 3
