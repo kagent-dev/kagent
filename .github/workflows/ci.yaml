@@ -380,6 +380,7 @@ jobs:
           - skills-init
           - acp-sandbox-hermes
           - acp-sandbox-openclaw
+          - acp-sandbox-claude
     runs-on: ubuntu-latest
     services:
       registry:

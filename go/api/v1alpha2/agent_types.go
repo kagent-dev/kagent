@@ -70,6 +70,27 @@ type AgentSpec struct {
 	// +optional
 	Description string `json:"description,omitempty"`
 
+	// IconURL is a URL to an icon representing the agent. It is surfaced on the
+	// agent's A2A AgentCard.
+	// +optional
+	// +kubebuilder:validation:Format=uri
+	IconURL string `json:"iconUrl,omitempty"`
+
+	// DocumentationURL is a URL to human-readable documentation for the agent. It
+	// is surfaced on the agent's A2A AgentCard.
+	// +optional
+	// +kubebuilder:validation:Format=uri
+	DocumentationURL string `json:"documentationUrl,omitempty"`
+
+	// Version is the agent's version string, surfaced on the A2A AgentCard.
+	// +optional
+	Version string `json:"version,omitempty"`
+
+	// Provider identifies the organization responsible for the agent. It is
+	// surfaced on the agent's A2A AgentCard.
+	// +optional
+	Provider *AgentProvider `json:"provider,omitempty"`
+
 	// Skills to load into the agent. They will be pulled from the specified container images.
 	// and made available to the agent under the `/skills` folder.
 	// +optional
@@ -88,6 +109,19 @@ type AgentSpec struct {
 	// See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
 	// +optional
 	AllowedNamespaces *AllowedNamespaces `json:"allowedNamespaces,omitempty"`
+}
+
+// AgentProvider identifies the organization responsible for an agent on its A2A AgentCard.
+type AgentProvider struct {
+	// Organization is the name of the agent provider's organization.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	Organization string `json:"organization"`
+
+	// URL is a URL for the agent provider's website or relevant documentation.
+	// +required
+	// +kubebuilder:validation:Format=uri
+	URL string `json:"url"`
 }
 
 // +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
