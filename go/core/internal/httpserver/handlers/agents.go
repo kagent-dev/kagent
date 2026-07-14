@@ -135,6 +135,12 @@ func (h *AgentsHandler) HandleListAgentHarnesses(w ErrorResponseWriter, r *http.
 // listAgentResponses fetches Agent and AgentHarness resources, applies the
 // provided list options (e.g. client.InNamespace), and returns the merged
 // slice of AgentResponse values.
+//
+// Ordering is load-bearing: Agents are appended before SandboxAgents and
+// harnesses, and the UI's shared-name lookup (getAgentWithResolvedKind) takes
+// the first match, so a namespace/name shared across kinds resolves to the
+// Agent. Reordering the appends silently changes which resource un-prefixed
+// chat URLs open.
 func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger, opts ...client.ListOption) ([]api.AgentResponse, error) {
 	agentList := &v1alpha2.AgentList{}
 	if err := h.KubeClient.List(ctx, agentList, opts...); err != nil {
@@ -471,8 +477,15 @@ func (h *AgentsHandler) handleDeleteAgentObject(
 		return
 	}
 
-	if _, err := h.getAgentObject(r.Context(), client.ObjectKey{Namespace: agentNamespace, Name: agentName}, agent, notFoundMsg, getFailedMsg); err != nil {
-		w.RespondWithError(err)
+	// Not-found bodies deliberately omit the underlying k8s error: the delete
+	// routes have always responded with the bare message, and clients may match
+	// on the exact body.
+	if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Namespace: agentNamespace, Name: agentName}, agent); err != nil {
+		if apierrors.IsNotFound(err) {
+			w.RespondWithError(errors.NewNotFoundError(notFoundMsg, nil))
+			return
+		}
+		w.RespondWithError(errors.NewInternalServerError(getFailedMsg, err))
 		return
 	}
 

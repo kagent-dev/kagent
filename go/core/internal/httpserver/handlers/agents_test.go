@@ -461,6 +461,30 @@ func TestHandleListAgents(t *testing.T) {
 		require.Equal(t, true, response.Data[1].DeploymentReady)
 	})
 
+	t.Run("lists Agents before SandboxAgents on shared names", func(t *testing.T) {
+		// Ordering is load-bearing: the UI's shared-name lookup takes the first
+		// merged-list match, so the Agent must precede the SandboxAgent (see
+		// listAgentResponses).
+		modelConfig := createTestModelConfig()
+		agent := createTestAgent("shared-name", modelConfig)
+		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
+		handler, _ := setupTestHandler(t, agent, sa, modelConfig)
+		createAgent(handler.DatabaseService, agent)
+
+		req := httptest.NewRequest("GET", "/api/agents", nil)
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleListAgents(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+		var response api.StandardResponse[[]api.AgentResponse]
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		require.Len(t, response.Data, 2)
+		require.Equal(t, "Agent", response.Data[0].Agent.Kind)
+		require.Equal(t, "SandboxAgent", response.Data[1].Agent.Kind)
+	})
+
 	t.Run("lists expected agent conditions", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 
