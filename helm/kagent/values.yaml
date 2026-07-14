@@ -504,6 +504,35 @@ ui:
     #       request: "0s"
     #       backendRequest: "0s"
 
+  # -- Optional `networking.k8s.io/v1` Ingress for the UI, for clusters using
+  # classic ingress controllers (AWS ALB, ingress-nginx, etc.) instead of the
+  # Gateway API `httpRoute` above. Each path may override `backend` (name/port)
+  # to front the UI with something else, e.g. the bundled oauth2-proxy.
+  ingress:
+    enabled: false
+    # -- IngressClass name (e.g. `alb`, `nginx`). Omitted when empty.
+    className: ""
+    # -- Extra labels to add to the `Ingress` (merged with the chart labels).
+    labels: {}
+    # -- Annotations to add to the `Ingress` (controller-specific settings).
+    annotations: {}
+    # -- Hosts and their paths. When a path omits `backend`, it defaults to
+    # the UI `Service` on `ui.service.ports.port`.
+    hosts: []
+    #   - host: kagent.example.com
+    #     paths:
+    #       - path: /
+    #         pathType: Prefix
+    #       - path: /
+    #         pathType: Prefix
+    #         backend:
+    #           name: kagent-oauth2-proxy
+    #           port: 4180
+    # -- TLS configuration, passed through verbatim.
+    tls: []
+    #   - hosts: [kagent.example.com]
+    #     secretName: kagent-tls
+
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================

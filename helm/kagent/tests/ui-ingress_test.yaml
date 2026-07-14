@@ -1,0 +1,81 @@
+suite: test UI ingress
+templates:
+  - ui-ingress.yaml
+tests:
+  - it: should not render an Ingress by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render an Ingress with host, class and default UI backend
+    set:
+      ui:
+        ingress:
+          enabled: true
+          className: nginx
+          hosts:
+            - host: kagent.example.com
+              paths:
+                - path: /
+                  pathType: Prefix
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: spec.rules[0].host
+          value: kagent.example.com
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: RELEASE-NAME-ui
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.number
+          value: 8080
+
+  - it: should allow a per-path backend override
+    set:
+      ui:
+        ingress:
+          enabled: true
+          hosts:
+            - host: kagent.example.com
+              paths:
+                - path: /
+                  pathType: ImplementationSpecific
+                  backend:
+                    name: kagent-oauth2-proxy
+                    port: 4180
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: kagent-oauth2-proxy
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.number
+          value: 4180
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: ImplementationSpecific
+
+  - it: should pass tls and annotations through
+    set:
+      ui:
+        ingress:
+          enabled: true
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt
+          hosts:
+            - host: kagent.example.com
+              paths:
+                - path: /
+          tls:
+            - hosts: [kagent.example.com]
+              secretName: kagent-tls
+    asserts:
+      - equal:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+          value: letsencrypt
+      - equal:
+          path: spec.tls[0].secretName
+          value: kagent-tls
