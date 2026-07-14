@@ -379,6 +379,12 @@ type RemoteAgentConfig struct {
 	Url         string            `json:"url"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Description string            `json:"description,omitempty"`
+	// IsolateSessions requests a fresh A2A context_id (and therefore a fresh
+	// sub-agent session) on every call to this remote agent, instead of the
+	// default single shared session per tool lifetime. Honored by the Go
+	// declarative runtime (go/adk/pkg/tools/remote_a2a_tool.go); accepted by
+	// the Python config model for schema parity only (python/packages/kagent-adk).
+	IsolateSessions bool `json:"isolate_sessions,omitempty"`
 }
 
 // EmbeddingConfig is the embedding model config for memory tools.

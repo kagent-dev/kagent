@@ -238,6 +238,11 @@ class RemoteAgentConfig(BaseModel):
     headers: dict[str, Any] | None = None
     timeout: float = DEFAULT_TIMEOUT
     description: str = ""
+    # isolate_sessions: accepted for schema parity with the Go declarative
+    # runtime (see go/api/v1alpha2.Tool.IsolateSessions). The Python low-level
+    # tool (KAgentRemoteA2AToolset / _remote_a2a_tool.py) does not yet honor
+    # this flag — it only affects agents running on runtime: go.
+    isolate_sessions: bool = False
 
 
 class BaseLLM(BaseModel):
