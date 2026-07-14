@@ -539,6 +539,7 @@ type AgentConfig struct {
 	Network       *NetworkConfig        `json:"network,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
 	ShareTools    *bool                 `json:"share_tools,omitempty"`
+	SessionDBURL  string                `json:"session_db_url,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -571,13 +572,20 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Network       *NetworkConfig        `json:"network,omitempty"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
 		ShareTools    *bool                 `json:"share_tools,omitempty"`
+		SessionDBURL  string                `json:"session_db_url,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
-	model, err := ParseModel(tmp.Model)
-	if err != nil {
-		return err
+	// BYO agents carry a minimal config with no model (it marshals as "model":null); a config
+	// without a model is legal and must round-trip — ParseModel would reject it.
+	var model Model
+	if len(tmp.Model) > 0 && string(tmp.Model) != "null" {
+		var err error
+		model, err = ParseModel(tmp.Model)
+		if err != nil {
+			return err
+		}
 	}
 
 	var memory *MemoryConfig
@@ -601,6 +609,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Network = tmp.Network
 	a.ContextConfig = tmp.ContextConfig
 	a.ShareTools = tmp.ShareTools
+	a.SessionDBURL = tmp.SessionDBURL
 	return nil
 }
 

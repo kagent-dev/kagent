@@ -10,8 +10,10 @@ import (
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 )
 
 // Client wraps ate-api Control gRPC.
@@ -121,21 +123,25 @@ func (c *Client) callCtx(ctx context.Context) (context.Context, context.CancelFu
 	return context.WithTimeout(ctx, c.cfg.CallTimeout)
 }
 
-func (c *Client) GetActor(ctx context.Context, actorID string) (*ateapipb.Actor, error) {
+func actorRef(atespace, actorID string) *ateapipb.ActorRef {
+	return &ateapipb.ActorRef{Atespace: atespace, Name: actorID}
+}
+
+func (c *Client) GetActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.GetActor(ctx, &ateapipb.GetActorRequest{ActorId: actorID})
+	resp, err := c.ControlClient.GetActor(ctx, &ateapipb.GetActorRequest{ActorRef: actorRef(atespace, actorID)})
 	if err != nil {
 		return nil, err
 	}
 	return resp.GetActor(), nil
 }
 
-func (c *Client) CreateActor(ctx context.Context, actorID, tmplNS, tmplName string) (*ateapipb.Actor, error) {
+func (c *Client) CreateActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
 	resp, err := c.ControlClient.CreateActor(ctx, &ateapipb.CreateActorRequest{
-		ActorId:                actorID,
+		ActorRef:               actorRef(atespace, actorID),
 		ActorTemplateNamespace: tmplNS,
 		ActorTemplateName:      tmplName,
 	})
@@ -145,26 +151,38 @@ func (c *Client) CreateActor(ctx context.Context, actorID, tmplNS, tmplName stri
 	return resp.GetActor(), nil
 }
 
-func (c *Client) ResumeActor(ctx context.Context, actorID string) (*ateapipb.Actor, error) {
+func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.ResumeActor(ctx, &ateapipb.ResumeActorRequest{ActorId: actorID})
+	resp, err := c.ControlClient.ResumeActor(ctx, &ateapipb.ResumeActorRequest{ActorRef: actorRef(atespace, actorID)})
 	if err != nil {
 		return nil, err
 	}
 	return resp.GetActor(), nil
 }
 
-func (c *Client) SuspendActor(ctx context.Context, actorID string) error {
+func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{ActorId: actorID})
+	_, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{ActorRef: actorRef(atespace, actorID)})
 	return err
 }
 
-func (c *Client) DeleteActor(ctx context.Context, actorID string) error {
+func (c *Client) DeleteActor(ctx context.Context, atespace, actorID string) error {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{ActorId: actorID})
+	_, err := c.ControlClient.DeleteActor(ctx, &ateapipb.DeleteActorRequest{ActorRef: actorRef(atespace, actorID)})
+	return err
+}
+
+// EnsureAtespace idempotently ensures the named atespace exists on the substrate side.
+// Actors cannot be created into a nonexistent atespace (FailedPrecondition).
+func (c *Client) EnsureAtespace(ctx context.Context, name string) error {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	_, err := c.CreateAtespace(ctx, &ateapipb.CreateAtespaceRequest{Name: name})
+	if err != nil && status.Code(err) == codes.AlreadyExists {
+		return nil
+	}
 	return err
 }

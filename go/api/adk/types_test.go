@@ -53,12 +53,12 @@ func TestMarshalJSON_OmitemptyFields(t *testing.T) {
 		{
 			name:       "OpenAI zero-valued omitempty fields omitted",
 			model:      &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}},
-			wantAbsent: []string{"headers", "tls_disable_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough", "frequency_penalty", "max_tokens", "temperature"},
+			wantAbsent: []string{"headers", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough", "frequency_penalty", "max_tokens", "temperature"},
 		},
 		{
 			name:       "Anthropic zero-valued omitempty fields omitted",
 			model:      &Anthropic{BaseModel: BaseModel{Model: "claude-3"}},
-			wantAbsent: []string{"headers", "tls_disable_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough"},
+			wantAbsent: []string{"headers", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough"},
 		},
 		{
 			name:       "Bedrock zero-valued omitempty fields omitted",

@@ -10,6 +10,7 @@
 #
 #       docker build -f docker/acp-sandbox/Dockerfile --target hermes   go/
 #       docker build -f docker/acp-sandbox/Dockerfile --target openclaw go/
+#       docker build -f docker/acp-sandbox/Dockerfile --target claude   go/
 #
 # The contract between base and agent layers is intentionally tiny:
 #   - ENTRYPOINT is acp-shim; it serves ws://0.0.0.0:9000/acp.
@@ -132,3 +133,21 @@ COPY --chmod=755 \
 USER agent
 ENTRYPOINT ["/usr/local/bin/openclaw-acp-entrypoint.sh"]
 CMD []
+
+### Agent target: Claude — Anthropic's Claude Agent SDK exposed over ACP via
+### the community adapter (@agentclientprotocol/claude-agent-acp, which wraps
+### @anthropic-ai/claude-agent-sdk). Built on node-base because the adapter
+### requires Node >=22 (trixie apt ships v20). Unlike openclaw it needs NO
+### sandbox-local gateway: `claude-agent-acp` is a stdio ACP server, so the
+### shim runs it directly as its child.
+FROM node-base AS claude
+ARG CLAUDE_AGENT_ACP_VERSION=0.58.1
+USER root
+RUN npm install -g "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}"
+USER agent
+# claude-agent-acp holds ACP session state in memory, so (like hermes) the
+# child MUST be long-lived — the shim's default reconnect-grace=0 keeps it
+# alive across client reconnects. Requires ANTHROPIC_API_KEY injected at
+# runtime (credential injection belongs to the harness bootstrap, not this
+# image).
+CMD ["--", "claude-agent-acp"]

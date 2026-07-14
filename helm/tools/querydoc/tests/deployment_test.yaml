@@ -47,6 +47,19 @@ tests:
           path: spec.template.spec.containers[0].image
           value: ghcr.io/kagent-dev/doc2vec/mcp:v2.0.0
 
+  - it: should omit empty registry segment in image
+    template: deployment.yaml
+    set:
+      image:
+        registry: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: kagent-dev/doc2vec/mcp:1.1.10
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^/"          # no leading slash
+
   - it: should have correct service account name
     template: deployment.yaml
     asserts:

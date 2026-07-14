@@ -12,7 +12,7 @@ import (
 // from the just-pushed images. The registry and repository are composed at
 // runtime from --image-registry/--image-repository (the same DefaultImageConfig
 // values used for declarative agent images), so the same controller binary
-// works against ghcr.io, cr.kagent.dev, localhost:5001, or a private/mirrored
+// works against ghcr.io, localhost:5001, or a private/mirrored
 // registry without editing this file (kagent-dev/kagent#2055).
 const (
 	acpSandboxOpenClawImageName = "acp-sandbox-openclaw"

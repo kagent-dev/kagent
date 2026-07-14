@@ -379,7 +379,7 @@ Kagent follows semantic versioning ([https://semver.org/](https://semver.org/)):
 
 Release artifacts:
 
-- Container images: `cr.kagent.dev/kagent-dev/kagent/*`
+- Container images: `ghcr.io/kagent-dev/kagent/*`
 - Helm charts: `oci://ghcr.io/kagent-dev/kagent/helm/*`
 - CLI binaries: GitHub releases
 - Release notes: GitHub releases with changelog
