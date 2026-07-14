@@ -88,17 +88,23 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
               </div>
             )}
             <Button
+              type="button"
               data-test="edit-model-name-button"
               variant="outline"
               size="icon"
               onClick={onToggleEditName}
-              title={isEditingName ? "Finish Editing Name" : "Edit Auto-Generated Name"}
-              disabled={isSubmitting || isLoading}
+              title={isEditMode ? "Name can't be changed after creation" : isEditingName ? "Finish Editing Name" : "Edit Auto-Generated Name"}
+              disabled={isSubmitting || isLoading || isEditMode}
             >
               <Pencil className="h-4 w-4" />
             </Button>
           </div>
           {errors.name && <p className="text-destructive text-sm mt-1">{errors.name}</p>}
+          {isEditMode && (
+            <p className="text-[0.8rem] text-muted-foreground mt-1">
+              The name can&apos;t be changed after a model is created.
+            </p>
+          )}
         </div>
 
         <div>
