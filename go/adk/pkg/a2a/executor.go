@@ -13,13 +13,13 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/runner"
 	"google.golang.org/adk/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
+	adksession "google.golang.org/adk/session"
 )
 
 const (
@@ -32,7 +32,7 @@ const (
 type KAgentExecutorConfig struct {
 	RunnerConfig       runner.Config
 	SubagentSessionIDs map[string]string
-	SessionService     *session.KAgentSessionService
+	SessionService     adksession.Service
 	Stream             bool
 	AppName            string
 	SkillsDirectory    string
@@ -43,7 +43,7 @@ type KAgentExecutorConfig struct {
 type KAgentExecutor struct {
 	runnerConfig       runner.Config
 	subagentSessionIDs map[string]string
-	sessionService     *session.KAgentSessionService
+	sessionService     adksession.Service
 	stream             bool
 	appName            string
 	skillsDirectory    string
@@ -100,6 +100,33 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 	return ctx, nil
 }
 
+// newAgentMessage builds an agent message stamped with the request's context
+// and task ids. A2A allows omitting these (the task is the canonical carrier),
+// but stamping them lets consumers that flatten task.history into standalone
+// messages key each message to its task without backfilling. Mirrors the Python
+// kagent-adk event converter.
+func newAgentMessage(reqCtx *a2asrv.RequestContext, parts ...a2atype.Part) *a2atype.Message {
+	msg := a2atype.NewMessage(a2atype.MessageRoleAgent, parts...)
+	msg.ContextID = reqCtx.ContextID
+	msg.TaskID = reqCtx.TaskID
+	return msg
+}
+
+// newAgentStatusEvent builds a working TaskStatusUpdateEvent whose agent message
+// carries the given parts, the given metadata, and the request's context/task
+// ids (via newAgentMessage). The message and event share the same metadata map,
+// matching the executor's emission paths. This is the per-event seam where a
+// streamed agent message is turned into an emitted (and persisted) event, so the
+// id stamping here is what the send guard relies on when it later flattens
+// task.history.
+func newAgentStatusEvent(reqCtx *a2asrv.RequestContext, parts a2atype.ContentParts, meta map[string]any) *a2atype.TaskStatusUpdateEvent {
+	msg := newAgentMessage(reqCtx, parts...)
+	msg.Metadata = meta
+	statusEv := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, msg)
+	statusEv.Metadata = meta
+	return statusEv
+}
+
 // Execute implements a2asrv.AgentExecutor.
 // It follows the Python _handle_request pattern: set up session, handle HITL,
 // convert inbound message, run the agent loop, and emit A2A events.
@@ -152,10 +179,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 	// 4. Create / lookup session via sessionService.
 	if e.sessionService != nil {
-		sess, err := e.sessionService.GetSession(ctx, e.appName, userID, sessionID)
+		var sess adksession.Session
+		resp, err := e.sessionService.Get(ctx, &adksession.GetRequest{AppName: e.appName, UserID: userID, SessionID: sessionID})
 		if err != nil {
 			e.logger.V(1).Info("Session lookup failed, will create", "error", err, "sessionID", sessionID)
-			sess = nil
+		} else if resp != nil {
+			sess = resp.Session
 		}
 		if sess == nil {
 			sessionName := extractSessionName(reqCtx.Message)
@@ -171,7 +200,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 					}
 				}
 			}
-			if err = e.sessionService.CreateSession(ctx, e.appName, userID, state, sessionID); err != nil {
+			if _, err := e.sessionService.Create(ctx, &adksession.CreateRequest{AppName: e.appName, UserID: userID, State: state, SessionID: sessionID}); err != nil {
 				return fmt.Errorf("failed to create session: %w", err)
 			}
 		}
@@ -266,7 +295,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 			// Events with no content carry metadata only; still track invocationID/usage.
 			// Check for LLM error.
 			if adkEvent.ErrorCode != "" {
-				errMsg := a2atype.NewMessage(a2atype.MessageRoleAgent,
+				errMsg := newAgentMessage(reqCtx,
 					a2atype.TextPart{Text: fmt.Sprintf("LLM error: %s %s", adkEvent.ErrorCode, adkEvent.ErrorMessage)})
 				failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
 				failed.Final = true
@@ -278,7 +307,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 		// Check for LLM error (even with content present).
 		if adkEvent.ErrorCode != "" {
-			errMsg := a2atype.NewMessage(a2atype.MessageRoleAgent,
+			errMsg := newAgentMessage(reqCtx,
 				a2atype.TextPart{Text: fmt.Sprintf("LLM error: %s %s", adkEvent.ErrorCode, adkEvent.ErrorMessage)})
 			failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
 			failed.Final = true
@@ -326,10 +355,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 			if len(textOnly) > 0 {
 				mirrorMeta := maps.Clone(eventMeta)
 				mirrorMeta[adka2a.ToA2AMetaKey("partial")] = true
-				msg := a2atype.NewMessage(a2atype.MessageRoleAgent, textOnly...)
-				msg.Metadata = mirrorMeta
-				statusEv := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, msg)
-				statusEv.Metadata = mirrorMeta
+				statusEv := newAgentStatusEvent(reqCtx, textOnly, mirrorMeta)
 				if err := queue.Write(ctx, statusEv); err != nil {
 					return fmt.Errorf("failed to write partial status event: %w", err)
 				}
@@ -338,10 +364,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 			mirrorParts := a2aParts
 			if len(hitlParts) == 0 {
 				// Only mirror when not accumulating HITL parts (those go into input_required).
-				msg := a2atype.NewMessage(a2atype.MessageRoleAgent, mirrorParts...)
-				msg.Metadata = maps.Clone(eventMeta)
-				statusEv := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, msg)
-				statusEv.Metadata = maps.Clone(eventMeta)
+				statusEv := newAgentStatusEvent(reqCtx, mirrorParts, maps.Clone(eventMeta))
 				if err := queue.Write(ctx, statusEv); err != nil {
 					return fmt.Errorf("failed to write mirror status event: %w", err)
 				}
@@ -362,7 +385,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	}
 
 	if runErr != nil {
-		errMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: runErr.Error()})
+		errMsg := newAgentMessage(reqCtx, a2atype.TextPart{Text: runErr.Error()})
 		failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
 		failed.Final = true
 		failed.Metadata = finalMeta
@@ -371,7 +394,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 	if len(hitlParts) > 0 {
 		// input_required: the agent is waiting for HITL decisions.
-		hitlMsg := a2atype.NewMessage(a2atype.MessageRoleAgent, hitlParts...)
+		hitlMsg := newAgentMessage(reqCtx, hitlParts...)
 		inputRequired := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, hitlMsg)
 		inputRequired.Final = true
 		inputRequired.Metadata = finalMeta

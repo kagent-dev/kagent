@@ -137,9 +137,10 @@ type Config struct {
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
 	Database           struct {
-		Url           string
-		UrlFile       string
-		VectorEnabled bool
+		Url            string
+		UrlFile        string
+		VectorEnabled  bool
+		SkipMigrations bool
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
@@ -151,10 +152,6 @@ type Config struct {
 		DefaultWorkerPoolNamespace string
 		DefaultWorkerPoolName      string
 		PauseImage                 string
-		RunscAMD64URL              string
-		RunscAMD64SHA256           string
-		RunscARM64URL              string
-		RunscARM64SHA256           string
 	}
 }
 
@@ -185,6 +182,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
+	commandLine.BoolVar(&cfg.Database.SkipMigrations, "skip-migrations", false, "Do not run database migrations at startup; instead verify the database is already migrated and fail if it is not. Migrations must be applied out-of-band (e.g. from a pipeline or pre-upgrade hook). Settable via the SKIP_MIGRATIONS env var.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -215,11 +213,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolName, "substrate-default-workerpool-name", "", "Default Agent Substrate WorkerPool name when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.PauseImage, "substrate-pause-image", "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da", "Pause image for generated ActorTemplates.")
-	// Please note: the 2026-06-13 nightly breaks checkpoint, so don't jump straight to the latest. See https://github.com/kagent-dev/kagent/pull/2035.
-	commandLine.StringVar(&cfg.Substrate.RunscAMD64URL, "substrate-runsc-amd64-url", "gs://gvisor/releases/nightly/2026-06-02/x86_64/runsc", "gVisor runsc URL for amd64.")
-	commandLine.StringVar(&cfg.Substrate.RunscAMD64SHA256, "substrate-runsc-amd64-sha256", "efd12935f6654c91a1389710eb8dfa4d12b6b9be00db87526dc2eb584ad00119", "gVisor runsc sha256 for amd64.")
-	commandLine.StringVar(&cfg.Substrate.RunscARM64URL, "substrate-runsc-arm64-url", "gs://gvisor/releases/nightly/2026-05-19/aarch64/runsc", "gVisor runsc URL for arm64.")
-	commandLine.StringVar(&cfg.Substrate.RunscARM64SHA256, "substrate-runsc-arm64-sha256", "1ba2366ae2efceba166046f51a4104f9261c9cb72c6db8f5b3fe2dc57dea86b9", "gVisor runsc sha256 for arm64.")
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
 	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
@@ -309,17 +302,11 @@ type ExtensionConfig struct {
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
 
-// MigrationRunner applies database migrations given the resolved connection URL.
-// vectorEnabled mirrors the --database-vector-enabled flag; custom runners can use it
-// to conditionally apply vector-specific migrations.
-// Returning a non-nil error causes the app to exit.
-//
-// Pass nil to Start to use the default migration runner (migrations.RunUp with migrations.FS).
-// Provide a custom runner to take over the migration process entirely.
-// Custom runners that want to include the built-in migrations can call migrations.RunUp directly.
-type MigrationRunner func(ctx context.Context, url string, vectorEnabled bool) error
-
-func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunner) {
+// Start boots the controller. extraSources registers additional migration
+// tracks beyond the built-in sources; they are applied after the built-in
+// (core, vector) tracks, in the order given. Pass nil to run only the built-in
+// migrations.
+func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Source) {
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
 
@@ -483,20 +470,27 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
-	// Use the built-in migration runner when none is provided.
-	if migrationRunner == nil {
-		migrationRunner = func(_ context.Context, url string, vectorEnabled bool) error {
-			return migrations.RunUp(url, migrations.FS, vectorEnabled)
-		}
-	}
-
 	// Run migrations before connecting; schema must exist before queries.
-	setupLog.Info("running database migrations")
-	if err := migrationRunner(ctx, dbURL, cfg.Database.VectorEnabled); err != nil {
-		setupLog.Error(err, "database migration failed")
-		os.Exit(1)
+	// Built-in sources run first, then any downstream-registered extras.
+	// With --skip-migrations (SKIP_MIGRATIONS) the server applies nothing and
+	// instead verifies the database is already migrated, so migrations can run
+	// out-of-band and this connection needs no DDL privileges.
+	sources := append(migrations.BuiltinSources(cfg.Database.VectorEnabled), extraSources...)
+	if cfg.Database.SkipMigrations {
+		setupLog.Info("skipping database migrations; verifying schema is migrated")
+		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
+			setupLog.Error(err, "database migration verification failed")
+			os.Exit(1)
+		}
+		setupLog.Info("database schema verified")
+	} else {
+		setupLog.Info("running database migrations")
+		if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
+			setupLog.Error(err, "database migration failed")
+			os.Exit(1)
+		}
+		setupLog.Info("database migrations complete")
 	}
-	setupLog.Info("database migrations complete")
 
 	// Connect to database
 	db, err := database.Connect(ctx, &database.PostgresConfig{
@@ -538,7 +532,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		if atenetRouterURL == "" {
 			atenetRouterURL = substrate.DefaultAtenetRouterURL
 		}
-		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient, atenetRouterURL)
+		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient, mgr.GetClient(), atenetRouterURL)
 		agentHarnessSessionActorBackend = substrate.NewAgentHarnessSessionActorBackend(substrateAteClient, atenetRouterURL)
 		agentsSubstrate := substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
 		extensionCfg.SandboxBackend = agentsSubstrate
@@ -687,6 +681,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		extensionCfg.Authenticator,
 		mcpHandler,
 		substrateSandboxActorBackend,
+		dbClient,
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create a2a registrar")
@@ -805,11 +800,7 @@ func substrateAppConfig(cfg *Config) substrate.Config {
 
 func substrateLifecycleFromConfig(kubeClient client.Client, cfg *Config, ate *substrate.Client) *substrate.Lifecycle {
 	return substrate.NewLifecycle(kubeClient, substrate.LifecycleDefaults{
-		PauseImage:       cfg.Substrate.PauseImage,
-		RunscAMD64URL:    cfg.Substrate.RunscAMD64URL,
-		RunscAMD64SHA256: cfg.Substrate.RunscAMD64SHA256,
-		RunscARM64URL:    cfg.Substrate.RunscARM64URL,
-		RunscARM64SHA256: cfg.Substrate.RunscARM64SHA256,
+		PauseImage: cfg.Substrate.PauseImage,
 		// ImageRegistry/ImageRepository mirror the declarative-agent image config
 		// (--image-registry/--image-repository) so digest-pinned acp-sandbox
 		// workload images resolve against the same (possibly private/mirrored)

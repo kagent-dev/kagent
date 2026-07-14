@@ -10,5 +10,5 @@ dependencies:
     condition: kmcp.enabled
   - name: substrate-crds
     version: ${SUBSTRATE_VERSION}
-    repository: oci://ghcr.io/kagent-dev/substrate/helm
+    repository: ${SUBSTRATE_REPO}
     condition: substrate.enabled

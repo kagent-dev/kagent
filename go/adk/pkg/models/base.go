@@ -167,3 +167,23 @@ func lowercaseSchemaTypes(m map[string]any) {
 		}
 	}
 }
+
+// mergeSystemInstructionFromConfig appends Config.SystemInstruction parts to any
+// system text extracted from conversation contents. The Google ADK delivers the
+// agent Instruction via Config.SystemInstruction, not as role-"system" Content.
+func mergeSystemInstructionFromConfig(existing string, config *genai.GenerateContentConfig) string {
+	if config == nil || config.SystemInstruction == nil {
+		return strings.TrimSpace(existing)
+	}
+	var b strings.Builder
+	b.WriteString(existing)
+	for _, p := range config.SystemInstruction.Parts {
+		if p != nil && p.Text != "" {
+			if b.Len() > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(p.Text)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}

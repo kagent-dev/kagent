@@ -35,7 +35,7 @@ spec:
         - name: grafana-mcp
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}" 
+          image: {{ include "grafana-mcp.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
           args:
             - --transport

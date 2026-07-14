@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -21,6 +22,11 @@ func (p *Lifecycle) EnsureGeneratedTemplate(ctx context.Context, ah *v1alpha2.Ag
 
 	tmplKey, err := p.ensureActorTemplate(ctx, ah, wpKey)
 	if err != nil {
+		// A spec-drift recreate is mid-flight (golden actor still deleting);
+		// report not-ready without failing so the controller requeues.
+		if errors.Is(err, ErrActorTemplateReconcilePending) {
+			return LifecycleState{ActorTemplateReady: false}, nil
+		}
 		return LifecycleState{}, err
 	}
 

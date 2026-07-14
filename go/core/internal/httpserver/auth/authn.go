@@ -105,6 +105,12 @@ func A2ARequestHandler(authProvider auth.AuthProvider, agentNns types.Namespaced
 			if err := authProvider.UpstreamAuth(req, session, upstreamPrincipal); err != nil {
 				return nil, fmt.Errorf("a2aClient.httpRequestHandler: upstream auth failed: %w", err)
 			}
+			// When the request carries a share token, the agent pod must use the
+			// session owner's identity — not the caller's — when calling back to
+			// the controller, so that session lookups resolve to the owner's row.
+			if sc, ok := auth.ShareContextFrom(ctx); ok {
+				req.Header.Set("X-User-Id", sc.UserID)
+			}
 		}
 
 		resp, err = client.Do(req)

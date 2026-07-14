@@ -10807,6 +10807,12 @@ spec:
                     - python
                     - go
                     type: string
+                  shareTools:
+                    description: |-
+                      ShareTools enables the built-in share link tools for this agent.
+                      When true, the agent gains create_share_link, list_share_links, and delete_share_link tools
+                      that allow it to manage share tokens for the current session.
+                    type: boolean
                   stream:
                     description: |-
                       Whether to stream the response from the model.
@@ -10980,6 +10986,37 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              documentationUrl:
+                description: |-
+                  DocumentationURL is a URL to human-readable documentation for the agent. It
+                  is surfaced on the agent's A2A AgentCard.
+                format: uri
+                type: string
+              iconUrl:
+                description: |-
+                  IconURL is a URL to an icon representing the agent. It is surfaced on the
+                  agent's A2A AgentCard.
+                format: uri
+                type: string
+              provider:
+                description: |-
+                  Provider identifies the organization responsible for the agent. It is
+                  surfaced on the agent's A2A AgentCard.
+                properties:
+                  organization:
+                    description: Organization is the name of the agent provider's
+                      organization.
+                    minLength: 1
+                    type: string
+                  url:
+                    description: URL is a URL for the agent provider's website or
+                      relevant documentation.
+                    format: uri
+                    type: string
+                required:
+                - organization
+                - url
+                type: object
               sandbox:
                 description: |-
                   Sandbox configures sandboxed execution behavior shared across runtimes.
@@ -11353,12 +11390,14 @@ spec:
                 - Declarative
                 - BYO
                 type: string
+              version:
+                description: Version is the agent's version string, surfaced on the
+                  A2A AgentCard.
+                type: string
             type: object
             x-kubernetes-validations:
             - message: spec.skills is not supported for sandbox agents
               rule: '!has(self.skills)'
-            - message: BYO agents are not supported for sandbox agents
-              rule: '!has(self.type) || self.type != ''BYO'''
             - message: type must be specified
               rule: has(self.type)
             - message: type must be either Declarative or BYO

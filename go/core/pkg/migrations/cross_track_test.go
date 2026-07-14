@@ -85,16 +85,16 @@ func crossTrackViolations(fsys fs.FS, foreignTables map[string]string) ([]violat
 	return violations, err
 }
 
-// guardCheck describes a DDL statement that requires an idempotency guard.
-// re captures the first significant word after the keyword; if that word is not
-// "if" (case-insensitive) the guard is absent.
-type guardCheck struct {
+// sqlCheck pairs a name with a regex used by the static migration checks below.
+// How re is interpreted depends on the check: the guard checks capture the first
+// token after a keyword and require it to be "if"; other checks match on presence.
+type sqlCheck struct {
 	name string
 	re   *regexp.Regexp
 }
 
 // upGuardChecks are statements in up migrations that must use IF NOT EXISTS.
-var upGuardChecks = []guardCheck{
+var upGuardChecks = []sqlCheck{
 	{"CREATE TABLE", regexp.MustCompile(`(?i)\bCREATE\s+TABLE\s+(\w+)`)},
 	{"CREATE INDEX", regexp.MustCompile(`(?i)\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(\w+)`)},
 	{"CREATE EXTENSION", regexp.MustCompile(`(?i)\bCREATE\s+EXTENSION\s+(\w+)`)},
@@ -102,7 +102,7 @@ var upGuardChecks = []guardCheck{
 }
 
 // downGuardChecks are statements in down migrations that must use IF EXISTS.
-var downGuardChecks = []guardCheck{
+var downGuardChecks = []sqlCheck{
 	{"DROP TABLE", regexp.MustCompile(`(?i)\bDROP\s+TABLE\s+(\w+)`)},
 	{"DROP INDEX", regexp.MustCompile(`(?i)\bDROP\s+INDEX\s+(\w+)`)},
 	{"DROP EXTENSION", regexp.MustCompile(`(?i)\bDROP\s+EXTENSION\s+(\w+)`)},
@@ -129,7 +129,7 @@ func TestMigrationGuards(t *testing.T) {
 				return err
 			}
 
-			var checks []guardCheck
+			var checks []sqlCheck
 			switch {
 			case strings.HasSuffix(path, ".up.sql"):
 				checks = upGuardChecks
@@ -211,4 +211,125 @@ func TestNoCrossTrackDDL(t *testing.T) {
 			)
 		}
 	}
+}
+
+// stripSQLComments removes `--` line comments so the static checks below match
+// real statements, not commented-out or explanatory SQL.
+func stripSQLComments(s string) string {
+	var b strings.Builder
+	for line := range strings.SplitSeq(s, "\n") {
+		if i := strings.Index(line, "--"); i >= 0 {
+			line = line[:i]
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// --- Schema-agnostic SQL ---
+//
+// Migration SQL must not name a schema: the schema a migration lands in is
+// chosen by the connection (search_path), not the file, so the same files apply
+// into whatever schema the connection selects. See database-migrations.md,
+// "Schema-agnostic SQL". Static check over every migration file — no database.
+
+var schemaQualifiedChecks = []sqlCheck{
+	{"CREATE SCHEMA", regexp.MustCompile(`(?i)\bCREATE\s+SCHEMA\b`)},
+	{"DROP SCHEMA", regexp.MustCompile(`(?i)\bDROP\s+SCHEMA\b`)},
+	{"search_path", regexp.MustCompile(`(?i)\bsearch_path\b`)},
+	{"SET SCHEMA", regexp.MustCompile(`(?i)\bSET\s+SCHEMA\b`)},
+	{"schema-qualified table", regexp.MustCompile(`(?i)\b(?:CREATE|ALTER|DROP)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?\w+\.\w+`)},
+	{"schema-qualified index target", regexp.MustCompile(`(?i)\bON\s+\w+\.\w+`)},
+	{"schema-qualified reference", regexp.MustCompile(`(?i)\bREFERENCES\s+\w+\.\w+`)},
+}
+
+// schemaViolations returns the names of schema-qualified patterns found in SQL.
+func schemaViolations(sql string) []string {
+	content := stripSQLComments(sql)
+	var found []string
+	for _, c := range schemaQualifiedChecks {
+		if c.re.MatchString(content) {
+			found = append(found, c.name)
+		}
+	}
+	return found
+}
+
+// TestSchemaAgnosticSQL rejects any schema name in migration SQL. The connection
+// selects the schema; a hard-coded one breaks any deployment that runs the track
+// in a different schema.
+func TestSchemaAgnosticSQL(t *testing.T) {
+	tracks := []string{"core", "vector"}
+	for _, track := range tracks {
+		sub, err := fs.Sub(migrations.FS, track)
+		if err != nil {
+			t.Fatalf("fs.Sub(%q): %v", track, err)
+		}
+		err = fs.WalkDir(sub, ".", func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".sql") {
+				return err
+			}
+			data, err := fs.ReadFile(sub, path)
+			if err != nil {
+				return err
+			}
+			for _, v := range schemaViolations(string(data)) {
+				t.Errorf(
+					"schema reference in %s/%s: %s; migrations must be schema-agnostic (the connection selects the schema)",
+					track, path, v,
+				)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("WalkDir(%q): %v", track, err)
+		}
+	}
+}
+
+func TestSchemaViolations(t *testing.T) {
+	tests := []struct {
+		name string
+		sql  string
+		want []string
+	}{
+		{"unqualified table", `CREATE TABLE IF NOT EXISTS eval_set (id TEXT);`, nil},
+		{"unqualified index", `CREATE INDEX IF NOT EXISTS i ON eval_set(id);`, nil},
+		{"schema in comment", `-- create table myschema.foo here` + "\n" + `CREATE TABLE IF NOT EXISTS foo (id TEXT);`, nil},
+		{"qualified table", `CREATE TABLE myschema.eval_set (id TEXT);`, []string{"schema-qualified table"}},
+		{"create schema", `CREATE SCHEMA IF NOT EXISTS myschema;`, []string{"CREATE SCHEMA"}},
+		{"set search_path", `SET search_path TO myschema;`, []string{"search_path"}},
+		{"set schema", `ALTER TABLE foo SET SCHEMA myschema;`, []string{"SET SCHEMA"}},
+		{"qualified index target", `CREATE INDEX i ON myschema.foo(id);`, []string{"schema-qualified index target"}},
+		{"qualified reference", `ALTER TABLE foo ADD CONSTRAINT fk FOREIGN KEY (b) REFERENCES myschema.bar(id);`, []string{"schema-qualified reference"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := schemaViolations(tt.sql)
+			if !equalStringSets(got, tt.want) {
+				t.Errorf("schemaViolations() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// equalStringSets compares two string slices ignoring order and duplicates.
+func equalStringSets(a, b []string) bool {
+	sa, sb := make(map[string]bool), make(map[string]bool)
+	for _, s := range a {
+		sa[s] = true
+	}
+	for _, s := range b {
+		sb[s] = true
+	}
+	if len(sa) != len(sb) {
+		return false
+	}
+	for s := range sa {
+		if !sb[s] {
+			return false
+		}
+	}
+	return true
 }

@@ -16,10 +16,18 @@ import (
 
 const sandboxAgentSubstrateFinalizer = "kagent.dev/sandbox-agent-substrate-cleanup"
 
+// substrateConfigured reports whether the substrate backend is wired. The lifecycle and actor
+// backend are constructed together (only when an ate-api endpoint is set), so they are
+// all-or-nothing; gating once here lets the substrate reconcile path and its helpers assume both
+// are present rather than nil-checking each dependency at every call site.
+func (r *SandboxAgentController) substrateConfigured() bool {
+	return r.SubstrateLifecycle != nil && r.SubstrateActorBackend != nil
+}
+
+// reconcileSubstrateSandboxAgent is only reached when substrateConfigured() is true (see
+// Reconcile), so SubstrateLifecycle and SubstrateActorBackend are guaranteed non-nil here and in
+// the helpers it calls.
 func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Context, sa *v1alpha2.SandboxAgent) (ctrl.Result, error) {
-	if r.SubstrateLifecycle == nil {
-		return ctrl.Result{}, fmt.Errorf("substrate sandbox backend is not configured")
-	}
 	if !sa.DeletionTimestamp.IsZero() {
 		return r.reconcileSubstrateSandboxAgentDelete(ctx, sa)
 	}
@@ -29,6 +37,7 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Cont
 		}
 		return ctrl.Result{Requeue: true}, nil
 	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -44,24 +53,16 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgentDelete(ctx contex
 		return r.removeSubstrateSandboxAgentFinalizer(ctx, sa)
 	}
 
-	if r.SubstrateActorBackend != nil {
-		done, err := r.SubstrateActorBackend.DeleteAllSandboxAgentActors(ctx, sa)
-		if err != nil {
-			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
-		}
-		if !done {
-			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
-		}
+	if done, err := r.SubstrateActorBackend.DeleteAllSandboxAgentActors(ctx, sa); err != nil {
+		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
+	} else if !done {
+		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
 	}
 
-	if r.SubstrateLifecycle != nil {
-		done, err := r.SubstrateLifecycle.CleanupSandboxAgentTemplate(ctx, sa)
-		if err != nil {
-			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
-		}
-		if !done {
-			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
-		}
+	if done, err := r.SubstrateLifecycle.CleanupSandboxAgentTemplate(ctx, sa); err != nil {
+		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
+	} else if !done {
+		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
 	}
 
 	return r.removeSubstrateSandboxAgentFinalizer(ctx, sa)
