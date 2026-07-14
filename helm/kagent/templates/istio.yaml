@@ -1,0 +1,81 @@
+{{- /*
+Optional Istio resources, all disabled by default and fully value-driven so
+each org can shape them to its own mesh policy. See the `istio` block in
+values.yaml.
+*/}}
+{{- if .Values.istio.sidecar.enabled }}
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: {{ include "kagent.fullname" . }}-sidecar
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.istio.sidecar.workloadSelector }}
+  workloadSelector:
+    labels:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  egress:
+    - hosts:
+        {{- toYaml .Values.istio.sidecar.egressHosts | nindent 8 }}
+  {{- with .Values.istio.sidecar.outboundTrafficPolicy }}
+  outboundTrafficPolicy:
+    mode: {{ . }}
+  {{- end }}
+{{- end }}
+{{- range .Values.istio.serviceEntries }}
+---
+apiVersion: networking.istio.io/v1
+kind: ServiceEntry
+metadata:
+  name: {{ include "kagent.fullname" $ }}-{{ .name }}
+  namespace: {{ include "kagent.namespace" $ }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+spec:
+  hosts:
+    {{- toYaml .hosts | nindent 4 }}
+  location: {{ .location | default "MESH_EXTERNAL" }}
+  resolution: {{ .resolution | default "DNS" }}
+  ports:
+    {{- toYaml .ports | nindent 4 }}
+{{- end }}
+{{- if .Values.istio.requestAuthentication.enabled }}
+---
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: {{ include "kagent.fullname" . }}-jwt
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.istio.requestAuthentication.selector }}
+  selector:
+    matchLabels:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  jwtRules:
+    {{- toYaml .Values.istio.requestAuthentication.jwtRules | nindent 4 }}
+{{- end }}
+{{- if .Values.istio.authorizationPolicy.enabled }}
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "kagent.fullname" . }}-authz
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.istio.authorizationPolicy.selector }}
+  selector:
+    matchLabels:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
+  action: {{ .Values.istio.authorizationPolicy.action | default "ALLOW" }}
+  rules:
+    {{- toYaml .Values.istio.authorizationPolicy.rules | nindent 4 }}
+{{- end }}

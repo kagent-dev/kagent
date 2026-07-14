@@ -905,3 +905,59 @@ otel:
         endpoint: ""
         timeout: 15000 # milliseconds
         insecure: true
+
+# ==============================================================================
+# ------------------------------ Istio (optional) -----------------------------
+# ==============================================================================
+# -- Optional Istio resources for meshes. All disabled by default and fully
+# value-driven so each org can shape them to its own mesh policy. Sidecar
+# injection itself is controlled via `podAnnotations`
+# (e.g. `sidecar.istio.io/inject: "true"`).
+istio:
+  # -- `Sidecar` restricting egress for the chart's pods — useful under
+  # `REGISTRY_ONLY` meshes to allow-list what agents may reach.
+  sidecar:
+    enabled: false
+    # -- Pod labels the Sidecar applies to. Empty selects every pod in the
+    # namespace — set this on shared namespaces.
+    workloadSelector: {}
+    #   app.kubernetes.io/instance: kagent
+    # -- Egress hosts visible to the selected pods.
+    egressHosts:
+      - "./*"
+      - "istio-system/*"
+    # -- Outbound traffic mode (`REGISTRY_ONLY` / `ALLOW_ANY`). Omitted when empty.
+    outboundTrafficPolicy: ""
+  # -- `ServiceEntry` objects registering external hosts (LLM providers, OAuth
+  # issuers, databases, ...) in the mesh registry.
+  serviceEntries: []
+  #   - name: openai
+  #     hosts: [api.openai.com]
+  #     ports:
+  #       - number: 443
+  #         name: https
+  #         protocol: TLS
+  #   - name: postgres
+  #     hosts: [db.example.internal]
+  #     ports:
+  #       - number: 5432
+  #         name: tcp-postgres
+  #         protocol: TCP
+  # -- `RequestAuthentication` validating JWTs on the selected workloads
+  # (`jwtRules` passed through verbatim).
+  requestAuthentication:
+    enabled: false
+    selector: {}
+    jwtRules: []
+    #   - issuer: https://accounts.example.com
+    #     jwksUri: https://accounts.example.com/.well-known/jwks.json
+  # -- `AuthorizationPolicy` for the selected workloads (`rules` passed
+  # through verbatim, e.g. requiring a valid JWT principal).
+  authorizationPolicy:
+    enabled: false
+    selector: {}
+    action: ALLOW
+    rules: []
+    #   - from:
+    #       - source:
+    #           requestPrincipals: ["*"]

@@ -1,0 +1,99 @@
+suite: test optional istio resources
+templates:
+  - istio.yaml
+tests:
+  - it: should render nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render a Sidecar with selector, egress hosts and outbound policy
+    set:
+      istio:
+        sidecar:
+          enabled: true
+          workloadSelector:
+            app.kubernetes.io/instance: kagent
+          egressHosts:
+            - "./*"
+            - "istio-system/*"
+            - "monitoring/*"
+          outboundTrafficPolicy: REGISTRY_ONLY
+    asserts:
+      - isKind:
+          of: Sidecar
+      - equal:
+          path: spec.workloadSelector.labels["app.kubernetes.io/instance"]
+          value: kagent
+      - contains:
+          path: spec.egress[0].hosts
+          content: "monitoring/*"
+      - equal:
+          path: spec.outboundTrafficPolicy.mode
+          value: REGISTRY_ONLY
+
+  - it: should render ServiceEntries with defaults and explicit TCP ports
+    set:
+      istio:
+        serviceEntries:
+          - name: openai
+            hosts: [api.openai.com]
+            ports:
+              - number: 443
+                name: https
+                protocol: TLS
+          - name: postgres
+            hosts: [db.example.internal]
+            ports:
+              - number: 5432
+                name: tcp-postgres
+                protocol: TCP
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ServiceEntry
+      - equal:
+          path: spec.location
+          value: MESH_EXTERNAL
+        documentIndex: 0
+      - equal:
+          path: spec.ports[0].number
+          value: 5432
+        documentIndex: 1
+
+  - it: should render JWT RequestAuthentication and AuthorizationPolicy
+    set:
+      istio:
+        requestAuthentication:
+          enabled: true
+          selector:
+            app.kubernetes.io/name: kagent
+          jwtRules:
+            - issuer: https://accounts.example.com
+              jwksUri: https://accounts.example.com/.well-known/jwks.json
+        authorizationPolicy:
+          enabled: true
+          selector:
+            app.kubernetes.io/name: kagent
+          rules:
+            - from:
+                - source:
+                    requestPrincipals: ["*"]
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: RequestAuthentication
+        documentIndex: 0
+      - equal:
+          path: spec.jwtRules[0].issuer
+          value: https://accounts.example.com
+        documentIndex: 0
+      - isKind:
+          of: AuthorizationPolicy
+        documentIndex: 1
+      - equal:
+          path: spec.rules[0].from[0].source.requestPrincipals[0]
+          value: "*"
+        documentIndex: 1
