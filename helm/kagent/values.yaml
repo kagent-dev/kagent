@@ -231,8 +231,9 @@ controller:
 
   podAnnotations: {}
 
-  # -- Additional labels to add to the controller pod template
-  # (overrides the global `podLabels` when set)
+  # -- Additional labels for the controller pod template, merged over the
+  # global `podLabels` (per-key; component keys win). Selector labels can
+  # never be overridden.
   podLabels: {}
 
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
@@ -435,8 +436,9 @@ ui:
 
   podAnnotations: {}
 
-  # -- Additional labels to add to the UI pod template
-  # (overrides the global `podLabels` when set)
+  # -- Additional labels for the UI pod template, merged over the
+  # global `podLabels` (per-key; component keys win). Selector labels can
+  # never be overridden.
   podLabels: {}
 
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).

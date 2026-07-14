@@ -65,3 +65,30 @@ tests:
       - equal:
           path: spec.template.metadata.labels.team
           value: ui-team
+
+  - it: should not allow podLabels to override controller selector labels
+    template: controller-deployment.yaml
+    set:
+      podLabels:
+        app.kubernetes.io/name: hijacked
+      controller:
+        podLabels:
+          app.kubernetes.io/instance: hijacked
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+          value: kagent
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/instance"]
+          value: RELEASE-NAME
+
+  - it: should not allow podLabels to override UI selector labels
+    template: ui-deployment.yaml
+    set:
+      ui:
+        podLabels:
+          app.kubernetes.io/name: hijacked
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+          value: kagent

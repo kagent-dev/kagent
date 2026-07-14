@@ -23,10 +23,10 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "kagent.ui.selectorLabels" . | nindent 8 }}
-        {{- with .Values.ui.podLabels | default .Values.podLabels }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
+        {{- /* extra pod labels: component merged over global, selector labels
+             applied last so they can never be overridden */}}
+        {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.ui.podLabels | default dict) (include "kagent.ui.selectorLabels" . | fromYaml) }}
+        {{- toYaml $podLabels | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
