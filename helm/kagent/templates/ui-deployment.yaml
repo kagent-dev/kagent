@@ -24,6 +24,9 @@ spec:
         {{- end }}
       labels:
         {{- include "kagent.ui.selectorLabels" . | nindent 8 }}
+        {{- with .Values.ui.podLabels | default .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
