@@ -56,7 +56,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
   const handleEditClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    router.push(`/agents/new?edit=true&name=${agent.metadata.name}&namespace=${agent.metadata.namespace}`);
+    router.push(`/agents/new?edit=true&name=${agent.metadata.name}&namespace=${agent.metadata.namespace}${agent.kind ? `&kind=${encodeURIComponent(agent.kind)}` : ""}`);
   };
 
   const getStatusInfo = () => {

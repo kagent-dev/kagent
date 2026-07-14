@@ -85,7 +85,7 @@ export interface AgentsContextType {
   refreshTools: () => Promise<void>;
   createNewAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
   updateAgent: (agentData: AgentFormData) => Promise<BaseResponse<Agent>>;
-  getAgent: (name: string, namespace: string) => Promise<AgentResponse | null>;
+  getAgent: (name: string, namespace: string, kind?: string) => Promise<AgentResponse | null>;
   validateAgentData: (data: Partial<AgentFormData>) => ValidationErrors;
 }
 
@@ -256,10 +256,10 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   }, []);
 
   // Get agent by ID function
-  const getAgent = useCallback(async (name: string, namespace: string): Promise<AgentResponse | null> => {
+  const getAgent = useCallback(async (name: string, namespace: string, kind?: string): Promise<AgentResponse | null> => {
     try {
       // Fetch all agents
-      const agentResult = await getAgentWithResolvedKind(name, namespace);
+      const agentResult = await getAgentWithResolvedKind(name, namespace, kind);
       if (!agentResult.data || agentResult.error) {
         console.error("Failed to get agent:", agentResult.error);
         setError("Failed to get agent");

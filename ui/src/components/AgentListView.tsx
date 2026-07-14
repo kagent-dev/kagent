@@ -275,7 +275,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
   const handleEdit = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    router.push(`/agents/new?edit=true&name=${name}&namespace=${namespace}`);
+    router.push(`/agents/new?edit=true&name=${name}&namespace=${namespace}${agent.kind ? `&kind=${encodeURIComponent(agent.kind)}` : ""}`);
   };
 
   const trBody = (

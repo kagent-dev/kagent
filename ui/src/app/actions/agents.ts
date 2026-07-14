@@ -530,9 +530,10 @@ export async function getAgent(
 }
 
 /**
- * Resolves an agent's kind and GETs it. A caller-supplied kind (from a ?kind=
- * link param) wins; otherwise the kind is looked up from the merged list, which
- * resolves a namespace/name shared across kinds to the Agent.
+ * Resolves an agent's kind and GETs it. A caller-supplied kind (derived from
+ * the chat route prefix, see chatPathKind) wins; otherwise the kind is looked
+ * up from the merged list, which resolves a namespace/name shared across kinds
+ * to the Agent.
  */
 export async function getAgentWithResolvedKind(
   agentName: string,

@@ -55,6 +55,8 @@ interface AgentPageContentProps {
   isEditMode: boolean;
   agentName: string | null;
   agentNamespace: string | null;
+  /** Kubernetes kind of the agent being edited (e.g. "SandboxAgent"); absent resolves via list lookup, which prefers Agent on shared names. */
+  agentKind?: string;
 }
 
 const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
@@ -70,7 +72,7 @@ const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
     - Your response will include a summary of actions you took and an explanation of the result
     - If you created any artifacts such as files or resources, you will include those in your response as well`
 
-function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageContentProps) {
+function AgentPageContent({ isEditMode, agentName, agentNamespace, agentKind }: AgentPageContentProps) {
   const router = useRouter();
   const { models, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
   const initialNamespace = !isEditMode && agentNamespace?.trim() ? agentNamespace.trim() : "default";
@@ -208,7 +210,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       if (isEditMode && agentName && agentNamespace) {
         try {
           setState((prev) => ({ ...prev, isLoading: true }));
-          const agentResponse = await getAgent(agentName, agentNamespace);
+          const agentResponse = await getAgent(agentName, agentNamespace, agentKind);
 
           if (!agentResponse) {
             toast.error("Agent not found");
@@ -326,7 +328,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     };
 
     void fetchAgentData();
-  }, [isEditMode, agentName, agentNamespace, getAgent]);
+  }, [isEditMode, agentName, agentNamespace, agentKind, getAgent]);
 
   const validateForm = () => {
     const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
@@ -1052,11 +1054,12 @@ export default function AgentPage() {
   const isEditMode = searchParams.get("edit") === "true";
   const agentName = searchParams.get("name");
   const agentNamespace = searchParams.get("namespace");
-  const formKey = isEditMode ? `edit-${agentName}-${agentNamespace}` : `create-${agentNamespace || "default"}`;
+  const agentKind = searchParams.get("kind") || undefined;
+  const formKey = isEditMode ? `edit-${agentKind || "Agent"}-${agentName}-${agentNamespace}` : `create-${agentNamespace || "default"}`;
 
   return (
     <Suspense fallback={<LoadingState />}>
-      <AgentPageContent key={formKey} isEditMode={isEditMode} agentName={agentName} agentNamespace={agentNamespace} />
+      <AgentPageContent key={formKey} isEditMode={isEditMode} agentName={agentName} agentNamespace={agentNamespace} agentKind={agentKind} />
     </Suspense>
   );
 }

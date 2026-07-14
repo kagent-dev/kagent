@@ -118,7 +118,9 @@ export interface CreateSessionRequest {
 
 /** Chat route base for an agent. SandboxAgents live under /sandbox-agents so the
  * kind is carried by the path and cannot be dropped in navigation; other kinds
- * resolve by namespace/name lookup under /agents. */
+ * resolve by namespace/name lookup under /agents. Known limitation: that lookup
+ * prefers the Agent, so an AgentHarness sharing a namespace/name with an Agent
+ * is unreachable in chat until harnesses get their own prefix. */
 export function agentChatBase(kind: string | undefined, namespace: string, name: string): string {
   const prefix = kind === "SandboxAgent" ? "/sandbox-agents" : "/agents";
   return `${prefix}/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/chat`;
