@@ -13,11 +13,11 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	adkmemory "google.golang.org/adk/memory"
-	adkplugin "google.golang.org/adk/plugin"
-	"google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
-	adktool "google.golang.org/adk/tool"
+	adkmemory "google.golang.org/adk/v2/memory"
+	adkplugin "google.golang.org/adk/v2/plugin"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
+	adktool "google.golang.org/adk/v2/tool"
 )
 
 func agentNameFromAppName(appName string) string {

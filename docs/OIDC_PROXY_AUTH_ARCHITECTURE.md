@@ -90,8 +90,8 @@ flowchart TB
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| **ProxyAuthenticator** | `go/internal/httpserver/auth/proxy_authn.go` | Extract user identity from JWT Bearer tokens, pass through raw claims |
-| **CurrentUserHandler** | `go/internal/httpserver/handlers/current_user.go` | Returns raw JWT claims (or `{"sub": userId}` for non-JWT auth) |
+| **ProxyAuthenticator** | `go/core/internal/httpserver/auth/proxy_authn.go` | Extract user identity from JWT Bearer tokens, pass through raw claims |
+| **CurrentUserHandler** | `go/core/internal/httpserver/handlers/current_user.go` | Returns raw JWT claims (or `{"sub": userId}` for non-JWT auth) |
 
 ## Authentication Modes
 

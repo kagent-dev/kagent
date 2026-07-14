@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 )
 
 type askUserQuestion struct {
@@ -40,7 +40,7 @@ func NewAskUserTool() (tool.Tool, error) {
 	return functiontool.New(functiontool.Config{
 		Name:        "ask_user",
 		Description: askUserDescription,
-	}, func(ctx adkagent.ToolContext, in askUserInput) (map[string]any, error) {
+	}, func(ctx adkagent.Context, in askUserInput) (map[string]any, error) {
 		if ctx.ToolConfirmation() == nil {
 			// Phase 1 — pause execution and ask the user.
 			var sb strings.Builder

@@ -35,6 +35,7 @@ const (
 	APIPathTasks                = "/api/tasks"
 	APIPathTools                = "/api/tools"
 	APIPathToolServers          = "/api/toolservers"
+	APIPathMCPApps              = "/api/mcp-apps"
 	APIPathToolServerTypes      = "/api/toolservertypes"
 	APIPathAgents               = "/api/agents"
 	APIPathSandboxAgents        = "/api/sandboxagents"
@@ -268,6 +269,10 @@ func (s *HTTPServer) setupRoutes() {
 	// Plugins (RemoteMCPServer web UIs): registry + reverse proxy to the server's web root.
 	s.router.HandleFunc(APIPathPlugins, adaptHandler(s.handlers.Plugins.HandleListPlugins)).Methods(http.MethodGet)
 	s.router.PathPrefix(handlers.PluginProxyPrefix + "/{pathPrefix}").Handler(http.HandlerFunc(s.handlers.Plugins.HandleProxy))
+	// MCP Apps
+	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/tools", adaptHandler(s.handlers.MCPApps.HandleListTools)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/tools/{toolName}/call", adaptHandler(s.handlers.MCPApps.HandleCallTool)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/resources", adaptHandler(s.handlers.MCPApps.HandleReadResource)).Methods(http.MethodGet)
 
 	// Tool Server Types
 	s.router.HandleFunc(APIPathToolServerTypes, adaptHandler(s.handlers.ToolServerTypes.HandleListToolServerTypes)).Methods(http.MethodGet)
