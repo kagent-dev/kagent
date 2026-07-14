@@ -102,9 +102,9 @@ func (h *AgentsHandler) HandleListSandboxAgents(w ErrorResponseWriter, r *http.R
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// listAgentResponses fetches Agent and AgentHarness resources, applies the
-// provided list options (e.g. client.InNamespace), and returns the merged
-// slice of AgentResponse values.
+// listAgentResponses fetches Agent, SandboxAgent, and AgentHarness resources,
+// applies the provided list options (e.g. client.InNamespace), and returns the
+// merged slice of AgentResponse values.
 func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger, opts ...client.ListOption) ([]api.AgentResponse, error) {
 	agentList := &v1alpha2.AgentList{}
 	if err := h.KubeClient.List(ctx, agentList, opts...); err != nil {

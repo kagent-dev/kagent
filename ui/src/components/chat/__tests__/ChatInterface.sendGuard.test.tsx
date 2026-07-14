@@ -4,16 +4,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { Message, Task, TaskStatusUpdateEvent } from "@a2a-js/sdk";
-import { checkSessionExists, createSession, getSessionTasks } from "@/app/actions/sessions";
+import { createSession, getSessionTasks, getSessionWithEvents } from "@/app/actions/sessions";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { toast } from "sonner";
 import ChatInterface from "@/components/chat/ChatInterface";
 import type { Session } from "@/types";
 
 jest.mock("@/app/actions/sessions", () => ({
-  checkSessionExists: jest.fn(),
   createSession: jest.fn(),
   getSessionTasks: jest.fn(),
+  getSessionWithEvents: jest.fn(),
 }));
 
 jest.mock("@/app/actions/agents", () => ({
@@ -68,9 +68,14 @@ jest.mock("@/components/chat/StreamingMessage", () => ({
   default: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 
-const mockCheckSessionExists = checkSessionExists as jest.MockedFunction<typeof checkSessionExists>;
+jest.mock("@/components/chat/ShareButton", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
 const mockCreateSession = createSession as jest.MockedFunction<typeof createSession>;
 const mockGetSessionTasks = getSessionTasks as jest.MockedFunction<typeof getSessionTasks>;
+const mockGetSessionWithEvents = getSessionWithEvents as jest.MockedFunction<typeof getSessionWithEvents>;
 const mockSendMessageStream = kagentA2AClient.sendMessageStream as jest.MockedFunction<typeof kagentA2AClient.sendMessageStream>;
 const mockToastInfo = toast.info as jest.MockedFunction<typeof toast.info>;
 
@@ -173,8 +178,8 @@ describe("ChatInterface send guard (high-water mark)", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCheckSessionExists.mockResolvedValue({ data: true });
     mockCreateSession.mockResolvedValue({ error: "unexpected createSession call" });
+    mockGetSessionWithEvents.mockResolvedValue({ data: { session: sessionFixture(), events: [], read_only: false } });
     // Every getSessionTasks (load, guard, refreshServerMark, reload) reads the
     // current backend snapshot; streams mutate it to simulate persistence.
     mockGetSessionTasks.mockImplementation(async () => ({ data: currentTasks }));

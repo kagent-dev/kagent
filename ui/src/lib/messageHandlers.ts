@@ -172,6 +172,23 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
         });
       }
     }
+
+    // Failed tasks can carry their only agent-visible error on status.message
+    // instead of in history. Render it so reopened ScheduledRun sessions show
+    // why the invocation ended.
+    const statusMessage = task.status?.message;
+    if (
+      (task.status?.state === "failed" || task.status?.state === "canceled" || task.status?.state === "rejected") &&
+      statusMessage?.kind === "message" &&
+      !seenMessageIds.has(statusMessage.messageId)
+    ) {
+      seenMessageIds.add(statusMessage.messageId);
+      messages.push({
+        ...statusMessage,
+        contextId: statusMessage.contextId || task.contextId,
+        taskId: statusMessage.taskId || task.id,
+      });
+    }
   }
 
   return messages;

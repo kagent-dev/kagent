@@ -72,6 +72,43 @@ describe('messageHandlers helpers', () => {
       .toBeUndefined();
   });
 
+  test('extractMessagesFromTasks includes a terminal failure status message missing from history', () => {
+    const tasks = [
+      {
+        id: 'task-1',
+        contextId: 'session-1',
+        status: {
+          state: 'failed',
+          message: {
+            kind: 'message',
+            messageId: 'failure-1',
+            role: 'agent',
+            parts: [{ kind: 'text', text: 'LLM connection refused' }],
+          },
+        },
+        history: [
+          {
+            kind: 'message',
+            messageId: 'request-1',
+            role: 'user',
+            parts: [{ kind: 'text', text: 'HI' }],
+          },
+        ],
+      },
+    ] as unknown as Task[];
+
+    const messages = extractMessagesFromTasks(tasks);
+
+    expect(messages).toHaveLength(2);
+    expect(messages[1]).toMatchObject({
+      messageId: 'failure-1',
+      contextId: 'session-1',
+      taskId: 'task-1',
+      role: 'agent',
+      parts: [{ kind: 'text', text: 'LLM connection refused' }],
+    });
+  });
+
   test('extractTokenStatsFromTasks sums usage across all history messages', () => {
     const tasks: any = [
       { history: [{ kind: 'message', metadata: { kagent_usage_metadata: { totalTokenCount: 10, promptTokenCount: 3, candidatesTokenCount: 7 } } }] },

@@ -23,6 +23,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
@@ -47,14 +48,19 @@ func TestSessionsHandler(t *testing.T) {
 	err = v1alpha2.AddToScheme(scheme)
 	require.NoError(t, err)
 
-	setupHandler := func(t *testing.T) (*handlers.SessionsHandler, database.Client, *mockErrorResponseWriter) {
-		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
+	setupHandler := func(t *testing.T, objects ...runtime.Object) (*handlers.SessionsHandler, database.Client, *mockErrorResponseWriter) {
+		kubeBuilder := fake.NewClientBuilder().WithScheme(scheme)
+		if len(objects) > 0 {
+			kubeBuilder = kubeBuilder.WithRuntimeObjects(objects...)
+		}
+		kubeClient := kubeBuilder.Build()
 		dbClient := setupTestDBClient(t)
 
 		base := &handlers.Base{
 			KubeClient:         kubeClient,
 			DatabaseService:    dbClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
+			Authorizer:         &authimpl.NoopAuthorizer{},
 		}
 		handler := handlers.NewSessionsHandler(base, nil)
 		responseRecorder := newMockErrorResponseWriter()
@@ -81,6 +87,20 @@ func TestSessionsHandler(t *testing.T) {
 		}
 		require.NoError(t, dbClient.StoreSession(context.Background(), session))
 		return session
+	}
+
+	createScheduledRunForSession := func(namespace, name, sessionID string) *v1alpha2.ScheduledRun {
+		return &v1alpha2.ScheduledRun{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Status: v1alpha2.ScheduledRunStatus{
+				RunHistory: []v1alpha2.RunHistoryEntry{
+					{SessionID: sessionID, Status: v1alpha2.RunStatusSucceeded},
+				},
+			},
+		}
 	}
 
 	setSessionActivity := func(t *testing.T, sessionID, userID string, createdAt, updatedAt time.Time) {
@@ -437,6 +457,28 @@ func TestSessionsHandler(t *testing.T) {
 			require.NotNil(t, response.Data.ReadOnly)
 			assert.True(t, *response.Data.ReadOnly)
 		})
+
+		t.Run("ScheduledRunSessionIsVisibleReadOnly", func(t *testing.T) {
+			sessionID := "scheduled-session"
+			handler, dbClient, responseRecorder := setupHandler(t, createScheduledRunForSession("default", "daily", sessionID))
+			agentID := utils.ConvertToPythonIdentifier("default/agent")
+			session := createTestSession(t, dbClient, sessionID, scheduledrun.SessionUserID, agentID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, "viewer-user")
+
+			handler.HandleGetSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[handlers.SessionResponse]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			require.NotNil(t, response.Data.Session)
+			assert.Equal(t, session.ID, response.Data.Session.ID)
+			assert.Equal(t, scheduledrun.SessionUserID, response.Data.Session.UserID)
+			require.NotNil(t, response.Data.ReadOnly)
+			assert.True(t, *response.Data.ReadOnly)
+		})
 	})
 
 	t.Run("HandleUpdateSession", func(t *testing.T) {
@@ -701,6 +743,30 @@ func TestSessionsHandler(t *testing.T) {
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
 			require.NoError(t, err)
 			assert.Len(t, response.Data, 2)
+		})
+
+		t.Run("ScheduledRunSessionTasksVisible", func(t *testing.T) {
+			sessionID := "scheduled-session"
+			handler, dbClient, responseRecorder := setupHandler(t, createScheduledRunForSession("default", "daily", sessionID))
+			agentID := utils.ConvertToPythonIdentifier("default/agent")
+			createTestSession(t, dbClient, sessionID, scheduledrun.SessionUserID, agentID)
+			require.NoError(t, dbClient.StoreTask(context.Background(), &a2a.Task{
+				ID:        "task-1",
+				ContextID: sessionID,
+			}))
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/tasks", nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req.Header.Set("A2A-Version", "1.0")
+			req = setUser(req, "viewer-user")
+
+			handler.HandleListTasksForSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[[]*a2a.Task]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			require.Len(t, response.Data, 1)
+			assert.Equal(t, "task-1", string(response.Data[0].ID))
 		})
 
 		t.Run("MissingUserID", func(t *testing.T) {

@@ -728,3 +728,56 @@ export interface AdkRequestConfirmationData {
   id: string;
   args: HitlRequestConfirmationArgs;
 }
+
+// --- ScheduledRun CRD types ---
+
+export type RunStatus = "DispatchFailed" | "InProgress" | "Succeeded" | "Failed" | "Timeout";
+
+export type ScheduledRunTargetKind = "Agent" | "SandboxAgent";
+
+export interface TypedObjectReference<K extends string = string> {
+  apiGroup?: string;
+  kind: K;
+  namespace?: string;
+  name: string;
+}
+
+export interface RunHistoryEntry {
+  startTime: string;
+  endTime?: string;
+  sessionId?: string;
+  status?: RunStatus;
+  message?: string;
+}
+
+export interface ScheduledRunSpec {
+  schedule: string;
+  timeZone?: string;
+  targetRef: TypedObjectReference<ScheduledRunTargetKind>;
+  prompt: string;
+  suspend?: boolean;
+  maxRunHistory?: number;
+}
+
+export interface ScheduledRunStatus {
+  lastRunTime?: string;
+  nextRunTime?: string;
+  runHistory?: RunHistoryEntry[];
+  observedGeneration?: number;
+  conditions?: Array<{
+    type: string;
+    status: string;
+    reason?: string;
+    message?: string;
+    lastTransitionTime?: string;
+    observedGeneration?: number;
+  }>;
+}
+
+export interface ScheduledRun {
+  apiVersion?: string;
+  kind?: string;
+  metadata: ResourceMetadata;
+  spec: ScheduledRunSpec;
+  status?: ScheduledRunStatus;
+}

@@ -46,6 +46,7 @@ import (
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -646,12 +647,35 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
+	clientRegistry := a2a.NewAgentClientRegistry()
+
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1alpha2.ScheduledRun{}, scheduledrun.TargetRefIndexField, scheduledrun.IndexTargetRef); err != nil {
+		setupLog.Error(err, "unable to index ScheduledRun target references")
+		os.Exit(1)
+	}
+
+	scheduledRunScheduler, err := scheduledrun.NewScheduledRunScheduler(mgr.GetClient(), dbClient, clientRegistry)
+	if err != nil {
+		setupLog.Error(err, "unable to create scheduled run scheduler")
+		os.Exit(1)
+	}
+	if err := mgr.Add(scheduledRunScheduler); err != nil {
+		setupLog.Error(err, "unable to add scheduled run scheduler to manager")
+		os.Exit(1)
+	}
+	if err = (&controller.ScheduledRunController{
+		Kube:              mgr.GetClient(),
+		Scheduler:         scheduledRunScheduler,
+		WatchedNamespaces: watchNamespacesList,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ScheduledRun")
+		os.Exit(1)
+	}
+
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
 		setupLog.Error(err, "failed to setup indexes for owned lifecycle")
 		os.Exit(1)
 	}
-
-	clientRegistry := a2a.NewAgentClientRegistry()
 
 	// Create MCP handler that invokes agents directly via their A2A clients,
 	// bypassing the controller's own HTTP A2A listener.
@@ -748,6 +772,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		MCPEgressPlaintext:           cfg.MCPEgressPlaintext,
 		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
 		AgentHarnessSessionActor:     agentHarnessSessionActorBackend,
+		ScheduledRunTrigger:          scheduledRunScheduler,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
