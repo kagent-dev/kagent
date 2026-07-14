@@ -26,9 +26,9 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
