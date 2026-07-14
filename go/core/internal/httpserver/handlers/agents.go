@@ -1,11 +1,8 @@
 package handlers
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -102,6 +99,36 @@ func (h *AgentsHandler) HandleListSandboxAgents(w ErrorResponseWriter, r *http.R
 
 	log.Info("Successfully listed sandbox agents", "count", len(agentsWithID))
 	data := api.NewResponse(agentsWithID, "Successfully listed sandbox agents", false)
+	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// HandleListAgentHarnesses handles GET /api/agentharnesses requests, listing
+// harnesses with known backends only (matching the merged /api/agents list).
+func (h *AgentsHandler) HandleListAgentHarnesses(w ErrorResponseWriter, r *http.Request) {
+	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "list-agentharnesses")
+
+	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent"}); err != nil {
+		w.RespondWithError(err)
+		return
+	}
+
+	harnessList := &v1alpha2.AgentHarnessList{}
+	if err := h.KubeClient.List(r.Context(), harnessList); err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to list AgentHarness resources from Kubernetes", err))
+		return
+	}
+
+	agentsWithID := make([]api.AgentResponse, 0, len(harnessList.Items))
+	for i := range harnessList.Items {
+		sb := &harnessList.Items[i]
+		if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
+			continue
+		}
+		agentsWithID = append(agentsWithID, h.agentHarnessAgentResponse(r.Context(), log, sb))
+	}
+
+	log.Info("Successfully listed agent harnesses", "count", len(agentsWithID))
+	data := api.NewResponse(agentsWithID, "Successfully listed agent harnesses", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
@@ -360,21 +387,6 @@ func (h *AgentsHandler) parseAgentRef(log logr.Logger, agent client.Object, inva
 	), agentRef, nil
 }
 
-// agentObjectForGroupKind maps a groupKind request parameter to the concrete kind
-// the shared /api/agents routes operate on. Empty selects Agent (the historical
-// behavior); anything else unrecognized is a bad request. AgentHarness is not
-// served by these routes (it has its own /api/agentharnesses routes).
-func agentObjectForGroupKind(groupKind string) (v1alpha2.AgentObject, error) {
-	switch groupKind {
-	case "", utils.AgentGroupKind:
-		return &v1alpha2.Agent{}, nil
-	case utils.SandboxAgentGroupKind:
-		return &v1alpha2.SandboxAgent{}, nil
-	default:
-		return nil, fmt.Errorf("unsupported groupKind %q (expected %q or %q)", groupKind, utils.AgentGroupKind, utils.SandboxAgentGroupKind)
-	}
-}
-
 func (h *AgentsHandler) getAgentObject(
 	ctx context.Context,
 	key client.ObjectKey,
@@ -627,17 +639,12 @@ func (h *AgentsHandler) handleUpdateAgentObject(
 	respondWithObjectResponse(w, http.StatusOK, response, successMessage)
 }
 
-// HandleGetAgent handles GET /api/agents/{namespace}/{name}?groupKind=… requests.
-// HandleListAgents merges Agents and SandboxAgents, so the optional groupKind
-// query parameter selects which kind the name refers to; absent means Agent.
+// HandleGetAgent handles GET /api/agents/{namespace}/{name} requests. The name
+// resolves as kind Agent only; SandboxAgent and AgentHarness have their own
+// /api/sandboxagents and /api/agentharnesses routes.
 func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "get-db")
-	agent, err := agentObjectForGroupKind(r.URL.Query().Get("groupKind"))
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
-		return
-	}
-	h.handleGetAgentObject(w, r, log, agent, "Agent not found", "Successfully retrieved agent")
+	h.handleGetAgentObject(w, r, log, &v1alpha2.Agent{}, "Agent not found", "Successfully retrieved agent")
 }
 
 // HandleGetAgentHarness handles GET /api/agentharnesses/{namespace}/{name} for known backends only.
@@ -703,57 +710,23 @@ func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request
 	)
 }
 
-// HandleUpdateAgent handles PUT /api/agents requests using database.
-// The body's TypeMeta kind selects which kind is updated: "SandboxAgent" runs the
-// update with SandboxAgent types (so spec.substrate survives — decoding into Agent
-// would silently drop it); absent or "Agent" is the historical Agent behavior.
+// HandleUpdateAgent handles PUT /api/agents requests using database. The body
+// resolves as kind Agent only; SandboxAgent updates go to PUT
+// /api/sandboxagents/{namespace}/{name}.
 func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "update-db")
-
-	// The route has no path params, so the target kind comes from the body's
-	// TypeMeta. Buffer the body: it is decoded once for the kind and again by
-	// the generic update handler.
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
-		return
-	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-
-	var typeMeta metav1.TypeMeta
-	if err := json.Unmarshal(body, &typeMeta); err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
-		return
-	}
-
-	var incoming, existing v1alpha2.AgentObject
-	var normalize func(v1alpha2.AgentObject)
-	switch typeMeta.Kind {
-	case "", "Agent":
-		incoming, existing = &v1alpha2.Agent{}, &v1alpha2.Agent{}
-	case "SandboxAgent":
-		incoming, existing = &v1alpha2.SandboxAgent{}, &v1alpha2.SandboxAgent{}
-		normalize = func(agent v1alpha2.AgentObject) {
-			normalizeSandboxAgentForAPI(agent.(*v1alpha2.SandboxAgent))
-		}
-	default:
-		w.RespondWithError(errors.NewBadRequestError(
-			fmt.Sprintf("unsupported kind %q (expected \"Agent\" or \"SandboxAgent\")", typeMeta.Kind), nil))
-		return
-	}
-
 	h.handleUpdateAgentObject(
 		w,
 		r,
 		log,
-		incoming,
-		existing,
+		&v1alpha2.Agent{},
+		&v1alpha2.Agent{},
 		"Invalid Agent metadata",
 		"Failed to get Agent",
 		"Failed to update Agent",
 		"Agent not found",
 		"Successfully updated agent",
-		normalize,
+		nil,
 		false,
 		func(_ context.Context, _ logr.Logger, agent v1alpha2.AgentObject) (any, error) {
 			return agent, nil
@@ -761,21 +734,16 @@ func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request
 	)
 }
 
-// HandleDeleteAgent handles DELETE /api/agents/{namespace}/{name}?groupKind=… requests.
-// The optional groupKind query parameter selects which kind the name refers to
-// (see HandleGetAgent); absent means Agent.
+// HandleDeleteAgent handles DELETE /api/agents/{namespace}/{name} requests. The
+// name resolves as kind Agent only; SandboxAgent and AgentHarness have their own
+// /api/sandboxagents and /api/agentharnesses routes.
 func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "delete-db")
-	agent, err := agentObjectForGroupKind(r.URL.Query().Get("groupKind"))
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
-		return
-	}
 	h.handleDeleteAgentObject(
 		w,
 		r,
 		log,
-		agent,
+		&v1alpha2.Agent{},
 		"Agent not found",
 		"Failed to get Agent",
 		"Failed to delete Agent",

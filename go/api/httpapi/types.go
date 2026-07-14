@@ -167,13 +167,14 @@ type AgentResponse struct {
 
 // SessionRequest represents a session creation/update request
 type SessionRequest struct {
-	AgentRef *string `json:"agent_ref,omitempty"`
-	// GroupKind selects which kind agent_ref refers to: "Agent.kagent.dev",
-	// "SandboxAgent.kagent.dev", or "AgentHarness.kagent.dev". Absent means Agent.
-	GroupKind *string                 `json:"group_kind,omitempty"`
-	Name      *string                 `json:"name,omitempty"`
-	ID        *string                 `json:"id,omitempty"`
-	Source    *database.SessionSource `json:"source,omitempty"`
+	// AgentRef identifies the agent the session belongs to. A bare
+	// "namespace/name" is an Agent; SandboxAgent and AgentHarness refs are
+	// kind-qualified as "sandboxagents/namespace/name" and
+	// "agentharnesses/namespace/name" (matching their API route prefixes).
+	AgentRef *string                 `json:"agent_ref,omitempty"`
+	Name     *string                 `json:"name,omitempty"`
+	ID       *string                 `json:"id,omitempty"`
+	Source   *database.SessionSource `json:"source,omitempty"`
 }
 
 // Run types

@@ -358,8 +358,15 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 					}
 				}
 
+				// Kind-qualify the tool name (bare for Agents) so a SandboxAgent
+				// and an Agent sharing a namespace/name stay distinct tools in
+				// the parent's toolset — the runtime identifies tools by name.
+				toolAgentKind := utils.AgentKind
+				if toolAgent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
+					toolAgentKind = utils.SandboxAgentKind
+				}
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
-					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
+					Name:        utils.AgentDBID(toolAgentKind, utils.GetObjectRef(toolAgent)),
 					Url:         targetURL,
 					Headers:     headers,
 					Description: toolSpec.Description,

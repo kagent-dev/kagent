@@ -90,8 +90,7 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
         // first message uses /chat/:id and does not inline-create + block on readiness polling.
         if (isSubstrateSandboxAgent(agentRes.data)) {
           const created = await createSession({
-            agent_ref: `${namespace}/${name}`,
-            group_kind: "SandboxAgent.kagent.dev",
+            agent_ref: `sandboxagents/${namespace}/${name}`,
           });
           if (cancelled) return;
           if (!created.error && created.data) {

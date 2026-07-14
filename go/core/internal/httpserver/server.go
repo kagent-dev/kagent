@@ -280,13 +280,17 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
 
+	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleListSandboxAgents)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgentHarnesses, adaptHandler(s.handlers.Agents.HandleListAgentHarnesses)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgentHarnesses, adaptHandler(s.handlers.Agents.HandleCreateAgentHarness)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgentHarness)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgentHarness)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetSandboxAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleUpdateSandboxAgent)).Methods(http.MethodPut)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteSandboxAgent)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}/sessions", adaptHandler(s.handlers.Sessions.HandleGetSessionsForSandboxAgent)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions", adaptHandler(s.handlers.Sessions.HandleGetSessionsForAgentHarness)).Methods(http.MethodGet)
 
 	// Model Provider Configs
 	s.router.HandleFunc(APIPathModelProviderConfigs+"/models", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedModelProviders)).Methods(http.MethodGet)

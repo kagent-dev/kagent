@@ -26,8 +26,9 @@ interface GroupedChatsProps {
   chatMode?: SandboxChatMode;
   /** When true, this is a substrate AgentHarness: show per-session actor state. */
   isHarness?: boolean;
-  /** group_kind for sessions created here; absent means Agent (see sessionGroupKindFor). */
-  sessionGroupKind?: string;
+  /** agent_ref for sessions created here; kind-qualified for the experimental
+   * kinds (see sessionAgentRefFor). Defaults to the bare Agent ref. */
+  sessionAgentRef?: string;
 }
 
 export default function GroupedChats({
@@ -37,7 +38,7 @@ export default function GroupedChats({
   acpSessions = [],
   chatMode = "default",
   isHarness = false,
-  sessionGroupKind,
+  sessionAgentRef,
 }: GroupedChatsProps) {
   // In-sidebar navigation reuses the current route prefix so a sandbox chat
   // stays under /sandbox-agents (the prefix is what carries the kind).
@@ -195,8 +196,7 @@ export default function GroupedChats({
     if (provisionSessionOnNewChat) {
       try {
         const created = await createSession({
-          agent_ref: `${agentNamespace}/${agentName}`,
-          group_kind: sessionGroupKind,
+          agent_ref: sessionAgentRef ?? `${agentNamespace}/${agentName}`,
         });
         if (created.error || !created.data) {
           toast.error(formatA2AClientError(created.error ?? "Failed to create session"));

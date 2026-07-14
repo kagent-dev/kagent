@@ -164,7 +164,7 @@ func TestSessionsHandler(t *testing.T) {
 			assert.False(t, response.Data.UpdatedAt.IsZero())
 		})
 
-		t.Run("SharedNameBindsByGroupKind", func(t *testing.T) {
+		t.Run("SharedNameBindsByQualifiedRef", func(t *testing.T) {
 			handler, dbClient, _ := setupHandler(t)
 			userID := "test-user"
 			agentRef := "default/shared-name"
@@ -178,8 +178,8 @@ func TestSessionsHandler(t *testing.T) {
 				WorkloadType: v1alpha2.WorkloadModeSandbox,
 			}))
 
-			createVia := func(groupKind *string) (*mockErrorResponseWriter, *database.Session) {
-				sessionReq := api.SessionRequest{AgentRef: &agentRef, GroupKind: groupKind}
+			createVia := func(ref string) (*mockErrorResponseWriter, *database.Session) {
+				sessionReq := api.SessionRequest{AgentRef: &ref}
 				jsonBody, _ := json.Marshal(sessionReq)
 				req := httptest.NewRequest("POST", "/api/sessions", bytes.NewBuffer(jsonBody))
 				req.Header.Set("Content-Type", "application/json")
@@ -194,27 +194,25 @@ func TestSessionsHandler(t *testing.T) {
 				return rec, response.Data
 			}
 
-			// Absent group_kind binds the Agent row.
-			rec, session := createVia(nil)
+			// A bare ref binds the Agent row.
+			rec, session := createVia(agentRef)
 			require.Equal(t, http.StatusCreated, rec.Code)
 			assert.Equal(t, bareID, *session.AgentID)
 
-			// Explicit sandbox group_kind binds the SandboxAgent row.
-			sandboxGK := "SandboxAgent.kagent.dev"
-			rec, session = createVia(&sandboxGK)
+			// A kind-qualified ref binds the SandboxAgent row.
+			rec, session = createVia(utils.QualifiedAgentRef(utils.SandboxAgentKind, agentRef))
 			require.Equal(t, http.StatusCreated, rec.Code)
 			assert.Equal(t, sandboxID, *session.AgentID)
 
 			// The sandbox single-session gate applies to the sandbox row only: a
 			// second sandbox session conflicts, while Agent sessions are unlimited.
-			rec, _ = createVia(&sandboxGK)
+			rec, _ = createVia(utils.QualifiedAgentRef(utils.SandboxAgentKind, agentRef))
 			assert.Equal(t, http.StatusConflict, rec.Code)
-			rec, _ = createVia(nil)
+			rec, _ = createVia(agentRef)
 			assert.Equal(t, http.StatusCreated, rec.Code)
 
-			// Unknown group_kind is a bad request.
-			badGK := "Deployment.apps"
-			rec, _ = createVia(&badGK)
+			// A qualified ref with no matching row is a bad request.
+			rec, _ = createVia(utils.QualifiedAgentRef(utils.AgentHarnessKind, agentRef))
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
 

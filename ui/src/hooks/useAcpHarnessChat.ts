@@ -473,7 +473,7 @@ export function useAcpHarnessChat({
           if (!dbSessionIdRef.current) {
             dbSessionIdRef.current = sid;
             const agentRef = `${namespace}/${agentName}`;
-            void createSession({ id: sid, agent_ref: agentRef, group_kind: "AgentHarness.kagent.dev" }).then((res) => {
+            void createSession({ id: sid, agent_ref: `agentharnesses/${agentRef}` }).then((res) => {
               if (res.error || !res.data || typeof window === "undefined") return;
               // Swap the URL to the real chat id without remounting, and surface
               // the new chat in the sidebar.

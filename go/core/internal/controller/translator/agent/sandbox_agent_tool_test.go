@@ -167,4 +167,39 @@ func Test_AdkApiTranslator_SandboxAgentTool(t *testing.T) {
 			assert.Equal(t, tt.wantURL, inputs.Config.RemoteAgents[0].Url)
 		})
 	}
+
+	t.Run("same-named Agent and SandboxAgent tools get distinct names", func(t *testing.T) {
+		kubeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(modelConfig, testNamespace, sandboxTool, regularTool).
+			Build()
+
+		translator := agenttranslator.NewAdkApiTranslator(
+			kubeClient,
+			types.NamespacedName{Name: "default-model", Namespace: "test"},
+			nil,
+			"",
+			nil,
+		)
+
+		parent := &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: "test"},
+			Spec: declarativeSpec(
+				agentToolRef("shared-name", "Agent"),
+				agentToolRef("shared-name", "SandboxAgent"),
+			),
+		}
+
+		inputs, err := translator.CompileAgent(ctx, parent)
+		require.NoError(t, err)
+		require.Len(t, inputs.Config.RemoteAgents, 2)
+
+		names := []string{inputs.Config.RemoteAgents[0].Name, inputs.Config.RemoteAgents[1].Name}
+		// The runtime identifies tools by name, so the SandboxAgent's name must
+		// be kind-qualified while the Agent keeps the historical bare form.
+		assert.ElementsMatch(t, []string{
+			"test__NS__shared_name",
+			"sandboxagents__NS__test__NS__shared_name",
+		}, names)
+	})
 }

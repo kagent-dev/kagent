@@ -153,16 +153,6 @@ const (
 	AgentHarnessKind = "AgentHarness"
 )
 
-// GroupKind strings API routes accept to select a kind (kind.group of the
-// kagent.dev CRDs). Absent always means Agent; which values a route accepts
-// varies (the /api/agents routes serve Agent/SandboxAgent only, the sessions
-// API additionally accepts AgentHarness).
-const (
-	AgentGroupKind        = AgentKind + ".kagent.dev"
-	SandboxAgentGroupKind = SandboxAgentKind + ".kagent.dev"
-	AgentHarnessGroupKind = AgentHarnessKind + ".kagent.dev"
-)
-
 // Kind prefixes folded into the DB id for the experimental kinds. They mirror
 // the API route resources (/api/sandboxagents, /api/agentharnesses) and contain
 // no '-' or '_' so the python/kubernetes identifier conversions leave them intact.
@@ -171,6 +161,22 @@ const (
 	agentHarnessIDPrefix = "agentharnesses/"
 )
 
+// QualifiedAgentRef returns the kind-qualified "namespace/name" form used in
+// API payloads that reference an agent-like resource (e.g. session agent_ref):
+// bare "ns/name" for Agents, "sandboxagents/ns/name" and "agentharnesses/ns/name"
+// (matching the API route resources) for the experimental kinds. kind is one of
+// the *Kind constants; anything else maps to the bare Agent form.
+func QualifiedAgentRef(kind, ref string) string {
+	switch kind {
+	case SandboxAgentKind:
+		return sandboxAgentIDPrefix + ref
+	case AgentHarnessKind:
+		return agentHarnessIDPrefix + ref
+	default:
+		return ref
+	}
+}
+
 // AgentDBID returns the identity of an agent-like resource in the agent DB
 // table (and in session.agent_id). Agent rows keep the historical bare
 // ConvertToPythonIdentifier("ns/name"); SandboxAgent and AgentHarness rows are
@@ -178,14 +184,7 @@ const (
 // row. ref is "namespace/name"; kind is one of the *Kind constants (anything
 // else maps to the bare Agent format).
 func AgentDBID(kind, ref string) string {
-	switch kind {
-	case SandboxAgentKind:
-		return ConvertToPythonIdentifier(sandboxAgentIDPrefix + ref)
-	case AgentHarnessKind:
-		return ConvertToPythonIdentifier(agentHarnessIDPrefix + ref)
-	default:
-		return ConvertToPythonIdentifier(ref)
-	}
+	return ConvertToPythonIdentifier(QualifiedAgentRef(kind, ref))
 }
 
 // ParseAgentDBID returns the kind and "namespace/name" ref encoded in an agent

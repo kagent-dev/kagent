@@ -40,40 +40,26 @@ type RunRequest struct {
 	Task string `json:"task"`
 }
 
-// agentKindForGroupKind maps a request's optional groupKind value (same format as
-// the /api/agents routes) to the kind constants used by utils.AgentDBID. Absent
-// selects Agent, the historical behavior. Unlike the /api/agents routes, sessions
-// also serve AgentHarness chats, so its groupKind is accepted here.
-func agentKindForGroupKind(groupKind string) (string, error) {
-	switch groupKind {
-	case "", utils.AgentGroupKind:
-		return utils.AgentKind, nil
-	case utils.SandboxAgentGroupKind:
-		return utils.SandboxAgentKind, nil
-	case utils.AgentHarnessGroupKind:
-		return utils.AgentHarnessKind, nil
-	default:
-		return "", fmt.Errorf("unsupported groupKind %q (expected %q, %q, or %q)",
-			groupKind, utils.AgentGroupKind, utils.SandboxAgentGroupKind, utils.AgentHarnessGroupKind)
-	}
-}
-
-// sessionRequestAgentDBID resolves a session request's agent_ref + group_kind to the
-// agent DB id.
-func sessionRequestAgentDBID(sessionRequest api.SessionRequest) (string, error) {
-	groupKind := ""
-	if sessionRequest.GroupKind != nil {
-		groupKind = *sessionRequest.GroupKind
-	}
-	kind, err := agentKindForGroupKind(groupKind)
-	if err != nil {
-		return "", err
-	}
-	return utils.AgentDBID(kind, *sessionRequest.AgentRef), nil
-}
-
+// HandleGetSessionsForAgent handles GET /api/sessions/agent/{namespace}/{name}
+// requests. The name resolves as kind Agent only; sandbox agent and harness
+// sessions are served by /api/sandboxagents/{namespace}/{name}/sessions and
+// /api/agentharnesses/{namespace}/{name}/sessions.
 func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "get-sessions-for-agent")
+	h.handleGetSessionsForAgentKind(w, r, utils.AgentKind)
+}
+
+// HandleGetSessionsForSandboxAgent handles GET /api/sandboxagents/{namespace}/{name}/sessions.
+func (h *SessionsHandler) HandleGetSessionsForSandboxAgent(w ErrorResponseWriter, r *http.Request) {
+	h.handleGetSessionsForAgentKind(w, r, utils.SandboxAgentKind)
+}
+
+// HandleGetSessionsForAgentHarness handles GET /api/agentharnesses/{namespace}/{name}/sessions.
+func (h *SessionsHandler) HandleGetSessionsForAgentHarness(w ErrorResponseWriter, r *http.Request) {
+	h.handleGetSessionsForAgentKind(w, r, utils.AgentHarnessKind)
+}
+
+func (h *SessionsHandler) handleGetSessionsForAgentKind(w ErrorResponseWriter, r *http.Request, kind string) {
+	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "get-sessions-for-agent", "kind", kind)
 
 	namespace, err := GetPathParam(r, "namespace")
 	if err != nil {
@@ -97,12 +83,7 @@ func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *ht
 
 	// Get agent ID from agent ref. AgentHarnesses and SandboxAgents are recorded
 	// in the same agent table as regular agents under kind-qualified ids; the
-	// optional groupKind query parameter selects the kind (absent means Agent).
-	kind, err := agentKindForGroupKind(r.URL.Query().Get("groupKind"))
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
-		return
-	}
+	// route the request arrived on selects the kind.
 	agentID := utils.AgentDBID(kind, namespace+"/"+agentName)
 	if _, err := h.DatabaseService.GetAgent(r.Context(), agentID); err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
@@ -176,21 +157,20 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	log.V(1).Info("Getting agent from database", "session_request", sessionRequest)
 
 	// AgentHarnesses and SandboxAgents are recorded in the same agent table as
-	// regular agents under kind-qualified ids; the request's group_kind selects
-	// the kind (absent means Agent). Harness rows use the deployment workload
-	// mode and therefore skip the sandbox single-session restriction below.
-	agentID, err := sessionRequestAgentDBID(sessionRequest)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
-		return
-	}
+	// regular agents under kind-qualified refs ("sandboxagents/ns/name",
+	// "agentharnesses/ns/name"); a bare "ns/name" agent_ref is an Agent, so
+	// existing payloads keep their historical meaning. Harness rows use the
+	// deployment workload mode and therefore skip the sandbox single-session
+	// restriction below.
+	agentID := utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef)
+	_, bareAgentRef := utils.ParseAgentDBID(agentID)
 	agent, err := h.DatabaseService.GetAgent(r.Context(), agentID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", *sessionRequest.AgentRef), err))
 		return
 	}
 	if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
-		_, isSubstrateSandbox, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), *sessionRequest.AgentRef)
+		_, isSubstrateSandbox, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), bareAgentRef)
 		if lookupErr != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to inspect sandbox agent", lookupErr))
 			return
@@ -388,11 +368,8 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 	}
 	if sessionRequest.AgentRef != nil {
 		log = log.WithValues("agentRef", *sessionRequest.AgentRef)
-		agentID, err := sessionRequestAgentDBID(sessionRequest)
-		if err != nil {
-			w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
-			return
-		}
+		// agent_ref may be kind-qualified; see HandleCreateSession.
+		agentID := utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef)
 		agent, err := h.DatabaseService.GetAgent(r.Context(), agentID)
 		if err != nil {
 			w.RespondWithError(errors.NewNotFoundError("Agent not found", err))

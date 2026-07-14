@@ -65,8 +65,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const { getMcpAppForTool } = useChatMcpApps();
   const substrateSandbox = useChatSubstrateSandbox();
   const agentType = useChatAgentType();
-  // Session requests must name the kind agent_ref refers to; absent means Agent.
-  const sessionGroupKind = agentType === "AgentHarness" ? "AgentHarness.kagent.dev" : runInSandbox ? "SandboxAgent.kagent.dev" : undefined;
+  // Session agent_refs are kind-qualified for the experimental kinds; a bare
+  // ns/name means Agent (see sessionAgentRefFor).
+  const sessionAgentRef =
+    agentType === "AgentHarness"
+      ? `agentharnesses/${selectedNamespace}/${selectedAgentName}`
+      : runInSandbox
+        ? `sandboxagents/${selectedNamespace}/${selectedAgentName}`
+        : `${selectedNamespace}/${selectedAgentName}`;
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
@@ -370,8 +376,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
           const sessionName = deriveSessionTitle(userMessageText);
           const newSessionResponse = await createSession({
-            agent_ref: `${selectedNamespace}/${selectedAgentName}`,
-            group_kind: sessionGroupKind,
+            agent_ref: sessionAgentRef,
             name: sessionName,
           });
 
@@ -423,8 +428,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           try {
             const renameResponse = await createSession({
               id: currentSessionId,
-              agent_ref: `${selectedNamespace}/${selectedAgentName}`,
-              group_kind: sessionGroupKind,
+              agent_ref: sessionAgentRef,
               name: title,
             });
             if (!renameResponse.error && renameResponse.data) {

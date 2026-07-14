@@ -269,7 +269,7 @@ func TestHandleGetAgent(t *testing.T) {
 		require.False(t, response.Data.DeploymentReady)
 	})
 
-	t.Run("returns 404 for SandboxAgent on GET /api/agents without groupKind", func(t *testing.T) {
+	t.Run("returns 404 for SandboxAgent on GET /api/agents", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		sa := createTestSandboxAgentCRD("sandbox-only", modelConfig, nil)
 
@@ -285,38 +285,25 @@ func TestHandleGetAgent(t *testing.T) {
 		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
 	})
 
-	t.Run("returns SandboxAgent on GET /api/agents with groupKind", func(t *testing.T) {
+	t.Run("returns SandboxAgent on GET /api/sandboxagents for a shared name", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("shared-name", modelConfig)
 		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
 		handler, _ := setupTestHandler(t, agent, sa, modelConfig)
 		createAgent(handler.DatabaseService, agent)
 
-		req := httptest.NewRequest("GET", "/api/agents/default/shared-name?groupKind=SandboxAgent.kagent.dev", nil)
+		req := httptest.NewRequest("GET", "/api/sandboxagents/default/shared-name", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "shared-name"})
 		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
-		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
+		handler.HandleGetSandboxAgent(&testErrorResponseWriter{w}, req)
 
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 		var response api.StandardResponse[api.AgentResponse]
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 		require.Equal(t, v1alpha2.WorkloadModeSandbox, response.Data.WorkloadMode)
 		require.Equal(t, "SandboxAgent", response.Data.Agent.Kind)
-	})
-
-	t.Run("returns 400 for unsupported groupKind on GET /api/agents", func(t *testing.T) {
-		handler, _ := setupTestHandler(t)
-
-		req := httptest.NewRequest("GET", "/api/agents/default/whatever?groupKind=AgentHarness.kagent.dev", nil)
-		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "whatever"})
-		req = setUser(req, "test-user")
-		w := httptest.NewRecorder()
-
-		handler.HandleGetAgent(&testErrorResponseWriter{w}, req)
-
-		require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	})
 
 	t.Run("returns 404 for missing agent", func(t *testing.T) {
@@ -880,7 +867,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 		require.Equal(t, http.StatusNotFound, w.Code)
 	})
 
-	t.Run("updates SandboxAgent via PUT /api/agents with body kind", func(t *testing.T) {
+	t.Run("updates SandboxAgent via PUT /api/sandboxagents", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		sa := createTestSandboxAgentCRD("sandbox-update", modelConfig, nil)
 		sa.Spec.Declarative.SystemMessage = "system message"
@@ -891,8 +878,33 @@ func TestHandleUpdateAgent(t *testing.T) {
 		handler.SandboxBackend = stubSandboxBackend{}
 
 		updated := sa.DeepCopy()
-		updated.TypeMeta = metav1.TypeMeta{APIVersion: v1alpha2.GroupVersion.String(), Kind: "SandboxAgent"}
-		updated.Spec.Description = "updated via agents route"
+		updated.Spec.Description = "updated via sandboxagents route"
+
+		body, _ := json.Marshal(updated)
+		req := httptest.NewRequest("PUT", "/api/sandboxagents/default/sandbox-update", bytes.NewBuffer(body))
+		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "sandbox-update"})
+		req.Header.Set("Content-Type", "application/json")
+		req = setUser(req, "test-user")
+		w := httptest.NewRecorder()
+
+		handler.HandleUpdateSandboxAgent(&testErrorResponseWriter{w}, req)
+
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+		var stored v1alpha2.SandboxAgent
+		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sandbox-update"}, &stored))
+		require.Equal(t, "updated via sandboxagents route", stored.Spec.Description)
+		require.NotNil(t, stored.Spec.Substrate, "spec.substrate must survive an update via the sandboxagents route")
+		require.Equal(t, "pool-a", stored.Spec.Substrate.WorkerPoolRef.Name)
+	})
+
+	t.Run("does not update SandboxAgent via PUT /api/agents", func(t *testing.T) {
+		modelConfig := createTestModelConfig()
+		sa := createTestSandboxAgentCRD("sandbox-update", modelConfig, nil)
+		handler, _ := setupTestHandler(t, sa, modelConfig)
+
+		updated := sa.DeepCopy()
+		updated.Spec.Description = "should not land"
 
 		body, _ := json.Marshal(updated)
 		req := httptest.NewRequest("PUT", "/api/agents", bytes.NewBuffer(body))
@@ -902,26 +914,7 @@ func TestHandleUpdateAgent(t *testing.T) {
 
 		handler.HandleUpdateAgent(&testErrorResponseWriter{w}, req)
 
-		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-
-		var stored v1alpha2.SandboxAgent
-		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sandbox-update"}, &stored))
-		require.Equal(t, "updated via agents route", stored.Spec.Description)
-		require.NotNil(t, stored.Spec.Substrate, "spec.substrate must survive an update via the agents route")
-		require.Equal(t, "pool-a", stored.Spec.Substrate.WorkerPoolRef.Name)
-	})
-
-	t.Run("returns 400 for unsupported body kind on PUT /api/agents", func(t *testing.T) {
-		handler, _ := setupTestHandler(t)
-
-		req := httptest.NewRequest("PUT", "/api/agents", bytes.NewBufferString(`{"kind":"AgentHarness","metadata":{"name":"x","namespace":"default"}}`))
-		req.Header.Set("Content-Type", "application/json")
-		req = setUser(req, "test-user")
-		w := httptest.NewRecorder()
-
-		handler.HandleUpdateAgent(&testErrorResponseWriter{w}, req)
-
-		require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
 	})
 }
 
@@ -1025,7 +1018,7 @@ func TestHandleDeleteTeam(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("does not delete SandboxAgent via DELETE /api/agents without groupKind", func(t *testing.T) {
+	t.Run("does not delete SandboxAgent via DELETE /api/agents", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		sa := createTestSandboxAgentCRD("sandbox-only-delete", modelConfig, nil)
 		handler, _ := setupTestHandler(t, sa, modelConfig)
@@ -1043,18 +1036,18 @@ func TestHandleDeleteTeam(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("deletes SandboxAgent via DELETE /api/agents with groupKind", func(t *testing.T) {
+	t.Run("deletes SandboxAgent via DELETE /api/sandboxagents for a shared name", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("shared-name", modelConfig)
 		sa := createTestSandboxAgentCRD("shared-name", modelConfig, nil)
 		handler, _ := setupTestHandler(t, agent, sa, modelConfig)
 
-		req := httptest.NewRequest("DELETE", "/api/agents/default/shared-name?groupKind=SandboxAgent.kagent.dev", nil)
+		req := httptest.NewRequest("DELETE", "/api/sandboxagents/default/shared-name", nil)
 		req = mux.SetURLVars(req, map[string]string{"namespace": "default", "name": "shared-name"})
 		req = setUser(req, "test-user")
 		w := httptest.NewRecorder()
 
-		handler.HandleDeleteAgent(&testErrorResponseWriter{w}, req)
+		handler.HandleDeleteSandboxAgent(&testErrorResponseWriter{w}, req)
 
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 

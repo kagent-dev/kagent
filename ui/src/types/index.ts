@@ -109,9 +109,10 @@ export interface ModelConfig {
 }
 
 export interface CreateSessionRequest {
+  /** Bare "ns/name" refers to an Agent; SandboxAgent and AgentHarness refs are
+   * kind-qualified as "sandboxagents/ns/name" / "agentharnesses/ns/name"
+   * (matching their API route prefixes; see sessionAgentRefFor). */
   agent_ref?: string;
-  /** Selects which kind agent_ref refers to (e.g. "SandboxAgent.kagent.dev"); absent means Agent. */
-  group_kind?: string;
   name?: string;
   id?: string;
 }
@@ -131,12 +132,22 @@ export function chatPathKind(pathname: string): string | undefined {
   return pathname.startsWith("/sandbox-agents/") ? "SandboxAgent" : undefined;
 }
 
-/** group_kind value for session requests targeting this agent; undefined for plain Agents (the server default). */
-export function sessionGroupKindFor(agent?: { agent?: { kind?: string }; workloadMode?: string } | null): string | undefined {
+/** Kubernetes kind the sessions API distinguishes for this agent; undefined for plain Agents. */
+export function agentSessionKind(agent?: { agent?: { kind?: string }; workloadMode?: string } | null): "SandboxAgent" | "AgentHarness" | undefined {
   if (!agent) return undefined;
-  if (agent.agent?.kind === "AgentHarness") return "AgentHarness.kagent.dev";
-  if (agent.workloadMode === "sandbox") return "SandboxAgent.kagent.dev";
+  if (agent.agent?.kind === "AgentHarness") return "AgentHarness";
+  if (agent.workloadMode === "sandbox") return "SandboxAgent";
   return undefined;
+}
+
+/** agent_ref value for session requests targeting this agent: bare "ns/name" for
+ * plain Agents, kind-qualified ("sandboxagents/ns/name", "agentharnesses/ns/name")
+ * for the experimental kinds — matching their API route prefixes. */
+export function sessionAgentRefFor(agent: { agent?: { kind?: string }; workloadMode?: string } | null | undefined, agentRef: string): string {
+  const kind = agentSessionKind(agent);
+  if (kind === "AgentHarness") return `agentharnesses/${agentRef}`;
+  if (kind === "SandboxAgent") return `sandboxagents/${agentRef}`;
+  return agentRef;
 }
 
 export interface BaseResponse<T> {

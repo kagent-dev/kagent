@@ -173,22 +173,21 @@ func (m *workspaceModel) loadSessions() tea.Cmd {
 	}
 }
 
-// sessionGroupKind returns the group_kind for session requests targeting the
-// selected agent, nil for plain Agents (the server default).
-func sessionGroupKind(a *api.AgentResponse) *string {
-	if a == nil || a.Agent == nil || a.Agent.Kind == "" || a.Agent.Kind == "Agent" {
-		return nil
+// sessionAgentRef returns the agent_ref for session requests targeting the
+// selected agent: bare "ns/name" for plain Agents, kind-qualified (e.g.
+// "sandboxagents/ns/name") for the experimental kinds.
+func sessionAgentRef(a *api.AgentResponse, agentRef string) string {
+	if a == nil || a.Agent == nil {
+		return agentRef
 	}
-	gk := a.Agent.Kind + ".kagent.dev"
-	return &gk
+	return utils.QualifiedAgentRef(a.Agent.Kind, agentRef)
 }
 
 func (m *workspaceModel) createSession(name string) tea.Cmd {
 	return func() tea.Msg {
 		res, err := m.client.Session.CreateSession(context.Background(), &api.SessionRequest{
-			Name:      new(name),
-			AgentRef:  new(m.agentRef),
-			GroupKind: sessionGroupKind(m.agent),
+			Name:     new(name),
+			AgentRef: new(sessionAgentRef(m.agent, m.agentRef)),
 		})
 		if err != nil {
 			return createSessionMsg{session: nil, err: err}
