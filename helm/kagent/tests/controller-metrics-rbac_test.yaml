@@ -1,0 +1,128 @@
+suite: test controller metrics rbac
+templates:
+  - rbac/metrics-reader-clusterrole.yaml
+  - rbac/metrics-auth-clusterrole.yaml
+  - rbac/metrics-auth-clusterrolebinding.yaml
+tests:
+  - it: should not render any metrics rbac by default
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-reader-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrolebinding.yaml
+
+  - it: should render metrics-reader when metrics enabled
+    set:
+      controller.metrics.enabled: true
+    template: rbac/metrics-reader-clusterrole.yaml
+    asserts:
+      - isKind:
+          of: ClusterRole
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-metrics-reader
+      - equal:
+          path: rules[0].nonResourceURLs[0]
+          value: /metrics
+      - equal:
+          path: rules[0].verbs[0]
+          value: get
+
+  - it: should render auth role and binding when secure serving enabled
+    set:
+      controller.metrics.enabled: true
+    asserts:
+      - isKind:
+          of: ClusterRole
+        template: rbac/metrics-auth-clusterrole.yaml
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-metrics-auth-role
+        template: rbac/metrics-auth-clusterrole.yaml
+      - isKind:
+          of: ClusterRoleBinding
+        template: rbac/metrics-auth-clusterrolebinding.yaml
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-metrics-auth-rolebinding
+        template: rbac/metrics-auth-clusterrolebinding.yaml
+
+  - it: auth role should grant token and subject access reviews
+    set:
+      controller.metrics.enabled: true
+    template: rbac/metrics-auth-clusterrole.yaml
+    asserts:
+      - equal:
+          path: rules[0].apiGroups[0]
+          value: authentication.k8s.io
+      - equal:
+          path: rules[0].resources[0]
+          value: tokenreviews
+      - equal:
+          path: rules[0].verbs[0]
+          value: create
+      - equal:
+          path: rules[1].apiGroups[0]
+          value: authorization.k8s.io
+      - equal:
+          path: rules[1].resources[0]
+          value: subjectaccessreviews
+      - equal:
+          path: rules[1].verbs[0]
+          value: create
+
+  - it: auth rolebinding should reference controller serviceaccount
+    set:
+      controller.metrics.enabled: true
+    template: rbac/metrics-auth-clusterrolebinding.yaml
+    asserts:
+      - equal:
+          path: roleRef.kind
+          value: ClusterRole
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-metrics-auth-role
+      - equal:
+          path: subjects[0].kind
+          value: ServiceAccount
+      - equal:
+          path: subjects[0].name
+          value: RELEASE-NAME-controller
+      - equal:
+          path: subjects[0].namespace
+          value: NAMESPACE
+
+  - it: should skip auth role when secure serving disabled
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.secureServing: false
+    asserts:
+      - hasDocuments:
+          count: 1
+        template: rbac/metrics-reader-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrolebinding.yaml
+
+  - it: should skip all metrics rbac when bindAddress disables metrics
+    set:
+      controller.metrics.enabled: true
+      controller.metrics.bindAddress: "0"
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-reader-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrolebinding.yaml

@@ -1,28 +1,38 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // SessionsHandler handles session-related requests
 type SessionsHandler struct {
 	*Base
+	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
 }
 
 // NewSessionsHandler creates a new SessionsHandler
-func NewSessionsHandler(base *Base) *SessionsHandler {
-	return &SessionsHandler{Base: base}
+func NewSessionsHandler(base *Base, substrateSandboxActorBackend *substrate.SandboxAgentActorBackend) *SessionsHandler {
+	return &SessionsHandler{
+		Base:                         base,
+		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
+	}
 }
 
 // RunRequest represents a run creation request
@@ -53,15 +63,16 @@ func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *ht
 		return
 	}
 
-	// Get agent ID from agent ref
-	agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(namespace+"/"+agentName))
-	if err != nil {
+	// Get agent ID from agent ref. AgentHarnesses are recorded in the same
+	// agent table as regular agents, so the lookup is uniform.
+	agentID := utils.ConvertToPythonIdentifier(namespace + "/" + agentName)
+	if _, err := h.DatabaseService.GetAgent(r.Context(), agentID); err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
 		return
 	}
 
 	log.V(1).Info("Getting sessions for agent from database")
-	sessions, err := h.DatabaseService.ListSessionsForAgent(r.Context(), agent.ID, userID)
+	sessions, err := h.DatabaseService.ListSessionsForAgent(r.Context(), agentID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get sessions for agent", err))
 		return
@@ -119,28 +130,38 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("agentRef", *sessionRequest.AgentRef)
 
-	id := protocol.GenerateContextID()
+	id := a2a.NewContextID()
 	if sessionRequest.ID != nil && *sessionRequest.ID != "" {
 		id = *sessionRequest.ID
 	}
 
 	log.V(1).Info("Getting agent from database", "session_request", sessionRequest)
 
-	agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
+	// AgentHarnesses are recorded in the same agent table as regular agents, so
+	// the lookup is uniform; harness rows use the deployment workload mode and
+	// therefore skip the sandbox single-session restriction below.
+	agentID := utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef)
+	agent, err := h.DatabaseService.GetAgent(r.Context(), agentID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", *sessionRequest.AgentRef), err))
 		return
 	}
-
 	if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
-		existing, lerr := h.DatabaseService.ListSessionsForAgentAllUsers(r.Context(), agent.ID)
-		if lerr != nil {
-			w.RespondWithError(errors.NewInternalServerError("Failed to list sessions for agent", lerr))
+		_, isSubstrateSandbox, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), *sessionRequest.AgentRef)
+		if lookupErr != nil {
+			w.RespondWithError(errors.NewInternalServerError("Failed to inspect sandbox agent", lookupErr))
 			return
 		}
-		if len(existing) > 0 {
-			w.RespondWithError(errors.NewConflictError("Sandbox agents support only one chat session", fmt.Errorf("a session already exists for this agent")))
-			return
+		if !isSubstrateSandbox {
+			existing, lerr := h.DatabaseService.ListSessionsForAgentAllUsers(r.Context(), agentID)
+			if lerr != nil {
+				w.RespondWithError(errors.NewInternalServerError("Failed to list sessions for agent", lerr))
+				return
+			}
+			if len(existing) > 0 {
+				w.RespondWithError(errors.NewConflictError("Sandbox agents support only one chat session", fmt.Errorf("a session already exists for this agent")))
+				return
+			}
 		}
 	}
 
@@ -148,7 +169,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		ID:      id,
 		Name:    sessionRequest.Name,
 		UserID:  userID,
-		AgentID: &agent.ID,
+		AgentID: &agentID,
 		Source:  sessionRequest.Source,
 	}
 
@@ -161,14 +182,31 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	log.Info("Successfully created session", "sessionID", session.ID)
-	data := api.NewResponse(session, "Successfully created session", false)
+	stored, err := h.DatabaseService.GetSession(r.Context(), id, userID)
+	if err != nil {
+		w.RespondWithError(errors.NewInternalServerError("Failed to load created session", err))
+		return
+	}
+
+	log.Info("Successfully created session", "sessionID", stored.ID)
+	data := api.NewResponse(stored, "Successfully created session", false)
 	RespondWithJSON(w, http.StatusCreated, data)
 }
 
 type SessionResponse struct {
-	Session *database.Session `json:"session"`
-	Events  []*database.Event `json:"events"`
+	Session  *database.Session `json:"session"`
+	Events   []*database.Event `json:"events"`
+	ReadOnly *bool             `json:"read_only,omitempty"`
+}
+
+// getEffectiveUserIDForSession returns the user ID to use for DB lookups on a specific session.
+// When the request carries a valid X-Share-Token scoped to sessionID, the share owner's user ID
+// is returned so that shared access works transparently.
+func getEffectiveUserIDForSession(r *http.Request, sessionID string) (string, error) {
+	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID {
+		return sc.UserID, nil
+	}
+	return getUserIDOrAgentUser(r)
 }
 
 // HandleGetSession handles GET /api/sessions/{session_id} requests using database
@@ -182,7 +220,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	userID, err := getUserIDOrAgentUser(r)
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -196,29 +234,10 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
-	queryOptions := database.QueryOptions{
-		Limit: 0,
-	}
-	if r.URL.Query().Get("order") == "asc" {
-		queryOptions.OrderAsc = true
-	}
-	after := r.URL.Query().Get("after")
-	if after != "" {
-		afterTime, err := time.Parse(time.RFC3339, after)
-		if err != nil {
-			w.RespondWithError(errors.NewBadRequestError("Failed to parse after timestamp", err))
-			return
-		}
-		queryOptions.After = afterTime
-	}
-
-	limit := r.URL.Query().Get("limit")
-	if limit != "" {
-		queryOptions.Limit, err = strconv.Atoi(limit)
-		if err != nil {
-			w.RespondWithError(errors.NewBadRequestError("Failed to parse limit", err))
-			return
-		}
+	queryOptions, err := eventQueryOptionsFromRequest(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
 	}
 
 	events, err := h.DatabaseService.ListEventsForSession(r.Context(), sessionID, userID, queryOptions)
@@ -228,16 +247,78 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	}
 
 	log.Info("Successfully retrieved session")
-	data := api.NewResponse(SessionResponse{
+	resp := SessionResponse{
 		Session: session,
 		Events:  events,
-	}, "Successfully retrieved session", false)
+	}
+	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID && sc.ReadOnly {
+		t := true
+		resp.ReadOnly = &t
+	}
+	data := api.NewResponse(resp, "Successfully retrieved session", false)
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// HandleUpdateSession handles PUT /api/sessions requests using database
+// eventQueryOptionsFromRequest parses the shared order/after/limit query params for event listings.
+func eventQueryOptionsFromRequest(r *http.Request) (database.QueryOptions, error) {
+	opts := database.QueryOptions{}
+	if r.URL.Query().Get("order") == "asc" {
+		opts.OrderAsc = true
+	}
+	if after := r.URL.Query().Get("after"); after != "" {
+		afterTime, err := time.Parse(time.RFC3339, after)
+		if err != nil {
+			return opts, fmt.Errorf("failed to parse after timestamp: %w", err)
+		}
+		opts.After = afterTime
+	}
+	if limit := r.URL.Query().Get("limit"); limit != "" {
+		var err error
+		opts.Limit, err = strconv.Atoi(limit)
+		if err != nil {
+			return opts, fmt.Errorf("failed to parse limit: %w", err)
+		}
+	}
+	return opts, nil
+}
+
+// substrateSandboxAgentForSession resolves the session's agent to a substrate SandboxAgent CR,
+// returning nil when the session has no agent or its agent is anything else.
+func (h *SessionsHandler) substrateSandboxAgentForSession(ctx context.Context, session *database.Session) (*v1alpha2.SandboxAgent, error) {
+	agent, err := h.DatabaseService.GetAgent(ctx, *session.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	if agent.WorkloadType != v1alpha2.WorkloadModeSandbox {
+		return nil, nil
+	}
+	sandboxAgent, isSubstrate, err := h.lookupSubstrateSandboxAgent(ctx, utils.ConvertToKubernetesIdentifier(*session.AgentID))
+	if err != nil || !isSubstrate {
+		return nil, err
+	}
+	return sandboxAgent, nil
+}
+
+// HandleUpdateSession handles PUT and PATCH /api/sessions/{session_id} requests.
+// It applies a partial update to the session identified by the {session_id} path
+// param: it sets the display name when "name" is provided, and re-points the
+// session at a different agent when "agent_ref" is provided. At least one of the
+// two must be present.
 func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("sessions-handler").WithValues("operation", "update-db")
+
+	userID, err := GetUserID(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+
+	sessionID, err := GetPathParam(r, "session_id")
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get session ID from path", err))
+		return
+	}
+	log = log.WithValues("userID", userID, "session_id", sessionID)
 
 	var sessionRequest api.SessionRequest
 	if err := DecodeJSONBody(r, &sessionRequest); err != nil {
@@ -245,37 +326,29 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 
-	if sessionRequest.Name == nil {
-		w.RespondWithError(errors.NewBadRequestError("session name is required", nil))
+	if sessionRequest.Name == nil && sessionRequest.AgentRef == nil {
+		w.RespondWithError(errors.NewBadRequestError("at least one of name or agent_ref is required", nil))
 		return
 	}
 
-	if sessionRequest.AgentRef == nil {
-		w.RespondWithError(errors.NewBadRequestError("agent_ref is required", nil))
-		return
-	}
-	log = log.WithValues("agentRef", *sessionRequest.AgentRef)
-
-	userID, err := GetUserID(r)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
-		return
-	}
-	// Get existing session
-	session, err := h.DatabaseService.GetSession(r.Context(), *sessionRequest.Name, userID)
+	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
 	}
 
-	agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
-	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
-		return
+	if sessionRequest.Name != nil {
+		session.Name = sessionRequest.Name
 	}
-
-	// Update fields
-	session.AgentID = &agent.ID
+	if sessionRequest.AgentRef != nil {
+		log = log.WithValues("agentRef", *sessionRequest.AgentRef)
+		agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
+		if err != nil {
+			w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
+			return
+		}
+		session.AgentID = &agent.ID
+	}
 
 	if err := h.DatabaseService.StoreSession(r.Context(), session); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to update session", err))
@@ -305,9 +378,26 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("session_id", sessionID)
 
+	var substrateCleanup *v1alpha2.SandboxAgent
+	if h.SubstrateSandboxActorBackend != nil {
+		// Best-effort preflight: a session without an agent (or whose agent is gone) simply has
+		// no actor to clean up — it must never block deleting the session row itself.
+		if session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID); getErr == nil && session != nil && session.AgentID != nil {
+			if sandboxAgent, lookupErr := h.substrateSandboxAgentForSession(r.Context(), session); lookupErr == nil {
+				substrateCleanup = sandboxAgent
+			}
+		}
+	}
+
 	if err := h.DatabaseService.DeleteSession(r.Context(), sessionID, userID); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete session", err))
 		return
+	}
+
+	if substrateCleanup != nil {
+		if _, err := h.SubstrateSandboxActorBackend.DeleteSandboxAgentSessionActor(r.Context(), substrateCleanup, sessionID); err != nil {
+			log.Error(err, "failed to delete substrate session actor", "sessionID", sessionID)
+		}
 	}
 
 	log.Info("Successfully deleted session")
@@ -326,7 +416,7 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	userID, err := GetUserID(r)
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -346,10 +436,34 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 		w.RespondWithError(errors.NewInternalServerError("Failed to get session runs", err))
 		return
 	}
+	wireVersion, err := utils.NegotiateA2AWireVersion(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", err))
+		return
+	}
 
 	log.Info("Successfully retrieved session tasks", "count", len(tasks))
-	data := api.NewResponse(tasks, "Successfully retrieved session tasks", false)
-	RespondWithJSON(w, http.StatusOK, data)
+
+	// TODO(0.11.0): Remove legacy API conversion after legacy wire support is no longer supported.
+	switch wireVersion {
+	case utils.A2AWireVersionLegacy:
+		legacyTasks := make([]any, 0, len(tasks))
+		for i := range tasks {
+			legacyTask, convErr := trpcv0.ToLegacyTask(tasks[i])
+			if convErr != nil {
+				w.RespondWithError(errors.NewInternalServerError("Failed to convert task", convErr))
+				return
+			}
+			legacyTasks = append(legacyTasks, legacyTask)
+		}
+		data := api.NewResponse(legacyTasks, "Successfully retrieved session tasks", false)
+		RespondWithJSON(w, http.StatusOK, data)
+	case utils.A2AWireVersionV1:
+		data := api.NewResponse(tasks, "Successfully retrieved session tasks", false)
+		RespondWithJSON(w, http.StatusOK, data)
+	default:
+		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", fmt.Errorf("unknown negotiated wire version %q", wireVersion)))
+	}
 }
 
 func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http.Request) {
@@ -366,7 +480,7 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
 	}
-	userID, err := getUserID(r)
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -443,4 +557,25 @@ func getUserIDOrAgentUser(r *http.Request) (string, error) {
 		return getUserID(r)
 	}
 	return "", fmt.Errorf("no user or agent in principal")
+}
+
+func (h *SessionsHandler) lookupSubstrateSandboxAgent(ctx context.Context, agentRef string) (*v1alpha2.SandboxAgent, bool, error) {
+	ref := strings.TrimSpace(agentRef)
+	if ref == "" {
+		return nil, false, nil
+	}
+	// Agent refs from the DB / Go ADK use ConvertToPythonIdentifier (e.g. kagent__NS__my-agent).
+	k8sRef := utils.ConvertToKubernetesIdentifier(ref)
+	nn, err := utils.ParseRefString(k8sRef, "")
+	if err != nil {
+		return nil, false, nil
+	}
+	sa := &v1alpha2.SandboxAgent{}
+	if err := h.KubeClient.Get(ctx, nn, sa); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return sa, true, nil
 }

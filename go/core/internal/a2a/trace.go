@@ -6,20 +6,18 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/propagation"
 	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/types"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
 // a2aTracingMiddleware is an A2A server middleware that creates an invoke_agent
 // span for each inbound A2A request, annotated with GenAI semantic convention
-// attributes. The span becomes the parent of any outbound proxy calls made by
-// traceInjectHandler, giving a clean agent-invocation span hierarchy in Jaeger.
+// attributes. Outbound client interceptors inject that span into proxied agent
+// calls, giving a clean agent-invocation span hierarchy in Jaeger.
 type a2aTracingMiddleware struct {
 	agentRef types.NamespacedName
 	provider attribute.KeyValue
@@ -43,18 +41,6 @@ func (m *a2aTracingMiddleware) Wrap(next http.Handler) http.Handler {
 		defer span.End()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-// traceInjectHandler wraps an HTTPReqHandler and injects W3C TraceContext
-// headers (traceparent, tracestate) from the Go context into every outgoing
-// proxy request, so the downstream agent receives the active span as its parent.
-type traceInjectHandler struct {
-	next a2aclient.HTTPReqHandler
-}
-
-func (h *traceInjectHandler) Handle(ctx context.Context, client *http.Client, req *http.Request) (*http.Response, error) {
-	propagation.TraceContext{}.Inject(ctx, propagation.HeaderCarrier(req.Header))
-	return h.next.Handle(ctx, client, req)
 }
 
 // resolveProviderName looks up the ModelConfig for a declarative agent and

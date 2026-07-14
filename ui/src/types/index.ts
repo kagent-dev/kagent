@@ -217,6 +217,10 @@ export interface Session {
   created_at: string;
   updated_at: string;
   deleted_at: string;
+  /** Populated for sessions owned by another user; use as X-Share-Token to access. */
+  share_token?: string | null;
+  /** True when the share link that granted access is read-only. */
+  share_read_only?: boolean | null;
 }
 
 export interface ToolsResponse {
@@ -258,7 +262,30 @@ export interface McpServerTool extends TypedLocalReference {
   requireApproval?: string[];
 }
 
-export type AgentType = "Declarative" | "BYO" | "Sandbox" | "OpenClawSandbox";
+export type AgentType = "Declarative" | "BYO" | "AgentHarness";
+
+/**
+ * AgentHarness.spec.backend (go/api/v1alpha2/agentharness_types.go).
+ * Single source of truth for backend strings — forms, API payloads, and helpers should use this.
+ */
+export type AgentHarnessCrBackend =
+  | "openclaw"
+  | "hermes";
+/**
+ * Backends that support messenger channels (CR validation + channel form).
+ */
+export type AgentHarnessMessengerBackend = "openclaw" | "hermes";
+
+export const AGENT_HARNESS_MESSENGER_BACKENDS: readonly AgentHarnessMessengerBackend[] = [
+  "openclaw",
+  "hermes",
+];
+
+/**
+ * Backends only available on the Agent Substrate runtime.
+ * Mirrors the controller wiring: substrate registers all harness backends.
+ */
+export const AGENT_HARNESS_SUBSTRATE_ONLY_BACKENDS: readonly AgentHarnessCrBackend[] = [];
 
 /** Single Git repository source for skills. */
 export interface GitRepo {
@@ -275,12 +302,21 @@ export interface SkillForAgent {
   gitRefs?: GitRepo[];
 }
 
-/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). Spec matches Agent.spec (AgentSpec). */
+/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). */
 export interface SandboxAgent {
   apiVersion?: string;
   kind?: string;
   metadata: ResourceMetadata;
   spec: AgentSpec;
+}
+
+export interface SandboxSubstrateSpec {
+  workerPoolRef?: { name: string; namespace?: string };
+  snapshotsConfig?: { location: string };
+}
+
+export interface SandboxConfig {
+  network?: { allowedDomains?: string[] };
 }
 
 export interface AgentSpec {
@@ -289,6 +325,8 @@ export interface AgentSpec {
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
+  substrate?: SandboxSubstrateSpec;
+  sandbox?: SandboxConfig;
 }
 
 export interface DeclarativeDeploymentSpec {
@@ -339,6 +377,8 @@ export interface DeclarativeAgentSpec {
   memory?: MemorySpec;
   /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
   promptTemplate?: PromptTemplateSpec;
+  /** When true, the agent gains built-in share link tools (create/list/delete share tokens). */
+  shareTools?: boolean;
 }
 
 export interface ContextConfig {
@@ -417,14 +457,69 @@ export interface Agent {
   };
 }
 
-/** Merged into GET /api/agents for kagent.dev/v1alpha2 AgentHarness (openclaw/nemoclaw). */
-export interface OpenshellAgentHarnessListEntry {
+/** Merged into GET /api/agents for an AgentHarness backed by Agent Substrate. */
+export interface AgentHarnessListEntry {
   backend: string;
-  /** Gateway sandbox name for SSH (`namespace-name`); pass as `/openshell` `sandbox` query param. */
-  gatewaySandboxName: string;
+  actorId?: string;
+  /** Same-origin WebSocket path for the ACP chat proxy. */
+  acpPath?: string;
   modelConfigRef?: string;
   backendRefId?: string;
   endpoint?: string;
+}
+
+/** GET /api/substrate/status — WorkerPools, ActorTemplates, and ate-api actors/workers. */
+export interface SubstrateStatusResponse {
+  enabled: boolean;
+  ateApiError?: string;
+  workerPools: SubstrateWorkerPoolEntry[];
+  actorTemplates: SubstrateActorTemplateEntry[];
+  actors: SubstrateActorEntry[];
+  workers: SubstrateWorkerEntry[];
+}
+
+export interface SubstrateWorkerPoolEntry {
+  namespace: string;
+  name: string;
+  replicas: number;
+  ateomImage: string;
+}
+
+export interface SubstrateActorTemplateEntry {
+  namespace: string;
+  name: string;
+  phase?: string;
+  goldenActorId?: string;
+  goldenSnapshot?: string;
+  sandboxClass?: string;
+  workerSelector?: string;
+  harnessName?: string;
+  managedByKagent: boolean;
+}
+
+export interface SubstrateActorEntry {
+  actorId: string;
+  status: string;
+  actorTemplateNamespace?: string;
+  actorTemplateName?: string;
+  ateomPodNamespace?: string;
+  ateomPodName?: string;
+  ateomPodIp?: string;
+  latestSnapshot?: string;
+  workerPoolName?: string;
+  inProgressSnapshot?: string;
+  version?: number;
+}
+
+export interface SubstrateWorkerEntry {
+  workerNamespace: string;
+  workerPool: string;
+  workerPod: string;
+  actorNamespace?: string;
+  actorTemplate?: string;
+  actorId?: string;
+  ip?: string;
+  version?: number;
 }
 
 export interface AgentResponse {
@@ -437,7 +532,7 @@ export interface AgentResponse {
   deploymentReady: boolean;
   accepted: boolean;
   workloadMode?: "deployment" | "sandbox";
-  openshellAgentHarness?: OpenshellAgentHarnessListEntry;
+  substrateAgentHarness?: AgentHarnessListEntry;
 }
 
 export interface RemoteMCPServer {
@@ -483,6 +578,7 @@ export interface RemoteMCPServerSpec {
   timeout?: string;
   sseReadTimeout?: string;
   terminateOnClose?: boolean;
+  tls?: TLSConfig;
 }
 
 export interface RemoteMCPServerResponse {
@@ -538,6 +634,14 @@ export interface ToolServerCreateRequest {
   type: "RemoteMCPServer" | "MCPServer";
   remoteMCPServer?: RemoteMCPServer;
   mcpServer?: MCPServer;
+  // Optional companion Secrets to create or update alongside the
+  // ToolServer. Each entry materializes as a key in an Opaque Secret
+  // owned by the created resource so K8s GC cleans up on delete.
+  // Names referenced here must match a Secret described in this list
+  // (e.g. RemoteMCPServer.spec.tls.caCertSecretRef) for inline
+  // materialization; pre-existing Secrets can also be referenced by
+  // name without supplying material here.
+  secrets?: SecretMaterial[];
 }
 
 

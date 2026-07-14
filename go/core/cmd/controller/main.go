@@ -17,10 +17,11 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
+
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
 	pkgauth "github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/agentsxk8s"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -31,23 +32,25 @@ import (
 func main() {
 	authorizer := &auth.NoopAuthorizer{}
 	app.Start(func(bootstrap app.BootstrapConfig) (*app.ExtensionConfig, error) {
-		authenticator := getAuthenticator(bootstrap.Config.Auth)
+		authenticator, err := getAuthenticator(bootstrap.Config.Auth)
+		if err != nil {
+			return nil, err
+		}
 		return &app.ExtensionConfig{
-			Authenticator:  authenticator,
-			Authorizer:     authorizer,
-			AgentPlugins:   nil,
-			SandboxBackend: agentsxk8s.New(),
+			Authenticator: authenticator,
+			Authorizer:    authorizer,
+			AgentPlugins:  nil,
 		}, nil
 	}, nil)
 }
 
-func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) pkgauth.AuthProvider {
+func getAuthenticator(authCfg struct{ Mode, UserIDClaim string }) (pkgauth.AuthProvider, error) {
 	switch authCfg.Mode {
 	case "trusted-proxy":
-		return auth.NewProxyAuthenticator(authCfg.UserIDClaim)
+		return auth.NewProxyAuthenticator(authCfg.UserIDClaim), nil
 	case "unsecure":
-		return &auth.UnsecureAuthenticator{}
+		return &auth.UnsecureAuthenticator{}, nil
 	default:
-		panic("unknown auth mode: " + authCfg.Mode + " (valid modes: unsecure, trusted-proxy)")
+		return nil, fmt.Errorf("unknown auth mode %q (valid modes: unsecure, trusted-proxy)", authCfg.Mode)
 	}
 }

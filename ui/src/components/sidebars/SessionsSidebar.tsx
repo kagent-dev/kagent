@@ -6,6 +6,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import GroupedChats from "./GroupedChats";
 import type { AgentResponse, Session } from "@/types";
 import { Loader2 } from "lucide-react";
+import { sandboxChatMode } from "@/lib/sandboxAgentForm";
 
 interface SessionsSidebarProps {
   agentName: string;
@@ -13,16 +14,20 @@ interface SessionsSidebarProps {
   currentAgent: AgentResponse;
   allAgents: AgentResponse[];
   agentSessions: Session[];
+  acpSessions?: Array<{ sessionId: string; title?: string; updatedAt?: string }>;
+  onAcpSessionClick?: (sessionId: string) => void;
   isLoadingSessions?: boolean;
 }
 
-export default function SessionsSidebar({ 
-  agentName, 
+export default function SessionsSidebar({
+  agentName,
   agentNamespace,
-  currentAgent, 
-  allAgents, 
-  agentSessions, 
-  isLoadingSessions = false 
+  currentAgent,
+  allAgents,
+  agentSessions,
+  acpSessions = [],
+  onAcpSessionClick,
+  isLoadingSessions = false
 }: SessionsSidebarProps) {
     return (
     <Sidebar side="left" collapsible="offcanvas">
@@ -41,8 +46,10 @@ export default function SessionsSidebar({
               agentName={agentName}
               agentNamespace={agentNamespace}
               sessions={agentSessions}
-              hideNewChat={currentAgent.workloadMode === "sandbox"}
-              hideSessionDelete={currentAgent.workloadMode === "sandbox"}
+              acpSessions={acpSessions}
+              onAcpSessionClick={onAcpSessionClick}
+              chatMode={sandboxChatMode(currentAgent)}
+              isHarness={Boolean(currentAgent.substrateAgentHarness?.acpPath)}
             />
           )}
         </ScrollArea>

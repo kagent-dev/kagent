@@ -6,31 +6,42 @@ import (
 	"net"
 	"net/http"
 	"reflect"
-	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/cache"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 )
 
 type A2ARegistrar struct {
-	cache          crcache.Cache
-	handlerMux     A2AHandlerMux
-	clientRegistry *AgentClientRegistry
-	a2aBaseURL     string
-	sandboxA2AURL  string
-	authenticator  auth.AuthProvider
-	a2aBaseOptions []a2aclient.Option
+	cache                        crcache.Cache
+	handlerMux                   A2AHandlerMux
+	clientRegistry               *AgentClientRegistry
+	a2aBaseURL                   string
+	sandboxA2AURL                string
+	ateneRouterURL               string
+	authenticator                auth.AuthProvider
+	agentObserver                AgentObserver
+	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend
+	dbService                    database.Client
+}
+
+type AgentObserver interface {
+	NotifyAgentsChanged(ctx context.Context)
 }
 
 var _ manager.Runnable = (*A2ARegistrar)(nil)
@@ -41,26 +52,26 @@ func NewA2ARegistrar(
 	clientRegistry *AgentClientRegistry,
 	a2aBaseUrl string,
 	sandboxA2ABaseURL string,
+	ateneRouterURL string,
 	authenticator auth.AuthProvider,
-	streamingMaxBuf int,
-	streamingInitialBuf int,
-	streamingTimeout time.Duration,
+	agentObserver AgentObserver,
+	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend,
+	dbService database.Client,
 ) (*A2ARegistrar, error) {
 	if clientRegistry == nil {
 		return nil, fmt.Errorf("clientRegistry must not be nil")
 	}
 	reg := &A2ARegistrar{
-		cache:          cache,
-		handlerMux:     mux,
-		clientRegistry: clientRegistry,
-		a2aBaseURL:     a2aBaseUrl,
-		sandboxA2AURL:  sandboxA2ABaseURL,
-		authenticator:  authenticator,
-		a2aBaseOptions: []a2aclient.Option{
-			a2aclient.WithTimeout(streamingTimeout),
-			a2aclient.WithBuffer(streamingInitialBuf, streamingMaxBuf),
-			debugOpt(),
-		},
+		cache:                        cache,
+		handlerMux:                   mux,
+		clientRegistry:               clientRegistry,
+		a2aBaseURL:                   a2aBaseUrl,
+		sandboxA2AURL:                sandboxA2ABaseURL,
+		ateneRouterURL:               ateneRouterURL,
+		authenticator:                authenticator,
+		substrateSandboxActorBackend: substrateSandboxActorBackend,
+		agentObserver:                agentObserver,
+		dbService:                    dbService,
 	}
 
 	return reg, nil
@@ -102,7 +113,9 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			}
 			if err := a.upsertAgentHandler(ctx, agent, log); err != nil {
 				log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(agent))
+				return
 			}
+			a.notifyAgentChange(ctx)
 		},
 		UpdateFunc: func(oldObj, newObj any) {
 			oldAgent, ok1 := informerAgentObject(oldObj)
@@ -110,10 +123,18 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			if !ok1 || !ok2 {
 				return
 			}
-			if oldAgent.GetGeneration() != newAgent.GetGeneration() || !sameAgentSpec(oldAgent, newAgent) {
+			specChanged := oldAgent.GetGeneration() != newAgent.GetGeneration() || !sameAgentSpec(oldAgent, newAgent)
+			if specChanged {
 				if err := a.upsertAgentHandler(ctx, newAgent, log); err != nil {
 					log.Error(err, "failed to upsert A2A handler", "agent", common.GetObjectRef(newAgent))
+					return
 				}
+			}
+			// Also notify when readiness conditions change so subscribers don't
+			// hold stale agent lists (the resource filter uses Accepted +
+			// DeploymentReady, which are status conditions, not spec fields).
+			if specChanged || agentReadinessChanged(oldAgent, newAgent) {
+				a.notifyAgentChange(ctx)
 			}
 		},
 		DeleteFunc: func(obj any) {
@@ -125,12 +146,43 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			a.handlerMux.RemoveAgentHandler(ref)
 			a.clientRegistry.delete(ref)
 			log.V(1).Info("removed A2A handler", "agent", ref)
+			a.notifyAgentChange(ctx)
 		},
 	}); err != nil {
 		return fmt.Errorf("failed to add informer event handler for %T: %w", prototype, err)
 	}
 
 	return nil
+}
+
+func (a *A2ARegistrar) notifyAgentChange(ctx context.Context) {
+	if a.agentObserver != nil {
+		a.agentObserver.NotifyAgentsChanged(ctx)
+	}
+}
+
+func agentReadinessChanged(oldAgent, newAgent v1alpha2.AgentObject) bool {
+	return isAgentReady(oldAgent) != isAgentReady(newAgent)
+}
+
+func isAgentReady(agent v1alpha2.AgentObject) bool {
+	status := agent.GetAgentStatus()
+	if status == nil {
+		return false
+	}
+	workloadReady, accepted := false, false
+	for _, c := range status.Conditions {
+		if c.Type == v1alpha2.AgentConditionTypeReady && c.Status == metav1.ConditionTrue {
+			switch c.Reason {
+			case reconciler.AgentReadyReasonDeploymentReady, reconciler.AgentReadyReasonWorkloadReady:
+				workloadReady = true
+			}
+		}
+		if c.Type == v1alpha2.AgentConditionTypeAccepted && c.Status == metav1.ConditionTrue {
+			accepted = true
+		}
+	}
+	return workloadReady && accepted
 }
 
 func sameAgentSpec(oldAgent, newAgent v1alpha2.AgentObject) bool {
@@ -168,26 +220,52 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 
 	provider := resolveProviderName(ctx, a.cache, agent)
 
-	client, err := a2aclient.NewA2AClient(
-		card.URL,
-		append(
-			a.a2aBaseOptions,
-			a2aclient.WithHTTPReqHandler(
-				&traceInjectHandler{
-					next: authimpl.A2ARequestHandler(
-						a.authenticator,
-						agentRef,
-					),
-				},
-			),
-		)...,
+	httpClient := a2aHTTPClient()
+	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok &&
+		a.substrateSandboxActorBackend != nil {
+		routerURL := a.ateneRouterURL
+		if routerURL == "" {
+			routerURL = substrate.DefaultAtenetRouterURL
+		}
+		baseTransport := http.DefaultTransport
+		if httpClient != nil && httpClient.Transport != nil {
+			baseTransport = httpClient.Transport
+		}
+		transport, err := newSubstrateSandboxSessionRoundTripper(routerURL, sa, a.substrateSandboxActorBackend, baseTransport, a.dbService)
+		if err != nil {
+			return fmt.Errorf("substrate sandbox A2A transport for %s: %w", agentRef, err)
+		}
+		httpClient = &http.Client{Transport: transport}
+	}
+
+	client, err := a2aclient.NewFromEndpoints(
+		ctx,
+		// TODO(0.11.0): Prefer A2A 1.0 interfaces by default once managed runtimes are v1-capable.
+		// Keep legacy fallback during rollout so old agent pods continue to serve traffic.
+		filterInterfacesByVersion(card.SupportedInterfaces, a2atype.ProtocolVersion("0.3")),
+		a2aclient.WithJSONRPCTransport(httpClient),
+		// TODO(0.11.0): Remove the compat transport after legacy runtimes are unsupported.
+		a2aclient.WithCompatTransport(
+			a2atype.ProtocolVersion("0.3"),
+			a2atype.TransportProtocolJSONRPC,
+			// This creates a legacy JSON-RPC transport that is used to forward traffic to agents that are still on the legacy A2A wire.
+			a2aclient.TransportFactoryFn(func(_ context.Context, _ *a2atype.AgentCard, iface *a2atype.AgentInterface) (a2aclient.Transport, error) {
+				return a2av0.NewJSONRPCTransport(a2av0.JSONRPCTransportConfig{
+					URL:    iface.URL,
+					Client: httpClient,
+				}), nil
+			}),
+		),
+		a2aclient.WithCallInterceptors(
+			NewUpstreamAuthInterceptor(a.authenticator, agentRef),
+		),
 	)
 	if err != nil {
 		return fmt.Errorf("create A2A client for %s: %w", agentRef, err)
 	}
 
 	cardCopy := *card
-	cardCopy.URL = a.a2aRouteURL(agent)
+	cardCopy.SupportedInterfaces = cloneInterfacesWithURL(card.SupportedInterfaces, a.a2aRouteURL(agent))
 
 	routeRef := a2aRouteKey(agent)
 	if err := a.handlerMux.SetAgentHandler(routeRef, client, cardCopy, newA2ATracingMiddleware(agentRef, provider)); err != nil {
@@ -200,20 +278,22 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 	return nil
 }
 
-func debugOpt() a2aclient.Option {
-	debugAddr := env.KagentA2ADebugAddr.Get()
-	if debugAddr != "" {
-		client := new(http.Client)
+// a2aHTTPClient returns the HTTP client to use for A2A requests to agent pods.
+// It respects KAGENT_A2A_CLIENT_TIMEOUT (default 0 = no timeout), overriding the
+// a2a-go SDK's built-in 3-minute default which is too short for long-running
+// streaming agents. When KAGENT_A2A_DEBUG_ADDR is set, the dial target is
+// redirected to that fixed address (e.g. a local proxy) for debugging.
+func a2aHTTPClient() *http.Client {
+	client := &http.Client{Timeout: env.KagentA2AClientTimeout.Get()}
+	if debugAddr := env.KagentA2ADebugAddr.Get(); debugAddr != "" {
 		client.Transport = &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				var zeroDialer net.Dialer
 				return zeroDialer.DialContext(ctx, network, debugAddr)
 			},
 		}
-		return a2aclient.WithHTTPClient(client)
-	} else {
-		return func(*a2aclient.A2AClient) {}
 	}
+	return client
 }
 
 func (a *A2ARegistrar) a2aRouteURL(agent v1alpha2.AgentObject) string {
@@ -231,4 +311,48 @@ func a2aRouteKey(agent v1alpha2.AgentObject) string {
 func a2aRoutePath(agent v1alpha2.AgentObject) string {
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
 	return routeKey(agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox, agentRef.Namespace, agentRef.Name)
+}
+
+// cloneInterfacesWithURL clones the interfaces and sets the URL to the given value.
+func cloneInterfacesWithURL(interfaces []*a2atype.AgentInterface, url string) []*a2atype.AgentInterface {
+	if len(interfaces) == 0 {
+		return []*a2atype.AgentInterface{
+			{
+				URL:             url,
+				ProtocolBinding: a2atype.TransportProtocolJSONRPC,
+				ProtocolVersion: a2atype.Version,
+			},
+		}
+	}
+	result := make([]*a2atype.AgentInterface, 0, len(interfaces))
+	for _, i := range interfaces {
+		if i == nil {
+			continue
+		}
+		copied := *i
+		copied.URL = url
+		if copied.ProtocolVersion == "" {
+			copied.ProtocolVersion = a2atype.Version
+		}
+		result = append(result, &copied)
+	}
+	return result
+}
+
+// filterInterfacesByVersion filters the interfaces to only include the ones that match the given version.
+// Currently, this is used to select the A2A 0.3 interface for managed agents.
+func filterInterfacesByVersion(interfaces []*a2atype.AgentInterface, version a2atype.ProtocolVersion) []*a2atype.AgentInterface {
+	filtered := make([]*a2atype.AgentInterface, 0, len(interfaces))
+	for _, i := range interfaces {
+		if i == nil {
+			continue
+		}
+		if i.ProtocolVersion == version {
+			filtered = append(filtered, i)
+		}
+	}
+	if len(filtered) > 0 {
+		return filtered
+	}
+	return interfaces
 }

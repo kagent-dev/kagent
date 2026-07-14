@@ -18,23 +18,53 @@ import (
 
 // AgentHarnessBackendType selects which sandbox control plane provisions the
 // environment. Additional backends may be added in the future.
-// +kubebuilder:validation:Enum=openclaw;nemoclaw;hermes
+// +kubebuilder:validation:Enum=openclaw;hermes
 type AgentHarnessBackendType string
 
 const (
 	AgentHarnessBackendOpenClaw AgentHarnessBackendType = "openclaw"
-	AgentHarnessBackendNemoClaw AgentHarnessBackendType = "nemoclaw"
 	AgentHarnessBackendHermes   AgentHarnessBackendType = "hermes"
 )
 
-// IsKnownAgentHarnessBackend reports backends the OpenShell harness controller and API expose.
+// IsKnownAgentHarnessBackend reports backends the API exposes.
 func IsKnownAgentHarnessBackend(b AgentHarnessBackendType) bool {
 	switch b {
-	case AgentHarnessBackendOpenClaw, AgentHarnessBackendNemoClaw, AgentHarnessBackendHermes:
+	case AgentHarnessBackendOpenClaw, AgentHarnessBackendHermes:
 		return true
 	default:
 		return false
 	}
+}
+
+// AgentHarnessSubstrateSnapshotsConfig points at a GCS prefix for actor memory snapshots.
+// Substrate currently expects a gs:// location (see Agent Substrate SnapshotsConfig).
+type AgentHarnessSubstrateSnapshotsConfig struct {
+	// Location is the GCS URI prefix for golden and incremental snapshots.
+	// Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
+	// +required
+	// +kubebuilder:validation:Pattern=`^gs://`
+	Location string `json:"location"`
+}
+
+// AgentHarnessSubstrateSpec configures Agent Substrate (WorkerPool + ActorTemplate + Actor).
+//
+// kagent generates a per-harness ActorTemplate and creates an Actor from it. WorkerPool
+// capacity is referenced from workerPoolRef or the controller default; it is not
+// created or deleted by the AgentHarness controller.
+type AgentHarnessSubstrateSpec struct {
+	// WorkerPoolRef references an existing ate.dev WorkerPool in the harness namespace.
+	// When unset, the controller uses its configured default WorkerPool.
+	// +optional
+	WorkerPoolRef *TypedLocalReference `json:"workerPoolRef,omitempty"`
+
+	// SnapshotsConfig configures actor memory snapshots. Defaults to
+	// gs://ate-snapshots/<namespace>/<agentharnessname> when unset.
+	// +optional
+	SnapshotsConfig *AgentHarnessSubstrateSnapshotsConfig `json:"snapshotsConfig,omitempty"`
+
+	// WorkloadImage overrides the default openclaw sandbox image in the ActorTemplate.
+	// +optional
+	WorkloadImage string `json:"workloadImage,omitempty"`
 }
 
 // AgentHarnessChannelType selects a messenger integration for OpenClaw harness VMs.
@@ -80,7 +110,7 @@ type AgentHarnessTelegramChannelSpec struct {
 	AllowedUserIDsFrom *ValueSource `json:"allowedUserIDsFrom,omitempty"`
 }
 
-// AgentHarnessOpenClawSlackOptions configures OpenClaw/NemoClaw-specific Slack routing.
+// AgentHarnessOpenClawSlackOptions configures OpenClaw-specific Slack routing.
 //
 // +kubebuilder:validation:XValidation:rule="!has(self.channelAccess) || self.channelAccess != 'allowlist' || (has(self.allowlistChannels) && size(self.allowlistChannels) > 0)",message="allowlistChannels is required when channelAccess is allowlist"
 type AgentHarnessOpenClawSlackOptions struct {
@@ -121,7 +151,7 @@ type AgentHarnessSlackChannelSpec struct {
 	BotToken AgentHarnessChannelCredential `json:"botToken"`
 	// +required
 	AppToken AgentHarnessChannelCredential `json:"appToken"`
-	// OpenClaw configures OpenClaw/NemoClaw-specific Slack routing.
+	// OpenClaw configures OpenClaw-specific Slack routing.
 	// +optional
 	OpenClaw *AgentHarnessOpenClawSlackOptions `json:"openclaw,omitempty"`
 	// Hermes configures Hermes-specific Slack settings.
@@ -152,19 +182,24 @@ type AgentHarnessChannel struct {
 // An AgentHarness is distinct from a SandboxAgent: it has no agent runtime baked
 // in. The backend is responsible for provisioning an environment that stays
 // ready to accept incoming commands.
-// +kubebuilder:validation:XValidation:rule="!has(self.channels) || self.channels.all(c, c.type != 'slack' || (has(c.slack) && ((self.backend == 'hermes' && has(c.slack.hermes) && !has(c.slack.openclaw)) || ((self.backend == 'openclaw' || self.backend == 'nemoclaw') && has(c.slack.openclaw) && !has(c.slack.hermes)))))",message="slack backend-specific settings must match spec.backend"
+// +kubebuilder:validation:XValidation:rule="!has(self.channels) || self.channels.all(c, c.type != 'slack' || (has(c.slack) && ((self.backend == 'hermes' && has(c.slack.hermes) && !has(c.slack.openclaw)) || (self.backend == 'openclaw' && has(c.slack.openclaw) && !has(c.slack.hermes)))))",message="slack backend-specific settings must match spec.backend"
+// +kubebuilder:validation:XValidation:rule="has(self.substrate)",message="spec.substrate is required"
 type AgentHarnessSpec struct {
 	// Backend selects the control plane to use. Required.
 	// +required
 	Backend AgentHarnessBackendType `json:"backend"`
+
+	// Substrate configures the Agent Substrate provisioning stack. Required.
+	// +required
+	Substrate *AgentHarnessSubstrateSpec `json:"substrate,omitempty"`
 
 	// Description is a short human-readable summary shown in the UI (e.g. agents list).
 	// +optional
 	Description string `json:"description,omitempty"`
 
 	// Image is the container image to run in the harness VM, if the backend
-	// supports per-resource images. Backends openclaw and nemoclaw pin the image
-	// to the NemoClaw sandbox base when this field is empty; backend hermes pins
+	// supports per-resource images. Backend openclaw pins the image
+	// to the OpenClaw sandbox base when this field is empty; backend hermes pins
 	// to the Hermes sandbox base image when empty.
 	// +optional
 	Image string `json:"image,omitempty"`
@@ -174,11 +209,6 @@ type AgentHarnessSpec struct {
 	// resolved server-side where supported.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
-
-	// Network controls outbound access from the harness. When unset,
-	// backend defaults apply.
-	// +optional
-	Network *AgentHarnessNetwork `json:"network,omitempty"`
 
 	// ModelConfigRef is the reference to the ModelConfig used to configure the harness.
 	// The controller registers the gateway provider and, after the harness is Ready,
@@ -190,13 +220,6 @@ type AgentHarnessSpec struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=1024
 	Channels []AgentHarnessChannel `json:"channels,omitempty"`
-}
-
-// AgentHarnessNetwork captures the minimal network-policy knobs exposed to users.
-type AgentHarnessNetwork struct {
-	// AllowedDomains is a list of DNS names the harness may reach.
-	// +optional
-	AllowedDomains []string `json:"allowedDomains,omitempty"`
 }
 
 // AgentHarnessConnection describes how clients reach the provisioned harness VM.
@@ -234,8 +257,11 @@ type AgentHarnessStatus struct {
 
 // AgentHarnessConditionType enumerates the condition types an AgentHarness may report.
 const (
-	AgentHarnessConditionTypeReady    = "Ready"
-	AgentHarnessConditionTypeAccepted = "Accepted"
+	AgentHarnessConditionTypeReady              = "Ready"
+	AgentHarnessConditionTypeAccepted           = "Accepted"
+	AgentHarnessConditionTypeActorTemplateReady = "ActorTemplateReady"
+	AgentHarnessConditionTypeActorReady         = "ActorReady"
+	AgentHarnessConditionTypeBootstrapReady     = "BootstrapReady"
 )
 
 // +kubebuilder:object:root=true
@@ -246,8 +272,8 @@ const (
 // +kubebuilder:printcolumn:name="ID",type="string",JSONPath=".status.backendRef.id"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// AgentHarness is a generic remote execution environment provisioned by a backend
-// (e.g. OpenShell) and addressable by exec/SSH.
+// AgentHarness is a generic remote execution environment provisioned by a
+// backend (OpenClaw or Hermes) running on Agent Substrate.
 type AgentHarness struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional

@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -23,8 +25,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 func setUser(req *http.Request, userID string) *http.Request {
@@ -42,6 +44,8 @@ func TestSessionsHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
 	err := v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
+	err = v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
 
 	setupHandler := func(t *testing.T) (*handlers.SessionsHandler, database.Client, *mockErrorResponseWriter) {
 		kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -52,7 +56,7 @@ func TestSessionsHandler(t *testing.T) {
 			DatabaseService:    dbClient,
 			DefaultModelConfig: types.NamespacedName{Namespace: "default", Name: "default"},
 		}
-		handler := handlers.NewSessionsHandler(base)
+		handler := handlers.NewSessionsHandler(base, nil)
 		responseRecorder := newMockErrorResponseWriter()
 		return handler, dbClient, responseRecorder
 	}
@@ -156,6 +160,8 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, "test-session", *response.Data.Name)
 			assert.Equal(t, userID, response.Data.UserID)
 			assert.NotEmpty(t, response.Data.ID)
+			assert.False(t, response.Data.CreatedAt.IsZero())
+			assert.False(t, response.Data.UpdatedAt.IsZero())
 		})
 
 		t.Run("MissingUserID", func(t *testing.T) {
@@ -253,6 +259,41 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, http.StatusConflict, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)
 		})
+
+		t.Run("SubstrateSandboxAgentAllowsMultipleSessions", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			userID := "test-user"
+			agentRef := utils.ConvertToPythonIdentifier("kagent/test-substrate-agent")
+
+			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha2.SandboxAgent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-substrate-agent",
+					Namespace: "kagent",
+				},
+				Spec: v1alpha2.SandboxAgentSpec{},
+			}).Build()
+			handler.KubeClient = kubeClient
+
+			require.NoError(t, dbClient.StoreAgent(context.Background(), &database.Agent{
+				ID:           agentRef,
+				WorkloadType: v1alpha2.WorkloadModeSandbox,
+			}))
+			createTestSession(t, dbClient, "existing-session", "other-user", agentRef)
+
+			sessionReq := api.SessionRequest{
+				AgentRef: &agentRef,
+				Name:     new("second-session"),
+			}
+
+			jsonBody, _ := json.Marshal(sessionReq)
+			req := httptest.NewRequest("POST", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = setUser(req, userID)
+
+			handler.HandleCreateSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusCreated, responseRecorder.Code)
+		})
 	})
 
 	t.Run("HandleGetSession", func(t *testing.T) {
@@ -349,6 +390,53 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, event1.ID, response.Data.Events[0].ID)
 			assert.Equal(t, event2.ID, response.Data.Events[1].ID)
 		})
+
+		t.Run("OwnerSeesNilReadOnly", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			ownerID := "owner-user"
+			sessionID := "owned-session"
+			agentID := "1"
+			createTestSession(t, dbClient, sessionID, ownerID, agentID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, ownerID)
+
+			handler.HandleGetSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[handlers.SessionResponse]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			assert.Nil(t, response.Data.ReadOnly)
+		})
+
+		t.Run("ShareVisitorSeesReadOnlyTrue", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			ownerID := "owner-user"
+			visitorID := "visitor-user"
+			sessionID := "shared-session"
+			agentID := "1"
+			createTestSession(t, dbClient, sessionID, ownerID, agentID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, visitorID)
+			ctx := auth.ShareContextTo(req.Context(), &auth.ShareContext{
+				Token:     "tok",
+				SessionID: sessionID,
+				UserID:    ownerID,
+				ReadOnly:  true,
+			})
+			req = req.WithContext(ctx)
+
+			handler.HandleGetSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[handlers.SessionResponse]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			require.NotNil(t, response.Data.ReadOnly)
+			assert.True(t, *response.Data.ReadOnly)
+		})
 	})
 
 	t.Run("HandleUpdateSession", func(t *testing.T) {
@@ -366,13 +454,13 @@ func TestSessionsHandler(t *testing.T) {
 			newAgent := createTestAgent(t, dbClient, newAgentRef)
 
 			sessionReq := api.SessionRequest{
-				Name:     &sessionName,
 				AgentRef: &newAgentRef,
 			}
 
 			jsonBody, _ := json.Marshal(sessionReq)
-			req := httptest.NewRequest("PUT", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/sessions/"+session.ID, bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = mux.SetURLVars(req, map[string]string{"session_id": session.ID})
 			req = setUser(req, userID)
 
 			handler.HandleUpdateSession(responseRecorder, req)
@@ -386,18 +474,55 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, newAgent.ID, *response.Data.AgentID)
 		})
 
-		t.Run("MissingSessionName", func(t *testing.T) {
-			handler, _, responseRecorder := setupHandler(t)
+		t.Run("RenameOnly", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
-			agentRef := "default/test-agent"
+			sessionID := "rename-session"
 
+			agentRef := utils.ConvertToPythonIdentifier("default/test-agent")
+			agent := createTestAgent(t, dbClient, agentRef)
+			session := createTestSession(t, dbClient, sessionID, userID, agent.ID)
+
+			newName := "my new name"
 			sessionReq := api.SessionRequest{
-				AgentRef: &agentRef,
+				Name: &newName,
 			}
 
 			jsonBody, _ := json.Marshal(sessionReq)
-			req := httptest.NewRequest("PUT", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PATCH", "/api/sessions/"+session.ID, bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = mux.SetURLVars(req, map[string]string{"session_id": session.ID})
+			req = setUser(req, userID)
+
+			handler.HandleUpdateSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+
+			var response api.StandardResponse[*database.Session]
+			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
+			require.NoError(t, err)
+			assert.Equal(t, session.ID, response.Data.ID)
+			require.NotNil(t, response.Data.Name)
+			assert.Equal(t, newName, *response.Data.Name)
+			// Agent must be left untouched when only the name is updated.
+			assert.Equal(t, agent.ID, *response.Data.AgentID)
+		})
+
+		t.Run("MissingNameAndAgentRef", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			userID := "test-user"
+			sessionID := "empty-update-session"
+
+			agentRef := utils.ConvertToPythonIdentifier("default/test-agent")
+			agent := createTestAgent(t, dbClient, agentRef)
+			createTestSession(t, dbClient, sessionID, userID, agent.ID)
+
+			sessionReq := api.SessionRequest{}
+
+			jsonBody, _ := json.Marshal(sessionReq)
+			req := httptest.NewRequest("PATCH", "/api/sessions/"+sessionID, bytes.NewBuffer(jsonBody))
+			req.Header.Set("Content-Type", "application/json")
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
 			req = setUser(req, userID)
 
 			handler.HandleUpdateSession(responseRecorder, req)
@@ -409,19 +534,19 @@ func TestSessionsHandler(t *testing.T) {
 		t.Run("SessionNotFound", func(t *testing.T) {
 			handler, dbClient, responseRecorder := setupHandler(t)
 			userID := "test-user"
-			sessionName := "non-existent-session"
+			sessionID := "non-existent-session"
 			agentRef := "default/test-agent"
 
 			createTestAgent(t, dbClient, agentRef)
 
 			sessionReq := api.SessionRequest{
-				Name:     &sessionName,
 				AgentRef: &agentRef,
 			}
 
 			jsonBody, _ := json.Marshal(sessionReq)
-			req := httptest.NewRequest("PUT", "/api/sessions", bytes.NewBuffer(jsonBody))
+			req := httptest.NewRequest("PUT", "/api/sessions/"+sessionID, bytes.NewBuffer(jsonBody))
 			req.Header.Set("Content-Type", "application/json")
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
 			req = setUser(req, userID)
 
 			handler.HandleUpdateSession(responseRecorder, req)
@@ -471,6 +596,28 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)
 		})
+
+		t.Run("AgentlessSessionSkipsSubstrateCleanup", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			// Non-nil backend so the cleanup preflight runs: a session with no AgentID has no
+			// actor to clean up and must still delete (not 404).
+			handler.SubstrateSandboxActorBackend = &substrate.SandboxAgentActorBackend{}
+			userID := "test-user"
+			sessionID := "agentless-session"
+			require.NoError(t, dbClient.StoreSession(context.Background(), &database.Session{
+				ID: sessionID, UserID: userID,
+			}))
+
+			req := httptest.NewRequest("DELETE", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, userID)
+
+			handler.HandleDeleteSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			_, err := dbClient.GetSession(context.Background(), sessionID, userID)
+			assert.Error(t, err, "session row must be deleted")
+		})
 	})
 
 	t.Run("HandleGetSessionsForAgent", func(t *testing.T) {
@@ -497,7 +644,7 @@ func TestSessionsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
 
-			var response api.StandardResponse[[]*database.Session]
+			var response api.StandardResponse[[]database.SessionWithShareToken]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
 			require.NoError(t, err)
 			assert.Len(t, response.Data, 2)
@@ -532,24 +679,25 @@ func TestSessionsHandler(t *testing.T) {
 			agentID := "1"
 			createTestSession(t, dbClient, sessionID, userID, agentID)
 
-			require.NoError(t, dbClient.StoreTask(context.Background(), &protocol.Task{
+			require.NoError(t, dbClient.StoreTask(context.Background(), &a2a.Task{
 				ID:        "task-1",
 				ContextID: sessionID,
 			}))
-			require.NoError(t, dbClient.StoreTask(context.Background(), &protocol.Task{
+			require.NoError(t, dbClient.StoreTask(context.Background(), &a2a.Task{
 				ID:        "task-2",
 				ContextID: sessionID,
 			}))
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/tasks", nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req.Header.Set("A2A-Version", "1.0")
 			req = setUser(req, userID)
 
 			handler.HandleListTasksForSession(responseRecorder, req)
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
 
-			var response api.StandardResponse[[]*protocol.Task]
+			var response api.StandardResponse[[]*a2a.Task]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
 			require.NoError(t, err)
 			assert.Len(t, response.Data, 2)

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
-import { getAgent as getAgentAction, createAgent, getAgents } from "@/app/actions/agents";
+import { getAgentWithResolvedKind, createAgent, getAgents } from "@/app/actions/agents";
 import { getTools } from "@/app/actions/tools";
 import type {
   Agent,
@@ -19,8 +19,8 @@ import type {
 import { getModelConfigs } from "@/app/actions/modelConfigs";
 import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
 import type { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
-import type { AgentHarnessSandboxBackend, OpenClawSandboxFormSlice } from "@/lib/openClawSandboxForm";
-import { validateOpenClawSandboxForm } from "@/lib/openClawSandboxForm";
+import type { AgentHarnessFormSlice } from "@/lib/agentHarnessForm";
+import { validateAgentHarnessForm } from "@/lib/agentHarnessForm";
 import { isResourceNameValid } from "@/lib/utils";
 
 export type ValidationErrors = AgentFormValidationErrors;
@@ -30,6 +30,8 @@ export interface AgentFormData {
   namespace: string;
   description: string;
   type?: AgentType;
+  /** When true, create/update a SandboxAgent CR instead of Agent. */
+  runInSandbox?: boolean;
   /** Python vs Go ADK for declarative / sandbox (non-BYO) workloads. */
   declarativeRuntime?: DeclarativeRuntime;
   // Declarative fields
@@ -48,10 +50,11 @@ export interface AgentFormData {
   };
   // Context management
   context?: ContextConfig;
+  /** When true, enables the built-in share link tools for this agent. */
+  shareTools?: boolean;
   promptSources?: Array<{ name: string; alias: string }>;
-  /** AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; openclaw, nemoclaw, or hermes backend). */
-  openClawSandbox?: OpenClawSandboxFormSlice;
-  harnessBackend?: AgentHarnessSandboxBackend;
+  /** AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; openclaw or hermes backend). */
+  agentHarness?: AgentHarnessFormSlice;
   // BYO fields
   byoImage?: string;
   byoCmd?: string;
@@ -66,6 +69,9 @@ export interface AgentFormData {
   env?: EnvVar[];
   imagePullPolicy?: string;
   serviceAccountName?: string;
+  /** Optional Agent Substrate settings when runInSandbox is true. */
+  substrateWorkerPoolRefName?: string;
+  substrateSnapshotsLocation?: string;
 }
 
 export interface AgentsContextType {
@@ -125,11 +131,14 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const fetchModels = useCallback(async () => {
     try {
       const response = await getModelConfigs();
-      if (!response.data || response.error) {
-        throw new Error(response.error || "Failed to fetch models");
+      if (response.error) {
+        throw new Error(response.error);
       }
 
-      setModels(response.data);
+      // An empty list is a valid result (e.g. no ModelConfigs deployed). The
+      // backend omits `data` for empty collections (json omitempty), so treat
+      // missing data as an empty list rather than a fetch failure.
+      setModels(response.data ?? []);
       setError("");
     } catch (err) {
       console.error("Error fetching models:", err);
@@ -175,30 +184,31 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
     const type = data.type || "Declarative";
 
-    if (data.description !== undefined && !data.description.trim() && type !== "OpenClawSandbox") {
+    if (data.description !== undefined && !data.description.trim() && type !== "AgentHarness") {
       errors.description = "Description is required";
     }
 
-    const byoImage = data.byoImage;
-
-    if (type === "OpenClawSandbox") {
+    if (type === "AgentHarness") {
       if (!data.modelName || data.modelName.trim() === "") {
         errors.model = "Please select a model config";
       }
-      if (data.openClawSandbox !== undefined) {
-        const oc = validateOpenClawSandboxForm({
-          openClaw: data.openClawSandbox,
+      // Validate harness-specific config (channels, runtime) only once a model
+      // is chosen. The missing-model case is surfaced via `errors.model` next to
+      // the model dropdown, so we don't also report it as a general harness error
+      // (which renders below the dropdown).
+      if (data.agentHarness !== undefined && data.modelName && data.modelName.trim() !== "") {
+        const oc = validateAgentHarnessForm({
+          harness: data.agentHarness,
           modelRef: data.modelName,
-          backend: data.harnessBackend,
         });
         if (oc) {
-          errors.openClawSandbox = oc;
+          errors.agentHarness = oc;
         }
       }
       return errors;
     }
 
-    if (formUsesDeclarativeSections(type, byoImage)) {
+    if (formUsesDeclarativeSections(type)) {
       if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
         errors.systemPrompt = "Agent instructions are required";
       }
@@ -214,7 +224,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
           errors.memoryTtl = "TTL must be at least 1 day";
         }
       }
-    } else if (formUsesByoSections(type, byoImage)) {
+    } else if (formUsesByoSections(type)) {
       if (!data.byoImage || data.byoImage.trim() === "") {
         errors.model = "Container image is required";
       }
@@ -227,7 +237,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
     }
 
-    if (formUsesDeclarativeSections(type, byoImage)) {
+    if (formUsesDeclarativeSections(type)) {
       const sources = (data.promptSources || []).filter((s) => s.name.trim());
       for (const s of sources) {
         if (!isResourceNameValid(s.name.trim())) {
@@ -249,7 +259,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
   const getAgent = useCallback(async (name: string, namespace: string): Promise<AgentResponse | null> => {
     try {
       // Fetch all agents
-      const agentResult = await getAgentAction(name, namespace);
+      const agentResult = await getAgentWithResolvedKind(name, namespace);
       if (!agentResult.data || agentResult.error) {
         console.error("Failed to get agent:", agentResult.error);
         setError("Failed to get agent");
@@ -280,11 +290,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
 
       const result = await createAgent(agentData);
 
-      if (!result.error) {
-        // Refresh agents to get the newly created one
-        await fetchAgents();
-      }
-
       return result;
     } catch (error) {
       console.error("Error creating agent:", error);
@@ -293,7 +298,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to create agent",
       };
     }
-  }, [fetchAgents, validateAgentData]);
+  }, [validateAgentData]);
 
   // Update existing agent
   const updateAgent = useCallback(async (agentData: AgentFormData): Promise<BaseResponse<Agent>> => {
@@ -308,11 +313,6 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       // Use the same createAgent endpoint for updates
       const result = await createAgent(agentData, true);
 
-      if (!result.error) {
-        // Refresh agents to get the updated one
-        await fetchAgents();
-      }
-
       return result;
     } catch (error) {
       console.error("Error updating agent:", error);
@@ -321,14 +321,13 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
         error: error instanceof Error ? error.message : "Failed to update agent",
       };
     }
-  }, [fetchAgents, validateAgentData]);
+  }, [validateAgentData]);
 
   // Initial fetches
   useEffect(() => {
-    fetchAgents();
     fetchTools();
     fetchModels();
-  }, [fetchAgents, fetchTools, fetchModels]);
+  }, [fetchTools, fetchModels]);
 
   const value = {
     agents,

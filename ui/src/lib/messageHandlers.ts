@@ -60,8 +60,18 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
       // Agent messages: convert function_call / function_response DataParts to
       // the same ToolCallRequestEvent / ToolCallExecutionEvent format produced
       // by the live-stream handlers so the rendering component can display them.
-      const msgContextId = historyItem.contextId ?? task.contextId;
-      const msgTaskId = historyItem.taskId ?? task.id;
+      //
+      // Backfill contextId/taskId from the task when the history item omits them.
+      // Persisted agent messages (both tool and text) frequently carry empty
+      // strings here, and `??` would keep the empty string ("" is not nullish).
+      // The locally-streamed copies of these messages carry the task's real ids,
+      // so the send guard keys them on (contextId, taskId); without the backfill
+      // the backend-extracted copies fall back to messageId and never match the
+      // local ones, counting the backend as ahead and falsely blocking the next
+      // send on every turn. Treat "" as absent so both copies get the task's
+      // stable ids. Applied to every extracted agent message below.
+      const msgContextId = historyItem.contextId || task.contextId;
+      const msgTaskId = historyItem.taskId || task.id;
       const source = getSourceFromMetadata(historyItem.metadata as ADKMetadata | undefined, "assistant");
       const msgStats = getMessageTokenStats(historyItem.metadata as Record<string, unknown>);
 
@@ -122,6 +132,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
                 name: toolData.name,
                 content: normalizeToolResultToText(toolData),
                 is_error: toolData.response?.isError || false,
+                raw_result: getRawToolResult(toolData),
                 ...(frSubagentSessionId ? { subagent_session_id: frSubagentSessionId } : {}),
               }],
             },
@@ -149,12 +160,16 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
         }
       }
 
-      // Text messages (or any message without data parts): push with tokenStats.
+      // Text messages (or any message without data parts): push with tokenStats
+      // and the backfilled contextId/taskId so they key the same way the
+      // locally-streamed copy does.
       if (!hasConvertedParts) {
-        messages.push(msgStats
-          ? { ...historyItem, metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } }
-          : historyItem
-        );
+        messages.push({
+          ...historyItem,
+          contextId: msgContextId,
+          taskId: msgTaskId,
+          ...(msgStats ? { metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } } : {}),
+        });
       }
     }
   }
@@ -477,6 +492,7 @@ export interface ToolResponseData {
   response?: {
     isError?: boolean;
     result?: unknown;
+    [key: string]: unknown;
   };
 }
 
@@ -493,7 +509,12 @@ export interface ProcessedToolResultData {
   name: string;
   content: string;
   is_error: boolean;
+  raw_result?: unknown;
   subagent_session_id?: string;
+}
+
+export function getRawToolResult(toolData: ToolResponseData): unknown {
+  return toolData.response?.result ?? toolData.response;
 }
 
 // Normalize various tool response result shapes into plain text
@@ -727,6 +748,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       name: toolData.name,
       content,
       is_error: toolData.response?.isError || false,
+      raw_result: getRawToolResult(toolData),
       ...(subagentSessionId ? { subagent_session_id: subagentSessionId } : {}),
     }];
     const execEvent = createMessage(
@@ -992,6 +1014,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
             name: toolData.name,
             content: textContent,
             is_error: toolData.response?.isError || false,
+            raw_result: getRawToolResult(toolData),
             ...(artifactSubagentSessionId ? { subagent_session_id: artifactSubagentSessionId } : {}),
           }];
           const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolResultData: toolResultContent } });
@@ -999,8 +1022,13 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
           continue;
         }
 
+        // Skip empty data parts (e.g. the lastChunk sentinel emitted by the Go ADK executor).
+        if (!data || (typeof data === "object" && Object.keys(data).length === 0)) {
+          continue;
+        }
+
         try {
-          artifactText += JSON.stringify(data || "");
+          artifactText += JSON.stringify(data);
         } catch {
           artifactText += String(data);
         }
@@ -1056,7 +1084,52 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       if (handlers.setChatStatus) {
         handlers.setChatStatus("ready");
       }
+      return;
     }
+
+    // Non-lastChunk artifact updates: the Go ADK executor streams responses as
+    // artifact-update events stamped with adk_partial (true for token chunks,
+    // false for the complete message), with lastChunk only on a final empty sentinel.
+    const partialFlag = getMetadataValue<boolean>(adkMetadata as Record<string, unknown>, "partial");
+
+    if (partialFlag === true) {
+      // Streaming token chunk — accumulate into the live streaming view.
+      if (artifactText) {
+        handlers.setIsStreaming(true);
+        handlers.setStreamingContent(prevContent => prevContent + artifactText);
+        if (handlers.setChatStatus) {
+          handlers.setChatStatus("generating_response");
+        }
+      }
+      return;
+    }
+
+    if (partialFlag === false) {
+      // Complete (non-partial) artifact — emit it as the final message.
+      handlers.setIsStreaming(false);
+      handlers.setStreamingContent(() => "");
+
+      const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
+      if (artifactText) {
+        const displayMessage = createMessage(
+          artifactText,
+          source,
+          {
+            originalType: "TextMessage",
+            contextId: artifactUpdate.contextId,
+            taskId: artifactUpdate.taskId,
+            additionalMetadata: { ...(turnStats && { tokenStats: turnStats }) }
+          }
+        );
+        handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
+      }
+
+      if (convertedMessages.length > 0) {
+        handlers.setMessages(prevMessages => [...prevMessages, ...convertedMessages]);
+      }
+    }
+    // partialFlag === undefined: no partial stamping (Python executor flow) — only
+    // lastChunk artifacts carry final content there, so nothing to do here.
   };
 
   const handleA2AMessage = (message: Message) => {

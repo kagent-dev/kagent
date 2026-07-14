@@ -25,6 +25,7 @@ type EnvPair = {
 
 export function ByoDeploymentFields({
   byoImage,
+  commandRequired = false,
   byoCmd,
   byoArgs,
   replicas,
@@ -51,6 +52,8 @@ export function ByoDeploymentFields({
   serviceAccountInputId = "agent-field-service-account-byo",
 }: {
   byoImage: string;
+  /** When true (BYO on Agent Substrate), the command is required and the label reflects that. */
+  commandRequired?: boolean;
   byoCmd: string;
   byoArgs: string;
   replicas: string;
@@ -58,7 +61,7 @@ export function ByoDeploymentFields({
   imagePullSecrets: string[];
   envPairs: EnvPair[];
   serviceAccountName: string;
-  errors: Pick<AgentFormValidationErrors, "model" | "serviceAccountName">;
+  errors: Pick<AgentFormValidationErrors, "model" | "serviceAccountName" | "byoCmd">;
   disabled: boolean;
   onByoImageChange: (v: string) => void;
   onByoCmdChange: (v: string) => void;
@@ -82,7 +85,7 @@ export function ByoDeploymentFields({
     <div className="space-y-6">
       <FieldRoot>
         <FieldLabel>Container image</FieldLabel>
-        <FieldHint>Image the workload runs. For Sandbox with a custom image, this is required.</FieldHint>
+        <FieldHint>Container image the workload runs (required for BYO).</FieldHint>
         <Input
           id="agent-field-byo-image"
           name="byoImage"
@@ -104,13 +107,22 @@ export function ByoDeploymentFields({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FieldRoot>
-          <FieldLabel>Command (optional)</FieldLabel>
+          <FieldLabel>{commandRequired ? "Command (required)" : "Command (optional)"}</FieldLabel>
+          {commandRequired && (
+            <FieldHint>
+              Required on Agent Substrate: it copies the command verbatim and does not fall back to
+              the image entrypoint.
+            </FieldHint>
+          )}
           <Input
             value={byoCmd}
             onChange={(e) => onByoCmdChange(e.target.value)}
             placeholder="/app/start"
             disabled={disabled}
+            className={errors.byoCmd ? "border-destructive" : ""}
+            aria-invalid={!!errors.byoCmd}
           />
+          <FieldError>{errors.byoCmd}</FieldError>
         </FieldRoot>
         <FieldRoot>
           <FieldLabel>Args (space-separated)</FieldLabel>

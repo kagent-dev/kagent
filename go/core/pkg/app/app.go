@@ -34,7 +34,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
@@ -53,11 +52,13 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openshell"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -77,7 +78,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
-	agentsandboxv1 "sigs.k8s.io/agent-sandbox/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	// +kubebuilder:scaffold:imports
 )
@@ -98,7 +98,7 @@ func init() {
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
-	utilruntime.Must(agentsandboxv1.AddToScheme(scheme))
+	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -113,11 +113,6 @@ type Config struct {
 		CertPath string
 		CertName string
 		CertKey  string
-	}
-	Streaming struct {
-		MaxBufSize     resource.QuantityValue `default:"1Mi"`
-		InitialBufSize resource.QuantityValue `default:"4Ki"`
-		Timeout        time.Duration          `default:"60s"`
 	}
 	Proxy struct {
 		URL string
@@ -134,19 +129,29 @@ type Config struct {
 	HttpServerAddr     string
 	WatchNamespaces    string
 	A2ABaseUrl         string
+
+	// MCPEgressPlaintext, when set, gates the egress URL rewrite: agent tool
+	// URLs and the controller's tool-discovery dial that point at a
+	// RemoteMCPServer are rewritten from https://host[:port] to
+	// http://host:<port-or-443> so traffic egresses in plaintext to a proxy
+	// that originates TLS upstream. Off by default;
+	MCPEgressPlaintext bool
 	Database           struct {
-		Url           string
-		UrlFile       string
-		VectorEnabled bool
+		Url            string
+		UrlFile        string
+		VectorEnabled  bool
+		SkipMigrations bool
 	}
-	Openshell struct {
-		GatewayURL  string
-		Token       string
-		TokenFile   string
-		CAFile      string
-		Insecure    bool
-		DialTimeout time.Duration
-		CallTimeout time.Duration
+	Substrate struct {
+		AteAPIEndpoint             string
+		AteAPITokenFile            string
+		AtenetRouterURL            string
+		Insecure                   bool
+		DialTimeout                time.Duration
+		CallTimeout                time.Duration
+		DefaultWorkerPoolNamespace string
+		DefaultWorkerPoolName      string
+		PauseImage                 string
 	}
 }
 
@@ -177,17 +182,17 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
+	commandLine.BoolVar(&cfg.Database.SkipMigrations, "skip-migrations", false, "Do not run database migrations at startup; instead verify the database is already migrated and fail if it is not. Migrations must be applied out-of-band (e.g. from a pipeline or pre-upgrade hook). Settable via the SKIP_MIGRATIONS env var.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
-
-	commandLine.Var(&cfg.Streaming.MaxBufSize, "streaming-max-buf-size", "The maximum size of the streaming buffer.")
-	commandLine.Var(&cfg.Streaming.InitialBufSize, "streaming-initial-buf-size", "The initial size of the streaming buffer.")
-	commandLine.DurationVar(&cfg.Streaming.Timeout, "streaming-timeout", 60*time.Second, "The timeout for the streaming connection.")
 
 	commandLine.StringVar(&cfg.Proxy.URL, "proxy-url", "", "Proxy URL for internally-built k8s URLs (e.g., http://proxy.kagent.svc.cluster.local:8080)")
 
 	commandLine.StringVar(&cfg.Auth.Mode, "auth-mode", "unsecure", "Authentication mode: unsecure or trusted-proxy")
 	commandLine.StringVar(&cfg.Auth.UserIDClaim, "auth-user-id-claim", "sub", "JWT claim name for user identity")
+
+	commandLine.BoolVar(&cfg.MCPEgressPlaintext, "mcp-egress-plaintext", false,
+		"When set, rewrite RemoteMCPServer tool URLs and the controller's tool-discovery dial from https://host[:port] to http://host:<port-or-443> so MCP traffic egresses in plaintext to a TLS-originating proxy. Off by default.")
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
@@ -199,14 +204,15 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
 
-	commandLine.StringVar(&cfg.Openshell.GatewayURL, "openshell-gateway-url", "", "gRPC target for the OpenShell sandbox gateway (e.g. dns:///openshell.openshell.svc:443). When empty, the Sandbox controller is disabled.")
-	commandLine.StringVar(&cfg.Openshell.Token, "openshell-token", "", "Static bearer token for the OpenShell gateway. Prefer --openshell-token-file for secrets.")
-	commandLine.StringVar(&cfg.Openshell.TokenFile, "openshell-token-file", "", "Path to a file containing the OpenShell gateway bearer token. Takes precedence over --openshell-token.")
-	commandLine.StringVar(&cfg.Openshell.CAFile, "openshell-tls-ca-file", "", "Path to a PEM file containing CA bundle for verifying the OpenShell gateway TLS certificate. Optional.")
-	commandLine.BoolVar(&cfg.Openshell.Insecure, "openshell-insecure", false, "Dial the OpenShell gateway without TLS. Use only for local development.")
-	commandLine.DurationVar(&cfg.Openshell.DialTimeout, "openshell-dial-timeout", 10*time.Second, "Timeout for the initial dial to the OpenShell gateway.")
-	commandLine.DurationVar(&cfg.Openshell.CallTimeout, "openshell-call-timeout", 30*time.Second, "Per-RPC timeout for OpenShell gateway calls.")
-
+	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
+	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
+	commandLine.StringVar(&cfg.Substrate.AtenetRouterURL, "substrate-atenet-router-url", "", "HTTP URL for Substrate atenet-router (Envoy). Defaults to http://atenet-router.ate-system.svc:80 when unset.")
+	commandLine.BoolVar(&cfg.Substrate.Insecure, "substrate-ate-api-insecure", false, "Dial ate-api without TLS (local dev only).")
+	commandLine.DurationVar(&cfg.Substrate.DialTimeout, "substrate-dial-timeout", 10*time.Second, "Timeout for the initial dial to ate-api.")
+	commandLine.DurationVar(&cfg.Substrate.CallTimeout, "substrate-call-timeout", 30*time.Second, "Per-RPC timeout for ate-api calls.")
+	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
+	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolName, "substrate-default-workerpool-name", "", "Default Agent Substrate WorkerPool name when spec.substrate.workerPoolRef is unset.")
+	commandLine.StringVar(&cfg.Substrate.PauseImage, "substrate-pause-image", "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da", "Pause image for generated ActorTemplates.")
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
 	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
@@ -296,18 +302,11 @@ type ExtensionConfig struct {
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
 
-// MigrationRunner applies database migrations given the resolved connection URL.
-// vectorEnabled mirrors the --database-vector-enabled flag; custom runners can use it
-// to conditionally apply vector-specific migrations.
-// Returning a non-nil error causes the app to exit.
-//
-// Pass nil to Start to use the default migration runner (migrations.RunUp with migrations.FS).
-// Provide a custom runner to take over the migration process entirely — for example,
-// to run additional enterprise migrations alongside or instead of the built-in ones.
-// Custom runners that want to include the built-in migrations can call migrations.RunUp directly.
-type MigrationRunner func(ctx context.Context, url string, vectorEnabled bool) error
-
-func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunner) {
+// Start boots the controller. extraSources registers additional migration
+// tracks beyond the built-in sources; they are applied after the built-in
+// (core, vector) tracks, in the order given. Pass nil to run only the built-in
+// migrations.
+func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Source) {
 	var tlsOpts []func(*tls.Config)
 	var cfg Config
 
@@ -325,7 +324,6 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		setupLog.Error(err, "failed to load configuration from environment variables")
 		os.Exit(1)
 	}
-
 	logger := zap.New(zap.UseFlagOptions(&opts))
 	ctrl.SetLogger(logger)
 
@@ -430,7 +428,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	clientOpts := client.Options{}
 	if len(watchNamespacesList) > 0 {
 		// In namespaced RBAC mode a Role cannot grant access to cluster-scoped
-		// resources, so prevent the cached client from starting a cluster-scoped
+		// lifecycle, so prevent the cached client from starting a cluster-scoped
 		// Namespace informer whose list/watch would keep crashing.
 		clientOpts.Cache = &client.CacheOptions{
 			DisableFor: []client.Object{&corev1.Namespace{}},
@@ -472,20 +470,27 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
-	// Use the built-in migration runner when none is provided.
-	if migrationRunner == nil {
-		migrationRunner = func(_ context.Context, url string, vectorEnabled bool) error {
-			return migrations.RunUp(url, migrations.FS, vectorEnabled)
-		}
-	}
-
 	// Run migrations before connecting; schema must exist before queries.
-	setupLog.Info("running database migrations")
-	if err := migrationRunner(ctx, dbURL, cfg.Database.VectorEnabled); err != nil {
-		setupLog.Error(err, "database migration failed")
-		os.Exit(1)
+	// Built-in sources run first, then any downstream-registered extras.
+	// With --skip-migrations (SKIP_MIGRATIONS) the server applies nothing and
+	// instead verifies the database is already migrated, so migrations can run
+	// out-of-band and this connection needs no DDL privileges.
+	sources := append(migrations.BuiltinSources(cfg.Database.VectorEnabled), extraSources...)
+	if cfg.Database.SkipMigrations {
+		setupLog.Info("skipping database migrations; verifying schema is migrated")
+		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
+			setupLog.Error(err, "database migration verification failed")
+			os.Exit(1)
+		}
+		setupLog.Info("database schema verified")
+	} else {
+		setupLog.Info("running database migrations")
+		if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
+			setupLog.Error(err, "database migration failed")
+			os.Exit(1)
+		}
+		setupLog.Info("database migrations complete")
 	}
-	setupLog.Info("database migrations complete")
 
 	// Connect to database
 	db, err := database.Connect(ctx, &database.PostgresConfig{
@@ -511,6 +516,28 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	var substrateAteClient *substrate.Client
+	var substrateLifecycle *substrate.Lifecycle
+	var substrateSandboxActorBackend *substrate.SandboxAgentActorBackend
+	var agentHarnessSessionActorBackend *substrate.AgentHarnessSessionActorBackend
+	if cfg.Substrate.AteAPIEndpoint != "" {
+		var dialErr error
+		substrateAteClient, dialErr = substrate.Dial(ctx, substrateAppConfig(&cfg))
+		if dialErr != nil {
+			setupLog.Error(dialErr, "unable to dial substrate ate-api for sandbox agents")
+			os.Exit(1)
+		}
+		substrateLifecycle = substrateLifecycleFromConfig(mgr.GetClient(), &cfg, substrateAteClient)
+		atenetRouterURL := cfg.Substrate.AtenetRouterURL
+		if atenetRouterURL == "" {
+			atenetRouterURL = substrate.DefaultAtenetRouterURL
+		}
+		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient, mgr.GetClient(), atenetRouterURL)
+		agentHarnessSessionActorBackend = substrate.NewAgentHarnessSessionActorBackend(substrateAteClient, atenetRouterURL)
+		agentsSubstrate := substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
+		extensionCfg.SandboxBackend = agentsSubstrate
+	}
+
 	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
 		mgr.GetClient(),
 		watchNamespacesList,
@@ -518,6 +545,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		extensionCfg.AgentPlugins,
 		cfg.Proxy.URL,
 		extensionCfg.SandboxBackend,
+		cfg.MCPEgressPlaintext,
 	)
 
 	rcnclr := reconciler.NewKagentReconciler(
@@ -527,6 +555,7 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		cfg.DefaultModelConfig,
 		watchNamespacesList,
 		extensionCfg.SandboxBackend,
+		cfg.MCPEgressPlaintext,
 	)
 
 	if err := (&controller.ServiceController{
@@ -554,32 +583,43 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	kubeClient := mgr.GetClient()
+	var substrateHarnessBackends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	if cfg.Substrate.AteAPIEndpoint != "" {
+		var err error
+		substrateHarnessBackends, err = buildSubstrateHarnessBackends(ctx, &cfg, substrateAteClient)
+		if err != nil {
+			setupLog.Error(err, "unable to build substrate harness backends")
+			os.Exit(1)
+		}
+	}
+
 	if err = (&controller.SandboxAgentController{
-		Scheme:        mgr.GetScheme(),
-		Reconciler:    rcnclr,
-		AdkTranslator: apiTranslator,
+		Client:                mgr.GetClient(),
+		Scheme:                mgr.GetScheme(),
+		Reconciler:            rcnclr,
+		AdkTranslator:         apiTranslator,
+		SubstrateLifecycle:    substrateLifecycle,
+		SubstrateActorBackend: substrateSandboxActorBackend,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SandboxAgent")
 		os.Exit(1)
 	}
-
-	if cfg.Openshell.GatewayURL != "" {
-		kubeClient := mgr.GetClient()
-		openshellBackends, err := buildOpenshellSandboxBackends(ctx, &cfg, kubeClient)
-		if err != nil {
-			setupLog.Error(err, "unable to build openshell sandbox backends")
-			os.Exit(1)
-		}
-		if err := (&controller.AgentHarnessController{
-			Client:   kubeClient,
-			Recorder: mgr.GetEventRecorder("agentharness-controller"),
-			Backends: openshellBackends,
+	if len(substrateHarnessBackends) > 0 {
+		if err := (&controller.SubstrateAgentHarnessController{
+			Client:              kubeClient,
+			Recorder:            mgr.GetEventRecorder("agentharness-substrate-controller"),
+			Backends:            substrateHarnessBackends,
+			SubstrateLifecycle:  substrateLifecycle,
+			SessionActorBackend: agentHarnessSessionActorBackend,
+			DbClient:            dbClient,
 		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "AgentHarness")
+			setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
 			os.Exit(1)
 		}
-	} else {
-		setupLog.Info("AgentHarness controller disabled: --openshell-gateway-url not set")
+	}
+	if len(substrateHarnessBackends) == 0 {
+		setupLog.Info("AgentHarness controller disabled: set --substrate-ate-api-endpoint")
 	}
 
 	if err = (&controller.ModelConfigController{
@@ -607,32 +647,11 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 
 	if err := reconcilerutils.SetupOwnerIndexes(mgr, rcnclr.GetOwnedResourceTypes()); err != nil {
-		setupLog.Error(err, "failed to setup indexes for owned resources")
+		setupLog.Error(err, "failed to setup indexes for owned lifecycle")
 		os.Exit(1)
 	}
 
-	// Register A2A handlers on all replicas
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator)
 	clientRegistry := a2a.NewAgentClientRegistry()
-	a2aRegistrar, err := a2a.NewA2ARegistrar(
-		mgr.GetCache(),
-		a2aHandler,
-		clientRegistry,
-		cfg.A2ABaseUrl+httpserver.APIPathA2A,
-		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
-		extensionCfg.Authenticator,
-		int(cfg.Streaming.MaxBufSize.Value()),
-		int(cfg.Streaming.InitialBufSize.Value()),
-		cfg.Streaming.Timeout,
-	)
-	if err != nil {
-		setupLog.Error(err, "unable to create a2a registrar")
-		os.Exit(1)
-	}
-	if err := mgr.Add(a2aRegistrar); err != nil {
-		setupLog.Error(err, "unable to set up a2a registrar")
-		os.Exit(1)
-	}
 
 	// Create MCP handler that invokes agents directly via their A2A clients,
 	// bypassing the controller's own HTTP A2A listener.
@@ -643,6 +662,33 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create MCP handler")
+		os.Exit(1)
+	}
+
+	// Register A2A handlers on all replicas
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator)
+	ateneRouterURL := cfg.Substrate.AtenetRouterURL
+	if ateneRouterURL == "" {
+		ateneRouterURL = substrate.DefaultAtenetRouterURL
+	}
+	a2aRegistrar, err := a2a.NewA2ARegistrar(
+		mgr.GetCache(),
+		a2aHandler,
+		clientRegistry,
+		cfg.A2ABaseUrl+httpserver.APIPathA2A,
+		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
+		ateneRouterURL,
+		extensionCfg.Authenticator,
+		mcpHandler,
+		substrateSandboxActorBackend,
+		dbClient,
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to create a2a registrar")
+		os.Exit(1)
+	}
+	if err := mgr.Add(a2aRegistrar); err != nil {
+		setupLog.Error(err, "unable to set up a2a registrar")
 		os.Exit(1)
 	}
 
@@ -677,19 +723,31 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 		os.Exit(1)
 	}
 
+	var agentHarnessGateway *handlers.AgentHarnessGatewayConfig
+	if cfg.Substrate.AteAPIEndpoint != "" {
+		agentHarnessGateway = &handlers.AgentHarnessGatewayConfig{
+			AtenetRouterURL: cfg.Substrate.AtenetRouterURL,
+		}
+	}
+
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		Router:            router,
-		BindAddr:          cfg.HttpServerAddr,
-		KubeClient:        mgr.GetClient(),
-		A2AHandler:        a2aHandler,
-		MCPHandler:        mcpHandler,
-		WatchedNamespaces: watchNamespacesList,
-		DbClient:          dbClient,
-		Authorizer:        extensionCfg.Authorizer,
-		Authenticator:     extensionCfg.Authenticator,
-		ProxyURL:          cfg.Proxy.URL,
-		Reconciler:        rcnclr,
-		SandboxBackend:    extensionCfg.SandboxBackend,
+		Router:                       router,
+		BindAddr:                     cfg.HttpServerAddr,
+		KubeClient:                   mgr.GetClient(),
+		A2AHandler:                   a2aHandler,
+		MCPHandler:                   mcpHandler,
+		WatchedNamespaces:            watchNamespacesList,
+		DbClient:                     dbClient,
+		Authorizer:                   extensionCfg.Authorizer,
+		Authenticator:                extensionCfg.Authenticator,
+		ProxyURL:                     cfg.Proxy.URL,
+		Reconciler:                   rcnclr,
+		SandboxBackend:               extensionCfg.SandboxBackend,
+		AgentHarnessGateway:          agentHarnessGateway,
+		SubstrateAteClient:           substrateAteClient,
+		MCPEgressPlaintext:           cfg.MCPEgressPlaintext,
+		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
+		AgentHarnessSessionActor:     agentHarnessSessionActorBackend,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
@@ -713,44 +771,50 @@ func Start(getExtensionConfig GetExtensionConfig, migrationRunner MigrationRunne
 	}
 }
 
-// buildOpenshellSandboxBackends constructs AsyncBackend values for openclaw and
-// nemoclaw from flag config. It dials the gateway once; OpenShell and Inference RPCs
-// share that connection (see openshell.OpenShellClients). The connection is not explicitly
-// closed today — same lifetime as the process.
-func buildOpenshellSandboxBackends(ctx context.Context, cfg *Config, kubeClient client.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
-	oc := openshell.Config{
-		GatewayURL:  cfg.Openshell.GatewayURL,
-		Token:       cfg.Openshell.Token,
-		Insecure:    cfg.Openshell.Insecure,
-		DialTimeout: cfg.Openshell.DialTimeout,
-		CallTimeout: cfg.Openshell.CallTimeout,
+func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
+	if client == nil {
+		return nil, fmt.Errorf("substrate ate-api client is required")
 	}
-	if cfg.Openshell.TokenFile != "" {
-		data, err := os.ReadFile(cfg.Openshell.TokenFile)
-		if err != nil {
-			return nil, fmt.Errorf("read openshell token file: %w", err)
-		}
-		oc.Token = strings.TrimSpace(string(data))
+	_ = ctx
+	_ = cfg
+	backends := make(map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend)
+	for _, b := range []v1alpha2.AgentHarnessBackendType{
+		v1alpha2.AgentHarnessBackendOpenClaw,
+		v1alpha2.AgentHarnessBackendHermes,
+	} {
+		backends[b] = substrate.NewOpenClawBackend(client, b, nil)
 	}
-	if cfg.Openshell.CAFile != "" {
-		data, err := os.ReadFile(cfg.Openshell.CAFile)
-		if err != nil {
-			return nil, fmt.Errorf("read openshell CA file: %w", err)
-		}
-		oc.TLSCAPEM = data
-	}
-	clients, err := openshell.Dial(ctx, oc)
-	if err != nil {
-		return nil, err
-	}
+	return backends, nil
+}
 
-	ocl := openshell.NewOpenClawBackend(kubeClient, clients, oc, nil)
-	hermesBackend := openshell.NewHermesBackend(kubeClient, clients, oc, nil)
-	return map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: ocl,
-		v1alpha2.AgentHarnessBackendNemoClaw: ocl,
-		v1alpha2.AgentHarnessBackendHermes:   hermesBackend,
-	}, nil
+func substrateAppConfig(cfg *Config) substrate.Config {
+	sc := substrate.Config{
+		AteAPIEndpoint: cfg.Substrate.AteAPIEndpoint,
+		TokenFile:      cfg.Substrate.AteAPITokenFile,
+		Insecure:       cfg.Substrate.Insecure,
+		DialTimeout:    cfg.Substrate.DialTimeout,
+		CallTimeout:    cfg.Substrate.CallTimeout,
+	}
+	return sc
+}
+
+func substrateLifecycleFromConfig(kubeClient client.Client, cfg *Config, ate *substrate.Client) *substrate.Lifecycle {
+	return substrate.NewLifecycle(kubeClient, substrate.LifecycleDefaults{
+		PauseImage: cfg.Substrate.PauseImage,
+		// ImageRegistry/ImageRepository mirror the declarative-agent image config
+		// (--image-registry/--image-repository) so digest-pinned acp-sandbox
+		// workload images resolve against the same (possibly private/mirrored)
+		// registry as the rest of the kagent images.
+		ImageRegistry:   agent_translator.DefaultImageConfig.Registry,
+		ImageRepository: agent_translator.DefaultImageConfig.Repository,
+		// DefaultWorkloadImage is left unset: each backend falls back to its own
+		// digest-pinned default (acpSandboxOpenClawImage / acpSandboxHermesImage)
+		// resolved at ActorTemplate build time.
+		DefaultWorkerPool: types.NamespacedName{
+			Namespace: cfg.Substrate.DefaultWorkerPoolNamespace,
+			Name:      cfg.Substrate.DefaultWorkerPoolName,
+		},
+	}, ate)
 }
 
 // configureNamespaceWatching sets up the controller manager to watch specific namespaces

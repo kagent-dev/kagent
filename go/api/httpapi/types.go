@@ -76,11 +76,11 @@ type UpdateModelConfigRequest struct {
 // Agent types
 
 type AgentResource struct {
-	APIVersion string               `json:"apiVersion,omitempty"`
-	Kind       string               `json:"kind,omitempty"`
-	Metadata   metav1.ObjectMeta    `json:"metadata,omitempty"`
-	Spec       v1alpha2.AgentSpec   `json:"spec,omitempty"`
-	Status     v1alpha2.AgentStatus `json:"status,omitempty"`
+	APIVersion string                    `json:"apiVersion,omitempty"`
+	Kind       string                    `json:"kind,omitempty"`
+	Metadata   metav1.ObjectMeta         `json:"metadata,omitempty"`
+	Spec       v1alpha2.SandboxAgentSpec `json:"spec,omitempty"`
+	Status     v1alpha2.AgentStatus      `json:"status,omitempty"`
 }
 
 func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
@@ -125,8 +125,10 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 		Kind:       kind,
 		Metadata:   metadata,
 	}
-	if spec != nil {
-		res.Spec = *spec.DeepCopy()
+	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
+		res.Spec = *sa.Spec.DeepCopy()
+	} else if spec != nil {
+		res.Spec.AgentSpec = *spec.DeepCopy()
 	}
 	if status != nil {
 		res.Status = *status.DeepCopy()
@@ -134,14 +136,16 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 	return res
 }
 
-// OpenshellAgentHarnessListEntry is set when this row is a kagent.dev/v1alpha2 AgentHarness (openshell backend),
-// merged into GET /api/agents for UI alongside Agent CRs.
-type OpenshellAgentHarnessListEntry struct {
-	Backend            v1alpha2.AgentHarnessBackendType `json:"backend"`
-	GatewaySandboxName string                           `json:"gatewaySandboxName"`
-	ModelConfigRef     string                           `json:"modelConfigRef,omitempty"`
-	BackendRefID       string                           `json:"backendRefId,omitempty"`
-	Endpoint           string                           `json:"endpoint,omitempty"`
+// SubstrateAgentHarnessListEntry describes an AgentHarness backed by Agent Substrate.
+type SubstrateAgentHarnessListEntry struct {
+	Backend v1alpha2.AgentHarnessBackendType `json:"backend"`
+	ActorID string                           `json:"actorId,omitempty"`
+	// AcpPath is the server-side ACP WebSocket proxy path for chatting with
+	// the harness from the kagent UI.
+	AcpPath        string `json:"acpPath,omitempty"`
+	ModelConfigRef string `json:"modelConfigRef,omitempty"`
+	BackendRefID   string `json:"backendRefId,omitempty"`
+	Endpoint       string `json:"endpoint,omitempty"`
 }
 
 type AgentResponse struct {
@@ -156,7 +160,7 @@ type AgentResponse struct {
 	DeploymentReady       bool                            `json:"deploymentReady"`
 	Accepted              bool                            `json:"accepted"`
 	WorkloadMode          v1alpha2.WorkloadMode           `json:"workloadMode,omitempty"`
-	OpenshellAgentHarness *OpenshellAgentHarnessListEntry `json:"openshellAgentHarness,omitempty"`
+	SubstrateAgentHarness *SubstrateAgentHarnessListEntry `json:"substrateAgentHarness,omitempty"`
 }
 
 // Session types

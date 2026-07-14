@@ -3,14 +3,15 @@ package runner
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
-	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
+	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	adkmemory "google.golang.org/adk/memory"
 	adkplugin "google.golang.org/adk/plugin"
@@ -31,9 +32,11 @@ func agentNameFromAppName(appName string) string {
 func CreateRunnerConfig(
 	ctx context.Context,
 	agentConfig *adk.AgentConfig,
-	sessionService *session.KAgentSessionService,
+	sessionService adksession.Service,
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
+	kagentURL string,
+	httpClient *http.Client,
 ) (runner.Config, map[string]string, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
@@ -46,6 +49,23 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, saveTool)
 	}
 
+	if agentConfig.ShareTools != nil && *agentConfig.ShareTools && kagentURL != "" && httpClient != nil {
+		createTool, err := tools.NewCreateShareLinkTool(httpClient, kagentURL, appName)
+		if err != nil {
+			return runner.Config{}, nil, fmt.Errorf("failed to create create_share_link tool: %w", err)
+		}
+		listTool, err := tools.NewListShareLinksTool(httpClient, kagentURL, appName)
+		if err != nil {
+			return runner.Config{}, nil, fmt.Errorf("failed to create list_share_links tool: %w", err)
+		}
+		deleteTool, err := tools.NewDeleteShareLinkTool(httpClient, kagentURL, appName)
+		if err != nil {
+			return runner.Config{}, nil, fmt.Errorf("failed to create delete_share_link tool: %w", err)
+		}
+		extraTools = append(extraTools, createTool, listTool, deleteTool)
+		log.Info("Share link tools enabled")
+	}
+
 	stsPlugin, err := buildTokenPropagationPlugin(ctx, log)
 	if err != nil {
 		return runner.Config{}, nil, err
@@ -56,10 +76,8 @@ func CreateRunnerConfig(
 		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
 	}
 
-	var adkSessionService adksession.Service
-	if sessionService != nil {
-		adkSessionService = sessionService
-	} else {
+	adkSessionService := sessionService
+	if adkSessionService == nil {
 		adkSessionService = adksession.InMemoryService()
 	}
 

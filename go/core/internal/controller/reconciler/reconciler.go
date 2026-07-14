@@ -3,6 +3,8 @@ package reconciler
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -12,10 +14,13 @@ import (
 	"strings"
 	"time"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/hashicorp/go-multierror"
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator"
+	"github.com/kagent-dev/kagent/go/core/pkg/egress"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -90,23 +95,33 @@ type kagentReconciler struct {
 	watchedNamespaces []string
 
 	sandboxBackend sandboxbackend.Backend
+
+	// mcpEgressPlaintext gates the egress URL rewrite on the tool-discovery
+	// dial: when true, createMcpTransport rewrites a RemoteMCPServer's
+	// https://host[:port] dial URL to http://host:<port-or-443> so the probe
+	// egresses in plaintext to a TLS-originating proxy. When false the dial
+	// uses s.Spec.URL verbatim. Mirrors the agent translator's config-phase
+	// egress rewrite.
+	mcpEgressPlaintext bool
 }
 
 func NewKagentReconciler(
-	translator agent_translator.AdkApiTranslator,
+	adkTranslator agent_translator.AdkApiTranslator,
 	kube client.Client,
 	dbClient database.Client,
 	defaultModelConfig types.NamespacedName,
 	watchedNamespaces []string,
 	sandboxBackend sandboxbackend.Backend,
+	mcpEgressPlaintext bool,
 ) KagentReconciler {
 	return &kagentReconciler{
-		adkTranslator:      translator,
+		adkTranslator:      adkTranslator,
 		kube:               kube,
 		dbClient:           dbClient,
 		defaultModelConfig: defaultModelConfig,
 		watchedNamespaces:  watchedNamespaces,
 		sandboxBackend:     sandboxBackend,
+		mcpEgressPlaintext: mcpEgressPlaintext,
 	}
 }
 
@@ -137,11 +152,19 @@ func (a *kagentReconciler) ReconcileKagentSandboxAgent(ctx context.Context, req 
 	}
 
 	err := a.reconcileSandboxAgent(ctx, sandboxAgent)
+	if errors.Is(err, substrate.ErrActorTemplateReconcilePending) {
+		// A spec-drift recreate is mid-flight; report not-ready without failing
+		// the resource and return the sentinel so the controller requeues.
+		if statusErr := a.reconcileSandboxAgentStatus(ctx, sandboxAgent, nil, true); statusErr != nil {
+			return statusErr
+		}
+		return err
+	}
 	if err != nil {
 		reconcileLog.Error(err, "failed to reconcile sandboxagent", "sandboxagent", req.NamespacedName)
 	}
 
-	return a.reconcileSandboxAgentStatus(ctx, sandboxAgent, err)
+	return a.reconcileSandboxAgentStatus(ctx, sandboxAgent, err, false)
 }
 
 func (a *kagentReconciler) handleDeletedAgentResource(ctx context.Context, req ctrl.Request, resourceName string) error {
@@ -213,10 +236,12 @@ func (a *kagentReconciler) reconcileTranslatedAgent(
 }
 
 func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alpha2.SandboxAgent) error {
-	if a.sandboxBackend != nil {
-		if err := sandboxbackend.EnsureAgentSandboxAPIsRegistered(ctx, a.kube); err != nil {
-			return err
-		}
+	if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
+		return err
+	}
+
+	if a.sandboxBackend == nil {
+		return fmt.Errorf("sandbox backend is not configured")
 	}
 
 	return a.reconcileTranslatedAgent(ctx, sa, "sandboxagent", func(manifest []client.Object) error {
@@ -224,14 +249,18 @@ func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alph
 	})
 }
 
-func (a *kagentReconciler) reconcileSandboxAgentStatus(ctx context.Context, sa *v1alpha2.SandboxAgent, reconcileErr error) error {
+func (a *kagentReconciler) reconcileSandboxAgentStatus(ctx context.Context, sa *v1alpha2.SandboxAgent, reconcileErr error, actorTemplatePending bool) error {
 	deployedCondition := metav1.Condition{
 		Type:               v1alpha2.AgentConditionTypeReady,
 		Status:             metav1.ConditionUnknown,
 		ObservedGeneration: sa.Generation,
 	}
 
-	if a.sandboxBackend == nil {
+	if actorTemplatePending {
+		deployedCondition.Status = metav1.ConditionFalse
+		deployedCondition.Reason = "ActorTemplateRecreating"
+		deployedCondition.Message = "waiting for ActorTemplate golden actor deletion and recreate"
+	} else if a.sandboxBackend == nil {
 		deployedCondition.Status = metav1.ConditionUnknown
 		deployedCondition.Reason = "SandboxBackendNotConfigured"
 		deployedCondition.Message = "Sandbox backend is not configured"
@@ -427,6 +456,18 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 		if kubeErr := a.kube.Get(ctx, namespacedName, secret); kubeErr != nil {
 			err = multierror.Append(err, fmt.Errorf("failed to get secret %s: %w", modelConfig.Spec.TLS.CACertSecretRef, kubeErr))
 		} else {
+			// Surface the misconfiguration on the ModelConfig's Accepted
+			// condition: mounting an absent key would crash the agent at
+			// startup with FileNotFoundError without explaining which
+			// resource owns the bad reference. Translation still proceeds
+			// using whatever path the spec derived — agents fail loudly
+			// at startup, which matches the existing "missing-Secret"
+			// surface above.
+			if modelConfig.Spec.TLS.CACertSecretKey != "" {
+				if _, ok := secret.Data[modelConfig.Spec.TLS.CACertSecretKey]; !ok {
+					err = multierror.Append(err, fmt.Errorf("tls secret %s does not contain key %q", modelConfig.Spec.TLS.CACertSecretRef, modelConfig.Spec.TLS.CACertSecretKey))
+				}
+			}
 			secrets = append(secrets, secretRef{
 				NamespacedName: namespacedName,
 				Secret:         secret,
@@ -594,6 +635,15 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 		GroupKind:   server.GroupVersionKind().GroupKind().String(),
 	}
 
+	// Compute the TLS-Secret hash before tool discovery so the status
+	// reflects the operator's current spec.tls.caCertSecretRef contents.
+	// Agents that mount this Secret read the hash from Status.SecretHash
+	// at translate time so an in-place cert rotation triggers a rollout
+	// even when the Secret name (and therefore the cert path) didn't
+	// change. Missing-Secret errors are folded into the registration
+	// error path so a misconfigured RMS still surfaces a Failed condition.
+	secretHash, secretErr := a.computeRemoteMCPServerSecretHash(ctx, server)
+
 	l.Info("registering remote MCP server", "url", server.Spec.URL, "protocol", server.Spec.Protocol)
 	start := time.Now()
 	tools, err := a.upsertToolServerForRemoteMCPServer(ctx, dbServer, server)
@@ -609,12 +659,20 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 	} else {
 		l.Info("successfully registered remote MCP server", "url", server.Spec.URL, "toolCount", len(tools), "duration", time.Since(start))
 	}
+	// secretErr is folded in here, not where it occurs, so a bad Secret ref
+	// doesn't skip tool discovery (and its previously-discovered-tools
+	// fallback). This is the single point where both error streams converge
+	// before the status update below.
+	if secretErr != nil {
+		err = multierror.Append(err, secretErr)
+	}
 
 	// update the tool server status as the agents depend on it
 	if err := a.reconcileRemoteMCPServerStatus(
 		ctx,
 		server,
 		tools,
+		secretHash,
 		err,
 	); err != nil {
 		return fmt.Errorf("failed to reconcile remote mcp server status %s: %w", req.NamespacedName, err)
@@ -623,10 +681,37 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 	return nil
 }
 
+// computeRemoteMCPServerSecretHash returns a hash over the TLS Secret
+// referenced by spec.tls.caCertSecretRef, matching the shape used by
+// ModelConfig's secret hash so agents can detect cert rotation. Returns
+// the empty string (no error) when no TLS Secret is referenced. Also
+// validates that the named key exists in the Secret so the operator
+// gets a clear Accepted=false on the RMS rather than a startup crash
+// (FileNotFoundError from the Python ADK) on every consuming agent —
+// mirrors the equivalent check in ReconcileKagentModelConfig.
+func (a *kagentReconciler) computeRemoteMCPServerSecretHash(ctx context.Context, server *v1alpha2.RemoteMCPServer) (string, error) {
+	tlsSpec := server.Spec.TLS
+	if tlsSpec == nil || tlsSpec.CACertSecretRef == "" {
+		return "", nil
+	}
+	secret := &corev1.Secret{}
+	nn := types.NamespacedName{Namespace: server.Namespace, Name: tlsSpec.CACertSecretRef}
+	if err := a.kube.Get(ctx, nn, secret); err != nil {
+		return "", fmt.Errorf("failed to get TLS secret %s: %w", tlsSpec.CACertSecretRef, err)
+	}
+	if tlsSpec.CACertSecretKey != "" {
+		if _, ok := secret.Data[tlsSpec.CACertSecretKey]; !ok {
+			return "", fmt.Errorf("tls secret %s does not contain key %q", tlsSpec.CACertSecretRef, tlsSpec.CACertSecretKey)
+		}
+	}
+	return computeStatusSecretHash([]secretRef{{NamespacedName: nn, Secret: secret}}), nil
+}
+
 func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	ctx context.Context,
 	server *v1alpha2.RemoteMCPServer,
 	discoveredTools []*v1alpha2.MCPTool,
+	secretHash string,
 	err error,
 ) error {
 	var (
@@ -654,12 +739,14 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	// only update if the status has changed to prevent looping the reconciler
 	if !conditionChanged &&
 		server.Status.ObservedGeneration == server.Generation &&
+		server.Status.SecretHash == secretHash &&
 		reflect.DeepEqual(server.Status.DiscoveredTools, discoveredTools) {
 		return nil
 	}
 
 	server.Status.ObservedGeneration = server.Generation
 	server.Status.DiscoveredTools = discoveredTools
+	server.Status.SecretHash = secretHash
 
 	if err := a.kube.Status().Update(ctx, server); err != nil {
 		return fmt.Errorf("failed to update remote mcp server status: %w", err)
@@ -851,11 +938,30 @@ func (r *kagentReconciler) GetOwnedResourceTypes() []client.Object {
 // Function initially copied from https://github.com/open-telemetry/opentelemetry-operator/blob/e6d96f006f05cff0bc3808da1af69b6b636fbe88/internal/controllers/common.go#L141-L192
 func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner metav1.Object, desiredObjects []client.Object, ownedObjects map[types.UID]client.Object) error {
 	var errs []error
+	actorTemplatePending := false
 	for _, desired := range desiredObjects {
 		l := reconcileLog.WithValues(
 			"object_name", desired.GetName(),
 			"object_kind", desired.GetObjectKind(),
 		)
+
+		// Substrate ActorTemplate.spec is immutable, delegate to the sandbox backend to handle spec drift.
+		if _, ok := desired.(*atev1alpha1.ActorTemplate); ok {
+			if r, ok := a.sandboxBackend.(actorTemplateReconciler); ok {
+				if err := r.ReconcileActorTemplate(ctx, desired); err != nil {
+					if errors.Is(err, substrate.ErrActorTemplateReconcilePending) {
+						actorTemplatePending = true
+						pruneOwnedActorTemplate(ownedObjects, desired)
+						continue
+					}
+					l.Error(err, "failed to reconcile ActorTemplate")
+					errs = append(errs, err)
+					continue
+				}
+				pruneOwnedActorTemplate(ownedObjects, desired)
+				continue
+			}
+		}
 
 		// existing is an object the controller runtime will hydrate for us
 		// we obtain the existing object by deep copying the desired object because it's the most convenient way
@@ -878,6 +984,9 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 	if len(errs) > 0 {
 		return fmt.Errorf("failed to create objects for %s: %w", owner.GetName(), errors.Join(errs...))
 	}
+	if actorTemplatePending {
+		return substrate.ErrActorTemplateReconcilePending
+	}
 
 	// Pruning owned objects in the cluster which are not should not be present after the reconciliation.
 	err := a.deleteObjects(ctx, ownedObjects)
@@ -886,6 +995,25 @@ func (a *kagentReconciler) reconcileDesiredObjects(ctx context.Context, owner me
 	}
 
 	return nil
+}
+
+// actorTemplateReconciler is implemented by sandbox backends that own substrate
+// ActorTemplate objects and need immutable-spec aware create/recreate semantics.
+type actorTemplateReconciler interface {
+	ReconcileActorTemplate(ctx context.Context, desired client.Object) error
+}
+
+// pruneOwnedActorTemplate removes the live ActorTemplate matching desired from the
+// prune set so it is not garbage collected.
+func pruneOwnedActorTemplate(owned map[types.UID]client.Object, desired client.Object) {
+	for uid, obj := range owned {
+		if _, ok := obj.(*atev1alpha1.ActorTemplate); !ok {
+			continue
+		}
+		if obj.GetName() == desired.GetName() && obj.GetNamespace() == desired.GetNamespace() {
+			delete(owned, uid)
+		}
+	}
 }
 
 // modified version of controllerutil.CreateOrUpdate to support proto based objects like istio
@@ -1028,35 +1156,122 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 		return nil, err
 	}
 
-	httpClient := newHTTPClient(headers, remoteMCPRegistrationTimeout(s))
+	// Resolve the dial-time URL. Default is s.Spec.URL; when the egress gate
+	// is on, rewrite it to http://host:<effective-port> so the probe egresses
+	// in plaintext to a TLS-originating proxy. RewriteURL uses the RMS's
+	// effective (tls-aware) port, and the agent translator calls the same
+	// RewriteURL on the same RMS, so this dial matches the agent's tool URL
+	// exactly. The rewrite touches the URL only — tlsConfig below is built from
+	// s.Spec.TLS regardless, so the operator's spec.tls must already describe
+	// the upstream the proxy originates to.
+	endpoint := s.Spec.URL
+	if a.mcpEgressPlaintext {
+		endpoint = egress.RewriteURL(s)
+	}
+
+	tlsConfig, err := a.buildRemoteMCPServerTLSConfig(ctx, s)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build TLS config for %s/%s: %w", s.Namespace, s.Name, err)
+	}
+
+	httpClient := newHTTPClient(headers, remoteMCPRegistrationTimeout(s), tlsConfig)
 
 	switch s.Spec.Protocol {
 	case v1alpha2.RemoteMCPServerProtocolSse:
 		return &mcp.SSEClientTransport{
-			Endpoint:   s.Spec.URL,
+			Endpoint:   endpoint,
 			HTTPClient: httpClient,
 		}, nil
 	default:
 		return &mcp.StreamableClientTransport{
-			Endpoint:   s.Spec.URL,
-			HTTPClient: httpClient,
+			Endpoint:             endpoint,
+			HTTPClient:           httpClient,
+			DisableStandaloneSSE: true,
 		}, nil
 	}
 }
 
+// buildRemoteMCPServerTLSConfig returns a *tls.Config matching the
+// RemoteMCPServer's spec.tls (or nil when no TLS config is present, so
+// the http.Client falls back to Go's default transport with the system
+// trust store). Mirrors the per-source TLS semantics the agent
+// translator emits — disableVerify, custom CA from a Secret, and
+// disableSystemCAs trust-only-the-named-bundle — so tool discovery
+// trusts the same upstream chain the agent will trust at runtime.
+func (a *kagentReconciler) buildRemoteMCPServerTLSConfig(ctx context.Context, s *v1alpha2.RemoteMCPServer) (*tls.Config, error) {
+	tlsSpec := s.Spec.TLS
+	if tlsSpec.IsEmpty() {
+		return nil, nil
+	}
+
+	cfg := &tls.Config{
+		InsecureSkipVerify: tlsSpec.DisableVerify, //nolint:gosec // G402: explicit user opt-in via spec.tls.disableVerify
+	}
+
+	if tlsSpec.CACertSecretRef != "" && tlsSpec.CACertSecretKey != "" {
+		secret := &corev1.Secret{}
+		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: s.Namespace, Name: tlsSpec.CACertSecretRef}, secret); err != nil {
+			return nil, fmt.Errorf("failed to read CA secret %s/%s: %w", s.Namespace, tlsSpec.CACertSecretRef, err)
+		}
+		pem, ok := secret.Data[tlsSpec.CACertSecretKey]
+		if !ok || len(pem) == 0 {
+			return nil, fmt.Errorf("CA secret %s/%s does not contain key %q", s.Namespace, tlsSpec.CACertSecretRef, tlsSpec.CACertSecretKey)
+		}
+
+		var pool *x509.CertPool
+		if tlsSpec.DisableSystemCAs {
+			pool = x509.NewCertPool()
+		} else {
+			sys, err := x509.SystemCertPool()
+			if err != nil {
+				return nil, fmt.Errorf("failed to load system CA pool: %w", err)
+			}
+			pool = sys
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("CA secret %s/%s key %q does not contain valid PEM certificates", s.Namespace, tlsSpec.CACertSecretRef, tlsSpec.CACertSecretKey)
+		}
+		cfg.RootCAs = pool
+	}
+	// Note: the trust-nothing combination (disableSystemCAs=true without
+	// caCertSecretRef and without disableVerify) is rejected by the CEL
+	// rule on TLSConfig at admission, so it cannot reach this code path
+	// in production.
+
+	return cfg, nil
+}
+
 // go-sdk does not have a WithHeaders option when initializing transport
-// so we need to create a custom HTTP client that adds headers to all requests.
-func newHTTPClient(headers map[string]string, timeout time.Duration) *http.Client {
+// so we need to create a custom HTTP client that adds headers to all
+// requests. When tlsConfig is non-nil it's installed on a cloned
+// transport so tool discovery honors RemoteMCPServer.spec.tls.
+func newHTTPClient(
+	headers map[string]string,
+	timeout time.Duration,
+	tlsConfig *tls.Config,
+) *http.Client {
+	var base = http.DefaultTransport
+	if tlsConfig != nil {
+		// Clone the default transport to preserve its dial/keepalive
+		// settings (proxies, dual-stack, HTTP/2) and override only the TLS
+		// config. http.DefaultTransport is always a *http.Transport, so the
+		// assertion is safe.
+		clone := http.DefaultTransport.(*http.Transport).Clone()
+		clone.TLSClientConfig = tlsConfig
+		base = clone
+	}
+
 	if len(headers) == 0 {
 		return &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
+			Transport: base,
 		}
 	}
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &headerTransport{
 			headers: headers,
-			base:    http.DefaultTransport,
+			base:    base,
 		},
 	}
 }

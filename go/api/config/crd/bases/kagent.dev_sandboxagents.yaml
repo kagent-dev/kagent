@@ -27,7 +27,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: SandboxAgent declares an agent that runs in an isolated sandbox
-          (agent-sandbox Sandbox CR).
+          on Agent Substrate.
         properties:
           apiVersion:
             description: |-
@@ -47,7 +47,6 @@ spec:
           metadata:
             type: object
           spec:
-            description: AgentSpec defines the desired state of Agent.
             properties:
               allowedNamespaces:
                 description: |-
@@ -55,7 +54,7 @@ spec:
                   This follows the Gateway API pattern for cross-namespace route attachments.
                   If not specified, only Agents in the same namespace can reference this Agent as a tool.
                   This field only applies when this Agent is used as a tool by another Agent.
-                  See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-routing
+                  See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
                 properties:
                   from:
                     default: Same
@@ -123,9 +122,15 @@ spec:
                 - message: selector must be specified when from is Selector
                   rule: '!(self.from == ''Selector'' && !has(self.selector))'
               byo:
+                description: |-
+                  BYO configures a "bring your own" agent backed by a user-provided
+                  container image. Kagent deploys the image and expects it to serve the
+                  agent over the A2A protocol on port 8080.
+                  Required if type is BYO.
                 properties:
                   deployment:
-                    description: Trust relationship to the agent.
+                    description: Deployment configures the Kubernetes Deployment created
+                      for the BYO agent container.
                     properties:
                       affinity:
                         description: Affinity is a group of affinity scheduling rules.
@@ -1054,14 +1059,22 @@ spec:
                       annotations:
                         additionalProperties:
                           type: string
+                        description: Annotations are additional annotations added
+                          to the agent pods.
                         type: object
                       args:
+                        description: Args are the arguments passed to the container
+                          entrypoint.
                         items:
                           type: string
                         type: array
                       cmd:
+                        description: Cmd overrides the container entrypoint (the container's
+                          command).
                         type: string
                       env:
+                        description: Env are additional environment variables set
+                          on the agent container.
                         items:
                           description: EnvVar represents an environment variable present
                             in a Container.
@@ -2758,6 +2771,9 @@ spec:
                           type: object
                         type: array
                       image:
+                        description: |-
+                          Image is the container image of the BYO agent.
+                          The image is expected to serve the agent over the A2A protocol on port 8080.
                         minLength: 1
                         type: string
                       imagePullPolicy:
@@ -2765,6 +2781,9 @@ spec:
                           pull a container image
                         type: string
                       imagePullSecrets:
+                        description: |-
+                          ImagePullSecrets are references to secrets in the agent's namespace
+                          used for pulling the agent container image.
                         items:
                           description: |-
                             LocalObjectReference contains enough information to let you locate the
@@ -2785,10 +2804,14 @@ spec:
                       labels:
                         additionalProperties:
                           type: string
+                        description: Labels are additional labels added to the agent
+                          pods.
                         type: object
                       nodeSelector:
                         additionalProperties:
                           type: string
+                        description: NodeSelector restricts the nodes the agent pods
+                          can be scheduled on.
                         type: object
                       podSecurityContext:
                         description: |-
@@ -3027,6 +3050,8 @@ spec:
                             type: object
                         type: object
                       replicas:
+                        description: Replicas is the number of desired agent pods.
+                          Defaults to 1.
                         format: int32
                         type: integer
                       resources:
@@ -3293,10 +3318,14 @@ spec:
                           annotations:
                             additionalProperties:
                               type: string
+                            description: Annotations are additional annotations added
+                              to the created ServiceAccount.
                             type: object
                           labels:
                             additionalProperties:
                               type: string
+                            description: Labels are additional labels added to the
+                              created ServiceAccount.
                             type: object
                         type: object
                       serviceAccountName:
@@ -3306,6 +3335,7 @@ spec:
                           This field is mutually exclusive with ServiceAccountConfig.
                         type: string
                       tolerations:
+                        description: Tolerations applied to the agent pods.
                         items:
                           description: |-
                             The pod this Toleration is attached to tolerates any taint that matches
@@ -3345,6 +3375,8 @@ spec:
                           type: object
                         type: array
                       volumeMounts:
+                        description: VolumeMounts are additional volume mounts added
+                          to the agent container.
                         items:
                           description: VolumeMount describes a mounting of a Volume
                             within a container.
@@ -3408,6 +3440,8 @@ spec:
                           type: object
                         type: array
                       volumes:
+                        description: Volumes are additional volumes added to the agent
+                          pod.
                         items:
                           description: Volume represents a named volume in a pod that
                             may be accessed by any container in the pod.
@@ -5324,6 +5358,10 @@ spec:
                           - name
                           type: object
                         type: array
+                      workingDir:
+                        description: workingDir sets the container working directory.
+                          Defaults to the image WORKDIR when omitted.
+                        type: string
                     type: object
                     x-kubernetes-validations:
                     - message: serviceAccountName and serviceAccountConfig are mutually
@@ -5331,6 +5369,10 @@ spec:
                       rule: '!(has(self.serviceAccountName) && has(self.serviceAccountConfig))'
                 type: object
               declarative:
+                description: |-
+                  Declarative configures an agent that is fully described by this resource
+                  (model, instructions, tools) and runs on one of kagent's built-in runtimes.
+                  Required if type is Declarative.
                 properties:
                   a2aConfig:
                     description: |-
@@ -5339,7 +5381,7 @@ spec:
                       controller (default 8083).
                       The A2A server URL will be served at
                       <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
-                      Read more about the A2A protocol here: https://github.com/google/A2A
+                      Read more about the A2A protocol here: https://github.com/a2aproject/A2A
                     properties:
                       skills:
                         items:
@@ -5354,23 +5396,25 @@ spec:
                               description: Examples are optional usage examples.
                               items:
                                 type: string
+                              maxItems: 20
                               type: array
                             id:
                               description: ID is the unique identifier for the skill.
                               type: string
                             inputModes:
-                              description: InputModes are the supported input data
-                                modes/types.
+                              description: InputModes are the supported input MIME
+                                types for this skill, overriding the agent's defaults.
                               items:
                                 type: string
                               type: array
                             name:
                               description: Name is the human-readable name of the
                                 skill.
+                              minLength: 1
                               type: string
                             outputModes:
-                              description: OutputModes are the supported output data
-                                modes/types.
+                              description: OutputModes are the supported output MIME
+                                types for this skill, overriding the agent's defaults.
                               items:
                                 type: string
                               type: array
@@ -5378,11 +5422,10 @@ spec:
                               description: Tags are optional tags for categorization.
                               items:
                                 type: string
+                              maxItems: 20
                               type: array
                           required:
-                          - id
                           - name
-                          - tags
                           type: object
                         minItems: 1
                         type: array
@@ -6371,8 +6414,12 @@ spec:
                       annotations:
                         additionalProperties:
                           type: string
+                        description: Annotations are additional annotations added
+                          to the agent pods.
                         type: object
                       env:
+                        description: Env are additional environment variables set
+                          on the agent container.
                         items:
                           description: EnvVar represents an environment variable present
                             in a Container.
@@ -8073,6 +8120,9 @@ spec:
                           pull a container image
                         type: string
                       imagePullSecrets:
+                        description: |-
+                          ImagePullSecrets are references to secrets in the agent's namespace
+                          used for pulling the agent container image.
                         items:
                           description: |-
                             LocalObjectReference contains enough information to let you locate the
@@ -8095,10 +8145,14 @@ spec:
                       labels:
                         additionalProperties:
                           type: string
+                        description: Labels are additional labels added to the agent
+                          pods.
                         type: object
                       nodeSelector:
                         additionalProperties:
                           type: string
+                        description: NodeSelector restricts the nodes the agent pods
+                          can be scheduled on.
                         type: object
                       podSecurityContext:
                         description: |-
@@ -8337,6 +8391,8 @@ spec:
                             type: object
                         type: object
                       replicas:
+                        description: Replicas is the number of desired agent pods.
+                          Defaults to 1.
                         format: int32
                         type: integer
                       resources:
@@ -8603,10 +8659,14 @@ spec:
                           annotations:
                             additionalProperties:
                               type: string
+                            description: Annotations are additional annotations added
+                              to the created ServiceAccount.
                             type: object
                           labels:
                             additionalProperties:
                               type: string
+                            description: Labels are additional labels added to the
+                              created ServiceAccount.
                             type: object
                         type: object
                       serviceAccountName:
@@ -8616,6 +8676,7 @@ spec:
                           This field is mutually exclusive with ServiceAccountConfig.
                         type: string
                       tolerations:
+                        description: Tolerations applied to the agent pods.
                         items:
                           description: |-
                             The pod this Toleration is attached to tolerates any taint that matches
@@ -8655,6 +8716,8 @@ spec:
                           type: object
                         type: array
                       volumeMounts:
+                        description: VolumeMounts are additional volume mounts added
+                          to the agent container.
                         items:
                           description: VolumeMount describes a mounting of a Volume
                             within a container.
@@ -8718,6 +8781,8 @@ spec:
                           type: object
                         type: array
                       volumes:
+                        description: Volumes are additional volumes added to the agent
+                          pod.
                         items:
                           description: Volume represents a named volume in a pod that
                             may be accessed by any container in the pod.
@@ -10644,7 +10709,7 @@ spec:
                       Allow code execution for python code blocks with this agent.
                       If true, the agent will automatically execute python code blocks in the LLM responses.
                       Code will be executed in a sandboxed environment.
-                      due to a bug in adk (https://github.com/google/adk-python/issues/3921), this field is ignored for now.
+                      due to a bug in adk (https://github.com/google/adk-python/issues/3921 ), this field is ignored for now.
                     type: boolean
                   memory:
                     description: Memory configuration for the agent.
@@ -10703,16 +10768,22 @@ spec:
                         type: array
                     type: object
                   runtime:
-                    default: python
+                    default: go
                     description: |-
                       Runtime specifies which ADK implementation to use for this agent.
-                      - "python": Uses the Python ADK (default, slower startup, full feature set)
-                      - "go": Uses the Go ADK (faster startup, most features supported)
+                      - "go": Uses the Go ADK (default, faster startup, most features supported)
+                      - "python": Uses the Python ADK (slower startup, full feature set)
                       The runtime determines both the container image and readiness probe configuration.
                     enum:
                     - python
                     - go
                     type: string
+                  shareTools:
+                    description: |-
+                      ShareTools enables the built-in share link tools for this agent.
+                      When true, the agent gains create_share_link, list_share_links, and delete_share_link tools
+                      that allow it to manage share tokens for the current session.
+                    type: boolean
                   stream:
                     description: |-
                       Whether to stream the response from the model.
@@ -10886,6 +10957,37 @@ spec:
                   rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
               description:
                 type: string
+              documentationUrl:
+                description: |-
+                  DocumentationURL is a URL to human-readable documentation for the agent. It
+                  is surfaced on the agent's A2A AgentCard.
+                format: uri
+                type: string
+              iconUrl:
+                description: |-
+                  IconURL is a URL to an icon representing the agent. It is surfaced on the
+                  agent's A2A AgentCard.
+                format: uri
+                type: string
+              provider:
+                description: |-
+                  Provider identifies the organization responsible for the agent. It is
+                  surfaced on the agent's A2A AgentCard.
+                properties:
+                  organization:
+                    description: Organization is the name of the agent provider's
+                      organization.
+                    minLength: 1
+                    type: string
+                  url:
+                    description: URL is a URL for the agent provider's website or
+                      relevant documentation.
+                    format: uri
+                    type: string
+                required:
+                - organization
+                - url
+                type: object
               sandbox:
                 description: |-
                   Sandbox configures sandboxed execution behavior shared across runtimes.
@@ -10942,8 +11044,10 @@ spec:
                             URL path segment, without .git).
                           type: string
                         path:
-                          description: Subdirectory within the repo to use as the
-                            skill root.
+                          description: |-
+                            Subdirectory within the repo to use as the skill root. The API validates
+                            this input path, but treats repository contents as trusted: symlinks under
+                            this path are dereferenced when materializing the skill.
                           type: string
                         ref:
                           default: main
@@ -11220,6 +11324,36 @@ spec:
                     minItems: 1
                     type: array
                 type: object
+              substrate:
+                description: Substrate is optional Agent Substrate-specific settings.
+                properties:
+                  snapshotsConfig:
+                    description: |-
+                      SnapshotsConfig configures actor memory snapshots.
+                      Defaults to gs://ate-snapshots/<namespace>/<agentname> when unset.
+                    properties:
+                      location:
+                        description: |-
+                          Location is the GCS URI prefix for golden and incremental snapshots.
+                          Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
+                        pattern: ^gs://
+                        type: string
+                    required:
+                    - location
+                    type: object
+                  workerPoolRef:
+                    description: WorkerPoolRef references an existing ate.dev WorkerPool.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
               type:
                 default: Declarative
                 description: AgentType represents the agent type
@@ -11227,8 +11361,14 @@ spec:
                 - Declarative
                 - BYO
                 type: string
+              version:
+                description: Version is the agent's version string, surfaced on the
+                  A2A AgentCard.
+                type: string
             type: object
             x-kubernetes-validations:
+            - message: spec.skills is not supported for sandbox agents
+              rule: '!has(self.skills)'
             - message: type must be specified
               rule: has(self.type)
             - message: type must be either Declarative or BYO

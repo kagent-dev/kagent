@@ -3,11 +3,10 @@ package agent_test
 import (
 	"testing"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"trpc.group/trpc-go/trpc-a2a-go/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
@@ -15,12 +14,16 @@ import (
 
 func TestGetA2AAgentCard(t *testing.T) {
 	tests := []struct {
-		name            string
-		agent           *v1alpha2.Agent
-		wantName        string
-		wantDescription string
-		wantURL         string
-		wantSkills      []server.AgentSkill
+		name                 string
+		agent                *v1alpha2.Agent
+		wantName             string
+		wantDescription      string
+		wantURL              string
+		wantSkills           []a2atype.AgentSkill
+		wantIconURL          string
+		wantDocumentationURL string
+		wantVersion          string
+		wantProvider         *a2atype.AgentProvider
 	}{
 		{
 			name: "declarative agent with a2a config and skills",
@@ -45,7 +48,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 			wantName:        "test_agent",
 			wantDescription: "A test agent",
 			wantURL:         "http://test-agent.default:8080",
-			wantSkills:      []server.AgentSkill{{Name: "skill-1"}, {Name: "skill-2"}},
+			wantSkills:      []a2atype.AgentSkill{{Name: "skill-1"}, {Name: "skill-2"}},
 		},
 		{
 			name: "declarative agent with nil declarative spec",
@@ -62,7 +65,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 			wantName:        "nil_declarative",
 			wantDescription: "",
 			wantURL:         "http://nil-declarative.default:8080",
-			wantSkills:      []server.AgentSkill{},
+			wantSkills:      []a2atype.AgentSkill{},
 		},
 		{
 			name: "declarative agent with nil a2a config",
@@ -81,7 +84,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 			wantName:        "no_a2a",
 			wantDescription: "",
 			wantURL:         "http://no-a2a.default:8080",
-			wantSkills:      []server.AgentSkill{},
+			wantSkills:      []a2atype.AgentSkill{},
 		},
 		{
 			name: "BYO agent",
@@ -97,7 +100,33 @@ func TestGetA2AAgentCard(t *testing.T) {
 			wantName:        "byo_agent",
 			wantDescription: "",
 			wantURL:         "http://byo-agent.default:8080",
-			wantSkills:      []server.AgentSkill{},
+			wantSkills:      []a2atype.AgentSkill{},
+		},
+		{
+			name: "agent with card metadata",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "meta-agent",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:             v1alpha2.AgentType_BYO,
+					IconURL:          "https://example.com/icon.png",
+					DocumentationURL: "https://example.com/docs",
+					Version:          "1.2.3",
+					Provider: &v1alpha2.AgentProvider{
+						Organization: "Acme",
+						URL:          "https://acme.example.com",
+					},
+				},
+			},
+			wantName:             "meta_agent",
+			wantURL:              "http://meta-agent.default:8080",
+			wantSkills:           []a2atype.AgentSkill{},
+			wantIconURL:          "https://example.com/icon.png",
+			wantDocumentationURL: "https://example.com/docs",
+			wantVersion:          "1.2.3",
+			wantProvider:         &a2atype.AgentProvider{Org: "Acme", URL: "https://acme.example.com"},
 		},
 	}
 
@@ -108,15 +137,22 @@ func TestGetA2AAgentCard(t *testing.T) {
 			assert.NotNil(t, card)
 			assert.Equal(t, tt.wantName, card.Name)
 			assert.Equal(t, tt.wantDescription, card.Description)
-			assert.Equal(t, tt.wantURL, card.URL)
+			require.Len(t, card.SupportedInterfaces, 2)
+			assert.Equal(t, tt.wantURL, card.SupportedInterfaces[0].URL)
+			assert.Equal(t, a2atype.TransportProtocolJSONRPC, card.SupportedInterfaces[0].ProtocolBinding)
+			assert.Equal(t, a2atype.ProtocolVersion("0.3"), card.SupportedInterfaces[0].ProtocolVersion)
+			assert.Equal(t, tt.wantURL, card.SupportedInterfaces[1].URL)
+			assert.Equal(t, a2atype.TransportProtocolJSONRPC, card.SupportedInterfaces[1].ProtocolBinding)
+			assert.Equal(t, a2atype.Version, card.SupportedInterfaces[1].ProtocolVersion)
 			assert.Equal(t, tt.wantSkills, card.Skills)
 			assert.Equal(t, []string{"text"}, card.DefaultInputModes)
 			assert.Equal(t, []string{"text"}, card.DefaultOutputModes)
-			require.NotNil(t, card.PreferredTransport)
-			assert.Equal(t, string(a2atype.TransportProtocolJSONRPC), *card.PreferredTransport)
-			assert.True(t, *card.Capabilities.Streaming)
-			assert.False(t, *card.Capabilities.PushNotifications)
-			assert.True(t, *card.Capabilities.StateTransitionHistory)
+			assert.True(t, card.Capabilities.Streaming)
+			assert.False(t, card.Capabilities.PushNotifications)
+			assert.Equal(t, tt.wantIconURL, card.IconURL)
+			assert.Equal(t, tt.wantDocumentationURL, card.DocumentationURL)
+			assert.Equal(t, tt.wantVersion, card.Version)
+			assert.Equal(t, tt.wantProvider, card.Provider)
 		})
 	}
 }

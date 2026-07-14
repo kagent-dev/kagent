@@ -14,6 +14,7 @@ from google.adk.cli.utils.agent_loader import AgentLoader
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
+from ._config_materialize import materialize_from_env
 from .tools import add_skills_tool_to_agent
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,10 @@ def static(
     reload: Annotated[bool, typer.Option("--reload")] = False,
 ):
     app_cfg = KAgentConfig()
+
+    # On Agent Substrate the config is injected as secret-backed env vars rather than mounted
+    # files; materialize them into `filepath` before loading. No-op on the Deployment path.
+    materialize_from_env(filepath)
 
     with open(os.path.join(filepath, "config.json"), "r") as f:
         config = json.load(f)

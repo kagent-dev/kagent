@@ -7,6 +7,7 @@ package dbgen
 import (
 	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/database"
 	pgvector_go "github.com/pgvector/pgvector-go"
@@ -106,12 +107,13 @@ type Memory struct {
 }
 
 type PushNotification struct {
-	ID        string
-	TaskID    string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	Data      string
+	ID              string
+	TaskID          string
+	CreatedAt       *time.Time
+	UpdatedAt       *time.Time
+	DeletedAt       *time.Time
+	Data            string
+	ProtocolVersion *string
 }
 
 type Session struct {
@@ -125,13 +127,29 @@ type Session struct {
 	Source    *string
 }
 
+type SessionShare struct {
+	ID        int64
+	Token     string
+	SessionID string
+	UserID    string
+	ReadOnly  bool
+	CreatedAt pgtype.Timestamp
+}
+
+type SessionShareAccess struct {
+	UserID     string
+	ShareID    int64
+	AccessedAt pgtype.Timestamp
+}
+
 type Task struct {
-	ID        string
-	CreatedAt *time.Time
-	UpdatedAt *time.Time
-	DeletedAt *time.Time
-	Data      string
-	SessionID *string
+	ID              string
+	CreatedAt       *time.Time
+	UpdatedAt       *time.Time
+	DeletedAt       *time.Time
+	Data            string
+	SessionID       *string
+	ProtocolVersion *string
 }
 
 type Tool struct {

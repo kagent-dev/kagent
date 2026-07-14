@@ -51,6 +51,17 @@ Allows overriding it for multi-namespace deployments in combined charts.
 {{- end }}
 
 {{/*
+Namespaces where Substrate ate-api-server needs read access to Secrets and ConfigMaps
+referenced by generated ActorTemplates (install namespace plus rbac.namespaces).
+*/}}
+{{- define "kagent.substrate.envSourceNamespaces" -}}
+{{- $installNs := include "kagent.namespace" . -}}
+{{- $extra := .Values.rbac.namespaces | default list -}}
+{{- $all := append $extra $installNs | uniq | sortAlpha -}}
+{{- join "," $all -}}
+{{- end }}
+
+{{/*
 Watch namespaces - transforms list of namespaces cached by the controller into comma-separated string.
 Precedence: controller.watchNamespaces (explicit override) > rbac.namespaces > empty (watch all).
 */}}
@@ -133,6 +144,33 @@ Check if leader election should be enabled (more than 1 replica)
 {{- end -}}
 
 {{/*
+Extract the TCP port from controller.metrics.bindAddress.
+
+Anchors the digit run to the end of the string so every Go-style
+address form the controller binary accepts is handled correctly: bare
+":port", host-qualified "host:port", and bracketed IPv6 "[::1]:port"
+all yield the trailing port. Returns "0" or "" when the binary's
+disable sentinel is in use; callers must consult
+`kagent.controller.metricsEnabled` before rendering manifests.
+*/}}
+{{- define "kagent.controller.metricsPort" -}}
+{{- regexFind "[0-9]+$" (.Values.controller.metrics.bindAddress | toString) -}}
+{{- end -}}
+
+{{/*
+Returns "1" when the controller metrics resources (Service, RBAC,
+container port, env vars) should render, empty otherwise. Honours both
+disable signals: `controller.metrics.enabled=false` and the binary's
+own `--metrics-bind-address=0` sentinel reached through `bindAddress`.
+The two are equivalent so the field name keeps faith with the binary's
+documented contract (see go/core/pkg/app/app.go).
+*/}}
+{{- define "kagent.controller.metricsEnabled" -}}
+{{- $port := include "kagent.controller.metricsPort" . -}}
+{{- if and .Values.controller.metrics.enabled $port (ne $port "0") -}}1{{- end -}}
+{{- end -}}
+
+{{/*
 PostgreSQL service name for the bundled postgres instance
 */}}
 {{- define "kagent.postgresqlServiceName" -}}
@@ -144,7 +182,8 @@ Bundled PostgreSQL image - constructs the full image reference from registry/rep
 */}}
 {{- define "kagent.postgresql.image" -}}
 {{- $pg := .Values.database.postgres.bundled -}}
-{{- printf "%s/%s/%s:%s" $pg.image.registry $pg.image.repository $pg.image.name $pg.image.tag -}}
+{{- $parts := compact (list $pg.image.registry $pg.image.repository $pg.image.name) -}}
+{{- printf "%s:%s" (join "/" $parts) $pg.image.tag -}}
 {{- end -}}
 
 {{/*

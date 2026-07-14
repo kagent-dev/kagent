@@ -386,5 +386,5 @@ roleRef:
 # 6. Troubleshooting:
 #    - See https://kagent.dev/docs for detailed debugging steps
 #    - Check agent logs: kubectl logs deployment/agent-<name>
-#    - Verify Secret is mounted: kubectl exec deployment/agent-<name> -- ls /etc/ssl/certs/custom/
-#    - Test certificate: kubectl exec deployment/agent-<name> -- openssl x509 -in /etc/ssl/certs/custom/ca.crt -text -noout
+#    - Verify Secret is mounted: kubectl exec deployment/agent-<name> -- ls /etc/ssl/certs/custom/corp-ca/
+#    - Test certificate: kubectl exec deployment/agent-<name> -- openssl x509 -in /etc/ssl/certs/custom/corp-ca/ca.crt -text -noout

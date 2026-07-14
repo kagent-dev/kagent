@@ -25,16 +25,25 @@ import (
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether the sandbox workload is ready."
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether configuration was accepted."
-// SandboxAgent declares an agent that runs in an isolated sandbox (agent-sandbox Sandbox CR).
+// SandboxAgent declares an agent that runs in an isolated sandbox on Agent Substrate.
 type SandboxAgent struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	// +optional
-	Spec AgentSpec `json:"spec,omitempty"`
+	Spec SandboxAgentSpec `json:"spec,omitempty"`
 	// +optional
 	Status AgentStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:validation:XValidation:rule="!has(self.skills)",message="spec.skills is not supported for sandbox agents"
+type SandboxAgentSpec struct {
+	AgentSpec `json:",inline"`
+
+	// Substrate is optional Agent Substrate-specific settings.
+	// +optional
+	Substrate *SandboxSubstrateSpec `json:"substrate,omitempty"`
 }
 
 // +kubebuilder:object:root=true

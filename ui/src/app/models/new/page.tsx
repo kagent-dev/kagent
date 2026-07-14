@@ -428,7 +428,7 @@ function ModelPageContent() {
 
     if (!isResourceNameValid(name)) newErrors.name = "Name must be a valid RFC 1123 subdomain name";
     if (!selectedCombinedModel) newErrors.selectedCombinedModel = "Provider and Model selection is required";
-    const isOllamaNow = selectedCombinedModel?.startsWith('ollama::');
+    const isOllamaNow = selectedProvider?.type?.toLowerCase() === 'ollama';
     if (!isEditMode && !isOllamaNow && isApiKeyNeeded && !apiKey.trim()) {
       newErrors.apiKey = "API key is required for new models (except for Ollama or when you don't need an API key)";
     }

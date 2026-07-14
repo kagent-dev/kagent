@@ -27,6 +27,7 @@ type resolvedDeployment struct {
 	Image           string
 	Cmd             string // empty → no explicit command
 	Args            []string
+	WorkingDir      *string
 	Port            int32 // container port and Service port
 	ImagePullPolicy corev1.PullPolicy
 
@@ -122,6 +123,40 @@ func validateExtraContainers(containers []corev1.Container) error {
 	return nil
 }
 
+func resolvePythonRuntimeImage(registry string, full bool) (string, error) {
+	repo := DefaultImageConfig.Repository
+	digest := PythonADKImageDigest
+	imageLabel := "app"
+	if full {
+		digest = PythonADKFullImageDigest
+		imageLabel = "app-full"
+	}
+	if d := normalizeImageDigest(digest); d != "" {
+		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
+	}
+	return "", fmt.Errorf(
+		"%s image digest is not set at link time; rebuild the controller after pushing agent runtime images",
+		imageLabel,
+	)
+}
+
+func resolveGoRuntimeImage(registry string, full bool) (string, error) {
+	repo := getRuntimeImageRepository(v1alpha2.DeclarativeRuntime_Go)
+	digest := GoADKImageDigest
+	imageLabel := "golang-adk"
+	if full {
+		digest = GoADKFullImageDigest
+		imageLabel = "golang-adk-full"
+	}
+	if d := normalizeImageDigest(digest); d != "" {
+		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
+	}
+	return "", fmt.Errorf(
+		"%s image digest is not set at link time; rebuild the controller after pushing agent runtime images",
+		imageLabel,
+	)
+}
+
 func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	specRef := agent.GetAgentSpec()
 	// Defaults
@@ -144,11 +179,8 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		spec = *specRef.Declarative.Deployment
 	}
 
-	// Determine runtime (defaults to python if not set)
-	runtime := v1alpha2.DeclarativeRuntime_Python
-	if specRef.Declarative.Runtime != "" {
-		runtime = specRef.Declarative.Runtime
-	}
+	// Determine runtime (defaults to python when spec.declarative.runtime is unset).
+	runtime := v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 
 	// Get registry
 	registry := DefaultImageConfig.Registry
@@ -156,14 +188,22 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		registry = spec.ImageRegistry
 	}
 
-	repository := getRuntimeImageRepository(runtime)
-
-	tag := DefaultImageConfig.Tag
-	if runtime == v1alpha2.DeclarativeRuntime_Go && needsSRTSettings(agent, specRef.Sandbox) {
-		tag += "-full"
+	var image string
+	full := needsSRTSettings(agent, specRef.Sandbox)
+	switch runtime {
+	case v1alpha2.DeclarativeRuntime_Go:
+		var err error
+		image, err = resolveGoRuntimeImage(registry, full)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		var err error
+		image, err = resolvePythonRuntimeImage(registry, full)
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	image := fmt.Sprintf("%s/%s:%s", registry, repository, tag)
 
 	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
 	if spec.ImagePullPolicy != "" {
@@ -268,6 +308,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		Image:                image,
 		Cmd:                  cmd,
 		Args:                 args,
+		WorkingDir:           spec.WorkingDir,
 		Port:                 port,
 		ImagePullPolicy:      imagePullPolicy,
 		Replicas:             replicas,

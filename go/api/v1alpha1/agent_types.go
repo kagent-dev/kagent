@@ -53,7 +53,7 @@ type AgentSpec struct {
 	// controller (default 8083).
 	// The A2A server URL will be served at
 	// <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
-	// Read more about the A2A protocol here: https://github.com/google/A2A
+	// Read more about the A2A protocol here: https://github.com/a2aproject/A2A
 	// +optional
 	A2AConfig *A2AConfig `json:"a2aConfig,omitempty"`
 	// +optional

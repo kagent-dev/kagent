@@ -8,6 +8,9 @@ import { getSessionsForAgent } from "@/app/actions/sessions";
 import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "@/types";
 import { toast } from "sonner";
 import { ChatAgentProvider } from "@/components/chat/ChatAgentContext";
+import { ChatMcpAppsProvider } from "@/components/chat/ChatMcpAppsContext";
+import { isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
+import { mergeSessionUpdate, normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 
 interface ChatLayoutUIProps {
   agentName: string;
@@ -28,6 +31,7 @@ export default function ChatLayoutUI({
 }: ChatLayoutUIProps) {
   const pathname = usePathname();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [acpSessions, setAcpSessions] = useState<Array<{ sessionId: string; title?: string; updatedAt?: string }>>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
 
   // Convert RemoteMCPServerResponse[] to ToolsResponse[]
@@ -49,7 +53,7 @@ export default function ChatLayoutUI({
     return tools;
   }, [allTools]);
 
-  
+
   useEffect(() => {
     const refreshSessions = async () => {
       setIsLoadingSessions(true);
@@ -79,12 +83,13 @@ export default function ChatLayoutUI({
       // Only update if this is for our current agent (agentRef format: "namespace/agentName")
       const currentAgentRef = `${namespace}/${agentName}`;
       if (agentRef === currentAgentRef && session) {
+        const normalized = normalizeSessionTimestamps(session);
         setSessions(prevSessions => {
-          const exists = prevSessions.some(s => s.id === session.id);
+          const exists = prevSessions.some(s => s.id === normalized.id);
           if (exists) {
-            return prevSessions;
+            return prevSessions.map(s => (s.id === normalized.id ? mergeSessionUpdate(s, normalized) : s));
           }
-          return [session, ...prevSessions];
+          return [normalized, ...prevSessions];
         });
       }
     };
@@ -95,6 +100,40 @@ export default function ChatLayoutUI({
     };
   }, [agentName, namespace]);
 
+  useEffect(() => {
+    // Listen for ACP harness session list updates from AcpHarnessChat
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleAcpSessionsUpdate = (event: any) => {
+      const { agentRef, sessions } = event.detail;
+      const currentAgentRef = `${namespace}/${agentName}`;
+      if (agentRef === currentAgentRef && Array.isArray(sessions)) {
+        setAcpSessions(sessions);
+      }
+    };
+
+    window.addEventListener('acp-sessions-updated', handleAcpSessionsUpdate);
+    return () => {
+      window.removeEventListener('acp-sessions-updated', handleAcpSessionsUpdate);
+    };
+  }, [agentName, namespace]);
+
+  useEffect(() => {
+    // AcpHarnessChat adopts the agent-generated chat title as the DB session
+    // name; reflect it in the sidebar list immediately (and across reloads it
+    // comes back from the DB).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleSessionTitled = (event: any) => {
+      const { sessionId, title } = event.detail ?? {};
+      if (!sessionId || !title) return;
+      setSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, name: title } : s)));
+    };
+
+    window.addEventListener('harness-session-titled', handleSessionTitled);
+    return () => {
+      window.removeEventListener('harness-session-titled', handleSessionTitled);
+    };
+  }, []);
+
   return (
     <>
       <SessionsSidebar
@@ -103,21 +142,26 @@ export default function ChatLayoutUI({
         currentAgent={currentAgent}
         allAgents={allAgents}
         agentSessions={sessions}
+        acpSessions={acpSessions}
         isLoadingSessions={isLoadingSessions}
       />
-      <main className="w-full max-w-6xl mx-auto px-4">
-        <ChatAgentProvider
-          agentType={currentAgent.agent.spec.type}
-          runInSandbox={currentAgent.workloadMode === "sandbox"}
-        >
-          {children}
-        </ChatAgentProvider>
+      <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden px-4">
+        <div className="mx-auto flex h-full min-h-0 w-full min-w-0 max-w-6xl flex-1 flex-col">
+          <ChatMcpAppsProvider currentAgent={currentAgent}>
+            <ChatAgentProvider
+              agentType={currentAgent.agent.spec.type}
+              runInSandbox={currentAgent.workloadMode === "sandbox"}
+              substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
+            >
+              {children}
+            </ChatAgentProvider>
+          </ChatMcpAppsProvider>
+        </div>
       </main>
       <AgentDetailsSidebar
-        selectedAgentName={agentName}
         currentAgent={currentAgent}
         allTools={convertedTools}
       />
     </>
   );
-} 
+}

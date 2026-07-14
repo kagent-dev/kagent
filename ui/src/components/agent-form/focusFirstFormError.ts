@@ -6,7 +6,7 @@ const FOCUS_ORDER: (keyof AgentFormValidationErrors)[] = [
   "description",
   "systemPrompt",
   "model",
-  "openClawSandbox",
+  "agentHarness",
   "memoryModel",
   "memoryTtl",
   "serviceAccountName",
@@ -55,15 +55,11 @@ export function focusFirstFormError(
         return;
       }
     }
-    if (key === "openClawSandbox") {
-      const err = errors.openClawSandbox;
+    if (key === "agentHarness") {
+      const err = errors.agentHarness;
       if (err) {
         const focusId =
-          err.section === "allowedDomains"
-            ? "agent-field-openclaw-allowed-domains"
-            : err.section === "channels"
-              ? "section-openclaw-channels"
-              : "section-openclaw-sandbox";
+          err.section === "channels" ? "section-agent-harness-channels" : "section-agent-harness";
         if (focusElementById(focusId)) {
           return;
         }

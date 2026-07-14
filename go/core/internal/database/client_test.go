@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // TestConcurrentAgentUpserts verifies that concurrent StoreAgent calls
@@ -325,7 +325,7 @@ func TestStoreTaskTouchesSessionActivity(t *testing.T) {
 	require.NoError(t, err)
 	time.Sleep(10 * time.Millisecond)
 
-	err = client.StoreTask(ctx, &protocol.Task{
+	err = client.StoreTask(ctx, &a2a.Task{
 		ID:        "task-1",
 		ContextID: sessionID,
 	})
@@ -725,4 +725,59 @@ func TestPruneExpiredMemories(t *testing.T) {
 	assert.NotContains(t, ids, coldMem.ID, "Expired unpopular memory should be pruned")
 	assert.Contains(t, ids, hotMem.ID, "Expired popular memory should have TTL extended and be retained")
 	assert.Contains(t, ids, liveMem.ID, "Non-expired memory should be retained")
+}
+
+// TestSearchAgentMemoryConcurrentAccessCount verifies concurrent searches over
+// overlapping rows do not deadlock when incrementing access_count and still
+// return results.
+func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	t.Cleanup(cancel)
+
+	agentName := "concurrent-agent"
+	userID := "concurrent-user"
+
+	// Small store so every search hits the same top rows (max overlap).
+	for i := range 5 {
+		err := client.StoreAgentMemory(ctx, &dbpkg.Memory{
+			AgentName: agentName,
+			UserID:    userID,
+			Content:   fmt.Sprintf("shared memory %d", i),
+			Embedding: makeEmbedding(float32(i+1) * 0.15),
+		})
+		require.NoError(t, err)
+	}
+
+	const numGoroutines = 20
+	const searchesPerGoroutine = 10
+
+	var wg sync.WaitGroup
+	errs := make(chan error, numGoroutines*searchesPerGoroutine)
+	wg.Add(numGoroutines)
+
+	for range numGoroutines {
+		go func() {
+			defer wg.Done()
+			for range searchesPerGoroutine {
+				results, err := client.SearchAgentMemory(ctx, agentName, userID, makeEmbedding(0.5), 5)
+				if err != nil {
+					errs <- err
+					return
+				}
+				if len(results) == 0 {
+					errs <- fmt.Errorf("expected search results, got none")
+					return
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err, "concurrent memory search must not fail")
+	}
 }

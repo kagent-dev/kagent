@@ -14,10 +14,10 @@ dependencies = [
   "google-auth>=2.40.2",
   "httpx>=0.25.0",
   "pydantic>=2.5.0",
-  "typing-extensions>=4.8.0",
+  "typing-extensions>=4.16.0",
   "aiofiles>=24.1.0",
-  "anyio>=4.9.0",
-  "PyJWT>=2.12.0",
+  "anyio>=4.14.2",
+  "PyJWT>=2.13.0",
 ]
 
 [tool.uv.sources]

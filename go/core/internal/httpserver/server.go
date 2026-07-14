@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,6 +35,7 @@ const (
 	APIPathTasks                = "/api/tasks"
 	APIPathTools                = "/api/tools"
 	APIPathToolServers          = "/api/toolservers"
+	APIPathMCPApps              = "/api/mcp-apps"
 	APIPathToolServerTypes      = "/api/toolservertypes"
 	APIPathAgents               = "/api/agents"
 	APIPathSandboxAgents        = "/api/sandboxagents"
@@ -49,7 +51,8 @@ const (
 	APIPathFeedback             = "/api/feedback"
 	APIPathLangGraph            = "/api/langgraph"
 	APIPathCrewAI               = "/api/crewai"
-	APIPathSandboxSSH           = "/api/sandbox/ssh"
+	APIPathAgentHarnessHarness  = "/api/agentharnesses/{namespace}/{name}/"
+	APIPathSubstrateStatus      = "/api/substrate/status"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -59,18 +62,23 @@ var defaultModelConfig = types.NamespacedName{
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	Router            *mux.Router
-	BindAddr          string
-	KubeClient        ctrl_client.Client
-	A2AHandler        a2a.A2AHandlerMux
-	MCPHandler        *mcp.MCPHandler
-	WatchedNamespaces []string
-	DbClient          dbpkg.Client
-	Authenticator     auth.AuthProvider
-	Authorizer        auth.Authorizer
-	ProxyURL          string
-	Reconciler        reconciler.KagentReconciler
-	SandboxBackend    sandboxbackend.Backend
+	Router                       *mux.Router
+	BindAddr                     string
+	KubeClient                   ctrl_client.Client
+	A2AHandler                   a2a.A2AHandlerMux
+	MCPHandler                   *mcp.MCPHandler
+	WatchedNamespaces            []string
+	DbClient                     dbpkg.Client
+	Authenticator                auth.AuthProvider
+	Authorizer                   auth.Authorizer
+	ProxyURL                     string
+	Reconciler                   reconciler.KagentReconciler
+	SandboxBackend               sandboxbackend.Backend
+	AgentHarnessGateway          *handlers.AgentHarnessGatewayConfig
+	SubstrateAteClient           *substrate.Client
+	MCPEgressPlaintext           bool
+	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
+	AgentHarnessSessionActor     *substrate.AgentHarnessSessionActorBackend
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -87,9 +95,23 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	// Initialize database
 
 	return &HTTPServer{
-		config:        config,
-		router:        config.Router,
-		handlers:      handlers.NewHandlers(config.KubeClient, defaultModelConfig, config.DbClient, config.WatchedNamespaces, config.Authorizer, config.ProxyURL, config.Reconciler, config.SandboxBackend),
+		config: config,
+		router: config.Router,
+		handlers: handlers.NewHandlers(
+			config.KubeClient,
+			defaultModelConfig,
+			config.DbClient,
+			config.WatchedNamespaces,
+			config.Authorizer,
+			config.ProxyURL,
+			config.Reconciler,
+			config.SandboxBackend,
+			config.AgentHarnessGateway,
+			config.SubstrateAteClient,
+			config.MCPEgressPlaintext,
+			config.SubstrateSandboxActorBackend,
+			config.AgentHarnessSessionActor,
+		),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -224,8 +246,11 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleGetSession)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/tasks", adaptHandler(s.handlers.Sessions.HandleListTasksForSession)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut, http.MethodPatch)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/events", adaptHandler(s.handlers.Sessions.HandleAddEventToSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleCreateSessionShare)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleListSessionShares)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares/{token}", adaptHandler(s.handlers.SessionShares.HandleDeleteSessionShare)).Methods(http.MethodDelete)
 
 	// Tasks
 	s.router.HandleFunc(APIPathTasks+"/{task_id}", adaptHandler(s.handlers.Tasks.HandleGetTask)).Methods(http.MethodGet)
@@ -240,6 +265,11 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{name}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
 
+	// MCP Apps
+	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/tools", adaptHandler(s.handlers.MCPApps.HandleListTools)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/tools/{toolName}/call", adaptHandler(s.handlers.MCPApps.HandleCallTool)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/resources", adaptHandler(s.handlers.MCPApps.HandleReadResource)).Methods(http.MethodGet)
+
 	// Tool Server Types
 	s.router.HandleFunc(APIPathToolServerTypes, adaptHandler(s.handlers.ToolServerTypes.HandleListToolServerTypes)).Methods(http.MethodGet)
 
@@ -250,9 +280,10 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
 
-	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleListSandboxAgents)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathAgentHarnesses, adaptHandler(s.handlers.Agents.HandleCreateAgentHarness)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgentHarness)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgentHarness)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetSandboxAgent)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleUpdateSandboxAgent)).Methods(http.MethodPut)
 	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteSandboxAgent)).Methods(http.MethodDelete)
@@ -275,6 +306,9 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Namespaces
 	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
+
+	// Agent Substrate inventory (WorkerPools, ActorTemplates, ate-api actors/workers)
+	s.router.HandleFunc(APIPathSubstrateStatus, adaptHandler(s.handlers.Substrate.HandleGetSubstrateStatus)).Methods(http.MethodGet)
 
 	// Prompt template libraries (ConfigMaps)
 	s.router.HandleFunc(APIPathPromptTemplates, adaptHandler(s.handlers.PromptTemplates.HandleListPromptTemplates)).Methods(http.MethodGet)
@@ -300,8 +334,17 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleStoreFlowState)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleGetFlowState)).Methods(http.MethodGet)
 
-	// OpenShell sandbox PTY (browser WebSocket → gateway CONNECT → SSH). Authenticated like other /api routes.
-	s.router.HandleFunc(APIPathSandboxSSH, adaptHandler(s.handlers.HandleSandboxSSHWebSocket)).Methods(http.MethodGet)
+	// Substrate harness per-session actor lifecycle (provision on New Chat,
+	// suspend from the chat UI). Registered before the /acp gateway catch-all so
+	// these specific paths win over the PathPrefix match.
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions/{session_id}/ensure", adaptHandler(s.handlers.HandleEnsureAgentHarnessSessionActor)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions/{session_id}/suspend", adaptHandler(s.handlers.HandleSuspendAgentHarnessSessionActor)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions/{session_id}/status", adaptHandler(s.handlers.HandleGetAgentHarnessSessionActor)).Methods(http.MethodGet)
+
+	// Substrate harness /acp WebSocket proxy via atenet-router.
+	s.router.PathPrefix(APIPathAgentHarnessHarness).Handler(
+		adaptHandler(s.handlers.HandleAgentHarnessGateway),
+	)
 
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
@@ -313,21 +356,29 @@ func (s *HTTPServer) setupRoutes() {
 	}
 
 	// Use middleware for common functionality (first registered runs outermost on incoming requests).
-	s.router.Use(wsSandboxSSHAuthQueryMiddleware)
+	s.router.Use(wsAuthQueryMiddleware)
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
+	s.router.Use(s.shareTokenMiddleware)
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)
 }
 
-// wsSandboxSSHAuthQueryMiddleware maps access_token query → Authorization for browser WebSocket upgrades
+// wsAuthQueryMiddleware maps token query params → Authorization for browser WebSocket upgrades
 // (fetch can send headers; WebSocket cannot).
-func wsSandboxSSHAuthQueryMiddleware(next http.Handler) http.Handler {
+func wsAuthQueryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == APIPathSandboxSSH && r.Header.Get("Authorization") == "" {
-			if t := r.URL.Query().Get("access_token"); t != "" {
-				r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(t))
-			}
+		if r.Header.Get("Authorization") != "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		var token string
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/ssh"):
+			token = r.URL.Query().Get("access_token")
+		}
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 		}
 		next.ServeHTTP(w, r)
 	})

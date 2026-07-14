@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { convertToUserFriendlyName } from "@/lib/utils";
 import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
 import { ToolDecision } from "@/types";
+import type { ChatMcpAppTool } from "@/components/chat/ChatMcpAppsContext";
 
 interface ChatMessageProps {
   message: Message;
@@ -24,9 +25,11 @@ interface ChatMessageProps {
   onReject?: (toolCallId: string, reason?: string) => void;
   onAskUserSubmit?: (answers: Array<{ answer: string[] }>) => void;
   pendingDecisions?: Record<string, ToolDecision>;
+  getMcpAppForTool?: (toolName: string) => ChatMcpAppTool | undefined;
+  onMcpAppSendMessage?: (text: string) => Promise<void>;
 }
 
-export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions }: ChatMessageProps) {
+export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions, getMcpAppForTool, onMcpAppSendMessage }: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
@@ -100,7 +103,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         questions={questions}
         isResolved={isResolved}
         resolvedAnswers={resolvedAnswers ?? null}
-        onSubmit={(answers) => onAskUserSubmit?.(answers)}
+        onSubmit={onAskUserSubmit}
         subagentName={askUserSubagentName}
       />
     );
@@ -114,6 +117,8 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
       onApprove={onApprove}
       onReject={onReject}
       pendingDecisions={pendingDecisions}
+      getMcpAppForTool={getMcpAppForTool}
+      onMcpAppSendMessage={onMcpAppSendMessage}
     />;
   }
 
@@ -124,6 +129,8 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
       onApprove={onApprove}
       onReject={onReject}
       pendingDecisions={pendingDecisions}
+      getMcpAppForTool={getMcpAppForTool}
+      onMcpAppSendMessage={onMcpAppSendMessage}
     />;
   }
 
@@ -139,7 +146,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     });
 
     if (hasToolCalls) {
-      return <ToolCallDisplay currentMessage={message} allMessages={allMessages} />;
+      return <ToolCallDisplay currentMessage={message} allMessages={allMessages} getMcpAppForTool={getMcpAppForTool} onMcpAppSendMessage={onMcpAppSendMessage} />;
     }
     return null;
   }

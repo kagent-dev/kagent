@@ -3,6 +3,11 @@ kind: Deployment
 metadata:
   name: {{ include "kagent.fullname" . }}-controller
   namespace: {{ include "kagent.namespace" . }}
+  {{- $annotations := mergeOverwrite (dict) (default dict .Values.annotations) (default dict .Values.controller.annotations) }}
+  {{- if $annotations }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 spec:
@@ -30,8 +35,17 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kagent.fullname" . }}-controller
-      {{- if gt (len .Values.controller.volumes) 0 }}
+      {{- if or (gt (len .Values.controller.volumes) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled .Values.controller.substrate.ateApiTokenFile) }}
       volumes:
+      {{- if and .Values.controller.substrate .Values.controller.substrate.enabled .Values.controller.substrate.ateApiTokenFile }}
+      - name: substrate-ate-api-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              audience: {{ .Values.controller.substrate.ateApiTokenAudience | quote }}
+              expirationSeconds: {{ .Values.controller.substrate.ateApiTokenExpirationSeconds }}
+              path: {{ base .Values.controller.substrate.ateApiTokenFile | quote }}
+      {{- end }}
       {{- with .Values.controller.volumes }}
       {{- toYaml . | nindent 6 }}
       {{- end }}
@@ -84,8 +98,38 @@ spec:
             {{- else }}
             {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}
+            {{- if include "kagent.controller.metricsEnabled" . }}
+            - name: METRICS_BIND_ADDRESS
+              value: {{ .Values.controller.metrics.bindAddress | quote }}
+            - name: METRICS_SECURE
+              value: {{ .Values.controller.metrics.secureServing | quote }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
+            - name: SUBSTRATE_ATE_API_ENDPOINT
+              value: {{ .Values.controller.substrate.ateApiEndpoint | quote }}
+            {{- with .Values.controller.substrate.ateApiTokenFile }}
+            - name: SUBSTRATE_ATE_API_TOKEN_FILE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.substrate.atenetRouterURL }}
+            - name: SUBSTRATE_ATENET_ROUTER_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.controller.substrate.ateApiInsecure }}
+            - name: SUBSTRATE_ATE_API_INSECURE
+              value: "true"
+            {{- end }}
+            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAMESPACE
+              value: {{ .Values.controller.substrate.defaultWorkerPool.namespace | default (include "kagent.namespace" .) | quote }}
+            - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAME
+              value: {{ .Values.controller.substrate.defaultWorkerPool.name | default (ternary .Values.substrateWorkerPool.name "" .Values.substrateWorkerPool.create) | quote }}
+            {{- with .Values.controller.substrate.pauseImage }}
+            - name: SUBSTRATE_PAUSE_IMAGE
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
           envFrom:
             - configMapRef:
@@ -97,6 +141,11 @@ spec:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
               protocol: TCP
+            {{- if .Values.controller.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ include "kagent.controller.metricsPort" . | int }}
+              protocol: TCP
+            {{- end }}
           resources:
             {{- toYaml .Values.controller.resources | nindent 12 }}
           {{- with (.Values.controller.securityContext | default .Values.securityContext) }}
@@ -124,8 +173,13 @@ spec:
               port: http
             periodSeconds: 30
           {{- end }}
-          {{- if gt (len .Values.controller.volumeMounts) 0 }}
+          {{- if or (gt (len .Values.controller.volumeMounts) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled .Values.controller.substrate.ateApiTokenFile) }}
           volumeMounts:
+            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled .Values.controller.substrate.ateApiTokenFile }}
+            - name: substrate-ate-api-token
+              mountPath: {{ dir .Values.controller.substrate.ateApiTokenFile | quote }}
+              readOnly: true
+            {{- end }}
             {{- with .Values.controller.volumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

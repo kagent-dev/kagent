@@ -4,8 +4,17 @@ import { Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { formAgentTypeFromApi, formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
-import { ModelConfig, AgentType, ContextConfig, type DeclarativeRuntime } from "@/types";
+import {
+  formUsesByoSections,
+  formUsesDeclarativeSections,
+  formWorkloadKindFromApi,
+  type AgentFormWorkloadKind,
+} from "@/lib/agentFormLayout";
+import {
+  sandboxFieldsFromApiSpec,
+  substrateSupportedForAgentType,
+} from "@/lib/sandboxAgentForm";
+import { ModelConfig, ContextConfig, type DeclarativeRuntime } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
 import { generateId } from "@/lib/utils";
@@ -18,6 +27,8 @@ import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
 import { AgentFormData } from "@/components/AgentsProvider";
+import { useSubstrateEnabled } from "@/contexts/SubstrateFeaturesContext";
+import { Label } from "@/components/ui/label";
 import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
@@ -29,7 +40,6 @@ import {
   validateDeclarativeAgentSkills,
   type GitSkillFormRow,
 } from "@/lib/agentSkillsForm";
-import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
@@ -63,6 +73,7 @@ const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
 function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageContentProps) {
   const router = useRouter();
   const { models, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
+  const initialNamespace = !isEditMode && agentNamespace?.trim() ? agentNamespace.trim() : "default";
 
   type SelectedModelType = ModelConfig;
 
@@ -70,7 +81,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     name: string;
     namespace: string;
     description: string;
-    agentType: AgentType;
+    agentType: AgentFormWorkloadKind;
+    runInSandbox: boolean;
     systemPrompt: string;
     selectedModel: SelectedModelType | null;
     selectedMemoryModel: SelectedModelType | null;
@@ -87,6 +99,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullSecrets: string[];
     envPairs: { name: string; value?: string; isSecret?: boolean; secretName?: string; secretKey?: string; optional?: boolean }[];
     stream: boolean;
+    shareTools: boolean;
     /** Python vs Go ADK (`spec.declarative.runtime`). */
     declarativeRuntime: DeclarativeRuntime;
     contextConfig: ContextConfig | undefined;
@@ -95,15 +108,18 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     isSubmitting: boolean;
     isLoading: boolean;
     errors: AgentFormValidationErrors;
+    substrateWorkerPoolRefName: string;
+    substrateSnapshotsLocation: string;
   }
 
   const [formDirty, setFormDirty] = useState(false);
 
   const [state, setState] = useState<FormState>({
     name: "",
-    namespace: "default",
+    namespace: initialNamespace,
     description: "",
     agentType: "Declarative",
+    runInSandbox: false,
     systemPrompt: isEditMode ? "" : DEFAULT_SYSTEM_PROMPT,
     selectedModel: null,
     selectedMemoryModel: null,
@@ -120,18 +136,28 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
     imagePullSecrets: [""],
     envPairs: [{ name: "", value: "", isSecret: false }],
     stream: false,
-    declarativeRuntime: "python",
+    shareTools: false,
+    declarativeRuntime: "go",
     contextConfig: undefined,
     serviceAccountName: "",
     promptSourceRows: [newPromptSourceRow()],
     isSubmitting: false,
     isLoading: isEditMode,
     errors: {},
+    substrateWorkerPoolRefName: "",
+    substrateSnapshotsLocation: "",
   });
 
-  const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType, state.byoImage);
-  const showByoFields = formUsesByoSections(state.agentType, state.byoImage);
+  const substrateEnabled = useSubstrateEnabled();
+
+  const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType);
+  const substrateSandboxAgent = state.runInSandbox;
+  // Substrate supports both Python and Go declarative runtimes, so the runtime selector is
+  // shown for declarative agents.
+  const showDeclarativeRuntimeField = useDeclarativeAgentFields;
+  const showByoFields = formUsesByoSections(state.agentType);
   const showModelAndBehaviorSection = useDeclarativeAgentFields;
+  const skillsEnabled = useDeclarativeAgentFields && !state.runInSandbox;
   const disabled = state.isSubmitting || state.isLoading;
 
   useEffect(() => {
@@ -196,8 +222,13 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 name: agent.metadata.name || "",
                 namespace: agent.metadata.namespace || "",
                 description: agent.spec?.description || "",
-                agentType: formAgentTypeFromApi(agent.spec.type, agentResponse.workloadMode),
+                agentType: formWorkloadKindFromApi(agent.spec.type),
+                runInSandbox: agentResponse.workloadMode === "sandbox",
               };
+              const sandboxFields =
+                agentResponse.workloadMode === "sandbox"
+                  ? sandboxFieldsFromApiSpec(agent.spec?.substrate)
+                  : {};
               const useDeclarativeForm = agent.spec.type === "Declarative";
               if (useDeclarativeForm) {
                 const decl = agent.spec?.declarative;
@@ -215,6 +246,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 setState((prev) => ({
                   ...prev,
                   ...baseUpdates,
+                  ...sandboxFields,
                   systemPrompt: decl?.systemMessage || "",
                   promptSourceRows: srcRows.length > 0 ? srcRows : [newPromptSourceRow()],
                   selectedTools: decl?.tools && agentResponse.tools ? agentResponse.tools : [],
@@ -228,6 +260,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       : [newEmptyGitSkillRow()],
                   skillsGitAuthSecretName: agent.spec?.skills?.gitAuthSecretRef?.name || "",
                   stream: decl?.stream ?? false,
+                  shareTools: decl?.shareTools ?? false,
+                  // Honor the persisted runtime for all platforms (substrate supports Python and Go).
                   declarativeRuntime: decl?.runtime === "go" ? "go" : "python",
                   selectedMemoryModel: memoryModelConfig
                     ? { ref: memoryModelConfig, spec: { model: memorySpec?.modelConfig || "", provider: "" } }
@@ -243,6 +277,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 setState((prev) => ({
                   ...prev,
                   ...baseUpdates,
+                  ...sandboxFields,
                   systemPrompt: "",
                   selectedModel: null,
                   selectedTools: [],
@@ -300,6 +335,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       namespace: state.namespace,
       description: state.description,
       type: state.agentType,
+      runInSandbox: state.runInSandbox,
       systemPrompt: state.systemPrompt,
       promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
       modelName: state.selectedModel?.ref || "",
@@ -311,19 +347,32 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
           }
         : undefined,
-        context: state.contextConfig,
-        serviceAccountName: state.serviceAccountName,
-        ...(useDeclarativeAgentFields ? { declarativeRuntime: state.declarativeRuntime } : {}),
-      };
+      context: state.contextConfig,
+      serviceAccountName: state.serviceAccountName,
+      ...(useDeclarativeAgentFields ? { declarativeRuntime: state.declarativeRuntime } : {}),
+      ...(state.runInSandbox
+        ? {
+            substrateWorkerPoolRefName: state.substrateWorkerPoolRefName,
+            substrateSnapshotsLocation: state.substrateSnapshotsLocation,
+          }
+        : {}),
+    };
 
-      const newErrors = validateAgentData(formData);
+    const newErrors = validateAgentData(formData);
 
-    if (useDeclarativeAgentFields) {
-      const skillsError = validateDeclarativeAgentSkills({
+    // BYO agents on substrate must set an explicit command: substrate copies the container
+    // command verbatim and does not fall back to the image entrypoint (mirrors the backend).
+    if (state.agentType === "BYO" && substrateSandboxAgent && !state.byoCmd.trim()) {
+      newErrors.byoCmd = "Command is required for BYO agents on Agent Substrate";
+    }
+
+    if (useDeclarativeAgentFields && skillsEnabled) {
+      const skillsInput = {
         skillRefs: state.skillRefs || [],
         skillGitRepos: state.skillGitRepos || [],
         skillsGitAuthSecretName: state.skillsGitAuthSecretName || "",
-      });
+      };
+      const skillsError = validateDeclarativeAgentSkills(skillsInput);
       if (skillsError) {
         newErrors.skills = skillsError;
       }
@@ -341,7 +390,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const validateField = (fieldName: keyof AgentFormValidationErrors, value: any) => {
-    const formData: Partial<AgentFormData> = { type: state.agentType };
+    const formData: Partial<AgentFormData> = { type: state.agentType, runInSandbox: state.runInSandbox };
     const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
 
     switch (fieldName) {
@@ -417,15 +466,17 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         namespace: state.namespace,
         description: state.description,
         type: state.agentType,
+        runInSandbox: state.runInSandbox,
         systemPrompt: state.systemPrompt,
         promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
         modelName: state.selectedModel?.ref || "",
         stream: state.stream,
+        shareTools: useDeclarativeAgentFields ? state.shareTools : undefined,
         tools: state.selectedTools,
-        skillRefs: useDeclarativeAgentFields ? (state.skillRefs || []).filter((ref) => ref.trim()) : undefined,
-        skillGitRepos: useDeclarativeAgentFields ? formRowsToGitRepos(state.skillGitRepos || []) : undefined,
+        skillRefs: skillsEnabled ? (state.skillRefs || []).filter((ref) => ref.trim()) : undefined,
+        skillGitRepos: skillsEnabled ? formRowsToGitRepos(state.skillGitRepos || []) : undefined,
         skillsGitAuthSecretName:
-          useDeclarativeAgentFields && (state.skillsGitAuthSecretName || "").trim()
+          skillsEnabled && (state.skillsGitAuthSecretName || "").trim()
             ? (state.skillsGitAuthSecretName || "").trim()
             : undefined,
         memory:
@@ -472,6 +523,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
           })
           .filter((e): e is EnvVar => e !== null),
         serviceAccountName: state.serviceAccountName.trim() || undefined,
+        ...(state.runInSandbox
+          ? {
+              substrateWorkerPoolRefName: state.substrateWorkerPoolRefName,
+              substrateSnapshotsLocation: state.substrateSnapshotsLocation,
+            }
+          : {}),
       };
 
       let result;
@@ -487,7 +544,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
       }
 
       setFormDirty(false);
-      router.push(`/agents`);
+      const returnPath =
+        !isEditMode && agentNamespace
+          ? `/agents?namespace=${encodeURIComponent(state.namespace)}`
+          : "/agents";
+      router.push(returnPath);
     } catch (e) {
       console.error(`Error ${isEditMode ? "updating" : "creating"} agent:`, e);
       const errorMessage =
@@ -587,16 +648,19 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               <FieldRoot>
                 <FieldLabel>Agent type</FieldLabel>
                 <FieldHint>
-                  Declarative and sandbox workload (without a custom image) use the in-cluster ADK runtime. BYO or sandbox with a custom image adds
-                  container settings. 
+                  Declarative agents use the in-cluster ADK runtime with model, tools, and prompts. BYO runs your own container image and process.
                 </FieldHint>
                 <Select
                   value={state.agentType}
                   onValueChange={(val) => {
-                    const next = val as AgentType;
+                    const next = val as AgentFormWorkloadKind;
                     setState((prev) => ({
                       ...prev,
                       agentType: next,
+                      // BYO agents are not supported in a sandbox (Agent Substrate).
+                      ...(!substrateSupportedForAgentType(next) && prev.runInSandbox
+                        ? { runInSandbox: false }
+                        : {}),
                       errors: { ...prev.errors, type: undefined },
                     }));
                     validateField("type", val);
@@ -608,13 +672,95 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Declarative">Declarative</SelectItem>
-                    <SelectItem value="Sandbox">Sandbox workload</SelectItem>
                     <SelectItem value="BYO">BYO</SelectItem>
                   </SelectContent>
                 </Select>
               </FieldRoot>
 
-              {useDeclarativeAgentFields && (
+              <FieldRoot>
+                <div className="flex gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                  <div className="flex h-5 shrink-0 items-center self-start">
+                    <Checkbox
+                      id="run-in-sandbox"
+                      checked={state.runInSandbox}
+                      onCheckedChange={(checked) =>
+                        setState((prev) => ({
+                          ...prev,
+                          runInSandbox: !!checked,
+                          // Sandbox agents run on Agent Substrate (Go runtime, no skills).
+                          ...(checked
+                            ? {
+                                declarativeRuntime: "go",
+                                skillRefs: [""],
+                                skillGitRepos: [newEmptyGitSkillRow()],
+                                skillsGitAuthSecretName: "",
+                                errors: { ...prev.errors, skills: undefined },
+                              }
+                            : {}),
+                        }))
+                      }
+                      disabled={disabled || isEditMode || !substrateSupportedForAgentType(state.agentType)}
+                    />
+                  </div>
+                  <div className="min-w-0 space-y-1.5">
+                    <Label
+                      htmlFor="run-in-sandbox"
+                      className="block cursor-pointer text-sm font-medium leading-5 text-foreground"
+                    >
+                      Run in a sandbox
+                    </Label>
+                    <p className="text-xs leading-snug text-muted-foreground">
+                      Runs the workload in a sandbox (isolated sandbox runtime).
+                    </p>
+                  </div>
+                </div>
+              </FieldRoot>
+
+              {state.runInSandbox && substrateEnabled && substrateSupportedForAgentType(state.agentType) && (
+                <FieldRoot>
+                  <FieldLabel>Agent Substrate settings</FieldLabel>
+                  <FieldHint>
+                    Agent Substrate runs declarative (Python or Go) and BYO agents as ate.dev
+                    actors. BYO images must set an explicit command and serve A2A on port 80.
+                    Skills are not supported on substrate yet. A new substrate actor is started for
+                    each chat session.
+                  </FieldHint>
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <Label htmlFor="substrate-wp" className="text-xs text-muted-foreground">
+                        Worker pool (optional)
+                      </Label>
+                      <Input
+                        id="substrate-wp"
+                        value={state.substrateWorkerPoolRefName}
+                        onChange={(e) =>
+                          setState((prev) => ({ ...prev, substrateWorkerPoolRefName: e.target.value }))
+                        }
+                        placeholder="default pool name in agent namespace"
+                        disabled={disabled}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="substrate-snapshots" className="text-xs text-muted-foreground">
+                        Snapshots location (optional)
+                      </Label>
+                      <Input
+                        id="substrate-snapshots"
+                        value={state.substrateSnapshotsLocation}
+                        onChange={(e) =>
+                          setState((prev) => ({ ...prev, substrateSnapshotsLocation: e.target.value }))
+                        }
+                        placeholder="gs://ate-snapshots/…"
+                        disabled={disabled}
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
+                </FieldRoot>
+              )}
+
+              {showDeclarativeRuntimeField && (
                 <DeclarativeRuntimeField
                   value={state.declarativeRuntime}
                   onChange={(declarativeRuntime) => setState((prev) => ({ ...prev, declarativeRuntime }))}
@@ -623,7 +769,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
               )}
 
               <FieldRoot>
-                <FieldLabel htmlFor="agent-desc">Description (optional)</FieldLabel>
+                <FieldLabel htmlFor="agent-desc">Description</FieldLabel>
                 <FieldHint>Internal note only; not sent to the model as instructions.</FieldHint>
                 <Textarea
                   id="agent-desc"
@@ -644,7 +790,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             {showModelAndBehaviorSection && (
               <FormSection
                 title="Model & behavior"
-                description="Instructions, main model, streaming, and optional pod service account for this declarative or sandbox agent."
+                description="Instructions, main model, streaming, and optional pod service account for this declarative agent."
               >
                 {useDeclarativeAgentFields && (
                   <SystemPromptSection
@@ -710,10 +856,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             {showByoFields && (
               <FormSection
                 title="Container"
-                description="Image and process for BYO, or a custom image on sandbox. Open the lower panel for pull secrets, scheduling, and environment."
+                description="Image and process for your workload. Open the lower panel for pull secrets, scheduling, and environment."
               >
                 <ByoDeploymentFields
                   byoImage={state.byoImage}
+                  commandRequired={substrateSandboxAgent}
                   byoCmd={state.byoCmd}
                   byoArgs={state.byoArgs}
                   replicas={state.replicas}
@@ -721,7 +868,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   imagePullSecrets={state.imagePullSecrets}
                   envPairs={state.envPairs}
                   serviceAccountName={state.serviceAccountName}
-                  errors={{ model: state.errors.model, serviceAccountName: state.errors.serviceAccountName }}
+                  errors={{ model: state.errors.model, serviceAccountName: state.errors.serviceAccountName, byoCmd: state.errors.byoCmd }}
                   disabled={disabled}
                   onByoImageChange={(v) => setState((prev) => ({ ...prev, byoImage: v }))}
                   onByoCmdChange={(v) => setState((prev) => ({ ...prev, byoCmd: v }))}
@@ -755,6 +902,27 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             {useDeclarativeAgentFields && (
               <>
                 <FormSection id="section-tools" title="Tools">
+                  <div className="flex gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
+                    <div className="flex h-5 shrink-0 items-center self-start">
+                      <Checkbox
+                        id="share-tools-toggle"
+                        checked={state.shareTools}
+                        onCheckedChange={(checked) => setState((prev) => ({ ...prev, shareTools: !!checked }))}
+                        disabled={disabled}
+                      />
+                    </div>
+                    <div className="min-w-0 space-y-1.5">
+                      <Label
+                        htmlFor="share-tools-toggle"
+                        className="block cursor-pointer text-sm font-medium leading-5 text-foreground"
+                      >
+                        Enable share link tools
+                      </Label>
+                      <p className="text-xs leading-snug text-muted-foreground">
+                        Grants the agent built-in tools to create, list, and delete share links for the current session
+                      </p>
+                    </div>
+                  </div>
                   <ToolsSection
                     selectedTools={state.selectedTools}
                     setSelectedTools={(tools) => setState((prev) => ({ ...prev, selectedTools: tools }))}
@@ -797,6 +965,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   />
                 </FormSection>
 
+                {skillsEnabled ? (
                 <AgentSkillsFormSection
                   skillRefs={state.skillRefs}
                   skillGitRepos={state.skillGitRepos}
@@ -839,6 +1008,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   onGitAuthSecretChange={(value) => setState((prev) => ({ ...prev, skillsGitAuthSecretName: value }))}
                   onClearSkillsError={clearSkillsError}
                 />
+                ) : null}
               </>
             )}
 
@@ -882,7 +1052,7 @@ export default function AgentPage() {
   const isEditMode = searchParams.get("edit") === "true";
   const agentName = searchParams.get("name");
   const agentNamespace = searchParams.get("namespace");
-  const formKey = isEditMode ? `edit-${agentName}-${agentNamespace}` : "create";
+  const formKey = isEditMode ? `edit-${agentName}-${agentNamespace}` : `create-${agentNamespace || "default"}`;
 
   return (
     <Suspense fallback={<LoadingState />}>

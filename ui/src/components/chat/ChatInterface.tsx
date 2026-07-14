@@ -14,33 +14,56 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
+import ChatMinimap from "@/components/chat/ChatMinimap";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
-import { createSession, getSessionTasks, checkSessionExists } from "@/app/actions/sessions";
-import { waitForSandboxAgentReady } from "@/app/actions/agents";
+import { createSession, getSessionTasks, checkSessionExists, getSessionWithEvents } from "@/app/actions/sessions";
+import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
+import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
+import ShareButton from "@/components/chat/ShareButton";
+import { getAgentWithResolvedKind, waitForSandboxAgentReady } from "@/app/actions/agents";
+import { getUiRuntimeConfig } from "@/app/actions/config";
+import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
-import { useChatRunInSandbox } from "@/components/chat/ChatAgentContext";
+import { formatA2AClientError } from "@/lib/a2aErrors";
+import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
 import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
+import { useChatMcpApps } from "@/components/chat/ChatMcpAppsContext";
 
 // Task states where the agent is actively processing — resubscribe to live stream.
 const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
+// Task states that mean the session is busy (used by the cross-tab send guard).
+const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
+
+// Server-authoritative high-water mark for cross-tab staleness detection.
+// Counts persisted history messages across all tasks — a value the DB assigns
+// and every tab reads identically, independent of how each tab rendered them
+// (synthetic tool/artifact/summary cards never land here). Comparing this against
+// the count a tab last synced reliably detects when another tab advanced the
+// conversation, without depending on fragile rendered-message-count parity.
+const countServerMessages = (tasks: Task[]): number =>
+  tasks.reduce((sum, task) => sum + (task.history?.length ?? 0), 0);
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
   selectedNamespace: string;
   selectedSession?: Session | null;
   sessionId?: string;
+  /** When set, all session reads and A2A calls carry this share token. */
+  shareToken?: string;
 }
 
-export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId }: ChatInterfaceProps) {
+export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId, shareToken }: ChatInterfaceProps) {
   const runInSandbox = useChatRunInSandbox();
+  const { getMcpAppForTool } = useChatMcpApps();
+  const substrateSandbox = useChatSubstrateSandbox();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
@@ -48,6 +71,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
   const [session, setSession] = useState<Session | null>(selectedSession || null);
+  const [shareReadOnly, setShareReadOnly] = useState<boolean>(false);
   const [storedMessages, setStoredMessages] = useState<Message[]>([]);
   const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string>("");
@@ -65,6 +89,45 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const pendingDecisionsRef = useRef<Record<string, ToolDecision>>({});
   /** Per-tool rejection reasons collected as the user rejects individual tools. */
   const pendingRejectionReasonsRef = useRef<Record<string, string>>({});
+  // Stream inactivity timeout (ms), configurable via Helm (ui.streamTimeoutSeconds).
+  const streamTimeoutMsRef = useRef<number>(DEFAULT_STREAM_TIMEOUT_MS);
+
+  // Count of server history messages this tab has incorporated. Updated wherever
+  // the tab consumes server state (DB load/reload, end of a stream); the send
+  // guard blocks when the server has advanced past it (another tab acted).
+  const syncedServerMsgCountRef = useRef<number>(0);
+
+  // Single place that computes the high-water mark, so every update site stays
+  // consistent. Accepts the raw server Task[] (artifacts/synthetic cards are
+  // intentionally ignored — only persisted history counts).
+  const setServerMark = (tasks: Task[] | undefined) => {
+    syncedServerMsgCountRef.current = countServerMessages(tasks ?? []);
+  };
+
+  // Re-read the server's current count and advance the mark. Best-effort: a
+  // failed/stale read only risks a benign reload on the next send.
+  const refreshServerMark = async (markSessionId: string) => {
+    try {
+      const res = await getSessionTasks(markSessionId);
+      if (res.data) setServerMark(res.data);
+    } catch {
+      // Leave the mark as-is.
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    getUiRuntimeConfig()
+      .then((config) => {
+        if (!cancelled) streamTimeoutMsRef.current = config.streamTimeoutMs;
+      })
+      .catch(() => {
+        /* keep default on failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const {
     isListening,
@@ -109,6 +172,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       pendingDecisionsRef.current = {};
       pendingRejectionReasonsRef.current = {};
       pendingTurnStatsRef.current = undefined;
+      syncedServerMsgCountRef.current = 0;
 
       // Skip completely if this is a first message session creation flow
       if (isFirstMessage || isCreatingSessionRef.current) {
@@ -124,18 +188,30 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
       setIsLoading(true);
       setSessionNotFound(false);
+      setShareReadOnly(false);
 
       let activeTask: Task | undefined;
 
       try {
-        const sessionExistsResponse = await checkSessionExists(sessionId);
-        if (sessionExistsResponse.error || !sessionExistsResponse.data) {
-          setSessionNotFound(true);
-          setIsLoading(false);
-          return;
+        if (shareToken) {
+          // Fetch session info to get authoritative read_only status from the server.
+          const sessionInfoResponse = await getSessionWithEvents(sessionId, shareToken);
+          if (sessionInfoResponse.error || !sessionInfoResponse.data) {
+            setSessionNotFound(true);
+            setIsLoading(false);
+            return;
+          }
+          setShareReadOnly(sessionInfoResponse.data.read_only === true);
+        } else {
+          const sessionExistsResponse = await checkSessionExists(sessionId);
+          if (sessionExistsResponse.error || !sessionExistsResponse.data) {
+            setSessionNotFound(true);
+            setIsLoading(false);
+            return;
+          }
         }
 
-        const messagesResponse = await getSessionTasks(sessionId);
+        const messagesResponse = await getSessionTasks(sessionId, shareToken);
         if (messagesResponse.error) {
           toast.error("Failed to load messages");
           setIsLoading(false);
@@ -169,6 +245,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             );
           }
         }
+        setServerMark(messagesResponse.data);
       } catch (error) {
         console.error("Error loading messages:", error);
         toast.error("Error loading messages");
@@ -187,7 +264,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     initializeChat();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
+  }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage, shareToken]);
 
   useEffect(() => {
     if (containerRef.current) {
@@ -198,20 +275,46 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   }, [storedMessages, streamingMessages, streamingContent]);
 
-
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentInputMessage.trim() || !selectedAgentName || !selectedNamespace) {
+  const sendChatMessageText = async (
+    userMessageText: string,
+    options: {
+      clearInput?: boolean;
+      restoreInputOnError?: boolean;
+      errorLabel?: string;
+      rethrowOnError?: boolean;
+    } = {},
+  ) => {
+    if (!userMessageText.trim() || !selectedAgentName || !selectedNamespace) {
+      return;
+    }
+    if (chatStatus !== "ready") {
+      const error = new Error("Agent is busy. Try again after the current response finishes.");
+      toast.error(error.message);
+      if (options.rethrowOnError) {
+        throw error;
+      }
       return;
     }
 
-    // Stop voice recording if active before sending
-    if (isListening) {
-      stopListening();
+    if (options.clearInput ?? true) {
+      setCurrentInputMessage("");
     }
 
-    const userMessageText = currentInputMessage;
+    // Cross-tab guard: fetch the latest session state before mutating anything.
+    // Two cases: (1) another tab is still streaming — reconnect instead of sending;
+    // (2) another tab completed a turn we haven't loaded — reload so the user sees
+    // the full context before their next message goes out.
+    const guardSessionId = session?.id || sessionId;
+    if (guardSessionId) {
+      const guardResult = await checkAndSyncSessionBeforeAction(guardSessionId, {
+        messages: {
+          inFlight: "This session is already being processed — reconnecting to live updates",
+          inputRequired: "Session is awaiting your input — please review before sending",
+          staleOrChanged: "New messages loaded — please review before sending",
+        },
+      });
+      if (guardResult === "blocked") return;
+    }
 
     setCurrentInputMessage("");
     setChatStatus("thinking");
@@ -223,15 +326,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     pendingRejectionReasonsRef.current = {};
     pendingTurnStatsRef.current = undefined;
 
+    const messageId = uuidv4();
+
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
       kind: "message",
-      messageId: uuidv4(),
+      messageId,
       role: "user",
       parts: [{
         kind: "text",
         text: userMessageText
       }],
+      contextId: guardSessionId,
       metadata: {
         timestamp: Date.now()
       }
@@ -245,6 +351,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     try {
       let currentSessionId = session?.id || sessionId;
+      // Track whether we just created a session in this invocation. If so, the
+      // rename block below must be skipped: the title was already set at creation
+      // time, and session React state hasn't yet re-rendered (so session?.name
+      // is still null, which would make isPlaceholderSessionTitle return true
+      // incorrectly and queue a redundant — potentially hanging — POST /sessions).
+      let justCreatedSession = false;
 
       // If there's no session, create one
       if (!currentSessionId) {
@@ -253,9 +365,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           isCreatingSessionRef.current = true;
           setIsFirstMessage(true);
 
+          const sessionName = deriveSessionTitle(userMessageText);
           const newSessionResponse = await createSession({
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
-            name: userMessageText.slice(0, 20) + (userMessageText.length > 20 ? "..." : ""),
+            name: sessionName,
           });
 
           if (newSessionResponse.error || !newSessionResponse.data) {
@@ -267,7 +380,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           }
 
           currentSessionId = newSessionResponse.data.id;
-          setSession(newSessionResponse.data);
+          setSession(normalizeSessionTimestamps(newSessionResponse.data));
 
           // Update URL without triggering navigation or component reload
           const newUrl = `/agents/${selectedNamespace}/${selectedAgentName}/chat/${currentSessionId}`;
@@ -278,10 +391,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           const newSessionEvent = new CustomEvent('new-session-created', {
             detail: {
               agentRef: `${selectedNamespace}/${selectedAgentName}`,
-              session: newSessionResponse.data
+              session: normalizeSessionTimestamps(newSessionResponse.data),
             }
           });
           window.dispatchEvent(newSessionEvent);
+          justCreatedSession = true;
         } catch (error) {
           console.error("Error creating session:", error);
           toast.error("Error creating session");
@@ -292,7 +406,38 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
       }
 
-      const messageId = uuidv4();
+      if (
+        !justCreatedSession &&
+        currentSessionId &&
+        storedMessages.length === 0 &&
+        isPlaceholderSessionTitle(session?.name)
+      ) {
+        const title = deriveSessionTitle(userMessageText);
+        if (title) {
+          try {
+            const renameResponse = await createSession({
+              id: currentSessionId,
+              agent_ref: `${selectedNamespace}/${selectedAgentName}`,
+              name: title,
+            });
+            if (!renameResponse.error && renameResponse.data) {
+              const updatedSession = normalizeSessionTimestamps(renameResponse.data, new Date());
+              setSession(updatedSession);
+              window.dispatchEvent(
+                new CustomEvent("new-session-created", {
+                  detail: {
+                    agentRef: `${selectedNamespace}/${selectedAgentName}`,
+                    session: updatedSession,
+                  },
+                }),
+              );
+            }
+          } catch (error) {
+            console.error("Error updating session title:", error);
+          }
+        }
+      }
+
       const a2aMessage = createMessage(userMessageText, "user", {
         messageId,
         contextId: currentSessionId,
@@ -305,27 +450,62 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       });
     } catch (error) {
       console.error("Error sending message or creating session:", error);
-      toast.error("Error sending message or creating session");
+      toast.error(options.errorLabel || "Error sending message or creating session");
       setChatStatus("error");
-      setCurrentInputMessage(userMessageText);
+      if (options.restoreInputOnError ?? true) {
+        setCurrentInputMessage(userMessageText);
+      }
+      if (options.rethrowOnError) {
+        throw error;
+      }
     }
   };
-  
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isListening) {
+      stopListening();
+    }
+    if (!currentInputMessage.trim()) {
+      return;
+    }
+
+    await sendChatMessageText(currentInputMessage);
+  };
+
+  // An MCP App pushed a message into the conversation via the ui/message
+  // channel (e.g. "Build #N triggered, monitor it"). Inject it as a normal user
+  // turn so the agent can act on it.
+  const handleMcpAppSendMessage = async (text: string) => {
+    await sendChatMessageText(text, {
+      clearInput: false,
+      restoreInputOnError: false,
+      errorLabel: "MCP app message failed",
+      rethrowOnError: true,
+    });
+  };
+
   const consumeStream = async (stream: AsyncIterable<unknown>) => {
     let timeoutTimer: NodeJS.Timeout | null = null;
     let streamActive = true;
-    const STREAM_TIMEOUT_MS = 600000; // 10 minutes
+
+    const formatTimeout = (ms: number): string => {
+      const mins = ms / 60000;
+      return mins >= 1 ? `${Math.ceil(mins)} minutes` : `${Math.round(ms / 1000)} seconds`;
+    };
 
     const startTimeout = () => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
+      const streamTimeoutMs = streamTimeoutMsRef.current;
       timeoutTimer = setTimeout(() => {
         if (streamActive) {
-          console.error("⏰ Stream timeout - no events received for 10 minutes");
-          toast.error("⏰ Stream timed out - no events received for 10 minutes");
+          const label = formatTimeout(streamTimeoutMs);
+          console.error(`⏰ Stream timeout - no events received for ${label}`);
+          toast.error(`⏰ Stream timed out - no events received for ${label}`);
           streamActive = false;
           abortControllerRef.current?.abort();
         }
-      }, STREAM_TIMEOUT_MS);
+      }, streamTimeoutMs);
     };
     startTimeout();
 
@@ -352,8 +532,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     try {
       const currentSessionId = session?.id || sessionId;
       if (!currentSessionId) return;
-      const latest = await getSessionTasks(currentSessionId);
+      const latest = await getSessionTasks(currentSessionId, shareToken);
       if (latest.data && latest.data.length > 0) {
+        setServerMark(latest.data);
         const extractedMessages = extractMessagesFromTasks(latest.data);
         const { messages: pendingApprovalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(latest.data);
         setStoredMessages(
@@ -398,15 +579,25 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (runInSandbox && sid) {
         let loadingToast: string | number | undefined;
         const slowToast = setTimeout(() => {
-          loadingToast = toast.loading("Starting sandbox workload…");
+          loadingToast = toast.loading(
+            substrateSandbox ? "Starting chat session…" : "Starting sandbox workload…",
+          );
         }, 600);
         try {
-          const ready = await waitForSandboxAgentReady(selectedAgentName, selectedNamespace);
+          if (substrateSandbox) {
+            // ActorTemplate readiness only; per-session actors resume on the A2A request.
+            const agentRes = await getAgentWithResolvedKind(selectedAgentName, selectedNamespace);
+            if (!agentRes.data?.deploymentReady) {
+              throw new Error("Sandbox agent is still starting. Wait a moment and try again.");
+            }
+          } else {
+            const ready = await waitForSandboxAgentReady(selectedAgentName, selectedNamespace);
+            if (!ready.ok) {
+              throw new Error(ready.error ?? "Sandbox workload not ready");
+            }
+          }
           clearTimeout(slowToast);
           if (loadingToast !== undefined) toast.dismiss(loadingToast);
-          if (!ready.ok) {
-            throw new Error(ready.error ?? "Sandbox workload not ready");
-          }
         } catch (waitErr) {
           clearTimeout(slowToast);
           if (loadingToast !== undefined) toast.dismiss(loadingToast);
@@ -420,15 +611,23 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         selectedAgentName,
         sendParams,
         abortControllerRef.current?.signal,
-        runInSandbox
+        runInSandbox,
+        shareToken
       );
 
       await consumeStream(stream);
+
+      // The turn this tab just sent is now persisted; advance our high-water mark
+      // to the server's post-turn count so the next send's guard doesn't mistake
+      // our own new messages for another tab's changes. Best-effort, no reload.
+      if (sid) {
+        await refreshServerMark(sid);
+      }
     } catch (error: unknown) {
       if (error instanceof Error && error.name === "AbortError") {
         setChatStatus("ready");
       } else {
-        toast.error(`${opts?.errorLabel || "Request failed"}: ${error instanceof Error ? error.message : "Unknown error"}`);
+        toast.error(`${opts?.errorLabel || "Request failed"}: ${formatA2AClientError(error instanceof Error ? error.message : "Unknown error")}`);
         setChatStatus("error");
         opts?.onError?.();
       }
@@ -457,6 +656,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         taskId,
         abortControllerRef.current.signal,
         runInSandbox,
+        shareToken
       );
 
       await consumeStream(stream);
@@ -473,10 +673,89 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       }
     } finally {
       abortControllerRef.current = null;
-      setChatStatus("ready");
+      // Don't override input_required that reloadSessionFromDB() may have set.
+      setChatStatus(prev => prev === "input_required" ? prev : "ready");
       setIsStreaming(false);
       setStreamingContent("");
     }
+  };
+
+  /**
+   * Cross-tab guard: fetch the latest session state and sync before any action
+   * that would mutate the session. Returns "proceed" if safe, "blocked" if the
+   * action was superseded and the handler should return early.
+   *
+   * HITL mode (expectedTaskId provided): verifies the specific task is still
+   * input-required; resubscribes or reloads if another tab already responded.
+   *
+   * Send-guard mode (no expectedTaskId): checks for any active task and compares
+   * the server's message high-water mark against what this tab has synced; blocks
+   * and reloads if another tab advanced the conversation.
+   */
+  const checkAndSyncSessionBeforeAction = async (
+    guardSessionId: string,
+    opts: {
+      expectedTaskId?: string;
+      messages: {
+        inFlight: string;
+        inputRequired?: string;
+        staleOrChanged: string;
+      };
+    }
+  ): Promise<"proceed" | "blocked"> => {
+    let tasksCheck: Awaited<ReturnType<typeof getSessionTasks>>;
+    try {
+      tasksCheck = await getSessionTasks(guardSessionId);
+    } catch {
+      // Guard is best-effort: if the check fails, let the action proceed.
+      return "proceed";
+    }
+    if (!tasksCheck.data) return "proceed";
+
+    if (opts.expectedTaskId) {
+      const expectedTask = tasksCheck.data.findLast(task => task.id === opts.expectedTaskId);
+      if ((expectedTask?.status?.state as TaskState | undefined) !== "input-required") {
+        const inFlightTask = tasksCheck.data.findLast(
+          task => RESUBSCRIBE_TASK_STATES.includes(task.status?.state as TaskState)
+        );
+        if (inFlightTask) {
+          toast.info(opts.messages.inFlight);
+          setChatStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
+          await streamResubscribedTask(inFlightTask.id);
+        } else {
+          await reloadSessionFromDB();
+          toast.info(opts.messages.staleOrChanged);
+        }
+        return "blocked";
+      }
+      return "proceed";
+    }
+
+    const inFlightTask = tasksCheck.data.findLast(
+      task => ACTIVE_TASK_STATES.includes(task.status?.state as TaskState)
+    );
+    if (inFlightTask) {
+      if ((inFlightTask.status?.state as TaskState) === "input-required") {
+        await reloadSessionFromDB();
+        toast.info(opts.messages.inputRequired ?? opts.messages.staleOrChanged);
+      } else {
+        toast.info(opts.messages.inFlight);
+        setChatStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
+        await streamResubscribedTask(inFlightTask.id);
+      }
+      return "blocked";
+    }
+
+    // Send-guard mode: no specific task to verify. If the server holds more
+    // persisted messages than this tab has synced, another tab advanced the
+    // conversation — reload and block so the user sees the latest context first.
+    if (countServerMessages(tasksCheck.data) > syncedServerMsgCountRef.current) {
+      await reloadSessionFromDB();
+      toast.info(opts.messages.staleOrChanged);
+      return "blocked";
+    }
+
+    return "proceed";
   };
 
   const handleCancel = (e: React.FormEvent) => {
@@ -518,12 +797,24 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     displayText: string,
   ) => {
     const currentSessionId = session?.id || sessionId;
+
+    // Find the taskId first so the guard can verify the task is still input-required.
+    const { taskId: approvalTaskId } = getPendingApprovalToolIds();
+
+    // Cross-tab guard: another tab may have already submitted this approval.
+    if (currentSessionId && approvalTaskId) {
+      const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
+        expectedTaskId: approvalTaskId,
+        messages: {
+          inFlight: "Another tab already responded — reconnecting to live updates",
+          staleOrChanged: "Session state changed — please review",
+        },
+      });
+      if (guardResult === "blocked") return;
+    }
+
     setChatStatus("thinking");
     setStreamingContent("");
-
-    // Find the taskId from the pending approval message so the A2A framework
-    // reuses the existing task instead of creating a new one.
-    const { taskId: approvalTaskId } = getPendingApprovalToolIds();
 
     // Stamp approvalDecision on the current pending approval messages so they
     // are excluded from getPendingApprovalToolIds on future HITL cycles.
@@ -584,7 +875,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   // Submit all collected decisions to the backend. Called when every pending
   // tool has a decision recorded in `pendingDecisions`, or immediately for
   // "approve all" / uniform decisions.
-  const submitDecisions = (decisions: Record<string, ToolDecision>) => {
+  const submitDecisions = async (decisions: Record<string, ToolDecision>) => {
     const values = Object.values(decisions);
     const allApprove = values.every(v => v === "approve");
     const allReject = values.every(v => v !== "approve");
@@ -592,13 +883,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     if (allApprove) {
       // Uniform approve — no need for batch
-      sendApprovalDecision(
+      await sendApprovalDecision(
         { decision_type: "approve" },
         "Approved",
       );
     } else if (allReject && Object.values(reasons).length === 0) {
       // Uniform reject without reason, otherwise fall through to batch
-      sendApprovalDecision(
+      await sendApprovalDecision(
         { decision_type: "reject" },
         "Rejected",
       );
@@ -618,7 +909,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (Object.keys(rejectedReasons).length > 0) {
         decisionData.rejection_reasons = rejectedReasons;
       }
-      sendApprovalDecision(
+      await sendApprovalDecision(
         decisionData,
         `Batch decision: ${values.filter(v => v === "approve").length} approved, ${values.filter(v => v !== "approve").length} rejected`,
       );
@@ -639,9 +930,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     // Check if all pending tools now have a decision
     const { toolIds } = getPendingApprovalToolIds();
     if (toolIds.length > 0 && toolIds.every(id => id in updated)) {
-      submitDecisions(updated);
+      submitDecisions(updated).catch(err => toast.error(`Decision failed: ${err instanceof Error ? err.message : "Unknown error"}`));
     } else if (toolIds.length === 0) {
-      submitDecisions(updated);
+      submitDecisions(updated).catch(err => toast.error(`Decision failed: ${err instanceof Error ? err.message : "Unknown error"}`));
     }
   };
 
@@ -657,10 +948,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
    * Handle ask_user answers submitted by the user. Sends an "approve" decision
    * with the answers payload attached, routed to the pending ask_user task.
    */
-  const handleAskUserSubmit = (answers: Array<{ answer: string[] }>) => {
+  const handleAskUserSubmit = async (answers: Array<{ answer: string[] }>) => {
     const currentSessionId = session?.id || sessionId;
-    setChatStatus("thinking");
-    setStreamingContent("");
 
     // Find the taskId from the pending AskUserRequest message
     let askUserTaskId: string | undefined;
@@ -672,6 +961,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         break;
       }
     }
+
+    // Cross-tab guard: another tab may have already answered this question.
+    if (currentSessionId && askUserTaskId) {
+      const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
+        expectedTaskId: askUserTaskId,
+        messages: {
+          inFlight: "Another tab already responded — reconnecting to live updates",
+          staleOrChanged: "Session state changed — please review",
+        },
+      });
+      if (guardResult === "blocked") return;
+    }
+
+    setChatStatus("thinking");
+    setStreamingContent("");
 
     // Stamp the ask-user message as resolved so we don't show the form again
     const stampAskUser = (msgs: Message[]) => msgs.map(m => {
@@ -702,7 +1006,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       metadata: { timestamp: Date.now() },
     };
 
-    streamA2AMessage(a2aMessage, {
+    await streamA2AMessage(a2aMessage, {
       errorLabel: "Ask user response failed",
       sessionIdForWait: currentSessionId,
       onFinally: () => {
@@ -737,10 +1041,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     );
   }
   return (
-    <div className="w-full h-screen flex flex-col justify-center min-w-full items-center transition-all duration-300 ease-in-out">
-      <div className="flex-1 w-full overflow-hidden relative">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col items-center transition-all duration-300 ease-in-out">
+      <div className="relative min-h-0 w-full flex-1 overflow-hidden">
         <ScrollArea ref={containerRef} className="w-full h-full py-12">
-          <div className="flex flex-col space-y-5 px-4">
+          <div className="flex w-full min-w-0 max-w-full flex-col space-y-5 overflow-x-hidden px-4">
             {/* Never show loading for first message/new session */}
             {isLoading && sessionId && !isFirstMessage && !isCreatingSessionRef.current ? (
               <div
@@ -767,101 +1071,124 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               <>
                 {/* Display stored messages from session */}
                 {storedMessages.map((message, index) => {
-                  return <ChatMessage
-                    key={`stored-${index}`}
-                    message={message}
-                    allMessages={allMessages}
-                    agentContext={agentContext}
-                    onApprove={handleApprove}
-                    onReject={handleReject}
-                    onAskUserSubmit={handleAskUserSubmit}
-                    pendingDecisions={pendingDecisions}
-                  />
+                  return <div key={`stored-${index}`} data-mm-item data-mm-role={message.role === "user" ? "user" : "assistant"}>
+                    <ChatMessage
+                      message={message}
+                      allMessages={allMessages}
+                      agentContext={agentContext}
+                      onApprove={shareReadOnly ? undefined : handleApprove}
+                      onReject={shareReadOnly ? undefined : handleReject}
+                      onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
+                      pendingDecisions={pendingDecisions}
+                      getMcpAppForTool={getMcpAppForTool}
+                      onMcpAppSendMessage={handleMcpAppSendMessage}
+                    />
+                  </div>
                 })}
 
                 {/* Display streaming messages */}
                 {streamingMessages.map((message, index) => {
-                  return <ChatMessage
-                    key={`stream-${index}`}
-                    message={message}
-                    allMessages={allMessages}
-                    agentContext={agentContext}
-                    onApprove={handleApprove}
-                    onReject={handleReject}
-                    onAskUserSubmit={handleAskUserSubmit}
-                    pendingDecisions={pendingDecisions}
-                  />
+                  return <div key={`stream-${index}`} data-mm-item data-mm-role={message.role === "user" ? "user" : "assistant"}>
+                    <ChatMessage
+                      message={message}
+                      allMessages={allMessages}
+                      agentContext={agentContext}
+                      onApprove={shareReadOnly ? undefined : handleApprove}
+                      onReject={shareReadOnly ? undefined : handleReject}
+                      onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
+                      pendingDecisions={pendingDecisions}
+                      getMcpAppForTool={getMcpAppForTool}
+                      onMcpAppSendMessage={handleMcpAppSendMessage}
+                    />
+                  </div>
                 })}
 
                 {isStreaming && (
-                  <StreamingMessage
-                    content={streamingContent}
-                  />
+                  <div data-mm-item data-mm-role="assistant">
+                    <StreamingMessage
+                      content={streamingContent}
+                    />
+                  </div>
                 )}
               </>
             )}
           </div>
         </ScrollArea>
+        <ChatMinimap containerRef={containerRef} revision={allMessages.length} />
       </div>
 
-      <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
-        <div className="flex items-center justify-between mb-4">
-          <StatusDisplay chatStatus={chatStatus} />
-          {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
-        </div>
-
-        <form onSubmit={handleSendMessage}>
-          <Textarea
-            value={currentInputMessage}
-            onChange={(e) => setCurrentInputMessage(e.target.value)}
-            placeholder={getStatusPlaceholder(chatStatus)}
-            onKeyDown={handleKeyDown}
-            className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
-            disabled={chatStatus !== "ready"}
-          />
-
-          <div className="flex items-center justify-end gap-2 mt-4">
-            {isVoiceSupported && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant={isListening ? "destructive" : "default"}
-                      size="icon"
-                      onClick={isListening ? stopListening : startListening}
-                      disabled={chatStatus !== "ready"}
-                      className={isListening ? "animate-pulse" : ""}
-                      aria-label={isListening ? "Stop listening" : "Voice input"}
-                    >
-                      {isListening ? (
-                        <Square className="h-4 w-4" aria-hidden />
-                      ) : (
-                        <Mic className="h-4 w-4" aria-hidden />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    {voiceError
-                      ? voiceError
-                      : isListening
-                        ? "Stop listening"
-                        : "Voice input — click and speak"}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
-              Send
-              <ArrowBigUp className="h-4 w-4 ml-2" />
-            </Button>
-            {chatStatus !== "ready" && chatStatus !== "error" && (
-              <Button type="button" variant="outline" onClick={handleCancel}>
-                <X className="h-4 w-4 mr-2" /> Cancel
-              </Button>
-            )}
+      <div className="w-full shrink-0 overflow-hidden rounded-none border bg-secondary p-4 transition-all duration-300 ease-in-out md:rounded-lg">
+        {shareReadOnly ? (
+          <div className="flex items-center justify-between py-2">
+            <p className="text-sm text-muted-foreground">
+              This is a read-only shared session. You can view the conversation but cannot send messages.
+            </p>
+            {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
           </div>
-        </form>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <StatusDisplay chatStatus={chatStatus} />
+              <div className="flex items-center gap-2">
+                {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
+                {(session?.id ?? sessionId) && !shareToken && <ShareButton sessionId={(session?.id ?? sessionId)!} namespace={selectedNamespace} agentName={selectedAgentName} />}
+              </div>
+            </div>
+
+            <form onSubmit={handleSendMessage}>
+              <Textarea
+                value={currentInputMessage}
+                onChange={(e) => setCurrentInputMessage(e.target.value)}
+                placeholder={getStatusPlaceholder(chatStatus)}
+                onKeyDown={handleKeyDown}
+                className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
+                disabled={chatStatus !== "ready"}
+              />
+
+              <div className="flex items-center justify-end gap-2 mt-4">
+                {isVoiceSupported && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant={isListening ? "destructive" : "default"}
+                          size="icon"
+                          onClick={isListening ? stopListening : startListening}
+                          disabled={chatStatus !== "ready"}
+                          className={isListening ? "animate-pulse" : ""}
+                          aria-label={isListening ? "Stop listening" : "Voice input"}
+                        >
+                          {isListening ? (
+                            <Square className="h-4 w-4" aria-hidden />
+                          ) : (
+                            <Mic className="h-4 w-4" aria-hidden />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {voiceError
+                          ? voiceError
+                          : isListening
+                            ? "Stop listening"
+                            : "Voice input — click and speak"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
+                  Send
+                  <ArrowBigUp className="h-4 w-4 ml-2" />
+                </Button>
+                {chatStatus !== "ready" && chatStatus !== "error" && (
+                  <Button type="button" variant="outline" onClick={handleCancel}>
+                    <X className="h-4 w-4 mr-2" /> Cancel
+                  </Button>
+                )}
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );

@@ -81,6 +81,11 @@ func main() {
 
 	kagentURL := os.Getenv("KAGENT_URL")
 
+	if err := config.MaterializeFromEnv(configDir); err != nil {
+		logger.Error(err, "Failed to materialize agent config from environment", "configDir", configDir)
+		os.Exit(1)
+	}
+
 	agentConfig, agentCard, err := config.LoadAgentConfigs(configDir)
 	if err != nil {
 		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
@@ -145,11 +150,19 @@ func main() {
 
 	// The executor needs a session service for its BeforeExecute callback
 	// (session creation/lookup). This must be created before the executor.
-	var sessionService *session.KAgentSessionService
-	if kagentURL != "" {
-		sessionService = session.NewKAgentSessionService(kagentURL, httpClient)
+	// AgentConfig.session_db_url (set by the controller for durable-dir substrate sandbox
+	// agents) selects the local store; otherwise sessions live in the controller database.
+	sessionService, err := session.NewService(agentConfig.SessionDBURL, kagentURL, httpClient)
+	if err != nil {
+		logger.Error(err, "Failed to open local session store", "url", agentConfig.SessionDBURL)
+		os.Exit(1)
+	}
+	switch sessionService.(type) {
+	case *session.LocalSessionService:
+		logger.Info("Using local durable-dir session store", "url", agentConfig.SessionDBURL)
+	case *session.KAgentSessionService:
 		logger.Info("Using KAgent session service", "url", kagentURL)
-	} else {
+	default:
 		logger.Info("No KAGENT_URL set, using in-memory session and no task persistence")
 	}
 
@@ -173,7 +186,7 @@ func main() {
 		logger.Info("Memory service enabled", "appName", appName)
 	}
 
-	runnerConfig, subagentSessionIDs, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService)
+	runnerConfig, subagentSessionIDs, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, kagentURL, httpClient)
 	if err != nil {
 		logger.Error(err, "Failed to create Google ADK Runner config")
 		os.Exit(1)

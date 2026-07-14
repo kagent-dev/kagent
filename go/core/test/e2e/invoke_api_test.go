@@ -21,6 +21,9 @@ import (
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -29,8 +32,6 @@ import (
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 //go:embed mocks
@@ -168,6 +169,23 @@ type AgentOptions struct {
 	Runtime        *v1alpha2.DeclarativeRuntime
 	Memory         *v1alpha2.MemorySpec
 	PromptTemplate *v1alpha2.PromptTemplateSpec
+
+	IconURL          string
+	DocumentationURL string
+	Version          string
+	Provider         *v1alpha2.AgentProvider
+}
+
+func pythonRuntime() *v1alpha2.DeclarativeRuntime {
+	r := v1alpha2.DeclarativeRuntime_Python
+	return &r
+}
+
+func requireAgentRuntime(t *testing.T, cli client.Client, agent *v1alpha2.Agent, want v1alpha2.DeclarativeRuntime) {
+	t.Helper()
+	got := &v1alpha2.Agent{}
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKeyFromObject(agent), got))
+	require.Equal(t, want, got.Spec.Declarative.Runtime)
 }
 
 // setupAgentWithOptions creates and returns an agent resource with custom options
@@ -201,58 +219,53 @@ func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName stri
 	return agent
 }
 
-// setupSandboxAgentWithOptions creates and returns a sandbox agent resource with custom options.
-func setupSandboxAgentWithOptions(t *testing.T, cli client.Client, modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.SandboxAgent {
-	agent := generateSandboxAgent(modelConfigName, tools, opts)
-	err := cli.Create(t.Context(), agent)
-	if err != nil {
-		t.Fatalf("failed to create sandbox agent: %v", err)
+// newA2AClient creates a v2 A2A client targeting baseURL directly via JSON-RPC.
+// The controller always serves both wire versions at the agent's path prefix; the
+// A2A-Version header (default: 1.0) tells the mux which handler to use.
+func newA2AClient(t *testing.T, baseURL string, httpClient *http.Client, headers map[string]string) *a2aclient.Client {
+	t.Helper()
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 60 * time.Second}
 	}
-	cleanup(t, cli, agent)
-
-	args := []string{
-		"wait",
-		"--for",
-		"condition=Ready",
-		"--timeout=1m",
-		"sandboxagents.kagent.dev",
-		agent.Name,
-		"-n",
-		"kagent",
+	if headers == nil {
+		headers = map[string]string{}
 	}
+	// TODO(0.11.0): Uncomment these lines to set v1 header after 0.11.0 to test v1 clients after migration
+	// if _, ok := headers["A2A-Version"]; !ok {
+	// 	headers["A2A-Version"] = string(a2atype.Version)
+	// }
 
-	cmd := exec.CommandContext(t.Context(), "kubectl", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	require.NoError(t, cmd.Run())
+	// Use NewFromEndpoints with the explicit base URL rather than NewFromCard:
+	// the card's SupportedInterfaces contain the controller's internal cluster URL,
+	// which is unreachable from the test machine via port-forward.
+	endpointURL := strings.TrimRight(baseURL, "/") + "/"
+	a2aClient, err := a2aclient.NewFromEndpoints(
+		t.Context(),
+		[]*a2atype.AgentInterface{{
+			URL:             endpointURL,
+			ProtocolVersion: a2atype.Version,
+			ProtocolBinding: a2atype.TransportProtocolJSONRPC,
+		}},
+		a2aclient.WithJSONRPCTransport(httpClient),
+		a2aclient.WithCallInterceptors(a2a.NewStaticHeadersInterceptor(headers)),
+	)
+	require.NoError(t, err)
 
-	waitForSandboxEndpoint(t, agent.Namespace, agent.Name)
-
-	return agent
+	return a2aClient
 }
 
 // setupA2AClient creates an A2A client for the test agent
-func setupA2AClient(t *testing.T, agent *v1alpha2.Agent) *a2aclient.A2AClient {
-	a2aURL := a2aURL(agent.Namespace, agent.Name, false)
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
-	require.NoError(t, err)
-	return a2aClient
-}
-
-// setupSandboxA2AClient creates an A2A client for the test sandbox agent.
-func setupSandboxA2AClient(t *testing.T, agent *v1alpha2.SandboxAgent) *a2aclient.A2AClient {
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL(agent.Namespace, agent.Name, true))
-	require.NoError(t, err)
-	return a2aClient
+func setupA2AClient(t *testing.T, agent *v1alpha2.Agent) *a2aclient.Client {
+	return newA2AClient(t, a2aURL(agent.Namespace, agent.Name, false), nil, nil)
 }
 
 // extractTextFromArtifacts extracts all text content from task artifacts
-func extractTextFromArtifacts(taskResult *protocol.Task) string {
+func extractTextFromArtifacts(taskResult *a2atype.Task) string {
 	var text strings.Builder
 	for _, artifact := range taskResult.Artifacts {
 		for _, part := range artifact.Parts {
-			if textPart, ok := part.(*protocol.TextPart); ok {
-				text.WriteString(textPart.Text)
+			if part != nil {
+				text.WriteString(part.Text())
 			}
 		}
 	}
@@ -269,22 +282,18 @@ var defaultRetry = wait.Backoff{
 // runSyncTest runs a synchronous message test
 // useArtifacts: if true, check artifacts; if false or nil, check history;
 // contextID: optional context ID to maintain conversation context
-func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string, useArtifacts *bool, contextID ...string) *protocol.Task {
+func runSyncTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, expectedText string, useArtifacts *bool, contextID ...string) *a2atype.Task {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	msg := protocol.Message{
-		Kind:  protocol.KindMessage,
-		Role:  protocol.MessageRoleUser,
-		Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
-	}
+	msg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(userMessage))
 
 	// If contextID is provided, set it to maintain conversation context
 	if len(contextID) > 0 && contextID[0] != "" {
-		msg.ContextID = &contextID[0]
+		msg.ContextID = contextID[0]
 	}
 
-	var result *protocol.MessageResult
+	var result a2atype.SendMessageResult
 	err := retry.OnError(defaultRetry, func(err error) bool {
 		return err != nil
 	}, func() error {
@@ -294,13 +303,13 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		t.Logf("%s trying to send message", time.Now().Format(time.RFC3339))
-		result, retryErr = a2aClient.SendMessage(ctx, protocol.SendMessageParams{Message: msg})
+		result, retryErr = a2aClient.SendMessage(ctx, &a2atype.SendMessageRequest{Message: msg})
 		t.Logf("%s finished trying sending message. success = %v", time.Now().Format(time.RFC3339), retryErr == nil)
 		return retryErr
 	})
 	require.NoError(t, err)
 
-	taskResult, ok := result.Result.(*protocol.Task)
+	taskResult, ok := result.(*a2atype.Task)
 	require.True(t, ok)
 
 	// Extract text based on useArtifacts flag
@@ -322,22 +331,18 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expe
 // runStreamingTest runs a streaming message test
 // If contextID is provided, it will be included in the message to maintain conversation context
 // Checks the full JSON output to support both artifacts and history from different agent types
-func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage, expectedText string, contextID ...string) {
-	msg := protocol.Message{
-		Kind:  protocol.KindMessage,
-		Role:  protocol.MessageRoleUser,
-		Parts: []protocol.Part{protocol.NewTextPart(userMessage)},
-	}
+func runStreamingTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, expectedText string, contextID ...string) {
+	msg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(userMessage))
 
 	// If contextID is provided, set it to maintain conversation context
 	if len(contextID) > 0 && contextID[0] != "" {
-		msg.ContextID = &contextID[0]
+		msg.ContextID = contextID[0]
 	}
 
 	// Retry the entire stream-connect-read-check cycle.
 	// The most common failure mode is: stream connects but yields zero events
 	// (agent not ready, stream closes early), so we need to retry the whole operation.
-	var lastJSON string
+	var lastText string
 	err := retry.OnError(defaultRetry, func(err error) bool {
 		return err != nil
 	}, func() error {
@@ -345,35 +350,51 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.A2AClient, userMessage,
 		defer cancel()
 
 		t.Logf("%s trying to open stream", time.Now().Format(time.RFC3339))
-		stream, streamErr := a2aClient.StreamMessage(ctx, protocol.SendMessageParams{Message: msg})
-		if streamErr != nil {
-			t.Logf("%s stream connection failed: %v", time.Now().Format(time.RFC3339), streamErr)
-			return streamErr
-		}
-
-		resultList := []protocol.StreamingMessageEvent{}
-		for event := range stream {
-			if _, ok := event.Result.(*protocol.TaskStatusUpdateEvent); !ok {
+		stream := a2aClient.SendStreamingMessage(ctx, &a2atype.SendMessageRequest{Message: msg})
+		texts := make([]string, 0)
+		eventCount := 0
+		for event, streamErr := range stream {
+			if streamErr != nil {
+				t.Logf("%s stream read failed: %v", time.Now().Format(time.RFC3339), streamErr)
+				return streamErr
+			}
+			eventCount++
+			if event == nil {
 				continue
 			}
-			resultList = append(resultList, event)
+			texts = append(texts, extractTextFromEvent(event))
+		}
+		lastText = strings.Join(texts, "\n")
+
+		if !strings.Contains(lastText, expectedText) {
+			t.Logf("%s stream completed but expected text %q not found in response (got %d events)", time.Now().Format(time.RFC3339), expectedText, eventCount)
+			return fmt.Errorf("expected text %q not found in streaming response (%d events)", expectedText, eventCount)
 		}
 
-		jsn, marshalErr := json.Marshal(resultList)
-		if marshalErr != nil {
-			return marshalErr
-		}
-		lastJSON = string(jsn)
-
-		if !strings.Contains(lastJSON, expectedText) {
-			t.Logf("%s stream completed but expected text %q not found in response (got %d events)", time.Now().Format(time.RFC3339), expectedText, len(resultList))
-			return fmt.Errorf("expected text %q not found in streaming response (%d events)", expectedText, len(resultList))
-		}
-
-		t.Logf("%s stream completed successfully with %d events", time.Now().Format(time.RFC3339), len(resultList))
+		t.Logf("%s stream completed successfully with %d events", time.Now().Format(time.RFC3339), eventCount)
 		return nil
 	})
-	require.NoError(t, err, lastJSON)
+	require.NoError(t, err, lastText)
+}
+
+func extractTextFromEvent(event a2atype.Event) string {
+	switch e := event.(type) {
+	case *a2atype.TaskStatusUpdateEvent:
+		return a2a.ExtractText(e.Status.Message)
+	case *a2atype.TaskArtifactUpdateEvent:
+		return a2a.ExtractText(&a2atype.Message{Parts: e.Artifact.Parts})
+	case *a2atype.Message:
+		return a2a.ExtractText(e)
+	case *a2atype.Task:
+		text := strings.Builder{}
+		if e.Status.Message != nil {
+			text.WriteString(a2a.ExtractText(e.Status.Message))
+		}
+		text.WriteString(extractTextFromArtifacts(e))
+		return text.String()
+	default:
+		return ""
+	}
 }
 
 func a2aURL(namespace, name string, sandbox bool) string {
@@ -399,11 +420,6 @@ func a2aUrl(namespace, name string) string {
 func waitForEndpoint(t *testing.T, namespace, name string) {
 	t.Helper()
 	waitForEndpointURL(t, a2aURL(namespace, name, false))
-}
-
-func waitForSandboxEndpoint(t *testing.T, namespace, name string) {
-	t.Helper()
-	waitForEndpointURL(t, a2aURL(namespace, name, true))
 }
 
 func waitForEndpointURL(t *testing.T, url string) {
@@ -511,15 +527,12 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 		agent.Spec.Declarative.PromptTemplate = opts.PromptTemplate
 	}
 
-	return agent
-}
+	agent.Spec.IconURL = opts.IconURL
+	agent.Spec.DocumentationURL = opts.DocumentationURL
+	agent.Spec.Version = opts.Version
+	agent.Spec.Provider = opts.Provider
 
-func generateSandboxAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOptions) *v1alpha2.SandboxAgent {
-	agent := generateAgent(modelConfigName, tools, opts)
-	return &v1alpha2.SandboxAgent{
-		ObjectMeta: agent.ObjectMeta,
-		Spec:       agent.Spec,
-	}
+	return agent
 }
 
 func generateMCPServer() *v1alpha1.MCPServer {
@@ -636,46 +649,55 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 	})
 }
 
-func TestE2EInvokeSandboxAgent(t *testing.T) {
+// fetchAgentCard fetches and decodes the agent's A2A card from its well-known endpoint.
+func fetchAgentCard(t *testing.T, namespace, name string) a2atype.AgentCard {
+	t.Helper()
+	url := a2aURL(namespace, name, false) + a2asrv.WellKnownAgentCardPath
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := httpClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var card a2atype.AgentCard
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+	return card
+}
+
+func TestE2EAgentCardMetadata(t *testing.T) {
 	baseURL, stopServer := setupMockServer(t, "mocks/invoke_inline_agent.json")
 	defer stopServer()
 
 	cli := setupK8sClient(t, false)
-
-	tools := []*v1alpha2.Tool{
-		{
-			Type: v1alpha2.ToolProviderType_McpServer,
-			McpServer: &v1alpha2.McpServerTool{
-				TypedReference: v1alpha2.TypedReference{
-					ApiGroup: "kagent.dev",
-					Kind:     "RemoteMCPServer",
-					Name:     "kagent-tool-server",
-				},
-				ToolNames: []string{"k8s_get_resources"},
-			},
-		},
-	}
-
 	modelCfg := setupModelConfig(t, cli, baseURL)
-	agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, tools, AgentOptions{Stream: true})
 
-	a2aClient := setupSandboxA2AClient(t, agent)
-	var taskResult *protocol.Task
-
-	t.Run("sync_invocation", func(t *testing.T) {
-		taskResult = runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+		IconURL:          "https://example.com/icon.png",
+		DocumentationURL: "https://example.com/docs",
+		Version:          "1.2.3",
+		Provider: &v1alpha2.AgentProvider{
+			Organization: "Acme",
+			URL:          "https://acme.example.com",
+		},
 	})
 
-	t.Run("streaming_invocation", func(t *testing.T) {
-		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", taskResult.ContextID)
-	})
+	card := fetchAgentCard(t, agent.Namespace, agent.Name)
+
+	require.Equal(t, "https://example.com/icon.png", card.IconURL)
+	require.Equal(t, "https://example.com/docs", card.DocumentationURL)
+	require.Equal(t, "1.2.3", card.Version)
+	require.NotNil(t, card.Provider)
+	require.Equal(t, "Acme", card.Provider.Org)
+	require.Equal(t, "https://acme.example.com", card.Provider.URL)
 }
 
 func TestE2EInvokeExternalAgent(t *testing.T) {
 	// Setup A2A client for external agent
 	a2aURL := a2aUrl("kagent", "kebab-agent")
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
-	require.NoError(t, err)
+	a2aClient := newA2AClient(t, a2aURL, nil, nil)
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
@@ -688,8 +710,7 @@ func TestE2EInvokeExternalAgent(t *testing.T) {
 
 	t.Run("invocation with different user", func(t *testing.T) {
 		// Setup A2A client with authentication
-		authClient, err := a2aclient.NewA2AClient(a2aURL, a2aclient.WithAPIKeyAuth("user@example.com", "x-user-id"))
-		require.NoError(t, err)
+		authClient := newA2AClient(t, a2aURL, nil, map[string]string{"x-user-id": "user@example.com"})
 
 		runSyncTest(t, authClient, "What can you do?", "kebab for user@example.com", nil)
 	})
@@ -887,8 +908,7 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 
 	// Setup A2A client - use the agent's actual name
 	a2aURL := a2aUrl("kagent", "basic-openai-test-agent")
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
-	require.NoError(t, err)
+	a2aClient := newA2AClient(t, a2aURL, nil, nil)
 
 	useArtifacts := true
 	t.Run("sync_invocation_calculator", func(t *testing.T) {
@@ -950,8 +970,7 @@ func TestE2EInvokeLangGraphAgent(t *testing.T) {
 
 	// Setup A2A client
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
-	require.NoError(t, err)
+	a2aClient := newA2AClient(t, a2aURL, nil, nil)
 
 	t.Run("sync_invocation", func(t *testing.T) {
 		runSyncTest(t, a2aClient, "make me a kebab", "kebab is ready", nil)
@@ -1024,8 +1043,7 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 
 	// Setup A2A client
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL)
-	require.NoError(t, err)
+	a2aClient := newA2AClient(t, a2aURL, nil, nil)
 
 	t.Run("two_turn_conversation", func(t *testing.T) {
 		// First turn: Generate initial poem
@@ -1044,12 +1062,11 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 }
 
 func TestE2EInvokeSTSIntegration(t *testing.T) {
-	runE2EInvokeSTSIntegration(t, "python", nil)
+	runE2EInvokeSTSIntegration(t, "go", nil)
 }
 
-func TestE2EGoInvokeSTSIntegration(t *testing.T) {
-	goRuntime := v1alpha2.DeclarativeRuntime_Go
-	runE2EInvokeSTSIntegration(t, "go", &goRuntime)
+func TestE2EPythonInvokeSTSIntegration(t *testing.T) {
+	runE2EInvokeSTSIntegration(t, "python", pythonRuntime())
 }
 
 func runE2EInvokeSTSIntegration(t *testing.T, runtimeName string, runtimeOverride *v1alpha2.DeclarativeRuntime) {
@@ -1098,6 +1115,9 @@ func runE2EInvokeSTSIntegration(t *testing.T, runtimeName string, runtimeOverrid
 			},
 		},
 	})
+	if runtimeOverride == nil {
+		requireAgentRuntime(t, cli, agent, v1alpha2.DeclarativeRuntime_Go)
+	}
 
 	// access token for test user with the may act claim allowing system:serviceaccount:kagent:test-sts to
 	// perform operations on behalf of the test user
@@ -1116,10 +1136,7 @@ func runE2EInvokeSTSIntegration(t *testing.T, runtimeName string, runtimeOverrid
 	}
 
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL,
-		a2aclient.WithTimeout(60*time.Second),
-		a2aclient.WithHTTPClient(httpClient))
-	require.NoError(t, err)
+	a2aClient := newA2AClient(t, a2aURL, httpClient, nil)
 
 	t.Run(runtimeName+"/sts_exchange_sync_invocation", func(t *testing.T) {
 		runSyncTest(t, a2aClient, "add 3 and 5", "8", nil)
@@ -1218,11 +1235,22 @@ func TestE2ESkillImagePullSecrets(t *testing.T) {
 	}
 	require.True(t, foundSecretMount, "skills-init should mount the pull secret volume")
 
-	require.Len(t, skillsInit.Command, 3)
-	script := skillsInit.Command[2]
-	require.Contains(t, script, "jq", "skills-init script should contain jq for credential merge")
-	require.Contains(t, script, ".dockerconfigjson", "skills-init script should reference .dockerconfigjson")
-	require.Contains(t, script, "/tmp/kagent-docker-config", "skills-init script should write merged config to /tmp")
+	// Command is intentionally unset; the skills-init image's ENTRYPOINT is
+	// the single source of truth for the binary path.
+	require.Empty(t, skillsInit.Command, "skills-init Command must be empty so ENTRYPOINT runs")
+
+	// The skills-init binary reads its config from a ConfigMap; verify it
+	// lists each imagePullSecret so the binary will merge their auths.
+	cm := &corev1.ConfigMap{}
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{
+		Name:      agent.Name + "-skills-init",
+		Namespace: agent.Namespace,
+	}, cm))
+	var cfg struct {
+		ImagePullSecrets []string `json:"imagePullSecrets"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(cm.Data["config.json"]), &cfg))
+	require.NotEmpty(t, cfg.ImagePullSecrets, "skills-init config should list imagePullSecrets")
 
 	// Verify the agent works end-to-end with the skill
 	a2aClient := setupA2AClient(t, agent)
@@ -1230,12 +1258,11 @@ func TestE2ESkillImagePullSecrets(t *testing.T) {
 }
 
 func TestE2EDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
-	runDeclarativeAgentNetworkAllowlistWithSkills(t, "python", nil)
+	runDeclarativeAgentNetworkAllowlistWithSkills(t, "default", nil)
 }
 
-func TestE2EGoDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
-	goRuntime := v1alpha2.DeclarativeRuntime_Go
-	runDeclarativeAgentNetworkAllowlistWithSkills(t, "go", &goRuntime)
+func TestE2EPythonDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
+	runDeclarativeAgentNetworkAllowlistWithSkills(t, "python", pythonRuntime())
 }
 
 func runDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T, runtimeName string, runtimeOverride *v1alpha2.DeclarativeRuntime) {
@@ -1324,10 +1351,7 @@ func TestE2EInvokePassthroughAgent(t *testing.T) {
 		},
 	}
 	a2aURL := a2aUrl(agent.Namespace, agent.Name)
-	a2aClient, err := a2aclient.NewA2AClient(a2aURL,
-		a2aclient.WithTimeout(60*time.Second),
-		a2aclient.WithHTTPClient(httpClient))
-	require.NoError(t, err)
+	a2aClient := newA2AClient(t, a2aURL, httpClient, nil)
 
 	// The mock server will only match if it receives the exact
 	// Authorization header "Bearer passthrough-test-token-12345".
@@ -1337,29 +1361,21 @@ func TestE2EInvokePassthroughAgent(t *testing.T) {
 	})
 }
 
-func TestE2EInvokeGolangADKAgent(t *testing.T) {
-	// Setup mock server
+func TestE2EAgentDefaultRuntimeIsGo(t *testing.T) {
 	baseURL, stopServer := setupMockServer(t, "mocks/invoke_golang_adk_agent.json")
 	defer stopServer()
 
-	// Setup Kubernetes client
 	cli := setupK8sClient(t, false)
-
-	// Setup model config pointing at mock server
 	modelCfg := setupModelConfig(t, cli, baseURL)
 
-	// Create a declarative agent that uses the Go ADK runtime
-	goRuntime := v1alpha2.DeclarativeRuntime_Go
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
-		Name:          "golang-adk-test",
+		Name:          "default-runtime-test",
 		SystemMessage: "You are a helpful test agent. Answer concisely.",
-		Runtime:       &goRuntime,
 	})
+	requireAgentRuntime(t, cli, agent, v1alpha2.DeclarativeRuntime_Go)
 
-	// Setup A2A client
 	a2aClient := setupA2AClient(t, agent)
 
-	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
 		runSyncTest(t, a2aClient, "What is 2+2?", "4", nil)
 	})
@@ -1390,7 +1406,7 @@ func runMemoryAgentTest(t *testing.T, extraOpts AgentOptions) {
 	agent := setupAgentWithOptions(t, cli, llmModelCfg.Name, nil, opts)
 	a2aClient := setupA2AClient(t, agent)
 
-	var saveResult *protocol.Task
+	var saveResult *a2atype.Task
 	t.Run("save_memory", func(t *testing.T) {
 		saveResult = runSyncTest(t, a2aClient,
 			"Remember that I prefer dark mode and Go over Python",
@@ -1410,19 +1426,16 @@ func runMemoryAgentTest(t *testing.T, extraOpts AgentOptions) {
 }
 
 // TestE2EMemoryWithAgent runs the agent with memory enabled against the mock
-// (invoke_memory_agent.json). Two ModelConfigs are used: one for chat (gpt-4.1-mini)
-// and one for embeddings (text-embedding-3-small) so LiteLLM calls the correct APIs.
+// (invoke_memory_agent.json) using the default (Go) ADK runtime.
 func TestE2EMemoryWithAgent(t *testing.T) {
 	runMemoryAgentTest(t, AgentOptions{Name: "memory-test-agent"})
 }
 
-// TestE2EMemoryWithGoADKAgent is the same as TestE2EMemoryWithAgent but uses
-// the Go ADK runtime to verify memory works end-to-end with the Go runtime.
-func TestE2EMemoryWithGoADKAgent(t *testing.T) {
-	goRuntime := v1alpha2.DeclarativeRuntime_Go
+// TestE2EMemoryWithPythonAgent verifies memory with the Python ADK runtime.
+func TestE2EMemoryWithPythonAgent(t *testing.T) {
 	runMemoryAgentTest(t, AgentOptions{
-		Name:    "memory-go-adk-test",
-		Runtime: &goRuntime,
+		Name:    "memory-python-test",
+		Runtime: pythonRuntime(),
 	})
 }
 
@@ -1543,6 +1556,7 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
 		ExecuteCode: new(true),
+		Runtime:     pythonRuntime(),
 	})
 
 	// Setup A2A client
@@ -1550,38 +1564,6 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 
 	// Run tests
 	runSyncTest(t, a2aClient, "write some code", "hello, world!", nil)
-}
-
-func TestE2ESandboxAgentNetworkAllowlistWithExecuteCode(t *testing.T) {
-	baseURL, stopServer := setupMockServer(t, "mocks/run_code_network.json")
-	defer stopServer()
-
-	cli := setupK8sClient(t, false)
-	modelCfg := setupModelConfig(t, cli, baseURL)
-	controllerHost := fmt.Sprintf("%s.%s", utils.GetControllerName(), utils.GetResourceNamespace())
-
-	t.Run("deny_by_default", func(t *testing.T) {
-		agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
-			ExecuteCode: new(true),
-		})
-
-		a2aClient := setupSandboxA2AClient(t, agent)
-		runSyncTest(t, a2aClient, "check the controller health in python", "NETWORK_DENIED", nil)
-	})
-
-	t.Run("allowlist_enables_access", func(t *testing.T) {
-		agent := setupSandboxAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
-			ExecuteCode: new(true),
-			Sandbox: &v1alpha2.SandboxConfig{
-				Network: &v1alpha2.NetworkConfig{
-					AllowedDomains: []string{controllerHost},
-				},
-			},
-		})
-
-		a2aClient := setupSandboxA2AClient(t, agent)
-		runSyncTest(t, a2aClient, "check the controller health in python", "controller health is ok", nil)
-	})
 }
 
 func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {

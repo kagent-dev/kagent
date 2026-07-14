@@ -15,12 +15,40 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	adkagent "google.golang.org/adk/agent"
 	"google.golang.org/adk/tool"
 	"google.golang.org/adk/tool/functiontool"
 )
 
 // userIDContextKey is the context key for passing the session user_id to the subagent.
 type userIDContextKey struct{}
+
+// parentContextIDContextKey is the context key carrying this agent's own
+// A2A context_id (== ADK session id) into the outbound interceptor so it can
+// be stamped as the parent_context_id header on every outbound A2A call.
+type parentContextIDContextKey struct{}
+
+// Conversation-lineage headers stamped on outbound A2A calls so a remote
+// agent can correlate this turn with the originating chat conversation -
+// useful when downstream code keys per-conversation state (sessions, sandbox
+// pods, cache entries) on a stable identifier across A2A hops.
+//
+// ParentContextIDHeader is the immediate caller's A2A context_id (the
+// session id of the agent that ran this tool). It changes with every hop in
+// a chain of A2A calls.
+//
+// RootContextIDHeader is the top-of-chain context_id - the agent at the
+// start of the chain (typically the user-facing chat agent). It stays
+// stable across every hop and across every turn of the same conversation,
+// so downstream agents can key state that should outlive a single A2A call
+// (e.g. claim a per-conversation worker pod that survives between turns).
+//
+// Mirrors the Python ADK constants in
+// python/packages/kagent-adk/src/kagent/adk/_remote_a2a_tool.py.
+const (
+	ParentContextIDHeader = "x-kagent-parent-context-id"
+	RootContextIDHeader   = "x-kagent-root-context-id"
+)
 
 // userIDForwardingInterceptor forwards the session user_id as an x-user-id header.
 type userIDForwardingInterceptor struct {
@@ -30,6 +58,49 @@ type userIDForwardingInterceptor struct {
 func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
 	if uid, ok := ctx.Value(userIDContextKey{}).(string); ok && uid != "" {
 		req.Meta.Append("x-user-id", uid)
+	}
+	return ctx, nil
+}
+
+// lineageHeadersInterceptor stamps the parent + root context_id headers on
+// every outbound A2A call. Parent comes from a context value populated by the
+// caller (the tool's own ADK session id). Root is forwarded unchanged from the
+// inbound A2A request when present (so the value set by the agent at the start
+// of the chain survives every hop), with a fallback to our own session id when
+// this agent is the chain root.
+//
+// Pre-existing headers on req.Meta win (analogous to Python's header_provider
+// override), so a caller that sets extraHeaders for either header keeps full
+// control.
+type lineageHeadersInterceptor struct {
+	a2aclient.PassthroughInterceptor
+}
+
+func (l *lineageHeadersInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
+	parent, _ := ctx.Value(parentContextIDContextKey{}).(string)
+	if parent == "" {
+		return ctx, nil
+	}
+
+	var inboundRoot string
+	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
+		if meta := callCtx.RequestMeta(); meta != nil {
+			if vals, ok := meta.Get(RootContextIDHeader); ok && len(vals) > 0 {
+				inboundRoot = vals[0]
+			}
+		}
+	}
+
+	root := inboundRoot
+	if root == "" {
+		root = parent
+	}
+
+	if len(req.Meta.Get(ParentContextIDHeader)) == 0 {
+		req.Meta.Append(ParentContextIDHeader, parent)
+	}
+	if len(req.Meta.Get(RootContextIDHeader)) == 0 {
+		req.Meta.Append(RootContextIDHeader, root)
 	}
 	return ctx, nil
 }
@@ -106,7 +177,7 @@ func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.
 	ft, err := functiontool.New(functiontool.Config{
 		Name:        name,
 		Description: description,
-	}, func(ctx tool.Context, in remoteA2AInput) (map[string]any, error) {
+	}, func(ctx adkagent.ToolContext, in remoteA2AInput) (map[string]any, error) {
 		return state.run(ctx, in.Request)
 	})
 	if err != nil {
@@ -150,6 +221,7 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 		interceptors := []a2aclient.CallInterceptor{
 			a2aclient.NewStaticCallMetaInjector(meta),
 			&userIDForwardingInterceptor{},
+			&lineageHeadersInterceptor{},
 		}
 		if s.propagateToken {
 			interceptors = append(interceptors, &authzForwardingInterceptor{})
@@ -167,7 +239,7 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 }
 
 // run dispatches to handleResume or handleFirstCall based on ToolConfirmation presence.
-func (s *remoteA2AState) run(ctx tool.Context, requestText string) (map[string]any, error) {
+func (s *remoteA2AState) run(ctx adkagent.ToolContext, requestText string) (map[string]any, error) {
 	if ctx.ToolConfirmation() != nil {
 		return s.handleResume(ctx)
 	}
@@ -175,7 +247,7 @@ func (s *remoteA2AState) run(ctx tool.Context, requestText string) (map[string]a
 }
 
 // handleFirstCall is Phase 1: send the request to the remote agent.
-func (s *remoteA2AState) handleFirstCall(ctx tool.Context, requestText string) (map[string]any, error) {
+func (s *remoteA2AState) handleFirstCall(ctx adkagent.ToolContext, requestText string) (map[string]any, error) {
 	if requestText == "" {
 		return map[string]any{"error": "missing or empty 'request' argument"}, nil
 	}
@@ -192,6 +264,7 @@ func (s *remoteA2AState) handleFirstCall(ctx tool.Context, requestText string) (
 	message.ContextID = s.lastContextID
 
 	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
+	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
 	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
 	if err != nil {
 		slog.Error("Remote agent request failed", "tool", s.name, "error", err)
@@ -202,7 +275,7 @@ func (s *remoteA2AState) handleFirstCall(ctx tool.Context, requestText string) (
 }
 
 // handleResume is Phase 2: forward the user's decision to the remote agent's pending task.
-func (s *remoteA2AState) handleResume(ctx tool.Context) (map[string]any, error) {
+func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (map[string]any, error) {
 	confirmation := ctx.ToolConfirmation()
 	payload, _ := confirmation.Payload.(map[string]any)
 	hitlPayload := a2a.ParseHitlConfirmationPayload(payload)
@@ -242,6 +315,7 @@ func (s *remoteA2AState) handleResume(ctx tool.Context) (map[string]any, error) 
 	}
 
 	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
+	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
 	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
 	if err != nil {
 		slog.Error("Remote agent resume failed", "tool", subagentName, "error", err)
@@ -263,7 +337,7 @@ func (s *remoteA2AState) handleResume(ctx tool.Context) (map[string]any, error) 
 }
 
 // processResult converts a SendMessageResult into a tool return value.
-func (s *remoteA2AState) processResult(ctx tool.Context, result a2atype.SendMessageResult) (map[string]any, error) {
+func (s *remoteA2AState) processResult(ctx adkagent.ToolContext, result a2atype.SendMessageResult) (map[string]any, error) {
 	switch r := result.(type) {
 	case *a2atype.Message:
 		return map[string]any{"result": extractTextFromMessage(r)}, nil
@@ -297,7 +371,7 @@ func (s *remoteA2AState) processResult(ctx tool.Context, result a2atype.SendMess
 }
 
 // handleInputRequired pauses parent agent execution via RequestConfirmation.
-func (s *remoteA2AState) handleInputRequired(ctx tool.Context, task *a2atype.Task) map[string]any {
+func (s *remoteA2AState) handleInputRequired(ctx adkagent.ToolContext, task *a2atype.Task) map[string]any {
 	if task == nil {
 		slog.Error("Subagent returned input_required without task", "tool", s.name)
 		return map[string]any{

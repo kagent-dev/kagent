@@ -15,17 +15,20 @@ import { getAgents } from "@/app/actions/agents";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { useParams } from "next/navigation";
+import { HarnessActorControl } from "@/components/sidebars/HarnessActorControl";
 
 interface AgentDetailsSidebarProps {
-  selectedAgentName: string;
   currentAgent: AgentResponse;
   allTools: ToolsResponse[];
 }
 
-export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools }: AgentDetailsSidebarProps) {
+export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSidebarProps) {
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
+  const routeParams = useParams<{ chatId?: string }>();
+  const currentChatId = typeof routeParams?.chatId === "string" ? routeParams.chatId : undefined;
 
   const selectedTeam = currentAgent;
 
@@ -123,7 +126,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
             const baseToolIdentifier = getToolIdentifier(mcpTool);
             mcpTool.mcpServer?.toolNames.forEach((mcpToolName) => {
               const subToolIdentifier = `${baseToolIdentifier}::${mcpToolName}`;
-              
+
               // Find the tool in allTools by matching server ref and tool name
               const toolFromDB = allTools.find(server => {
                 const { name } = k8sRefUtils.fromRef(server.server_name);
@@ -143,7 +146,7 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
           }
         });
       }
-      
+
       setToolDescriptions(descriptions);
     };
 
@@ -233,28 +236,56 @@ export function AgentDetailsSidebar({ selectedAgentName, currentAgent, allTools 
   // Declarative agents (including SandboxAgent with declarative spec) share model-backed config.
   const isDeclarativeLikeAgent = selectedTeam?.agent.spec.type === "Declarative";
 
+  const agentNamespace = selectedTeam.agent.metadata.namespace ?? "";
+  const agentName = selectedTeam.agent.metadata.name ?? "";
+  const agentRef = `${agentNamespace}/${agentName}`;
+  const editHref = `/agents/new?${new URLSearchParams({
+    edit: "true",
+    name: agentName,
+    namespace: agentNamespace,
+  }).toString()}`;
+
   return (
     <>
       <Sidebar side={"right"} collapsible="offcanvas">
-        <SidebarHeader>Agent Details</SidebarHeader>
+        <SidebarHeader className="flex flex-row items-center justify-between gap-2">
+          <span className="text-sm font-semibold leading-none">Agent Details</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0"
+            asChild
+            aria-label={`Edit agent ${agentRef}`}
+          >
+            <Link href={editHref}>
+              <Edit className="h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </SidebarHeader>
         <SidebarContent>
           <ScrollArea>
             <SidebarGroup>
-              <div className="flex items-center justify-between px-2 mb-1">
-                <SidebarGroupLabel className="font-bold mb-0 p-0">
-                  {selectedTeam?.agent.metadata.namespace}/{selectedTeam?.agent.metadata.name} {selectedTeam?.model && `(${selectedTeam?.model})`}
-                </SidebarGroupLabel>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  asChild
-                  aria-label={`Edit agent ${selectedTeam?.agent.metadata.namespace}/${selectedTeam?.agent.metadata.name}`}
-                >
-                  <Link href={`/agents/new?edit=true&name=${selectedAgentName}&namespace=${currentAgent.agent.metadata.namespace}`}>
-                    <Edit className="h-3.5 w-3.5" />
-                  </Link>
-                </Button>
+              <div className="min-w-0 px-2 mb-1">
+                <div className="flex items-center justify-between gap-2">
+                  <SidebarGroupLabel
+                    className="font-bold mb-0 block min-w-0 flex-1 truncate p-0"
+                    title={selectedTeam?.model ? `${agentRef} (${selectedTeam.model})` : agentRef}
+                  >
+                    {agentRef}
+                  </SidebarGroupLabel>
+                  {currentAgent.substrateAgentHarness && currentChatId && (
+                    <HarnessActorControl
+                      namespace={agentNamespace}
+                      harnessName={agentName}
+                      sessionId={currentChatId}
+                    />
+                  )}
+                </div>
+                {selectedTeam?.model && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground" title={selectedTeam.model}>
+                    {selectedTeam.model}
+                  </p>
+                )}
               </div>
               <p className="text-sm flex px-2 text-muted-foreground">{selectedTeam?.agent.spec.description}</p>
             </SidebarGroup>

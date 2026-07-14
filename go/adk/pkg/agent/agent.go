@@ -56,6 +56,7 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, dynamicHeaderProvider)
+	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
 	subagentSessionIDs := make(map[string]string)
 
 	var remoteAgentTools []tool.Tool
@@ -115,6 +116,12 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		log.Info("Wiring approval callback", "toolCount", len(approvalSet))
 		beforeToolCallbacks = append(beforeToolCallbacks, MakeApprovalCallback(approvalSet))
 		beforeModelCallbacks = append(beforeModelCallbacks, MakeStripConfirmationPartsCallback())
+	}
+	if len(mcpAppToolNames) > 0 {
+		// For MCP App-capable tools, keep rich tool payloads in chat history for UI rendering,
+		// but compact what is sent back to the model to avoid redundant polling/tool churn.
+		log.Info("Wiring MCP App model result callback", "toolCount", len(mcpAppToolNames))
+		beforeModelCallbacks = append(beforeModelCallbacks, MakeMCPAppModelResultCallback(mcpAppToolNames))
 	}
 	beforeToolCallbacks = append(beforeToolCallbacks, makeBeforeToolCallback(log))
 
@@ -304,6 +311,8 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Model:                        modelName,
 			Region:                       region,
 			AdditionalModelRequestFields: m.AdditionalModelRequestFields,
+			PromptCaching:                m.PromptCaching,
+			CacheTTL:                     m.CacheTTL,
 		}
 		return models.NewBedrockModelWithLogger(ctx, cfg, log)
 
@@ -365,7 +374,7 @@ func extractHeaders(headers map[string]string) map[string]string {
 
 // makeBeforeToolCallback returns a BeforeToolCallback that logs tool invocations.
 func makeBeforeToolCallback(logger logr.Logger) llmagent.BeforeToolCallback {
-	return func(ctx tool.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
+	return func(ctx agent.ToolContext, t tool.Tool, args map[string]any) (map[string]any, error) {
 		logger.Info("Tool execution started",
 			"tool", t.Name(),
 			"functionCallID", ctx.FunctionCallID(),
@@ -379,7 +388,7 @@ func makeBeforeToolCallback(logger logr.Logger) llmagent.BeforeToolCallback {
 
 // makeAfterToolCallback returns an AfterToolCallback that logs tool completion.
 func makeAfterToolCallback(logger logr.Logger) llmagent.AfterToolCallback {
-	return func(ctx tool.Context, t tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
+	return func(ctx agent.ToolContext, t tool.Tool, args, result map[string]any, err error) (map[string]any, error) {
 		if err != nil {
 			logger.Error(err, "Tool execution completed with error",
 				"tool", t.Name(),
@@ -402,7 +411,7 @@ func makeAfterToolCallback(logger logr.Logger) llmagent.AfterToolCallback {
 
 // makeOnToolErrorCallback returns an OnToolErrorCallback that logs tool errors.
 func makeOnToolErrorCallback(logger logr.Logger) llmagent.OnToolErrorCallback {
-	return func(ctx tool.Context, t tool.Tool, args map[string]any, err error) (map[string]any, error) {
+	return func(ctx agent.ToolContext, t tool.Tool, args map[string]any, err error) (map[string]any, error) {
 		logger.Error(err, "Tool execution failed",
 			"tool", t.Name(),
 			"functionCallID", ctx.FunctionCallID(),
