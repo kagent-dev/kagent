@@ -1,7 +1,9 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
@@ -133,6 +135,8 @@ function ModelPageContent() {
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [isApiKeyNeeded, setIsApiKeyNeeded] = useState(true);
   const [isParamsSectionExpanded, setIsParamsSectionExpanded] = useState(false);
+  const [isAdvancedSectionExpanded, setIsAdvancedSectionExpanded] = useState(false);
+  const [retryAttempts, setRetryAttempts] = useState("");
   const [isFetchingModels, setIsFetchingModels] = useState(false);
   const [existingApiKeySecret, setExistingApiKeySecret] = useState("");
   const [existingApiKeySecretKey, setExistingApiKeySecretKey] = useState("");
@@ -244,6 +248,13 @@ function ModelPageContent() {
 
           setExistingApiKeySecret(modelData.spec.apiKeySecret || "");
           setExistingApiKeySecretKey(modelData.spec.apiKeySecretKey || "");
+
+          if (modelData.spec.retry?.attempts != null) {
+            setRetryAttempts(String(modelData.spec.retry.attempts));
+            setIsAdvancedSectionExpanded(true);
+          } else {
+            setRetryAttempts("");
+          }
 
           const spec = modelData.spec;
           const fetchedParams: Record<string, unknown> =
@@ -583,6 +594,13 @@ function ModelPageContent() {
       if (existingApiKeySecretKey) spec.apiKeySecretKey = existingApiKeySecretKey;
     }
 
+    if (retryAttempts.trim() !== "") {
+      const attempts = parseInt(retryAttempts, 10);
+      if (!isNaN(attempts) && attempts >= 0) {
+        spec.retry = { attempts };
+      }
+    }
+
     const providerType = finalSelectedProvider.type;
     switch (providerType) {
       case 'OpenAI':
@@ -765,6 +783,50 @@ function ModelPageContent() {
               title="Custom parameters"
             />
           )}
+
+          <Card>
+            <CardHeader
+              role="button"
+              tabIndex={0}
+              aria-expanded={isAdvancedSectionExpanded}
+              aria-controls="model-advanced-fields"
+              className="flex flex-row items-center justify-between cursor-pointer"
+              onClick={() => setIsAdvancedSectionExpanded(!isAdvancedSectionExpanded)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setIsAdvancedSectionExpanded(!isAdvancedSectionExpanded);
+                }
+              }}
+            >
+              <CardTitle>Advanced</CardTitle>
+              {isAdvancedSectionExpanded
+                ? <ChevronDown className="h-5 w-5" aria-hidden />
+                : <ChevronRight className="h-5 w-5" aria-hidden />}
+            </CardHeader>
+            {isAdvancedSectionExpanded && (
+              <CardContent id="model-advanced-fields" className="space-y-4">
+                <div className="space-y-1">
+                  <label htmlFor="retry-attempts" className="text-sm font-medium text-gray-800">Retry attempts</label>
+                  <Input
+                    id="retry-attempts"
+                    type="number"
+                    min={0}
+                    max={20}
+                    placeholder="Provider SDK default"
+                    value={retryAttempts}
+                    onChange={(e) => setRetryAttempts(e.target.value)}
+                    disabled={isSubmitting || isLoading}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Automatically retry failed model requests (rate limits, timeouts, transient server errors) with
+                    exponential backoff. Set to 0 to disable retries. Supported for OpenAI, Azure OpenAI, Anthropic,
+                    and Gemini.
+                  </p>
+                </div>
+              </CardContent>
+            )}
+          </Card>
 
             <div className="flex justify-end border-t border-border/50 pt-6">
               <Button

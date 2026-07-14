@@ -20,6 +20,7 @@ type TransportConfig struct {
 	TLSDisableSystemCAs   *bool
 	APIKeyPassthrough     bool
 	Timeout               *int // seconds; nil = defaultTimeout
+	MaxRetries            *int // HTTP retry attempts for transient failures; nil = SDK default
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:

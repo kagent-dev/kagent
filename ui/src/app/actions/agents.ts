@@ -51,6 +51,19 @@ function attachPromptTemplateToDeclarative(decl: DeclarativeAgentSpec, agentForm
   }
 }
 
+function buildReliabilityForAgentSpec(agentFormData: AgentFormData): DeclarativeAgentSpec["reliability"] | undefined {
+  const sanitize = (v: number | undefined): number | undefined =>
+    typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : undefined;
+  const toolRetries = sanitize(agentFormData.toolRetries);
+  const maxLLMCalls = sanitize(agentFormData.maxLLMCalls);
+  const debugLogging = agentFormData.debugLogging || undefined;
+
+  if (toolRetries === undefined && maxLLMCalls === undefined && !debugLogging) {
+    return undefined;
+  }
+  return { toolRetries, maxLLMCalls, debugLogging };
+}
+
 function buildSkillsForAgentSpec(agentFormData: AgentFormData): SkillForAgent | undefined {
   const refs = (agentFormData.skillRefs || []).map((r) => r.trim()).filter(Boolean);
   const rows: GitSkillFormRow[] = (agentFormData.skillGitRepos || []).map((g) => ({
@@ -201,6 +214,11 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
 
     if (agentFormData.context) {
       base.spec!.declarative!.context = agentFormData.context;
+    }
+
+    const reliability = buildReliabilityForAgentSpec(agentFormData);
+    if (reliability) {
+      base.spec!.declarative!.reliability = reliability;
     }
 
     if (agentFormData.shareTools) {
@@ -373,6 +391,11 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
 
   if (agentFormData.context) {
     decl.context = agentFormData.context;
+  }
+
+  const reliability = buildReliabilityForAgentSpec(agentFormData);
+  if (reliability) {
+    decl.reliability = reliability;
   }
 
   if (agentFormData.shareTools) {

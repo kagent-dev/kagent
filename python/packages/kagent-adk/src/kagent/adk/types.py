@@ -255,6 +255,10 @@ class BaseLLM(BaseModel):
     # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
     api_key_passthrough: bool | None = None
 
+    # Max retry attempts for failed LLM HTTP requests (429, 408, transient 5xx),
+    # retried with exponential backoff by the provider SDK. None = SDK default.
+    max_retries: int | None = None
+
 
 class GDCHTokenExchangeConfig(BaseModel):
     service_account_path: str
@@ -372,6 +376,17 @@ class NetworkConfig(BaseModel):
     allowed_domains: list[str] = Field(default_factory=list)
 
 
+class ReliabilityConfig(BaseModel):
+    """Reliability configuration for self-healing and observability behaviors."""
+
+    # Max consecutive failures for a tool call before the agent stops retrying it.
+    tool_retries: int | None = None
+    # Cap on the total number of model calls per request (cost safety rail).
+    max_llm_calls: int | None = None
+    # Log every LLM request/response and tool call to the agent pod logs.
+    debug_logging: bool | None = None
+
+
 class AgentConfig(BaseModel):
     model: ModelUnion = Field(discriminator="type")
     description: str
@@ -384,6 +399,7 @@ class AgentConfig(BaseModel):
     memory: MemoryConfig | None = None  # Memory configuration
     network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
+    reliability: ReliabilityConfig | None = None  # Self-healing: retries, call caps, debug logging
     share_tools: bool | None = None  # Enable built-in share link tools
     # Selects a local (in-actor) session store when set — substrate sandbox agents with
     # durable-dir session storage. Set by the controller in the rendered config.
@@ -630,6 +646,18 @@ def _create_llm_from_model_config(model_config: ModelUnion):
     extra_headers = model_config.headers or {}
     base_url = getattr(model_config, "base_url", None)
 
+    if model_config.max_retries is not None and model_config.type not in (
+        "openai",
+        "azure_openai",
+        "anthropic",
+        "gemini",
+    ):
+        logger.warning(
+            "retry.attempts is not supported for model type %s; ignoring (max_retries=%d)",
+            model_config.type,
+            model_config.max_retries,
+        )
+
     if model_config.type == "openai":
         from .models._token_source import GDCHTokenSource
 
@@ -666,6 +694,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             temperature=model_config.temperature,
             timeout=model_config.timeout,
             top_p=model_config.top_p,
+            max_retries=model_config.max_retries,
             token_exchange=token_exchange,
             **_transport_kwargs(model_config),
         )
@@ -674,6 +703,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             base_url=base_url,
             extra_headers=extra_headers,
+            max_retries=model_config.max_retries,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini_vertex_ai":
@@ -694,12 +724,20 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             model=model_config.model,
             type="azure_openai",
             default_headers=extra_headers,
+            max_retries=model_config.max_retries,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini":
+        retry_options = None
+        if model_config.max_retries is not None:
+            from google.genai import types as genai_types
+
+            # HttpRetryOptions.attempts counts the initial request too.
+            retry_options = genai_types.HttpRetryOptions(attempts=model_config.max_retries + 1)
         return KAgentGeminiLlm(
             model=model_config.model,
             extra_headers=extra_headers,
+            retry_options=retry_options,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "bedrock":

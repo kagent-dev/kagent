@@ -50,6 +50,12 @@ export interface AgentFormData {
   };
   // Context management
   context?: ContextConfig;
+  /** Max consecutive failures per tool call before the agent stops retrying (reflect-and-retry). */
+  toolRetries?: number;
+  /** Cap on the total number of model calls per request (cost safety rail). */
+  maxLLMCalls?: number;
+  /** Log every LLM request/response and tool call to the agent pod logs. */
+  debugLogging?: boolean;
   /** When true, enables the built-in share link tools for this agent. */
   shareTools?: boolean;
   promptSources?: Array<{ name: string; alias: string }>;

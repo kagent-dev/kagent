@@ -385,6 +385,10 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
     # API key passthrough: forward the Bearer token from incoming requests as the LLM API key
     api_key_passthrough: Optional[bool] = None
 
+    # Max retry attempts for failed HTTP requests (429, 408, transient 5xx).
+    # Mapped to the OpenAI SDK's max_retries (exponential backoff). None = SDK default (2).
+    max_retries: Optional[int] = None
+
     # GDCH token exchange: refreshes a short-lived bearer token before each model call.
     token_exchange: Optional[GDCHTokenSource] = Field(default=None, exclude=True)
 
@@ -415,12 +419,17 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
         """Get the OpenAI client with optional custom SSL configuration."""
         http_client = self._create_http_client()
 
+        kwargs = {}
+        if self.max_retries is not None:
+            kwargs["max_retries"] = self.max_retries
+
         return AsyncOpenAI(
             api_key=self.api_key,
             base_url=self.base_url or None,
             default_headers=self.default_headers,
             timeout=self.timeout,
             http_client=http_client,
+            **kwargs,
         )
 
     async def generate_content_async(
@@ -633,10 +642,15 @@ class AzureOpenAI(BaseOpenAI):
 
         http_client = self._create_http_client()
 
+        kwargs = {}
+        if self.max_retries is not None:
+            kwargs["max_retries"] = self.max_retries
+
         return AsyncAzureOpenAI(
             api_key=api_key,
             api_version=api_version,
             azure_endpoint=azure_endpoint,
             default_headers=self.default_headers,
             http_client=http_client,
+            **kwargs,
         )

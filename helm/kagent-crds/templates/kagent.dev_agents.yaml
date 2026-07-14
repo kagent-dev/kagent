@@ -13110,6 +13110,35 @@ spec:
                         maxItems: 20
                         type: array
                     type: object
+                  reliability:
+                    description: |-
+                      Reliability configures self-healing and observability behaviors for the
+                      agent runtime, such as reflect-and-retry on failed tool calls, model call
+                      caps, and debug logging.
+                    properties:
+                      debugLogging:
+                        description: |-
+                          DebugLogging enables verbose runtime logging of every LLM
+                          request/response and tool call to the agent pod logs.
+                          Useful for debugging agent behavior; off by default.
+                        type: boolean
+                      maxLLMCalls:
+                        description: |-
+                          MaxLLMCalls caps the total number of model calls per request (cost safety
+                          rail). When the cap is exceeded the run stops with a clear error instead
+                          of looping. If unset, the runtime default applies (500).
+                        minimum: 1
+                        type: integer
+                      toolRetries:
+                        description: |-
+                          ToolRetries is the maximum number of consecutive failures for a tool call
+                          before the agent stops retrying it. When set, failed tool calls are followed
+                          by structured reflection guidance injected into the model context so the
+                          agent can self-correct instead of repeating the same failing call.
+                        maximum: 10
+                        minimum: 1
+                        type: integer
+                    type: object
                   runtime:
                     default: go
                     description: |-

@@ -157,7 +157,14 @@ class KAgentApp:
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
-            config=A2aAgentExecutorConfig(stream=self.stream),
+            config=A2aAgentExecutorConfig(
+                stream=self.stream,
+                max_llm_calls=(
+                    self.agent_config.reliability.max_llm_calls
+                    if self.agent_config and self.agent_config.reliability
+                    else None
+                ),
+            ),
             task_store=task_store,
         )
 
