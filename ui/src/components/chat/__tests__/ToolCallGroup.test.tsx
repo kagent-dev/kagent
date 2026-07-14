@@ -2,6 +2,7 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import type { Message } from "@a2a-js/sdk";
 import ToolCallGroup, { groupToolCallMessages, isGroupableToolMessage, buildToolCallResultsIndex, collectPendingApprovalIds } from "@/components/chat/ToolCallGroup";
+import { isAgentToolName } from "@/lib/utils";
 
 const textMessage = (text: string, role: "user" | "agent" = "agent"): Message => ({
   kind: "message",
@@ -171,6 +172,27 @@ describe("groupToolCallMessages", () => {
     expect((items[0] as { messages: Message[] }).messages).toHaveLength(3);
     expect(items[1]).toMatchObject({ kind: "single", startIndex: 2 });
     expect(items[2]).toMatchObject({ kind: "single", startIndex: 3 });
+  });
+
+  it("floats subagent (agent-tool) calls outside without breaking the run", () => {
+    // Mirrors ChatInterface's predicate: agent tools (namespaced names) and
+    // MCP app tools both render standalone.
+    const isStandalone = (name: string) => isAgentToolName(name) || name === "mcp_app_tool";
+    const messages = [
+      requestMessage("c1", "tool_a"),
+      requestMessage("c2", "kagent__NS__researcher"),
+      responseMessage("c1", "tool_a"),
+      responseMessage("c2", "kagent__NS__researcher"),
+      requestMessage("c3", "tool_c"),
+      responseMessage("c3", "tool_c"),
+    ];
+
+    const items = groupToolCallMessages(messages, { isStandaloneToolName: isStandalone });
+    expect(items.map(i => i.kind)).toEqual(["group", "single", "single"]);
+    // The subagent request/response float out; the rest share one group.
+    expect((items[0] as { messages: Message[] }).messages).toHaveLength(4);
+    expect((items[1] as { message: Message }).message.messageId).toBe("req-c2");
+    expect((items[2] as { message: Message }).message.messageId).toBe("res-c2");
   });
 
   it("keeps an interleaved parallel batch as one group (MCP app + approval mid-batch)", () => {

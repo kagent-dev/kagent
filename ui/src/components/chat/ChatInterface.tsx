@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import ToolCallGroup, { groupToolCallMessages, buildToolCallResultsIndex, collectPendingApprovalIds } from "@/components/chat/ToolCallGroup";
+import { isAgentToolName } from "@/lib/utils";
 import ChatMinimap from "@/components/chat/ChatMinimap";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
@@ -153,17 +154,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const allMessages = useMemo(() => [...storedMessages, ...streamingMessages], [storedMessages, streamingMessages]);
 
   // Fold consecutive runs of tool-call messages into collapsible groups.
-  // MCP app calls render interactive UI, so they stay outside the groups.
+  // MCP app calls render interactive UI and subagent calls render the
+  // AgentCallDisplay activity panel, so both stay outside the groups.
   // Approval requests stay outside only while undecided (pendingDecisions
   // makes decided approvals fold in immediately, before the server responds).
-  const isMcpAppToolName = useCallback((toolName: string) => !!getMcpAppForTool(toolName), [getMcpAppForTool]);
+  const isStandaloneToolName = useCallback(
+    (toolName: string) => isAgentToolName(toolName) || !!getMcpAppForTool(toolName),
+    [getMcpAppForTool],
+  );
   const pendingApprovalIds = useMemo(
     () => collectPendingApprovalIds(allMessages, pendingDecisions),
     [allMessages, pendingDecisions],
   );
   const groupingOptions = useMemo(
-    () => ({ isStandaloneToolName: isMcpAppToolName, pendingDecisions, pendingApprovalIds }),
-    [isMcpAppToolName, pendingDecisions, pendingApprovalIds],
+    () => ({ isStandaloneToolName, pendingDecisions, pendingApprovalIds }),
+    [isStandaloneToolName, pendingDecisions, pendingApprovalIds],
   );
   // Group over the COMBINED transcript (stored + streaming) so a run that
   // spans the boundary — e.g. an approval request persisted at
