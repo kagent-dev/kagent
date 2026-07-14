@@ -27,11 +27,6 @@ fullnameOverride: ""
 # @default -- `.Release.Namespace`
 namespaceOverride: ""
 
-# -- The DNS domain of the Kubernetes cluster, used to build in-cluster service URLs.
-# Override this if the cluster was configured with a domain other than the default.
-# @default -- `cluster.local`
-clusterDomain: "cluster.local"
-
 # -- Additional annotations to add to all Kubernetes deployment resources
 annotations: {}
 
@@ -186,7 +181,7 @@ controller:
     # @default -- "" (controller falls back to "0.0.0.0"; "::" when ipv6.enabled)
     host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
-  # @default -- `http://<fullname>-controller.<namespace>.svc.<clusterDomain>:<port>`
+  # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
   a2aBaseUrl: ""
   agentImage:
     registry: ""

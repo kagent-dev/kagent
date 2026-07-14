@@ -154,7 +154,7 @@ tests:
     asserts:
       - equal:
           path: data.A2A_BASE_URL
-          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083"
+          value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8083"
 
   - it: should set A2A_BASE_URL with custom value when explicitly set
     template: controller-configmap.yaml
@@ -165,33 +165,6 @@ tests:
       - equal:
           path: data.A2A_BASE_URL
           value: "https://kagent.example.com"
-
-  - it: should set A2A_BASE_URL with a custom clusterDomain
-    template: controller-configmap.yaml
-    set:
-      clusterDomain: "mycluster.k8s.example.net"
-    asserts:
-      - equal:
-          path: data.A2A_BASE_URL
-          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.mycluster.k8s.example.net:8083"
-
-  - it: should strip surrounding dots and whitespace from a fully-qualified clusterDomain
-    template: controller-configmap.yaml
-    set:
-      clusterDomain: "  mycluster.k8s.example.net.  "
-    asserts:
-      - equal:
-          path: data.A2A_BASE_URL
-          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.mycluster.k8s.example.net:8083"
-
-  - it: should fall back to cluster.local when clusterDomain is blank
-    template: controller-configmap.yaml
-    set:
-      clusterDomain: ""
-    asserts:
-      - equal:
-          path: data.A2A_BASE_URL
-          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083"
 
   - it: should set PROXY_URL when set
     template: controller-configmap.yaml
@@ -487,18 +460,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_DATABASE_URL
-            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc.cluster.local:5432/kagent?sslmode=disable"
-
-  - it: should set POSTGRES_DATABASE_URL with bundled connection string using a custom clusterDomain
-    template: controller-deployment.yaml
-    set:
-      clusterDomain: "mycluster.k8s.example.net"
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: POSTGRES_DATABASE_URL
-            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc.mycluster.k8s.example.net:5432/kagent?sslmode=disable"
+            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc:5432/kagent?sslmode=disable"
 
   - it: should set POSTGRES_DATABASE_URL with external url when url is set
     template: controller-deployment.yaml

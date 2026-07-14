@@ -259,7 +259,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: BACKEND_INTERNAL_URL
-            value: "http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083/api"
+            value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8083/api"
 
   - it: should allow overriding ui.backendInternalUrl
     template: ui-deployment.yaml
@@ -272,17 +272,6 @@ tests:
           content:
             name: BACKEND_INTERNAL_URL
             value: "http://custom-controller:9090/api"
-
-  - it: should build the internal controller URL with a custom clusterDomain
-    template: ui-deployment.yaml
-    set:
-      clusterDomain: "mycluster.k8s.example.net"
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].env
-          content:
-            name: BACKEND_INTERNAL_URL
-            value: "http://RELEASE-NAME-controller.NAMESPACE.svc.mycluster.k8s.example.net:8083/api"
 
   - it: should allow overriding ui.publicBackendUrl
     template: ui-deployment.yaml

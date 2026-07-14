@@ -94,7 +94,7 @@ spec:
                   name: {{ include "kagent.passwordSecretName" . }}
                   key: POSTGRES_PASSWORD
             - name: POSTGRES_DATABASE_URL
-              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc.%s:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) (include "kagent.clusterDomain" .) | quote }}
+              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
             {{- else }}
             {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}
