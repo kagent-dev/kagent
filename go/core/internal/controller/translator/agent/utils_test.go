@@ -14,12 +14,16 @@ import (
 
 func TestGetA2AAgentCard(t *testing.T) {
 	tests := []struct {
-		name            string
-		agent           *v1alpha2.Agent
-		wantName        string
-		wantDescription string
-		wantURL         string
-		wantSkills      []a2atype.AgentSkill
+		name                 string
+		agent                *v1alpha2.Agent
+		wantName             string
+		wantDescription      string
+		wantURL              string
+		wantSkills           []a2atype.AgentSkill
+		wantIconURL          string
+		wantDocumentationURL string
+		wantVersion          string
+		wantProvider         *a2atype.AgentProvider
 	}{
 		{
 			name: "declarative agent with a2a config and skills",
@@ -98,6 +102,32 @@ func TestGetA2AAgentCard(t *testing.T) {
 			wantURL:         "http://byo-agent.default:8080",
 			wantSkills:      []a2atype.AgentSkill{},
 		},
+		{
+			name: "agent with card metadata",
+			agent: &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "meta-agent",
+					Namespace: "default",
+				},
+				Spec: v1alpha2.AgentSpec{
+					Type:             v1alpha2.AgentType_BYO,
+					IconURL:          "https://example.com/icon.png",
+					DocumentationURL: "https://example.com/docs",
+					Version:          "1.2.3",
+					Provider: &v1alpha2.AgentProvider{
+						Organization: "Acme",
+						URL:          "https://acme.example.com",
+					},
+				},
+			},
+			wantName:             "meta_agent",
+			wantURL:              "http://meta-agent.default:8080",
+			wantSkills:           []a2atype.AgentSkill{},
+			wantIconURL:          "https://example.com/icon.png",
+			wantDocumentationURL: "https://example.com/docs",
+			wantVersion:          "1.2.3",
+			wantProvider:         &a2atype.AgentProvider{Org: "Acme", URL: "https://acme.example.com"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -119,6 +149,10 @@ func TestGetA2AAgentCard(t *testing.T) {
 			assert.Equal(t, []string{"text"}, card.DefaultOutputModes)
 			assert.True(t, card.Capabilities.Streaming)
 			assert.False(t, card.Capabilities.PushNotifications)
+			assert.Equal(t, tt.wantIconURL, card.IconURL)
+			assert.Equal(t, tt.wantDocumentationURL, card.DocumentationURL)
+			assert.Equal(t, tt.wantVersion, card.Version)
+			assert.Equal(t, tt.wantProvider, card.Provider)
 		})
 	}
 }
