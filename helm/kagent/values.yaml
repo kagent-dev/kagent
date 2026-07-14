@@ -905,3 +905,47 @@ otel:
         endpoint: ""
         timeout: 15000 # milliseconds
         insecure: true
+
+# ==============================================================================
+# --------------------- HashiCorp Vault via VSO (optional) --------------------
+# ==============================================================================
+# -- Optional HashiCorp Vault integration through the Vault Secrets Operator
+# (must be installed in the cluster). Materializes chart secrets — model API
+# keys (`ModelConfig` `apiKeySecretRef`), oauth2-proxy credentials, etc. — as
+# real Kubernetes Secrets sourced from Vault. Disabled by default and fully
+# value-driven.
+vault:
+  enabled: false
+  # -- Default KV mount for `staticSecrets` entries that don't set their own.
+  mount: secret
+  auth:
+    # -- Create a `VaultAuth` for the secrets below. Set to `false` and set
+    # `auth.ref` to reuse an existing VaultAuth instead.
+    create: true
+    # -- Existing VaultAuth name to reference when `create` is `false`.
+    ref: ""
+    method: kubernetes
+    # -- Auth mount path in Vault.
+    mount: kubernetes
+    # -- Optional VaultConnection name (omitted = operator default).
+    vaultConnectionRef: ""
+    kubernetes:
+      # -- Vault Kubernetes-auth role (required when enabled with `create`).
+      role: ""
+      # -- ServiceAccount to authenticate as.
+      # @default -- `<fullname>-controller`
+      serviceAccount: ""
+      audiences: []
+      #   - vault
+  # -- Secrets to materialize from Vault. `transformation` is passed through
+  # verbatim (VSO templates/excludes) — useful to remap Vault keys to the key
+  # names consumers expect.
+  staticSecrets: []
+  #   - name: model-api-key          # VaultStaticSecret name suffix
+  #     path: teams/ai/kagent        # KV path under `mount`
+  #     destination: kagent-openai   # Secret to create (defaults to `name`)
+  #     transformation:
+  #       excludes: [".*"]
+  #       templates:
+  #         OPENAI_API_KEY:
+  #           text: '{{- get .Secrets "OPENAI_API_KEY" -}}'
