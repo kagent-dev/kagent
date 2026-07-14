@@ -11,6 +11,7 @@
     "test:vitest": "vitest run",
     "test:watch": "jest --watch",
     "test:pw": "playwright test",
+    "test:e2e": "npm run test:pw",
     "test:pw:ui": "playwright test --ui",
     "test:pw:debug": "playwright test --debug",
     "storybook": "storybook dev -p 6006",
