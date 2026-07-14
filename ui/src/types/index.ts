@@ -383,9 +383,10 @@ export interface DeclarativeAgentSpec {
   memory?: MemorySpec;
   /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
   promptTemplate?: PromptTemplateSpec;
-<<<<<<< HEAD
   /** Self-healing and observability behaviors: tool retries, model call caps, debug logging. */
   reliability?: ReliabilityConfig;
+  /** When true, the agent gains built-in share link tools (create/list/delete share tokens). */
+  shareTools?: boolean;
 }
 
 export interface ReliabilityConfig {
@@ -395,10 +396,6 @@ export interface ReliabilityConfig {
   maxLLMCalls?: number;
   /** Log every LLM request/response and tool call to the agent pod logs. */
   debugLogging?: boolean;
-=======
-  /** When true, the agent gains built-in share link tools (create/list/delete share tokens). */
-  shareTools?: boolean;
->>>>>>> origin/main
 }
 
 export interface ContextConfig {

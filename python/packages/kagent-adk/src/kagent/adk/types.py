@@ -399,14 +399,11 @@ class AgentConfig(BaseModel):
     memory: MemoryConfig | None = None  # Memory configuration
     network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
-<<<<<<< HEAD
     reliability: ReliabilityConfig | None = None  # Self-healing: retries, call caps, debug logging
-=======
     share_tools: bool | None = None  # Enable built-in share link tools
     # Selects a local (in-actor) session store when set — substrate sandbox agents with
     # durable-dir session storage. Set by the controller in the rendered config.
     session_db_url: str | None = None
->>>>>>> origin/main
 
     def to_agent(
         self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None, propagate_token: bool = False

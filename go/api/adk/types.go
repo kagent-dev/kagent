@@ -527,12 +527,9 @@ type AgentConfig struct {
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	Network       *NetworkConfig        `json:"network,omitempty"`
 	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
-<<<<<<< HEAD
 	Reliability   *ReliabilityConfig    `json:"reliability,omitempty"`
-=======
 	ShareTools    *bool                 `json:"share_tools,omitempty"`
 	SessionDBURL  string                `json:"session_db_url,omitempty"`
->>>>>>> origin/main
 }
 
 // GetStream returns the stream value or default if not set
@@ -564,12 +561,9 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Memory        json.RawMessage       `json:"memory"`
 		Network       *NetworkConfig        `json:"network,omitempty"`
 		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
-<<<<<<< HEAD
 		Reliability   *ReliabilityConfig    `json:"reliability,omitempty"`
-=======
 		ShareTools    *bool                 `json:"share_tools,omitempty"`
 		SessionDBURL  string                `json:"session_db_url,omitempty"`
->>>>>>> origin/main
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -605,12 +599,9 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Memory = memory
 	a.Network = tmp.Network
 	a.ContextConfig = tmp.ContextConfig
-<<<<<<< HEAD
 	a.Reliability = tmp.Reliability
-=======
 	a.ShareTools = tmp.ShareTools
 	a.SessionDBURL = tmp.SessionDBURL
->>>>>>> origin/main
 	return nil
 }
 

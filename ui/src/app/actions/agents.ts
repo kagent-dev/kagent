@@ -216,14 +216,13 @@ function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
       base.spec!.declarative!.context = agentFormData.context;
     }
 
-<<<<<<< HEAD
     const reliability = buildReliabilityForAgentSpec(agentFormData);
     if (reliability) {
       base.spec!.declarative!.reliability = reliability;
-=======
+    }
+
     if (agentFormData.shareTools) {
       base.spec!.declarative!.shareTools = true;
->>>>>>> origin/main
     }
 
     const trimmedSA = agentFormData.serviceAccountName?.trim();
@@ -394,14 +393,13 @@ function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxA
     decl.context = agentFormData.context;
   }
 
-<<<<<<< HEAD
   const reliability = buildReliabilityForAgentSpec(agentFormData);
   if (reliability) {
     decl.reliability = reliability;
-=======
+  }
+
   if (agentFormData.shareTools) {
     decl.shareTools = true;
->>>>>>> origin/main
   }
 
   const trimmedSA = agentFormData.serviceAccountName?.trim();
