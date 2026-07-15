@@ -320,7 +320,19 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 
 	toolPredicate, appToolNames, err := agentVisibleToolFilter(ctx, params, toolFilter)
 	if err != nil {
-		return nil, err
+		logr.FromContextOrDiscard(ctx).Error(err, "Failed to classify MCP tools; falling back to lazy tool discovery", "url", params.URL)
+		appToolNames = nil
+		if len(toolFilter) > 0 {
+			allowedTools := make([]string, 0, len(toolFilter))
+			for name, enabled := range toolFilter {
+				if enabled {
+					allowedTools = append(allowedTools, name)
+				}
+			}
+			toolPredicate = tool.StringPredicate(allowedTools)
+		} else {
+			toolPredicate = nil
+		}
 	}
 
 	cfg := mcptoolset.Config{

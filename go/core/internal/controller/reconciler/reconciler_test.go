@@ -18,7 +18,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -224,6 +226,71 @@ func TestAgentIDConsistency(t *testing.T) {
 	deleteID := utils.ConvertToPythonIdentifier(req.String())
 
 	assert.Equal(t, storeID, deleteID)
+}
+
+func TestReconcileAgentStatus_AvailableReplicas(t *testing.T) {
+	tests := []struct {
+		name              string
+		availableReplicas int32
+		wantStatus        metav1.ConditionStatus
+		wantReason        string
+	}{
+		{
+			name:              "one of two replicas available",
+			availableReplicas: 1,
+			wantStatus:        metav1.ConditionTrue,
+			wantReason:        AgentReadyReasonDeploymentReady,
+		},
+		{
+			name:              "no replicas available",
+			availableReplicas: 0,
+			wantStatus:        metav1.ConditionFalse,
+			wantReason:        "DeploymentNotReady",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, clientgoscheme.AddToScheme(scheme))
+			require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+			replicas := int32(2)
+			agent := &v1alpha2.Agent{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
+				Status: v1alpha2.AgentStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:    v1alpha2.AgentConditionTypeAccepted,
+							Status:  metav1.ConditionTrue,
+							Reason:  "Reconciled",
+							Message: "Agent configuration accepted",
+						},
+					},
+				},
+			}
+			deployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Name: agent.Name, Namespace: agent.Namespace},
+				Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
+				Status:     appsv1.DeploymentStatus{AvailableReplicas: tt.availableReplicas},
+			}
+			kube := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(agent).
+				WithObjects(agent, deployment).
+				Build()
+			reconciler := &kagentReconciler{kube: kube}
+
+			require.NoError(t, reconciler.reconcileAgentStatus(context.Background(), agent, nil))
+
+			updated := &v1alpha2.Agent{}
+			require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(agent), updated))
+			ready := meta.FindStatusCondition(updated.Status.Conditions, v1alpha2.AgentConditionTypeReady)
+			require.NotNil(t, ready)
+			assert.Equal(t, tt.wantStatus, ready.Status)
+			assert.Equal(t, tt.wantReason, ready.Reason)
+		})
+	}
 }
 
 func TestValidateCrossNamespaceReferences(t *testing.T) {
