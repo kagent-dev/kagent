@@ -605,6 +605,10 @@ kagent-tools:
   enabled: true
   nameOverride: tools
   replicaCount: 1
+  # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  tolerations: []
+  # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  nodeSelector: {}
   podSecurityContext:
     runAsNonRoot: true
     seccompProfile:
