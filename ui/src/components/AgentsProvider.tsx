@@ -5,74 +5,21 @@ import { getAgentWithResolvedKind, createAgent, getAgents } from "@/app/actions/
 import { getTools } from "@/app/actions/tools";
 import type {
   Agent,
-  Tool,
   AgentResponse,
   BaseResponse,
   ModelConfig,
   ToolsResponse,
-  AgentType,
-  EnvVar,
-  ContextConfig,
-  GitRepo,
-  DeclarativeRuntime,
 } from "@/types";
 import { getModelConfigs } from "@/app/actions/modelConfigs";
-import { formUsesByoSections, formUsesDeclarativeSections } from "@/lib/agentFormLayout";
 import type { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
-import type { AgentHarnessFormSlice } from "@/lib/agentHarnessForm";
-import { validateAgentHarnessForm } from "@/lib/agentHarnessForm";
-import { isResourceNameValid } from "@/lib/utils";
+import {
+  validateAgentFormData,
+  type AgentFormData,
+} from "@/lib/agentFormDomain";
+
+export type { AgentFormData } from "@/lib/agentFormDomain";
 
 export type ValidationErrors = AgentFormValidationErrors;
-
-export interface AgentFormData {
-  name: string;
-  namespace: string;
-  description: string;
-  type?: AgentType;
-  /** When true, create/update a SandboxAgent CR instead of Agent. */
-  runInSandbox?: boolean;
-  /** Python vs Go ADK for declarative / sandbox (non-BYO) workloads. */
-  declarativeRuntime?: DeclarativeRuntime;
-  // Declarative fields
-  systemPrompt?: string;
-  modelName?: string;
-  tools: Tool[];
-  stream?: boolean;
-  // Skills (OCI container refs and/or Git repositories; at least one list may be set)
-  skillRefs?: string[];
-  skillGitRepos?: GitRepo[];
-  skillsGitAuthSecretName?: string;
-  // Memory
-  memory?: {
-    modelConfig?: string;
-    ttlDays?: number;
-  };
-  // Context management
-  context?: ContextConfig;
-  /** When true, enables the built-in share link tools for this agent. */
-  shareTools?: boolean;
-  promptSources?: Array<{ name: string; alias: string }>;
-  /** AgentHarness CR (kagent.dev/v1alpha2 AgentHarness; openclaw or hermes backend). */
-  agentHarness?: AgentHarnessFormSlice;
-  // BYO fields
-  byoImage?: string;
-  byoCmd?: string;
-  byoArgs?: string[];
-  // Shared deployment optional fields
-  replicas?: number;
-  imagePullSecrets?: Array<{ name: string }>;
-  volumes?: unknown[];
-  volumeMounts?: unknown[];
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
-  env?: EnvVar[];
-  imagePullPolicy?: string;
-  serviceAccountName?: string;
-  /** Optional Agent Substrate settings when runInSandbox is true. */
-  substrateWorkerPoolRefName?: string;
-  substrateSnapshotsLocation?: string;
-}
 
 export interface AgentsContextType {
   agents: AgentResponse[];
@@ -162,98 +109,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     }
   }, []);
 
-  // Validation logic moved from the component
-  const validateAgentData = useCallback((data: Partial<AgentFormData>): ValidationErrors => {
-    const errors: ValidationErrors = {};
-
-    if (data.name !== undefined) {
-      if (!data.name.trim()) {
-        errors.name = "Agent name is required";
-      }
-    }
-
-    if (data.name !== undefined && !isResourceNameValid(data.name)) {
-      errors.name = `Agent name can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
-    }
-
-    if (data.namespace !== undefined && data.namespace.trim()) {
-      if (!isResourceNameValid(data.namespace)) {
-        errors.namespace = `Agent namespace can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
-      }
-    }
-
-    const type = data.type || "Declarative";
-
-    if (data.description !== undefined && !data.description.trim() && type !== "AgentHarness") {
-      errors.description = "Description is required";
-    }
-
-    if (type === "AgentHarness") {
-      if (!data.modelName || data.modelName.trim() === "") {
-        errors.model = "Please select a model config";
-      }
-      // Validate harness-specific config (channels, runtime) only once a model
-      // is chosen. The missing-model case is surfaced via `errors.model` next to
-      // the model dropdown, so we don't also report it as a general harness error
-      // (which renders below the dropdown).
-      if (data.agentHarness !== undefined && data.modelName && data.modelName.trim() !== "") {
-        const oc = validateAgentHarnessForm({
-          harness: data.agentHarness,
-          modelRef: data.modelName,
-        });
-        if (oc) {
-          errors.agentHarness = oc;
-        }
-      }
-      return errors;
-    }
-
-    if (formUsesDeclarativeSections(type)) {
-      if (data.systemPrompt !== undefined && !data.systemPrompt.trim()) {
-        errors.systemPrompt = "Agent instructions are required";
-      }
-      if (!data.modelName || data.modelName.trim() === "") {
-        errors.model = "Please select a model";
-      }
-
-      if (data.memory) {
-        if (!data.memory.modelConfig || data.memory.modelConfig.trim() === "") {
-          errors.memoryModel = "Please select an embedding model";
-        }
-        if (data.memory.ttlDays !== undefined && data.memory.ttlDays < 1) {
-          errors.memoryTtl = "TTL must be at least 1 day";
-        }
-      }
-    } else if (formUsesByoSections(type)) {
-      if (!data.byoImage || data.byoImage.trim() === "") {
-        errors.model = "Container image is required";
-      }
-    }
-
-    if (data.serviceAccountName !== undefined) {
-      const trimmedSA = data.serviceAccountName.trim();
-      if (trimmedSA && !isResourceNameValid(trimmedSA)) {
-        errors.serviceAccountName = `Service account name can only contain lowercase alphanumeric characters, "-" or ".", and must start and end with an alphanumeric character`;
-      }
-    }
-
-    if (formUsesDeclarativeSections(type)) {
-      const sources = (data.promptSources || []).filter((s) => s.name.trim());
-      for (const s of sources) {
-        if (!isResourceNameValid(s.name.trim())) {
-          errors.promptSources = `Prompt library name is invalid: ${s.name}`;
-          break;
-        }
-        const al = s.alias.trim();
-        if (al && !isResourceNameValid(al)) {
-          errors.promptSources = `Alias is invalid: ${s.alias}`;
-          break;
-        }
-      }
-    }
-
-    return errors;
-  }, []);
+  const validateAgentData = validateAgentFormData;
 
   // Get agent by ID function
   const getAgent = useCallback(async (name: string, namespace: string): Promise<AgentResponse | null> => {
