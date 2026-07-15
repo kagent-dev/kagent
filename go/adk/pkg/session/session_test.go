@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 func mustJSON(t *testing.T, v any) []byte {

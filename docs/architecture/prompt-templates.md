@@ -283,8 +283,8 @@ kubectl get agent my-agent -o jsonpath='{.status.conditions[?(@.type=="Accepted"
 ## Related Files
 
 - [agent_types.go](../../go/api/v1alpha2/agent_types.go) — `PromptTemplateSpec`, `PromptSource` types
-- [template.go](../../go/internal/controller/translator/agent/template.go) — Template resolution logic
-- [template_test.go](../../go/internal/controller/translator/agent/template_test.go) — Unit tests
-- [adk_api_translator.go](../../go/internal/controller/translator/agent/adk_api_translator.go) — Template integration in `translateInlineAgent()`
-- [agent_controller.go](../../go/internal/controller/agent_controller.go) — ConfigMap watch setup
+- [template.go](../../go/core/internal/controller/translator/agent/template.go) — Template resolution logic
+- [template_test.go](../../go/core/internal/controller/translator/agent/template_test.go) — Unit tests
+- [compiler.go](../../go/core/internal/controller/translator/agent/compiler.go) — Template integration in `translateInlineAgent()`
+- [agent_controller.go](../../go/core/internal/controller/agent_controller.go) — ConfigMap watch setup
 - [builtin-prompts-configmap.yaml](../../helm/kagent/templates/builtin-prompts-configmap.yaml) — Built-in prompt templates
