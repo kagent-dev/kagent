@@ -40,6 +40,7 @@ spec:
           args:
             - --transport
             - streamable-http
+            - --allowed-hosts={{ include "grafana-mcp.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}
             {{- with .Values.args }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
