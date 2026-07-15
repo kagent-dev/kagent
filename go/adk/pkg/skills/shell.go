@@ -166,6 +166,7 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 		defer file.Close()
 
 		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		lineNum := 1
 		for scanner.Scan() {
 			if line := scanner.Text(); re.MatchString(line) {
@@ -180,11 +181,26 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 		if !recursive {
 			return "", fmt.Errorf("%q is a directory; set recursive=true to search directories", path)
 		}
+		root, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return "", err
+		}
 		err = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
 			if d.IsDir() {
+				return nil
+			}
+			// Skip entries whose symlink-resolved target escapes the root
+			// being searched, so a symlink can't be used to read files
+			// outside the requested directory.
+			resolved, err := filepath.EvalSymlinks(p)
+			if err != nil {
+				return nil
+			}
+			rel, err := filepath.Rel(root, resolved)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 				return nil
 			}
 			return grepFile(p)

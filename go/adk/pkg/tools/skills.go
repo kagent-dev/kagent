@@ -253,6 +253,9 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 		if strings.TrimSpace(in.Pattern) == "" {
 			return "Error: No pattern provided", nil
 		}
+		if strings.TrimSpace(in.Path) == "" {
+			return "Error: No file path provided", nil
+		}
 
 		path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, in.Path)
 		if err != nil {

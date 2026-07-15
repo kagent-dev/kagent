@@ -412,6 +412,29 @@ func TestGrepContent(t *testing.T) {
 			t.Fatal("expected error for invalid regex pattern")
 		}
 	})
+
+	t.Run("recursive search skips symlinks that escape the root", func(t *testing.T) {
+		outsideDir := createTempDir(t)
+		defer os.RemoveAll(outsideDir)
+		secretPath := filepath.Join(outsideDir, "secret.txt")
+		if err := os.WriteFile(secretPath, []byte("top secret foo\n"), 0644); err != nil {
+			t.Fatalf("Failed to write outside file: %v", err)
+		}
+
+		linkPath := filepath.Join(subDir, "escape.txt")
+		if err := os.Symlink(secretPath, linkPath); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+		defer os.Remove(linkPath)
+
+		result, err := GrepContent(tmpDir, "foo", true, true)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if strings.Contains(result, "top secret") {
+			t.Errorf("expected symlinked file outside root to be skipped, got %q", result)
+		}
+	})
 }
 
 func TestExecuteCommand(t *testing.T) {

@@ -193,8 +193,16 @@ def grep_content(
         if not recursive:
             raise IsADirectoryError(f"{file_or_dir_path} is a directory; set recursive=true to search directories")
         for entry in sorted(file_or_dir_path.rglob("*")):
-            if entry.is_file():
-                results.extend(grep_file(entry))
+            if not entry.is_file():
+                continue
+            try:
+                # Skip entries whose symlink-resolved target escapes the
+                # root being searched, so a symlink can't be used to read
+                # files outside the requested directory.
+                safe_entry = _validate_path(entry, allowed_root)
+            except PermissionError:
+                continue
+            results.extend(grep_file(safe_entry))
     else:
         results.extend(grep_file(file_or_dir_path))
 

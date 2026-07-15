@@ -372,6 +372,30 @@ def test_grep_content_blocks_path_traversal(tmp_path):
         outside.unlink(missing_ok=True)
 
 
+def test_grep_content_recursive_skips_symlinks_that_escape_root(tmp_path):
+    outside_dir = tmp_path.parent / "grep_symlink_outside"
+    outside_dir.mkdir(exist_ok=True)
+    secret = outside_dir / "secret.txt"
+    secret.write_text("top secret foo\n")
+
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    link = sub / "escape.txt"
+
+    try:
+        link.symlink_to(secret)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported")
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+        assert "top secret" not in result
+    finally:
+        link.unlink(missing_ok=True)
+        secret.unlink(missing_ok=True)
+        outside_dir.rmdir()
+
+
 def test_skill_discovery_and_loading(skill_test_env: Path):
     """
     Tests the core logic of discovering a skill and loading its instructions.
