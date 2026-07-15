@@ -57,7 +57,7 @@ function baseTypeLabel(type: string | undefined): string {
   }
 }
 
-function SandboxBadge() {
+export function SandboxBadge() {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
