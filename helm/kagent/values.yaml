@@ -195,7 +195,7 @@ controller:
     # @default -- "" (controller falls back to "0.0.0.0"; "::" when ipv6.enabled)
     host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
-  # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
+  # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
   a2aBaseUrl: ""
   agentImage:
     registry: ""
