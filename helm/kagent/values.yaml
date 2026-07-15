@@ -799,9 +799,8 @@ querydoc:
 oauth2-proxy:
   enabled: false
 
-  # Disable Redis - use cookie-based sessions
-  redis:
-    enabled: false
+  # Cookie-based sessions (the redis-ha sub-chart is disabled by default;
+  # enable `redis-ha.enabled` + `sessionStorage.type: redis` to switch)
   sessionStorage:
     type: cookie
 
