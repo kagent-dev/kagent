@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -106,6 +108,99 @@ func EditFileContent(path string, oldString, newString string, replaceAll bool) 
 	}
 
 	return os.WriteFile(path, []byte(newContent), 0644)
+}
+
+// ListDirContent lists the entries of a directory, one per line. Directories
+// are suffixed with "/"; files are followed by their size in bytes.
+func ListDirContent(path string) (string, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return "", err
+	}
+
+	if len(entries) == 0 {
+		return "Directory is empty.", nil
+	}
+
+	var result strings.Builder
+	for _, entry := range entries {
+		if entry.IsDir() {
+			fmt.Fprintf(&result, "%s/\n", entry.Name())
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			fmt.Fprintf(&result, "%s\n", entry.Name())
+			continue
+		}
+		fmt.Fprintf(&result, "%s\t%d\n", entry.Name(), info.Size())
+	}
+
+	return strings.TrimSuffix(result.String(), "\n"), nil
+}
+
+// GrepContent searches path for lines matching a regular expression pattern.
+// If path is a directory, recursive must be true to search its files.
+func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, error) {
+	expr := pattern
+	if ignoreCase {
+		expr = "(?i)" + expr
+	}
+	re, err := regexp.Compile(expr)
+	if err != nil {
+		return "", fmt.Errorf("invalid pattern: %w", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+
+	var result strings.Builder
+	grepFile := func(filePath string) error {
+		file, err := os.Open(filePath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		lineNum := 1
+		for scanner.Scan() {
+			if line := scanner.Text(); re.MatchString(line) {
+				fmt.Fprintf(&result, "%s:%d:%s\n", filePath, lineNum, line)
+			}
+			lineNum++
+		}
+		return scanner.Err()
+	}
+
+	if info.IsDir() {
+		if !recursive {
+			return "", fmt.Errorf("%q is a directory; set recursive=true to search directories", path)
+		}
+		err = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			return grepFile(p)
+		})
+	} else {
+		err = grepFile(path)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	if result.Len() == 0 {
+		return "no matches found", nil
+	}
+
+	return strings.TrimSuffix(result.String(), "\n"), nil
 }
 
 func resolveSRTSettingsArgs() ([]string, error) {

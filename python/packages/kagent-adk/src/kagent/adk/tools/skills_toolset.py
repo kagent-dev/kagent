@@ -13,7 +13,7 @@ from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.tools import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 
-from ..tools import BashTool, EditFileTool, ReadFileTool, WriteFileTool
+from ..tools import BashTool, EditFileTool, GrepFileTool, ListFilesTool, ReadFileTool, WriteFileTool
 from .skill_tool import SkillsTool
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -27,7 +27,9 @@ class SkillsToolset(BaseToolset):
     2. ReadFileTool - Read files with line numbers
     3. WriteFileTool - Write/create files
     4. EditFileTool - Edit files with precise replacements
-    5. BashTool - Execute shell commands
+    5. ListFilesTool - List files and directories
+    6. GrepFileTool - Search file contents with a regular expression
+    7. BashTool - Execute shell commands
 
     Skills provide specialized domain knowledge and scripts that the agent can use
     to solve complex tasks. The toolset enables discovery of available skills,
@@ -50,6 +52,8 @@ class SkillsToolset(BaseToolset):
         self.read_file_tool = ReadFileTool(skills_directory)
         self.write_file_tool = WriteFileTool()
         self.edit_file_tool = EditFileTool()
+        self.list_files_tool = ListFilesTool(skills_directory)
+        self.grep_file_tool = GrepFileTool(skills_directory)
         self.bash_tool = BashTool(skills_directory)
 
     @override
@@ -57,12 +61,14 @@ class SkillsToolset(BaseToolset):
         """Get all skills tools.
 
         Returns:
-          List containing all skills tools: skills, read, write, edit, and bash.
+          List containing all skills tools: skills, read, write, edit, list, grep, and bash.
         """
         return [
             self.skills_tool,
             self.read_file_tool,
             self.write_file_tool,
             self.edit_file_tool,
+            self.list_files_tool,
+            self.grep_file_tool,
             self.bash_tool,
         ]

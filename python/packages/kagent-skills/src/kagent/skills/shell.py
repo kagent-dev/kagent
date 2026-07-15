@@ -126,6 +126,84 @@ def edit_file_content(
         raise OSError(f"Error writing file {file_path}: {e}") from e
 
 
+def list_dir_content(dir_path: Path, allowed_root: Path | list[Path] | None = None) -> str:
+    """Lists the entries of a directory, one per line.
+
+    Directories are suffixed with "/"; files are followed by their size in bytes.
+    """
+    dir_path = _validate_path(dir_path, allowed_root)
+
+    if not dir_path.exists():
+        raise FileNotFoundError(f"Directory not found: {dir_path}")
+
+    if not dir_path.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {dir_path}")
+
+    entries = sorted(dir_path.iterdir(), key=lambda p: p.name)
+    if not entries:
+        return "Directory is empty."
+
+    lines = []
+    for entry in entries:
+        if entry.is_dir():
+            lines.append(f"{entry.name}/")
+            continue
+        try:
+            size = entry.stat().st_size
+        except OSError:
+            lines.append(entry.name)
+            continue
+        lines.append(f"{entry.name}\t{size}")
+
+    return "\n".join(lines)
+
+
+def grep_content(
+    file_or_dir_path: Path,
+    pattern: str,
+    recursive: bool = False,
+    ignore_case: bool = False,
+    allowed_root: Path | list[Path] | None = None,
+) -> str:
+    """Searches path for lines matching a regular expression pattern.
+
+    If path is a directory, recursive must be true to search its files.
+    """
+    file_or_dir_path = _validate_path(file_or_dir_path, allowed_root)
+
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+    except re.error as e:
+        raise ValueError(f"invalid pattern: {e}") from e
+
+    if not file_or_dir_path.exists():
+        raise FileNotFoundError(f"Path not found: {file_or_dir_path}")
+
+    def grep_file(file_path: Path) -> list[str]:
+        matches = []
+        with file_path.open("r", encoding="utf-8", errors="replace") as f:
+            for line_num, line in enumerate(f, start=1):
+                line = line.rstrip("\n")
+                if compiled.search(line):
+                    matches.append(f"{file_path}:{line_num}:{line}")
+        return matches
+
+    results: list[str] = []
+    if file_or_dir_path.is_dir():
+        if not recursive:
+            raise IsADirectoryError(f"{file_or_dir_path} is a directory; set recursive=true to search directories")
+        for entry in sorted(file_or_dir_path.rglob("*")):
+            if entry.is_file():
+                results.extend(grep_file(entry))
+    else:
+        results.extend(grep_file(file_or_dir_path))
+
+    if not results:
+        return "no matches found"
+
+    return "\n".join(results)
+
+
 # --- Shell Operation Tools ---
 
 # Matches env-var names containing secret-related segments as whole

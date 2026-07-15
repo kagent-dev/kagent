@@ -304,6 +304,116 @@ func TestEditFileContent(t *testing.T) {
 	}
 }
 
+func TestListDirContent(t *testing.T) {
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "b.txt"), []byte("hello"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(tmpDir, "a-subdir"), 0755); err != nil {
+		t.Fatalf("Failed to create subdir: %v", err)
+	}
+
+	t.Run("lists files and directories", func(t *testing.T) {
+		result, err := ListDirContent(tmpDir)
+		if err != nil {
+			t.Fatalf("ListDirContent() error = %v", err)
+		}
+		if !strings.Contains(result, "a-subdir/") {
+			t.Errorf("expected directory entry with trailing slash, got %q", result)
+		}
+		if !strings.Contains(result, "b.txt\t5") {
+			t.Errorf("expected file entry with size, got %q", result)
+		}
+	})
+
+	t.Run("empty directory", func(t *testing.T) {
+		emptyDir := filepath.Join(tmpDir, "a-subdir")
+		result, err := ListDirContent(emptyDir)
+		if err != nil {
+			t.Fatalf("ListDirContent() error = %v", err)
+		}
+		if result != "Directory is empty." {
+			t.Errorf("expected empty directory message, got %q", result)
+		}
+	})
+
+	t.Run("nonexistent path", func(t *testing.T) {
+		if _, err := ListDirContent(filepath.Join(tmpDir, "does-not-exist")); err == nil {
+			t.Fatal("expected error for nonexistent path")
+		}
+	})
+}
+
+func TestGrepContent(t *testing.T) {
+	tmpDir := createTempDir(t)
+	defer os.RemoveAll(tmpDir)
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "a.txt"), []byte("hello world\nFOO bar\n"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+	subDir := filepath.Join(tmpDir, "sub")
+	if err := os.Mkdir(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "b.txt"), []byte("another foo line\n"), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	t.Run("matches within a single file", func(t *testing.T) {
+		result, err := GrepContent(filepath.Join(tmpDir, "a.txt"), "hello", false, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.Contains(result, "a.txt:1:hello world") {
+			t.Errorf("expected match with path:line:content, got %q", result)
+		}
+	})
+
+	t.Run("no matches", func(t *testing.T) {
+		result, err := GrepContent(filepath.Join(tmpDir, "a.txt"), "nope", false, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if result != "no matches found" {
+			t.Errorf("expected no matches message, got %q", result)
+		}
+	})
+
+	t.Run("ignore case", func(t *testing.T) {
+		result, err := GrepContent(filepath.Join(tmpDir, "a.txt"), "foo", false, true)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.Contains(result, "FOO bar") {
+			t.Errorf("expected case-insensitive match, got %q", result)
+		}
+	})
+
+	t.Run("directory requires recursive", func(t *testing.T) {
+		if _, err := GrepContent(tmpDir, "foo", false, false); err == nil {
+			t.Fatal("expected error when searching a directory without recursive=true")
+		}
+	})
+
+	t.Run("recursive searches subdirectories", func(t *testing.T) {
+		result, err := GrepContent(tmpDir, "foo", true, true)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.Contains(result, "b.txt:1:another foo line") {
+			t.Errorf("expected match from subdirectory, got %q", result)
+		}
+	})
+
+	t.Run("invalid pattern", func(t *testing.T) {
+		if _, err := GrepContent(filepath.Join(tmpDir, "a.txt"), "(", false, false); err == nil {
+			t.Fatal("expected error for invalid regex pattern")
+		}
+	})
+}
+
 func TestExecuteCommand(t *testing.T) {
 	tmpDir := createTempDir(t)
 	defer os.RemoveAll(tmpDir)

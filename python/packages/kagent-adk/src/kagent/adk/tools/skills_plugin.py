@@ -6,7 +6,7 @@ from typing import Optional
 
 from google.adk.agents import BaseAgent, LlmAgent
 
-from ..tools import BashTool, EditFileTool, ReadFileTool, WriteFileTool
+from ..tools import BashTool, EditFileTool, GrepFileTool, ListFilesTool, ReadFileTool, WriteFileTool
 from .skill_tool import SkillsTool
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -50,3 +50,11 @@ def add_skills_tool_to_agent(
     if "edit_file" not in existing_tool_names:
         agent.tools.append(EditFileTool())
         logger.debug(f"Added edit file tool to agent: {agent.name}")
+
+    if "list_files" not in existing_tool_names:
+        agent.tools.append(ListFilesTool(skills_directory))
+        logger.debug(f"Added list files tool to agent: {agent.name}")
+
+    if "grep_file" not in existing_tool_names:
+        agent.tools.append(GrepFileTool(skills_directory))
+        logger.debug(f"Added grep file tool to agent: {agent.name}")

@@ -6,7 +6,49 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	skillruntime "github.com/kagent-dev/kagent/go/adk/pkg/skills"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
+
+// fakeToolContext is a minimal agent.Context for directly invoking tools in
+// tests, bypassing the full ADK flow engine. Embeds StrictContextMock (an
+// ADK test double) and overrides only the methods functiontool.Run() calls.
+type fakeToolContext struct {
+	adkagent.StrictContextMock
+	sessionID string
+}
+
+func (f *fakeToolContext) SessionID() string { return f.sessionID }
+func (f *fakeToolContext) ToolConfirmation() *toolconfirmation.ToolConfirmation {
+	return nil
+}
+
+// runnableTool mirrors the unexported Run method that functiontool.New's
+// concrete type implements; declaring it locally lets us type-assert without
+// depending on functiontool internals.
+type runnableTool interface {
+	Run(ctx adkagent.Context, args any) (map[string]any, error)
+}
+
+func runTool(t *testing.T, tl tool.Tool, ctx adkagent.Context, args map[string]any) string {
+	t.Helper()
+	runner, ok := tl.(runnableTool)
+	if !ok {
+		t.Fatalf("tool %q does not support direct invocation", tl.Name())
+	}
+	result, err := runner.Run(ctx, args)
+	if err != nil {
+		t.Fatalf("%s.Run() error = %v", tl.Name(), err)
+	}
+	text, ok := result["result"].(string)
+	if !ok {
+		t.Fatalf("%s.Run() result = %#v, want map with string \"result\"", tl.Name(), result)
+	}
+	return text
+}
 
 func TestResolveReadPath_AllowsSymlinkedSkillsDirectory(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
@@ -68,9 +110,110 @@ description: Demo skill.
 		got[tool.Name()] = true
 	}
 
-	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "bash"} {
+	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "list_files", "grep_file", "bash"} {
 		if !got[name] {
 			t.Errorf("expected tool %q to be present", name)
 		}
 	}
+}
+
+func TestNewSkillsTools_OmitsBashWithoutSRTSettings(t *testing.T) {
+	skillsDir := t.TempDir()
+	t.Setenv("KAGENT_SRT_SETTINGS_PATH", "")
+
+	tools, err := NewSkillsTools(skillsDir)
+	if err != nil {
+		t.Fatalf("NewSkillsTools() error = %v, want nil (bash should be omitted, not fatal)", err)
+	}
+
+	got := map[string]bool{}
+	for _, tool := range tools {
+		got[tool.Name()] = true
+	}
+
+	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "list_files", "grep_file"} {
+		if !got[name] {
+			t.Errorf("expected tool %q to be present even without SRT settings", name)
+		}
+	}
+	if got["bash"] {
+		t.Error("expected bash tool to be omitted without SRT settings")
+	}
+}
+
+// TestListFilesAndGrepFileTools_RunThroughADK invokes the real functiontool.Run()
+// path (the same one the ADK flow engine uses to execute a model's tool call),
+// rather than calling ListDirContent/GrepContent directly, to verify the
+// closures in NewSkillsTools correctly wire path resolution and argument
+// parsing end-to-end.
+func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	skillsDir := t.TempDir()
+	t.Setenv("KAGENT_SRT_SETTINGS_PATH", "")
+
+	tools, err := NewSkillsTools(skillsDir)
+	if err != nil {
+		t.Fatalf("NewSkillsTools() error = %v", err)
+	}
+
+	var listFilesTool, grepFileTool tool.Tool
+	for _, tl := range tools {
+		switch tl.Name() {
+		case "list_files":
+			listFilesTool = tl
+		case "grep_file":
+			grepFileTool = tl
+		}
+	}
+	if listFilesTool == nil || grepFileTool == nil {
+		t.Fatal("expected list_files and grep_file tools to be present")
+	}
+
+	sessionID := fmt.Sprintf("%s-session", t.Name())
+	sessionPath, err := skillruntime.GetSessionPath(sessionID, skillsDir)
+	if err != nil {
+		t.Fatalf("GetSessionPath() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionPath, "notes.txt"), []byte("hello kagent\nsecond line\n"), 0644); err != nil {
+		t.Fatalf("failed to seed session file: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(sessionPath, "logs"), 0755); err != nil {
+		t.Fatalf("failed to create session subdir: %v", err)
+	}
+
+	ctx := &fakeToolContext{sessionID: sessionID}
+
+	t.Run("list_files defaults to the working directory", func(t *testing.T) {
+		result := runTool(t, listFilesTool, ctx, map[string]any{})
+		if !strings.Contains(result, "notes.txt") || !strings.Contains(result, "logs/") {
+			t.Errorf("list_files result = %q, want entries for notes.txt and logs/", result)
+		}
+	})
+
+	t.Run("grep_file finds a match by relative path", func(t *testing.T) {
+		result := runTool(t, grepFileTool, ctx, map[string]any{
+			"pattern": "kagent",
+			"path":    "notes.txt",
+		})
+		if !strings.Contains(result, "notes.txt:1:hello kagent") {
+			t.Errorf("grep_file result = %q, want a match on line 1", result)
+		}
+	})
+
+	t.Run("grep_file reports no matches without erroring", func(t *testing.T) {
+		result := runTool(t, grepFileTool, ctx, map[string]any{
+			"pattern": "nope",
+			"path":    "notes.txt",
+		})
+		if result != "no matches found" {
+			t.Errorf("grep_file result = %q, want %q", result, "no matches found")
+		}
+	})
+
+	t.Run("list_files rejects paths outside the session/skills roots", func(t *testing.T) {
+		result := runTool(t, listFilesTool, ctx, map[string]any{"path": "/etc"})
+		if !strings.Contains(result, "outside the allowed roots") {
+			t.Errorf("list_files result = %q, want an outside-allowed-roots error", result)
+		}
+	})
 }

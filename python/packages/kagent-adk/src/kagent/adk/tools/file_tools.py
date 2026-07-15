@@ -15,9 +15,13 @@ from google.genai import types
 from kagent.skills import (
     edit_file_content,
     get_edit_file_description,
+    get_grep_file_description,
+    get_list_files_description,
     get_read_file_description,
     get_session_path,
     get_write_file_description,
+    grep_content,
+    list_dir_content,
     read_file_content,
     write_file_content,
 )
@@ -131,6 +135,119 @@ class WriteFileTool(BaseTool):
             error_msg = f"Error writing file {file_path_str}: {e}"
             logger.error(error_msg)
             return error_msg
+
+
+class ListFilesTool(BaseTool):
+    """List files and directories at a given path."""
+
+    def __init__(self, skills_directory: str | Path):
+        super().__init__(
+            name="list_files",
+            description=get_list_files_description(),
+        )
+        self.skills_directory = Path(skills_directory).resolve()
+        if not self.skills_directory.exists():
+            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "path": types.Schema(
+                        type=types.Type.STRING,
+                        description="Directory path to list (absolute or relative to working directory); defaults to the working directory",
+                    ),
+                },
+            ),
+        )
+
+    async def run_async(self, *, args: Dict[str, Any], tool_context: ToolContext) -> str:
+        """List the contents of a directory."""
+        path_str = args.get("path", "").strip() or "."
+
+        try:
+            working_dir = get_session_path(session_id=tool_context.session.id)
+            path = Path(path_str)
+            if not path.is_absolute():
+                path = working_dir / path
+            path = path.resolve()
+
+            return list_dir_content(path, allowed_root=[working_dir, Path(self.skills_directory)])
+        except (FileNotFoundError, NotADirectoryError, PermissionError, IOError) as e:
+            return f"Error listing {path_str}: {e}"
+
+
+class GrepFileTool(BaseTool):
+    """Search for a regular expression pattern in a file or directory."""
+
+    def __init__(self, skills_directory: str | Path):
+        super().__init__(
+            name="grep_file",
+            description=get_grep_file_description(),
+        )
+        self.skills_directory = Path(skills_directory).resolve()
+        if not self.skills_directory.exists():
+            raise ValueError(f"Skills directory does not exist: {self.skills_directory}")
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "pattern": types.Schema(
+                        type=types.Type.STRING,
+                        description="The regular expression pattern to search for",
+                    ),
+                    "path": types.Schema(
+                        type=types.Type.STRING,
+                        description="The file or directory path to search (absolute or relative to working directory)",
+                    ),
+                    "recursive": types.Schema(
+                        type=types.Type.BOOLEAN,
+                        description="Search directories recursively (default: false)",
+                    ),
+                    "ignore_case": types.Schema(
+                        type=types.Type.BOOLEAN,
+                        description="Ignore case when matching (default: false)",
+                    ),
+                },
+                required=["pattern", "path"],
+            ),
+        )
+
+    async def run_async(self, *, args: Dict[str, Any], tool_context: ToolContext) -> str:
+        """Search a file or directory for a pattern."""
+        pattern = args.get("pattern", "").strip()
+        path_str = args.get("path", "").strip()
+        recursive = args.get("recursive", False)
+        ignore_case = args.get("ignore_case", False)
+
+        if not pattern:
+            return "Error: No pattern provided"
+        if not path_str:
+            return "Error: No file path provided"
+
+        try:
+            working_dir = get_session_path(session_id=tool_context.session.id)
+            path = Path(path_str)
+            if not path.is_absolute():
+                path = working_dir / path
+            path = path.resolve()
+
+            return grep_content(
+                path,
+                pattern,
+                recursive=recursive,
+                ignore_case=ignore_case,
+                allowed_root=[working_dir, Path(self.skills_directory)],
+            )
+        except (FileNotFoundError, IsADirectoryError, ValueError, PermissionError, IOError) as e:
+            return f"Error searching {path_str}: {e}"
 
 
 class EditFileTool(BaseTool):

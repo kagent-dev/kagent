@@ -46,6 +46,22 @@ Usage:
 - old_string and new_string must be different
 - Note: skills/ directory is read-only`
 
+	listFilesDescription = `Lists files and directories at a given path.
+
+Usage:
+- Provide a path (absolute or relative to your working directory); defaults to the working directory
+- Directories are listed with a trailing "/"; files are followed by their size in bytes
+- You can list skills/ directory, uploads/, outputs/, or any directory in your session`
+
+	grepFileDescription = `Searches for a regular expression pattern in a file or directory.
+
+Usage:
+- Provide a pattern and a path (absolute or relative to your working directory)
+- Set recursive=true to search all files under a directory path
+- Set ignore_case=true for case-insensitive matching
+- Returns matching lines as path:line_number:content
+- You can search the skills/ directory, uploads/, outputs/, or any file/directory in your session`
+
 	bashDescription = `Execute bash commands in the skills environment with sandbox protection.
 
 Working Directory & Structure:
@@ -96,6 +112,17 @@ type editFileInput struct {
 	ReplaceAll bool   `json:"replace_all,omitempty"`
 }
 
+type listFilesInput struct {
+	Path string `json:"path,omitempty"`
+}
+
+type grepFileInput struct {
+	Pattern    string `json:"pattern"`
+	Path       string `json:"path"`
+	Recursive  bool   `json:"recursive,omitempty"`
+	IgnoreCase bool   `json:"ignore_case,omitempty"`
+}
+
 func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	skillsDirectory = strings.TrimSpace(skillsDirectory)
 	if skillsDirectory == "" {
@@ -113,10 +140,6 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	discoveredSkills, err := skillruntime.DiscoverSkills(absSkillsDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover skills: %w", err)
-	}
-	commandExecutor, err := skillruntime.NewCommandExecutorFromEnv()
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure bash sandbox: %w", err)
 	}
 
 	skillsTool, err := functiontool.New(functiontool.Config{
@@ -199,31 +222,86 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 		return nil, fmt.Errorf("failed to create edit_file tool: %w", err)
 	}
 
-	bashTool, err := functiontool.New(functiontool.Config{
-		Name:        "bash",
-		Description: bashDescription,
-	}, func(ctx adkagent.Context, in bashInput) (string, error) {
-		command := strings.TrimSpace(in.Command)
-		if command == "" {
-			return "Error: No command provided", nil
+	listFilesTool, err := functiontool.New(functiontool.Config{
+		Name:        "list_files",
+		Description: listFilesDescription,
+	}, func(ctx adkagent.Context, in listFilesInput) (string, error) {
+		requestedPath := in.Path
+		if strings.TrimSpace(requestedPath) == "" {
+			requestedPath = "."
 		}
 
-		sessionPath, err := skillruntime.GetSessionPath(ctx.SessionID(), absSkillsDir)
+		path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, requestedPath)
 		if err != nil {
-			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
+			return fmt.Sprintf("Error listing %s: %v", requestedPath, err), nil
 		}
 
-		result, err := commandExecutor.ExecuteCommand(ctx, command, sessionPath)
+		content, err := skillruntime.ListDirContent(path)
 		if err != nil {
-			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
+			return fmt.Sprintf("Error listing %s: %v", requestedPath, err), nil
 		}
-		return result, nil
+		return content, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create bash tool: %w", err)
+		return nil, fmt.Errorf("failed to create list_files tool: %w", err)
 	}
 
-	return []tool.Tool{skillsTool, readFileTool, writeFileTool, editFileTool, bashTool}, nil
+	grepFileTool, err := functiontool.New(functiontool.Config{
+		Name:        "grep_file",
+		Description: grepFileDescription,
+	}, func(ctx adkagent.Context, in grepFileInput) (string, error) {
+		if strings.TrimSpace(in.Pattern) == "" {
+			return "Error: No pattern provided", nil
+		}
+
+		path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, in.Path)
+		if err != nil {
+			return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
+		}
+
+		content, err := skillruntime.GrepContent(path, in.Pattern, in.Recursive, in.IgnoreCase)
+		if err != nil {
+			return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
+		}
+		return content, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create grep_file tool: %w", err)
+	}
+
+	tools := []tool.Tool{skillsTool, readFileTool, writeFileTool, editFileTool, listFilesTool, grepFileTool}
+
+	// bash requires the sandbox-runtime (KAGENT_SRT_SETTINGS_PATH); when that's not
+	// configured (e.g. bash is intentionally disabled), skip only this tool rather
+	// than failing the whole toolset.
+	if commandExecutor, err := skillruntime.NewCommandExecutorFromEnv(); err == nil {
+		bashTool, err := functiontool.New(functiontool.Config{
+			Name:        "bash",
+			Description: bashDescription,
+		}, func(ctx adkagent.Context, in bashInput) (string, error) {
+			command := strings.TrimSpace(in.Command)
+			if command == "" {
+				return "Error: No command provided", nil
+			}
+
+			sessionPath, err := skillruntime.GetSessionPath(ctx.SessionID(), absSkillsDir)
+			if err != nil {
+				return fmt.Sprintf("Error executing command %q: %v", command, err), nil
+			}
+
+			result, err := commandExecutor.ExecuteCommand(ctx, command, sessionPath)
+			if err != nil {
+				return fmt.Sprintf("Error executing command %q: %v", command, err), nil
+			}
+			return result, nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create bash tool: %w", err)
+		}
+		tools = append(tools, bashTool)
+	}
+
+	return tools, nil
 }
 
 func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
@@ -242,7 +320,7 @@ func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, 
 		return "", err
 	}
 
-	sessionRoot, err := filepath.Abs(sessionPath)
+	sessionRoot, err := filepath.EvalSymlinks(sessionPath)
 	if err != nil {
 		return "", err
 	}
@@ -274,7 +352,7 @@ func resolveEditPath(sessionID, skillsDirectory, requestedPath string) (string, 
 		return "", err
 	}
 
-	sessionRoot, err := filepath.Abs(sessionPath)
+	sessionRoot, err := filepath.EvalSymlinks(sessionPath)
 	if err != nil {
 		return "", err
 	}
@@ -301,7 +379,7 @@ func resolveWritePath(sessionID, skillsDirectory, requestedPath string) (string,
 		return "", err
 	}
 
-	sessionRoot, err := filepath.Abs(sessionPath)
+	sessionRoot, err := filepath.EvalSymlinks(sessionPath)
 	if err != nil {
 		return "", err
 	}

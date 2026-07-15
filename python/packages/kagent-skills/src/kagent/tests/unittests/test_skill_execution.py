@@ -12,6 +12,8 @@ from kagent.skills import (
     discover_skills,
     edit_file_content,
     execute_command,
+    grep_content,
+    list_dir_content,
     load_skill_content,
     read_file_content,
     write_file_content,
@@ -278,6 +280,96 @@ def test_edit_file_blocks_path_traversal(tmp_path):
         assert outside_file.read_text() == "original"
     finally:
         outside_file.unlink(missing_ok=True)
+
+
+# --- list_dir_content / grep_content tests ---
+
+
+def test_list_dir_content_lists_entries(tmp_path):
+    (tmp_path / "b.txt").write_text("hello")
+    (tmp_path / "a-subdir").mkdir()
+
+    result = list_dir_content(tmp_path)
+    assert "a-subdir/" in result
+    assert "b.txt\t5" in result
+
+
+def test_list_dir_content_empty_directory(tmp_path):
+    assert list_dir_content(tmp_path) == "Directory is empty."
+
+
+def test_list_dir_content_nonexistent_path(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        list_dir_content(tmp_path / "does-not-exist")
+
+
+def test_list_dir_content_blocks_path_traversal(tmp_path):
+    outside = tmp_path.parent / "outside-dir"
+    outside.mkdir(exist_ok=True)
+    try:
+        with pytest.raises(PermissionError, match="outside the allowed director"):
+            list_dir_content(outside, allowed_root=tmp_path)
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
+
+
+def test_grep_content_finds_match(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("hello world\nFOO bar\n")
+
+    result = grep_content(f, "hello")
+    assert "a.txt:1:hello world" in result
+
+
+def test_grep_content_no_matches(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("hello world\n")
+
+    assert grep_content(f, "nope") == "no matches found"
+
+
+def test_grep_content_ignore_case(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("FOO bar\n")
+
+    result = grep_content(f, "foo", ignore_case=True)
+    assert "FOO bar" in result
+
+
+def test_grep_content_directory_requires_recursive(tmp_path):
+    (tmp_path / "a.txt").write_text("foo\n")
+
+    with pytest.raises(IsADirectoryError, match="set recursive=true"):
+        grep_content(tmp_path, "foo")
+
+
+def test_grep_content_recursive_searches_subdirectories(tmp_path):
+    (tmp_path / "a.txt").write_text("hello\n")
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "b.txt").write_text("another foo line\n")
+
+    result = grep_content(tmp_path, "foo", recursive=True)
+    assert "b.txt:1:another foo line" in result
+
+
+def test_grep_content_invalid_pattern(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("hello\n")
+
+    with pytest.raises(ValueError, match="invalid pattern"):
+        grep_content(f, "(")
+
+
+def test_grep_content_blocks_path_traversal(tmp_path):
+    outside = tmp_path.parent / "outside.txt"
+    outside.write_text("secret")
+
+    try:
+        with pytest.raises(PermissionError, match="outside the allowed director"):
+            grep_content(outside, "secret", allowed_root=tmp_path)
+    finally:
+        outside.unlink(missing_ok=True)
 
 
 def test_skill_discovery_and_loading(skill_test_env: Path):

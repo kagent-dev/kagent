@@ -89,6 +89,30 @@ Usage:
 """
 
 
+def get_list_files_description() -> str:
+    """Returns the standardized description for the list_files tool."""
+    return """Lists files and directories at a given path.
+
+Usage:
+- Provide a path (absolute or relative to your working directory); defaults to the working directory
+- Directories are listed with a trailing "/"; files are followed by their size in bytes
+- You can list skills/ directory, uploads/, outputs/, or any directory in your session
+"""
+
+
+def get_grep_file_description() -> str:
+    """Returns the standardized description for the grep_file tool."""
+    return """Searches for a regular expression pattern in a file or directory.
+
+Usage:
+- Provide a pattern and a path (absolute or relative to your working directory)
+- Set recursive=true to search all files under a directory path
+- Set ignore_case=true for case-insensitive matching
+- Returns matching lines as path:line_number:content
+- You can search the skills/ directory, uploads/, outputs/, or any file/directory in your session
+"""
+
+
 def get_bash_description() -> str:
     """Returns the standardized description for the bash tool."""
     # This combines the useful parts from both ADK and OpenAI descriptions
