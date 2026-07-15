@@ -32,6 +32,11 @@ annotations: {}
 
 podAnnotations: {}
 
+# -- Additional labels to add to all pod templates (merged into pod labels of
+# the controller and UI Deployments; can be overridden per component).
+# Useful for admission policies that require specific labels on pods.
+podLabels: {}
+
 # -- Additional labels to add to all Kubernetes resources
 labels: {}
   # environment: production
@@ -235,6 +240,11 @@ controller:
 
   podAnnotations: {}
 
+  # -- Additional labels for the controller pod template, merged over the
+  # global `podLabels` (per-key; component keys win). Selector labels can
+  # never be overridden.
+  podLabels: {}
+
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
@@ -434,6 +444,11 @@ ui:
   # runAsUser: 1000
 
   podAnnotations: {}
+
+  # -- Additional labels for the UI pod template, merged over the
+  # global `podLabels` (per-key; component keys win). Selector labels can
+  # never be overridden.
+  podLabels: {}
 
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
