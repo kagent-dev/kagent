@@ -29,7 +29,7 @@ app = App(
 
 ```python
 from kagent.adk.skills import SkillsTool
-from kagent.adk.tools import BashTool, ReadFileTool, WriteFileTool, EditFileTool
+from kagent.adk.tools import BashTool, ReadFileTool, WriteFileTool, EditFileTool, ListFilesTool, GrepFileTool
 
 agent = Agent(
     tools=[
@@ -38,6 +38,8 @@ agent = Agent(
         ReadFileTool(skills_directory="./skills"),
         WriteFileTool(),
         EditFileTool(),
+        ListFilesTool(skills_directory="./skills"),
+        GrepFileTool(skills_directory="./skills"),
     ]
 )
 ```
@@ -123,6 +125,8 @@ description: Analyze CSV/Excel files
 | **ReadFile**   | Read files with line numbers | `read_file("skills/data-analysis/config.json")`       |
 | **WriteFile**  | Create/overwrite files       | `write_file("outputs/report.pdf", data)`              |
 | **EditFile**   | Precise string replacements  | `edit_file("script.py", old="x", new="y")`            |
+| **ListFiles**  | List a directory's contents  | `list_files("skills/data-analysis")`                  |
+| **GrepFile**   | Search files by pattern      | `grep_file("skills", pattern="analyze", recursive=True)` |
 
 ### Working Directory Structure
 
@@ -179,6 +183,7 @@ return_artifacts(file_paths=["outputs/report.pdf"])
 - Path traversal protection (no `..`)
 - Session isolation (each session has separate working directory)
 - File size limits (100 MB max)
+- `grep_file` skips symlinked entries that resolve outside the directory being searched, so a symlink can't be used to read files outside the session's working directory
 
 **Bash tool:**
 
