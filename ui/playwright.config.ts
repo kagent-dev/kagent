@@ -36,7 +36,7 @@ export default defineConfig({
     baseURL: APP_URL,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    video: "on",
+    video: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [

@@ -10,7 +10,7 @@ import { test as base, expect } from "@playwright/test";
 const STUB_URL = "http://127.0.0.1:8899";
 
 export const test = base.extend({
-  page: async ({ page, request }, use) => {
+  page: async ({ page, request }, provide) => {
     try {
       await request.post(`${STUB_URL}/__mock/reset`);
     } catch (err) {
@@ -22,9 +22,7 @@ export const test = base.extend({
     await page.addInitScript(() => {
       window.localStorage.setItem("kagent-onboarding", "true");
     });
-    // `use` here is Playwright's fixture callback, not the React `use` hook.
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    await use(page);
+    await provide(page);
   },
 });
 
