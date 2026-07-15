@@ -202,8 +202,6 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 		sa          *v1alpha2.SandboxAgent
 		container   corev1.Container
 		wantCommand []string
-		// declarative agents carry secret-backed config env; BYO does not.
-		wantConfigEnv bool
 	}{
 		{
 			name: "go declarative",
@@ -213,9 +211,8 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}},
 				},
 			},
-			container:     corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
-			wantCommand:   []string{"/app", "--host", "0.0.0.0", "--port", "80"},
-			wantConfigEnv: true},
+			container:   corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
+			wantCommand: []string{"/app", "--host", "0.0.0.0", "--port", "80"}},
 		{
 			name: "python declarative",
 			sa: &v1alpha2.SandboxAgent{
@@ -224,9 +221,8 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
 				},
 			},
-			container:     corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
-			wantCommand:   []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"},
-			wantConfigEnv: true},
+			container:   corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
+			wantCommand: []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"}},
 		{
 			name: "byo",
 			sa: &v1alpha2.SandboxAgent{
@@ -235,9 +231,8 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}},
 				},
 			},
-			container:     corev1.Container{Command: []string{"/serve"}, Args: []string{"--host", "0.0.0.0", "--port", "80"}},
-			wantCommand:   []string{"/serve", "--host", "0.0.0.0", "--port", "80"},
-			wantConfigEnv: false},
+			container:   corev1.Container{Command: []string{"/serve"}, Args: []string{"--host", "0.0.0.0", "--port", "80"}},
+			wantCommand: []string{"/serve", "--host", "0.0.0.0", "--port", "80"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -259,7 +254,6 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			names := actorEnvNames(c.Env)
 			require.True(t, names["KAGENT_NAME"], "KAGENT_NAME must be a literal env var")
 			require.True(t, names["KAGENT_NAMESPACE"], "KAGENT_NAMESPACE must be a literal env var")
-			require.Equal(t, tc.wantConfigEnv, names["KAGENT_CONFIG_JSON"], "declarative agents materialize config from secret env; BYO does not")
 			require.True(t, names["KAGENT_CONFIG_JSON"], "every agent type gets the rendered config via secret env (BYO decides for itself whether to consume it)")
 
 			// Durable-dir session storage is on for every sandbox agent, BYO included (asserted
