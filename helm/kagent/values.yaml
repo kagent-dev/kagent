@@ -511,6 +511,14 @@ ui:
 
 providers:
   default: openAI
+  # -- Namespace to render the default ModelConfig into, instead of the release
+  # namespace. ModelConfig must live in the same namespace as the Agents that
+  # use it, so set this when agents run in a namespace other than the install
+  # namespace (e.g. together with controller.watchNamespaces). Also sets
+  # DEFAULT_MODEL_CONFIG_NAMESPACE on the controller so the default lookup
+  # follows. The referenced apiKeySecretRef Secret must exist in (or be
+  # created in) the same namespace. Empty (default) keeps today's behavior.
+  namespaceOverride: ""
   openAI:
     provider: OpenAI
     model: "gpt-4.1-mini"

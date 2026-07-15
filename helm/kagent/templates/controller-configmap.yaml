@@ -8,6 +8,9 @@ metadata:
 data:
   A2A_BASE_URL: {{ include "kagent.a2aBaseUrl" . | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
+  {{- if .Values.providers.namespaceOverride }}
+  DEFAULT_MODEL_CONFIG_NAMESPACE: {{ .Values.providers.namespaceOverride | quote }}
+  {{- end }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   {{- if .Values.ui.externalUrl }}
   KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}

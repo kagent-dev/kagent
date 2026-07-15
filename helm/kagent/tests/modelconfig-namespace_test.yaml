@@ -1,0 +1,60 @@
+suite: test modelconfig namespace override
+templates:
+  - modelconfig.yaml
+  - modelconfig-secret.yaml
+  - controller-configmap.yaml
+tests:
+  - it: should render modelconfig in the release namespace by default
+    template: modelconfig.yaml
+    release:
+      namespace: kagent
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: kagent
+
+  - it: should render modelconfig in the override namespace when providers.namespaceOverride is set
+    template: modelconfig.yaml
+    release:
+      namespace: kagent
+    set:
+      providers:
+        namespaceOverride: agents
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: agents
+
+  - it: should render the api key secret in the override namespace when providers.namespaceOverride is set
+    template: modelconfig-secret.yaml
+    release:
+      namespace: kagent
+    set:
+      providers:
+        namespaceOverride: agents
+        openAI:
+          provider: OpenAI
+          model: "gpt-4.1-mini"
+          apiKeySecretRef: kagent-openai
+          apiKeySecretKey: OPENAI_API_KEY
+          apiKey: test-key
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: agents
+
+  - it: should not set DEFAULT_MODEL_CONFIG_NAMESPACE by default
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.DEFAULT_MODEL_CONFIG_NAMESPACE
+
+  - it: should set DEFAULT_MODEL_CONFIG_NAMESPACE when providers.namespaceOverride is set
+    template: controller-configmap.yaml
+    set:
+      providers:
+        namespaceOverride: agents
+    asserts:
+      - equal:
+          path: data.DEFAULT_MODEL_CONFIG_NAMESPACE
+          value: agents

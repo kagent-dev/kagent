@@ -9,7 +9,7 @@ apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
   name: {{ include "kagent.defaultModelConfigName" $dot | quote }}
-  namespace: {{ include "kagent.namespace" . }}
+  namespace: {{ .Values.providers.namespaceOverride | default (include "kagent.namespace" .) }}
   labels:
     {{- include "kagent.labels" $dot | nindent 4 }}
 spec:
