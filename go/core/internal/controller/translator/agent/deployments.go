@@ -123,17 +123,12 @@ func validateExtraContainers(containers []corev1.Container) error {
 	return nil
 }
 
-func resolvePythonRuntimeImage(registry string) (string, error) {
+func resolvePythonRuntimeImage(registry string, pinDigest bool) (string, error) {
 	repo := DefaultImageConfig.Repository
-	if d := normalizeImageDigest(PythonADKImageDigest); d != "" {
-		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
-	}
-	return "", fmt.Errorf(
-		"app image digest is not set at link time; rebuild the controller after pushing agent runtime images",
-	)
+	return resolveRuntimeImage(registry, repo, PythonADKImageDigest, "app", false, pinDigest)
 }
 
-func resolveGoRuntimeImage(registry string, full bool) (string, error) {
+func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error) {
 	repo := getRuntimeImageRepository(v1alpha2.DeclarativeRuntime_Go)
 	digest := GoADKImageDigest
 	imageLabel := "golang-adk"
@@ -141,12 +136,34 @@ func resolveGoRuntimeImage(registry string, full bool) (string, error) {
 		digest = GoADKFullImageDigest
 		imageLabel = "golang-adk-full"
 	}
+	return resolveRuntimeImage(registry, repo, digest, imageLabel, full, pinDigest)
+}
+
+// resolveRuntimeImage builds the image reference for a declarative agent runtime.
+//
+// Regular agents get a tag reference (registry/repository:tag) so mirrored
+// registries that do not preserve upstream manifest digests still resolve
+// (https://github.com/kagent-dev/kagent/issues/2055). Full-variant images share
+// the repository and are published under "<tag>-full" (see
+// GOLANG_ADK_FULL_IMAGE_TAG in the Makefile).
+//
+// Sandbox agents require pinDigest: Substrate ActorTemplate validation rejects
+// image refs without a digest, so those use the link-time (or flag-overridden)
+// runtime image digests.
+func resolveRuntimeImage(registry, repository, digest, imageLabel string, full, pinDigest bool) (string, error) {
+	if !pinDigest {
+		tag := DefaultImageConfig.Tag
+		if full {
+			tag += "-full"
+		}
+		return fmt.Sprintf("%s/%s:%s", registry, repository, tag), nil
+	}
 	if d := normalizeImageDigest(digest); d != "" {
-		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
+		return fmt.Sprintf("%s/%s@%s", registry, repository, d), nil
 	}
 	return "", fmt.Errorf(
-		"%s image digest is not set at link time; rebuild the controller after pushing agent runtime images",
-		imageLabel,
+		"%s image digest is not set; rebuild the controller after pushing agent runtime images, or override it via --%s-image-digest",
+		imageLabel, imageLabel,
 	)
 }
 
@@ -183,16 +200,19 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 
 	var image string
 	full := runtime == v1alpha2.DeclarativeRuntime_Go && needsSRTSettings(agent, specRef.Sandbox)
+	// Substrate ActorTemplates reject tag refs, so sandbox agents pin by digest;
+	// everything else references by tag (resolvable in mirrored registries).
+	pinDigest := agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox
 	switch runtime {
 	case v1alpha2.DeclarativeRuntime_Go:
 		var err error
-		image, err = resolveGoRuntimeImage(registry, full)
+		image, err = resolveGoRuntimeImage(registry, full, pinDigest)
 		if err != nil {
 			return nil, err
 		}
 	default:
 		var err error
-		image, err = resolvePythonRuntimeImage(registry)
+		image, err = resolvePythonRuntimeImage(registry, pinDigest)
 		if err != nil {
 			return nil, err
 		}

@@ -116,8 +116,11 @@ var DefaultImageConfig = ImageConfig{
 	Repository: "kagent-dev/kagent/app",
 }
 
-// PythonADKImageDigest, GoADKImageDigest, and GoADKFullImageDigest are set at
-// controller link time from the pushed runtime image manifest digests.
+// PythonADKImageDigest, GoADKImageDigest, and GoADKFullImageDigest default to the pushed
+// runtime image manifest digests baked in at controller link time, and can be overridden at
+// runtime via the --app-image-digest / --golang-adk[-full]-image-digest flags (for mirrored
+// registries that re-assign digests). They are only consulted for sandbox agents — Substrate
+// requires digest-pinned refs — while regular agents reference images by tag.
 var PythonADKImageDigest string
 var GoADKImageDigest string
 var GoADKFullImageDigest string
