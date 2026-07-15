@@ -115,6 +115,14 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
 
         } else if (partType === "function_response") {
           const toolData = dp.data as unknown as ToolResponseData;
+          // Skip internal HITL markers (parity with the streaming path): the
+          // before_tool_callback confirmation stub and the ask_user pending
+          // stub — the real result arrives in a later function_response.
+          const respStatus = (toolData.response as Record<string, unknown> | undefined)?.status as string | undefined;
+          if (respStatus === "confirmation_requested" || respStatus === "pending") {
+            hasConvertedParts = true;
+            continue;
+          }
           let frSubagentSessionId: string | undefined;
           if (isAgentToolName(toolData.name)) {
             const responseObj = toolData.response as Record<string, unknown> | undefined;
