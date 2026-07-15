@@ -32,17 +32,6 @@ const (
 	// Python Dockerfile's UV_PROJECT_ENVIRONMENT (/.kagent/.venv).
 	defaultPythonEntrypoint         = "/.kagent/.venv/bin/kagent-adk"
 	substrateKagentListenPort int32 = 80
-	// pythonRuntimeLibPath / pythonVenvPath mirror the Python ADK image layout
-	// (python/Dockerfile): bundled shared libs live on LD_LIBRARY_PATH and the project
-	// venv at UV_PROJECT_ENVIRONMENT. Substrate ignores the image's ENV directives (see
-	// pythonRuntimeImageEnv), so these are re-supplied via the ActorTemplate env.
-	pythonRuntimeLibPath = "/usr/lib/kagent-libs"
-	pythonVenvPath       = "/.kagent/.venv"
-	// pythonRuntimePath mirrors the image's `ENV PATH="/.kagent/.venv/bin:$PATH"`. Substrate
-	// builds the OCI Process.Env from a hardcoded PATH that does NOT include the venv bin, so any
-	// bare-name console-script execution (or locating the venv interpreter without an absolute
-	// path) would fail; re-supply it with the venv bin first, then the standard system dirs.
-	pythonRuntimePath = "/.kagent/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 	// sandboxAgentTemplateNameMaxBase reserves room in the 63-char DNS-1123 budget for
 	// the "-<hash>" suffix (hash is up to 16 hex chars). A golden snapshot is an immutable
@@ -240,30 +229,7 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *
 	// Declarative: secret-backed config is materialized at startup from the per-config-hash Secret.
 	env = append(env, kagentAgentSecretEnv(configSecretName)...)
 	runtime := v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec())
-	if runtime == v1alpha2.DeclarativeRuntime_Python {
-		env = append(env, pythonRuntimeImageEnv()...)
-	}
 	return buildSubstrateDeclarativeCommand(runtime), env, nil
-}
-
-// pythonRuntimeImageEnv returns the runtime-critical ENV directives baked into the Python
-// ADK image (python/Dockerfile). Substrate builds the OCI Process.Env from a hardcoded PATH
-// plus the ActorTemplate env only — it does NOT apply the image's ENV directives (the same
-// way it ignores the image entrypoint). Without LD_LIBRARY_PATH the standalone interpreter
-// cannot locate its bundled shared libraries (libz, libsqlite3, ...) and crashes on import
-// (e.g. numpy: "ImportError: libz.so.1: cannot open shared object file"); the failed startup
-// then surfaces as a gVisor "inconsistent private memory files on restore" error because the
-// golden snapshot captures only the pause container. The Go static binary needs none of this.
-// Keep in sync with the final-stage ENV block of python/Dockerfile.
-func pythonRuntimeImageEnv() []corev1.EnvVar {
-	return []corev1.EnvVar{
-		{Name: "PATH", Value: pythonRuntimePath},
-		{Name: "LD_LIBRARY_PATH", Value: pythonRuntimeLibPath},
-		{Name: "VIRTUAL_ENV", Value: pythonVenvPath},
-		{Name: "PYTHONUNBUFFERED", Value: "1"},
-		{Name: "LANG", Value: "C.UTF-8"},
-		{Name: "LC_ALL", Value: "C.UTF-8"},
-	}
 }
 
 // buildSubstrateDeclarativeCommand returns the explicit command for a declarative ADK image.
