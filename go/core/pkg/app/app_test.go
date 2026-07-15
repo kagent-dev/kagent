@@ -468,3 +468,15 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		t.Errorf("WatchNamespaces = %v, want ns1,ns2,ns3", cfg.WatchNamespaces)
 	}
 }
+
+func TestMapValueWithLoadFromEnvNodeSelector(t *testing.T) {
+	t.Setenv("DEFAULT_AGENT_NODE_SELECTOR", "kubernetes.io/os=linux,pool=agents")
+
+	var target map[string]string
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.Var(&MapValue{Target: &target}, "default-agent-node-selector", "test flag")
+
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+	assert.Equal(t, map[string]string{"kubernetes.io/os": "linux", "pool": "agents"}, target)
+}
