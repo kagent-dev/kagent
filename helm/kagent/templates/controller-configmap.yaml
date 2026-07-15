@@ -86,3 +86,12 @@ data:
   DEFAULT_AGENT_POD_LABELS: {{ join "," $pairs | quote }}
   {{- end }}
   {{- end }}
+  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.nodeSelector }}
+  {{- $nsPairs := list }}
+  {{- range $k := keys .Values.controller.agentDeployment.nodeSelector | sortAlpha }}
+  {{- $nsPairs = append $nsPairs (printf "%s=%s" $k (index $.Values.controller.agentDeployment.nodeSelector $k | toString)) }}
+  {{- end }}
+  {{- if $nsPairs }}
+  DEFAULT_AGENT_NODE_SELECTOR: {{ join "," $nsPairs | quote }}
+  {{- end }}
+  {{- end }}
