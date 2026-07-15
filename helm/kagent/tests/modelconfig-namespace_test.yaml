@@ -1,37 +1,88 @@
-suite: test modelconfig namespace override
+suite: test default modelconfig namespaces
 templates:
   - modelconfig.yaml
   - modelconfig-secret.yaml
-  - controller-configmap.yaml
 tests:
-  - it: should render modelconfig in the release namespace by default
+  - it: should render a single modelconfig in the release namespace by default
     template: modelconfig.yaml
     release:
       namespace: kagent
+    set:
+      providers.default: openAI
     asserts:
+      - hasDocuments:
+          count: 1
       - equal:
           path: metadata.namespace
           value: kagent
 
-  - it: should render modelconfig in the override namespace when providers.namespaceOverride is set
+  - it: should render a modelconfig copy into each watched namespace
     template: modelconfig.yaml
     release:
       namespace: kagent
     set:
-      providers:
-        namespaceOverride: agents
+      providers.default: openAI
+      controller.watchNamespaces:
+        - agents
+        - more-agents
     asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.namespace
+          value: agents
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: more-agents
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: default-model-config
+        documentIndex: 1
+
+  - it: should fall back to rbac.namespaces when controller.watchNamespaces is empty
+    template: modelconfig.yaml
+    release:
+      namespace: kagent
+    set:
+      providers.default: openAI
+      rbac.namespaces:
+        - team-a
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.namespace
+          value: team-a
+
+  - it: should prefer controller.watchNamespaces over rbac.namespaces
+    template: modelconfig.yaml
+    release:
+      namespace: kagent
+    set:
+      providers.default: openAI
+      controller.watchNamespaces:
+        - agents
+      rbac.namespaces:
+        - team-a
+    asserts:
+      - hasDocuments:
+          count: 1
       - equal:
           path: metadata.namespace
           value: agents
 
-  - it: should render the api key secret in the override namespace when providers.namespaceOverride is set
+  - it: should render the api key secret into each watched namespace
     template: modelconfig-secret.yaml
     release:
       namespace: kagent
     set:
+      controller.watchNamespaces:
+        - agents
+        - more-agents
       providers:
-        namespaceOverride: agents
+        default: openAI
         openAI:
           provider: OpenAI
           model: "gpt-4.1-mini"
@@ -39,22 +90,33 @@ tests:
           apiKeySecretKey: OPENAI_API_KEY
           apiKey: test-key
     asserts:
+      - hasDocuments:
+          count: 2
       - equal:
           path: metadata.namespace
           value: agents
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: more-agents
+        documentIndex: 1
 
-  - it: should not set DEFAULT_MODEL_CONFIG_NAMESPACE by default
-    template: controller-configmap.yaml
-    asserts:
-      - notExists:
-          path: data.DEFAULT_MODEL_CONFIG_NAMESPACE
-
-  - it: should set DEFAULT_MODEL_CONFIG_NAMESPACE when providers.namespaceOverride is set
-    template: controller-configmap.yaml
+  - it: should keep the api key secret in the release namespace when unscoped
+    template: modelconfig-secret.yaml
+    release:
+      namespace: kagent
     set:
       providers:
-        namespaceOverride: agents
+        default: openAI
+        openAI:
+          provider: OpenAI
+          model: "gpt-4.1-mini"
+          apiKeySecretRef: kagent-openai
+          apiKeySecretKey: OPENAI_API_KEY
+          apiKey: test-key
     asserts:
+      - hasDocuments:
+          count: 1
       - equal:
-          path: data.DEFAULT_MODEL_CONFIG_NAMESPACE
-          value: agents
+          path: metadata.namespace
+          value: kagent

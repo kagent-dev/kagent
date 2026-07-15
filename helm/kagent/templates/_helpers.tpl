@@ -74,6 +74,18 @@ Precedence: controller.watchNamespaces (explicit override) > rbac.namespaces > e
 {{- end -}}
 
 {{/*
+Namespaces the default ModelConfig (and its optional api-key Secret) are
+rendered into, comma-separated. The controller resolves an Agent's ModelConfig
+in the Agent's own namespace, so when the controller is namespace-scoped
+(controller.watchNamespaces / rbac.namespaces) a copy must exist in every
+namespace Agents can run in. Unscoped installs (watch all) keep the single
+copy in the release namespace.
+*/}}
+{{- define "kagent.defaultModelConfigNamespaces" -}}
+{{- include "kagent.watchNamespaces" . | default (include "kagent.namespace" .) -}}
+{{- end -}}
+
+{{/*
 Guards on the rbac block
 */}}
 {{- define "kagent.rbac.validate" -}}

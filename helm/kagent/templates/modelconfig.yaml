@@ -4,12 +4,14 @@
 {{- fail (printf "Provider key=%s is not found under .Values.providers" $defaultProvider) }}
 {{- end }}
 {{- $model := index .Values.providers $defaultProvider }}
+{{- /* One copy per namespace Agents can run in — see kagent.defaultModelConfigNamespaces. */}}
+{{- range $ns := splitList "," (include "kagent.defaultModelConfigNamespaces" $dot) }}
 ---
 apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
   name: {{ include "kagent.defaultModelConfigName" $dot | quote }}
-  namespace: {{ .Values.providers.namespaceOverride | default (include "kagent.namespace" .) }}
+  namespace: {{ $ns }}
   labels:
     {{- include "kagent.labels" $dot | nindent 4 }}
 spec:
@@ -35,3 +37,4 @@ spec:
   {{- toYaml $model.config | nindent 4 }}
   {{- end }}
   {{- end }}
+{{- end }}
