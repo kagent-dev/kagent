@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 // localSession implements adksession.Session with mutex-guarded state.
