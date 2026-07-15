@@ -269,6 +269,35 @@ tests:
           path: data.DEFAULT_AGENT_POD_LABELS
           value: "team=platform"
 
+  - it: should set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is configured
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          nodeSelector:
+            kubernetes.io/os: linux
+            pool: agents
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_NODE_SELECTOR
+          value: "kubernetes.io/os=linux,pool=agents"
+
+  - it: should not set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is empty
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          nodeSelector: {}
+    asserts:
+      - notExists:
+          path: data.DEFAULT_AGENT_NODE_SELECTOR
+
+  - it: should not set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is not configured
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.DEFAULT_AGENT_NODE_SELECTOR
+
   - it: should set DEFAULT_AGENT_BIND_HOST when host is configured
     template: controller-configmap.yaml
     set:

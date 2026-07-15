@@ -80,6 +80,18 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 	return defaultLabels
 }
 
+func getDefaultNodeSelector(incoming map[string]string) map[string]string {
+	// No global default (from --default-agent-node-selector flag): keep the
+	// per-agent value as-is (nil stays nil).
+	if len(DefaultAgentNodeSelector) == 0 {
+		return maps.Clone(incoming)
+	}
+	nodeSelector := maps.Clone(DefaultAgentNodeSelector)
+	// Per-agent nodeSelector overrides global defaults
+	maps.Copy(nodeSelector, incoming)
+	return nodeSelector
+}
+
 // getRuntimeImageRepository returns the image repository for a given runtime.
 // It respects DefaultImageConfig.Repository for the Python runtime, and derives
 // the Go runtime repository by replacing the last path segment with "golang-adk".
@@ -237,7 +249,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		Resources:            getDefaultResources(spec.Resources), // Set default resources if not specified
 		Tolerations:          slices.Clone(spec.Tolerations),
 		Affinity:             spec.Affinity,
-		NodeSelector:         maps.Clone(spec.NodeSelector),
+		NodeSelector:         getDefaultNodeSelector(spec.NodeSelector),
 		SecurityContext:      spec.SecurityContext,
 		PodSecurityContext:   spec.PodSecurityContext,
 		ServiceAccountName:   spec.ServiceAccountName,
@@ -321,7 +333,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		Resources:            getDefaultResources(spec.Resources), // Set default resources if not specified
 		Tolerations:          slices.Clone(spec.Tolerations),
 		Affinity:             spec.Affinity,
-		NodeSelector:         maps.Clone(spec.NodeSelector),
+		NodeSelector:         getDefaultNodeSelector(spec.NodeSelector),
 		SecurityContext:      spec.SecurityContext,
 		PodSecurityContext:   spec.PodSecurityContext,
 		ServiceAccountName:   spec.ServiceAccountName,

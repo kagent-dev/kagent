@@ -142,6 +142,10 @@ var DefaultServiceAccountName string
 // Per-agent labels from the Agent CRD spec take precedence over these defaults.
 var DefaultAgentPodLabels map[string]string
 
+// DefaultAgentNodeSelector is a node selector applied to all agent deployments.
+// A per-agent nodeSelector from the Agent CRD spec takes precedence over these defaults.
+var DefaultAgentNodeSelector map[string]string
+
 // DefaultAgentBindHost is the host address agent pods bind to.
 // Defaults to "0.0.0.0" (IPv4 only). Set to "::" for dual-stack (IPv4+IPv6) support.
 var DefaultAgentBindHost = "0.0.0.0"
