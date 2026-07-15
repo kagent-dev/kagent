@@ -49,9 +49,9 @@ func TestAgentClientRegistrySendMessageRoutesByGroupKind(t *testing.T) {
 
 	registry := NewAgentClientRegistry()
 	sandboxGroupKind := schema.GroupKind{Group: "kagent.dev", Kind: "SandboxAgent"}.String()
-	require.NoError(t, registry.RegisterForGroupKind(sandboxGroupKind, "default", "sandbox-agent", client))
+	registry.set(routeKey(true, "default", "sandbox-agent"), client)
 
-	_, err = registry.SendMessageForGroupKind(
+	_, err = registry.SendMessage(
 		context.Background(),
 		sandboxGroupKind,
 		"default",
@@ -63,6 +63,7 @@ func TestAgentClientRegistrySendMessageRoutesByGroupKind(t *testing.T) {
 
 	_, err = registry.SendMessage(
 		context.Background(),
+		schema.GroupKind{Group: "kagent.dev", Kind: "Agent"}.String(),
 		"default",
 		"sandbox-agent",
 		&a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))},

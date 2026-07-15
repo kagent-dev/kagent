@@ -39,23 +39,8 @@ func (r *AgentClientRegistry) Register(namespace, name string, c *a2aclient.Clie
 	r.set(namespace+"/"+name, c)
 }
 
-// RegisterForGroupKind adds or replaces the A2A client for the given agent GroupKind.
-func (r *AgentClientRegistry) RegisterForGroupKind(groupKind, namespace, name string, c *a2aclient.Client) error {
-	key, err := routeKeyForGroupKind(groupKind, namespace, name)
-	if err != nil {
-		return err
-	}
-	r.set(key, c)
-	return nil
-}
-
 // SendMessage invokes an agent directly via its cached A2A client.
-func (r *AgentClientRegistry) SendMessage(ctx context.Context, namespace, name string, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
-	return r.SendMessageForGroupKind(ctx, schema.GroupKind{Group: "kagent.dev", Kind: "Agent"}.String(), namespace, name, req)
-}
-
-// SendMessageForGroupKind invokes an agent directly via its cached A2A client.
-func (r *AgentClientRegistry) SendMessageForGroupKind(ctx context.Context, groupKind, namespace, name string, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+func (r *AgentClientRegistry) SendMessage(ctx context.Context, groupKind, namespace, name string, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
 	key, err := routeKeyForGroupKind(groupKind, namespace, name)
 	if err != nil {
 		return nil, err

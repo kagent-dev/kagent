@@ -306,7 +306,7 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 		log.V(1).Info("Using context_id from client request", "context_id", input.ContextID)
 	}
 
-	result, err := h.agentClients.SendMessageForGroupKind(ctx, groupKind, agentNS, agentName, &a2atype.SendMessageRequest{Message: message})
+	result, err := h.agentClients.SendMessage(ctx, groupKind, agentNS, agentName, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
 		log.Error(err, "Failed to send A2A message", "agent", agentRef, "groupKind", groupKind)
 		return &mcpsdk.CallToolResult{
