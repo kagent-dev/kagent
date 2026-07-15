@@ -10,13 +10,18 @@ import (
 )
 
 const getTask = `-- name: GetTask :one
-SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version FROM task
-WHERE id = $1 AND deleted_at IS NULL
+SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version, user_id FROM task
+WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 LIMIT 1
 `
 
-func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
-	row := q.db.QueryRow(ctx, getTask, id)
+type GetTaskParams struct {
+	ID     string
+	UserID *string
+}
+
+func (q *Queries) GetTask(ctx context.Context, arg GetTaskParams) (Task, error) {
+	row := q.db.QueryRow(ctx, getTask, arg.ID, arg.UserID)
 	var i Task
 	err := row.Scan(
 		&i.ID,
@@ -26,12 +31,24 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.Data,
 		&i.SessionID,
 		&i.ProtocolVersion,
+		&i.UserID,
 	)
 	return i, err
 }
 
+const getTaskOwner = `-- name: GetTaskOwner :one
+SELECT user_id FROM task WHERE id = $1 AND deleted_at IS NULL LIMIT 1
+`
+
+func (q *Queries) GetTaskOwner(ctx context.Context, id string) (*string, error) {
+	row := q.db.QueryRow(ctx, getTaskOwner, id)
+	var user_id *string
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const listTasksForSession = `-- name: ListTasksForSession :many
-SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version FROM task
+SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version, user_id FROM task
 WHERE session_id = $1 AND deleted_at IS NULL
 ORDER BY created_at ASC
 `
@@ -53,6 +70,7 @@ func (q *Queries) ListTasksForSession(ctx context.Context, sessionID *string) ([
 			&i.Data,
 			&i.SessionID,
 			&i.ProtocolVersion,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -65,11 +83,16 @@ func (q *Queries) ListTasksForSession(ctx context.Context, sessionID *string) ([
 }
 
 const softDeleteTask = `-- name: SoftDeleteTask :exec
-UPDATE task SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL
+UPDATE task SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 `
 
-func (q *Queries) SoftDeleteTask(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, softDeleteTask, id)
+type SoftDeleteTaskParams struct {
+	ID     string
+	UserID *string
+}
+
+func (q *Queries) SoftDeleteTask(ctx context.Context, arg SoftDeleteTaskParams) error {
+	_, err := q.db.Exec(ctx, softDeleteTask, arg.ID, arg.UserID)
 	return err
 }
 
@@ -88,13 +111,14 @@ func (q *Queries) TaskExists(ctx context.Context, id string) (bool, error) {
 
 const upsertTask = `-- name: UpsertTask :exec
 WITH upserted_task AS (
-INSERT INTO task (id, data, session_id, protocol_version, created_at, updated_at)
-VALUES ($1, $2, $3, $4, NOW(), NOW())
+INSERT INTO task (id, data, session_id, protocol_version, user_id, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     data             = EXCLUDED.data,
     session_id       = EXCLUDED.session_id,
     protocol_version = EXCLUDED.protocol_version,
     updated_at       = NOW()
+WHERE task.user_id = EXCLUDED.user_id OR task.user_id IS NULL
 RETURNING session_id
 )
 UPDATE session
@@ -110,6 +134,7 @@ type UpsertTaskParams struct {
 	Data            string
 	SessionID       *string
 	ProtocolVersion *string
+	UserID          *string
 }
 
 func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) error {
@@ -118,6 +143,7 @@ func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) error {
 		arg.Data,
 		arg.SessionID,
 		arg.ProtocolVersion,
+		arg.UserID,
 	)
 	return err
 }

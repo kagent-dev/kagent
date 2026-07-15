@@ -1,7 +1,10 @@
 -- name: GetTask :one
 SELECT * FROM task
-WHERE id = $1 AND deleted_at IS NULL
+WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 LIMIT 1;
+
+-- name: GetTaskOwner :one
+SELECT user_id FROM task WHERE id = $1 AND deleted_at IS NULL LIMIT 1;
 
 -- name: TaskExists :one
 SELECT EXISTS (
@@ -15,13 +18,14 @@ ORDER BY created_at ASC;
 
 -- name: UpsertTask :exec
 WITH upserted_task AS (
-INSERT INTO task (id, data, session_id, protocol_version, created_at, updated_at)
-VALUES ($1, $2, $3, $4, NOW(), NOW())
+INSERT INTO task (id, data, session_id, protocol_version, user_id, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     data             = EXCLUDED.data,
     session_id       = EXCLUDED.session_id,
     protocol_version = EXCLUDED.protocol_version,
     updated_at       = NOW()
+WHERE task.user_id = EXCLUDED.user_id OR task.user_id IS NULL
 RETURNING session_id
 )
 UPDATE session
@@ -32,4 +36,4 @@ WHERE upserted_task.session_id IS NOT NULL
   AND session.deleted_at IS NULL;
 
 -- name: SoftDeleteTask :exec
-UPDATE task SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL;
+UPDATE task SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL;

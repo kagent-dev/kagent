@@ -272,7 +272,7 @@ func (c *postgresClient) ListEventsForSession(ctx context.Context, sessionID, us
 
 // TODO(0.11.0): Switch task writes to v1 storage format and remove legacy conversion from this write path.
 // NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0
-func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task) error {
+func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task, userID string) error {
 	legacyTask, err := trpcv0.ToLegacyTask(task)
 	if err != nil {
 		return fmt.Errorf("failed to convert task to legacy format: %w", err)
@@ -281,16 +281,39 @@ func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task) error {
 	if err != nil {
 		return fmt.Errorf("failed to serialize task: %w", err)
 	}
-	return c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
+	// The WHERE clause on UpsertTask's ON CONFLICT is what actually stops a
+	// cross-user takeover; this check only turns that into a clean error.
+	if err := c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
 		ID:              string(task.ID),
 		Data:            string(data),
 		SessionID:       strPtrIfNotEmpty(task.ContextID),
 		ProtocolVersion: nil,
-	})
+		UserID:          &userID,
+	}); err != nil {
+		return fmt.Errorf("failed to store task %s: %w", task.ID, err)
+	}
+	return c.checkTaskOwner(ctx, string(task.ID), userID)
 }
 
-func (c *postgresClient) GetTask(ctx context.Context, taskID string) (*a2a.Task, error) {
-	row, err := c.q.GetTask(ctx, taskID)
+// checkTaskOwner returns ErrTaskOwnedByAnotherUser if taskID exists and
+// belongs to someone else. A missing task is not an error: the caller
+// decides what that means (nothing to own yet, or already deleted).
+func (c *postgresClient) checkTaskOwner(ctx context.Context, taskID, userID string) error {
+	owner, err := c.q.GetTaskOwner(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("failed to check task owner for %s: %w", taskID, err)
+	}
+	if owner != nil && *owner != userID {
+		return dbpkg.ErrTaskOwnedByAnotherUser
+	}
+	return nil
+}
+
+func (c *postgresClient) GetTask(ctx context.Context, taskID, userID string) (*a2a.Task, error) {
+	row, err := c.q.GetTask(ctx, dbgen.GetTaskParams{ID: taskID, UserID: &userID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task %s: %w", taskID, err)
 	}
@@ -313,8 +336,13 @@ func (c *postgresClient) ListTasksForSession(ctx context.Context, sessionID stri
 	return tasks, nil
 }
 
-func (c *postgresClient) DeleteTask(ctx context.Context, taskID string) error {
-	return c.q.SoftDeleteTask(ctx, taskID)
+func (c *postgresClient) DeleteTask(ctx context.Context, taskID, userID string) error {
+	if err := c.q.SoftDeleteTask(ctx, dbgen.SoftDeleteTaskParams{ID: taskID, UserID: &userID}); err != nil {
+		return fmt.Errorf("failed to delete task %s: %w", taskID, err)
+	}
+	// The delete only takes effect if user_id matched; if the task is still
+	// there and owned by someone else, say so instead of a misleading success.
+	return c.checkTaskOwner(ctx, taskID, userID)
 }
 
 // ── Push Notifications ────────────────────────────────────────────────────────

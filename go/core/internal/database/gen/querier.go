@@ -21,7 +21,8 @@ type Querier interface {
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
 	GetSession(ctx context.Context, arg GetSessionParams) (Session, error)
 	GetSessionShareByToken(ctx context.Context, token string) (SessionShare, error)
-	GetTask(ctx context.Context, id string) (Task, error)
+	GetTask(ctx context.Context, arg GetTaskParams) (Task, error)
+	GetTaskOwner(ctx context.Context, id string) (*string, error)
 	GetTool(ctx context.Context, id string) (Tool, error)
 	GetToolServer(ctx context.Context, name string) (Toolserver, error)
 	HardDeleteCrewAIMemory(ctx context.Context, arg HardDeleteCrewAIMemoryParams) error
@@ -62,7 +63,7 @@ type Querier interface {
 	SoftDeleteEvent(ctx context.Context, id string) error
 	SoftDeletePushNotification(ctx context.Context, taskID string) error
 	SoftDeleteSession(ctx context.Context, arg SoftDeleteSessionParams) error
-	SoftDeleteTask(ctx context.Context, id string) error
+	SoftDeleteTask(ctx context.Context, arg SoftDeleteTaskParams) error
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)

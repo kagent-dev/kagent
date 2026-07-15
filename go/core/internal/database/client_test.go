@@ -328,12 +328,36 @@ func TestStoreTaskTouchesSessionActivity(t *testing.T) {
 	err = client.StoreTask(ctx, &a2a.Task{
 		ID:        "task-1",
 		ContextID: sessionID,
-	})
+	}, userID)
 	require.NoError(t, err)
 
 	got, err := client.GetSession(ctx, sessionID, userID)
 	require.NoError(t, err)
 	assert.True(t, got.UpdatedAt.After(before.UpdatedAt), "session updated_at should advance after storing a task")
+}
+
+func TestTaskAccessIsScopedToOwner(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "task-owned"}, "user-a"))
+
+	_, err := client.GetTask(ctx, "task-owned", "user-b")
+	require.Error(t, err, "another user must not read this task")
+
+	err = client.DeleteTask(ctx, "task-owned", "user-b")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "another user must not delete this task")
+
+	task, err := client.GetTask(ctx, "task-owned", "user-a")
+	require.NoError(t, err, "task must still exist after another user's delete attempt")
+	assert.Equal(t, a2a.TaskID("task-owned"), task.ID)
+
+	err = client.StoreTask(ctx, &a2a.Task{ID: "task-owned"}, "user-b")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "another user must not take over this task id")
+
+	require.NoError(t, client.DeleteTask(ctx, "task-owned", "user-a"), "the real owner can delete it")
+	require.NoError(t, client.DeleteTask(ctx, "task-owned", "user-a"), "deleting an already-gone task is not an error")
 }
 
 // TestStoreAgentIdempotence verifies that calling StoreAgent multiple times
