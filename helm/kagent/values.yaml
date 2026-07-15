@@ -917,6 +917,13 @@ oauth2-proxy:
 # ==============================================================================
 
 otel:
+  # -- Logical service name reported to the OTLP backend, rendered as OTEL_SERVICE_NAME.
+  # @default -- "" (SDK default)
+  serviceName: ""
+  # -- Additional OpenTelemetry resource attributes, rendered as a comma-joined
+  # key=value list in OTEL_RESOURCE_ATTRIBUTES.
+  # Example: { deployment.environment: production, service.namespace: kagent }
+  resourceAttributes: {}
   tracing:
     enabled: false
     exporter:
@@ -925,6 +932,11 @@ otel:
         protocol: "grpc"
         timeout: 15000 # milliseconds
         insecure: true
+        # -- Headers sent with OTLP trace export requests, rendered as a comma-joined
+        # key=value list in OTEL_EXPORTER_OTLP_TRACES_HEADERS.
+        # Values land in a ConfigMap in plain text: for secrets (API keys, tokens),
+        # inject the env var from a Secret via controller.env / envFrom instead.
+        headers: {}
   logging:
     enabled: false
     exporter:
@@ -932,3 +944,8 @@ otel:
         endpoint: ""
         timeout: 15000 # milliseconds
         insecure: true
+        # -- Headers sent with OTLP log export requests, rendered as a comma-joined
+        # key=value list in OTEL_EXPORTER_OTLP_LOGS_HEADERS.
+        # Values land in a ConfigMap in plain text: for secrets (API keys, tokens),
+        # inject the env var from a Secret via controller.env / envFrom instead.
+        headers: {}
