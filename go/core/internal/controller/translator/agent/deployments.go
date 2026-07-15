@@ -200,9 +200,10 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 
 	var image string
 	full := runtime == v1alpha2.DeclarativeRuntime_Go && needsSRTSettings(agent, specRef.Sandbox)
-	// Substrate ActorTemplates reject tag refs, so sandbox agents pin by digest;
-	// everything else references by tag (resolvable in mirrored registries).
-	pinDigest := agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox
+	// Substrate ActorTemplates reject tag refs, so substrate sandbox agents pin by
+	// digest; everything else (including agent-sandbox platform sandbox agents)
+	// references by tag (resolvable in mirrored registries).
+	pinDigest := v1alpha2.AgentSandboxPlatform(agent) == v1alpha2.SandboxPlatformSubstrate
 	switch runtime {
 	case v1alpha2.DeclarativeRuntime_Go:
 		var err error
