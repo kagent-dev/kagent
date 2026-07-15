@@ -22,6 +22,8 @@ export const test = base.extend({
     await page.addInitScript(() => {
       window.localStorage.setItem("kagent-onboarding", "true");
     });
+    // `use` here is Playwright's fixture callback, not the React `use` hook.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
   },
 });
