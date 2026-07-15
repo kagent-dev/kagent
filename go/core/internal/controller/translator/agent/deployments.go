@@ -105,13 +105,20 @@ func validateExtraContainers(containers []corev1.Container) error {
 	return nil
 }
 
-func resolvePythonRuntimeImage(registry string) (string, error) {
+func resolvePythonRuntimeImage(registry string, full bool) (string, error) {
 	repo := DefaultImageConfig.Repository
-	if d := normalizeImageDigest(PythonADKImageDigest); d != "" {
+	digest := PythonADKImageDigest
+	imageLabel := "app"
+	if full {
+		digest = PythonADKFullImageDigest
+		imageLabel = "app-full"
+	}
+	if d := normalizeImageDigest(digest); d != "" {
 		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
 	}
 	return "", fmt.Errorf(
-		"app image digest is not set at link time; rebuild the controller after pushing agent runtime images",
+		"%s image digest is not set at link time; rebuild the controller after pushing agent runtime images",
+		imageLabel,
 	)
 }
 
@@ -154,8 +161,8 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		spec = *specRef.Declarative.Deployment
 	}
 
-	// Determine runtime (defaults to python if not set; substrate SandboxAgents use Go).
-	runtime := v1alpha2.EffectiveDeclarativeRuntimeForAgent(agent)
+	// Determine runtime (defaults to python when spec.declarative.runtime is unset).
+	runtime := v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 
 	// Resolve base registry and pull policy; the Go runtime uses DefaultGoImageConfig.
 	baseRegistry := DefaultImageConfig.Registry
@@ -172,7 +179,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 	}
 
 	var image string
-	full := runtime == v1alpha2.DeclarativeRuntime_Go && needsSRTSettings(agent, specRef.Sandbox)
+	full := needsSRTSettings(agent, specRef.Sandbox)
 	switch runtime {
 	case v1alpha2.DeclarativeRuntime_Go:
 		var err error
@@ -182,7 +189,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		}
 	default:
 		var err error
-		image, err = resolvePythonRuntimeImage(registry)
+		image, err = resolvePythonRuntimeImage(registry, full)
 		if err != nil {
 			return nil, err
 		}

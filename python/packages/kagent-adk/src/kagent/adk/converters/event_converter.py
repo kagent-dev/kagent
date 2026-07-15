@@ -32,18 +32,25 @@ ARTIFACT_ID_SEPARATOR = "-"
 logger = logging.getLogger("kagent_adk." + __name__)
 
 
-def serialize_metadata_value(value: Any) -> str:
-    """Safely serializes metadata values to string format.
+def serialize_metadata_value(value: Any) -> str | dict[str, Any]:
+    """Safely serializes a metadata value for A2A message/event metadata.
+
+    Pydantic values (anything with ``model_dump``) are returned as their
+    JSON-compatible serialized ``dict`` so structured metadata such as
+    ``usage_metadata`` stays machine-readable for consumers (for example the UI
+    reads the token counts as object fields). Everything else is returned as its
+    string representation.
 
     Args:
       value: The value to serialize.
 
     Returns:
-      String representation of the value.
+      The value's JSON-compatible ``model_dump`` dict for Pydantic values,
+      otherwise its string representation.
     """
     if hasattr(value, "model_dump"):
         try:
-            return value.model_dump(exclude_none=True, by_alias=True)
+            return value.model_dump(mode="json", exclude_none=True, by_alias=True)
         except Exception as e:
             logger.warning("Failed to serialize metadata value: %s", e)
             return str(value)
@@ -161,6 +168,8 @@ def convert_event_to_a2a_message(
     invocation_context: InvocationContext,
     role: Role = Role.agent,
     subagent_session_ids: Optional[Dict[str, str]] = None,
+    task_id: Optional[str] = None,
+    context_id: Optional[str] = None,
 ) -> Optional[Message]:
     """Converts an ADK event to an A2A message.
 
@@ -171,6 +180,12 @@ def convert_event_to_a2a_message(
       subagent_session_ids: Optional mapping of tool name to pre-generated
         subagent session ID.  When provided, function_call DataParts for
         matching tools will have the session ID stamped into their metadata.
+      task_id: Optional task ID stamped onto the message so it carries the
+        same identity as the enclosing task. A2A allows these to be omitted
+        (the task is the canonical carrier), but stamping them lets consumers
+        that flatten task.history into standalone messages key each message to
+        its task without backfilling.
+      context_id: Optional context ID stamped onto the message, as task_id.
 
     Returns:
       An A2A Message if the event has content, None otherwise.
@@ -198,7 +213,14 @@ def convert_event_to_a2a_message(
 
         if a2a_parts:
             message_metadata = _get_context_metadata(event, invocation_context)
-            return Message(message_id=str(uuid.uuid4()), role=role, parts=a2a_parts, metadata=message_metadata)
+            return Message(
+                message_id=str(uuid.uuid4()),
+                role=role,
+                parts=a2a_parts,
+                metadata=message_metadata,
+                task_id=task_id,
+                context_id=context_id,
+            )
 
     except Exception as e:
         logger.error("Failed to convert event to status message: %s", e)
@@ -342,7 +364,13 @@ def convert_event_to_a2a_events(
             a2a_events.append(error_event)
 
         # Handle regular message content
-        message = convert_event_to_a2a_message(event, invocation_context, subagent_session_ids=subagent_session_ids)
+        message = convert_event_to_a2a_message(
+            event,
+            invocation_context,
+            subagent_session_ids=subagent_session_ids,
+            task_id=task_id,
+            context_id=context_id,
+        )
         if message:
             running_event = _create_status_update_event(message, invocation_context, event, task_id, context_id)
             a2a_events.append(running_event)

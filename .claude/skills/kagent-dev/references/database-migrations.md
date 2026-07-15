@@ -105,9 +105,9 @@ CREATE TABLE myschema.eval_set (...);
 CREATE TABLE IF NOT EXISTS eval_set (...);
 ```
 
-Schema is a deploy-time choice, fixed by the connection rather than the migration file. A hard-coded schema breaks any deployment that runs the track in a different schema (e.g. a connection that sets `?search_path=<schema>`). The core and vector migrations comply today (verified by inspection until the lint lands).
+Schema is a deploy-time choice, fixed by the connection rather than the migration file. A hard-coded schema breaks any deployment that runs the track in a different schema (e.g. a connection that sets `?search_path=<schema>`). The core and vector migrations comply, enforced by `TestSchemaAgnosticSQL`.
 
-> **Enforcement.** A static lint test rejecting the forbidden patterns across all migration files (*Target — not yet enforced*; see [Static Analysis Enforcement](#static-analysis-enforcement)).
+> **Enforcement.** `TestSchemaAgnosticSQL` rejects the forbidden patterns across all migration files (see [Static Analysis Enforcement](#static-analysis-enforcement)).
 
 ### Idempotency and cross-track safety
 
@@ -133,7 +133,7 @@ Files must follow `NNNNNN_description.up.sql` / `NNNNNN_description.down.sql` wi
 
 Every `.up.sql` must have a corresponding `.down.sql` that exactly reverses it. Down migrations are used for rollbacks and by automatic rollback on migration failure. They must be **idempotent** — the two-track rollback logic (roll back core if vector fails) may call them more than once in failure scenarios.
 
-A down file that never runs is a down file you cannot trust. There are no up-only migrations — a working down has shipped with every migration since the golang-migrate adoption. Exercising every migration up → down → up against the real migration set, to prove the reversal rather than assume it, is a *Target — not yet enforced* (see [Upgrade and rollback testing](#upgrade-and-rollback-testing)).
+A down file that never runs is a down file you cannot trust. There are no up-only migrations — a working down has shipped with every migration since the golang-migrate adoption. The reversal is proven, not assumed: the upgrade round-trip applies `HEAD`'s migrations over a prior release and then reverses them back, asserting the reverted schema matches a clean install of that release and that seeded data survives (see [Upgrade and rollback testing](#upgrade-and-rollback-testing)).
 
 ## One Linear History
 
@@ -197,7 +197,7 @@ The policies above are enforced by static analysis tests in `go/core/pkg/migrati
 | `TestNoCrossTrackDDL` | No track may `ALTER TABLE` or `CREATE INDEX ON` a table owned by another track |
 | `TestMigrationGuards` | Up migrations must use `IF NOT EXISTS` on all `CREATE`/`ADD COLUMN`; down migrations must use `IF EXISTS` on all `DROP` statements |
 | Contraction guard *(target)* | Blocks undeclared destructive DDL — `DROP`/`RENAME` of shipped objects, type narrowing, new constraints on shipped tables (see [Backward compatibility and contraction](#backward-compatibility-and-contraction)) |
-| Schema-agnostic lint *(target)* | Rejects `CREATE SCHEMA`, schema-qualified DDL, `SET search_path`, and `ALTER ... SET SCHEMA` (see [Schema-agnostic SQL](#schema-agnostic-sql)) |
+| `TestSchemaAgnosticSQL` | Rejects `CREATE SCHEMA`, schema-qualified DDL, `SET search_path`, and `ALTER ... SET SCHEMA` (see [Schema-agnostic SQL](#schema-agnostic-sql)) |
 
 **Adding a new track**: add the track directory name to the `tracks` slice in each test so the new track is covered by the same checks.
 
@@ -205,11 +205,11 @@ These tests catch policy violations at PR time without needing a running databas
 
 ## Upgrade and rollback testing
 
-Static analysis covers file *content*; round-trip tests cover *behavior* against a real Postgres. Beyond `runner_test.go` (rollback and concurrency), two release-to-release tests make the rollback promise real. Both are *Target — not yet enforced*.
+Static analysis covers file *content*; round-trip tests cover *behavior* against a real Postgres. Beyond `runner_test.go` (rollback and concurrency), release-to-release tests make the rollback promise real.
 
-**Previous-minor round-trip.** Seed a database at the previous minor's latest release with representative data, apply migrations up to `HEAD`, and assert the schema matches a clean `HEAD` install and the data survives; then reverse to the previous minor and assert the schema matches a clean previous-minor install and the data survives. This exercises every changed down file rather than only reviewing it.
+**Previous-release round-trip** (enforced by `TestUpgrade`, run by the `upgrade-tests` CI job). Seed a database at a prior release with representative data, apply migrations up to `HEAD`, and assert the controller rolls out without crashing, the schema matches a clean `HEAD` install, and the data survives; then reverse the migrations back to the prior release and assert the schema matches a clean install of that release and the data survives. It runs against two prior versions — the latest release reachable from `HEAD` and the previous stable line's latest patch (the `release/vX.Y.x` tip) — and `TestRollingUpgradeCompatibility` (the `rolling-upgrade-tests` job) additionally exercises the old-code/new-schema window, with the prior release's controller serving while `HEAD`'s migrations are applied.
 
-**Query-level backward compatibility.** Run the previous minor's database test suite against a `HEAD`-migrated schema, proving old code's queries run against the newer schema — the exact property [ahead-schema tolerance](#rollback-and-ahead-schema-tolerance) relies on.
+**Query-level backward compatibility.** A static check — `scripts/check-query-contraction.sh`, run by the `query-contraction-check` CI job — compiles a previous release's sqlc queries against the `HEAD` schema and fails if a migration dropped, renamed, or retyped a column or table an older query still reads. It catches column/table/type-shape contraction with no database, against two prior versions: the latest release reachable from `HEAD` and the previous stable line's latest patch (the `release/vX.Y.x` tip, via `scripts/prev-stable-version.sh`). The fuller property — running the previous minor's whole database *test suite* against a `HEAD`-migrated schema, which also covers semantic breaks a query still compiles against — remains a *Target — not yet enforced*.
 
 ## Downstream Extension Model
 

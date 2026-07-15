@@ -84,7 +84,7 @@ This filtering prevents unnecessary reconciliations when only the agent's status
 
 ## Related Files
 
-- [reconciler.go](../../go/internal/controller/reconciler/reconciler.go) - Shared reconciler implementation
-- [agent_controller.go](../../go/internal/controller/agent_controller.go) - Agent controller setup
-- [service.go](../../go/internal/database/service.go) - Database helpers with atomic upserts
-- [client.go](../../go/internal/database/client.go) - Database client implementation
+- [reconciler.go](../../go/core/internal/controller/reconciler/reconciler.go) - Shared reconciler implementation
+- [agent_controller.go](../../go/core/internal/controller/agent_controller.go) - Agent controller setup
+- [connect.go](../../go/core/internal/database/connect.go) - Database connection setup
+- [client_postgres.go](../../go/core/internal/database/client_postgres.go) - Database client implementation with atomic upserts

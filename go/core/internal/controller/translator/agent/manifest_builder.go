@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	appsv1 "k8s.io/api/apps/v1"
@@ -26,8 +27,10 @@ import (
 
 // configHashAnnotation is set on the agent pod template so a change to
 // the serialized config Secret (including tool URLs and ModelConfig/RMS
-// Secret rotations folded in via Status hashes) rolls the pod.
-const configHashAnnotation = "kagent.dev/config-hash"
+// Secret rotations folded in via Status hashes) rolls the pod. It is the
+// shared consts.ConfigHashAnnotation key (the substrate backend mirrors
+// the same annotation onto generated ActorTemplates), defined once there.
+const configHashAnnotation = consts.ConfigHashAnnotation
 
 type manifestContext struct {
 	agent          v1alpha2.AgentObject
@@ -84,6 +87,9 @@ func (a *adkApiTranslator) BuildManifest(
 	if err != nil {
 		return nil, err
 	}
+	// The translator is the single writer of the config Secret for every workload mode; sandbox
+	// backends contribute their config (e.g. session_db_url) upstream in CompileAgent, and their
+	// ActorTemplates reference this Secret by the agent's stable name.
 	outputs.Manifest = append(outputs.Manifest, configSecret.secret)
 
 	if sa := buildServiceAccount(manifestCtx); sa != nil {
@@ -379,6 +385,12 @@ func collectSharedEnv(agent v1alpha2.AgentObject) []corev1.EnvVar {
 			Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace()),
 		},
 	)
+	if uiURL := env.KagentUIURL.Get(); uiURL != "" {
+		sharedEnv = append(sharedEnv, corev1.EnvVar{
+			Name:  env.KagentUIURL.Name(),
+			Value: uiURL,
+		})
+	}
 	return sharedEnv
 }
 
@@ -549,7 +561,7 @@ func buildPodTemplate(
 }
 
 func agentRuntime(agent v1alpha2.AgentObject) v1alpha2.DeclarativeRuntime {
-	return v1alpha2.EffectiveDeclarativeRuntimeForAgent(agent)
+	return v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 }
 
 func (a *adkApiTranslator) buildWorkloadObjects(

@@ -7,6 +7,9 @@ import (
 	"testing"
 
 	"github.com/a2aproject/a2a-go/a2asrv"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
 )
 
 // a2aCtx builds a context that carries an A2A CallContext with the given headers.
@@ -174,6 +177,98 @@ func TestAllowedRequestHeaders_EmptyAllowedList(t *testing.T) {
 	got = allowedRequestHeaders(ctx, []string{})
 	if got != nil {
 		t.Errorf("expected nil for empty allowed list, got %v", got)
+	}
+}
+
+func TestMCPAppToolNamesFromToolsets(t *testing.T) {
+	t.Parallel()
+
+	inner := &stubToolset{name: "mcp-server"}
+	toolsets := []tool.Toolset{
+		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"show_board": true}},
+		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"refresh": true}},
+		inner,
+	}
+
+	got := MCPAppToolNamesFromToolsets(toolsets)
+	if len(got) != 2 || !got["show_board"] || !got["refresh"] {
+		t.Fatalf("MCPAppToolNamesFromToolsets() = %#v, want show_board and refresh", got)
+	}
+}
+
+type stubToolset struct {
+	name string
+}
+
+func (s *stubToolset) Name() string { return s.name }
+
+func (s *stubToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
+	_ = ctx
+	return nil, nil
+}
+
+func TestMCPToolKindOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		meta mcpsdk.Meta
+		want mcpToolKind
+	}{
+		{
+			name: "app visibility list is app-only",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"app"}}},
+			want: mcpToolKindAppInternal,
+		},
+		{
+			name: "app visibility string is app-only",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": "app"}},
+			want: mcpToolKindAppInternal,
+		},
+		{
+			name: "app-only wins over a declared resource uri",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"app"}, "resourceUri": "ui://forms/form.html"}},
+			want: mcpToolKindAppInternal,
+		},
+		{
+			name: "model and app visibility without resource is a plain model tool",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"model", "app"}}},
+			want: mcpToolKindModel,
+		},
+		{
+			name: "model and app visibility with resource renders as app",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"app", "model"}, "resourceUri": "ui://forms/form.html"}},
+			want: mcpToolKindApp,
+		},
+		{
+			name: "model only visibility is a plain model tool",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"model"}}},
+			want: mcpToolKindModel,
+		},
+		{
+			name: "resource uri in ui object renders as app",
+			meta: mcpsdk.Meta{"ui": map[string]any{"resourceUri": "ui://forms/form.html"}},
+			want: mcpToolKindApp,
+		},
+		{
+			name: "legacy resource uri key renders as app",
+			meta: mcpsdk.Meta{"ui/resourceUri": "ui://forms/form.html"},
+			want: mcpToolKindApp,
+		},
+		{
+			name: "plain tool",
+			meta: mcpsdk.Meta{},
+			want: mcpToolKindModel,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := mcpToolKindOf(tt.meta); got != tt.want {
+				t.Fatalf("mcpToolKindOf() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

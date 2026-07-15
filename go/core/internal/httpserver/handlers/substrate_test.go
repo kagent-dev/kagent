@@ -15,7 +15,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -96,7 +95,10 @@ func TestHandleGetSubstrateStatus(t *testing.T) {
 				},
 			},
 			Spec: atev1alpha1.ActorTemplateSpec{
-				WorkerPoolRef: corev1.ObjectReference{Name: "default-wp", Namespace: "kagent"},
+				SandboxClass: atev1alpha1.SandboxClassGvisor,
+				WorkerSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{substrate.WorkerPoolLabelKey: "default-wp"},
+				},
 			},
 			Status: atev1alpha1.ActorTemplateStatus{Phase: atev1alpha1.PhaseReady, GoldenActorID: "golden-1"},
 		},
@@ -135,6 +137,8 @@ func TestHandleGetSubstrateStatus(t *testing.T) {
 	require.Equal(t, "Ready", wrapped.Data.ActorTemplates[0].Phase)
 	require.True(t, wrapped.Data.ActorTemplates[0].ManagedByKagent)
 	require.Equal(t, "my-claw", wrapped.Data.ActorTemplates[0].HarnessName)
+	require.Equal(t, "gvisor", wrapped.Data.ActorTemplates[0].SandboxClass)
+	require.Equal(t, substrate.WorkerPoolLabelKey+"=default-wp", wrapped.Data.ActorTemplates[0].WorkerSelector)
 	require.Len(t, wrapped.Data.Actors, 1)
 	require.Equal(t, "Running", wrapped.Data.Actors[0].Status)
 	require.Len(t, wrapped.Data.Workers, 1)

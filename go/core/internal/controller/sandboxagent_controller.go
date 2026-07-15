@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -43,9 +44,8 @@ var (
 	sandboxAgentControllerLog = ctrl.Log.WithName("sandboxagent-controller")
 )
 
-// SandboxAgentController reconciles SandboxAgent objects for both agent-sandbox and
-// Agent Substrate platforms. Platform-specific workload objects are selected by the
-// sandbox routing backend; substrate delete cleanup is handled in this controller.
+// SandboxAgentController reconciles SandboxAgent objects, which always run on the
+// Agent Substrate platform. Substrate delete cleanup is handled in this controller.
 type SandboxAgentController struct {
 	Client                client.Client
 	Scheme                *runtime.Scheme
@@ -80,13 +80,16 @@ func (r *SandboxAgentController) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("get SandboxAgent: %w", err)
 	}
 
-	if sandboxAgentUsesSubstrate(&sa) && r.SubstrateLifecycle != nil {
+	if r.substrateConfigured() {
 		if res, err := r.reconcileSubstrateSandboxAgent(ctx, &sa); err != nil || !res.IsZero() {
 			return res, err
 		}
 	}
 
 	if err := r.Reconciler.ReconcileKagentSandboxAgent(ctx, req); err != nil {
+		if errors.Is(err, substrate.ErrActorTemplateReconcilePending) {
+			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
+		}
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
@@ -109,7 +112,7 @@ func (r *SandboxAgentController) SetupWithManager(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	if r.SubstrateLifecycle != nil {
+	if r.substrateConfigured() {
 		build = build.Watches(
 			&atev1alpha1.ActorTemplate{},
 			handler.EnqueueRequestsFromMapFunc(r.enqueueSandboxAgentForSubstrateResource),

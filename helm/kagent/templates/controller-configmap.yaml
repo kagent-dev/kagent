@@ -9,6 +9,9 @@ data:
   A2A_BASE_URL: {{ include "kagent.a2aBaseUrl" . | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
+  {{- if .Values.ui.externalUrl }}
+  KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
+  {{- end }}
   IMAGE_PULL_POLICY: {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy | quote }}
   {{- if and .Values.controller.agentImage.pullSecret (not (eq .Values.controller.agentImage.pullSecret "")) }}
   IMAGE_PULL_SECRET: {{ .Values.controller.agentImage.pullSecret | quote }}
@@ -55,8 +58,12 @@ data:
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}
   DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
+  SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
+  {{- if .Values.controller.a2aClientTimeout }}
+  KAGENT_A2A_CLIENT_TIMEOUT: {{ .Values.controller.a2aClientTimeout | quote }}
+  {{- end }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
   {{- $agentHost := "" }}
   {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.host (not (eq .Values.controller.agentDeployment.host "")) }}

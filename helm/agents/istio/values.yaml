@@ -7,7 +7,7 @@ memory:
   # Optional reference to a ModelConfig resource for the agent's memory.
   modelConfigRef: ""
 
-# -- Optional runtime specification for the agent. If not specified, it will default to "python". Supported runtimes include "python" and "go".
+# -- Optional runtime specification for the agent. If not specified, it will default to "go". Supported runtimes include "python" and "go".
 runtime: ""
 
 imagePullSecrets: []
@@ -25,3 +25,6 @@ compaction: {}
 podSecurityContext: {}
 
 securityContext: {}
+
+# -- Optional nodeSelector to constrain the agent pods to nodes with matching labels.
+nodeSelector: {}

@@ -217,6 +217,10 @@ export interface Session {
   created_at: string;
   updated_at: string;
   deleted_at: string;
+  /** Populated for sessions owned by another user; use as X-Share-Token to access. */
+  share_token?: string | null;
+  /** True when the share link that granted access is read-only. */
+  share_read_only?: boolean | null;
 }
 
 export interface ToolsResponse {
@@ -264,17 +268,24 @@ export type AgentType = "Declarative" | "BYO" | "AgentHarness";
  * AgentHarness.spec.backend (go/api/v1alpha2/agentharness_types.go).
  * Single source of truth for backend strings — forms, API payloads, and helpers should use this.
  */
-export type AgentHarnessCrBackend = "openclaw" | "nemoclaw" | "hermes";
+export type AgentHarnessCrBackend =
+  | "openclaw"
+  | "hermes";
 /**
  * Backends that support messenger channels (CR validation + channel form).
  */
-export type AgentHarnessMessengerBackend = AgentHarnessCrBackend;
+export type AgentHarnessMessengerBackend = "openclaw" | "hermes";
 
 export const AGENT_HARNESS_MESSENGER_BACKENDS: readonly AgentHarnessMessengerBackend[] = [
   "openclaw",
-  "nemoclaw",
   "hermes",
 ];
+
+/**
+ * Backends only available on the Agent Substrate runtime.
+ * Mirrors the controller wiring: substrate registers all harness backends.
+ */
+export const AGENT_HARNESS_SUBSTRATE_ONLY_BACKENDS: readonly AgentHarnessCrBackend[] = [];
 
 /** Single Git repository source for skills. */
 export interface GitRepo {
@@ -299,8 +310,6 @@ export interface SandboxAgent {
   spec: AgentSpec;
 }
 
-export type SandboxPlatform = "agent-sandbox" | "substrate";
-
 export interface SandboxSubstrateSpec {
   workerPoolRef?: { name: string; namespace?: string };
   snapshotsConfig?: { location: string };
@@ -316,7 +325,6 @@ export interface AgentSpec {
   byo?: BYOAgentSpec;
   description: string;
   skills?: SkillForAgent;
-  platform?: SandboxPlatform;
   substrate?: SandboxSubstrateSpec;
   sandbox?: SandboxConfig;
 }
@@ -369,6 +377,8 @@ export interface DeclarativeAgentSpec {
   memory?: MemorySpec;
   /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
   promptTemplate?: PromptTemplateSpec;
+  /** When true, the agent gains built-in share link tools (create/list/delete share tokens). */
+  shareTools?: boolean;
 }
 
 export interface ContextConfig {
@@ -447,23 +457,12 @@ export interface Agent {
   };
 }
 
-/** Merged into GET /api/agents for kagent.dev/v1alpha2 AgentHarness (openclaw/nemoclaw). */
-export interface OpenshellAgentHarnessListEntry {
+/** Merged into GET /api/agents for an AgentHarness backed by Agent Substrate. */
+export interface AgentHarnessListEntry {
   backend: string;
-  /** Gateway sandbox name for SSH (`namespace-name`); pass as `/openshell` `sandbox` query param. */
-  gatewaySandboxName: string;
-  modelConfigRef?: string;
-  backendRefId?: string;
-  endpoint?: string;
-}
-
-/** Merged into GET /api/agents when AgentHarness.spec.runtime is substrate. */
-export interface SubstrateAgentHarnessListEntry {
-  backend: string;
-  runtime: "substrate";
   actorId?: string;
-  /** Same-origin path for OpenClaw UI (HTTP + WebSocket via kagent proxy to actor pod IP). */
-  gatewayUIPath?: string;
+  /** Same-origin WebSocket path for the ACP chat proxy. */
+  acpPath?: string;
   modelConfigRef?: string;
   backendRefId?: string;
   endpoint?: string;
@@ -492,7 +491,8 @@ export interface SubstrateActorTemplateEntry {
   phase?: string;
   goldenActorId?: string;
   goldenSnapshot?: string;
-  workerPoolRef?: string;
+  sandboxClass?: string;
+  workerSelector?: string;
   harnessName?: string;
   managedByKagent: boolean;
 }
@@ -505,7 +505,8 @@ export interface SubstrateActorEntry {
   ateomPodNamespace?: string;
   ateomPodName?: string;
   ateomPodIp?: string;
-  lastSnapshot?: string;
+  latestSnapshot?: string;
+  workerPoolName?: string;
   inProgressSnapshot?: string;
   version?: number;
 }
@@ -531,8 +532,7 @@ export interface AgentResponse {
   deploymentReady: boolean;
   accepted: boolean;
   workloadMode?: "deployment" | "sandbox";
-  openshellAgentHarness?: OpenshellAgentHarnessListEntry;
-  substrateAgentHarness?: SubstrateAgentHarnessListEntry;
+  substrateAgentHarness?: AgentHarnessListEntry;
 }
 
 export interface RemoteMCPServer {

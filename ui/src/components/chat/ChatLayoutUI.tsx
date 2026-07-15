@@ -8,6 +8,7 @@ import { getSessionsForAgent } from "@/app/actions/sessions";
 import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "@/types";
 import { toast } from "sonner";
 import { ChatAgentProvider } from "@/components/chat/ChatAgentContext";
+import { ChatMcpAppsProvider } from "@/components/chat/ChatMcpAppsContext";
 import { isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
 import { mergeSessionUpdate, normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 
@@ -30,6 +31,7 @@ export default function ChatLayoutUI({
 }: ChatLayoutUIProps) {
   const pathname = usePathname();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [acpSessions, setAcpSessions] = useState<Array<{ sessionId: string; title?: string; updatedAt?: string }>>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
 
   // Convert RemoteMCPServerResponse[] to ToolsResponse[]
@@ -51,7 +53,7 @@ export default function ChatLayoutUI({
     return tools;
   }, [allTools]);
 
-  
+
   useEffect(() => {
     const refreshSessions = async () => {
       setIsLoadingSessions(true);
@@ -98,6 +100,40 @@ export default function ChatLayoutUI({
     };
   }, [agentName, namespace]);
 
+  useEffect(() => {
+    // Listen for ACP harness session list updates from AcpHarnessChat
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleAcpSessionsUpdate = (event: any) => {
+      const { agentRef, sessions } = event.detail;
+      const currentAgentRef = `${namespace}/${agentName}`;
+      if (agentRef === currentAgentRef && Array.isArray(sessions)) {
+        setAcpSessions(sessions);
+      }
+    };
+
+    window.addEventListener('acp-sessions-updated', handleAcpSessionsUpdate);
+    return () => {
+      window.removeEventListener('acp-sessions-updated', handleAcpSessionsUpdate);
+    };
+  }, [agentName, namespace]);
+
+  useEffect(() => {
+    // AcpHarnessChat adopts the agent-generated chat title as the DB session
+    // name; reflect it in the sidebar list immediately (and across reloads it
+    // comes back from the DB).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleSessionTitled = (event: any) => {
+      const { sessionId, title } = event.detail ?? {};
+      if (!sessionId || !title) return;
+      setSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, name: title } : s)));
+    };
+
+    window.addEventListener('harness-session-titled', handleSessionTitled);
+    return () => {
+      window.removeEventListener('harness-session-titled', handleSessionTitled);
+    };
+  }, []);
+
   return (
     <>
       <SessionsSidebar
@@ -106,17 +142,20 @@ export default function ChatLayoutUI({
         currentAgent={currentAgent}
         allAgents={allAgents}
         agentSessions={sessions}
+        acpSessions={acpSessions}
         isLoadingSessions={isLoadingSessions}
       />
-      <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden px-4">
-        <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-1 flex-col">
-          <ChatAgentProvider
-            agentType={currentAgent.agent.spec.type}
-            runInSandbox={currentAgent.workloadMode === "sandbox"}
-            substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
-          >
-            {children}
-          </ChatAgentProvider>
+      <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden px-4">
+        <div className="mx-auto flex h-full min-h-0 w-full min-w-0 max-w-6xl flex-1 flex-col">
+          <ChatMcpAppsProvider currentAgent={currentAgent}>
+            <ChatAgentProvider
+              agentType={currentAgent.agent.spec.type}
+              runInSandbox={currentAgent.workloadMode === "sandbox"}
+              substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
+            >
+              {children}
+            </ChatAgentProvider>
+          </ChatMcpAppsProvider>
         </div>
       </main>
       <AgentDetailsSidebar
@@ -125,4 +164,4 @@ export default function ChatLayoutUI({
       />
     </>
   );
-} 
+}

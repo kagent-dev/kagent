@@ -56,21 +56,34 @@ APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 SKILLS_INIT_IMAGE_NAME ?= skills-init
+ACP_SANDBOX_BASE_IMAGE_NAME ?= acp-sandbox-base
+ACP_SANDBOX_HERMES_IMAGE_NAME ?= acp-sandbox-hermes
+ACP_SANDBOX_OPENCLAW_IMAGE_NAME ?= acp-sandbox-openclaw
+ACP_SANDBOX_CLAUDE_IMAGE_NAME ?= acp-sandbox-claude
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
+APP_FULL_IMAGE_TAG ?= $(VERSION)-full
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
+KAGENT_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
 SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
+ACP_SANDBOX_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
+APP_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_FULL_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
+KAGENT_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_FULL_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 GOLANG_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_FULL_IMAGE_TAG)
 SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
+ACP_SANDBOX_BASE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_BASE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
+ACP_SANDBOX_HERMES_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_HERMES_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
+ACP_SANDBOX_OPENCLAW_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_OPENCLAW_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
+ACP_SANDBOX_CLAUDE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_CLAUDE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -139,6 +152,7 @@ KMCP_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/kmcp/ { print substr($
 # Substrate
 SUBSTRATE_ENABLED ?= false
 SUBSTRATE_VERSION ?= $(shell $(AWK) '/github\.com\/kagent-dev\/substrate/ { print substr($$5, 2) }' go/go.mod) # Substrate version defaults to the replace target in go.mod
+SUBSTRATE_REPO ?= oci://ghcr.io/kagent-dev/substrate/helm # Override for local dev when consuming a locally-published chart, e.g. oci://localhost:5001/kagent-dev/substrate/helm
 
 HELM_ACTION=upgrade --install
 
@@ -201,12 +215,14 @@ build-all: buildx-create
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-skills-init build-golang-adk build-golang-adk-full build-app build-controller
+build: buildx-create build-ui build-skills-init build-golang-adk build-golang-adk-full build-app build-app-full build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
+	@echo "App Full Image: $(APP_FULL_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
+	@echo "Kagent ADK Full Image: $(KAGENT_ADK_FULL_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
 	@echo "Golang ADK Full Image: $(GOLANG_ADK_FULL_IMG)"
 	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
@@ -234,10 +250,16 @@ build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
 	@echo app=$(APP_IMG)
+	@echo app-full=$(APP_FULL_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
+	@echo kagent-adk-full=$(KAGENT_ADK_FULL_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
 	@echo golang-adk-full=$(GOLANG_ADK_FULL_IMG)
 	@echo skills-init=$(SKILLS_INIT_IMG)
+	@echo acp-sandbox-base=$(ACP_SANDBOX_BASE_IMG)
+	@echo acp-sandbox-hermes=$(ACP_SANDBOX_HERMES_IMG)
+	@echo acp-sandbox-openclaw=$(ACP_SANDBOX_OPENCLAW_IMG)
+	@echo acp-sandbox-claude=$(ACP_SANDBOX_CLAUDE_IMG)
 
 .PHONY: controller-manifests
 controller-manifests: ## Regenerate CRD manifests and copy them into the Helm chart
@@ -245,13 +267,16 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
-build-controller: ## Build and push the controller image (embeds agent runtime digests via scripts/controller-digest-ldflags.sh)
-build-controller: buildx-create controller-manifests build-app build-golang-adk build-golang-adk-full
+build-controller: ## Build and push the controller image (embeds agent runtime + acp-sandbox digests via scripts/controller-digest-ldflags.sh)
+build-controller: buildx-create controller-manifests build-app build-app-full build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
 	@set -e; \
 	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
 		APP_IMG=$(APP_IMG) \
+		APP_FULL_IMG=$(APP_FULL_IMG) \
 		GOLANG_ADK_IMG=$(GOLANG_ADK_IMG) \
 		GOLANG_ADK_FULL_IMG=$(GOLANG_ADK_FULL_IMG) \
+		ACP_SANDBOX_OPENCLAW_IMG=$(ACP_SANDBOX_OPENCLAW_IMG) \
+		ACP_SANDBOX_HERMES_IMG=$(ACP_SANDBOX_HERMES_IMG) \
 		./scripts/controller-digest-ldflags.sh); \
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
 		--build-arg LDFLAGS="$(LDFLAGS)$$DIGEST_LDFLAGS" \
@@ -272,10 +297,22 @@ build-kagent-adk: buildx-create
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
 .PHONY: build-app
-build-app: ## Build and push the app image (depends on kagent-adk)
+build-app: ## Build and push the app image (distroless slim; depends on kagent-adk)
 build-app: buildx-create build-kagent-adk
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
 	$(DOCKER_PUSH) $(APP_IMG)
+
+.PHONY: build-kagent-adk-full
+build-kagent-adk-full: ## Build and push the full Python kagent ADK image (includes sandbox runtime)
+build-kagent-adk-full: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_FULL_IMG) -f python/Dockerfile.full ./python
+	$(DOCKER_PUSH) $(KAGENT_ADK_FULL_IMG)
+
+.PHONY: build-app-full
+build-app-full: ## Build and push the full app image (sandbox runtime; depends on kagent-adk-full)
+build-app-full: buildx-create build-kagent-adk-full
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_FULL_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_FULL_IMG) -f python/Dockerfile.app ./python
+	$(DOCKER_PUSH) $(APP_FULL_IMG)
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
@@ -295,6 +332,34 @@ build-skills-init: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile ./go
 	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
 
+.PHONY: build-acp-sandbox
+build-acp-sandbox: ## Build and push all ACP sandbox agent images (hermes, openclaw, claude)
+build-acp-sandbox: build-acp-sandbox-hermes build-acp-sandbox-openclaw build-acp-sandbox-claude
+
+.PHONY: build-acp-sandbox-base
+build-acp-sandbox-base: ## Build and push the ACP sandbox base image (acp-shim only, no agent)
+build-acp-sandbox-base: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target base -t $(ACP_SANDBOX_BASE_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_PUSH) $(ACP_SANDBOX_BASE_IMG)
+
+.PHONY: build-acp-sandbox-hermes
+build-acp-sandbox-hermes: ## Build and push the ACP sandbox Hermes image
+build-acp-sandbox-hermes: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target hermes -t $(ACP_SANDBOX_HERMES_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_PUSH) $(ACP_SANDBOX_HERMES_IMG)
+
+.PHONY: build-acp-sandbox-openclaw
+build-acp-sandbox-openclaw: ## Build and push the ACP sandbox OpenClaw image
+build-acp-sandbox-openclaw: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target openclaw -t $(ACP_SANDBOX_OPENCLAW_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_PUSH) $(ACP_SANDBOX_OPENCLAW_IMG)
+
+.PHONY: build-acp-sandbox-claude
+build-acp-sandbox-claude: ## Build and push the ACP sandbox Claude image
+build-acp-sandbox-claude: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target claude -t $(ACP_SANDBOX_CLAUDE_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_PUSH) $(ACP_SANDBOX_CLAUDE_IMG)
+
 .PHONY: push
 push: ## Push all component images (controller, ui, app, ADKs)
 push: push-controller push-ui push-app push-kagent-adk push-golang-adk push-golang-adk-full
@@ -308,8 +373,8 @@ lint: ## Run linters for Go and Python
 	make -C python lint
 
 .PHONY: push-test-agent
-push-test-agent: buildx-create build-kagent-adk ## Build and push E2E test agent images to the local registry
-	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)"
+push-test-agent: buildx-create build-kagent-adk build-kagent-adk-full ## Build and push E2E test agent images to the local registry
+	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)-full"
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab:latest
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
@@ -398,8 +463,8 @@ helm-tools: ## Package all tool Helm charts into the dist folder
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup helm-agents helm-tools
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
-	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
+	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
 	helm dependency update helm/kagent-crds
 	helm package -d $(HELM_DIST_FOLDER) helm/kagent-crds
@@ -459,6 +524,126 @@ helm-test-install: helm-install-provider
 helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind cluster
 	helm uninstall kagent --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
 	helm uninstall kagent-crds --namespace kagent --kube-context kind-$(KIND_CLUSTER_NAME) --wait
+
+# Upgrade test targets install the previous released kagent chart from the public
+# OCI registry, build the current images, then run the assertions in
+# go/core/test/upgrade. These tests are deliberately kept out of test/e2e: they
+# mutate the cluster (upgrade then reverse-migrate it) and so cannot share the
+# e2e suite's cluster. The Go test performs the actual upgrade to the current
+# build by invoking `make helm-install-provider`. UPGRADE_FROM_VERSION defaults to
+# the latest release reachable from HEAD (scripts/upgrade-from-version.sh); CI runs
+# this against two targets via a matrix — that adjacent release and the previous
+# stable line's latest patch (scripts/prev-stable-version.sh) — and you can pin
+# either locally, e.g. `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
+# The previous install pins the bundled Postgres image to whatever the
+# upgrade-from release's own install target shipped (resolved inside
+# install-previous-release), so the baseline matches how that release actually
+# runs rather than a hardcoded guess; the upgrade then exercises the real
+# app/migration (and any DB image) change between that release and the current
+# build.
+#
+# Prerequisite (provided by CI as a separate step; run it locally first): a kind
+# cluster (make create-kind-cluster). agent-sandbox is not required — the
+# controller tolerates the missing CRD and these tests create no SandboxAgents.
+#
+# Lazily evaluated and referenced only by the upgrade targets below, so unrelated
+# make invocations never run the resolver; CI passes UPGRADE_FROM_VERSION
+# explicitly (per matrix leg), which bypasses the script entirely.
+UPGRADE_FROM_VERSION ?= $(shell ./scripts/upgrade-from-version.sh)
+
+.PHONY: install-previous-release
+install-previous-release: ## Install the previous released kagent + kagent-crds charts from the public OCI registry
+	# Abort early (rather than let helm fail confusingly) if the upgrade-from
+	# version could not be resolved.
+	[ -n "$(UPGRADE_FROM_VERSION)" ] || { echo "UPGRADE_FROM_VERSION is empty; set it explicitly or ensure git tags are fetched." >&2; exit 1; }
+	@echo "=== Installing previous release: $(UPGRADE_FROM_VERSION) ==="
+	helm upgrade --install kagent-crds $(HELM_REPO)/kagent/helm/kagent-crds \
+		--version $(UPGRADE_FROM_VERSION) \
+		--namespace kagent --create-namespace \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--timeout 5m --wait
+	# The bundled-Postgres image is selected by the install target's --set flags,
+	# not by the chart defaults (the chart ships a non-vector image). So the
+	# previous install must use the exact pins the upgrade-from release shipped —
+	# otherwise the baseline DB would differ from how that release actually runs,
+	# and the upgrade would conflate a DB swap with the migration change under
+	# test. Read those flags straight from that release's own helm-install-provider
+	# target (via its tagged Makefile) rather than hardcoding values that drift as
+	# the bundled image changes. Resolved here in the recipe so the `git show` runs
+	# only when this target runs, and so the flags can be validated before use
+	# (they must be literal — a future release that parameterizes them with a
+	# make/env variable would be rejected rather than passed to helm verbatim).
+	@set -e; \
+	db_flags="$$(git show v$(UPGRADE_FROM_VERSION):Makefile 2>/dev/null | grep -oE '\-\-set[[:space:]]+database\.postgres\.[^[:space:]\\]+' | tr '\n' ' ')"; \
+	[ -n "$$db_flags" ] || { echo "Could not read bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile; the upgrade-from release's install target may have moved or renamed them." >&2; exit 1; }; \
+	case "$$db_flags" in *'$$'*|*'('*|*'{'*) echo "Bundled-Postgres --set flags from v$(UPGRADE_FROM_VERSION):Makefile contain an unexpanded variable and cannot be passed to helm verbatim: $$db_flags" >&2; exit 1;; esac; \
+	echo "    bundled-Postgres flags (from v$(UPGRADE_FROM_VERSION) install target): $$db_flags"; \
+	helm upgrade --install kagent $(HELM_REPO)/kagent/helm/kagent \
+		--version $(UPGRADE_FROM_VERSION) \
+		--namespace kagent --create-namespace \
+		--kube-context kind-$(KIND_CLUSTER_NAME) \
+		--timeout 5m --wait \
+		--set ui.service.type=LoadBalancer \
+		--set controller.service.type=LoadBalancer \
+		--set providers.default=openAI \
+		--set providers.openAI.apiKey="$${OPENAI_API_KEY:-test}" \
+		$$db_flags $(UPGRADE_PREV_EXTRA_ARGS)
+
+# run-upgrade-tests installs the previous release, builds the current images, and
+# runs the DB-layer upgrade scenario in TestUpgrade: seed -> upgrade -> controller
+# rollout (no crash) -> data survival -> schema-equivalence (upgraded == clean
+# install) -> reverse schema to target (down files) + data survival. At each
+# state it also runs a version-matched invoke e2e slice (TestE2EInvokeInlineAgent)
+# so the serving controller's real query paths are exercised, not just psql: the
+# HEAD tree post-upgrade, and the previous release's own tree (a git worktree at
+# its tag, in .upgrade-prev) for the old-code-against-new-schema and post-rollback
+# states. KAGENT_LOCAL_HOST (kind gateway IP) lets the agent reach the in-process
+# mock LLM; without it the invoke slices self-skip and only the DB round-trip runs.
+# Prerequisite (provided by CI as a separate step; run it locally first): a kind
+# cluster (make create-kind-cluster). The controller tolerates the missing
+# agent-sandbox CRD (the owned-resource watch is skipped), and these tests create
+# no SandboxAgents, so agent-sandbox is not required.
+.PHONY: announce-upgrade-from
+announce-upgrade-from: ## Print the upgrade-from -> to versions (runs before the build so it is clear up front)
+	@echo "=== Upgrade test: FROM $(UPGRADE_FROM_VERSION) TO $(VERSION) — building current images next ==="
+
+.PHONY: run-upgrade-tests
+run-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release, build current images, and run the upgrade + version-matched invoke tests
+	@echo "=== Upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
+	@set -e; \
+	git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true; \
+	git worktree add --detach "$(CURDIR)/.upgrade-prev" "v$(UPGRADE_FROM_VERSION)"; \
+	trap 'git worktree remove --force "$(CURDIR)/.upgrade-prev" 2>/dev/null || true' EXIT; \
+	kind_gw="$$($(CONTAINER_RUNTIME) network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)"; \
+	echo "kind gateway (KAGENT_LOCAL_HOST): $$kind_gw"; \
+	cd go && \
+	RUN_UPGRADE_TESTS=true \
+	REPO_ROOT=$(CURDIR) \
+	PREV_E2E_DIR=$(CURDIR)/.upgrade-prev \
+	KAGENT_LOCAL_HOST="$$kind_gw" \
+	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	VERSION=$(VERSION) \
+	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
+	go test ./core/test/upgrade -run TestUpgrade -count=1 -timeout=45m -v
+
+# The target-specific UPGRADE_PREV_EXTRA_ARGS propagates to the
+# install-previous-release prerequisite, so the previous release comes up with 2
+# controller replicas (needed to observe the old-code/new-schema rollout window).
+.PHONY: run-rolling-upgrade-tests
+run-rolling-upgrade-tests: UPGRADE_PREV_EXTRA_ARGS = --set controller.replicas=2
+run-rolling-upgrade-tests: announce-upgrade-from build install-previous-release ## Install the previous release with 2 controller replicas, build the current images, and run the rolling upgrade e2e test
+	@echo "=== Rolling upgrade test: $(UPGRADE_FROM_VERSION) -> $(VERSION) (registry=$(DOCKER_REGISTRY)) ==="
+	cd go && \
+	RUN_ROLLING_UPGRADE_TESTS=true \
+	REPO_ROOT=$(CURDIR) \
+	UPGRADE_FROM_VERSION=$(UPGRADE_FROM_VERSION) \
+	VERSION=$(VERSION) \
+	DOCKER_REGISTRY=$(DOCKER_REGISTRY) \
+	KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	OPENAI_API_KEY="$${OPENAI_API_KEY:-test}" \
+	go test ./core/test/upgrade -run TestRollingUpgradeCompatibility -count=1 -timeout=20m -v
 
 .PHONY: helm-publish
 helm-publish: ## Package and push all Helm charts to the OCI registry

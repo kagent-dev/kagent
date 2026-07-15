@@ -12,17 +12,21 @@ import {
   Plus,
   FunctionSquare,
   AlertCircle,
+  AppWindow,
+  Loader2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ToolServerResponse, DiscoveredTool } from "@/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { deleteServer } from "@/app/actions/servers";
+import { listMcpAppTools, type McpAppTool } from "@/app/actions/mcp-apps";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { toast } from "sonner";
 import { useAgents } from "@/components/AgentsProvider";
 import { getDiscoveredToolDescription, getDiscoveredToolDisplayName } from "@/lib/toolUtils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { k8sRefUtils } from "@/lib/k8sUtils";
 
 function setsEqualString(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) {
@@ -58,8 +62,22 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
   const [showConfirmDelete, setShowConfirmDelete] = useState<string | null>(null);
   const [openDropdownMenu, setOpenDropdownMenu] = useState<string | null>(null);
+  const [appsByServer, setAppsByServer] = useState<Map<string, McpAppTool[]>>(new Map());
+  const [appsLoadingServers, setAppsLoadingServers] = useState<Set<string>>(new Set());
 
   const q = searchQuery.trim().toLowerCase();
+
+  // The MCP Apps endpoints need the server's groupKind to resolve the right CRD
+  // when a RemoteMCPServer and MCPServer share a namespace/name.
+  const groupKindByRef = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of servers) {
+      if (s.ref && s.groupKind) {
+        map.set(s.ref, s.groupKind);
+      }
+    }
+    return map;
+  }, [servers]);
 
   const displayList = useMemo((): DisplayServer[] => {
     if (!q) {
@@ -139,6 +157,49 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
       return newSet;
     });
   }, []);
+
+  const loadAppsForServer = useCallback(async (serverRef: string, groupKind?: string) => {
+    if (!k8sRefUtils.isValidRef(serverRef)) {
+      return;
+    }
+    const { namespace, name } = k8sRefUtils.fromRef(serverRef);
+    setAppsLoadingServers((prev) => {
+      const next = new Set(prev);
+      next.add(serverRef);
+      return next;
+    });
+    const response = await listMcpAppTools(namespace, name, groupKind);
+    const apps = (response.data || []).filter((t) => !!t.uiResourceUri);
+    setAppsByServer((prev) => {
+      const next = new Map(prev);
+      next.set(serverRef, apps);
+      return next;
+    });
+    setAppsLoadingServers((prev) => {
+      const next = new Set(prev);
+      next.delete(serverRef);
+      return next;
+    });
+  }, []);
+
+  // Discover MCP Apps (UI-capable tools) for every server so we can show the
+  // app count on each server row and render them instantly on expand.
+  useEffect(() => {
+    const pending = servers
+      .map((s) => s.ref)
+      .filter((ref): ref is string => Boolean(ref) && k8sRefUtils.isValidRef(ref))
+      .filter((ref) => !appsByServer.has(ref) && !appsLoadingServers.has(ref));
+    if (pending.length === 0) {
+      return;
+    }
+    // Defer so this isn’t a synchronous setState in the effect body.
+    const id = requestAnimationFrame(() => {
+      for (const serverRef of pending) {
+        void loadAppsForServer(serverRef, groupKindByRef.get(serverRef));
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [servers, appsByServer, appsLoadingServers, loadAppsForServer, groupKindByRef]);
 
   const highlight = useCallback(
     (text: string | undefined | null) => {
@@ -229,6 +290,13 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
             }
             const serverName: string = server.ref;
             const isExpanded = expandedServers.has(serverName);
+            const serverApps = appsByServer.get(serverName) || [];
+            const isLoadingApps = appsLoadingServers.has(serverName);
+            const appNames = new Set(serverApps.map((a) => a.name));
+            const functionTools = rowTools.filter((t) => !appNames.has(t.name || ""));
+            const appsLoaded = appsByServer.has(serverName);
+            const appCount = serverApps.length;
+            const parsedRef = k8sRefUtils.isValidRef(serverName) ? k8sRefUtils.fromRef(serverName) : null;
             return (
               <li key={server.ref} className="overflow-hidden rounded-xl border border-border/60 bg-card/30 shadow-sm">
                 <div className="bg-secondary/10 p-4">
@@ -245,7 +313,7 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
                       role="button"
                       tabIndex={0}
                       aria-expanded={isExpanded}
-                      aria-label={`${isExpanded ? "Collapse" : "Expand"} server ${serverName}, ${rowTools.length} tools`}
+                      aria-label={`${isExpanded ? "Collapse" : "Expand"} server ${serverName}, ${rowTools.length} tools${appsLoaded && appCount > 0 ? `, ${appCount} apps` : ""}`}
                     >
                       {isExpanded ? (
                         <ChevronDown className="h-5 w-5 shrink-0" aria-hidden />
@@ -256,8 +324,19 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
                         <div className="font-medium break-words" translate="no">
                           {highlight(server.ref) || server.ref}
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          {rowTools.length} tool{rowTools.length !== 1 ? "s" : ""}
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <span>
+                            {rowTools.length} tool{rowTools.length !== 1 ? "s" : ""}
+                          </span>
+                          {appsLoaded ? (
+                            appCount > 0 ? (
+                              <span>
+                                · {appCount} app{appCount !== 1 ? "s" : ""}
+                              </span>
+                            ) : null
+                          ) : isLoadingApps ? (
+                            <Loader2 className="h-3 w-3 animate-spin" aria-label="Loading apps" />
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -295,9 +374,48 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
 
                 {isExpanded && (
                   <div className="p-4">
-                    {rowTools.length > 0 ? (
+                    {isLoadingApps ? (
+                      <div className="mb-3 flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                        Loading MCP apps…
+                      </div>
+                    ) : null}
+                    {serverApps.length > 0 || functionTools.length > 0 ? (
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                        {rowTools
+                        {serverApps
+                          .slice()
+                          .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+                          .map((app) => {
+                            const appHref = parsedRef
+                              ? `/apps/${encodeURIComponent(app.name)}?ns=${encodeURIComponent(parsedRef.namespace)}&server=${encodeURIComponent(parsedRef.name)}`
+                              : "#";
+                            return (
+                              <Link
+                                key={`app-${app.name}`}
+                                href={appHref}
+                                className="rounded-md border border-border/60 p-3 transition-colors hover:border-primary/40 hover:bg-muted/30"
+                              >
+                                <div className="flex items-start gap-2.5">
+                                  <AppWindow
+                                    className="mt-0.5 size-4 min-h-4 min-w-4 shrink-0 self-start text-primary"
+                                    aria-hidden
+                                    strokeWidth={2}
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-sm font-medium" translate="no">
+                                      {highlight(app.name)}
+                                    </div>
+                                    {app.description ? (
+                                      <div className="mt-1 line-clamp-3 text-xs text-muted-foreground">
+                                        {highlight(app.description)}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </Link>
+                            );
+                          })}
+                        {functionTools
                           .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
                           .map((tool) => {
                             const desc = getDiscoveredToolDescription(tool);
@@ -328,7 +446,7 @@ export function McpServersView({ servers, isLoading, loadError, onRefresh }: Mcp
                             );
                           })}
                       </div>
-                    ) : (
+                    ) : isLoadingApps ? null : (
                       <p className="p-2 text-center text-sm text-muted-foreground">
                         No tools are registered for this server.
                       </p>

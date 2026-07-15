@@ -11,8 +11,8 @@ import (
 
 // FilterTranslatorOwnedTypesForList returns the owned-resource types the reconciler should pass to
 // FindOwnedObjects. It drops sandbox-backend-only types when the workload is not sandbox, so
-// reconcile does not List agent-sandbox APIs on clusters where those CRDs are not installed.
-// For sandbox workloads it keeps only the owned types for the agent's sandbox platform.
+// reconcile does not List substrate sandbox APIs on clusters where those CRDs are not installed.
+// For sandbox workloads it keeps only the owned types for the Agent Substrate backend.
 //
 // translatorOwnedTypes is typically AdkApiTranslator.GetOwnedResourceTypes() (full set used for watches).
 func FilterTranslatorOwnedTypesForList(cl client.Client, agent v1alpha2.AgentObject, translatorOwnedTypes []client.Object, backend Backend) ([]client.Object, error) {

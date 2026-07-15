@@ -17,7 +17,7 @@ import (
 	"github.com/openai/openai-go/v3/packages/respjson"
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/openai/openai-go/v3/shared/constant"
-	"google.golang.org/adk/model"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
 
@@ -195,16 +195,7 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 }
 
 func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.GenerateContentConfig) ([]openai.ChatCompletionMessageParamUnion, string) {
-	var systemBuilder strings.Builder
-	if config != nil && config.SystemInstruction != nil {
-		for _, p := range config.SystemInstruction.Parts {
-			if p != nil && p.Text != "" {
-				systemBuilder.WriteString(p.Text)
-				systemBuilder.WriteByte('\n')
-			}
-		}
-	}
-	systemInstruction := strings.TrimSpace(systemBuilder.String())
+	systemInstruction := mergeSystemInstructionFromConfig("", config)
 
 	functionResponses := make(map[string]*genai.FunctionResponse)
 	thoughtSignatures := thoughtSignaturesByToolCallID(contents)

@@ -23,7 +23,7 @@ const (
 
 var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
-// ClawBackend implements AsyncBackend for OpenClaw/NemoClaw on Agent Substrate.
+// ClawBackend implements AsyncBackend for OpenClaw on Agent Substrate.
 type ClawBackend struct {
 	client   *Client
 	backend  v1alpha2.AgentHarnessBackendType
@@ -32,7 +32,7 @@ type ClawBackend struct {
 
 var _ sandboxbackend.AsyncBackend = (*ClawBackend)(nil)
 
-// NewOpenClawBackend returns a substrate backend for openclaw/nemoclaw harness types.
+// NewOpenClawBackend returns a substrate backend for openclaw harness types.
 func NewOpenClawBackend(client *Client, backend v1alpha2.AgentHarnessBackendType, recorder record.EventRecorder) *ClawBackend {
 	return &ClawBackend{
 		client:   client,
@@ -49,19 +49,20 @@ func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.Agent
 	if ah == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("AgentHarness is required")
 	}
-	if err := validateSubstrateSpec(ah); err != nil {
-		return sandboxbackend.EnsureResult{}, err
-	}
 
 	actorID := ActorID(ah)
 	tmplNS, tmplName := generatedActorTemplateKey(ah)
+	atespace := ah.Namespace
 
-	actor, err := b.client.GetActor(ctx, actorID)
+	actor, err := b.client.GetActor(ctx, atespace, actorID)
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate GetActor %q: %w", actorID, err)
 		}
-		actor, err = b.client.CreateActor(ctx, actorID, tmplNS, tmplName)
+		if err := b.client.EnsureAtespace(ctx, atespace); err != nil {
+			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate EnsureAtespace %q: %w", atespace, err)
+		}
+		actor, err = b.client.CreateActor(ctx, atespace, actorID, tmplNS, tmplName)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate CreateActor %q: %w", actorID, err)
 		}
@@ -71,7 +72,7 @@ func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.Agent
 	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING:
 		// already active or waking
 	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED:
-		actor, err = b.client.ResumeActor(ctx, actorID)
+		actor, err = b.client.ResumeActor(ctx, atespace, actorID)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate ResumeActor %q: %w", actorID, err)
 		}
@@ -82,7 +83,7 @@ func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.Agent
 	endpoint := substrateConnectionEndpoint(ah.Namespace, ah.Name, actor)
 
 	return sandboxbackend.EnsureResult{
-		Handle:   sandboxbackend.Handle{ID: actorID},
+		Handle:   sandboxbackend.Handle{ID: actorID, Atespace: atespace},
 		Endpoint: endpoint,
 	}, nil
 }
@@ -91,7 +92,7 @@ func (b *ClawBackend) GetStatus(ctx context.Context, h sandboxbackend.Handle) (m
 	if h.ID == "" {
 		return metav1.ConditionUnknown, "ActorHandleMissing", "no substrate actor id recorded yet"
 	}
-	actor, err := b.client.GetActor(ctx, h.ID)
+	actor, err := b.client.GetActor(ctx, h.Atespace, h.ID)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return metav1.ConditionUnknown, "ActorNotFound", fmt.Sprintf("substrate actor %q not found", h.ID)
@@ -105,7 +106,7 @@ func (b *ClawBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.H
 	if h.ID == "" {
 		return true, nil
 	}
-	done, err := deleteActor(ctx, b.client, h.ID)
+	done, err := deleteActor(ctx, b.client, h.Atespace, h.ID)
 	if err != nil {
 		return false, fmt.Errorf("substrate delete actor %q: %w", h.ID, err)
 	}
@@ -138,11 +139,12 @@ func ActorID(ah *v1alpha2.AgentHarness) string {
 }
 
 // ActorHost returns the atenet router Host header value for the actor.
-func ActorHost(actorID string, suffix string) string {
+// atespace is folded in as a DNS label so the router can parse it out of :authority.
+func ActorHost(atespace, actorID string, suffix string) string {
 	if suffix == "" {
 		suffix = defaultActorHostSuffix
 	}
-	return actorID + "." + suffix
+	return actorID + "." + atespace + "." + suffix
 }
 
 func generatedActorTemplateKey(ah *v1alpha2.AgentHarness) (string, string) {
@@ -155,20 +157,9 @@ func substrateConnectionEndpoint(namespace, name string, actor *ateapipb.Actor) 
 		return "kagent gateway: " + gw
 	}
 	if actorID := strings.TrimSpace(actor.GetActorId()); actorID != "" {
-		return fmt.Sprintf("atenet-router Host %s (UI via kagent %s)", ActorHost(actorID, ""), gw)
+		return fmt.Sprintf("atenet-router Host %s (UI via kagent %s)", ActorHost(actor.GetAtespace(), actorID, ""), gw)
 	}
 	return fmt.Sprintf("kagent gateway: %s (actor status %s)", gw, actor.GetStatus())
-}
-
-func validateSubstrateSpec(ah *v1alpha2.AgentHarness) error {
-	runtime := ah.Spec.Runtime
-	if runtime == "" {
-		runtime = v1alpha2.AgentHarnessRuntimeOpenshell
-	}
-	if runtime != v1alpha2.AgentHarnessRuntimeSubstrate {
-		return fmt.Errorf("substrate backend called for runtime %q", runtime)
-	}
-	return nil
 }
 
 func actorStatusToCondition(actor *ateapipb.Actor) (metav1.ConditionStatus, string, string) {

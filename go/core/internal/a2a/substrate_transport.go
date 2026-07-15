@@ -14,8 +14,8 @@ type substrateAgentRoundTripper struct {
 	base      http.RoundTripper
 }
 
-func newSubstrateAgentRoundTripper(routerURL, actorID string, base http.RoundTripper) (http.RoundTripper, error) {
-	target, host, err := substrate.GatewayRouterTarget(routerURL, actorID)
+func newSubstrateAgentRoundTripper(routerURL, atespace, actorID string, base http.RoundTripper) (http.RoundTripper, error) {
+	target, host, err := substrate.GatewayRouterTarget(routerURL, atespace, actorID)
 	if err != nil {
 		return nil, err
 	}

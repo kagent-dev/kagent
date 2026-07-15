@@ -13,7 +13,7 @@ This package provides LangGraph integration for KAgent with A2A (Agent-to-Agent)
 ## Quick Start
 
 ```python
-from kagent_langgraph import KAgentApp
+from kagent.langgraph import KAgentApp
 from langgraph.graph import StateGraph
 from langchain_core.messages import BaseMessage
 from typing import TypedDict, Annotated, Sequence
