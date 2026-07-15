@@ -3,10 +3,10 @@ package agent
 import (
 	"fmt"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/llmagent"
-	adkmodel "google.golang.org/adk/model"
-	"google.golang.org/adk/tool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	adkmodel "google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/tool"
 	"google.golang.org/genai"
 )
 
@@ -16,7 +16,7 @@ import (
 // HITL events the LLM never produced and does not need to reason about.
 // The session still stores them so ADK's resume machinery can find them.
 func MakeStripConfirmationPartsCallback() llmagent.BeforeModelCallback {
-	return func(_ agent.CallbackContext, req *adkmodel.LLMRequest) (*adkmodel.LLMResponse, error) {
+	return func(_ agent.Context, req *adkmodel.LLMRequest) (*adkmodel.LLMResponse, error) {
 		out := make([]*genai.Content, 0, len(req.Contents))
 		for _, c := range req.Contents {
 			if c == nil {
@@ -53,7 +53,7 @@ func MakeStripConfirmationPartsCallback() llmagent.BeforeModelCallback {
 // tools in the approval set behind request_confirmation / ToolConfirmation.
 // Port of kagent-adk/src/kagent/adk/_approval.py:make_approval_callback().
 func MakeApprovalCallback(toolsRequiringApproval map[string]bool) llmagent.BeforeToolCallback {
-	return func(ctx agent.ToolContext, t tool.Tool, args map[string]any) (map[string]any, error) {
+	return func(ctx agent.Context, t tool.Tool, args map[string]any) (map[string]any, error) {
 		toolName := t.Name()
 
 		// No approval needed for this tool.

@@ -552,7 +552,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
-		if !model.Spec.APIKeyPassthrough {
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.AzureOpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
