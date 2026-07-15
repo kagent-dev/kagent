@@ -15,7 +15,7 @@ ipv6:
   enabled: false
 
 tag: ""
-registry: "cr.kagent.dev"
+registry: "ghcr.io"
 
 imagePullSecrets: []
 imagePullPolicy: IfNotPresent
@@ -79,6 +79,10 @@ database:
     # Required to use features that depend on database vector capability. (e.g. long-term memory)
     # Set to true when using an external PostgreSQL that has the pgvector extension installed.
     vectorEnabled: false
+    # -- Skip running database migrations at controller startup.
+    # The controller instead verifies the database is already migrated and fails if it is not.
+    # Migrations must be applied out-of-band (e.g. from a CI/CD pipeline) before install/upgrade.
+    skipMigrations: false
     # -- Bundled PostgreSQL instance — for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:
@@ -462,6 +466,44 @@ ui:
   openshiftRoute:
     annotations:
       haproxy.router.openshift.io/timeout: 120m
+
+  # -- Gateway API `HTTPRoute` for the UI. Requires the Gateway API CRDs
+  # (`gateway.networking.k8s.io/v1`) and an existing `Gateway` to attach to via
+  # `parentRefs`. Disabled by default; enable to front the UI with a Gateway API
+  # implementation (kgateway, Istio, Envoy Gateway, etc.) instead of the
+  # OpenShift Route or bundled oauth2-proxy.
+  httpRoute:
+    enabled: false
+    # -- Extra labels to add to the `HTTPRoute` (merged with the chart labels).
+    labels: {}
+    # -- Annotations to add to the `HTTPRoute`.
+    annotations: {}
+    # -- Gateways this route attaches to. Required when `enabled` is `true`.
+    parentRefs: []
+    #   - name: my-gateway
+    #     namespace: gateway-system
+    #     sectionName: https
+    # -- Hostnames matched by the route.
+    hostnames: []
+    #   - kagent.example.com
+    # -- Routing rules. When a rule omits `backendRefs`, it defaults to the UI
+    # `Service` on `ui.service.ports.port`. Each rule may also set `matches`,
+    # `filters`, and `timeouts`.
+    rules: []
+    #   - matches:
+    #       - path:
+    #           type: PathPrefix
+    #           value: /
+    #     filters:
+    #       - type: RequestHeaderModifier
+    #         requestHeaderModifier:
+    #           set:
+    #             - name: X-Forwarded-Proto
+    #               value: https
+    #     timeouts:
+    #       request: "0s"
+    #       backendRequest: "0s"
+
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================

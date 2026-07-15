@@ -1,0 +1,15 @@
+## Server Everything MCP (reference/demo MCP server)
+## https://servereverything.dev/mcp
+## Exposes a set of demo tools, including the `show-weather-dashboard`
+## MCP App (UI widget) advertised via tool `_meta.ui.resourceUri`.
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: server-everything
+  namespace: kagent
+spec:
+  url: "https://servereverything.dev/mcp"
+  protocol: STREAMABLE_HTTP
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  description: "Server Everything reference MCP server with an interactive weather dashboard MCP App"

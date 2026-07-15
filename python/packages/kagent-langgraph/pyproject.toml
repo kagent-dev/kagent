@@ -14,7 +14,7 @@ dependencies = [
   "uvicorn>=0.20.0",
   "a2a-sdk>=0.3.23",
   "kagent-core>=0.1.0",
-  "langsmith[otel]>=0.9.8",
+  "langsmith[otel]>=0.10.2",
 ]
 
 [project.optional-dependencies]
@@ -22,14 +22,14 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "ruff>=0.1.0",
+    "ruff>=0.15.21",
 ]
 
 [tool.uv.sources]
 kagent-core = {workspace = true}
 
 [build-system]
-requires = ["setuptools>=83.0.0", "wheel>=0.46.2"]
+requires = ["setuptools>=83.0.0", "wheel>=0.47.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.hatch.build.targets.wheel]

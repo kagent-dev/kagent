@@ -11,6 +11,7 @@ import (
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
@@ -36,6 +37,7 @@ type A2ARegistrar struct {
 	authenticator                auth.AuthProvider
 	agentObserver                AgentObserver
 	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend
+	dbService                    database.Client
 }
 
 type AgentObserver interface {
@@ -54,6 +56,7 @@ func NewA2ARegistrar(
 	authenticator auth.AuthProvider,
 	agentObserver AgentObserver,
 	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend,
+	dbService database.Client,
 ) (*A2ARegistrar, error) {
 	if clientRegistry == nil {
 		return nil, fmt.Errorf("clientRegistry must not be nil")
@@ -68,6 +71,7 @@ func NewA2ARegistrar(
 		authenticator:                authenticator,
 		substrateSandboxActorBackend: substrateSandboxActorBackend,
 		agentObserver:                agentObserver,
+		dbService:                    dbService,
 	}
 
 	return reg, nil
@@ -227,7 +231,7 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 		if httpClient != nil && httpClient.Transport != nil {
 			baseTransport = httpClient.Transport
 		}
-		transport, err := newSubstrateSandboxSessionRoundTripper(routerURL, sa, a.substrateSandboxActorBackend, baseTransport)
+		transport, err := newSubstrateSandboxSessionRoundTripper(routerURL, sa, a.substrateSandboxActorBackend, baseTransport, a.dbService)
 		if err != nil {
 			return fmt.Errorf("substrate sandbox A2A transport for %s: %w", agentRef, err)
 		}

@@ -137,9 +137,10 @@ type Config struct {
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
 	Database           struct {
-		Url           string
-		UrlFile       string
-		VectorEnabled bool
+		Url            string
+		UrlFile        string
+		VectorEnabled  bool
+		SkipMigrations bool
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
@@ -181,6 +182,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
+	commandLine.BoolVar(&cfg.Database.SkipMigrations, "skip-migrations", false, "Do not run database migrations at startup; instead verify the database is already migrated and fail if it is not. Migrations must be applied out-of-band (e.g. from a pipeline or pre-upgrade hook). Settable via the SKIP_MIGRATIONS env var.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -470,13 +472,25 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 
 	// Run migrations before connecting; schema must exist before queries.
 	// Built-in sources run first, then any downstream-registered extras.
-	setupLog.Info("running database migrations")
+	// With --skip-migrations (SKIP_MIGRATIONS) the server applies nothing and
+	// instead verifies the database is already migrated, so migrations can run
+	// out-of-band and this connection needs no DDL privileges.
 	sources := append(migrations.BuiltinSources(cfg.Database.VectorEnabled), extraSources...)
-	if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
-		setupLog.Error(err, "database migration failed")
-		os.Exit(1)
+	if cfg.Database.SkipMigrations {
+		setupLog.Info("skipping database migrations; verifying schema is migrated")
+		if err := migrations.VerifyMigrated(ctx, dbURL, sources); err != nil {
+			setupLog.Error(err, "database migration verification failed")
+			os.Exit(1)
+		}
+		setupLog.Info("database schema verified")
+	} else {
+		setupLog.Info("running database migrations")
+		if err := migrations.RunUp(ctx, dbURL, sources); err != nil {
+			setupLog.Error(err, "database migration failed")
+			os.Exit(1)
+		}
+		setupLog.Info("database migrations complete")
 	}
-	setupLog.Info("database migrations complete")
 
 	// Connect to database
 	db, err := database.Connect(ctx, &database.PostgresConfig{
@@ -667,6 +681,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		extensionCfg.Authenticator,
 		mcpHandler,
 		substrateSandboxActorBackend,
+		dbClient,
 	)
 	if err != nil {
 		setupLog.Error(err, "unable to create a2a registrar")
