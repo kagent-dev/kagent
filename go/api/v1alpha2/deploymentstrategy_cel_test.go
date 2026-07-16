@@ -126,6 +126,18 @@ func TestDeploymentStrategyCELValidation(t *testing.T) {
 			},
 		},
 		{
+			name: "Agent: invalid strategy type rejected",
+			build: func() ctrl_client.Object {
+				return &Agent{
+					ObjectMeta: metav1.ObjectMeta{Name: "ag-invalid-type", Namespace: ns},
+					Spec: declarativeSpec(&appsv1.DeploymentStrategy{
+						Type: appsv1.DeploymentStrategyType("Foo"),
+					}),
+				}
+			},
+			wantReject: "strategy type must be RollingUpdate or Recreate",
+		},
+		{
 			name: "SandboxAgent: declarative deploymentStrategy rejected",
 			build: func() ctrl_client.Object {
 				return &SandboxAgent{

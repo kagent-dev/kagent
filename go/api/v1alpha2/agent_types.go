@@ -492,6 +492,7 @@ type SharedDeploymentSpec struct {
 	// When set with type RollingUpdate (or with type omitted), any unset
 	// rollingUpdate fields default the same way: maxUnavailable to 0 and
 	// maxSurge to 1. Recreate is passed through as-is.
+	// +kubebuilder:validation:XValidation:rule="!has(self.type) || self.type in ['RollingUpdate', 'Recreate']",message="strategy type must be RollingUpdate or Recreate"
 	// +kubebuilder:validation:XValidation:rule="!(has(self.type) && self.type == 'Recreate' && has(self.rollingUpdate))",message="rollingUpdate may not be specified when strategy type is Recreate"
 	// +optional
 	DeploymentStrategy *appsv1.DeploymentStrategy `json:"deploymentStrategy,omitempty"`

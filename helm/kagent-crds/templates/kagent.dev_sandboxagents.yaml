@@ -1127,6 +1127,9 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-validations:
+                        - message: strategy type must be RollingUpdate or Recreate
+                          rule: '!has(self.type) || self.type in [''RollingUpdate'',
+                            ''Recreate'']'
                         - message: rollingUpdate may not be specified when strategy
                             type is Recreate
                           rule: '!(has(self.type) && self.type == ''Recreate'' &&
@@ -6531,6 +6534,9 @@ spec:
                             type: string
                         type: object
                         x-kubernetes-validations:
+                        - message: strategy type must be RollingUpdate or Recreate
+                          rule: '!has(self.type) || self.type in [''RollingUpdate'',
+                            ''Recreate'']'
                         - message: rollingUpdate may not be specified when strategy
                             type is Recreate
                           rule: '!(has(self.type) && self.type == ''Recreate'' &&
