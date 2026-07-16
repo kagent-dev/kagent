@@ -11,7 +11,7 @@ flows across components**.
 | Atoms (`src/components/ui/*`) | shadcn primitives | skip |
 | Visual / render states | Storybook + Vitest-browser + Chromatic | skip |
 | Unit / logic | Jest (`*.test.ts(x)`) | skip |
-| Page-load smoke (`h1` renders, page reachable) | Playwright (`tests/smoke.spec.ts`, Stage 0) | — |
+| Page-load smoke (`h1` renders, page reachable) | Playwright (folded into the app-shell journey, `tests/app-shell.spec.ts`) | — |
 | **Multi-step flows: form submission, payload correctness, streaming, wizard completion, error/edge states** | **Playwright (this suite)** | — |
 
 Rule: if Chromatic / Jest already assert it, Playwright does not.
@@ -69,8 +69,20 @@ BACKEND_INTERNAL_URL=http://127.0.0.1:8899/api npm run dev
 ## Conventions
 
 - Import `{ test, expect }` from `../fixtures/test`, never `@playwright/test`.
-- One spec file per feature area (`tests/agents/`, `tests/chat/`, …); use
-  `test.step()` for sub-phases of a multi-step flow.
+- One spec file per feature area (`tests/agents/`, `tests/chat/`, …). Each area is
+  **two journeys → two videos**:
+  - a **success journey** that opens on the empty state (where one exists) then
+    walks the whole happy-path lifecycle (create → configure → use → delete →
+    confirm), one `test.step()` per phase;
+  - a **failure journey** that consolidates every negative/edge path (validation
+    blocks, error toasts, not-found states) into `test.step()`s.
+
+  Splitting success from failure keeps a broken edge case from taking the
+  happy-path video down with it (and vice versa) while still collapsing to ~2
+  report entries per area. Because captured requests and scenario overrides
+  accumulate across steps in one `test()`, each failure step calls `mock.reset()`
+  first so it starts from a clean slate. The app-shell smoke journey is the one
+  exception — a single test covering list states + header nav.
 - **`data-testid` policy:** prefer `getByRole` / `getByLabel`. Add `data-testid`
   only where role/text is ambiguous or unstable (list rows, per-item action
   buttons, wizard steps, combobox options). Add incrementally — no upfront sweep.
@@ -82,19 +94,17 @@ BACKEND_INTERNAL_URL=http://127.0.0.1:8899/api npm run dev
 - **Stage 0 (done):** foundation — config, stub backend, CI, one smoke test.
 - **Stage 1 (done):** page/nav helpers (`helpers/*`) + per-test scenario overrides —
   the `mock` fixture drives the stub's `/__mock/scenario` endpoint via `mocks/control.ts`
-  (e.g. `mock.noAgents()`, `mock.agentsError()`), verified by the home + nav specs.
+  (e.g. `mock.noAgents()`, `mock.agentsError()`), verified by the app-shell journey.
   Runs serially (`workers: 1`) against the shared stub; raising the worker count later
   needs per-worker servers or stateless request-keyed scenarios.
-- **Stage 2:** feature flows (gap-scoped), split into 8 sub-stages on one branch — **one
-  commit per feature**, so each is reviewable in isolation with
-  `npm run test:pw -- playwright/tests/<area>`. Shared infra (POST-capture, A2A SSE
-  mock, `forms`/`select`/`dialog` helpers) is demand-driven — introduced by the first
-  sub-stage that needs it. Ordered by importance:
-  - [x] 2.1 Create Agent (declarative) — `tests/agents/create-agent.spec.ts`
-  - [ ] 2.2 Chat / session (A2A SSE mock) — `tests/chat/chat-session.spec.ts`
-  - [x] 2.3 Models / providers — `tests/models/models.spec.ts`
-  - [x] 2.4 MCP servers & tools — `tests/mcp/mcp-server.spec.ts`
-  - [x] 2.5 Create Agent — harness/BYO — `tests/agents/create-harness.spec.ts`
-  - [x] 2.6 Agent delete / lifecycle — `tests/agents/agent-lifecycle.spec.ts`
-  - [x] 2.7 Prompt libraries — `tests/prompts/prompt-libraries.spec.ts`
-  - [x] 2.8 Onboarding completion — `tests/onboarding/onboarding.spec.ts`
+- **Stage 2:** feature flows (gap-scoped), then consolidated so each feature area
+  is **one success journey + one failure journey** (see Conventions), landing at
+  ~14 videos total. Shared infra (POST-capture, A2A SSE mock, `select` helper) is
+  demand-driven. The feature areas:
+  - [x] App shell — list states + header nav — `tests/app-shell.spec.ts`
+  - [x] Agents — create (declarative + harness) & delete — `tests/agents/agents.spec.ts`
+  - [x] Chat / session (A2A SSE mock) — `tests/chat/chat-session.spec.ts`
+  - [x] Models / providers — `tests/models/models.spec.ts`
+  - [x] MCP servers & tools — `tests/mcp/mcp-server.spec.ts`
+  - [x] Prompt libraries — `tests/prompts/prompt-libraries.spec.ts`
+  - [x] Onboarding completion — `tests/onboarding/onboarding.spec.ts`

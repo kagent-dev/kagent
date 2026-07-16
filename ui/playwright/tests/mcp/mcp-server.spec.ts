@@ -1,24 +1,26 @@
 import { test, expect } from "../../fixtures/test";
 import { loadPage, expectToast } from "../../helpers/page";
 
-// Sub-stage 2.4 — create an MCP (RemoteMCPServer) tool server. /mcp/new blocks
-// on GET /api/toolservertypes before rendering the form. Create POSTs
-// /api/toolservers (captured by the stub).
+// MCP servers & tools — one success journey + one failure journey (two videos).
+// /mcp/new blocks on GET /api/toolservertypes before rendering the form. Create
+// POSTs /api/toolservers (captured by the stub); delete DELETEs it.
+//
+// Success covers both create transports (remote HTTP + Command/stdio), the list
+// search, and delete+confirm. Failure consolidates the url-required validation
+// and the create-failure inline error into one video.
 
 const SERVER_NAME = "e2e-mcp";
 const SERVER_URL = "https://example.com/mcp";
 
-test.describe("mcp servers & tools", () => {
-  test("creates a remote MCP server and POSTs the expected payload", async ({ page, mock }) => {
+test("mcp server lifecycle: create (remote + stdio), filter, and delete", async ({ page, mock }) => {
+  await test.step("creates a remote MCP server and POSTs the expected payload", async () => {
     await loadPage(page, "/mcp/new", { heading: "New MCP server" });
 
     await page.getByLabel("Server Name").fill(SERVER_NAME);
     await page.locator("#url").fill(SERVER_URL);
-
     await page.getByRole("button", { name: "Create server" }).click();
 
     await expect(page).toHaveURL(/\/mcp(\?|$)/);
-
     const req = await mock.lastRequest<{
       type: string;
       remoteMCPServer: { metadata: { name: string }; spec: { url: string; protocol: string } };
@@ -29,28 +31,7 @@ test.describe("mcp servers & tools", () => {
     expect(req!.body.remoteMCPServer.metadata.name).toBe(SERVER_NAME);
   });
 
-  test("shows an inline error when the create fails", async ({ page, mock }) => {
-    await mock.setMutation("POST", "/api/toolservers", { status: 500, body: { error: "boom" } });
-    await loadPage(page, "/mcp/new", { heading: "New MCP server" });
-
-    await page.getByLabel("Server Name").fill(SERVER_NAME);
-    await page.locator("#url").fill(SERVER_URL);
-    await page.getByRole("button", { name: "Create server" }).click();
-
-    await expect(page.getByText("Couldn't create server")).toBeVisible();
-    await expect(page).toHaveURL(/\/mcp\/new/);
-  });
-
-  test("blocks create when the URL is empty", async ({ page, mock }) => {
-    await loadPage(page, "/mcp/new", { heading: "New MCP server" });
-
-    await page.getByRole("button", { name: "Create server" }).click();
-
-    await expect(page.getByText("URL is required")).toBeVisible();
-    expect((await mock.capturedRequests()).filter((r) => r.method === "POST")).toHaveLength(0);
-  });
-
-  test("creates an MCP server via the Command (stdio) tab", async ({ page, mock }) => {
+  await test.step("creates an MCP server via the Command (stdio) tab", async () => {
     await loadPage(page, "/mcp/new", { heading: "New MCP server" });
 
     await page.getByRole("tab", { name: "Command" }).click();
@@ -68,7 +49,18 @@ test.describe("mcp servers & tools", () => {
     expect(req!.body.mcpServer.spec.deployment.args).toContain("my-mcp-package");
   });
 
-  test("deletes a server", async ({ page, mock }) => {
+  await test.step("filters servers with the search box", async () => {
+    await loadPage(page, "/mcp", { heading: "MCP & tools" });
+    await expect(page.getByText("default/e2e-tool-server")).toBeVisible();
+
+    await page.locator("#mcp-search").fill("zzz");
+    await expect(page.getByText("No servers or tools match that filter.")).toBeVisible();
+
+    await page.getByRole("button", { name: "Clear search" }).click();
+    await expect(page.getByText("default/e2e-tool-server")).toBeVisible();
+  });
+
+  await test.step("deletes a server and confirms the DELETE", async () => {
     await loadPage(page, "/mcp", { heading: "MCP & tools" });
 
     await page.getByRole("button", { name: "Actions for server default/e2e-tool-server" }).click();
@@ -78,19 +70,30 @@ test.describe("mcp servers & tools", () => {
     await dialog.getByRole("button", { name: "Confirm" }).click();
 
     await expectToast(page, /Server removed/i, { type: "success" });
-    expect(
-      await mock.lastRequest("DELETE", "/api/toolservers/default/e2e-tool-server"),
-    ).not.toBeNull();
+    expect(await mock.lastRequest("DELETE", "/api/toolservers/default/e2e-tool-server")).not.toBeNull();
+  });
+});
+
+test("mcp failures: url validation and create error", async ({ page, mock }) => {
+  await test.step("blocks create when the URL is empty", async () => {
+    await loadPage(page, "/mcp/new", { heading: "New MCP server" });
+
+    await page.getByRole("button", { name: "Create server" }).click();
+
+    await expect(page.getByText("URL is required")).toBeVisible();
+    expect((await mock.capturedRequests()).filter((r) => r.method === "POST")).toHaveLength(0);
   });
 
-  test("filters servers with the search box", async ({ page }) => {
-    await loadPage(page, "/mcp", { heading: "MCP & tools" });
-    await expect(page.getByText("default/e2e-tool-server")).toBeVisible();
+  await test.step("shows an inline error when the create fails", async () => {
+    await mock.reset();
+    await mock.setMutation("POST", "/api/toolservers", { status: 500, body: { error: "boom" } });
+    await loadPage(page, "/mcp/new", { heading: "New MCP server" });
 
-    await page.locator("#mcp-search").fill("zzz");
-    await expect(page.getByText("No servers or tools match that filter.")).toBeVisible();
+    await page.getByLabel("Server Name").fill(SERVER_NAME);
+    await page.locator("#url").fill(SERVER_URL);
+    await page.getByRole("button", { name: "Create server" }).click();
 
-    await page.getByRole("button", { name: "Clear search" }).click();
-    await expect(page.getByText("default/e2e-tool-server")).toBeVisible();
+    await expect(page.getByText("Couldn't create server")).toBeVisible();
+    await expect(page).toHaveURL(/\/mcp\/new/);
   });
 });

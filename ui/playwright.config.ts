@@ -52,7 +52,15 @@ export default defineConfig({
       env: { STUB_PORT: String(STUB_PORT) },
     },
     {
-      command: "npm run dev",
+      // Force the webpack dev server (the default `npm run dev` uses Turbopack).
+      // Turbopack's dev server corrupts the RSC client manifest when a route is
+      // recompiled after a full-page navigation cycle (`evalManifest` throws
+      // "Invalid or unexpected token"), which surfaces as a Runtime Error overlay
+      // on the *second* cold load of "/" in a session and breaks every test that
+      // re-navigates there (onboarding variants, the app-shell error state). The
+      // bug is dev-only and Turbopack-specific, so we opt this run out of it while
+      // leaving local `npm run dev` on Turbopack for day-to-day speed.
+      command: "npm run dev -- --webpack",
       url: APP_URL,
       // Never reuse an existing dev server: the BACKEND_INTERNAL_URL below is
       // only applied to a server Playwright starts. A reused server (e.g. a
