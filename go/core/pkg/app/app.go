@@ -199,6 +199,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
+	commandLine.StringVar(&agent_translator.PythonADKImageDigest, "app-image-digest", agent_translator.PythonADKImageDigest, "Manifest digest (sha256:...) for the Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
+	commandLine.StringVar(&agent_translator.PythonADKFullImageDigest, "app-full-image-digest", agent_translator.PythonADKFullImageDigest, "Manifest digest (sha256:...) for the full Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
+	commandLine.StringVar(&agent_translator.GoADKImageDigest, "golang-adk-image-digest", agent_translator.GoADKImageDigest, "Manifest digest (sha256:...) for the Go agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
+	commandLine.StringVar(&agent_translator.GoADKFullImageDigest, "golang-adk-full-image-digest", agent_translator.GoADKFullImageDigest, "Manifest digest (sha256:...) for the full Go agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Registry, "skills-init-image-registry", agent_translator.DefaultSkillsInitImageConfig.Registry, "The registry to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
@@ -216,6 +220,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
 	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
+
+	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentNodeSelector}, "default-agent-node-selector", "Comma-separated key=value pairs of node selector terms to apply to all agent deployments (e.g. 'kubernetes.io/os=linux'). A per-agent nodeSelector takes precedence.")
 
 	commandLine.StringVar(&agent_translator.DefaultAgentBindHost, "default-agent-bind-host", agent_translator.DefaultAgentBindHost, "Default host address for agent pods to bind to. Use '0.0.0.0' for IPv4 only or '::' for dual-stack (IPv4+IPv6).")
 }
