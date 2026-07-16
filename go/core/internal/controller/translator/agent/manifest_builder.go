@@ -596,7 +596,7 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 			ObjectMeta: manifestCtx.objectMeta(),
 			Spec: appsv1.DeploymentSpec{
 				Replicas: manifestCtx.deployment.Replicas,
-				Strategy: deploymentStrategy(manifestCtx.deployment.DeploymentStrategy),
+				Strategy: manifestCtx.deployment.DeploymentStrategy,
 				Selector: &metav1.LabelSelector{MatchLabels: manifestCtx.selectorLabels},
 				Template: podTemplate,
 			},
@@ -611,21 +611,6 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 			},
 		},
 	}, nil
-}
-
-// deploymentStrategy returns the user-provided Deployment update strategy,
-// falling back to RollingUpdate{maxUnavailable: 0, maxSurge: 1} when unset.
-func deploymentStrategy(strategy *appsv1.DeploymentStrategy) appsv1.DeploymentStrategy {
-	if strategy != nil {
-		return *strategy
-	}
-	return appsv1.DeploymentStrategy{
-		Type: appsv1.RollingUpdateDeploymentStrategyType,
-		RollingUpdate: &appsv1.RollingUpdateDeployment{
-			MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-			MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
-		},
-	}
 }
 
 func (a *adkApiTranslator) setManifestOwnerReferences(

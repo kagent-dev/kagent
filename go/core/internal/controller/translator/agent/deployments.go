@@ -9,6 +9,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
@@ -49,7 +50,7 @@ type resolvedDeployment struct {
 	ServiceAccountName   *string
 	ServiceAccountConfig *v1alpha2.ServiceAccountConfig
 	ExtraContainers      []corev1.Container
-	DeploymentStrategy   *appsv1.DeploymentStrategy
+	DeploymentStrategy   appsv1.DeploymentStrategy
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -67,6 +68,40 @@ func getDefaultResources(spec *corev1.ResourceRequirements) corev1.ResourceRequi
 		}
 	}
 	return *spec
+}
+
+// getDefaultDeploymentStrategy returns the Deployment update strategy to use,
+// falling back to RollingUpdate{maxUnavailable: 0, maxSurge: 1} when unset.
+// A partial RollingUpdate strategy is merged with those defaults so the emitted
+// Deployment matches what the API server stores, avoiding reconcile hotloops.
+// The input is deep-copied so the result never aliases the Agent CR object.
+func getDefaultDeploymentStrategy(strategy *appsv1.DeploymentStrategy) appsv1.DeploymentStrategy {
+	if strategy == nil {
+		return appsv1.DeploymentStrategy{
+			Type: appsv1.RollingUpdateDeploymentStrategyType,
+			RollingUpdate: &appsv1.RollingUpdateDeployment{
+				MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
+				MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
+			},
+		}
+	}
+
+	out := *strategy.DeepCopy()
+	if out.Type == "" {
+		out.Type = appsv1.RollingUpdateDeploymentStrategyType
+	}
+	if out.Type == appsv1.RollingUpdateDeploymentStrategyType {
+		if out.RollingUpdate == nil {
+			out.RollingUpdate = &appsv1.RollingUpdateDeployment{}
+		}
+		if out.RollingUpdate.MaxUnavailable == nil {
+			out.RollingUpdate.MaxUnavailable = &intstr.IntOrString{Type: intstr.Int, IntVal: 0}
+		}
+		if out.RollingUpdate.MaxSurge == nil {
+			out.RollingUpdate.MaxSurge = &intstr.IntOrString{Type: intstr.Int, IntVal: 1}
+		}
+	}
+	return out
 }
 
 func getDefaultLabels(agentName string, incoming map[string]string) map[string]string {
@@ -276,7 +311,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 		ExtraContainers:      slices.Clone(spec.ExtraContainers),
-		DeploymentStrategy:   spec.DeploymentStrategy,
+		DeploymentStrategy:   getDefaultDeploymentStrategy(spec.DeploymentStrategy),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
@@ -361,7 +396,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 		ExtraContainers:      slices.Clone(spec.ExtraContainers),
-		DeploymentStrategy:   spec.DeploymentStrategy,
+		DeploymentStrategy:   getDefaultDeploymentStrategy(spec.DeploymentStrategy),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)

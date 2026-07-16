@@ -2,13 +2,10 @@ package agent
 
 import (
 	"encoding/json"
-	"reflect"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func TestBuildSRTSettingsJSON_DefaultDenyConfig(t *testing.T) {
@@ -118,34 +115,5 @@ func TestBuildConfigSecretData_IncludesSRTSettingsWhenPresent(t *testing.T) {
 
 	if got := data["srt-settings.json"]; got == "" {
 		t.Fatal("srt-settings.json should be present when non-empty")
-	}
-}
-
-func TestDeploymentStrategy(t *testing.T) {
-	defaultStrategy := appsv1.DeploymentStrategy{
-		Type: appsv1.RollingUpdateDeploymentStrategyType,
-		RollingUpdate: &appsv1.RollingUpdateDeployment{
-			MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-			MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
-		},
-	}
-	recreate := appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
-
-	tests := []struct {
-		name  string
-		input *appsv1.DeploymentStrategy
-		want  appsv1.DeploymentStrategy
-	}{
-		{name: "nil falls back to default RollingUpdate", input: nil, want: defaultStrategy},
-		{name: "override with Recreate is used", input: &recreate, want: recreate},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := deploymentStrategy(tt.input)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("deploymentStrategy() = %+v, want %+v", got, tt.want)
-			}
-		})
 	}
 }

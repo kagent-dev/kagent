@@ -488,7 +488,11 @@ type SharedDeploymentSpec struct {
 	// DeploymentStrategy overrides the agent Deployment update strategy.
 	// Useful for agents mounting ReadWriteOnce volumes, which require the
 	// Recreate strategy to avoid multi-attach errors during rollouts.
-	// Defaults to RollingUpdate with maxUnavailable 0 and maxSurge 1 when unset.
+	// When unset, defaults to RollingUpdate with maxUnavailable 0 and maxSurge 1.
+	// When set with type RollingUpdate (or with type omitted), any unset
+	// rollingUpdate fields default the same way: maxUnavailable to 0 and
+	// maxSurge to 1. Recreate is passed through as-is.
+	// +kubebuilder:validation:XValidation:rule="!(has(self.type) && self.type == 'Recreate' && has(self.rollingUpdate))",message="rollingUpdate may not be specified when strategy type is Recreate"
 	// +optional
 	DeploymentStrategy *appsv1.DeploymentStrategy `json:"deploymentStrategy,omitempty"`
 }
