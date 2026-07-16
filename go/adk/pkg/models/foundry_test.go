@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
 )
@@ -87,28 +88,10 @@ type fakeFoundryCredential struct {
 
 func (c *fakeFoundryCredential) GetToken(_ context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error) {
 	c.t.Helper()
-	if len(opts.Scopes) != 1 || opts.Scopes[0] != foundryCognitiveServicesScope {
+	if len(opts.Scopes) != 1 || opts.Scopes[0] != azureai.CognitiveServicesScope {
 		c.t.Fatalf("Scopes = %v, want cognitive services scope", opts.Scopes)
 	}
 	return azcore.AccessToken{Token: c.token}, nil
-}
-
-// TestFoundryBearerTokenMiddlewareSetsAuthorization verifies the implicit
-// workload-identity path: the middleware acquires a token at the cognitive
-// services scope and sets it as a bearer Authorization header.
-func TestFoundryBearerTokenMiddlewareSetsAuthorization(t *testing.T) {
-	middleware := foundryBearerTokenMiddleware(&fakeFoundryCredential{t: t, token: "entra-token"})
-	req := httptest.NewRequest(http.MethodPost, "https://example.com/openai/deployments/x/chat/completions", nil)
-
-	_, err := middleware(req, func(r *http.Request) (*http.Response, error) {
-		if got := r.Header.Get("Authorization"); got != "Bearer entra-token" {
-			t.Fatalf("Authorization = %q, want bearer token", got)
-		}
-		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
-	})
-	if err != nil {
-		t.Fatalf("middleware error = %v", err)
-	}
 }
 
 type erroringFoundryCredential struct{}
@@ -124,13 +107,10 @@ func (erroringFoundryCredential) GetToken(context.Context, policy.TokenRequestOp
 func TestFoundryWorkloadIdentityEagerProbeFailsReadiness(t *testing.T) {
 	t.Setenv("FOUNDRY_API_KEY", "")
 
-	old := foundryCredentialFactory
-	foundryCredentialFactory = func() (foundryTokenCredential, error) { return erroringFoundryCredential{}, nil }
-	t.Cleanup(func() { foundryCredentialFactory = old })
-
 	_, err := NewFoundryModelWithLogger(context.Background(), &FoundryConfig{
 		Endpoint:   "https://example.cognitiveservices.azure.com/",
 		Deployment: "gpt-4-1-nano",
+		credential: erroringFoundryCredential{},
 	}, logr.Discard())
 	if err == nil || !strings.Contains(err.Error(), "no Foundry credential resolved") {
 		t.Fatalf("NewFoundryModelWithLogger() error = %v, want credential-not-resolved", err)
@@ -142,15 +122,10 @@ func TestFoundryWorkloadIdentityEagerProbeFailsReadiness(t *testing.T) {
 func TestFoundryWorkloadIdentityEagerProbeSucceeds(t *testing.T) {
 	t.Setenv("FOUNDRY_API_KEY", "")
 
-	old := foundryCredentialFactory
-	foundryCredentialFactory = func() (foundryTokenCredential, error) {
-		return &fakeFoundryCredential{t: t, token: "entra-token"}, nil
-	}
-	t.Cleanup(func() { foundryCredentialFactory = old })
-
 	model, err := NewFoundryModelWithLogger(context.Background(), &FoundryConfig{
 		Endpoint:   "https://example.cognitiveservices.azure.com/",
 		Deployment: "gpt-4-1-nano",
+		credential: &fakeFoundryCredential{t: t, token: "entra-token"},
 	}, logr.Discard())
 	if err != nil {
 		t.Fatalf("NewFoundryModelWithLogger() error = %v", err)

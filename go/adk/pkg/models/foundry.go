@@ -3,21 +3,12 @@ package models
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/go-logr/logr"
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
+	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 )
-
-// foundryCognitiveServicesScope is the Azure data-plane scope used to request
-// tokens for the Foundry / Azure AI Services OpenAI-compatible API.
-const foundryCognitiveServicesScope = "https://cognitiveservices.azure.com/.default"
 
 // FoundryConfig holds Azure AI Foundry configuration.
 type FoundryConfig struct {
@@ -26,18 +17,25 @@ type FoundryConfig struct {
 	Endpoint   string
 	Deployment string
 	APIVersion string
+
+	// credential overrides the Azure credential used for the implicit Workload
+	// Identity auth path. When nil, azureai.NewDefaultCredential is used. It is
+	// unexported and exists so tests can inject a fake credential.
+	credential azureai.TokenCredential
 }
 
-// NewFoundryModelWithLogger creates an Azure AI Foundry model.
+// NewFoundryModelWithLogger creates a model for the Azure AI Foundry
+// OpenAI-compatible surface.
 //
-// Foundry is driven through its OpenAI-compatible chat/completions data plane
-// (POST {endpoint}/openai/deployments/{deployment}/chat/completions), which is
-// a unified, multi-vendor surface: the deployment name selects the underlying
-// model, so this single client reaches OpenAI models as well as other
-// chat-completion models sold by Azure on Foundry (for example DeepSeek, Meta
-// Llama, Mistral, Cohere, xAI Grok). It does not cover models that require a
-// non-OpenAI wire format or a custom API (for example rerank, image, or
-// time-series models). See:
+// This constructor targets Foundry's OpenAI-compatible chat/completions data
+// plane (POST {endpoint}/openai/deployments/{deployment}/chat/completions). That
+// surface is multi-vendor: the deployment name selects the underlying model, so
+// this single client reaches OpenAI models as well as the non-OpenAI
+// chat-completion models Azure sells directly on Foundry (for example DeepSeek,
+// Meta Llama, Mistral, Cohere, xAI Grok). It does not cover models served through
+// a different wire surface — notably Claude, which uses the Anthropic Messages
+// API (planned as a separate azureai.NewAnthropicClient) — nor non-chat models
+// such as rerank, image, or time-series. See:
 //   - https://learn.microsoft.com/en-us/azure/ai-foundry/model-inference/concepts/endpoints
 //   - https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-models/concepts/models-sold-directly-by-azure
 //
@@ -46,67 +44,60 @@ type FoundryConfig struct {
 // DefaultAzureCredential, which resolves to Azure Workload Identity in-cluster
 // (or the az CLI in local development).
 func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logger logr.Logger) (*OpenAIModel, error) {
-	endpoint := config.Endpoint
-	if endpoint == "" {
-		endpoint = os.Getenv("FOUNDRY_ENDPOINT")
-	}
+	endpoint, deployment, apiVersion := azureai.ResolveFoundry(config.Endpoint, config.Deployment, config.APIVersion)
 	if endpoint == "" {
 		return nil, fmt.Errorf("FOUNDRY_ENDPOINT environment variable is not set")
 	}
-	deployment := config.Deployment
-	if deployment == "" {
-		deployment = os.Getenv("FOUNDRY_DEPLOYMENT")
-	}
 	if deployment == "" {
 		return nil, fmt.Errorf("FOUNDRY_DEPLOYMENT environment variable is not set")
-	}
-	apiVersion := config.APIVersion
-	if apiVersion == "" {
-		apiVersion = os.Getenv("FOUNDRY_API_VERSION")
-	}
-	if apiVersion == "" {
-		apiVersion = "2024-10-21"
 	}
 
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err
 	}
-	opts := []option.RequestOption{
-		option.WithBaseURL(strings.TrimSuffix(endpoint, "/") + "/"),
-		option.WithQueryAdd("api-version", apiVersion),
-		option.WithMiddleware(azurePathRewriteMiddleware()),
-		option.WithHTTPClient(httpClient),
+
+	clientCfg := azureai.ClientConfig{
+		Endpoint:   endpoint,
+		Deployment: deployment,
+		APIVersion: apiVersion,
+		HTTPClient: httpClient,
 	}
 
 	// Implicit auth: use the API key when provided, otherwise fall back to
 	// DefaultAzureCredential (Workload Identity in-cluster, az CLI in dev).
-	if apiKey := os.Getenv("FOUNDRY_API_KEY"); apiKey != "" {
-		opts = append(opts, option.WithHeader("Api-Key", apiKey))
+	if apiKey := os.Getenv(azureai.FoundryAPIKeyEnvVar); apiKey != "" {
+		clientCfg.APIKey = apiKey
 		if logger.GetSink() != nil {
 			logger.Info("Foundry authenticating with API key", "deployment", deployment)
 		}
 	} else {
-		credential, err := foundryCredentialFactory()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Azure credential for Foundry: %w", err)
+		credential := config.credential
+		if credential == nil {
+			credential, err = azureai.NewDefaultCredential()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create Azure credential for Foundry: %w", err)
+			}
 		}
 		// Eagerly acquire a token so a missing or misconfigured Workload Identity
 		// fails readiness at startup with an actionable error, instead of failing
 		// silently on the first inference request.
-		if _, err := credential.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{foundryCognitiveServicesScope}}); err != nil {
+		if _, err := azureai.AcquireToken(ctx, credential); err != nil {
 			return nil, fmt.Errorf("no Foundry credential resolved: set an API key (apiKeySecret / FOUNDRY_API_KEY) or configure Azure Workload Identity (pod label + ServiceAccount annotation + federated credential): %w", err)
 		}
-		opts = append(opts,
-			option.WithAPIKey("foundry-entra"),
-			option.WithMiddleware(foundryBearerTokenMiddleware(credential)),
-		)
+		clientCfg.Credential = credential
 		if logger.GetSink() != nil {
 			logger.Info("Foundry authenticating with DefaultAzureCredential (Workload Identity)", "deployment", deployment)
 		}
 	}
 
-	client := openai.NewClient(opts...)
+	// A future apiFormat=anthropic discriminator on the ModelConfig would branch
+	// here to azureai.NewAnthropicClient (the Anthropic Messages surface, reusing
+	// the same azureai credential + token helpers).
+	client, err := azureai.NewOpenAIClient(clientCfg)
+	if err != nil {
+		return nil, err
+	}
 	if logger.GetSink() != nil {
 		logger.Info("Initialized Foundry model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "apiVersion", apiVersion)
 	}
@@ -120,33 +111,4 @@ func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logge
 		IsAzure: true,
 		Logger:  logger,
 	}, nil
-}
-
-type foundryTokenCredential interface {
-	GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error)
-}
-
-// foundryCredentialFactory constructs the Azure credential used for the implicit
-// Workload Identity auth path. It is a package variable so tests can inject a
-// fake credential.
-var foundryCredentialFactory = func() (foundryTokenCredential, error) {
-	return azidentity.NewDefaultAzureCredential(nil)
-}
-
-// foundryBearerTokenMiddleware implements the implicit Workload Identity auth
-// path: when no FOUNDRY_API_KEY is set, it acquires an Azure AD bearer token
-// from the provided credential (DefaultAzureCredential, which resolves to Azure
-// Workload Identity in-cluster) and attaches it to each request, replacing the
-// placeholder API key. This is distinct from API-key passthrough — the token
-// comes from the workload's own identity, not from an incoming caller request.
-func foundryBearerTokenMiddleware(credential foundryTokenCredential) option.Middleware {
-	return func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-		token, err := credential.GetToken(r.Context(), policy.TokenRequestOptions{Scopes: []string{foundryCognitiveServicesScope}})
-		if err != nil {
-			return nil, fmt.Errorf("failed to acquire Foundry token: %w", err)
-		}
-		r = r.Clone(r.Context())
-		r.Header.Set("Authorization", "Bearer "+token.Token)
-		return next(r)
-	}
 }
