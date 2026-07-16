@@ -11,6 +11,8 @@ from google.adk.tools.mcp_tool.mcp_toolset import McpToolset, ReadonlyContext
 from google.adk.tools.tool_context import ToolContext
 from mcp.shared.exceptions import McpError
 
+from kagent.adk._mcp_apps import MCPAppToolNames
+
 logger = logging.getLogger("kagent_adk." + __name__)
 
 # Connection errors that indicate an unreachable MCP server.
@@ -126,7 +128,20 @@ class KAgentMcpToolset(McpToolset):
 
     This is particularly useful for explicitly catching and enriching failures that the base
     implementation may not catch and propagate without enough context.
+
+    When an ``app_tool_names`` registry is supplied, the names of MCP App
+    (UI-rendering) tools are recorded into it as tools are resolved, so the
+    agent's before-model callback can compact their results for the model
+    (see ``_mcp_apps.make_mcp_app_model_result_callback``).
     """
+
+    # Class-level default so instances created via __new__ (e.g. in tests that
+    # bypass __init__) still resolve the attribute.
+    _app_tool_names: Optional[MCPAppToolNames] = None
+
+    def __init__(self, *args: Any, app_tool_names: Optional[MCPAppToolNames] = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._app_tool_names = app_tool_names
 
     async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> list[BaseTool]:
         try:
@@ -138,10 +153,22 @@ class KAgentMcpToolset(McpToolset):
         # errors are returned as error text instead of raised.
         wrapped_tools: list[BaseTool] = []
         for tool in tools:
-            if isinstance(tool, McpTool) and not isinstance(tool, ConnectionSafeMcpTool):
-                wrapped_tools.append(ConnectionSafeMcpTool(tool))
-            else:
-                wrapped_tools.append(tool)
+            if isinstance(tool, McpTool):
+                # getattr guards against partially-constructed McpTool stubs
+                # whose visibility/mcp_app_resource_uri properties would raise.
+                visibility = getattr(tool, "visibility", None) or []
+                # App-only tools (_meta.ui.visibility declares "app" but not
+                # "model") MUST NOT be exposed to the model; they stay callable
+                # only from the rendered MCP App. Mirrors the Go ADK filter in
+                # go/adk/pkg/mcp/mcp_ui.go (mcpToolKindAppInternal).
+                if "app" in visibility and "model" not in visibility:
+                    continue
+                if self._app_tool_names is not None and getattr(tool, "mcp_app_resource_uri", None):
+                    self._app_tool_names.add(tool.name)
+                if not isinstance(tool, ConnectionSafeMcpTool):
+                    wrapped_tools.append(ConnectionSafeMcpTool(tool))
+                    continue
+            wrapped_tools.append(tool)
         return wrapped_tools
 
     async def close(self) -> None:

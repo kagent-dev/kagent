@@ -70,8 +70,8 @@ def convert_a2a_part_to_genai_part(
         # Convert the Data Part to funcall and function response.
         # This is mainly for converting human in the loop and auth request and
         # response.
-        # TODO once A2A defined how to suervice such information, migrate below
-        # logic accordinlgy
+        # TODO once A2A defined how to surface such information, migrate below
+        # logic accordingly
         if part.metadata and get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY) in part.metadata:
             if (
                 part.metadata[get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY)]
@@ -150,8 +150,8 @@ def convert_genai_part_to_a2a_part(
     # Convert the funcall and function response to A2A DataPart.
     # This is mainly for converting human in the loop and auth request and
     # response.
-    # TODO once A2A defined how to suervice such information, migrate below
-    # logic accordinlgy
+    # TODO once A2A defined how to surface such information, migrate below
+    # logic accordingly
     if part.function_call:
         return a2a_types.Part(
             root=a2a_types.DataPart(
