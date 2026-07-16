@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	coredatabase "github.com/kagent-dev/kagent/go/core/internal/database"
@@ -131,7 +130,7 @@ func TestEnsureSessionRow(t *testing.T) {
 		if err := rt.ensureSessionRow(ctx, "sess-3", ""); err == nil {
 			t.Fatal("expected an error when the request carries no user identity")
 		}
-		if _, err := db.GetSession(ctx, "sess-3", ""); !errors.Is(err, pgx.ErrNoRows) {
+		if _, err := db.GetSession(ctx, "sess-3", ""); !errors.Is(err, database.ErrNotFound) {
 			t.Fatalf("expected no row, got %v", err)
 		}
 	})

@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -123,7 +122,7 @@ func (t *substrateSandboxSessionRoundTripper) ensureSessionRow(ctx context.Conte
 	if err == nil {
 		return nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, database.ErrNotFound) {
 		return fmt.Errorf("get session %q: %w", sessionID, err)
 	}
 	agentID := utils.ConvertToPythonIdentifier(t.sandboxAgent.Namespace + "/" + t.sandboxAgent.Name)
