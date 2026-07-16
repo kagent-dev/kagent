@@ -3,7 +3,7 @@ name = "kebab"
 version = "0.1.0"
 description = "Minimal LangGraph kebab sample for kagent (fake tool, no external APIs)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "kagent-langgraph",
     "langgraph>=1.2.9",
