@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -484,6 +485,12 @@ type SharedDeploymentSpec struct {
 	// Useful for sidecars such as token proxies, log shippers, or security agents.
 	// +optional
 	ExtraContainers []corev1.Container `json:"extraContainers,omitempty"`
+	// DeploymentStrategy overrides the agent Deployment update strategy.
+	// Useful for agents mounting ReadWriteOnce volumes, which require the
+	// Recreate strategy to avoid multi-attach errors during rollouts.
+	// Defaults to RollingUpdate with maxUnavailable 0 and maxSurge 1 when unset.
+	// +optional
+	DeploymentStrategy *appsv1.DeploymentStrategy `json:"deploymentStrategy,omitempty"`
 }
 
 type ServiceAccountConfig struct {

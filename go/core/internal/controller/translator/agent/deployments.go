@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -48,6 +49,7 @@ type resolvedDeployment struct {
 	ServiceAccountName   *string
 	ServiceAccountConfig *v1alpha2.ServiceAccountConfig
 	ExtraContainers      []corev1.Container
+	DeploymentStrategy   *appsv1.DeploymentStrategy
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -274,6 +276,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 		ExtraContainers:      slices.Clone(spec.ExtraContainers),
+		DeploymentStrategy:   spec.DeploymentStrategy,
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
@@ -358,6 +361,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 		ExtraContainers:      slices.Clone(spec.ExtraContainers),
+		DeploymentStrategy:   spec.DeploymentStrategy,
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
