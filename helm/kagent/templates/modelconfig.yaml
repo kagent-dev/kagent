@@ -12,7 +12,7 @@ metadata:
   namespace: {{ include "kagent.namespace" . }}
   labels:
     {{- include "kagent.labels" $dot | nindent 4 }}
-  {{- with $model.annotations }}
+  {{- with .Values.providers.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}

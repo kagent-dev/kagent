@@ -473,6 +473,9 @@ ui:
 
 providers:
   default: openAI
+  # -- Annotations added to the metadata of the generated default ModelConfig
+  # (the one derived from `providers.default`). Omitted from the resource when empty.
+  annotations: {}
   openAI:
     provider: OpenAI
     model: "gpt-4.1-mini"
@@ -486,9 +489,6 @@ providers:
     #   caCertSecretRef: ""
     #   caCertSecretKey: ""
     #   disableSystemCAs: false
-    # -- Optional annotations added to the generated default ModelConfig's metadata.
-    # Applied only to the provider selected by `providers.default`.
-    annotations: {}
   ollama:
     provider: Ollama
     model: "llama3.2"
