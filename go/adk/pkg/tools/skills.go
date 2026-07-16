@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,6 +80,7 @@ Python Imports (CRITICAL):
 
 For file operations:
 - Use read_file, write_file, and edit_file for interacting with the filesystem.
+- Use list_files and grep_file to explore the filesystem without a full shell command.
 
 Timeouts:
 - python scripts: 60s
@@ -302,6 +304,8 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 			return nil, fmt.Errorf("failed to create bash tool: %w", err)
 		}
 		tools = append(tools, bashTool)
+	} else {
+		slog.Debug("omitting bash tool: sandbox-runtime not configured", "error", err)
 	}
 
 	return tools, nil
@@ -332,7 +336,7 @@ func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, 
 		return "", err
 	}
 
-	if !isWithinRoot(resolvedCandidate, sessionRoot) && !isWithinRoot(resolvedCandidate, skillsRoot) {
+	if !skillruntime.WithinRoot(resolvedCandidate, sessionRoot) && !skillruntime.WithinRoot(resolvedCandidate, skillsRoot) {
 		return "", fmt.Errorf("path %q is outside the allowed roots", requestedPath)
 	}
 
@@ -359,7 +363,7 @@ func resolveEditPath(sessionID, skillsDirectory, requestedPath string) (string, 
 	if err != nil {
 		return "", err
 	}
-	if !isWithinRoot(resolvedCandidate, sessionRoot) {
+	if !skillruntime.WithinRoot(resolvedCandidate, sessionRoot) {
 		return "", fmt.Errorf("path %q is outside the writable session directory", requestedPath)
 	}
 
@@ -386,7 +390,7 @@ func resolveWritePath(sessionID, skillsDirectory, requestedPath string) (string,
 	if err != nil {
 		return "", err
 	}
-	if !isWithinRoot(resolvedCandidate, sessionRoot) {
+	if !skillruntime.WithinRoot(resolvedCandidate, sessionRoot) {
 		return "", fmt.Errorf("path %q is outside the writable session directory", requestedPath)
 	}
 
@@ -438,10 +442,4 @@ func resolvePathWithExistingParents(path string) (string, error) {
 		}
 		current = parent
 	}
-}
-
-func isWithinRoot(path, root string) bool {
-	path = filepath.Clean(path)
-	root = filepath.Clean(root)
-	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }

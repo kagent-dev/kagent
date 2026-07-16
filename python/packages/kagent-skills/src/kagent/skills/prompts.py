@@ -133,6 +133,7 @@ Python Imports (CRITICAL):
 
 For file operations:
 - Use read_file, write_file, and edit_file for interacting with the filesystem.
+- Use list_files and grep_file to explore the filesystem without a full shell command.
 
 Timeouts:
 - python scripts: 60s

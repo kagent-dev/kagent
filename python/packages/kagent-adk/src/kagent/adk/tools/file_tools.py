@@ -6,6 +6,7 @@ files on the filesystem within the sandbox environment.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any, Dict
@@ -183,6 +184,11 @@ class ListFilesTool(BaseTool):
 class GrepFileTool(BaseTool):
     """Search for a regular expression pattern in a file or directory."""
 
+    # Bounds regex execution time: the pattern is agent-controlled, and Python's
+    # backtracking `re` engine can take catastrophically long on adversarial
+    # patterns (unlike Go's RE2-based regexp, which is linear-time).
+    _TIMEOUT_SECONDS = 30
+
     def __init__(self, skills_directory: str | Path):
         super().__init__(
             name="grep_file",
@@ -239,13 +245,19 @@ class GrepFileTool(BaseTool):
                 path = working_dir / path
             path = path.resolve()
 
-            return grep_content(
-                path,
-                pattern,
-                recursive=recursive,
-                ignore_case=ignore_case,
-                allowed_root=[working_dir, Path(self.skills_directory)],
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    grep_content,
+                    path,
+                    pattern,
+                    recursive=recursive,
+                    ignore_case=ignore_case,
+                    allowed_root=[working_dir, Path(self.skills_directory)],
+                ),
+                timeout=self._TIMEOUT_SECONDS,
             )
+        except TimeoutError:
+            return f"Error searching {path_str}: pattern took too long to match (possible catastrophic backtracking); try a simpler pattern"
         except (FileNotFoundError, IsADirectoryError, ValueError, PermissionError, IOError) as e:
             return f"Error searching {path_str}: {e}"
 

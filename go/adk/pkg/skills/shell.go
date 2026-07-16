@@ -140,6 +140,15 @@ func ListDirContent(path string) (string, error) {
 	return strings.TrimSuffix(result.String(), "\n"), nil
 }
 
+// WithinRoot reports whether resolved (an already symlink-resolved path) is
+// root itself or nested under it. Callers are responsible for resolving
+// symlinks on both arguments first; this is a pure path-containment check.
+func WithinRoot(resolved, root string) bool {
+	resolved = filepath.Clean(resolved)
+	root = filepath.Clean(root)
+	return resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))
+}
+
 // GrepContent searches path for lines matching a regular expression pattern.
 // If path is a directory, recursive must be true to search its files.
 func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, error) {
@@ -181,7 +190,11 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 		if !recursive {
 			return "", fmt.Errorf("%q is a directory; set recursive=true to search directories", path)
 		}
-		root, err := filepath.EvalSymlinks(path)
+		// Reuse the outer err (rather than := , which would shadow it in this
+		// block) so a WalkDir failure below is actually observed by the
+		// err != nil check after this if/else.
+		var root string
+		root, err = filepath.EvalSymlinks(path)
 		if err != nil {
 			return "", err
 		}
@@ -192,15 +205,20 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 			if d.IsDir() {
 				return nil
 			}
-			// Skip entries whose symlink-resolved target escapes the root
-			// being searched, so a symlink can't be used to read files
-			// outside the requested directory.
 			resolved, err := filepath.EvalSymlinks(p)
 			if err != nil {
 				return nil
 			}
-			rel, err := filepath.Rel(root, resolved)
-			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			if fi, statErr := os.Stat(resolved); statErr == nil && fi.IsDir() {
+				// p is a symlink to a directory: WalkDir doesn't recurse into
+				// symlinked directories, and grepFile would fail trying to
+				// read one as a file, so skip it rather than aborting the walk.
+				return nil
+			}
+			// Skip entries whose symlink-resolved target escapes the root
+			// being searched, so a symlink can't be used to read files
+			// outside the requested directory.
+			if !WithinRoot(resolved, root) {
 				return nil
 			}
 			return grepFile(p)

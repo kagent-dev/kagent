@@ -435,6 +435,47 @@ func TestGrepContent(t *testing.T) {
 			t.Errorf("expected symlinked file outside root to be skipped, got %q", result)
 		}
 	})
+
+	t.Run("recursive search does not abort on an in-bounds directory symlink", func(t *testing.T) {
+		walkDir := createTempDir(t)
+		defer os.RemoveAll(walkDir)
+
+		if err := os.WriteFile(filepath.Join(walkDir, "aaa_first.txt"), []byte("foo one\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+		realSub := filepath.Join(walkDir, "real_sub")
+		if err := os.Mkdir(realSub, 0755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+
+		// A symlink to an in-bounds directory, lexically sorted between the
+		// two files below, so an incorrect abort partway through the walk
+		// would silently drop "zzz_sub"'s match.
+		linkPath := filepath.Join(walkDir, "mmm_link")
+		if err := os.Symlink(realSub, linkPath); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+		defer os.Remove(linkPath)
+
+		zzzSub := filepath.Join(walkDir, "zzz_sub")
+		if err := os.Mkdir(zzzSub, 0755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(zzzSub, "zzz_last.txt"), []byte("foo two\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		result, err := GrepContent(walkDir, "foo", true, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.Contains(result, "aaa_first.txt:1:foo one") {
+			t.Errorf("expected match before the symlink, got %q", result)
+		}
+		if !strings.Contains(result, "zzz_last.txt:1:foo two") {
+			t.Errorf("expected match after the symlink (walk must not abort on it), got %q", result)
+		}
+	})
 }
 
 func TestExecuteCommand(t *testing.T) {
