@@ -168,6 +168,12 @@ def grep_content(
     """Searches path for lines matching a regular expression pattern.
 
     If path is a directory, recursive must be true to search its files.
+
+    pattern is untrusted, agent-controlled input: Python's backtracking `re`
+    engine can take catastrophically long on an adversarial pattern. This
+    function does not bound its own execution time -- callers must do so
+    (e.g. via a timeout around a thread/process offload) if the caller is
+    exposed to untrusted patterns.
     """
     file_or_dir_path = _validate_path(file_or_dir_path, allowed_root)
 
@@ -185,14 +191,45 @@ def grep_content(
             for line_num, line in enumerate(f, start=1):
                 line = line.rstrip("\n")
                 if compiled.search(line):
+                    if len(line) > 2000:
+                        line = line[:2000] + "..."
                     matches.append(f"{file_path}:{line_num}:{line}")
         return matches
 
     results: list[str] = []
+    skipped = 0
     if file_or_dir_path.is_dir():
         if not recursive:
             raise IsADirectoryError(f"{file_or_dir_path} is a directory; set recursive=true to search directories")
-        for entry in sorted(file_or_dir_path.rglob("*")):
+
+        # os.walk (not rglob) so that a directory-level failure -- root or
+        # nested -- is observable via onerror. rglob() silently omits any
+        # directory it can't list, at any depth, with no hook to detect it;
+        # that let a nested unreadable subdirectory disappear from a
+        # recursive search with no signal at all, exactly the "confidently
+        # wrong empty result" failure mode skipped/the annotation below
+        # exists to prevent. followlinks defaults to False, so this doesn't
+        # descend into symlinked directories, matching grepFile's Go twin.
+        root_str = str(file_or_dir_path)
+        walk_errors: list[OSError] = []
+        entries: list[Path] = []
+        for dirpath, _dirnames, filenames in os.walk(file_or_dir_path, onerror=walk_errors.append):
+            entries.extend(Path(dirpath) / name for name in filenames)
+
+        for walk_err in walk_errors:
+            if walk_err.filename == root_str:
+                # The search root itself couldn't be read: the search never
+                # actually ran, so surface a real error instead of a
+                # misleadingly confident "no matches found".
+                raise OSError(f"{file_or_dir_path} could not be read: {walk_err}") from walk_err
+        # A nested subdirectory that couldn't be read shouldn't abort
+        # matches already found in sibling directories -- just count it.
+        skipped += len(walk_errors)
+
+        for entry in sorted(entries):
+            # is_file() follows symlinks and checks S_ISREG, so this also
+            # excludes FIFOs/sockets/devices -- opening one for reading can
+            # block indefinitely (e.g. a FIFO with no writer connected).
             if not entry.is_file():
                 continue
             try:
@@ -202,11 +239,22 @@ def grep_content(
                 safe_entry = _validate_path(entry, allowed_root)
             except PermissionError:
                 continue
-            results.extend(grep_file(safe_entry))
+            try:
+                results.extend(grep_file(safe_entry))
+            except OSError:
+                # A read error on one file shouldn't abort matches already
+                # found elsewhere in the tree, but it also shouldn't look
+                # identical to a genuinely empty search -- see the note below.
+                skipped += 1
+                continue
     else:
+        if not file_or_dir_path.is_file():
+            raise OSError(f"{file_or_dir_path} is not a regular file")
         results.extend(grep_file(file_or_dir_path))
 
     if not results:
+        if skipped:
+            return f"no matches found ({skipped} entries could not be read)"
         return "no matches found"
 
     return "\n".join(results)

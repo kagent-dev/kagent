@@ -149,6 +149,55 @@ func WithinRoot(resolved, root string) bool {
 	return resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))
 }
 
+type walkEntryAction int
+
+const (
+	// walkEntryGrep: a regular, in-bounds file that should be grepped.
+	walkEntryGrep walkEntryAction = iota
+	// walkEntrySkip: silently excluded by policy, not a read failure -- a
+	// directory, a symlinked directory, a non-regular file (FIFO/socket/
+	// device), or a symlink whose target escapes the search root.
+	walkEntrySkip
+	// walkEntryUnreadable: a genuine read/stat failure on this entry.
+	walkEntryUnreadable
+)
+
+// classifyWalkEntry decides how GrepContent's WalkDir callback should treat
+// p, given the resolved search root. It never opens p for reading -- the
+// caller is responsible for that once this returns walkEntryGrep.
+func classifyWalkEntry(root, p string, d fs.DirEntry) walkEntryAction {
+	if d.IsDir() {
+		return walkEntrySkip
+	}
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return walkEntryUnreadable
+	}
+	fi, statErr := os.Stat(resolved)
+	if statErr != nil {
+		return walkEntryUnreadable
+	}
+	if fi.IsDir() {
+		// p is a symlink to a directory: WalkDir doesn't recurse into
+		// symlinked directories, and grepFile would fail trying to read
+		// one as a file, so skip it rather than treating it as an error.
+		return walkEntrySkip
+	}
+	if !fi.Mode().IsRegular() {
+		// Skip non-regular files (FIFOs, sockets, devices): opening one
+		// for reading can block indefinitely (e.g. a FIFO with no writer
+		// connected), and grep has no business reading them.
+		return walkEntrySkip
+	}
+	if !WithinRoot(resolved, root) {
+		// The symlink-resolved target escapes the root being searched, so
+		// a symlink can't be used to read files outside the requested
+		// directory.
+		return walkEntrySkip
+	}
+	return walkEntryGrep
+}
+
 // GrepContent searches path for lines matching a regular expression pattern.
 // If path is a directory, recursive must be true to search its files.
 func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, error) {
@@ -179,6 +228,9 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 		lineNum := 1
 		for scanner.Scan() {
 			if line := scanner.Text(); re.MatchString(line) {
+				if len(line) > 2000 {
+					line = line[:2000] + "..."
+				}
 				fmt.Fprintf(&result, "%s:%d:%s\n", filePath, lineNum, line)
 			}
 			lineNum++
@@ -198,32 +250,48 @@ func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, erro
 		if err != nil {
 			return "", err
 		}
-		err = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
+		// Walk the resolved root, not path: filepath.WalkDir uses Lstat on
+		// its root argument, so if path itself were an unresolved directory
+		// symlink, WalkDir would see a non-directory at the root and never
+		// descend into it at all.
+		var skipped int
+		err = filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				if p == root {
+					// The search root itself couldn't be read (e.g.
+					// permission denied): the search never actually ran, so
+					// surface a real error instead of a misleadingly
+					// confident "no matches found".
+					return walkErr
+				}
+				// WalkDir surfaces ReadDir/Lstat failures (e.g. a
+				// permission-denied subdirectory) through this err rather
+				// than via grepFile, but it deserves the same treatment: one
+				// unreadable subtree shouldn't discard matches already found
+				// in its siblings.
+				skipped++
 				return nil
 			}
-			resolved, err := filepath.EvalSymlinks(p)
-			if err != nil {
-				return nil
+			switch classifyWalkEntry(root, p, d) {
+			case walkEntryUnreadable:
+				skipped++
+			case walkEntryGrep:
+				// A read error on one file (permission denied, a line
+				// exceeding the scan buffer, etc.) shouldn't abort matches
+				// already found elsewhere in the tree.
+				if grepErr := grepFile(p); grepErr != nil {
+					skipped++
+				}
 			}
-			if fi, statErr := os.Stat(resolved); statErr == nil && fi.IsDir() {
-				// p is a symlink to a directory: WalkDir doesn't recurse into
-				// symlinked directories, and grepFile would fail trying to
-				// read one as a file, so skip it rather than aborting the walk.
-				return nil
-			}
-			// Skip entries whose symlink-resolved target escapes the root
-			// being searched, so a symlink can't be used to read files
-			// outside the requested directory.
-			if !WithinRoot(resolved, root) {
-				return nil
-			}
-			return grepFile(p)
+			return nil
 		})
+		if err == nil && skipped > 0 && result.Len() == 0 {
+			return fmt.Sprintf("no matches found (%d entries could not be read)", skipped), nil
+		}
 	} else {
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("%q is not a regular file", path)
+		}
 		err = grepFile(path)
 	}
 	if err != nil {

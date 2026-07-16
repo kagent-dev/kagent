@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import os
 import shutil
@@ -394,6 +395,140 @@ def test_grep_content_recursive_skips_symlinks_that_escape_root(tmp_path):
         link.unlink(missing_ok=True)
         secret.unlink(missing_ok=True)
         outside_dir.rmdir()
+
+
+def _call_with_timeout(fn, *args, timeout=5, **kwargs):
+    """Run fn in a worker thread and fail loudly if it doesn't return in time.
+
+    The whole point of a regression test for a hang bug is that the test
+    itself must not be hangable: calling grep_content directly on the test
+    thread would, on a regression, block the entire pytest run with no
+    diagnostic (no pytest-timeout plugin is configured for this package).
+    """
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(fn, *args, **kwargs)
+        return future.result(timeout=timeout)
+
+
+def test_grep_content_recursive_skips_fifo_and_finds_matches_around_it(tmp_path):
+    (tmp_path / "aaa_before.txt").write_text("foo before\n")
+    fifo_path = tmp_path / "mmm_pipe"
+    try:
+        os.mkfifo(fifo_path)
+    except (AttributeError, OSError):
+        pytest.skip("FIFOs not supported")
+    (tmp_path / "zzz_after.txt").write_text("foo after\n")
+
+    try:
+        result = _call_with_timeout(grep_content, tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    except concurrent.futures.TimeoutError:
+        pytest.fail("grep_content hung on a FIFO instead of skipping it")
+    assert "aaa_before.txt:1:foo before" in result
+    assert "zzz_after.txt:1:foo after" in result
+
+
+def test_grep_content_single_target_fifo_raises_instead_of_hanging(tmp_path):
+    fifo_path = tmp_path / "pipe"
+    try:
+        os.mkfifo(fifo_path)
+    except (AttributeError, OSError):
+        pytest.skip("FIFOs not supported")
+
+    try:
+        with pytest.raises(OSError, match="not a regular file"):
+            _call_with_timeout(grep_content, fifo_path, "foo", allowed_root=tmp_path)
+    except concurrent.futures.TimeoutError:
+        pytest.fail("grep_content hung opening a FIFO directly instead of erroring")
+
+
+def test_grep_content_no_matches_found_is_annotated_when_a_file_could_not_be_read(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses file permissions; cannot exercise this case")
+
+    # An unreadable *file* (listed fine, but fails to open) exercises the
+    # skip-counting path via grep_file's own except OSError handler.
+    unreadable = tmp_path / "hidden.txt"
+    unreadable.write_text("foo hidden\n")
+    unreadable.chmod(0o000)
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        unreadable.chmod(0o644)
+
+    assert "no matches found" in result
+    assert "could not be read" in result
+
+
+def test_grep_content_recursive_does_not_abort_or_discard_matches_on_an_unreadable_subdirectory(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    ok_sub = tmp_path / "aaa_ok"
+    ok_sub.mkdir()
+    (ok_sub / "match.txt").write_text("foo readable\n")
+
+    noperm_sub = tmp_path / "mmm_noperm"
+    noperm_sub.mkdir()
+    (noperm_sub / "hidden.txt").write_text("foo hidden\n")
+    noperm_sub.chmod(0o000)
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        noperm_sub.chmod(0o755)
+
+    assert "match.txt:1:foo readable" in result
+
+
+def test_grep_content_no_matches_found_is_annotated_when_a_subdirectory_could_not_be_read(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    # The only match lives inside a subdirectory that can't be listed. Before
+    # switching from rglob() (which silently omits directories it can't
+    # list, at any depth, with no hook to observe the failure) to os.walk's
+    # onerror callback, this returned a bare "no matches found" -- a
+    # confidently wrong empty result -- with no indication anything was
+    # skipped.
+    noperm_sub = tmp_path / "noperm"
+    noperm_sub.mkdir()
+    (noperm_sub / "hidden.txt").write_text("foo hidden\n")
+    noperm_sub.chmod(0o000)
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        noperm_sub.chmod(0o755)
+
+    assert "no matches found" in result
+    assert "could not be read" in result
+
+
+def test_grep_content_recursive_on_fully_unreadable_root_raises_instead_of_empty_result(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    (tmp_path / "hidden.txt").write_text("foo hidden\n")
+    tmp_path.chmod(0o000)
+
+    try:
+        with pytest.raises(OSError, match="could not be read"):
+            grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        tmp_path.chmod(0o755)
+
+
+def test_grep_content_truncates_long_matched_lines(tmp_path):
+    long_line = "foo " + "x" * 3000
+    f = tmp_path / "long.txt"
+    f.write_text(long_line + "\n")
+
+    result = grep_content(f, "foo", allowed_root=tmp_path)
+    assert result.endswith("...")
+    assert long_line not in result
+    matched_line = result.split(":", 2)[-1]
+    assert len(matched_line) < 2100
 
 
 def test_skill_discovery_and_loading(skill_test_env: Path):

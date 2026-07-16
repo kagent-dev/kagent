@@ -7,6 +7,8 @@ files on the filesystem within the sandbox environment.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import functools
 import logging
 from pathlib import Path
 from typing import Any, Dict
@@ -28,6 +30,19 @@ from kagent.skills import (
 )
 
 logger = logging.getLogger("kagent_adk." + __name__)
+
+
+def _resolve_working_path(tool_context: ToolContext, path_str: str) -> tuple[Path, Path]:
+    """Resolve path_str relative to the session's working directory.
+
+    Returns (resolved_path, working_dir); callers use working_dir to build
+    their allowed_root argument.
+    """
+    working_dir = get_session_path(session_id=tool_context.session.id)
+    path = Path(path_str)
+    if not path.is_absolute():
+        path = working_dir / path
+    return path.resolve(), working_dir
 
 
 class ReadFileTool(BaseTool):
@@ -76,11 +91,7 @@ class ReadFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            working_dir = get_session_path(session_id=tool_context.session.id)
-            path = Path(file_path_str)
-            if not path.is_absolute():
-                path = working_dir / path
-            path = path.resolve()
+            path, working_dir = _resolve_working_path(tool_context, file_path_str)
 
             return read_file_content(path, offset, limit, allowed_root=[working_dir, Path(self.skills_directory)])
         except (FileNotFoundError, IsADirectoryError, PermissionError, IOError) as e:
@@ -125,11 +136,7 @@ class WriteFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            working_dir = get_session_path(session_id=tool_context.session.id)
-            path = Path(file_path_str)
-            if not path.is_absolute():
-                path = working_dir / path
-            path = path.resolve()
+            path, working_dir = _resolve_working_path(tool_context, file_path_str)
 
             return write_file_content(path, content, allowed_root=working_dir)
         except (PermissionError, IOError) as e:
@@ -170,11 +177,7 @@ class ListFilesTool(BaseTool):
         path_str = args.get("path", "").strip() or "."
 
         try:
-            working_dir = get_session_path(session_id=tool_context.session.id)
-            path = Path(path_str)
-            if not path.is_absolute():
-                path = working_dir / path
-            path = path.resolve()
+            path, working_dir = _resolve_working_path(tool_context, path_str)
 
             return list_dir_content(path, allowed_root=[working_dir, Path(self.skills_directory)])
         except (FileNotFoundError, NotADirectoryError, PermissionError, IOError) as e:
@@ -186,8 +189,22 @@ class GrepFileTool(BaseTool):
 
     # Bounds regex execution time: the pattern is agent-controlled, and Python's
     # backtracking `re` engine can take catastrophically long on adversarial
-    # patterns (unlike Go's RE2-based regexp, which is linear-time).
+    # patterns (unlike Go's RE2-based regexp, which is linear-time). Note this
+    # only bounds the *caller's* wait -- CPython can't forcibly stop a running
+    # thread, so a pathological match keeps running in the background after
+    # the timeout fires.
     _TIMEOUT_SECONDS = 30
+
+    # A small dedicated pool, rather than asyncio's shared default executor,
+    # so a hung or catastrophically slow match can only ever starve other
+    # grep_file calls -- not unrelated to_thread-based work elsewhere in the
+    # process (token counting, embeddings, other provider clients). Note
+    # ThreadPoolExecutor workers are non-daemon threads that CPython's atexit
+    # hook joins before the interpreter exits, so a permanently-stuck worker
+    # (e.g. from a pathological pattern) also blocks a clean process shutdown,
+    # not just steady-state grep_file availability -- bounded in practice by
+    # Kubernetes' terminationGracePeriodSeconds before SIGKILL.
+    _EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="grep-file")
 
     def __init__(self, skills_directory: str | Path):
         super().__init__(
@@ -239,24 +256,26 @@ class GrepFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            working_dir = get_session_path(session_id=tool_context.session.id)
-            path = Path(path_str)
-            if not path.is_absolute():
-                path = working_dir / path
-            path = path.resolve()
+            path, working_dir = _resolve_working_path(tool_context, path_str)
 
+            loop = asyncio.get_running_loop()
             return await asyncio.wait_for(
-                asyncio.to_thread(
-                    grep_content,
-                    path,
-                    pattern,
-                    recursive=recursive,
-                    ignore_case=ignore_case,
-                    allowed_root=[working_dir, Path(self.skills_directory)],
+                loop.run_in_executor(
+                    self._EXECUTOR,
+                    functools.partial(
+                        grep_content,
+                        path,
+                        pattern,
+                        recursive=recursive,
+                        ignore_case=ignore_case,
+                        allowed_root=[working_dir, Path(self.skills_directory)],
+                    ),
                 ),
                 timeout=self._TIMEOUT_SECONDS,
             )
-        except TimeoutError:
+        except (TimeoutError, asyncio.TimeoutError):
+            # asyncio.TimeoutError is TimeoutError on Python >=3.11, but this
+            # package supports >=3.10 where they're distinct classes.
             return f"Error searching {path_str}: pattern took too long to match (possible catastrophic backtracking); try a simpler pattern"
         except (FileNotFoundError, IsADirectoryError, ValueError, PermissionError, IOError) as e:
             return f"Error searching {path_str}: {e}"
@@ -310,11 +329,7 @@ class EditFileTool(BaseTool):
             return "Error: No file path provided"
 
         try:
-            working_dir = get_session_path(session_id=tool_context.session.id)
-            path = Path(file_path_str)
-            if not path.is_absolute():
-                path = working_dir / path
-            path = path.resolve()
+            path, working_dir = _resolve_working_path(tool_context, file_path_str)
 
             return edit_file_content(path, old_string, new_string, replace_all, allowed_root=working_dir)
         except (FileNotFoundError, IsADirectoryError, ValueError, PermissionError, IOError) as e:

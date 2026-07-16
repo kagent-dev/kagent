@@ -184,6 +184,7 @@ return_artifacts(file_paths=["outputs/report.pdf"])
 - Session isolation (each session has separate working directory)
 - File size limits (100 MB max)
 - `grep_file` skips symlinked entries that resolve outside the directory being searched, so a symlink can't be used to read files outside the session's working directory
+- `recursive=True` does not descend into symlinked subdirectories (this is standard Go/Python stdlib walk behavior, not something this tool adds) — since `skills/` is itself a symlink, a recursive search from the working directory root will not find matches inside it; pass `skills/...` as the path directly to search skill contents
 
 **Bash tool:**
 

@@ -107,6 +107,8 @@ def get_grep_file_description() -> str:
 Usage:
 - Provide a pattern and a path (absolute or relative to your working directory)
 - Set recursive=true to search all files under a directory path
+- Recursion does not follow symlinked subdirectories (e.g. skills/ is a symlink) -
+  point path directly at skills/ to search inside it
 - Set ignore_case=true for case-insensitive matching
 - Returns matching lines as path:line_number:content
 - You can search the skills/ directory, uploads/, outputs/, or any file/directory in your session

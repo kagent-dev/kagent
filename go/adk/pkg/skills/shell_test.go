@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -474,6 +475,205 @@ func TestGrepContent(t *testing.T) {
 		}
 		if !strings.Contains(result, "zzz_last.txt:1:foo two") {
 			t.Errorf("expected match after the symlink (walk must not abort on it), got %q", result)
+		}
+	})
+
+	t.Run("recursive search resolves the root itself when it is an unresolved symlink", func(t *testing.T) {
+		realDir := createTempDir(t)
+		defer os.RemoveAll(realDir)
+		if err := os.WriteFile(filepath.Join(realDir, "match.txt"), []byte("foo inside\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		parentDir := createTempDir(t)
+		defer os.RemoveAll(parentDir)
+		linkRoot := filepath.Join(parentDir, "link-root")
+		if err := os.Symlink(realDir, linkRoot); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+
+		// Pass the unresolved symlink directly, as a caller that doesn't
+		// pre-resolve its path would.
+		result, err := GrepContent(linkRoot, "foo", true, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.Contains(result, "match.txt:1:foo inside") {
+			t.Errorf("expected GrepContent to resolve a symlinked root and recurse into it, got %q", result)
+		}
+	})
+
+	t.Run("recursive search does not hang on a FIFO and finds matches around it", func(t *testing.T) {
+		fifoDir := createTempDir(t)
+		defer os.RemoveAll(fifoDir)
+
+		if err := os.WriteFile(filepath.Join(fifoDir, "aaa_before.txt"), []byte("foo before\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+		fifoPath := filepath.Join(fifoDir, "mmm_pipe")
+		if err := syscall.Mkfifo(fifoPath, 0644); err != nil {
+			t.Skipf("FIFOs not supported: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(fifoDir, "zzz_after.txt"), []byte("foo after\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		done := make(chan struct{})
+		var result string
+		var err error
+		go func() {
+			result, err = GrepContent(fifoDir, "foo", true, false)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("GrepContent hung on a FIFO instead of skipping it")
+		}
+
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.Contains(result, "aaa_before.txt:1:foo before") {
+			t.Errorf("expected match before the FIFO, got %q", result)
+		}
+		if !strings.Contains(result, "zzz_after.txt:1:foo after") {
+			t.Errorf("expected match after the FIFO (walk must not hang or abort on it), got %q", result)
+		}
+	})
+
+	t.Run("a single target FIFO returns an error instead of hanging", func(t *testing.T) {
+		fifoDir := createTempDir(t)
+		defer os.RemoveAll(fifoDir)
+		fifoPath := filepath.Join(fifoDir, "pipe")
+		if err := syscall.Mkfifo(fifoPath, 0644); err != nil {
+			t.Skipf("FIFOs not supported: %v", err)
+		}
+
+		done := make(chan struct{})
+		var err error
+		go func() {
+			_, err = GrepContent(fifoPath, "foo", false, false)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("GrepContent hung opening a FIFO directly instead of erroring")
+		}
+
+		if err == nil {
+			t.Fatal("expected an error for a non-regular file target, got nil")
+		}
+	})
+
+	t.Run("recursive search does not abort or discard matches on an unreadable subdirectory", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses directory permissions; cannot exercise this case")
+		}
+
+		walkDir := createTempDir(t)
+		defer os.RemoveAll(walkDir)
+
+		okSub := filepath.Join(walkDir, "aaa_ok")
+		if err := os.Mkdir(okSub, 0755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(okSub, "match.txt"), []byte("foo readable\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		noPermSub := filepath.Join(walkDir, "mmm_noperm")
+		if err := os.Mkdir(noPermSub, 0755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(noPermSub, "hidden.txt"), []byte("foo hidden\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+		if err := os.Chmod(noPermSub, 0000); err != nil {
+			t.Fatalf("Failed to chmod subdir: %v", err)
+		}
+		defer os.Chmod(noPermSub, 0755)
+
+		result, err := GrepContent(walkDir, "foo", true, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v, expected the unreadable subdirectory to be skipped rather than aborting the whole search", err)
+		}
+		if !strings.Contains(result, "match.txt:1:foo readable") {
+			t.Errorf("expected match from the readable sibling directory to survive an unreadable subdirectory elsewhere in the tree, got %q", result)
+		}
+	})
+
+	t.Run("no matches found is annotated when entries could not be read", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses directory permissions; cannot exercise this case")
+		}
+
+		walkDir := createTempDir(t)
+		defer os.RemoveAll(walkDir)
+
+		noPermSub := filepath.Join(walkDir, "noperm")
+		if err := os.Mkdir(noPermSub, 0755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(noPermSub, "hidden.txt"), []byte("foo hidden\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+		if err := os.Chmod(noPermSub, 0000); err != nil {
+			t.Fatalf("Failed to chmod subdir: %v", err)
+		}
+		defer os.Chmod(noPermSub, 0755)
+
+		result, err := GrepContent(walkDir, "foo", true, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.Contains(result, "no matches found") || !strings.Contains(result, "could not be read") {
+			t.Errorf("expected an annotated no-matches message noting unreadable entries, got %q", result)
+		}
+	})
+
+	t.Run("recursive search on a fully unreadable root returns an error, not a confident empty result", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses directory permissions; cannot exercise this case")
+		}
+
+		walkDir := createTempDir(t)
+		defer os.RemoveAll(walkDir)
+		if err := os.WriteFile(filepath.Join(walkDir, "hidden.txt"), []byte("foo hidden\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+		if err := os.Chmod(walkDir, 0000); err != nil {
+			t.Fatalf("Failed to chmod root: %v", err)
+		}
+		defer os.Chmod(walkDir, 0755)
+
+		result, err := GrepContent(walkDir, "foo", true, false)
+		if err == nil {
+			t.Fatalf("expected an error when the search root itself is unreadable, got a result instead: %q", result)
+		}
+	})
+
+	t.Run("matched lines are truncated to 2000 characters", func(t *testing.T) {
+		tmpDir := createTempDir(t)
+		defer os.RemoveAll(tmpDir)
+
+		longLine := "foo " + strings.Repeat("x", 3000)
+		if err := os.WriteFile(filepath.Join(tmpDir, "long.txt"), []byte(longLine+"\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		result, err := GrepContent(filepath.Join(tmpDir, "long.txt"), "foo", false, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.HasSuffix(result, "...") {
+			t.Errorf("expected truncated line to end with '...', got %q", result)
+		}
+		if len(result) > 2100 {
+			t.Errorf("expected result to be truncated to roughly 2000 chars, got length %d", len(result))
 		}
 	})
 }
