@@ -70,12 +70,12 @@ func getDefaultResources(spec *corev1.ResourceRequirements) corev1.ResourceRequi
 	return *spec
 }
 
-// getDefaultDeploymentStrategy returns the Deployment update strategy to use,
+// getDeploymentStrategyOrDefault returns the Deployment update strategy to use,
 // falling back to RollingUpdate{maxUnavailable: 0, maxSurge: 1} when unset.
 // A partial RollingUpdate strategy is merged with those defaults so the emitted
 // Deployment matches what the API server stores, avoiding reconcile hotloops.
 // The input is deep-copied so the result never aliases the Agent CR object.
-func getDefaultDeploymentStrategy(strategy *appsv1.DeploymentStrategy) appsv1.DeploymentStrategy {
+func getDeploymentStrategyOrDefault(strategy *appsv1.DeploymentStrategy) appsv1.DeploymentStrategy {
 	if strategy == nil {
 		return appsv1.DeploymentStrategy{
 			Type: appsv1.RollingUpdateDeploymentStrategyType,
@@ -311,7 +311,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 		ExtraContainers:      slices.Clone(spec.ExtraContainers),
-		DeploymentStrategy:   getDefaultDeploymentStrategy(spec.DeploymentStrategy),
+		DeploymentStrategy:   getDeploymentStrategyOrDefault(spec.DeploymentStrategy),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
@@ -396,7 +396,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		ServiceAccountName:   spec.ServiceAccountName,
 		ServiceAccountConfig: spec.ServiceAccountConfig,
 		ExtraContainers:      slices.Clone(spec.ExtraContainers),
-		DeploymentStrategy:   getDefaultDeploymentStrategy(spec.DeploymentStrategy),
+		DeploymentStrategy:   getDeploymentStrategyOrDefault(spec.DeploymentStrategy),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)

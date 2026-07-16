@@ -129,7 +129,7 @@ func TestGetDefaultNodeSelector(t *testing.T) {
 	})
 }
 
-func TestGetDefaultDeploymentStrategy(t *testing.T) {
+func TestGetDeploymentStrategyOrDefault(t *testing.T) {
 	intOrStr := func(v int32) *intstr.IntOrString {
 		return &intstr.IntOrString{Type: intstr.Int, IntVal: v}
 	}
@@ -187,12 +187,12 @@ func TestGetDefaultDeploymentStrategy(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := getDefaultDeploymentStrategy(tt.input)
+			got := getDeploymentStrategyOrDefault(tt.input)
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("getDefaultDeploymentStrategy() = %+v, want %+v", got, tt.want)
+				t.Errorf("getDeploymentStrategyOrDefault() = %+v, want %+v", got, tt.want)
 			}
 			if tt.input != nil && tt.input.RollingUpdate != nil && got.RollingUpdate == tt.input.RollingUpdate {
-				t.Error("getDefaultDeploymentStrategy() must not alias the input's RollingUpdate pointer")
+				t.Error("getDeploymentStrategyOrDefault() must not alias the input's RollingUpdate pointer")
 			}
 		})
 	}
