@@ -110,9 +110,7 @@ class OpenAIAgentExecutor(AgentExecutor):
     ) -> None:
         """Stream agent execution events and convert them to A2A events."""
         task_result_aggregator = TaskResultAggregator()
-        # In local mode there is no session_factory, so session is None; fall back to
-        # the A2A context id, which is the session identifier used elsewhere here.
-        session_id = session.session_id if session else context.context_id
+        session_id = session.session_id if session else getattr(context, "session_id", None) or context.context_id
         session_context = SessionContext(session_id=session_id)
 
         try:

@@ -20,6 +20,7 @@ def _make_context() -> MagicMock:
     context.current_task = None
     context.task_id = "task-1"
     context.context_id = "ctx-1"
+    context.session_id = None
     context.get_user_input.return_value = "hello"
     return context
 
@@ -62,3 +63,17 @@ class TestLocalModeSession:
 
         session_context = mock_run_streamed.call_args.kwargs["context"]
         assert session_context.session_id == context.context_id
+
+    @patch("kagent.openai._agent_executor.Runner.run_streamed")
+    async def test_session_context_uses_context_session_id(self, mock_run_streamed):
+        mock_run_streamed.return_value = _make_streamed_result()
+
+        executor = OpenAIAgentExecutor(agent=MagicMock(), app_name="test", session_factory=None)
+        context = _make_context()
+        context.session_id = "session-1"
+        event_queue = AsyncMock(spec=EventQueue)
+
+        await executor.execute(context, event_queue)
+
+        session_context = mock_run_streamed.call_args.kwargs["context"]
+        assert session_context.session_id == context.session_id
