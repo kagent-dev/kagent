@@ -1,11 +1,9 @@
 package embedding
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -14,13 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
-	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/ollama/ollama/api"
 	"github.com/openai/openai-go/v3"
@@ -78,7 +74,7 @@ func newProvider(cfg *adk.EmbeddingConfig) (provider, error) {
 	case "bedrock":
 		return &bedrockProvider{config: cfg}, nil
 	case "foundry":
-		return &foundryProvider{config: cfg, httpClient: defaultProviderHTTPClient()}, nil
+		return newFoundryProvider(cfg, nil)
 	default: // "openai", "", and unknown providers
 		return newOpenAIProvider(cfg)
 	}
@@ -376,154 +372,75 @@ func normalizeL2(vec []float32) []float32 {
 	return normalized
 }
 
-// foundryCognitiveServicesScope is the Azure data-plane scope used to request
-// tokens for the Foundry / Azure AI Services OpenAI-compatible API.
-const foundryCognitiveServicesScope = "https://cognitiveservices.azure.com/.default"
-
-type foundryTokenCredential interface {
-	GetToken(context.Context, policy.TokenRequestOptions) (azcore.AccessToken, error)
-}
-
-// foundryCredentialFactory constructs the Azure credential for the implicit
-// Workload Identity auth path. It is a package variable so tests can inject a
-// fake credential.
-var foundryCredentialFactory = func() (foundryTokenCredential, error) {
-	return azidentity.NewDefaultAzureCredential(nil)
-}
-
 // foundryProvider generates embeddings through Azure AI Foundry's
-// OpenAI-compatible data plane. Authentication is implicit and mirrors the
-// Foundry chat model: FOUNDRY_API_KEY is used when set, otherwise the provider
-// authenticates with DefaultAzureCredential (Azure Workload Identity in-cluster).
+// OpenAI-compatible data plane using the shared azureai client. Authentication
+// is implicit and mirrors the Foundry chat model: FOUNDRY_API_KEY is used when
+// set, otherwise the provider authenticates with DefaultAzureCredential (Azure
+// Workload Identity in-cluster).
 type foundryProvider struct {
-	config     *adk.EmbeddingConfig
-	httpClient *http.Client
-	credential foundryTokenCredential
+	config *adk.EmbeddingConfig
+	client openai.Client
+}
+
+// newFoundryProvider builds a Foundry embedding provider. cred overrides the
+// Azure credential for the Workload Identity path (nil uses
+// azureai.NewDefaultCredential); it is only consulted when FOUNDRY_API_KEY is
+// unset, and exists so tests can inject a fake credential.
+func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) (*foundryProvider, error) {
+	deployment := cfg.Deployment
+	if deployment == "" {
+		deployment = cfg.Model
+	}
+	endpoint, deployment, apiVersion := azureai.ResolveFoundry(cfg.Endpoint, deployment, cfg.APIVersion)
+	if endpoint == "" {
+		return nil, fmt.Errorf("endpoint is required for Foundry embeddings")
+	}
+	if deployment == "" {
+		return nil, fmt.Errorf("deployment is required for Foundry embeddings")
+	}
+
+	clientCfg := azureai.ClientConfig{
+		Endpoint:   endpoint,
+		Deployment: deployment,
+		APIVersion: apiVersion,
+		HTTPClient: defaultProviderHTTPClient(),
+	}
+	// Implicit auth: API key when set, otherwise a DefaultAzureCredential bearer token.
+	if apiKey := os.Getenv(azureai.FoundryAPIKeyEnvVar); apiKey != "" {
+		clientCfg.APIKey = apiKey
+	} else {
+		if cred == nil {
+			var err error
+			cred, err = azureai.NewDefaultCredential()
+			if err != nil {
+				return nil, fmt.Errorf("failed to create Azure credential for Foundry: %w", err)
+			}
+		}
+		clientCfg.Credential = cred
+	}
+
+	client, err := azureai.NewOpenAIClient(clientCfg)
+	if err != nil {
+		return nil, err
+	}
+	return &foundryProvider{config: cfg, client: client}, nil
 }
 
 func (p *foundryProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
-	endpoint := p.config.Endpoint
-	if endpoint == "" {
-		endpoint = os.Getenv("FOUNDRY_ENDPOINT")
-	}
-	if endpoint == "" {
-		return nil, fmt.Errorf("endpoint is required for Foundry embeddings")
-	}
-	deployment := p.config.Deployment
-	if deployment == "" {
-		deployment = p.config.Model
-	}
-	if deployment == "" {
-		deployment = os.Getenv("FOUNDRY_DEPLOYMENT")
-	}
-	if deployment == "" {
-		return nil, fmt.Errorf("deployment is required for Foundry embeddings")
-	}
-	apiVersion := p.config.APIVersion
-	if apiVersion == "" {
-		apiVersion = os.Getenv("FOUNDRY_API_VERSION")
-	}
-	if apiVersion == "" {
-		apiVersion = "2024-10-21"
-	}
-
-	requestURL, err := foundryEmbeddingsURL(endpoint, deployment, apiVersion)
+	resp, err := p.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
+		Model:      openai.EmbeddingModel(p.config.Model),
+		Input:      openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
+		Dimensions: openai.Int(int64(TargetDimension)),
+	})
 	if err != nil {
-		return nil, err
-	}
-	reqBody := map[string]any{
-		"input":      texts,
-		"dimensions": TargetDimension,
-	}
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Implicit auth: API key when set, otherwise a DefaultAzureCredential bearer token.
-	if apiKey := os.Getenv("FOUNDRY_API_KEY"); apiKey != "" {
-		req.Header.Set("Api-Key", apiKey)
-	} else {
-		credential := p.credential
-		if credential == nil {
-			credential, err = foundryCredentialFactory()
-			if err != nil {
-				return nil, fmt.Errorf("failed to create Azure credential for Foundry: %w", err)
-			}
-			p.credential = credential
-		}
-		token, err := credential.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{foundryCognitiveServicesScope}})
-		if err != nil {
-			return nil, fmt.Errorf("failed to acquire Foundry token: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+token.Token)
+		return nil, fmt.Errorf("foundry embeddings request failed: %w", err)
 	}
 
-	resp, err := p.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+	raw := make([][]float32, len(resp.Data))
+	for i, item := range resp.Data {
+		raw[i] = float64ToFloat32(item.Embedding)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var result foundryEmbeddingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-	embeddings := make([][]float32, 0, len(result.Data))
-	for _, item := range result.Data {
-		embedding, err := adjustEmbeddingDimension(item.Embedding)
-		if err != nil {
-			return nil, err
-		}
-		if len(item.Embedding) > TargetDimension {
-			log.V(1).Info("Truncating embedding", "from", len(item.Embedding), "to", TargetDimension)
-		}
-		embeddings = append(embeddings, embedding)
-	}
-	log.Info("Successfully generated embeddings with Foundry", "count", len(embeddings))
-	return embeddings, nil
-}
-
-func foundryEmbeddingsURL(endpoint, deployment, apiVersion string) (string, error) {
-	parsed, err := url.Parse(endpoint)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse Foundry endpoint: %w", err)
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/openai/deployments/" + url.PathEscape(deployment) + "/embeddings"
-	query := parsed.Query()
-	query.Set("api-version", apiVersion)
-	parsed.RawQuery = query.Encode()
-	return parsed.String(), nil
-}
-
-// foundryEmbeddingResponse models the OpenAI-compatible embeddings response
-// returned by the Foundry data plane.
-type foundryEmbeddingResponse struct {
-	Data []foundryEmbeddingData `json:"data"`
-}
-
-type foundryEmbeddingData struct {
-	Embedding []float32 `json:"embedding"`
-	Index     int       `json:"index"`
-}
-
-func adjustEmbeddingDimension(embedding []float32) ([]float32, error) {
-	if len(embedding) > TargetDimension {
-		return normalizeL2(embedding[:TargetDimension]), nil
-	}
-	if len(embedding) < TargetDimension {
-		return nil, fmt.Errorf("embedding dimension %d is less than required %d", len(embedding), TargetDimension)
-	}
-	return embedding, nil
+	return processEmbeddings(log, raw, "foundry")
 }
