@@ -76,7 +76,9 @@ func (w *errorResponseWriter) RespondWithError(err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	errMsg := message
-	if underlying != nil {
+	// 5xx bodies carry only the generic message: the underlying error is
+	// backend-internal detail (already logged above) and must not reach clients.
+	if underlying != nil && statusCode < http.StatusInternalServerError {
 		errMsg = message + ": " + underlying.Error()
 	}
 	json.NewEncoder(w).Encode(map[string]string{"error": errMsg}) //nolint:errcheck
