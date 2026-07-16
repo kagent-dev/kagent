@@ -35,7 +35,7 @@ func (h *TasksHandler) HandleGetTask(w ErrorResponseWriter, r *http.Request) {
 
 	task, err := h.DatabaseService.GetTask(r.Context(), taskID)
 	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Task not found", err))
+		RespondNotFoundOrError(w, "Task not found", err)
 		return
 	}
 	wireVersion, err := utils.NegotiateA2AWireVersion(r)
