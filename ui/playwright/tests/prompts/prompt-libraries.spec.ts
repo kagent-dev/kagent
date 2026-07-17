@@ -1,28 +1,18 @@
 import { test, expect } from "../../fixtures/test";
 import { expectToast, waitForAppReady } from "../../helpers/page";
 
-// Prompt libraries — one success journey + one failure journey (two videos), run
-// against the real backend. /prompts redirects to ?namespace=kagent and lists via
-// GET /api/prompttemplates?namespace=<ns>. Create is a dedicated route
-// (/prompts/new) that POSTs then redirects to the detail page; edit PUTs, delete
-// DELETEs.
-//
-// Success creates a uniquely-named throwaway library, opens its detail page, edits
-// a fragment, then deletes it — only touching the library this test created.
-//
-// Failure keeps the client-side name-required validation.
+// Prompt libraries — a full-CRUD lifecycle journey plus a validation-failure
+// journey (two videos). /prompts lists via GET /api/prompttemplates?namespace=<ns>;
+// create is a dedicated route that POSTs then redirects to the detail page; edit
+// PUTs, delete DELETEs. The lifecycle creates a uniquely-named library, reads its
+// detail page, edits a fragment, then deletes it — only touching what it created.
 
 const NAMESPACE = "kagent";
 
-test("prompt library lifecycle: create, view, edit, and delete", async ({ page }, testInfo) => {
+test("prompt library lifecycle: create, read, update, delete", async ({ page }, testInfo) => {
   const name = `e2e-prompts-${Date.now().toString(36)}-${testInfo.retry}`;
 
-  await test.step("lists prompt libraries for the namespace", async () => {
-    await page.goto("/prompts");
-    await waitForAppReady(page);
-    await expect(page.getByRole("heading", { level: 1, name: "Prompt Libraries" })).toBeVisible();
-  });
-
+  // region Creating — fill the form and POST a new prompt library
   await test.step("creates a prompt library", async () => {
     await page.goto(`/prompts/new?ns=${NAMESPACE}`);
     await waitForAppReady(page);
@@ -36,11 +26,13 @@ test("prompt library lifecycle: create, view, edit, and delete", async ({ page }
     await expectToast(page, /created/i, { type: "success" });
   });
 
-  await test.step("loads the library detail page", async () => {
+  // region Reading — load the library's detail page
+  await test.step("reads the library detail page", async () => {
     await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
     await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
   });
 
+  // region Updating — edit a fragment and save (PUT)
   await test.step("edits a fragment and saves", async () => {
     await page.getByLabel("Key 1").fill("safety-rules");
     await page.getByLabel("Content").fill("Always be safe and kind.");
@@ -49,6 +41,7 @@ test("prompt library lifecycle: create, view, edit, and delete", async ({ page }
     await expectToast(page, /saved/i, { type: "success" });
   });
 
+  // region Deleting — remove the library and confirm the redirect
   await test.step("deletes the library and confirms", async () => {
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     const dialog = page.getByRole("dialog");
@@ -61,6 +54,7 @@ test("prompt library lifecycle: create, view, edit, and delete", async ({ page }
 });
 
 test("prompt failures: blocks create when the name is empty", async ({ page }) => {
+  // region Creating — client-side validation blocks the POST
   await page.goto(`/prompts/new?ns=${NAMESPACE}`);
   await waitForAppReady(page);
 

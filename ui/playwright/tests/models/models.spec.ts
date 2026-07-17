@@ -1,33 +1,27 @@
 import { test, expect } from "../../fixtures/test";
 import { loadPage, expectToast } from "../../helpers/page";
 
-// Models / providers — one success journey + one failure journey (two videos),
-// run against the real backend.
-//
-// Success creates a uniquely-named throwaway model config (OpenAI + a real
-// catalog model + dummy key), edits it, then deletes it — never touching the
-// seeded default-model-config that agents depend on. The form's namespace
-// combobox auto-selects "kagent", so the config is kagent/<name>. Per-item edit
-// and delete controls are scoped by the config ref (aria-label), so we only ever
-// act on the config this test created.
-//
-// Failure covers the client-side model-selection validation.
+// Models / providers — a full-CRUD lifecycle journey plus a validation-failure
+// journey (two videos). Creates a uniquely-named throwaway config (OpenAI + a real
+// catalog model + dummy key), reads it back on the edit page, updates it, then
+// deletes it — never touching a seeded config. Per-item edit/delete controls are
+// scoped by the config ref, so only the config this test created is acted on.
 
 const NAMESPACE = "kagent";
 // A model that exists in the real OpenAI catalog served by /api/models.
 const MODEL_NAME = "gpt-5.4-mini";
 
-test("model lifecycle: create, edit, and delete a config", async ({ page }, testInfo) => {
+test("model lifecycle: create, read, update, delete", async ({ page }, testInfo) => {
   const name = `e2e-model-${Date.now().toString(36)}-${testInfo.retry}`;
   const ref = `${NAMESPACE}/${name}`;
 
+  // region Creating — fill the form and POST a new model config
   await test.step("creates a model config", async () => {
     await loadPage(page, "/models/new", { heading: "New Model" });
 
     // Provider + model are searchable cmdk comboboxes; type to filter, then click.
     // Option accessible names include icon alt text (e.g. "OpenAI icon OpenAI"), so
-    // we anchor the provider match to avoid matching "AzureOpenAI" and pick the
-    // first filtered model option.
+    // anchor the provider match to avoid "AzureOpenAI" and take the first model hit.
     await page.getByTestId("model-provider-select").click();
     await page.getByPlaceholder("Search providers...").fill("OpenAI");
     await page.getByRole("option", { name: /^OpenAI\b/ }).first().click();
@@ -48,18 +42,21 @@ test("model lifecycle: create, edit, and delete a config", async ({ page }, test
     await expect(page.getByRole("button", { name: `Edit model ${ref}` })).toBeVisible();
   });
 
-  await test.step("edits the config it created", async () => {
+  // region Reading — open the edit page and load the stored config
+  await test.step("reads the config back on its edit page", async () => {
     await page.getByRole("button", { name: `Edit model ${ref}` }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Edit Model" })).toBeVisible();
+  });
 
-    // All fields are prefilled; saving requires no edits.
+  // region Updating — save the edit form (PUT) and confirm the toast
+  await test.step("updates the config", async () => {
     await page.getByRole("button", { name: "Save Changes" }).click();
-
     await expect(page).toHaveURL(/\/models(\?|$)/);
     await expectToast(page, /updated successfully/i, { type: "success" });
   });
 
-  await test.step("deletes the config it created", async () => {
+  // region Deleting — remove the config and confirm the row is gone
+  await test.step("deletes the config", async () => {
     await page.getByRole("button", { name: `Delete model ${ref}` }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("Delete Model")).toBeVisible();
@@ -71,6 +68,7 @@ test("model lifecycle: create, edit, and delete a config", async ({ page }, test
 });
 
 test("model failures: create validation", async ({ page }) => {
+  // region Creating — client-side validation blocks the POST
   await test.step("blocks create when no model is selected", async () => {
     await loadPage(page, "/models/new", { heading: "New Model" });
 
