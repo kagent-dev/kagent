@@ -18,7 +18,35 @@ import (
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/pgvector/pgvector-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+)
+
+// dbTracer emits child spans for the controller's pgvector memory CRUD, so a
+// memory trace propagated from the Python/Go ADK runtime continues past the
+// otelhttp server span into the actual database work.
+//
+// Guardrail: never record raw embedding vectors or full query/content text on
+// span attributes — cardinality explosion + PII. Counts, scores, limits, the
+// collection name, and the operation are the only memory-derived attributes.
+var dbTracer = otel.Tracer("kagent.controller.database")
+
+// Span attribute keys (OTel DB semantic conventions + kagent memory extensions).
+const (
+	attrDBSystemName     = "db.system.name"
+	attrDBOperationName  = "db.operation.name"
+	attrDBCollectionName = "db.collection.name"
+	attrMemoryItemCount  = "memory.item.count"
+	attrMemoryLimit      = "memory.limit"
+
+	dbSystemPostgres  = "postgresql"
+	memoryCollection  = "memory"
+	dbOperationSelect = "SELECT"
+	dbOperationInsert = "INSERT"
+	dbOperationDelete = "DELETE"
 )
 
 type postgresClient struct {
@@ -646,6 +674,17 @@ func (c *postgresClient) GetCrewAIFlowState(ctx context.Context, userID, threadI
 // ── Agent Memory (vector search) ──────────────────────────────────────────────
 
 func (c *postgresClient) StoreAgentMemory(ctx context.Context, memory *dbpkg.Memory) error {
+	ctx, span := dbTracer.Start(ctx, "db.memory.insert",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String(attrDBSystemName, dbSystemPostgres),
+			attribute.String(attrDBOperationName, dbOperationInsert),
+			attribute.String(attrDBCollectionName, memoryCollection),
+			attribute.Int(attrMemoryItemCount, 1),
+		),
+	)
+	defer span.End()
+
 	id, err := c.q.InsertMemory(ctx, dbgen.InsertMemoryParams{
 		AgentName:   &memory.AgentName,
 		UserID:      &memory.UserID,
@@ -656,6 +695,8 @@ func (c *postgresClient) StoreAgentMemory(ctx context.Context, memory *dbpkg.Mem
 		AccessCount: &memory.AccessCount,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "insert memory")
 		return err
 	}
 	memory.ID = id
@@ -663,7 +704,18 @@ func (c *postgresClient) StoreAgentMemory(ctx context.Context, memory *dbpkg.Mem
 }
 
 func (c *postgresClient) StoreAgentMemories(ctx context.Context, memories []*dbpkg.Memory) error {
-	return c.withTx(ctx, func(q *dbgen.Queries) error {
+	ctx, span := dbTracer.Start(ctx, "db.memory.insert",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String(attrDBSystemName, dbSystemPostgres),
+			attribute.String(attrDBOperationName, dbOperationInsert),
+			attribute.String(attrDBCollectionName, memoryCollection),
+			attribute.Int(attrMemoryItemCount, len(memories)),
+		),
+	)
+	defer span.End()
+
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		for _, m := range memories {
 			id, err := q.InsertMemory(ctx, dbgen.InsertMemoryParams{
 				AgentName:   &m.AgentName,
@@ -681,9 +733,25 @@ func (c *postgresClient) StoreAgentMemories(ctx context.Context, memories []*dbp
 		}
 		return nil
 	})
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "insert memories")
+	}
+	return err
 }
 
 func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
+	ctx, span := dbTracer.Start(ctx, "db.memory.search",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String(attrDBSystemName, dbSystemPostgres),
+			attribute.String(attrDBOperationName, dbOperationSelect),
+			attribute.String(attrDBCollectionName, memoryCollection),
+			attribute.Int(attrMemoryLimit, limit),
+		),
+	)
+	defer span.End()
+
 	rows, err := c.q.SearchAgentMemory(ctx, dbgen.SearchAgentMemoryParams{
 		Embedding: embedding,
 		AgentName: &agentName,
@@ -691,6 +759,8 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 		Limit:     int32(limit),
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "search agent memory")
 		return nil, fmt.Errorf("failed to search agent memory: %w", err)
 	}
 
@@ -712,6 +782,7 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 			Score: score,
 		}
 	}
+	span.SetAttributes(attribute.Int(attrMemoryItemCount, len(results)))
 
 	// Access-count bookkeeping is best-effort: a failure must not fail the search.
 	if len(results) > 0 {
@@ -728,6 +799,16 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 }
 
 func (c *postgresClient) ListAgentMemories(ctx context.Context, agentName, userID string) ([]dbpkg.Memory, error) {
+	ctx, span := dbTracer.Start(ctx, "db.memory.list",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String(attrDBSystemName, dbSystemPostgres),
+			attribute.String(attrDBOperationName, dbOperationSelect),
+			attribute.String(attrDBCollectionName, memoryCollection),
+		),
+	)
+	defer span.End()
+
 	normalized := strings.ReplaceAll(agentName, "-", "_")
 	rows, err := c.q.ListAgentMemories(ctx, dbgen.ListAgentMemoriesParams{
 		AgentName:   &agentName,
@@ -735,20 +816,35 @@ func (c *postgresClient) ListAgentMemories(ctx context.Context, agentName, userI
 		UserID:      &userID,
 	})
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "list agent memories")
 		return nil, fmt.Errorf("failed to list agent memories: %w", err)
 	}
 	memories := make([]dbpkg.Memory, len(rows))
 	for i, r := range rows {
 		memories[i] = *toMemory(r)
 	}
+	span.SetAttributes(attribute.Int(attrMemoryItemCount, len(memories)))
 	return memories, nil
 }
 
 func (c *postgresClient) DeleteAgentMemory(ctx context.Context, agentName, userID string) error {
+	ctx, span := dbTracer.Start(ctx, "db.memory.delete",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String(attrDBSystemName, dbSystemPostgres),
+			attribute.String(attrDBOperationName, dbOperationDelete),
+			attribute.String(attrDBCollectionName, memoryCollection),
+		),
+	)
+	defer span.End()
+
 	if err := c.q.DeleteAgentMemory(ctx, dbgen.DeleteAgentMemoryParams{
 		AgentName: &agentName,
 		UserID:    &userID,
 	}); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "delete agent memory")
 		return fmt.Errorf("failed to delete agent memory: %w", err)
 	}
 	normalized := strings.ReplaceAll(agentName, "-", "_")
@@ -757,6 +853,8 @@ func (c *postgresClient) DeleteAgentMemory(ctx context.Context, agentName, userI
 			AgentName: &normalized,
 			UserID:    &userID,
 		}); err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "delete normalized agent memory")
 			return fmt.Errorf("failed to delete normalized agent memory: %w", err)
 		}
 	}
