@@ -78,7 +78,10 @@ test("agent failures: validation blocks empty required fields", async ({ page })
 
     await page.getByRole("button", { name: "Create Agent" }).click();
 
-    await expect(page.getByText("Description is required")).toBeVisible();
+    // Scroll the first error in so it's on screen (in the recorded video).
+    const descError = page.getByText("Description is required");
+    await descError.scrollIntoViewIfNeeded();
+    await expect(descError).toBeVisible();
     await expect(page.getByText("Please select a model")).toBeVisible();
     await expect(page).toHaveURL(/\/agents\/new/);
   });

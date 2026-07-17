@@ -48,8 +48,11 @@ test("model lifecycle: create, read, update, delete", async ({ page }, testInfo)
     await expect(page.getByRole("heading", { level: 1, name: "Edit Model" })).toBeVisible();
   });
 
-  // region Updating — save the edit form (PUT) and confirm the toast
-  await test.step("updates the config", async () => {
+  // region Updating — rotate the API key and save (PUT)
+  await test.step("updates the config's API key", async () => {
+    // In edit mode only the API key is editable (provider/model/name are locked).
+    // The key is write-only, so a successful PUT is confirmed by the toast.
+    await page.getByTestId("model-api-key-input").fill("sk-e2e-rotated-key");
     await page.getByRole("button", { name: "Save Changes" }).click();
     await expect(page).toHaveURL(/\/models(\?|$)/);
     await expectToast(page, /updated successfully/i, { type: "success" });
@@ -74,7 +77,11 @@ test("model failures: create validation", async ({ page }) => {
 
     await page.getByRole("button", { name: "Create Model" }).click();
 
-    await expect(page.getByText("Provider and Model selection is required")).toBeVisible();
+    // The error renders up by the model field; scroll it in so it's on screen
+    // (in the recorded video) rather than above the fold.
+    const error = page.getByText("Provider and Model selection is required");
+    await error.scrollIntoViewIfNeeded();
+    await expect(error).toBeVisible();
     await expect(page).toHaveURL(/\/models\/new/);
   });
 });
