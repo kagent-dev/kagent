@@ -1,0 +1,9 @@
+// kagent memory observability — BASELINE (before memory.* instrumentation)
+// Run in the Dynatrace dev tenant against a kagent deployment WITHOUT this change.
+// Expected result: 0 rows — kagent emits no dedicated memory spans, only gen_ai.* on
+// invoke_agent. This is the gap kagent-dev/kagent#1909 closes.
+fetch spans
+| filter isNotNull(span.name) and matchesPhrase(span.name, "memory.")
+| filter k8s.namespace.name == "kagent"
+| summarize span_count = count(), by: {span.name}
+| sort span_count desc
