@@ -16,6 +16,9 @@ import type { AgentResponse } from "@/types";
 
 const STUB_URL = "http://127.0.0.1:8899";
 
+// Keep in sync with the DEFAULTS keys in playwright/mocks/server.mjs — every GET
+// slug the stub can serve must be expressible here so the control seam never
+// needs a type cast to override it.
 type EndpointSlug =
   | "agents"
   | "models"
@@ -23,7 +26,11 @@ type EndpointSlug =
   | "namespaces"
   | "toolservers"
   | "tools"
-  | "substrate";
+  | "substrate"
+  | "providers"
+  | "configuredProviders"
+  | "toolservertypes"
+  | "prompttemplates";
 
 type MutationMethod = "POST" | "PUT" | "DELETE";
 

@@ -22,7 +22,14 @@ const APP_URL = "http://localhost:8001";
 // goto). The recorded videos play at real time, so without slowMo the test
 // runs fast enough that a human can't follow what's happening. 250ms feels
 // natural in the recording without bloating wall-clock test time too much.
-const SLOW_MO_MS = parseInt(process.env.E2E_SLOW_MO_MS ?? "250", 10);
+// Coerce + validate the env override so a malformed value (non-numeric → NaN,
+// or negative) falls back to the default instead of reaching Playwright.
+const DEFAULT_SLOW_MO_MS = 250;
+const parsedSlowMo = Number(process.env.E2E_SLOW_MO_MS);
+const SLOW_MO_MS =
+  Number.isFinite(parsedSlowMo) && parsedSlowMo >= 0
+    ? parsedSlowMo
+    : DEFAULT_SLOW_MO_MS;
 
 export default defineConfig({
   testDir: "./playwright/tests",

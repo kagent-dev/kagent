@@ -8,6 +8,15 @@
 
 import { type Page } from "@playwright/test";
 
+// The full-screen LoadingState overlay (data-testid="loading-overlay") sits on
+// top of the header during a route transition. Waiting only for the URL to
+// change leaves it covering the menu triggers, so a follow-up menu click can hit
+// the overlay and flake. Wait for it to detach before handing control back.
+// "hidden" also resolves immediately when the overlay never mounted.
+async function waitForOverlayGone(page: Page): Promise<void> {
+  await page.getByTestId("loading-overlay").waitFor({ state: "hidden" });
+}
+
 async function openMenu(page: Page, trigger: "Create" | "View"): Promise<void> {
   await page.getByRole("button", { name: trigger, exact: true }).click();
 }
@@ -22,6 +31,7 @@ async function chooseFrom(
   // Exact match: "New Agent" is a substring of "New Agent Harness".
   await page.getByRole("menuitem", { name: item, exact: true }).click();
   if (urlGlob) await page.waitForURL(urlGlob);
+  await waitForOverlayGone(page);
 }
 
 /** Open the "View" menu and go to a listing page, e.g. gotoView(page, "Models", "**\/models"). */
@@ -38,4 +48,5 @@ export function gotoCreate(page: Page, item: string, urlGlob?: string | RegExp):
 export async function gotoHome(page: Page): Promise<void> {
   await page.getByRole("link", { name: "Home" }).first().click();
   await page.waitForURL(/\/(agents)?$/);
+  await waitForOverlayGone(page);
 }
