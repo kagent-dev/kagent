@@ -113,6 +113,19 @@ func TestNewClientPreemptsStale(t *testing.T) {
 	conn1 := dial(t, url, "")
 	defer conn1.Close()
 
+	// A completed handshake does not mean the handler goroutine has taken the
+	// single-client slot yet; if the second connection races ahead, the first
+	// handler would "preempt" the newcomer instead. An echo round-trip through
+	// the cat child proves conn1 is the established incumbent.
+	ping := `{"jsonrpc":"2.0","id":0,"method":"ping"}`
+	if err := conn1.WriteMessage(websocket.TextMessage, []byte(ping)); err != nil {
+		t.Fatalf("write on first conn: %v", err)
+	}
+	_ = conn1.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, _, err := conn1.ReadMessage(); err != nil {
+		t.Fatalf("echo on first conn: %v", err)
+	}
+
 	// A browser refresh opens a new connection while the stale one lingers.
 	// The newcomer must preempt the incumbent rather than being rejected with
 	// 409, otherwise the user is locked out behind a half-open connection.
