@@ -6,9 +6,11 @@ export function createStoryAgentsContext(overrides: Partial<AgentsContextType>):
   const base: AgentsContextType = {
     agents: [],
     models: [],
+    modelsLoaded: true,
     loading: false,
     error: "",
     tools: [],
+    toolsLoaded: true,
     refreshAgents: async () => {},
     refreshModels: async () => {},
     refreshTools: async () => {},
