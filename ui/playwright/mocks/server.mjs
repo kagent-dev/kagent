@@ -1,152 +1,31 @@
-// Standalone stub backend for Playwright E2E.
+// Lightweight dev proxy for Playwright E2E against a REAL kagent backend.
 //
-// The kagent UI fetches data server-side (Next.js server actions), so the
-// backend fetch happens in the Node process, not the browser — browser-level
-// page.route cannot mock it. Instead we run this tiny HTTP server and point
-// Next at it via BACKEND_INTERNAL_URL (see playwright.config.ts). getBackendUrl()
-// in src/lib/utils.ts checks BACKEND_INTERNAL_URL first, so every /api/* call
-// lands here.
+// PROOF OF CONCEPT (see playwright/README.md). This replaces the old fully-stubbed
+// backend. Instead of canned /api responses, it forwards every request to a real
+// kagent backend — deployed into kind by playwright/scripts/setup.sh and reached
+// through a port-forward started in playwright/setup.ts — EXCEPT the chat A2A
+// stream, which it intercepts and answers with a canned SSE reply so the suite
+// never needs a live LLM.
+//
+//   Next (BACKEND_INTERNAL_URL) ─▶ this proxy ─┬─ /a2a, /a2a-sandboxes ─▶ mocked SSE
+//                                              └─ everything else ──────▶ KAGENT_BACKEND_URL
+//
+// Both the server-side /api calls (Next server actions) and the browser chat call
+// (POST /a2a/... via the Next route handler in src/app/a2a/.../route.ts) resolve
+// their target through getBackendUrl() → BACKEND_INTERNAL_URL, so a single proxy
+// sees both and can split them.
 //
 // Dependency-free (Node built-in http only) so it runs without a TS/build step.
-// Payloads mirror the shapes in src/types/index.ts; the typed spec-side builders
-// live in playwright/mocks/data.ts and the semantic control seam in control.ts.
-//
-// Scenarios: default is the happy path below. A test can override any endpoint
-// via POST /__mock/scenario { endpoint, status?, body? } (used by control.ts to
-// force empty/error/custom responses) and clear all overrides via POST
-// /__mock/reset. State is a single in-memory map — correct only while the runner
-// is serial (workers: 1); see playwright/README.md.
 
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 
 const PORT = Number(process.env.STUB_PORT ?? 8899);
+// Real kagent backend ORIGIN (no trailing /api — Next sends the full /api/... path,
+// so we append req.url as-is). Defaults to the port-forward set up in setup.ts.
+const BACKEND_ORIGIN = (process.env.KAGENT_BACKEND_URL ?? "http://127.0.0.1:8083").replace(/\/$/, "");
 
-// region Payloads (happy path)
-
-// Success envelope used by the Go backend: { message, data }.
-const ok = (data, message = "OK") => ({ message, data });
-
-const agent = {
-  id: "1",
-  agent: {
-    metadata: { name: "e2e-agent", namespace: "default" },
-    spec: { type: "Declarative", description: "Seeded E2E agent" },
-  },
-  model: "gpt-4o",
-  modelProvider: "OpenAI",
-  modelConfigRef: "default/default-model-config",
-  tools: [],
-  deploymentReady: true,
-  accepted: true,
-};
-
-const modelConfig = {
-  ref: "default/default-model-config",
-  spec: { model: "gpt-4o", provider: "OpenAI" },
-};
-
-const toolServer = {
-  ref: "default/e2e-tool-server",
-  groupKind: "RemoteMCPServer.kagent.dev",
-  discoveredTools: [],
-};
-
-const tool = {
-  id: "e2e-tool",
-  server_name: "e2e-tool-server",
-  created_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-01-01T00:00:00Z",
-  deleted_at: "",
-  description: "Seeded E2E tool",
-  group_kind: "RemoteMCPServer.kagent.dev",
-};
-
-const substrateStatus = {
-  enabled: false,
-  workerPools: [],
-  actorTemplates: [],
-  actors: [],
-  workers: [],
-};
-
-// Returned by POST /api/sessions (createSession). The fixed id is what the chat
-// UI uses for the new session and the streamed A2A contextId.
-const session = {
-  id: "e2e-session",
-  name: "e2e chat",
-  agent_id: "default/e2e-agent",
-  user_id: "admin@kagent.dev",
-  created_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-01-01T00:00:00Z",
-  deleted_at: "",
-};
-
-// Prior conversation returned by GET /api/sessions/<id>/tasks (existing-chat load).
-// Agent messages need metadata.displaySource:"assistant" to render; state must not
-// be submitted/working (that would trigger stream resubscribe).
-const task = {
-  id: "e2e-task",
-  contextId: "e2e-session",
-  kind: "task",
-  status: { state: "completed" },
-  history: [
-    { kind: "message", messageId: "t1-u", role: "user", parts: [{ kind: "text", text: "Prior question" }], metadata: { timestamp: 1 } },
-    { kind: "message", messageId: "t1-a", role: "agent", parts: [{ kind: "text", text: "Prior answer" }], metadata: { displaySource: "assistant", timestamp: 2 } },
-  ],
-};
-
-// Default happy-path body per endpoint slug.
-const DEFAULTS = {
-  agents: () => ok([agent], "Successfully fetched agents"),
-  // The provider→models map is keyed by the capitalized provider name ("OpenAI"),
-  // matching v1alpha2.ModelProviderOpenAI — the Model dropdown indexes on it.
-  models: () => ok({ OpenAI: [{ name: "gpt-4o", function_calling: true }] }),
-  modelconfigs: () => ok([modelConfig]),
-  namespaces: () => ok([{ name: "default", status: "Active" }], "Namespaces fetched successfully"),
-  toolservers: () => ok([toolServer]),
-  tools: () => ok([tool]),
-  substrate: () => ok(substrateStatus, "Substrate status fetched"),
-  // Stock model providers (getSupportedModelProviders) — enables the model form.
-  providers: () => ok([{ name: "OpenAI", type: "OpenAI", requiredParams: [], optionalParams: [] }]),
-  configuredProviders: () => ok([]),
-  // Tool server types (getToolServerTypes) — blocking on /mcp/new until it loads.
-  toolservertypes: () => ok(["RemoteMCPServer", "MCPServer"]),
-  // Prompt libraries list (listPromptTemplates?namespace=<ns>).
-  prompttemplates: () => ok([]),
-};
-
-// GET pathname -> endpoint slug (query string stripped before lookup).
-const PATH_TO_SLUG = {
-  "/api/agents": "agents",
-  "/api/models": "models",
-  "/api/modelconfigs": "modelconfigs",
-  "/api/namespaces": "namespaces",
-  "/api/toolservers": "toolservers",
-  "/api/tools": "tools",
-  "/api/substrate/status": "substrate",
-  "/api/modelproviderconfigs/models": "providers",
-  "/api/modelproviderconfigs/configured": "configuredProviders",
-  "/api/toolservertypes": "toolservertypes",
-  "/api/prompttemplates": "prompttemplates",
-};
-
-// endregion
-
-// region Scenario state
-
-// Overrides set by POST /__mock/scenario. Empty = happy path.
-//   - GET reads keyed by endpoint slug ("agents", "models", …)
-//   - mutations keyed by "<METHOD> <pathname>" (e.g. "POST /api/agents")
-let overrides = {};
-
-// Captured mutation requests (POST/PUT/DELETE) so specs can assert payloads —
-// the app fetches server-side, so page.route can't see them. Read via
-// GET /__mock/requests; cleared by /__mock/reset.
-let requests = [];
-
-// endregion
-
-// region Server
+// region Helpers
 
 const json = (res, status, body) => {
   const payload = JSON.stringify(body);
@@ -157,144 +36,122 @@ const json = (res, status, body) => {
   res.end(payload);
 };
 
-const readJsonBody = (req) =>
+const readBody = (req) =>
   new Promise((resolve) => {
     let raw = "";
     req.on("data", (chunk) => {
       raw += chunk;
     });
-    req.on("end", () => {
-      if (!raw) return resolve({});
-      try {
-        resolve(JSON.parse(raw));
-      } catch {
-        resolve(null);
-      }
-    });
-    req.on("error", () => resolve(null));
+    req.on("end", () => resolve(raw));
+    req.on("error", () => resolve(""));
   });
 
-const server = createServer(async (req, res) => {
-  // req.method/url are typed string|undefined; default them so a malformed
-  // request can't throw on the split below.
+// endregion
+
+// region Chat mock (A2A SSE)
+//
+// The A2A stream is a text/event-stream of JSON-RPC frames (see src/lib/a2aClient.ts
+// processSSEStream): frames are "\n\n"-delimited, each line prefixed "data: ", each
+// payload unwrapped as `.result`. We echo the caller's own contextId/taskId (read
+// from the request) so the mocked reply lines up with the real session the backend
+// just created — no hard-coded session id needed.
+
+const AGENT_REPLY = process.env.E2E_AGENT_REPLY ?? "Hello from the agent";
+
+const frame = (event) => `data: ${JSON.stringify({ jsonrpc: "2.0", id: "1", result: event })}\n\n`;
+
+function chatStream(contextId, taskId) {
+  const message = {
+    kind: "message",
+    role: "agent",
+    parts: [{ kind: "text", text: AGENT_REPLY }],
+    contextId,
+    taskId,
+    messageId: 1,
+    metadata: {},
+  };
+  const completed = {
+    kind: "status-update",
+    taskId,
+    contextId,
+    final: true,
+    status: { state: "completed", message },
+  };
+  return frame(completed) + "data: [DONE]\n\n";
+}
+
+async function handleChat(req, res) {
+  const raw = await readBody(req);
+  let contextId = "e2e-session";
+  let taskId = "e2e-task";
+  try {
+    const rpc = JSON.parse(raw);
+    const msg = rpc?.params?.message ?? {};
+    if (typeof msg.contextId === "string") contextId = msg.contextId;
+    if (typeof msg.taskId === "string") taskId = msg.taskId;
+  } catch {
+    // Keep the fallback ids on a malformed body.
+  }
+  console.log(`[proxy] CHAT ${req.method} ${req.url} -> mocked SSE (contextId=${contextId})`);
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.end(chatStream(contextId, taskId));
+}
+
+// endregion
+
+// region Proxy
+
+function forward(req, res) {
+  const target = new URL(`${BACKEND_ORIGIN}${req.url}`);
+  const doRequest = target.protocol === "https:" ? httpsRequest : httpRequest;
+  const headers = { ...req.headers, host: target.host };
+  const upstream = doRequest(target, { method: req.method, headers }, (up) => {
+    console.log(`[proxy] ${req.method} ${req.url} -> ${up.statusCode} (${BACKEND_ORIGIN})`);
+    res.writeHead(up.statusCode ?? 502, up.headers);
+    up.pipe(res);
+  });
+  upstream.on("error", (err) => {
+    console.error(`[proxy] ${req.method} ${req.url} -> upstream error: ${err.message}`);
+    if (!res.headersSent) res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: `proxy to ${BACKEND_ORIGIN} failed: ${err.message}` }));
+  });
+  req.pipe(upstream);
+}
+
+// endregion
+
+// region Server
+
+const server = createServer((req, res) => {
   const method = req.method ?? "GET";
   const url = req.url ?? "/";
   const pathname = url.split("?")[0];
 
-  // Control + health endpoints.
+  // Health check — playwright.config.ts webServer waits on this.
   if (pathname === "/__mock/health") return json(res, 200, { status: "ok" });
 
-  if (method === "GET" && pathname === "/__mock/requests") {
-    return json(res, 200, { data: requests });
+  // Compatibility no-ops so the existing `mock` fixture / control seam don't crash
+  // in proxy mode. Scenario overrides and request capture aren't meaningful against
+  // a real backend; these just keep specs that call them from erroring on setup.
+  if (method === "POST" && pathname === "/__mock/reset") return json(res, 200, { status: "reset" });
+  if (method === "POST" && pathname === "/__mock/scenario") return json(res, 200, { status: "ignored-in-proxy-mode" });
+  if (method === "GET" && pathname === "/__mock/requests") return json(res, 200, { data: [] });
+
+  // Chat: intercept the A2A stream so tests never need a live LLM.
+  if (pathname.includes("/a2a/") || pathname.includes("/a2a-sandboxes/")) {
+    return handleChat(req, res);
   }
 
-  if (method === "POST" && pathname === "/__mock/reset") {
-    overrides = {};
-    requests = [];
-    return json(res, 200, { status: "reset" });
-  }
-
-  if (method === "POST" && pathname === "/__mock/scenario") {
-    const body = await readJsonBody(req);
-    // Mutation override: { method, path, status?, body? } keyed by "<METHOD> <path>".
-    if (body && typeof body.method === "string" && typeof body.path === "string") {
-      const key = `${body.method} ${body.path}`;
-      overrides[key] = { status: body.status ?? 200, body: body.body };
-      console.log(`[stub] scenario set: ${key} -> ${body.status ?? 200}`);
-      return json(res, 200, { status: "scenario-set", key });
-    }
-    // GET override: { endpoint, status?, body? } keyed by endpoint slug.
-    if (body && typeof body.endpoint === "string") {
-      overrides[body.endpoint] = { status: body.status ?? 200, body: body.body };
-      console.log(`[stub] scenario set: ${body.endpoint} -> ${body.status ?? 200}`);
-      return json(res, 200, { status: "scenario-set", endpoint: body.endpoint });
-    }
-    return json(res, 400, { error: "scenario requires { endpoint } or { method, path }" });
-  }
-
-  if (method === "GET") {
-    const slug = PATH_TO_SLUG[pathname];
-    if (slug) {
-      const override = overrides[slug];
-      if (override) {
-        console.log(`[stub] ${method} ${url} -> ${override.status} (override)`);
-        return json(res, override.status, override.body ?? {});
-      }
-      console.log(`[stub] ${method} ${url} -> 200`);
-      return json(res, 200, DEFAULTS[slug]());
-    }
-
-    // Dynamic GET routes (parameterized paths not in PATH_TO_SLUG).
-    if (/^\/api\/agents\/[^/]+\/[^/]+$/.test(pathname)) {
-      console.log(`[stub] ${method} ${url} -> 200 (agent detail)`);
-      return json(res, 200, ok(agent));
-    }
-    if (/^\/api\/sessions\/agent\/[^/]+\/[^/]+$/.test(pathname)) {
-      console.log(`[stub] ${method} ${url} -> 200 (sessions for agent)`);
-      return json(res, 200, ok([]));
-    }
-    // Session tasks (existing-chat history): /api/sessions/<id>/tasks.
-    if (/^\/api\/sessions\/[^/]+\/tasks$/.test(pathname)) {
-      console.log(`[stub] ${method} ${url} -> 200 (session tasks)`);
-      return json(res, 200, ok([task]));
-    }
-    // Single session (checkSessionExists): truthy for the seeded id, else 404 so
-    // the "Session not found" screen is reachable.
-    const sessionDetail = pathname.match(/^\/api\/sessions\/([^/]+)$/);
-    if (sessionDetail) {
-      if (sessionDetail[1] === "e2e-session") {
-        console.log(`[stub] ${method} ${url} -> 200 (session detail)`);
-        return json(res, 200, ok({ session }));
-      }
-      console.log(`[stub] ${method} ${url} -> 404 (session not found)`);
-      return json(res, 404, { error: "Session not found" });
-    }
-    // Single model config (edit page load): /api/modelconfigs/<ns>/<name>.
-    if (/^\/api\/modelconfigs\/[^/]+\/[^/]+$/.test(pathname)) {
-      console.log(`[stub] ${method} ${url} -> 200 (model config detail)`);
-      return json(res, 200, ok(modelConfig));
-    }
-    // Prompt library detail (redirect target after create): /api/prompttemplates/<ns>/<name>.
-    const promptDetail = pathname.match(/^\/api\/prompttemplates\/([^/]+)\/([^/]+)$/);
-    if (promptDetail) {
-      console.log(`[stub] ${method} ${url} -> 200 (prompt template detail)`);
-      return json(res, 200, ok({ namespace: promptDetail[1], name: promptDetail[2], data: {} }));
-    }
-  }
-
-  // Mutations to /api/*: capture the body (for payload assertions) and respond.
-  // Default is 200 echoing the sent body in the success envelope; an override can
-  // force an error (e.g. 500) for failure-path tests.
-  if ((method === "POST" || method === "PUT" || method === "DELETE") && pathname.startsWith("/api/")) {
-    const body = await readJsonBody(req);
-    requests.push({ method, path: url, body });
-    const override = overrides[`${method} ${pathname}`];
-    if (override) {
-      console.log(`[stub] ${method} ${url} -> ${override.status} (override)`);
-      return json(res, override.status, override.body ?? {});
-    }
-    // createSession must return a session WITH an id (the UI uses it for the new
-    // chat's id + streamed contextId); the generic echo below wouldn't have one.
-    if (method === "POST" && pathname === "/api/sessions") {
-      console.log(`[stub] ${method} ${url} -> 200 (session created)`);
-      return json(res, 200, ok(session));
-    }
-    // createAgentHarnessFromForm reads response.data.agent — echo needs .agent.
-    if (method === "POST" && pathname === "/api/agentharnesses") {
-      console.log(`[stub] ${method} ${url} -> 200 (harness created)`);
-      return json(res, 200, ok(agent));
-    }
-    console.log(`[stub] ${method} ${url} -> 200 (captured)`);
-    return json(res, 200, ok(body));
-  }
-
-  // Anything unmocked is a real gap — make it loud so we notice leaks.
-  console.warn(`[stub] UNHANDLED ${method} ${url} -> 404`);
-  return json(res, 404, { error: `No stub for ${method} ${pathname}` });
+  // Everything else: forward to the real backend.
+  return forward(req, res);
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`[stub] kagent mock backend listening on http://127.0.0.1:${PORT}`);
+  console.log(`[proxy] kagent E2E proxy on http://127.0.0.1:${PORT} -> ${BACKEND_ORIGIN} (chat mocked)`);
 });
 
 // endregion

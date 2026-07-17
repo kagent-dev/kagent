@@ -1,8 +1,11 @@
 name: UI Playwright E2E
 
-# Page-level browser E2E for the UI against a mocked backend.
-# Kept separate from CI so the main workflow does not need paths-filter or
-# conditional steps. No cluster required — the stub backend is booted by Playwright.
+# Page-level browser E2E for the UI against a REAL kagent backend in kind.
+#
+# PROOF OF CONCEPT: a lightweight proxy (ui/playwright/mocks/server.mjs) forwards
+# every /api call to the in-cluster controller and mocks only the chat A2A stream.
+# The cluster is built by ui/playwright/scripts/setup.sh (same make targets as the
+# Go e2e job); Playwright then port-forwards the controller and runs the suite.
 
 on:
   push:
@@ -15,6 +18,10 @@ on:
       - "ui/**"
   workflow_dispatch:
 
+env:
+  BUILDX_BUILDER_NAME: kagent-builder-v0.23.0
+  BUILDX_VERSION: v0.23.0
+
 jobs:
   playwright:
     runs-on: ubuntu-latest
@@ -23,6 +30,27 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
+          use: "true"
+          driver-opts: network=host
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.1
+        with:
+          version: v3.18.0
+
+      - name: Install Kind
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+        with:
+          install_only: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -39,9 +67,19 @@ jobs:
         working-directory: ./ui
         run: npx playwright install --with-deps chromium
 
+      - name: Set up cluster + real kagent
+        working-directory: ./ui
+        # Chat is mocked, so a dummy provider key satisfies `make helm-install`.
+        env:
+          OPENAI_API_KEY: fake
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+        run: ./playwright/scripts/setup.sh
+
       - name: Run Playwright tests
         working-directory: ./ui
-        run: npm run test:pw
+        env:
+          CI: "true"
+        run: npm run test:e2e
 
       - name: Upload Playwright report
         if: always()

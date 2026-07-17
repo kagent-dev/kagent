@@ -1,8 +1,15 @@
 # Playwright E2E tests
 
-Page-level browser end-to-end tests for the kagent UI, run against a **mocked
-backend**. This suite fills the one gap nothing else covers: **multi-step user
-flows across components**.
+Page-level browser end-to-end tests for the kagent UI. This suite fills the one
+gap nothing else covers: **multi-step user flows across components**.
+
+> **⚠️ Proof of concept:** this suite now runs against a **real kagent backend**
+> deployed in a kind cluster, not a stubbed one. A lightweight proxy forwards every
+> `/api` call to the real backend and mocks **only the chat A2A stream** (so no
+> live LLM is needed). The individual specs still reference the old stub helpers
+> (`mocks/data.ts`, `mocks/control.ts`, `helpers/a2a.ts`); migrating them off the
+> stub-only assertions (canned data, payload capture, scenario overrides) is
+> follow-up work.
 
 ## What this suite does and does not cover
 
@@ -16,20 +23,33 @@ flows across components**.
 
 Rule: if Chromatic / Jest already assert it, Playwright does not.
 
-## How mocking works (important)
+## How it works (proxy to a real backend)
 
 Nearly every `/api/**` call runs **server-side** inside Next.js server actions
-(`src/app/actions/*.ts`, all `"use server"`). The browser sends an opaque RPC
-POST to the route; the Node server does the actual backend `fetch`. So browser
-`page.route("**/api/**")` intercepts **nothing** on load.
+(`src/app/actions/*.ts`, all `"use server"`), and the chat stream `POST /a2a/**`
+runs server-side too, through the Next route handler
+(`src/app/a2a/[namespace]/[agentName]/route.ts`). Both resolve their target through
+`getBackendUrl()` (`src/lib/utils.ts`), which checks `BACKEND_INTERNAL_URL` first.
 
-Instead we run a standalone **stub backend** (`mocks/server.mjs`) and point Next
-at it with `BACKEND_INTERNAL_URL` — `getBackendUrl()` (`src/lib/utils.ts`) checks
-that env var first. Playwright's `webServer` (in `../playwright.config.ts`) boots
-both the stub (`:8899`) and `next dev` (`:8001`).
+So we run a **lightweight proxy** (`mocks/server.mjs`) and point Next at it via
+`BACKEND_INTERNAL_URL`. The proxy:
 
-The one exception is A2A chat streaming (`POST /a2a/**`, SSE), which **is**
-browser-originated and `page.route`-able — used in the chat spec (Stage 2).
+- **forwards** every `/api/**` request to the **real kagent backend** (`KAGENT_BACKEND_URL`);
+- **intercepts** `/a2a/**` and `/a2a-sandboxes/**`, answering with a canned SSE
+  reply — the only thing mocked, so the suite never needs a live LLM.
+
+```
+Browser ─▶ next dev :8001 ─┬─ /api/* (server actions) ─┐
+                           └─ /a2a/* (route handler) ───┤
+                                                        ▼
+                                    proxy :8899 ─┬─ /a2a/* ─▶ mocked SSE
+                                                 └─ /api/* ─▶ real backend (:8083)
+```
+
+`KAGENT_BACKEND_URL` defaults to `http://127.0.0.1:8083`, which is the controller
+port-forward opened by `playwright/setup.ts` (globalSetup) and closed by
+`playwright/teardown.ts`. Playwright's `webServer` boots the proxy (`:8899`) and
+`next dev` (`:8001`).
 
 ## Layout
 
@@ -51,19 +71,30 @@ playwright/
 ```bash
 cd ui
 npm install
-npx playwright install chromium   # first time only
-npm run test:pw                   # headless
-npm run test:pw:ui                # interactive UI mode
-npm run test:pw:debug             # step-through debugger
+npx playwright install chromium       # first time only
+
+./playwright/scripts/setup.sh         # set up the kind cluster + real kagent (once)
+yarn run test:e2e                      # (or: npm run test:e2e)
 ```
 
-Playwright starts the stub + dev server automatically. To drive the app manually
-against the stub:
+`setup.sh` builds the local images and installs kagent into a kind cluster via the
+repo's existing make targets (`make create-kind-cluster`, `make helm-install`) — no
+new commands. It needs a provider key for `helm-install`; since chat is mocked, a
+dummy is fine (`export OPENAI_API_KEY=fake`).
+
+`test:e2e` then port-forwards the controller (`playwright/setup.ts`), boots the
+proxy + `next dev`, and runs the suite. Interactive/debug variants:
 
 ```bash
-node playwright/mocks/server.mjs &
-BACKEND_INTERNAL_URL=http://127.0.0.1:8899/api npm run dev
-# open http://localhost:8001
+npm run test:pw:ui                     # interactive UI mode
+npm run test:pw:debug                  # step-through debugger
+```
+
+To point at a backend that's already reachable (e.g. a different port-forward or a
+LoadBalancer IP), override the origin:
+
+```bash
+KAGENT_BACKEND_URL=http://<host>:8083 npm run test:e2e
 ```
 
 ## Conventions
