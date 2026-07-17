@@ -119,6 +119,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   const allMessages = useMemo(() => [...storedMessages, ...streamingMessages], [storedMessages, streamingMessages]);
 
+  // Prompt tokens of the latest turn — the closest available approximation of
+  // the current context size (used for the context-window meter).
+  const contextTokens = useMemo(() => {
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const tokenStats = (allMessages[i].metadata as Record<string, unknown> | undefined)?.tokenStats as
+        | TokenStats
+        | undefined;
+      if (tokenStats?.prompt) return tokenStats.prompt;
+    }
+    return undefined;
+  }, [allMessages]);
+
   const { handleMessageEvent } = useMemo(() => createMessageHandlers({
     setMessages: setStreamingMessages,
     setIsStreaming,
@@ -994,7 +1006,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   return (
     <div className="flex h-full w-full min-w-0 flex-col items-center justify-center transition-all duration-300 ease-in-out">
       <div className="flex-1 w-full overflow-hidden relative">
-        <ScrollArea ref={containerRef} className="w-full h-full py-6">
+        <ScrollArea ref={containerRef} className="w-full h-full pt-2 pb-6">
           <div className="mx-auto w-full max-w-3xl flex flex-col space-y-4 px-4">
             {/* Never show loading for first message/new session */}
             {isLoading && sessionId && !isFirstMessage && !isCreatingSessionRef.current ? (
@@ -1076,7 +1088,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         {(chatStatus !== "ready" || sessionStats.total > 0) && (
           <div className="flex items-center justify-between mb-1 min-h-5">
             {chatStatus !== "ready" ? <StatusDisplay chatStatus={chatStatus} /> : <span />}
-            {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
+            {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} contextTokens={contextTokens} />}
           </div>
         )}
 

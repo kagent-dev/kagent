@@ -150,6 +150,11 @@ export default function ChatLayoutUI({
             agentType={currentAgent.agent.spec.type}
             runInSandbox={currentAgent.workloadMode === "sandbox"}
             substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
+            modelInfo={{
+              model: currentAgent.model,
+              modelProvider: currentAgent.modelProvider,
+              modelConfigRef: currentAgent.modelConfigRef,
+            }}
           >
             {children}
           </ChatAgentProvider>

@@ -3,6 +3,8 @@ import React from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarRail } from "../ui/sidebar";
 import { AgentSwitcher } from "./AgentSwitcher";
+import SidebarResizeHandle from "./SidebarResizeHandle";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import GroupedChats from "./GroupedChats";
 import type { AgentResponse, Session } from "@/types";
 import { Loader2 } from "lucide-react";
@@ -29,8 +31,9 @@ export default function SessionsSidebar({
   onAcpSessionClick,
   isLoadingSessions = false
 }: SessionsSidebarProps) {
-    return (
-    <Sidebar side="left" collapsible="offcanvas">
+  const { width, setWidth, reset } = useSidebarWidth("kagent.sidebar.left.width", 256);
+  return (
+    <Sidebar side="left" collapsible="offcanvas" width={`${width}px`}>
       <SidebarHeader>
         <AgentSwitcher currentAgent={currentAgent} allAgents={allAgents} />
       </SidebarHeader>
@@ -55,6 +58,7 @@ export default function SessionsSidebar({
         </ScrollArea>
       </SidebarContent>
       <SidebarRail />
+      <SidebarResizeHandle side="left" onResize={setWidth} onReset={reset} />
     </Sidebar>
   );
 }

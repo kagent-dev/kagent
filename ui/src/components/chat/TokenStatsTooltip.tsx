@@ -1,6 +1,7 @@
 import { BarChart2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { TokenStats } from "@/types";
+import { formatTokens } from "@/lib/tokenUtils";
 
 interface TokenStatsTooltipProps {
   stats: TokenStats;
@@ -16,9 +17,9 @@ export default function TokenStatsTooltip({ stats }: TokenStatsTooltipProps) {
       </TooltipTrigger>
       <TooltipContent side="top">
         <div className="flex flex-col gap-1 text-xs">
-          <span>Total: {stats.total}</span>
-          <span>Prompt: {stats.prompt}</span>
-          <span>Completion: {stats.completion}</span>
+          <span>Total: {formatTokens(stats.total)} ({stats.total})</span>
+          <span>Prompt: {formatTokens(stats.prompt)} ({stats.prompt})</span>
+          <span>Completion: {formatTokens(stats.completion)} ({stats.completion})</span>
         </div>
       </TooltipContent>
     </Tooltip>

@@ -5,6 +5,8 @@ import { ChevronRight, Edit, GitBranch, ShieldAlert } from "lucide-react";
 import type { AgentResponse, GitRepo, Tool, ToolsResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import SidebarResizeHandle from "./SidebarResizeHandle";
+import { useSidebarWidth } from "@/hooks/useSidebarWidth";
 import { LoadingState } from "@/components/LoadingState";
 import { isAgentTool, isMcpTool, getToolDescription, getToolIdentifier, getToolDisplayName } from "@/lib/toolUtils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -27,6 +29,7 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
+  const { width: detailsWidth, setWidth: setDetailsWidth, reset: resetDetailsWidth } = useSidebarWidth("kagent.sidebar.right.width", 256);
   const routeParams = useParams<{ chatId?: string }>();
   const currentChatId = typeof routeParams?.chatId === "string" ? routeParams.chatId : undefined;
 
@@ -247,7 +250,8 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
 
   return (
     <>
-      <Sidebar side={"right"} collapsible="offcanvas">
+      <Sidebar side={"right"} collapsible="offcanvas" width={`${detailsWidth}px`}>
+        <SidebarResizeHandle side="right" onResize={setDetailsWidth} onReset={resetDetailsWidth} />
         <SidebarHeader className="flex flex-row items-center justify-between gap-2">
           <span className="text-sm font-semibold leading-none">Agent Details</span>
           <Button
