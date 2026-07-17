@@ -13,6 +13,7 @@ from google.adk.models import BaseLlm
 from google.adk.sessions import Session
 from google.genai import types
 
+from kagent.adk import _memory_telemetry as mtel
 from kagent.adk.models import KAgentEmbedding
 from kagent.adk.types import EmbeddingConfig
 
@@ -72,63 +73,78 @@ class KagentMemoryService(BaseMemoryService):
             session: The session to add to memory
             model: Optional ADK model object (e.g., OpenAI, KAgentAnthropicLlm) to use for summarization.
         """
-        try:
-            # Extract content from session events
-            raw_content = self._extract_session_content(session)
-            if not raw_content:
-                logger.debug("No content to add to memory from session %s", session.id)
-                return
+        # Session ingestion is a memory write. When a summarization model is
+        # available the stored facts are LLM-derived (source=agent_inference);
+        # otherwise the raw session text is stored as-is (source=user). The
+        # summarization step emits a nested memory.consolidate span.
+        with mtel.start_memory_span(
+            mtel.SPAN_MEMORY_WRITE, mtel.MEMORY_OPERATION_SAVE, mtel.MEMORY_SCOPE_USER, self.agent_name
+        ) as span:
+            source = mtel.MEMORY_SOURCE_AGENT_INFERENCE if model is not None else mtel.MEMORY_SOURCE_USER
+            span.set_attribute(mtel.ATTR_MEMORY_SOURCE, source)
+            try:
+                # Extract content from session events
+                raw_content = self._extract_session_content(session)
+                if not raw_content:
+                    logger.debug("No content to add to memory from session %s", session.id)
+                    span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 0)
+                    return
 
-            logger.debug("Adding session %s to memory for user %s", session.id, session.user_id)
+                logger.debug("Adding session %s to memory for user %s", session.id, session.user_id)
 
-            # Summarize content before embedding
-            # Returns a list of strings (individual facts/memories)
-            contents = await self._summarize_session_content_async(raw_content, model=model)
+                # Summarize content before embedding
+                # Returns a list of strings (individual facts/memories)
+                contents = await self._summarize_session_content_async(raw_content, model=model)
 
-            # Filter out empty content items
-            valid_contents = [c for c in contents if c]
-            if not valid_contents:
-                return
+                # Filter out empty content items
+                valid_contents = [c for c in contents if c]
+                if not valid_contents:
+                    span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 0)
+                    return
 
-            logger.debug("Generating embeddings for %d content items", len(valid_contents))
+                logger.debug("Generating embeddings for %d content items", len(valid_contents))
 
-            # Batch generate embeddings
-            if not self._embedding_client:
-                logger.warning("No embedding client available for session %s", session.id)
-                return
-            vectors = await self._embedding_client.generate(valid_contents)
-            if not vectors:
-                logger.warning("Failed to generate embeddings for session %s", session.id)
-                return
+                # Batch generate embeddings
+                if not self._embedding_client:
+                    logger.warning("No embedding client available for session %s", session.id)
+                    return
+                with mtel.start_embed_span(self.agent_name, len(valid_contents)):
+                    vectors = await self._embedding_client.generate(valid_contents)
+                if not vectors:
+                    logger.warning("Failed to generate embeddings for session %s", session.id)
+                    return
 
-            # Prepare batch items
-            batch_items = []
+                # Prepare batch items
+                batch_items = []
 
-            # Iterate over synced content and vectors
-            for content_item, vector in zip(valid_contents, vectors, strict=True):
-                if not vector:
-                    continue
+                # Iterate over synced content and vectors
+                for content_item, vector in zip(valid_contents, vectors, strict=True):
+                    if not vector:
+                        continue
 
-                item: Dict[str, Any] = {
-                    "agent_name": self.agent_name,
-                    "user_id": session.user_id,
-                    "content": content_item,
-                    "vector": vector,
-                }
-                if self.ttl_days > 0:
-                    item["ttl_days"] = self.ttl_days
-                batch_items.append(item)
+                    item: Dict[str, Any] = {
+                        "agent_name": self.agent_name,
+                        "user_id": session.user_id,
+                        "content": content_item,
+                        "vector": vector,
+                    }
+                    if self.ttl_days > 0:
+                        item["ttl_days"] = self.ttl_days
+                    batch_items.append(item)
 
-            if not batch_items:
-                return
+                if not batch_items:
+                    span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 0)
+                    return
 
-            response = await self.client.post("/api/memories/sessions/batch", json={"items": batch_items})
-            if response.status_code >= 400:
-                logger.error("Response body: %s", response.text)
-            response.raise_for_status()
-            logger.info("Successfully saved %d memory items via batch API", len(batch_items))
-        except Exception as e:
-            logger.error("Failed to save session %s to memory in background: %s", session.id, e)
+                response = await self.client.post("/api/memories/sessions/batch", json={"items": batch_items})
+                if response.status_code >= 400:
+                    logger.error("Response body: %s", response.text)
+                response.raise_for_status()
+                span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, len(batch_items))
+                logger.info("Successfully saved %d memory items via batch API", len(batch_items))
+            except Exception as e:
+                mtel.record_span_error(span, e)
+                logger.error("Failed to save session %s to memory in background: %s", session.id, e)
 
     async def add_memory(
         self,
@@ -149,36 +165,48 @@ class KagentMemoryService(BaseMemoryService):
         if not content:
             return
 
-        logger.debug("Adding specific content to memory for user %s", user_id)
+        # An explicit add_memory (the save_memory tool path) is a first-class
+        # memory write. It stores the content verbatim (source=user, no
+        # summarization), so it emits memory.write but no memory.consolidate —
+        # consolidation is reserved for the summarizing session-ingestion path.
+        with mtel.start_memory_span(
+            mtel.SPAN_MEMORY_WRITE, mtel.MEMORY_OPERATION_SAVE, mtel.MEMORY_SCOPE_USER, self.agent_name
+        ) as span:
+            span.set_attribute(mtel.ATTR_MEMORY_SOURCE, mtel.MEMORY_SOURCE_USER)
 
-        # Generate embedding
-        if not self._embedding_client:
-            logger.warning("No embedding client available")
-            return
-        vector = await self._embedding_client.generate(content)
-        if not vector:
-            logger.warning("Failed to generate embedding for memory content")
-            return
+            logger.debug("Adding specific content to memory for user %s", user_id)
 
-        # Send to Kagent API
-        payload: Dict[str, Any] = {
-            "agent_name": self.agent_name,
-            "user_id": user_id,
-            "content": content,
-            "vector": vector,
-        }
-        if self.ttl_days > 0:
-            payload["ttl_days"] = self.ttl_days
+            # Generate embedding
+            if not self._embedding_client:
+                logger.warning("No embedding client available")
+                return
+            with mtel.start_embed_span(self.agent_name, 1):
+                vector = await self._embedding_client.generate(content)
+            if not vector:
+                logger.warning("Failed to generate embedding for memory content")
+                return
 
-        try:
-            response = await self.client.post("/api/memories/sessions", json=payload)
-            if response.status_code >= 400:
-                logger.error("Response body: %s", response.text)
-            response.raise_for_status()
-            memory_id = response.json().get("id")
-            logger.info("Successfully saved memory item (id=%s)", memory_id)
-        except Exception as e:
-            logger.error("Failed to save memory: %s", e)
+            # Send to Kagent API
+            payload: Dict[str, Any] = {
+                "agent_name": self.agent_name,
+                "user_id": user_id,
+                "content": content,
+                "vector": vector,
+            }
+            if self.ttl_days > 0:
+                payload["ttl_days"] = self.ttl_days
+
+            try:
+                response = await self.client.post("/api/memories/sessions", json=payload)
+                if response.status_code >= 400:
+                    logger.error("Response body: %s", response.text)
+                response.raise_for_status()
+                memory_id = response.json().get("id")
+                span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 1)
+                logger.info("Successfully saved memory item (id=%s)", memory_id)
+            except Exception as e:
+                mtel.record_span_error(span, e)
+                logger.error("Failed to save memory: %s", e)
 
     async def search_memory(
         self,
@@ -197,48 +225,69 @@ class KagentMemoryService(BaseMemoryService):
         Returns:
             SearchMemoryResponse containing matching MemoryEntry objects
         """
-        # Generate embedding for the query
-        if not self._embedding_client:
-            logger.warning("No embedding client available for search")
-            return SearchMemoryResponse(memories=[])
-        vector = await self._embedding_client.generate(query)
-        if not vector:
-            logger.warning("Failed to generate embedding for search query")
-            return SearchMemoryResponse(memories=[])
+        # Recall runs before LLM dispatch, so this span attaches as a child of
+        # the active invoke_agent span when one is present in context.
+        _search_limit = 5
+        _search_min_score = 0.3
+        with mtel.start_memory_span(
+            mtel.SPAN_MEMORY_READ, mtel.MEMORY_OPERATION_PREFETCH, mtel.MEMORY_SCOPE_USER, self.agent_name
+        ) as span:
+            # Stamp the pgvector query shape so the read span reflects the actual
+            # search parameters, not just the outcome.
+            span.set_attribute(mtel.ATTR_MEMORY_QUERY_TOP_K, _search_limit)
+            span.set_attribute(mtel.ATTR_MEMORY_QUERY_MIN_SCORE, _search_min_score)
 
-        payload = {
-            "agent_name": self.agent_name,
-            "user_id": user_id,
-            "vector": vector,
-            "limit": 5,
-            "min_score": 0.3,
-        }
-
-        try:
-            response = await self.client.post("/api/memories/search", json=payload)
-            if response.status_code >= 400:
-                logger.error("Response body: %s", response.text)
-            response.raise_for_status()
-            results = response.json()
-
-            memories = []
-            for item in results:
-                content = types.Content(
-                    role="user",
-                    parts=[types.Part(text=item.get("content", ""))],
-                )
-                memory_entry = MemoryEntry(id=item.get("id"), content=content)
-                memories.append(memory_entry)
-
-            if len(memories) == 0:
-                logger.warning("No memories found for query: %s", query)
+            # Generate embedding for the query
+            if not self._embedding_client:
+                logger.warning("No embedding client available for search")
+                mtel.set_memory_read_result(span, 0)
+                return SearchMemoryResponse(memories=[])
+            # Vectorizing the query dominates recall latency; trace it as an
+            # explicit child so the embed-vs-search split is visible.
+            with mtel.start_embed_span(self.agent_name, 1):
+                vector = await self._embedding_client.generate(query)
+            if not vector:
+                logger.warning("Failed to generate embedding for search query")
+                mtel.set_memory_read_result(span, 0)
                 return SearchMemoryResponse(memories=[])
 
-            logger.info("Successfully retrieved memories for query: %s", query)
-            return SearchMemoryResponse(memories=memories)
-        except Exception as e:
-            logger.error("Failed to search memory: %s", e)
-            return SearchMemoryResponse(memories=[])
+            payload = {
+                "agent_name": self.agent_name,
+                "user_id": user_id,
+                "vector": vector,
+                "limit": _search_limit,
+                "min_score": _search_min_score,
+            }
+
+            try:
+                response = await self.client.post("/api/memories/search", json=payload)
+                if response.status_code >= 400:
+                    logger.error("Response body: %s", response.text)
+                response.raise_for_status()
+                results = response.json()
+
+                memories = []
+                for item in results:
+                    content = types.Content(
+                        role="user",
+                        parts=[types.Part(text=item.get("content", ""))],
+                    )
+                    memory_entry = MemoryEntry(id=item.get("id"), content=content)
+                    memories.append(memory_entry)
+
+                mtel.set_memory_read_result(span, len(memories))
+
+                if len(memories) == 0:
+                    logger.warning("No memories found for query: %s", query)
+                    return SearchMemoryResponse(memories=[])
+
+                logger.info("Successfully retrieved memories for query: %s", query)
+                return SearchMemoryResponse(memories=memories)
+            except Exception as e:
+                mtel.record_span_error(span, e)
+                mtel.set_memory_read_result(span, 0)
+                logger.error("Failed to search memory: %s", e)
+                return SearchMemoryResponse(memories=[])
 
     def _extract_session_content(self, session: Session) -> str:
         """Extract text content from session events.
@@ -337,60 +386,71 @@ Conversation:
 
 Summary (JSON List):"""
 
-        try:
-            from google.adk.models.llm_request import LlmRequest
-            from google.genai.types import Content, Part
+        # A summarization pass with a real model is a memory.consolidate operation:
+        # it extracts distinct facts from raw session content. Fallbacks (empty /
+        # unparseable output) report item.count 0 — no facts were consolidated.
+        with mtel.start_memory_span(
+            mtel.SPAN_MEMORY_CONSOLIDATE, mtel.MEMORY_OPERATION_EXTRACT, mtel.MEMORY_SCOPE_USER, self.agent_name
+        ) as span:
+            try:
+                from google.adk.models.llm_request import LlmRequest
+                from google.genai.types import Content, Part
 
-            # Build LLM request using ADK types
-            llm_request = LlmRequest(
-                contents=[
-                    Content(
-                        role="user",
-                        parts=[Part(text=prompt.format(content=content))],
-                    )
-                ],
-            )
+                # Build LLM request using ADK types
+                llm_request = LlmRequest(
+                    contents=[
+                        Content(
+                            role="user",
+                            parts=[Part(text=prompt.format(content=content))],
+                        )
+                    ],
+                )
 
-            # Call the model directly
-            logger.debug("Summarizing session content using model %s", model.model)
-            response_generator = model.generate_content_async(llm_request, stream=False)
+                # Call the model directly
+                logger.debug("Summarizing session content using model %s", model.model)
+                response_generator = model.generate_content_async(llm_request, stream=False)
 
-            # Consume the async generator (streaming response)
-            summary_text = ""
-            async for chunk in response_generator:
-                if chunk.content and chunk.content.parts:
-                    summary_text += "".join(
-                        part.text for part in chunk.content.parts if hasattr(part, "text") and part.text
-                    )
+                # Consume the async generator (streaming response)
+                summary_text = ""
+                async for chunk in response_generator:
+                    if chunk.content and chunk.content.parts:
+                        summary_text += "".join(
+                            part.text for part in chunk.content.parts if hasattr(part, "text") and part.text
+                        )
 
-            summary_text = summary_text.strip()
-
-            if summary_text:
-                # Clean up potential markdown formatting if model ignores instruction
-                if summary_text.startswith("```json"):
-                    summary_text = summary_text[7:]
-                if summary_text.startswith("```"):
-                    summary_text = summary_text[3:]
-                if summary_text.endswith("```"):
-                    summary_text = summary_text[:-3]
                 summary_text = summary_text.strip()
 
-                try:
-                    extracted_list = json.loads(summary_text)
-                    if isinstance(extracted_list, list) and all(isinstance(item, str) for item in extracted_list):
-                        logger.debug("Summarized session content into %d items", len(extracted_list))
-                        return extracted_list
-                    else:
-                        logger.warning("LLM returned valid JSON but not a list of strings. Falling back to full text.")
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Failed to parse LLM output as JSON. Falling back to full text. Output: %s", summary_text
-                    )
-                    pass
+                if summary_text:
+                    # Clean up potential markdown formatting if model ignores instruction
+                    if summary_text.startswith("```json"):
+                        summary_text = summary_text[7:]
+                    if summary_text.startswith("```"):
+                        summary_text = summary_text[3:]
+                    if summary_text.endswith("```"):
+                        summary_text = summary_text[:-3]
+                    summary_text = summary_text.strip()
 
-            logger.warning("Empty summary or invalid format returned, using original content")
-            return [content]
+                    try:
+                        extracted_list = json.loads(summary_text)
+                        if isinstance(extracted_list, list) and all(isinstance(item, str) for item in extracted_list):
+                            logger.debug("Summarized session content into %d items", len(extracted_list))
+                            span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, len(extracted_list))
+                            return extracted_list
+                        else:
+                            logger.warning(
+                                "LLM returned valid JSON but not a list of strings. Falling back to full text."
+                            )
+                    except json.JSONDecodeError:
+                        logger.warning(
+                            "Failed to parse LLM output as JSON. Falling back to full text. Output: %s", summary_text
+                        )
+                        pass
 
-        except Exception as e:
-            logger.warning("Failed to summarize session content: %s. Using original.", e)
-            return [content]
+                logger.warning("Empty summary or invalid format returned, using original content")
+                span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 0)
+                return [content]
+
+            except Exception as e:
+                mtel.record_span_error(span, e)
+                logger.warning("Failed to summarize session content: %s. Using original.", e)
+                return [content]
