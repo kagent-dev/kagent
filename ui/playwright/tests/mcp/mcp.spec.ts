@@ -1,9 +1,8 @@
 import { test, expect } from "../../fixtures/test";
 import { loadPage } from "../../helpers/page";
 
-// MCP servers & tools — a create/read/delete lifecycle journey plus a
-// validation-failure journey (two videos). The UI has no edit surface for a tool
-// server, so there's no Update stage. The lifecycle creates a uniquely-named
+// MCP servers & tools — create/read/delete lifecycle journey. The UI has no edit
+// surface for a tool server, so there's no Update stage. Creates a uniquely-named
 // RemoteMCPServer, finds it via search and expands it, then deletes it — only ever
 // touching the server it created. The form's namespace combobox auto-selects
 // "kagent", so the server is kagent/<name>.
@@ -11,11 +10,12 @@ import { loadPage } from "../../helpers/page";
 // Only the remote transport is asserted: an MCPServer (stdio) becomes listable
 // only once its backing deployment is ready (tens of seconds), too slow for an
 // e2e assertion, and the remote path already gives full tool-server coverage.
+// Error journeys live in mcp-errors.spec.ts.
 
 const NAMESPACE = "kagent";
 const SERVER_URL = "https://example.com/mcp";
 
-test("mcp server lifecycle: create, read, delete", async ({ page }, testInfo) => {
+test("mcp: create, read, delete", async ({ page }, testInfo) => {
   // Generated per attempt (Date.now differs on retry) so re-runs never collide.
   const ref = `${NAMESPACE}/e2e-remote-${Date.now().toString(36)}-${testInfo.retry}`;
   const name = ref.split("/")[1];
@@ -53,18 +53,5 @@ test("mcp server lifecycle: create, read, delete", async ({ page }, testInfo) =>
     await dialog.getByRole("button", { name: "Confirm" }).click();
 
     await expect(page.getByText(ref)).toHaveCount(0);
-  });
-});
-
-test("mcp failures: url validation", async ({ page }) => {
-  // region Creating — client-side validation blocks the POST
-  await test.step("blocks create when the URL is empty", async () => {
-    await loadPage(page, "/mcp/new", { heading: "New MCP server" });
-
-    await page.getByLabel("Server Name").fill("e2e-url-validation");
-    await page.getByRole("button", { name: "Create server" }).click();
-
-    await expect(page.getByText("URL is required")).toBeVisible();
-    await expect(page).toHaveURL(/\/mcp\/new/);
   });
 });

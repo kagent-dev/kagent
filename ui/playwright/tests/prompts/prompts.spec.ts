@@ -1,12 +1,12 @@
 import { test, expect } from "../../fixtures/test";
 import { loadPage, expectToast, waitForAppReady } from "../../helpers/page";
 
-// Prompt libraries — a full-CRUD lifecycle journey plus a validation-failure
-// journey (two videos). /prompts lists via GET /api/prompttemplates?namespace=<ns>;
-// create is a dedicated route that POSTs then redirects to the detail page; edit
-// PUTs, delete DELETEs. Each mutation is verified back on the list page: create
-// adds the row, an edit that adds a fragment bumps the row's key count, and delete
-// removes the row. Only the library this test creates is touched.
+// Prompt libraries — full-CRUD lifecycle journey. /prompts lists via GET
+// /api/prompttemplates?namespace=<ns>; create is a dedicated route that POSTs then
+// redirects to the detail page; edit PUTs, delete DELETEs. Each mutation is
+// verified back on the list page: create adds the row, an edit that adds a fragment
+// bumps the row's key count, and delete removes the row. Only the library this test
+// creates is touched. Error journeys live in prompts-errors.spec.ts.
 
 const NAMESPACE = "kagent";
 
@@ -15,7 +15,7 @@ function libraryRow(page: import("@playwright/test").Page, name: string) {
   return page.getByRole("link", { name: new RegExp(name) });
 }
 
-test("prompt library lifecycle: create, read, update, delete", async ({ page }, testInfo) => {
+test("prompts: create, read, update, delete", async ({ page }, testInfo) => {
   const name = `e2e-prompts-${Date.now().toString(36)}-${testInfo.retry}`;
 
   // region Creating — POST a new library, then confirm the row on the prompts list
@@ -66,14 +66,4 @@ test("prompt library lifecycle: create, read, update, delete", async ({ page }, 
     await expect(page).toHaveURL(new RegExp(`/prompts\\?namespace=${NAMESPACE}`));
     await expect(libraryRow(page, name)).toHaveCount(0);
   });
-});
-
-test("prompt failures: blocks create when the name is empty", async ({ page }) => {
-  // region Creating — client-side validation blocks the POST
-  await page.goto(`/prompts/new?ns=${NAMESPACE}`);
-  await waitForAppReady(page);
-
-  await page.getByRole("button", { name: "Create Library" }).click();
-
-  await expectToast(page, /Library name is required/i, { type: "error" });
 });

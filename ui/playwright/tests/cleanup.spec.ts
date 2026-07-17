@@ -25,7 +25,8 @@ async function listRefs(
   return (body.data ?? []).map(toRef).filter(isTestRef);
 }
 
-test("cleanup: remove leftover e2e-* test resources", async ({ request }) => {
+test("cleanup: remove leftover e2e resources", async ({ request }) => {
+  // region Reading — collect leftover e2e-* refs across resource types
   const agents = await listRefs(request, "agents", (a) => {
     const m = (a.agent as { metadata?: { namespace?: string; name?: string } })?.metadata;
     return m?.namespace && m?.name ? `${m.namespace}/${m.name}` : null;
@@ -43,6 +44,7 @@ test("cleanup: remove leftover e2e-* test resources", async ({ request }) => {
     }
   };
 
+  // region Deleting — delete each leftover
   await sweep("agents", agents);
   await sweep("toolservers", toolServers);
   await sweep("modelconfigs", modelConfigs);

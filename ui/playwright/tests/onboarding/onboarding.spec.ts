@@ -12,13 +12,14 @@ import { test, expect } from "../../fixtures/test";
 
 const NAMESPACE = "kagent";
 
-test("onboarding wizard: completes end to end with an existing model", async ({ page }, testInfo) => {
+test("onboarding: complete the wizard", async ({ page }, testInfo) => {
   const agentName = `e2e-onboard-${Date.now().toString(36)}-${testInfo.retry}`;
   const ref = `${NAMESPACE}/${agentName}`;
 
   await page.addInitScript(() => window.localStorage.setItem("kagent-onboarding", "false"));
   await page.goto("/");
 
+  // region Creating — walk the wizard end to end to create an agent
   await test.step("welcome → get started", async () => {
     await expect(page.getByText("Bringing Agentic AI to Cloud Native")).toBeVisible();
     await page.getByRole("button", { name: /Let's Get Started/ }).click();
@@ -47,17 +48,19 @@ test("onboarding wizard: completes end to end with an existing model", async ({ 
     await page.getByRole("button", { name: /Finish/ }).click();
   });
 
-  await test.step("step 5 — done, wizard dismissed and flag persisted", async () => {
+  await test.step("step 5 — lands on the agents list with the new agent", async () => {
     await expect(page.getByText("Setup Complete!")).toBeVisible();
     await page.getByRole("button", { name: /Go to Agent/ }).click();
 
     await expect(page.getByText("Setup Complete!")).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
+    // The agent the wizard created is present in the list it lands on.
+    await expect(page.getByText(agentName).first()).toBeVisible();
     expect(await page.evaluate(() => window.localStorage.getItem("kagent-onboarding"))).toBe("true");
   });
 
+  // region Deleting — remove the agent the wizard created
   await test.step("cleans up the agent the wizard created", async () => {
-    await expect(page.getByText(agentName).first()).toBeVisible();
     await page.getByTestId(`agent-options-${ref}`).first().click();
     await page.getByRole("menuitem", { name: "Delete" }).click();
     const dialog = page.getByRole("alertdialog");
@@ -67,7 +70,8 @@ test("onboarding wizard: completes end to end with an existing model", async ({ 
   });
 });
 
-test("onboarding: skips the wizard", async ({ page }) => {
+test("onboarding: skip the wizard", async ({ page }) => {
+  // region Skipping — dismiss the wizard without creating anything
   await page.addInitScript(() => window.localStorage.setItem("kagent-onboarding", "false"));
   await page.goto("/");
 

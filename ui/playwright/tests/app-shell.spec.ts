@@ -11,7 +11,8 @@ import { gotoView, gotoCreate } from "../helpers/nav";
 // so the test doesn't break as the seeded set evolves.
 const SEEDED_AGENT = "k8s-agent";
 
-test("app shell: agents list and header navigation", async ({ page }) => {
+test("app shell: list and navigation", async ({ page }) => {
+  // region Reading — the agents list renders from the backend
   await test.step("renders the agents list from the real backend", async () => {
     const fatalErrors: string[] = [];
     page.on("pageerror", (err) => fatalErrors.push(err.message));
@@ -22,6 +23,7 @@ test("app shell: agents list and header navigation", async ({ page }) => {
     expect(fatalErrors, `uncaught page errors: ${fatalErrors.join("; ")}`).toEqual([]);
   });
 
+  // region Navigating — reach every listing and create page via the header menus
   await test.step("navigates between listing pages via the View menu", async () => {
     await gotoView(page, "Models", "**/models");
     await expect(page.getByRole("heading", { level: 1, name: "Models" })).toBeVisible();

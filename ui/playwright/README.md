@@ -41,7 +41,7 @@ Browser ─▶ next dev :8001 ─┬─ /api/* (server actions) ─┐
 
 ```
 playwright/
-  tests/          # *.spec.ts, one per feature area, plus cleanup.spec.ts
+  tests/          # <area>.spec.ts + <area>-errors.spec.ts per area, plus cleanup.spec.ts
   helpers/        # page, nav, select, a2a drivers
   mocks/
     server.mjs    # proxy: forwards /api to the real backend, mocks chat
@@ -79,7 +79,8 @@ npm run test:pw:debug    # step-through debugger
 ## Conventions
 
 - Import `{ test, expect }` from `../fixtures/test`.
-- One spec per feature area, each a **success** journey and a **failure** journey.
+- Two specs per feature area: `<area>.spec.ts` (the success/CRUD journey) and
+  `<area>-errors.spec.ts` (the validation/error journey).
 - Mutating specs create uniquely-named resources and delete them; `cleanup.spec.ts`
   sweeps any `e2e-*` leftovers from interrupted runs. Seeded resources (never
   prefixed `e2e-`) are left untouched.

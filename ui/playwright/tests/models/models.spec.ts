@@ -1,17 +1,17 @@
 import { test, expect } from "../../fixtures/test";
 import { loadPage, expectToast } from "../../helpers/page";
 
-// Models / providers — a full-CRUD lifecycle journey plus a validation-failure
-// journey (two videos). Creates a uniquely-named throwaway config (OpenAI + a real
-// catalog model + dummy key), reads it back on the edit page, updates it, then
-// deletes it — never touching a seeded config. Per-item edit/delete controls are
-// scoped by the config ref, so only the config this test created is acted on.
+// Models / providers — full-CRUD lifecycle journey. Creates a uniquely-named
+// throwaway config (OpenAI + a real catalog model + dummy key), reads it back on
+// the edit page, updates it, then deletes it — never touching a seeded config.
+// Per-item edit/delete controls are scoped by the config ref, so only the config
+// this test created is acted on. Error journeys live in models-errors.spec.ts.
 
 const NAMESPACE = "kagent";
 // A model that exists in the real OpenAI catalog served by /api/models.
 const MODEL_NAME = "gpt-5.4-mini";
 
-test("model lifecycle: create, read, update, delete", async ({ page }, testInfo) => {
+test("models: create, read, update, delete", async ({ page }, testInfo) => {
   const name = `e2e-model-${Date.now().toString(36)}-${testInfo.retry}`;
   const ref = `${NAMESPACE}/${name}`;
 
@@ -67,21 +67,5 @@ test("model lifecycle: create, read, update, delete", async ({ page }, testInfo)
 
     await expectToast(page, /deleted successfully/i, { type: "success" });
     await expect(page.getByRole("button", { name: `Delete model ${ref}` })).toHaveCount(0);
-  });
-});
-
-test("model failures: create validation", async ({ page }) => {
-  // region Creating — client-side validation blocks the POST
-  await test.step("blocks create when no model is selected", async () => {
-    await loadPage(page, "/models/new", { heading: "New Model" });
-
-    await page.getByRole("button", { name: "Create Model" }).click();
-
-    // The error renders up by the model field; scroll it in so it's on screen
-    // (in the recorded video) rather than above the fold.
-    const error = page.getByText("Provider and Model selection is required");
-    await error.scrollIntoViewIfNeeded();
-    await expect(error).toBeVisible();
-    await expect(page).toHaveURL(/\/models\/new/);
   });
 });
