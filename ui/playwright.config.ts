@@ -49,7 +49,8 @@ export default defineConfig({
   forbidOnly: CI,
   retries: CI ? 1 : 0,
   workers: 1,
-  timeout: 30_000,
+  // Real-backend flows do create/list/delete round trips, so allow headroom.
+  timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: [["html", { open: "never" }], ["list"]],
   use: {

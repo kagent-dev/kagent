@@ -1,11 +1,11 @@
 name: UI Playwright E2E
 
-# Page-level browser E2E for the UI against a REAL kagent backend in kind.
+# Page-level browser E2E for the UI against a real kagent backend in kind.
 #
-# PROOF OF CONCEPT: a lightweight proxy (ui/playwright/mocks/server.mjs) forwards
-# every /api call to the in-cluster controller and mocks only the chat A2A stream.
-# The cluster is built by ui/playwright/scripts/setup.sh (same make targets as the
-# Go e2e job); Playwright then port-forwards the controller and runs the suite.
+# A lightweight proxy (ui/playwright/mocks/server.mjs) forwards every /api call to
+# the in-cluster controller and mocks only the chat A2A stream. The cluster is
+# built by ui/playwright/scripts/setup.sh (same make targets as the Go e2e job);
+# Playwright then port-forwards the controller and runs the suite.
 
 on:
   push:

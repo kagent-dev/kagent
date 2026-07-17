@@ -1,11 +1,9 @@
-// Lightweight dev proxy for Playwright E2E against a REAL kagent backend.
+// Lightweight dev proxy for the Playwright E2E suite.
 //
-// PROOF OF CONCEPT (see playwright/README.md). This replaces the old fully-stubbed
-// backend. Instead of canned /api responses, it forwards every request to a real
-// kagent backend — deployed into kind by playwright/scripts/setup.sh and reached
-// through a port-forward started in playwright/setup.ts — EXCEPT the chat A2A
-// stream, which it intercepts and answers with a canned SSE reply so the suite
-// never needs a live LLM.
+// It forwards every request to a real kagent backend — deployed into kind by
+// playwright/scripts/setup.sh and reached through a port-forward started in
+// playwright/setup.ts — EXCEPT the chat A2A stream, which it intercepts and
+// answers with a canned SSE reply so the suite never needs a live LLM.
 //
 //   Next (BACKEND_INTERNAL_URL) ─▶ this proxy ─┬─ /a2a, /a2a-sandboxes ─▶ mocked SSE
 //                                              └─ everything else ──────▶ KAGENT_BACKEND_URL
@@ -133,13 +131,6 @@ const server = createServer((req, res) => {
 
   // Health check — playwright.config.ts webServer waits on this.
   if (pathname === "/__mock/health") return json(res, 200, { status: "ok" });
-
-  // Compatibility no-ops so the existing `mock` fixture / control seam don't crash
-  // in proxy mode. Scenario overrides and request capture aren't meaningful against
-  // a real backend; these just keep specs that call them from erroring on setup.
-  if (method === "POST" && pathname === "/__mock/reset") return json(res, 200, { status: "reset" });
-  if (method === "POST" && pathname === "/__mock/scenario") return json(res, 200, { status: "ignored-in-proxy-mode" });
-  if (method === "GET" && pathname === "/__mock/requests") return json(res, 200, { data: [] });
 
   // Chat: intercept the A2A stream so tests never need a live LLM.
   if (pathname.includes("/a2a/") || pathname.includes("/a2a-sandboxes/")) {

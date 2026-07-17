@@ -18,3 +18,20 @@ export async function selectOption(
   await triggerLocator.click();
   await page.getByRole("option", { name: optionName }).click();
 }
+
+/**
+ * Pick a namespace from a NamespaceCombobox (Popover + cmdk Command, not a Radix
+ * Select). cmdk renders items as role="option"; the accessible name includes the
+ * "Status: …" suffix, so match on the namespace name as a substring.
+ * @param trigger the combobox trigger — a Locator or selector (e.g. "#agent-field-namespace").
+ */
+export async function selectNamespace(
+  page: Page,
+  trigger: Locator | string,
+  namespace: string,
+): Promise<void> {
+  const triggerLocator = typeof trigger === "string" ? page.locator(trigger) : trigger;
+  await expect(triggerLocator).toBeEnabled();
+  await triggerLocator.click();
+  await page.getByRole("option", { name: namespace }).first().click();
+}

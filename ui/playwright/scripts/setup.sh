@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Set up a kind cluster running a REAL kagent build for the Playwright UI suite.
+# Set up a kind cluster running a real kagent build for the Playwright UI suite.
 #
-# PROOF OF CONCEPT (see ../README.md). Builds the local images and installs kagent
-# via the repo's existing make targets — no new commands. After this finishes, run:
+# Builds the local images and installs kagent via the repo's existing make targets
+# (see ../README.md) — no new commands. After this finishes, run:
 #
 #     yarn run test:e2e        # (or: npm run test:e2e)
 #
