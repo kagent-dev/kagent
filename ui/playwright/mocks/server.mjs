@@ -238,6 +238,12 @@ const server = createServer(async (req, res) => {
       console.log(`[stub] ${method} ${url} -> 200 (session tasks)`);
       return json(res, 200, ok([task]));
     }
+    // Session share links (listSessionShares): /api/sessions/<id>/shares.
+    // Eagerly loaded by the chat page; no shares in the happy path.
+    if (/^\/api\/sessions\/[^/]+\/shares$/.test(pathname)) {
+      console.log(`[stub] ${method} ${url} -> 200 (session shares)`);
+      return json(res, 200, ok([]));
+    }
     // Single session (checkSessionExists): truthy for the seeded id, else 404 so
     // the "Session not found" screen is reachable.
     const sessionDetail = pathname.match(/^\/api\/sessions\/([^/]+)$/);
@@ -259,6 +265,12 @@ const server = createServer(async (req, res) => {
     if (promptDetail) {
       console.log(`[stub] ${method} ${url} -> 200 (prompt template detail)`);
       return json(res, 200, ok({ namespace: promptDetail[1], name: promptDetail[2], data: {} }));
+    }
+    // MCP app tools (listMcpAppTools): /api/mcp-apps/<ns>/<name>/tools.
+    // Eagerly loaded by the chat MCP-apps panel; no tools in the happy path.
+    if (/^\/api\/mcp-apps\/[^/]+\/[^/]+\/tools$/.test(pathname)) {
+      console.log(`[stub] ${method} ${url} -> 200 (mcp app tools)`);
+      return json(res, 200, ok([]));
     }
   }
 
