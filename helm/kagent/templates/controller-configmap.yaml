@@ -27,6 +27,17 @@ data:
   # OpenTelemetry Configuration
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
   OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
+  # Forwarded to agent pods (see collectOtelEnvFromProcess). Read by the a2a
+  # Python SDK to gate its @trace_class auto-instrumentation. Defaults to true
+  # (values.yaml) for upstream parity; set otel.tracing.a2aSdkInstrumentation to
+  # false to drop those framework-plumbing spans. NB: no `default` filter — sprig
+  # treats bool false as empty, so `| default true` would clobber an explicit false.
+  OTEL_INSTRUMENTATION_A2A_SDK_ENABLED: {{ .Values.otel.tracing.a2aSdkInstrumentation | quote }}
+  # Forwarded to agent pods. Read by the kagent Python runtime (tracing/_utils.py)
+  # to gate httpx client-transport spans. Defaults to true (values.yaml) for
+  # upstream parity; set otel.tracing.httpxClientInstrumentation to false for
+  # leaner traces. (Same `| quote`-not-`default` rationale as above.)
+  OTEL_INSTRUMENTATION_HTTPX_CLIENT_ENABLED: {{ .Values.otel.tracing.httpxClientInstrumentation | quote }}
   {{- $tracesEndpoint := .Values.otel.tracing.exporter.otlp.endpoint }}
   {{- $logsEndpoint := .Values.otel.logging.exporter.otlp.endpoint }}
   {{- if and $tracesEndpoint $logsEndpoint (eq $tracesEndpoint $logsEndpoint) }}

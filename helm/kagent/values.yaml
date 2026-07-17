@@ -917,8 +917,32 @@ oauth2-proxy:
 # ==============================================================================
 
 otel:
+  # When tracing is enabled, the Go and Python ADK runtimes emit dedicated memory.*
+  # spans alongside the existing gen_ai.* spans on invoke_agent:
+  #   memory.read        (operation=prefetch) - recall; child of invoke_agent
+  #   memory.write       (operation=save)     - session/tool store to memory
+  #   memory.consolidate (operation=extract)  - LLM fact extraction before store
   tracing:
     enabled: false
+    # The a2a Python SDK auto-instruments its own internals (event-queue and
+    # request-handler plumbing) via @trace_class decorators, giving protocol- and
+    # queue-level detail for cross-agent (A2A) delegation. Enabled by default to
+    # match upstream behaviour; the a2a SDK reads OTEL_INSTRUMENTATION_A2A_SDK_ENABLED
+    # (a2a/utils/telemetry.py) and turns its decorators into no-ops when false.
+    # Operators who want leaner, high-signal-only traces can set this to false to
+    # drop the a2a framework-plumbing spans (cross-agent trace continuity still
+    # holds via the _SubagentInterceptor trace-context hook).
+    a2aSdkInstrumentation: true
+    # kagent's Python runtime auto-instruments every outbound httpx client call
+    # (LLM, embedding, controller memory API) via HTTPXClientInstrumentor. These
+    # client-transport spans carry outbound-call timing and propagate W3C trace
+    # context, keeping agent->controller and agent->agent hops stitched into one
+    # trace. Enabled by default to match upstream behaviour; the runtime reads
+    # OTEL_INSTRUMENTATION_HTTPX_CLIENT_ENABLED (tracing/_utils.py). Operators who
+    # want leaner traces can set this to false to drop the raw transport spans —
+    # trace continuity still holds via the inject_trace_context / _SubagentInterceptor
+    # hooks, which carry the correlation headers without emitting spans.
+    httpxClientInstrumentation: true
     exporter:
       otlp:
         endpoint: ""

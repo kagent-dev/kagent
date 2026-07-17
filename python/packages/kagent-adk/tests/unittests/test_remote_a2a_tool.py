@@ -191,6 +191,34 @@ class TestSubagentInterceptorHeaderPropagation:
         )
         assert "authorization" not in headers
 
+    async def test_injects_traceparent_from_active_span(self):
+        """W3C trace context is injected so the remote agent continues THIS
+        trace rather than starting a new root (regression fix).
+
+        Cross-agent propagation must not depend on httpx/a2a-sdk auto-
+        instrumentation, which are disabled by default.
+        """
+        from opentelemetry.sdk.trace import TracerProvider
+
+        tracer = TracerProvider().get_tracer("test")
+        interceptor = _SubagentInterceptor()
+        with tracer.start_as_current_span("parent") as span:
+            expected_trace_id = format(span.get_span_context().trace_id, "032x")
+            expected_span_id = format(span.get_span_context().span_id, "016x")
+            headers = await self._call_intercept(interceptor, state={})
+
+        # traceparent format: 00-<trace_id>-<parent_span_id>-<flags>
+        assert "traceparent" in headers
+        parts = headers["traceparent"].split("-")
+        assert parts[1] == expected_trace_id
+        assert parts[2] == expected_span_id
+
+    async def test_no_traceparent_without_active_span(self):
+        """No active/recording span → no traceparent injected (no invalid header)."""
+        interceptor = _SubagentInterceptor()
+        headers = await self._call_intercept(interceptor, state={})
+        assert "traceparent" not in headers
+
 
 # ---------------------------------------------------------------------------
 # First-call tests
