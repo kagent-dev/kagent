@@ -1,11 +1,13 @@
 """Outbound trace-context propagation for httpx clients.
 
-With httpx client auto-instrumentation disabled by default to cut
-span noise, nothing injects W3C trace context (``traceparent`` / ``tracestate``)
-on outbound agent->controller calls. As a result the controller's
-``/api/memories/*`` work (and any other call made through the agent's shared
-httpx client) starts a *new root trace* instead of nesting under the active
-``memory.read`` / ``memory.write`` span.
+httpx client auto-instrumentation is enabled by default, but operators can opt
+out (``OTEL_INSTRUMENTATION_HTTPX_CLIENT_ENABLED=false`` /
+``otel.tracing.httpxClientInstrumentation=false``) to cut span noise. When it is
+disabled, nothing injects W3C trace context (``traceparent`` / ``tracestate``)
+on outbound agent->controller calls, so the controller's ``/api/memories/*``
+work (and any other call made through the agent's shared httpx client) starts a
+*new root trace* instead of nesting under the active ``memory.read`` /
+``memory.write`` span.
 
 This module provides an httpx request event-hook that re-injects the trace
 context — correlation headers only, no extra spans — restoring trace continuity

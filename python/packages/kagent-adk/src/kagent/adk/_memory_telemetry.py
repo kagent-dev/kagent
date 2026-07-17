@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from typing import Iterator, Optional
 
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
 _TRACER = trace.get_tracer("kagent.adk.memory")
 
@@ -124,4 +125,4 @@ def set_memory_read_result(span: trace.Span, count: int) -> None:
 def record_span_error(span: trace.Span, err: Exception) -> None:
     """Mark a span as failed and record the exception on it."""
     span.record_exception(err)
-    span.set_status(trace.Status(trace.StatusCode.ERROR, str(err)))
+    span.set_status(Status(StatusCode.ERROR, str(err)))

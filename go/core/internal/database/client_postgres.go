@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -34,15 +35,14 @@ import (
 // collection name, and the operation are the only memory-derived attributes.
 var dbTracer = otel.Tracer("kagent.controller.database")
 
-// Span attribute keys (OTel DB semantic conventions + kagent memory extensions).
+// Span attribute keys. The db.* attributes reuse the controller's pinned OTel
+// semantic conventions (go.opentelemetry.io/otel/semconv/v1.39.0) via the
+// semconv constants/helpers below; memory.item.count and memory.limit are
+// kagent memory extensions with no semconv equivalent, so they stay raw keys.
 const (
-	attrDBSystemName     = "db.system.name"
-	attrDBOperationName  = "db.operation.name"
-	attrDBCollectionName = "db.collection.name"
-	attrMemoryItemCount  = "memory.item.count"
-	attrMemoryLimit      = "memory.limit"
+	attrMemoryItemCount = "memory.item.count"
+	attrMemoryLimit     = "memory.limit"
 
-	dbSystemPostgres  = "postgresql"
 	memoryCollection  = "memory"
 	dbOperationSelect = "SELECT"
 	dbOperationInsert = "INSERT"
@@ -677,9 +677,9 @@ func (c *postgresClient) StoreAgentMemory(ctx context.Context, memory *dbpkg.Mem
 	ctx, span := dbTracer.Start(ctx, "db.memory.insert",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
-			attribute.String(attrDBSystemName, dbSystemPostgres),
-			attribute.String(attrDBOperationName, dbOperationInsert),
-			attribute.String(attrDBCollectionName, memoryCollection),
+			semconv.DBSystemNamePostgreSQL,
+			semconv.DBOperationName(dbOperationInsert),
+			semconv.DBCollectionName(memoryCollection),
 			attribute.Int(attrMemoryItemCount, 1),
 		),
 	)
@@ -707,9 +707,9 @@ func (c *postgresClient) StoreAgentMemories(ctx context.Context, memories []*dbp
 	ctx, span := dbTracer.Start(ctx, "db.memory.insert",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
-			attribute.String(attrDBSystemName, dbSystemPostgres),
-			attribute.String(attrDBOperationName, dbOperationInsert),
-			attribute.String(attrDBCollectionName, memoryCollection),
+			semconv.DBSystemNamePostgreSQL,
+			semconv.DBOperationName(dbOperationInsert),
+			semconv.DBCollectionName(memoryCollection),
 			attribute.Int(attrMemoryItemCount, len(memories)),
 		),
 	)
@@ -744,9 +744,9 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 	ctx, span := dbTracer.Start(ctx, "db.memory.search",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
-			attribute.String(attrDBSystemName, dbSystemPostgres),
-			attribute.String(attrDBOperationName, dbOperationSelect),
-			attribute.String(attrDBCollectionName, memoryCollection),
+			semconv.DBSystemNamePostgreSQL,
+			semconv.DBOperationName(dbOperationSelect),
+			semconv.DBCollectionName(memoryCollection),
 			attribute.Int(attrMemoryLimit, limit),
 		),
 	)
@@ -802,9 +802,9 @@ func (c *postgresClient) ListAgentMemories(ctx context.Context, agentName, userI
 	ctx, span := dbTracer.Start(ctx, "db.memory.list",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
-			attribute.String(attrDBSystemName, dbSystemPostgres),
-			attribute.String(attrDBOperationName, dbOperationSelect),
-			attribute.String(attrDBCollectionName, memoryCollection),
+			semconv.DBSystemNamePostgreSQL,
+			semconv.DBOperationName(dbOperationSelect),
+			semconv.DBCollectionName(memoryCollection),
 		),
 	)
 	defer span.End()
@@ -832,9 +832,9 @@ func (c *postgresClient) DeleteAgentMemory(ctx context.Context, agentName, userI
 	ctx, span := dbTracer.Start(ctx, "db.memory.delete",
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(
-			attribute.String(attrDBSystemName, dbSystemPostgres),
-			attribute.String(attrDBOperationName, dbOperationDelete),
-			attribute.String(attrDBCollectionName, memoryCollection),
+			semconv.DBSystemNamePostgreSQL,
+			semconv.DBOperationName(dbOperationDelete),
+			semconv.DBCollectionName(memoryCollection),
 		),
 	)
 	defer span.End()

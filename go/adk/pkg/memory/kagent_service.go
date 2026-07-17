@@ -377,7 +377,7 @@ Summary (JSON List):`, content)
 	var summaryText strings.Builder
 	for resp, err := range iter {
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate summary: %w", err)
+			return nil, s.recordSpanError(span, fmt.Errorf("failed to generate summary: %w", err))
 		}
 
 		if resp.Content != nil {
@@ -392,6 +392,7 @@ Summary (JSON List):`, content)
 	summary := strings.TrimSpace(summaryText.String())
 	if summary == "" {
 		log.V(1).Info("Empty summary returned, using original content")
+		span.SetAttributes(attribute.Int(telemetry.AttrMemoryItemCount, 1))
 		return []string{content}, nil
 	}
 
@@ -405,16 +406,19 @@ Summary (JSON List):`, content)
 	var facts []string
 	if err := json.Unmarshal([]byte(summary), &facts); err != nil {
 		log.V(1).Info("Failed to parse summary as JSON, using original content", "error", err, "output", summary)
+		span.SetAttributes(attribute.Int(telemetry.AttrMemoryItemCount, 1))
 		return []string{content}, nil
 	}
 
 	// Validate all items are strings
 	if slices.Contains(facts, "") {
 		log.V(1).Info("Summary contains empty strings, using original content")
+		span.SetAttributes(attribute.Int(telemetry.AttrMemoryItemCount, 1))
 		return []string{content}, nil
 	}
 
 	log.V(1).Info("Successfully summarized content", "facts", len(facts))
+	span.SetAttributes(attribute.Int(telemetry.AttrMemoryItemCount, len(facts)))
 	return facts, nil
 }
 

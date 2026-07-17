@@ -107,11 +107,13 @@ class KagentMemoryService(BaseMemoryService):
                 # Batch generate embeddings
                 if not self._embedding_client:
                     logger.warning("No embedding client available for session %s", session.id)
+                    span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 0)
                     return
                 with mtel.start_embed_span(self.agent_name, len(valid_contents)):
                     vectors = await self._embedding_client.generate(valid_contents)
                 if not vectors:
                     logger.warning("Failed to generate embeddings for session %s", session.id)
+                    span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 0)
                     return
 
                 # Prepare batch items
@@ -179,11 +181,13 @@ class KagentMemoryService(BaseMemoryService):
             # Generate embedding
             if not self._embedding_client:
                 logger.warning("No embedding client available")
+                span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 0)
                 return
             with mtel.start_embed_span(self.agent_name, 1):
                 vector = await self._embedding_client.generate(content)
             if not vector:
                 logger.warning("Failed to generate embedding for memory content")
+                span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 0)
                 return
 
             # Send to Kagent API
