@@ -40,8 +40,6 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./ui
-        env:
-          CYPRESS_INSTALL_BINARY: 0
         run: npm ci
 
       - name: Build Storybook
