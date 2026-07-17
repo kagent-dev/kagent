@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useState, useRef, useEffect, useMemo } from "react";
-import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
+import { ArrowBigUp, ArrowDown, X, Loader2, Mic, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -52,6 +52,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const substrateSandbox = useChatSubstrateSandbox();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Tracks whether the user is scrolled near the bottom of the message list.
+  // Auto-scroll only follows new content while this is true, so reading
+  // history isn't interrupted by streaming updates.
+  const isNearBottomRef = useRef(true);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
@@ -214,16 +220,48 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, selectedAgentName, selectedNamespace, isFirstMessage]);
 
+  const getScrollViewport = () =>
+    containerRef.current?.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement | null;
+
+  const scrollToBottom = () => {
+    const viewport = getScrollViewport();
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+    isNearBottomRef.current = true;
+    setShowJumpToLatest(false);
+  };
+
+  // Track scroll position so auto-scroll only engages when the user is
+  // already at (or near) the bottom of the conversation.
   useEffect(() => {
-    if (containerRef.current) {
-      const viewport = containerRef.current.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
-      if (viewport) {
-        viewport.scrollTop = viewport.scrollHeight;
-      }
+    const viewport = getScrollViewport();
+    if (!viewport) return;
+    const onScroll = () => {
+      const nearBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80;
+      isNearBottomRef.current = nearBottom;
+      setShowJumpToLatest(!nearBottom);
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!isNearBottomRef.current) return;
+    const viewport = getScrollViewport();
+    if (viewport) {
+      viewport.scrollTop = viewport.scrollHeight;
     }
   }, [storedMessages, streamingMessages, streamingContent]);
 
-
+  // Auto-grow the composer textarea with its content, capped so long drafts
+  // scroll internally instead of pushing the messages out of view.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [currentInputMessage]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -260,6 +298,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     setCurrentInputMessage("");
     setChatStatus("thinking");
+    // Sending a message always re-engages follow-scrolling.
+    scrollToBottom();
     setStoredMessages(prev => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
     setStreamingContent(""); // Reset streaming content for new message
@@ -925,11 +965,15 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
-        handleSendMessage(e);
-      }
+    if (e.key !== "Enter") return;
+    // Don't send while an IME composition is in progress (e.g. Chinese/Japanese
+    // input) — Enter is confirming the composition, not submitting.
+    if (e.nativeEvent.isComposing) return;
+    // Shift+Enter inserts a newline.
+    if (e.shiftKey) return;
+    e.preventDefault();
+    if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
+      handleSendMessage(e);
     }
   };
 
@@ -950,8 +994,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   return (
     <div className="flex h-full w-full min-w-0 flex-col items-center justify-center transition-all duration-300 ease-in-out">
       <div className="flex-1 w-full overflow-hidden relative">
-        <ScrollArea ref={containerRef} className="w-full h-full py-12">
-          <div className="flex flex-col space-y-5 px-4">
+        <ScrollArea ref={containerRef} className="w-full h-full py-6">
+          <div className="mx-auto w-full max-w-3xl flex flex-col space-y-4 px-4">
             {/* Never show loading for first message/new session */}
             {isLoading && sessionId && !isFirstMessage && !isCreatingSessionRef.current ? (
               <div
@@ -1013,32 +1057,49 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             )}
           </div>
         </ScrollArea>
+
+        {showJumpToLatest && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={scrollToBottom}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-md border"
+            aria-label="Jump to latest messages"
+          >
+            <ArrowDown className="h-4 w-4 mr-1" aria-hidden /> Latest
+          </Button>
+        )}
       </div>
 
-      <div className="w-full sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg p-4 border  overflow-hidden transition-all duration-300 ease-in-out">
-        <div className="flex items-center justify-between mb-4">
-          <StatusDisplay chatStatus={chatStatus} />
-          {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
-        </div>
+      <div className="w-full max-w-3xl mx-auto sticky bg-secondary bottom-0 md:bottom-2 rounded-none md:rounded-lg px-3 py-2 border overflow-hidden transition-all duration-300 ease-in-out">
+        {(chatStatus !== "ready" || sessionStats.total > 0) && (
+          <div className="flex items-center justify-between mb-1 min-h-5">
+            {chatStatus !== "ready" ? <StatusDisplay chatStatus={chatStatus} /> : <span />}
+            {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
+          </div>
+        )}
 
-        <form onSubmit={handleSendMessage}>
+        <form onSubmit={handleSendMessage} className="flex items-end gap-2">
           <Textarea
+            ref={textareaRef}
+            rows={1}
             value={currentInputMessage}
             onChange={(e) => setCurrentInputMessage(e.target.value)}
             placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
-            className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
+            className={`flex-1 min-h-[36px] max-h-[200px] overflow-y-auto border-0 shadow-none p-1 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
             disabled={chatStatus !== "ready"}
           />
 
-          <div className="flex items-center justify-end gap-2 mt-4">
+          <div className="flex items-center gap-1.5 pb-0.5">
             {isVoiceSupported && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
                       type="button"
-                      variant={isListening ? "destructive" : "default"}
+                      variant={isListening ? "destructive" : "ghost"}
                       size="icon"
                       onClick={isListening ? stopListening : startListening}
                       disabled={chatStatus !== "ready"}
@@ -1062,13 +1123,24 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                 </Tooltip>
               </TooltipProvider>
             )}
-            <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
-              Send
-              <ArrowBigUp className="h-4 w-4 ml-2" />
-            </Button>
-            {chatStatus !== "ready" && chatStatus !== "error" && (
-              <Button type="button" variant="outline" onClick={handleCancel}>
-                <X className="h-4 w-4 mr-2" /> Cancel
+            {chatStatus !== "ready" && chatStatus !== "error" ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={handleCancel}
+                aria-label="Cancel"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </Button>
+            ) : (
+              <Button
+                type="submit"
+                size="icon"
+                disabled={!currentInputMessage.trim() || chatStatus !== "ready"}
+                aria-label="Send message"
+              >
+                <ArrowBigUp className="h-4 w-4" aria-hidden />
               </Button>
             )}
           </div>
