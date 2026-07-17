@@ -168,6 +168,12 @@ const Sidebar = React.forwardRef<
     side?: "left" | "right"
     variant?: "sidebar" | "floating" | "inset"
     collapsible?: "offcanvas" | "icon" | "none"
+    /**
+     * Per-sidebar width override (CSS length). Applied to the sidebar's own
+     * --sidebar-width so left/right sidebars can be resized independently;
+     * width transitions are disabled while set so dragging tracks 1:1.
+     */
+    width?: string
   }
 >(
   (
@@ -175,6 +181,7 @@ const Sidebar = React.forwardRef<
       side = "left",
       variant = "sidebar",
       collapsible = "offcanvas",
+      width,
       className,
       children,
       ...props
@@ -230,11 +237,13 @@ const Sidebar = React.forwardRef<
         data-collapsible={state === "collapsed" ? collapsible : ""}
         data-variant={variant}
         data-side={side}
+        style={width ? ({ "--sidebar-width": width } as React.CSSProperties) : undefined}
       >
         {/* This is what handles the sidebar gap on desktop */}
         <div
           className={cn(
-            "relative w-[--sidebar-width] bg-transparent transition-[width] duration-200 ease-linear",
+            "relative w-[--sidebar-width] bg-transparent",
+            width ? "transition-none" : "transition-[width] duration-200 ease-linear",
             "group-data-[collapsible=offcanvas]:w-0",
             "group-data-[side=right]:rotate-180",
             variant === "floating" || variant === "inset"
@@ -244,7 +253,8 @@ const Sidebar = React.forwardRef<
         />
         <div
           className={cn(
-            "fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] transition-[left,right,width] duration-200 ease-linear md:flex",
+            "fixed inset-y-0 z-10 hidden h-svh w-[--sidebar-width] md:flex",
+            width ? "transition-[left,right] duration-200 ease-linear" : "transition-[left,right,width] duration-200 ease-linear",
             side === "left"
               ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
               : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",

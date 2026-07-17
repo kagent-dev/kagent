@@ -177,6 +177,18 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   // Shared call_id -> is_error lookup so each group summary is O(group size).
   const toolResultsByCallId = useMemo(() => buildToolCallResultsIndex(allMessages), [allMessages]);
 
+  // Prompt tokens of the latest turn — the closest available approximation of
+  // the current context size (used for the context-window meter).
+  const contextTokens = useMemo(() => {
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      const tokenStats = (allMessages[i].metadata as Record<string, unknown> | undefined)?.tokenStats as
+        | TokenStats
+        | undefined;
+      if (tokenStats?.prompt) return tokenStats.prompt;
+    }
+    return undefined;
+  }, [allMessages]);
+
   const { handleMessageEvent } = useMemo(() => createMessageHandlers({
     setMessages: setStreamingMessages,
     setIsStreaming,
@@ -1085,7 +1097,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col items-center transition-all duration-300 ease-in-out">
       <div className="relative min-h-0 w-full flex-1 overflow-hidden">
-        <ScrollArea ref={containerRef} className="w-full h-full py-6">
+        <ScrollArea ref={containerRef} className="w-full h-full pt-2 pb-6">
           <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col space-y-4 overflow-x-hidden px-4">
             {/* Never show loading for first message/new session */}
             {isLoading && sessionId && !isFirstMessage && !isCreatingSessionRef.current ? (
@@ -1146,7 +1158,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             <p className="text-sm text-muted-foreground">
               This is a read-only shared session. You can view the conversation but cannot send messages.
             </p>
-            {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
+            {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} contextTokens={contextTokens} />}
           </div>
         ) : (
           <>
@@ -1154,7 +1166,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             <div className="flex items-center justify-between mb-1 min-h-5">
               {chatStatus !== "ready" ? <StatusDisplay chatStatus={chatStatus} /> : <span />}
               <div className="flex items-center gap-2">
-                {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
+                {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} contextTokens={contextTokens} />}
                 {(session?.id ?? sessionId) && !shareToken && <ShareButton sessionId={(session?.id ?? sessionId)!} namespace={selectedNamespace} agentName={selectedAgentName} />}
               </div>
             </div>
