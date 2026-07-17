@@ -106,7 +106,8 @@ func TestRuntime_GoRuntime(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "golang-adk", "Image should use golang-adk repository")
-	assert.Contains(t, container.Image, "@sha256:test-go-base", "Go runtime should use digest-pinned golang-adk image")
+	assert.Contains(t, container.Image, ":"+translator.DefaultGoImageConfig.Tag, "Go runtime should reference the golang-adk image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 
 	// Verify Go runtime readiness probe timings (fast startup)
 	require.NotNil(t, container.ReadinessProbe)
@@ -179,7 +180,8 @@ func TestRuntime_GoRuntimeWithSkillsUsesFullImageTag(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "golang-adk", "Image should use golang-adk repository")
-	assert.Contains(t, container.Image, "@sha256:test-go-full", "Go runtime with skills should use digest-pinned golang-adk-full image")
+	assert.Contains(t, container.Image, ":"+translator.DefaultGoImageConfig.Tag+"-full", "Go runtime with skills should reference the golang-adk full image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 }
 
 func TestRuntime_PythonRuntime(t *testing.T) {
@@ -246,11 +248,12 @@ func TestRuntime_PythonRuntime(t *testing.T) {
 	}
 	require.NotNil(t, deployment, "Deployment should be in manifest")
 
-	// Verify container image uses digest-pinned app (Python ADK)
+	// Verify container image uses the tag-referenced app image (Python ADK)
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
-	assert.Contains(t, container.Image, "/app@", "Image should use app repository")
-	assert.Contains(t, container.Image, "@sha256:test-app", "Python runtime should use digest-pinned app image")
+	assert.Contains(t, container.Image, "/app:", "Image should use app repository")
+	assert.Contains(t, container.Image, ":"+translator.DefaultImageConfig.Tag, "Python runtime should reference the app image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 
 	// Verify Python runtime readiness probe timings (slower startup)
 	require.NotNil(t, container.ReadinessProbe)
@@ -323,11 +326,12 @@ func TestRuntime_DefaultToPython(t *testing.T) {
 	}
 	require.NotNil(t, deployment, "Deployment should be in manifest")
 
-	// Verify container image uses digest-pinned app (Python ADK) by default
+	// Verify container image uses the tag-referenced app image (Python ADK) by default
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
-	assert.Contains(t, container.Image, "/app@", "Image should default to app repository")
-	assert.Contains(t, container.Image, "@sha256:test-app", "Default Python runtime should use digest-pinned app image")
+	assert.Contains(t, container.Image, "/app:", "Image should default to app repository")
+	assert.Contains(t, container.Image, ":"+translator.DefaultImageConfig.Tag, "Default Python runtime should reference the app image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 
 	// Verify Python runtime readiness probe timings
 	require.NotNil(t, container.ReadinessProbe)
@@ -348,8 +352,7 @@ func withGoImageConfig(t *testing.T, cfg translator.ImageConfig) {
 // TestRuntime_GoImageConfig_FlatRepository tests that DefaultGoImageConfig.Repository is
 // used verbatim, enabling flat-name registry layouts (e.g. "kagent-golang-adk").
 func TestRuntime_GoImageConfig_FlatRepository(t *testing.T) {
-	withGoRuntimeDigests(t)
-	withGoImageConfig(t, translator.ImageConfig{Registry: "cr.kagent.dev", Repository: "kagent-golang-adk"})
+	withGoImageConfig(t, translator.ImageConfig{Registry: "my-registry.io", Repository: "kagent-golang-adk", Tag: "v0.0.0-test"})
 
 	ctx := context.Background()
 	agent := &v1alpha2.Agent{
@@ -386,17 +389,13 @@ func TestRuntime_GoImageConfig_FlatRepository(t *testing.T) {
 	require.NotNil(t, deployment)
 
 	img := deployment.Spec.Template.Spec.Containers[0].Image
-	assert.Contains(t, img, "kagent-golang-adk@", "Image should use the explicit flat repository")
-	assert.NotContains(t, img, "/golang-adk@", "Derived path must not appear when repository is explicitly set")
-	assert.Contains(t, img, "@sha256:test-go-base")
+	assert.Equal(t, "my-registry.io/kagent-golang-adk:v0.0.0-test", img, "Image should use the explicit flat repository verbatim")
 }
 
 // TestRuntime_GoImageConfig_ExplicitRegistry tests that DefaultGoImageConfig.Registry is
 // applied to the Go runtime while leaving the Python runtime's registry unaffected.
 func TestRuntime_GoImageConfig_ExplicitRegistry(t *testing.T) {
-	withGoRuntimeDigests(t)
-	withPythonRuntimeDigest(t)
-	withGoImageConfig(t, translator.ImageConfig{Registry: "my.registry.io", Repository: "kagent-dev/kagent/golang-adk"})
+	withGoImageConfig(t, translator.ImageConfig{Registry: "my.registry.io", Repository: "kagent-dev/kagent/golang-adk", Tag: "v0.0.0-test"})
 
 	ctx := context.Background()
 	goAgent := &v1alpha2.Agent{
@@ -455,12 +454,11 @@ func TestRuntime_GoImageConfig_ExplicitRegistry(t *testing.T) {
 	assert.NotContains(t, pythonImage, "my.registry.io/", "Python image must not use the Go-specific registry")
 }
 
-// TestRuntime_GoImageConfig_FlatRepository_WithSkillsUsesFullDigest verifies that the
-// golang-adk-full digest is still selected when DefaultGoImageConfig.Repository is set
+// TestRuntime_GoImageConfig_FlatRepository_WithSkillsUsesFullTag verifies that the
+// "-full" tag variant is still selected when DefaultGoImageConfig.Repository is set
 // explicitly and the agent uses skills (which requires the full image).
-func TestRuntime_GoImageConfig_FlatRepository_WithSkillsUsesFullDigest(t *testing.T) {
-	withGoRuntimeDigests(t)
-	withGoImageConfig(t, translator.ImageConfig{Registry: "cr.kagent.dev", Repository: "kagent-golang-adk"})
+func TestRuntime_GoImageConfig_FlatRepository_WithSkillsUsesFullTag(t *testing.T) {
+	withGoImageConfig(t, translator.ImageConfig{Registry: "my-registry.io", Repository: "kagent-golang-adk", Tag: "v0.0.0-test"})
 
 	ctx := context.Background()
 	agent := &v1alpha2.Agent{
@@ -498,16 +496,13 @@ func TestRuntime_GoImageConfig_FlatRepository_WithSkillsUsesFullDigest(t *testin
 	require.NotNil(t, deployment)
 
 	img := deployment.Spec.Template.Spec.Containers[0].Image
-	assert.Contains(t, img, "kagent-golang-adk", "Image should use the explicit repository")
-	assert.Contains(t, img, "@sha256:test-go-full", "Skills agent should use the full digest")
+	assert.Equal(t, "my-registry.io/kagent-golang-adk:v0.0.0-test-full", img, "Skills agent should use the full tag variant of the explicit repository")
 }
 
 // TestRuntime_GoImageConfig_ExplicitPullPolicy tests that DefaultGoImageConfig.PullPolicy
 // is applied to the Go runtime and does not affect the Python runtime.
 func TestRuntime_GoImageConfig_ExplicitPullPolicy(t *testing.T) {
-	withGoRuntimeDigests(t)
-	withPythonRuntimeDigest(t)
-	withGoImageConfig(t, translator.ImageConfig{Registry: "cr.kagent.dev", Repository: "kagent-dev/kagent/golang-adk", PullPolicy: "Always"})
+	withGoImageConfig(t, translator.ImageConfig{Registry: "my-registry.io", Repository: "kagent-dev/kagent/golang-adk", Tag: "v0.0.0-test", PullPolicy: "Always"})
 
 	ctx := context.Background()
 	goAgent := &v1alpha2.Agent{
