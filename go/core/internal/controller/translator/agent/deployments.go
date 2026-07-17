@@ -76,30 +76,25 @@ func getDefaultResources(spec *corev1.ResourceRequirements) corev1.ResourceRequi
 // Deployment matches what the API server stores, avoiding reconcile hotloops.
 // The input is deep-copied so the result never aliases the Agent CR object.
 func getDeploymentStrategyOrDefault(strategy *appsv1.DeploymentStrategy) appsv1.DeploymentStrategy {
-	if strategy == nil {
-		return appsv1.DeploymentStrategy{
-			Type: appsv1.RollingUpdateDeploymentStrategyType,
-			RollingUpdate: &appsv1.RollingUpdateDeployment{
-				MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-				MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
-			},
-		}
+	out := appsv1.DeploymentStrategy{}
+	if strategy != nil {
+		out = *strategy.DeepCopy()
 	}
-
-	out := *strategy.DeepCopy()
 	if out.Type == "" {
 		out.Type = appsv1.RollingUpdateDeploymentStrategyType
 	}
-	if out.Type == appsv1.RollingUpdateDeploymentStrategyType {
-		if out.RollingUpdate == nil {
-			out.RollingUpdate = &appsv1.RollingUpdateDeployment{}
-		}
-		if out.RollingUpdate.MaxUnavailable == nil {
-			out.RollingUpdate.MaxUnavailable = &intstr.IntOrString{Type: intstr.Int, IntVal: 0}
-		}
-		if out.RollingUpdate.MaxSurge == nil {
-			out.RollingUpdate.MaxSurge = &intstr.IntOrString{Type: intstr.Int, IntVal: 1}
-		}
+	// Recreate carries no rollingUpdate block; pass it through as-is.
+	if out.Type != appsv1.RollingUpdateDeploymentStrategyType {
+		return out
+	}
+	if out.RollingUpdate == nil {
+		out.RollingUpdate = &appsv1.RollingUpdateDeployment{}
+	}
+	if out.RollingUpdate.MaxUnavailable == nil {
+		out.RollingUpdate.MaxUnavailable = &intstr.IntOrString{Type: intstr.Int, IntVal: 0}
+	}
+	if out.RollingUpdate.MaxSurge == nil {
+		out.RollingUpdate.MaxSurge = &intstr.IntOrString{Type: intstr.Int, IntVal: 1}
 	}
 	return out
 }
