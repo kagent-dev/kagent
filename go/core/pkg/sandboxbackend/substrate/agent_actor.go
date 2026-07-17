@@ -192,7 +192,7 @@ func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Conte
 	}
 	allDone := true
 	for _, actor := range actors {
-		id := strings.TrimSpace(actor.GetActorId())
+		id := strings.TrimSpace(actorName(actor))
 		if id == "" {
 			continue
 		}
@@ -220,7 +220,7 @@ func actorBelongsToSandboxAgent(sa *v1alpha2.SandboxAgent, actor *ateapipb.Actor
 			return true
 		}
 	}
-	id := strings.TrimSpace(actor.GetActorId())
+	id := strings.TrimSpace(actorName(actor))
 	return id == SandboxAgentActorID(sa) || strings.HasPrefix(id, prefix+"-")
 }
 

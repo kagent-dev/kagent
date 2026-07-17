@@ -322,9 +322,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version-file: ui/.nvmrc
           cache: "npm"
           cache-dependency-path: ui/package-lock.json
+
+      # Honor the pinned npm from ui/package.json "packageManager" so npm ci
+      # resolves the lock file with the same npm version it was generated with.
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install dependencies
         working-directory: ./ui
