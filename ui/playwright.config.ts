@@ -18,6 +18,12 @@ const STUB_PORT = 8899;
 const STUB_URL = `http://127.0.0.1:${STUB_PORT}`;
 const APP_URL = "http://localhost:8001";
 
+// `slowMo` adds an idle delay between every Playwright action (click, fill,
+// goto). The recorded videos play at real time, so without slowMo the test
+// runs fast enough that a human can't follow what's happening. 250ms feels
+// natural in the recording without bloating wall-clock test time too much.
+const SLOW_MO_MS = parseInt(process.env.E2E_SLOW_MO_MS ?? "250", 10);
+
 export default defineConfig({
   testDir: "./playwright/tests",
   outputDir: "./playwright/test-results",
@@ -37,6 +43,9 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     video: "retain-on-failure",
+    launchOptions: {
+      slowMo: SLOW_MO_MS,
+    },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
