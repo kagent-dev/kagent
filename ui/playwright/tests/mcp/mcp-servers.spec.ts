@@ -15,7 +15,7 @@ import { loadPage } from "../../helpers/page";
 const NAMESPACE = "kagent";
 const SERVER_URL = "https://example.com/mcp";
 
-test("mcp: create, read, delete", async ({ page }, testInfo) => {
+test("mcp servers: create, read, delete", async ({ page }, testInfo) => {
   // Generated per attempt (Date.now differs on retry) so re-runs never collide.
   const ref = `${NAMESPACE}/e2e-remote-${Date.now().toString(36)}-${testInfo.retry}`;
   const name = ref.split("/")[1];
