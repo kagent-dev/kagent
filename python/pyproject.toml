@@ -5,7 +5,7 @@ members = ["packages/*", "samples/adk/*", "samples/langgraph/*", "samples/crewai
 dev = [
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",
-  "ruff>=0.15.18",
+  "ruff>=0.15.21",
   "authlib>=1.7.2"
 ]
 
@@ -15,7 +15,9 @@ constraint-dependencies = [
     "cryptography>=48.0.0",
     "jaraco-context>=6.1.0",
     "mako>=1.3.12",
+    "pyarrow>=23.0.1",
     "pyasn1>=0.6.3",
+    "pyjwt>=2.13.0",
     "pyopenssl>=26.0.0",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",

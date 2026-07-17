@@ -50,7 +50,7 @@ type Client interface {
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
 	ListTasksForSession(ctx context.Context, sessionID string) ([]*a2a.Task, error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
-	ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]Session, error)
+	ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]SessionWithShareToken, error)
 	ListSessionsForAgentAllUsers(ctx context.Context, agentID string) ([]Session, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListToolServers(ctx context.Context) ([]ToolServer, error)
@@ -73,6 +73,13 @@ type Client interface {
 	ResetCrewAIMemory(ctx context.Context, userID, threadID string) error
 	StoreCrewAIFlowState(ctx context.Context, state *CrewAIFlowState) error
 	GetCrewAIFlowState(ctx context.Context, userID, threadID string) (*CrewAIFlowState, error)
+
+	// Session share methods
+	CreateSessionShare(ctx context.Context, share *SessionShare) (*SessionShare, error)
+	GetSessionShareByToken(ctx context.Context, token string) (*SessionShare, error)
+	ListSessionSharesBySession(ctx context.Context, sessionID string) ([]SessionShare, error)
+	DeleteSessionShare(ctx context.Context, token, sessionID, userID string) error
+	RecordShareAccess(ctx context.Context, userID string, shareID int64) error
 
 	// Agent memory (vector search) methods
 	StoreAgentMemory(ctx context.Context, memory *Memory) error

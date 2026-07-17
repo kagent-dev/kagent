@@ -25,6 +25,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
 
@@ -389,6 +390,53 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, event1.ID, response.Data.Events[0].ID)
 			assert.Equal(t, event2.ID, response.Data.Events[1].ID)
 		})
+
+		t.Run("OwnerSeesNilReadOnly", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			ownerID := "owner-user"
+			sessionID := "owned-session"
+			agentID := "1"
+			createTestSession(t, dbClient, sessionID, ownerID, agentID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, ownerID)
+
+			handler.HandleGetSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[handlers.SessionResponse]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			assert.Nil(t, response.Data.ReadOnly)
+		})
+
+		t.Run("ShareVisitorSeesReadOnlyTrue", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			ownerID := "owner-user"
+			visitorID := "visitor-user"
+			sessionID := "shared-session"
+			agentID := "1"
+			createTestSession(t, dbClient, sessionID, ownerID, agentID)
+
+			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, visitorID)
+			ctx := auth.ShareContextTo(req.Context(), &auth.ShareContext{
+				Token:     "tok",
+				SessionID: sessionID,
+				UserID:    ownerID,
+				ReadOnly:  true,
+			})
+			req = req.WithContext(ctx)
+
+			handler.HandleGetSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			var response api.StandardResponse[handlers.SessionResponse]
+			require.NoError(t, json.Unmarshal(responseRecorder.Body.Bytes(), &response))
+			require.NotNil(t, response.Data.ReadOnly)
+			assert.True(t, *response.Data.ReadOnly)
+		})
 	})
 
 	t.Run("HandleUpdateSession", func(t *testing.T) {
@@ -548,6 +596,28 @@ func TestSessionsHandler(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
 			assert.NotNil(t, responseRecorder.errorReceived)
 		})
+
+		t.Run("AgentlessSessionSkipsSubstrateCleanup", func(t *testing.T) {
+			handler, dbClient, responseRecorder := setupHandler(t)
+			// Non-nil backend so the cleanup preflight runs: a session with no AgentID has no
+			// actor to clean up and must still delete (not 404).
+			handler.SubstrateSandboxActorBackend = &substrate.SandboxAgentActorBackend{}
+			userID := "test-user"
+			sessionID := "agentless-session"
+			require.NoError(t, dbClient.StoreSession(context.Background(), &database.Session{
+				ID: sessionID, UserID: userID,
+			}))
+
+			req := httptest.NewRequest("DELETE", "/api/sessions/"+sessionID, nil)
+			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
+			req = setUser(req, userID)
+
+			handler.HandleDeleteSession(responseRecorder, req)
+
+			assert.Equal(t, http.StatusOK, responseRecorder.Code)
+			_, err := dbClient.GetSession(context.Background(), sessionID, userID)
+			assert.Error(t, err, "session row must be deleted")
+		})
 	})
 
 	t.Run("HandleGetSessionsForAgent", func(t *testing.T) {
@@ -574,7 +644,7 @@ func TestSessionsHandler(t *testing.T) {
 
 			assert.Equal(t, http.StatusOK, responseRecorder.Code)
 
-			var response api.StandardResponse[[]*database.Session]
+			var response api.StandardResponse[[]database.SessionWithShareToken]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &response)
 			require.NoError(t, err)
 			assert.Len(t, response.Data, 2)

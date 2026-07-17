@@ -28,7 +28,8 @@ type SubstrateActorTemplateEntry struct {
 	Phase           string `json:"phase,omitempty"`
 	GoldenActorID   string `json:"goldenActorId,omitempty"`
 	GoldenSnapshot  string `json:"goldenSnapshot,omitempty"`
-	WorkerPoolRef   string `json:"workerPoolRef,omitempty"`
+	SandboxClass    string `json:"sandboxClass,omitempty"`
+	WorkerSelector  string `json:"workerSelector,omitempty"`
 	HarnessName     string `json:"harnessName,omitempty"`
 	ManagedByKagent bool   `json:"managedByKagent"`
 }
@@ -36,13 +37,15 @@ type SubstrateActorTemplateEntry struct {
 // SubstrateActorEntry is runtime state from ate-api (redis).
 type SubstrateActorEntry struct {
 	ActorID                string `json:"actorId"`
+	Atespace               string `json:"atespace,omitempty"`
 	Status                 string `json:"status"`
 	ActorTemplateNamespace string `json:"actorTemplateNamespace,omitempty"`
 	ActorTemplateName      string `json:"actorTemplateName,omitempty"`
 	AteomPodNamespace      string `json:"ateomPodNamespace,omitempty"`
 	AteomPodName           string `json:"ateomPodName,omitempty"`
 	AteomPodIP             string `json:"ateomPodIp,omitempty"`
-	LastSnapshot           string `json:"lastSnapshot,omitempty"`
+	LatestSnapshot         string `json:"latestSnapshot,omitempty"`
+	WorkerPoolName         string `json:"workerPoolName,omitempty"`
 	InProgressSnapshot     string `json:"inProgressSnapshot,omitempty"`
 	Version                int64  `json:"version,omitempty"`
 }

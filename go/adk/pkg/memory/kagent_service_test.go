@@ -12,8 +12,8 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"google.golang.org/adk/memory"
-	adksession "google.golang.org/adk/session"
+	"google.golang.org/adk/v2/memory"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -36,7 +36,6 @@ func newMockEmbeddingClient(t *testing.T) (*embedding.Client, *httptest.Server) 
 			Model:    "test-model",
 			BaseUrl:  embServer.URL + "/v1",
 		},
-		HTTPClient: embServer.Client(),
 	})
 	if err != nil {
 		t.Fatalf("failed to create mock embedding client: %v", err)

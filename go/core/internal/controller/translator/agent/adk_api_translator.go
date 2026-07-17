@@ -109,23 +109,29 @@ func normalizeImageDigest(digest string) string {
 }
 
 var DefaultImageConfig = ImageConfig{
-	Registry:   "cr.kagent.dev",
+	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
 	PullPolicy: string(corev1.PullIfNotPresent),
 	PullSecret: "",
 	Repository: "kagent-dev/kagent/app",
 }
 
-// PythonADKImageDigest, GoADKImageDigest, and GoADKFullImageDigest are set at
-// controller link time from the pushed runtime image manifest digests.
+// PythonADKImageDigest, PythonADKFullImageDigest, GoADKImageDigest, and GoADKFullImageDigest
+// default to the pushed runtime image manifest digests baked in at controller link time, and
+// can be overridden at runtime via the --app[-full]-image-digest / --golang-adk[-full]-image-digest
+// flags (for mirrored registries that re-assign digests). They are only consulted for sandbox
+// agents — Substrate requires digest-pinned refs — while regular agents reference images by tag.
+// The "full" variants bundle the sandbox runtime (code execution / bash tools); the slim
+// variants do not.
 var PythonADKImageDigest string
+var PythonADKFullImageDigest string
 var GoADKImageDigest string
 var GoADKFullImageDigest string
 
 // DefaultSkillsInitImageConfig is the image config for the skills-init container
 // that clones skill repositories from Git and pulls OCI skill images.
 var DefaultSkillsInitImageConfig = ImageConfig{
-	Registry:   "cr.kagent.dev",
+	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
 	PullPolicy: string(corev1.PullIfNotPresent),
 	Repository: "kagent-dev/kagent/skills-init",
@@ -139,6 +145,10 @@ var DefaultServiceAccountName string
 // DefaultAgentPodLabels is a set of labels applied to all agent pod templates.
 // Per-agent labels from the Agent CRD spec take precedence over these defaults.
 var DefaultAgentPodLabels map[string]string
+
+// DefaultAgentNodeSelector is a node selector applied to all agent deployments.
+// A per-agent nodeSelector from the Agent CRD spec takes precedence over these defaults.
+var DefaultAgentNodeSelector map[string]string
 
 // DefaultAgentBindHost is the host address agent pods bind to.
 // Defaults to "0.0.0.0" (IPv4 only). Set to "::" for dual-stack (IPv4+IPv6) support.
@@ -550,7 +560,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
-		if !model.Spec.APIKeyPassthrough {
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.AzureOpenAIAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{

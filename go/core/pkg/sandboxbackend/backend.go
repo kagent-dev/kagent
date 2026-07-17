@@ -25,6 +25,11 @@ type Backend interface {
 	// OwnedResourceTypesFor returns owned types for the agent's sandbox platform (for reconcile lists).
 	OwnedResourceTypesFor(agent v1alpha2.AgentObject) ([]client.Object, error)
 
+	// SessionDBURL returns the backend-specific session-store URL the translator bakes into the
+	// agent's rendered config (AgentConfig.session_db_url) before building the config Secret,
+	// or "" when the backend keeps sessions in the controller database.
+	SessionDBURL(agent v1alpha2.AgentObject) string
+
 	// ComputeReady reflects implementation-specific status into condition pieces for Agent.status.
 	ComputeReady(ctx context.Context, cl client.Client, nn types.NamespacedName) (status metav1.ConditionStatus, reason, message string)
 }

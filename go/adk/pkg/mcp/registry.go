@@ -14,8 +14,8 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/mcptoolset"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/mcptoolset"
 )
 
 // DynamicHeaderProvider is a function that returns headers to inject into MCP requests.
@@ -78,9 +78,10 @@ type mcpServerParams struct {
 	TLSDisableSystemCAs   *bool
 }
 
-// CreateToolsets creates toolsets from all configured HTTP and SSE MCP servers,
-// returning the accumulated toolsets. Errors on individual servers are logged
-// and skipped.
+// CreateToolsets creates toolsets from all configured HTTP and SSE MCP servers.
+// MCP App-capable tool names are attached to each returned toolset wrapper and
+// can be collected in the agent via MCPAppToolNamesFromToolsets. Errors on
+// individual servers are logged and skipped.
 //
 // When propagateToken is true, Authorization is forwarded to every MCP server
 // independently of AllowedHeaders, mirroring the Python ADKTokenPropagationPlugin
@@ -308,21 +309,30 @@ func (rt *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 	return rt.base.RoundTrip(req)
 }
 
-// initializeToolSet fetches tools from an MCP server using Google ADK's mcptoolset.
-// Returns the created toolset on success.
+// initializeToolSet fetches tools from an MCP server using Google ADK's
+// mcptoolset and wraps the result with any MCP App-capable tool names found
+// during classification.
 func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter map[string]bool) (tool.Toolset, error) {
 	mcpTransport, err := createTransport(ctx, params)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
 	}
 
-	var toolPredicate tool.Predicate
-	if len(toolFilter) > 0 {
-		allowedTools := make([]string, 0, len(toolFilter))
-		for toolName := range toolFilter {
-			allowedTools = append(allowedTools, toolName)
+	toolPredicate, appToolNames, err := agentVisibleToolFilter(ctx, params, toolFilter)
+	if err != nil {
+		logr.FromContextOrDiscard(ctx).Error(err, "Failed to classify MCP tools; falling back to lazy tool discovery", "url", params.URL)
+		appToolNames = nil
+		if len(toolFilter) > 0 {
+			allowedTools := make([]string, 0, len(toolFilter))
+			for name, enabled := range toolFilter {
+				if enabled {
+					allowedTools = append(allowedTools, name)
+				}
+			}
+			toolPredicate = tool.StringPredicate(allowedTools)
+		} else {
+			toolPredicate = nil
 		}
-		toolPredicate = tool.StringPredicate(allowedTools)
 	}
 
 	cfg := mcptoolset.Config{
@@ -335,5 +345,5 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", params.URL, err)
 	}
 
-	return toolset, nil
+	return &mcpAppToolset{inner: toolset, appToolNames: appToolNames}, nil
 }

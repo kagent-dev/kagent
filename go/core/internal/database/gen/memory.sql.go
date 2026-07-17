@@ -48,10 +48,17 @@ func (q *Queries) ExtendMemoryTTL(ctx context.Context) error {
 }
 
 const incrementMemoryAccessCount = `-- name: IncrementMemoryAccessCount :exec
-UPDATE memory SET access_count = access_count + 1
-WHERE id = ANY($1::text[])
+UPDATE memory
+SET access_count = access_count + 1
+WHERE id IN (
+    SELECT id FROM memory
+    WHERE id = ANY($1::text[])
+    ORDER BY id
+    FOR UPDATE
+)
 `
 
+// Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
 func (q *Queries) IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error {
 	_, err := q.db.Exec(ctx, incrementMemoryAccessCount, dollar_1)
 	return err

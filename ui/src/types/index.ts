@@ -217,6 +217,10 @@ export interface Session {
   created_at: string;
   updated_at: string;
   deleted_at: string;
+  /** Populated for sessions owned by another user; use as X-Share-Token to access. */
+  share_token?: string | null;
+  /** True when the share link that granted access is read-only. */
+  share_read_only?: boolean | null;
 }
 
 export interface ToolsResponse {
@@ -373,6 +377,8 @@ export interface DeclarativeAgentSpec {
   memory?: MemorySpec;
   /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
   promptTemplate?: PromptTemplateSpec;
+  /** When true, the agent gains built-in share link tools (create/list/delete share tokens). */
+  shareTools?: boolean;
 }
 
 export interface ContextConfig {
@@ -485,7 +491,8 @@ export interface SubstrateActorTemplateEntry {
   phase?: string;
   goldenActorId?: string;
   goldenSnapshot?: string;
-  workerPoolRef?: string;
+  sandboxClass?: string;
+  workerSelector?: string;
   harnessName?: string;
   managedByKagent: boolean;
 }
@@ -498,7 +505,8 @@ export interface SubstrateActorEntry {
   ateomPodNamespace?: string;
   ateomPodName?: string;
   ateomPodIp?: string;
-  lastSnapshot?: string;
+  latestSnapshot?: string;
+  workerPoolName?: string;
   inProgressSnapshot?: string;
   version?: number;
 }
