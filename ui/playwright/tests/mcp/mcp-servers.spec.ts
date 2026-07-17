@@ -10,7 +10,7 @@ import { loadPage } from "../../helpers/page";
 // Only the remote transport is asserted: an MCPServer (stdio) becomes listable
 // only once its backing deployment is ready (tens of seconds), too slow for an
 // e2e assertion, and the remote path already gives full tool-server coverage.
-// Error journeys live in mcp-errors.spec.ts.
+// Error journeys live in mcp-servers-errors.spec.ts.
 
 const NAMESPACE = "kagent";
 const SERVER_URL = "https://example.com/mcp";

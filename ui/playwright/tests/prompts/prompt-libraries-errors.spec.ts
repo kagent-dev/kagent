@@ -5,7 +5,7 @@ const NAMESPACE = "kagent";
 
 // Prompt libraries — error journey. Client-side name-required validation on create.
 
-test("prompts: name validation", async ({ page }) => {
+test("prompt libraries: name validation", async ({ page }) => {
   // region Creating — client-side validation blocks the POST
   await page.goto(`/prompts/new?ns=${NAMESPACE}`);
   await waitForAppReady(page);

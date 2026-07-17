@@ -3,7 +3,7 @@ import { loadPage } from "../../helpers/page";
 
 // MCP servers — error journey. Client-side url-required validation on create.
 
-test("mcp: url validation", async ({ page }) => {
+test("mcp servers: url validation", async ({ page }) => {
   // region Creating — client-side validation blocks the POST
   await test.step("blocks create when the URL is empty", async () => {
     await loadPage(page, "/mcp/new", { heading: "New MCP server" });

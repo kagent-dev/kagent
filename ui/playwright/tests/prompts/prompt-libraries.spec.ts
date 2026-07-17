@@ -6,7 +6,7 @@ import { loadPage, expectToast, waitForAppReady } from "../../helpers/page";
 // redirects to the detail page; edit PUTs, delete DELETEs. Each mutation is
 // verified back on the list page: create adds the row, an edit that adds a fragment
 // bumps the row's key count, and delete removes the row. Only the library this test
-// creates is touched. Error journeys live in prompts-errors.spec.ts.
+// creates is touched. Error journeys live in prompt-libraries-errors.spec.ts.
 
 const NAMESPACE = "kagent";
 
@@ -15,7 +15,7 @@ function libraryRow(page: import("@playwright/test").Page, name: string) {
   return page.getByRole("link", { name: new RegExp(name) });
 }
 
-test("prompts: create, read, update, delete", async ({ page }, testInfo) => {
+test("prompt libraries: create, read, update, delete", async ({ page }, testInfo) => {
   const name = `e2e-prompts-${Date.now().toString(36)}-${testInfo.retry}`;
 
   // region Creating — POST a new library, then confirm the row on the prompts list
