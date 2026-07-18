@@ -113,6 +113,27 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   const allMessages = useMemo(() => [...storedMessages, ...streamingMessages], [storedMessages, streamingMessages]);
 
+  // Shell-style composer history: this session's user message texts, oldest
+  // first, consecutive duplicates collapsed. Recalled with ArrowUp/ArrowDown.
+  const userMessageHistory = useMemo(() => {
+    const texts: string[] = [];
+    for (const msg of allMessages) {
+      if (msg.role !== "user") continue;
+      const text = (msg.parts ?? [])
+        .filter(part => part.kind === "text")
+        .map(part => (part as { text?: string }).text ?? "")
+        .join("")
+        .trim();
+      if (text && texts[texts.length - 1] !== text) texts.push(text);
+    }
+    return texts;
+  }, [allMessages]);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  // null = not browsing history; otherwise the index currently shown.
+  const historyIndexRef = useRef<number | null>(null);
+  // The in-progress draft to restore when stepping past the newest entry.
+  const historyDraftRef = useRef("");
+
   const { handleMessageEvent } = useMemo(() => createMessageHandlers({
     setMessages: setStreamingMessages,
     setIsStreaming,
@@ -258,6 +279,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       if (guardResult === "blocked") return;
     }
 
+    historyIndexRef.current = null;
     setCurrentInputMessage("");
     setChatStatus("thinking");
     setStoredMessages(prev => [...prev, ...streamingMessages]);
@@ -925,6 +947,50 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Shell-style history recall: ArrowUp on the first line steps back through
+    // this session's sent messages, ArrowDown steps forward and finally
+    // restores the unsent draft. Never triggers mid-multiline navigation, and
+    // stays inert during IME composition.
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") && !e.nativeEvent.isComposing) {
+      const textarea = composerRef.current;
+      if (textarea && userMessageHistory.length > 0) {
+        const { selectionStart, selectionEnd, value } = textarea;
+        const collapsed = selectionStart === selectionEnd;
+        const onFirstLine = !value.slice(0, selectionStart).includes("\n");
+        const onLastLine = !value.slice(selectionEnd).includes("\n");
+        const placeCursorAtEnd = (text: string) =>
+          requestAnimationFrame(() => textarea.setSelectionRange(text.length, text.length));
+
+        if (e.key === "ArrowUp" && collapsed && onFirstLine) {
+          if (historyIndexRef.current === null) {
+            historyDraftRef.current = value;
+            historyIndexRef.current = userMessageHistory.length;
+          }
+          if (historyIndexRef.current > 0) {
+            e.preventDefault();
+            historyIndexRef.current -= 1;
+            const recalled = userMessageHistory[historyIndexRef.current];
+            setCurrentInputMessage(recalled);
+            placeCursorAtEnd(recalled);
+          }
+          return;
+        }
+        if (e.key === "ArrowDown" && collapsed && onLastLine && historyIndexRef.current !== null) {
+          e.preventDefault();
+          historyIndexRef.current += 1;
+          if (historyIndexRef.current >= userMessageHistory.length) {
+            historyIndexRef.current = null;
+            setCurrentInputMessage(historyDraftRef.current);
+            placeCursorAtEnd(historyDraftRef.current);
+          } else {
+            const recalled = userMessageHistory[historyIndexRef.current];
+            setCurrentInputMessage(recalled);
+            placeCursorAtEnd(recalled);
+          }
+          return;
+        }
+      }
+    }
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
       if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
@@ -1023,8 +1089,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
         <form onSubmit={handleSendMessage}>
           <Textarea
+            ref={composerRef}
             value={currentInputMessage}
-            onChange={(e) => setCurrentInputMessage(e.target.value)}
+            onChange={(e) => {
+              // Manual edits leave history-browsing mode.
+              historyIndexRef.current = null;
+              setCurrentInputMessage(e.target.value);
+            }}
             placeholder={getStatusPlaceholder(chatStatus)}
             onKeyDown={handleKeyDown}
             className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
