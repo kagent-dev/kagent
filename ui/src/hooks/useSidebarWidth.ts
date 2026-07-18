@@ -14,7 +14,9 @@ export function useSidebarWidth(storageKey: string, defaultWidth: number) {
 
   useEffect(() => {
     try {
-      const stored = Number(window.localStorage.getItem(storageKey));
+      const raw = window.localStorage.getItem(storageKey);
+      // Number(null) would be 0; treat "missing" and "invalid" identically.
+      const stored = raw === null ? NaN : Number(raw);
       if (stored >= SIDEBAR_MIN_WIDTH && stored <= SIDEBAR_MAX_WIDTH) {
         // Post-mount hydration from localStorage; initializing state from
         // localStorage directly would mismatch the SSR-rendered width.
@@ -40,7 +42,8 @@ export function useSidebarWidth(storageKey: string, defaultWidth: number) {
   );
 
   const reset = useCallback(() => {
-    setWidthState(defaultWidth);
+    // Clamp in case a caller's default drifts outside the allowed range.
+    setWidthState(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, defaultWidth)));
     try {
       window.localStorage.removeItem(storageKey);
     } catch {
