@@ -4,7 +4,11 @@
 export function formatTokens(count: number): string {
   if (!Number.isFinite(count) || count < 0) return "0";
   if (count >= 1_000_000) return `${trimDecimal(count / 1_000_000)}M`;
-  if (count >= 1_000) return `${trimDecimal(count / 1_000)}k`;
+  if (count >= 1_000) {
+    const formatted = trimDecimal(count / 1_000);
+    // Rounding can roll 999950..999999 up to "1000"; show it as the next unit.
+    return formatted === "1000" ? "1M" : `${formatted}k`;
+  }
   return String(Math.round(count));
 }
 

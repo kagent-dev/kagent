@@ -25,13 +25,20 @@ export default function SidebarResizeHandle({ side, onResize, onReset }: Sidebar
         const next = side === "left" ? event.clientX : window.innerWidth - event.clientX;
         onResize(next);
       };
-      const onUp = (event: PointerEvent) => {
-        target.releasePointerCapture(event.pointerId);
+      const stop = (event: PointerEvent) => {
+        try {
+          target.releasePointerCapture(event.pointerId);
+        } catch {
+          /* capture already released (e.g. pointercancel) */
+        }
         target.removeEventListener("pointermove", onMove);
-        target.removeEventListener("pointerup", onUp);
+        target.removeEventListener("pointerup", stop);
+        target.removeEventListener("pointercancel", stop);
       };
       target.addEventListener("pointermove", onMove);
-      target.addEventListener("pointerup", onUp);
+      target.addEventListener("pointerup", stop);
+      // Touch interruptions (scroll takeover, alt-tab) end the drag cleanly.
+      target.addEventListener("pointercancel", stop);
     },
     [side, onResize]
   );
