@@ -1,11 +1,13 @@
 package a2a
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -48,21 +50,44 @@ func (f *fakeTaskStore) GetSession(_ context.Context, sessionID, userID string) 
 	return &s, nil
 }
 
-func (f *fakeTaskStore) ListSessions(_ context.Context, userID string) ([]dbpkg.Session, error) {
-	var out []dbpkg.Session
-	for _, s := range f.sessions {
-		if s.UserID == userID {
-			out = append(out, s)
+// ListUserTasks mirrors the SQL query's semantics in memory: scope to the
+// user's own sessions (optionally one), filter status/timestamp, order by task
+// id, and paginate, returning the full filtered count as total.
+func (f *fakeTaskStore) ListUserTasks(_ context.Context, params dbpkg.ListUserTasksParams) ([]*a2atype.Task, int, error) {
+	var filtered []*a2atype.Task
+	for sessionID, tasks := range f.tasks {
+		s, ok := f.sessions[sessionID]
+		if !ok || s.UserID != params.UserID {
+			continue
+		}
+		if params.SessionID != "" && sessionID != params.SessionID {
+			continue
+		}
+		for _, t := range tasks {
+			if t == nil {
+				continue
+			}
+			if params.Status != a2atype.TaskStateUnspecified && t.Status.State != params.Status {
+				continue
+			}
+			if params.StatusTimestampAfter != nil {
+				ts := t.Status.Timestamp
+				if ts == nil || !ts.After(*params.StatusTimestampAfter) {
+					continue
+				}
+			}
+			filtered = append(filtered, t)
 		}
 	}
-	return out, nil
-}
+	slices.SortFunc(filtered, func(a, b *a2atype.Task) int { return cmp.Compare(a.ID, b.ID) })
 
-func (f *fakeTaskStore) ListTasksForSession(_ context.Context, sessionID, userID string) ([]*a2atype.Task, error) {
-	if s, ok := f.sessions[sessionID]; !ok || s.UserID != userID {
-		return nil, nil
+	total := len(filtered)
+	offset := min(params.Offset, total)
+	end := total
+	if params.Limit > 0 && offset+params.Limit < end {
+		end = offset + params.Limit
 	}
-	return f.tasks[sessionID], nil
+	return filtered[offset:end], total, nil
 }
 
 // fakeSession injects a user principal into the request context.
@@ -270,12 +295,8 @@ func (f failingTaskStore) GetSession(context.Context, string, string) (*dbpkg.Se
 	return nil, f.err
 }
 
-func (f failingTaskStore) ListSessions(context.Context, string) ([]dbpkg.Session, error) {
-	return nil, f.err
-}
-
-func (f failingTaskStore) ListTasksForSession(context.Context, string, string) ([]*a2atype.Task, error) {
-	return nil, f.err
+func (f failingTaskStore) ListUserTasks(context.Context, dbpkg.ListUserTasksParams) ([]*a2atype.Task, int, error) {
+	return nil, 0, f.err
 }
 
 func TestListTasks_BackendFailurePropagates(t *testing.T) {
