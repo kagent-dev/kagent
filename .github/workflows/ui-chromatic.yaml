@@ -14,6 +14,10 @@ on:
       - "ui/**"
   workflow_dispatch:
 
+concurrency:
+  group: ui-chromatic-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   chromatic:
     runs-on: ubuntu-latest

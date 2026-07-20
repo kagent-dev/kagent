@@ -79,11 +79,6 @@ runs:
       shell: bash
       run: |
         sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-    - name: Set up QEMU
-      if: steps.resolve.outputs.skip != 'true'
-      uses: docker/setup-qemu-action@v4
-      with:
-        platforms: linux/amd64,linux/arm64
     - name: Set up Docker Buildx
       if: steps.resolve.outputs.skip != 'true'
       uses: docker/setup-buildx-action@v4
@@ -92,7 +87,7 @@ runs:
         # workflows (e.g. tag.yaml); kept as literals for consistency.
         name: kagent-builder-v0.23.0
         version: v0.23.0
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64
         use: "true"
         driver-opts: network=host
     - name: Set up Helm
