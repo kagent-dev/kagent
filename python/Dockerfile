@@ -70,7 +70,7 @@ RUN mkdir -p /staging/config
 # version-numbered tags (only :nonroot/:latest/:debug), so a digest is the only way to pin tighter
 # than "Debian 12". Tag kept for readability; bump the digest via dependency tooling.
 # Digest = multi-arch index resolved via `docker buildx imagetools inspect gcr.io/distroless/cc-debian12:nonroot`.
-FROM gcr.io/distroless/cc-debian12:nonroot@sha256:ce0d66bc0f64aae46e6a03add867b07f42cc7b8799c949c2e898057b7f75a151
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:66aa873a4a14fb164aa01296058efd8253744606d72715e45acface073359faa
 ARG VERSION
 
 ENV LANG=C.UTF-8
