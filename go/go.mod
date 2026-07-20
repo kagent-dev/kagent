@@ -10,7 +10,7 @@ require (
 	github.com/a2aproject/a2a-go v0.3.15
 	github.com/a2aproject/a2a-go/v2 v2.3.1
 	github.com/abiosoft/ishell/v2 v2.0.2
-	github.com/anthropics/anthropic-sdk-go v1.57.0
+	github.com/anthropics/anthropic-sdk-go v1.58.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.30
 	github.com/briandowns/spinner v1.23.2
 	github.com/charmbracelet/bubbles v1.0.0
@@ -25,12 +25,12 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/hashicorp/go-multierror v1.1.1
-	github.com/jedib0t/go-pretty/v6 v6.8.2
+	github.com/jedib0t/go-pretty/v6 v6.8.3
 	github.com/kagent-dev/kmcp v0.3.0
 	github.com/kagent-dev/mockllm v0.0.5
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/muesli/reflow v0.3.0
-	github.com/openai/openai-go/v3 v3.42.0
+	github.com/openai/openai-go/v3 v3.44.0
 	github.com/pgvector/pgvector-go v0.4.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/spf13/afero v1.15.0
@@ -48,7 +48,7 @@ require (
 	go.uber.org/zap v1.28.0
 	golang.org/x/text v0.40.0
 	google.golang.org/adk/v2 v2.0.0
-	google.golang.org/genai v1.63.0
+	google.golang.org/genai v1.64.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.2
@@ -70,7 +70,7 @@ require (
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085
-	github.com/ollama/ollama v0.32.0
+	github.com/ollama/ollama v0.32.1
 	github.com/pgvector/pgvector-go/pgx v0.4.0
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
@@ -79,7 +79,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0
 	go.opentelemetry.io/otel/sdk/log v0.20.0
-	google.golang.org/grpc v1.82.0
+	google.golang.org/grpc v1.82.1
 	k8s.io/apiextensions-apiserver v0.36.2
 )
 
