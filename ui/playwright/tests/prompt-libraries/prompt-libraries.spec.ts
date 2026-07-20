@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage, waitForAppReady } from "../../helpers/page";
+import { loadPage, waitForAppReady, expectScrolledIntoView } from "../../helpers/page";
 
 // Prompt libraries — full-CRUD lifecycle journey. /prompts lists via GET
 // /api/prompttemplates?namespace=<ns>; create is a dedicated route that POSTs then
@@ -33,7 +33,9 @@ test("prompt libraries: create, read, update, delete", async ({ page }, testInfo
     await expect(page).toHaveURL(new RegExp(`/prompts/${NAMESPACE}/${name}`));
 
     await loadPage(page, "/prompts", { heading: "Prompt Libraries" });
-    await expect(libraryRow(page, name)).toContainText("1 keys");
+    const createdRow = libraryRow(page, name);
+    await expectScrolledIntoView(createdRow);
+    await expect(createdRow).toContainText("1 keys");
   });
 
   // region Reading — open the library's detail page from the list
@@ -53,7 +55,9 @@ test("prompt libraries: create, read, update, delete", async ({ page }, testInfo
     // The saved fragment shows up as an updated key count on the list — a durable
     // signal, unlike the auto-dismissing "saved" toast.
     await loadPage(page, "/prompts", { heading: "Prompt Libraries" });
-    await expect(libraryRow(page, name)).toContainText("2 keys");
+    const updatedRow = libraryRow(page, name);
+    await expectScrolledIntoView(updatedRow);
+    await expect(updatedRow).toContainText("2 keys");
   });
 
   // region Deleting — delete from the detail page, then confirm the row is gone

@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage } from "../../helpers/page";
+import { loadPage, expectScrolledIntoView } from "../../helpers/page";
 import { selectOption, selectNamespace } from "../../helpers/select";
 import { firstModelConfig } from "../../helpers/resources";
 
@@ -19,6 +19,13 @@ async function openEdit(page: import("@playwright/test").Page, ref: string) {
   await expect(page.getByRole("heading", { level: 1, name: "Edit Agent" })).toBeVisible();
 }
 
+// This agent's card on the list (default grid view). Scoped by the uniquely-ref'd
+// options button so assertions read THIS agent's card — not a neighbour's — and can
+// check the description text the card renders (AgentCard.tsx).
+function agentCard(page: import("@playwright/test").Page, ref: string) {
+  return page.locator("div.rounded-xl", { has: page.getByTestId(`agent-options-${ref}`) });
+}
+
 test("agents: create, read, update, delete", async ({ page, request }, testInfo) => {
   const { ref: modelRef, model, namespace } = await firstModelConfig(request);
   const modelOption = `${model} (${modelRef})`;
@@ -35,8 +42,12 @@ test("agents: create, read, update, delete", async ({ page, request }, testInfo)
     await selectOption(page, "#agent-field-model", modelOption);
 
     await page.getByRole("button", { name: "Create Agent" }).click();
+    // Verify the create on the actual agents list: the new card is present (scrolled
+    // into view) and shows the description we submitted.
     await expect(page).toHaveURL(/\/agents(\?|$)/);
-    await expect(page.getByText(name)).toBeVisible();
+    const card = agentCard(page, ref);
+    await expectScrolledIntoView(card);
+    await expect(card).toContainText(DESCRIPTION);
   });
 
   // region Reading — reopen the agent on its edit page and read the stored spec
@@ -52,10 +63,12 @@ test("agents: create, read, update, delete", async ({ page, request }, testInfo)
     await page.getByRole("button", { name: "Save Changes" }).click();
     await expect(page).toHaveURL(/\/agents(\?|$)/);
 
-    // Re-open to confirm the change persisted.
-    await openEdit(page, ref);
-    await expect(page.getByLabel("Description")).toHaveValue(UPDATED_DESCRIPTION);
-    await loadPage(page, "/", { heading: "Agents" });
+    // Confirm the update on the actual agents list: reload the list and assert the
+    // card now shows the edited description (scrolled into view).
+    await loadPage(page, "/agents", { heading: "Agents" });
+    const card = agentCard(page, ref);
+    await expectScrolledIntoView(card);
+    await expect(card).toContainText(UPDATED_DESCRIPTION);
   });
 
   // region Deleting — remove the agent and confirm the card is gone
@@ -65,6 +78,7 @@ test("agents: create, read, update, delete", async ({ page, request }, testInfo)
     const dialog = page.getByRole("alertdialog");
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByText(name)).toHaveCount(0);
+    // Confirm the delete on the actual agents list: the card for this agent is gone.
+    await expect(page.getByTestId(`agent-options-${ref}`)).toHaveCount(0);
   });
 });

@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage } from "../../helpers/page";
+import { loadPage, expectScrolledIntoView } from "../../helpers/page";
 
 // Models / providers — full-CRUD lifecycle journey. Creates a uniquely-named
 // throwaway config (OpenAI + a real catalog model + dummy key), reads it back on
@@ -37,10 +37,10 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
     await page.getByTestId("model-api-key-input").fill("sk-e2e-test-key");
     await page.getByRole("button", { name: "Create Model" }).click();
 
-    // Success is confirmed by the redirect to the list and the new config's row
-    // appearing, not the auto-dismissing "created" toast.
+    // Verify the create on the actual models list: the new config's row is present
+    // (scrolled into view), not the auto-dismissing "created" toast.
     await expect(page).toHaveURL(/\/models(\?|$)/);
-    await expect(page.getByRole("button", { name: `Edit model ${ref}` })).toBeVisible();
+    await expectScrolledIntoView(page.getByRole("button", { name: `Edit model ${ref}` }));
   });
 
   // region Reading — open the edit page and load the stored config
@@ -57,8 +57,12 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
     // save keeps you on the edit page), rather than the auto-dismissing toast.
     await page.getByTestId("model-api-key-input").fill("sk-e2e-rotated-key");
     await page.getByRole("button", { name: "Save Changes" }).click();
+    // The rotated API key is write-only and never rendered on the list, so a model
+    // update produces no list-visible change. The strongest list-level check is that
+    // the config's row survives the save (scrolled into view) — a failed PUT keeps
+    // you on the edit page rather than redirecting back here.
     await expect(page).toHaveURL(/\/models(\?|$)/);
-    await expect(page.getByRole("button", { name: `Edit model ${ref}` })).toBeVisible();
+    await expectScrolledIntoView(page.getByRole("button", { name: `Edit model ${ref}` }));
   });
 
   // region Deleting — remove the config and confirm the row is gone

@@ -1,7 +1,7 @@
 // Page-level driver helpers. Backend-agnostic — they assert on rendered DOM
 // (roles/text), so they work regardless of how data is mocked.
 
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
  * Wait for the full-screen LoadingState overlay to clear. It sits on top of the
@@ -29,6 +29,17 @@ export async function loadPage(
 /** Assert the ErrorState component ("Error Encountered") is not on the page. */
 export async function expectNoErrors(page: Page): Promise<void> {
   await expect(page.getByText("Error Encountered")).toHaveCount(0);
+}
+
+/**
+ * Scroll a list row (or any element) into view and assert it's actually within the
+ * viewport. Use after a mutation to prove the item's changed state is visible on the
+ * real list — `toBeVisible` alone passes for off-screen rows, so this makes the
+ * "scrolled into view" guarantee explicit (and keeps the row on-screen in the video).
+ */
+export async function expectScrolledIntoView(locator: Locator): Promise<void> {
+  await locator.scrollIntoViewIfNeeded();
+  await expect(locator).toBeInViewport();
 }
 
 type ToastType = "success" | "error" | "warning" | "info";
