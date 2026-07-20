@@ -1,8 +1,11 @@
 name: UI Playwright E2E
 
-# Page-level browser E2E for the UI against a mocked backend.
-# Kept separate from CI so the main workflow does not need paths-filter or
-# conditional steps. No cluster required — the stub backend is booted by Playwright.
+# Page-level browser E2E for the UI against a real kagent backend in kind.
+#
+# A lightweight proxy (ui/playwright/mocks/server.mjs) forwards every /api call to
+# the in-cluster controller and mocks only the chat A2A stream. The cluster is
+# built by ui/playwright/scripts/setup.sh (same make targets as the Go e2e job);
+# Playwright then port-forwards the controller and runs the suite.
 
 on:
   push:
@@ -15,6 +18,14 @@ on:
       - "ui/**"
   workflow_dispatch:
 
+env:
+  # Deterministic image tags for the build (matches ci.yaml's e2e job).
+  VERSION: v0.0.1-test
+  # Shared GHA build-cache scope prefix + consistent buildx builder (matches ci.yaml).
+  CACHE_KEY_PREFIX: kagent-v2
+  BUILDX_BUILDER_NAME: kagent-builder-v0.23.0
+  BUILDX_VERSION: v0.23.0
+
 jobs:
   playwright:
     runs-on: ubuntu-latest
@@ -24,12 +35,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # Free disk space + cancel superseded runs (image builds fill the runner).
+      - name: Initialize Environment
+        uses: ./.github/actions/initialize-environment
+
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          name: ${{ env.BUILDX_BUILDER_NAME }}
+          version: ${{ env.BUILDX_VERSION }}
+          use: "true"
+          driver-opts: network=host
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5.0.1
+        with:
+          version: v3.18.0
+
+      - name: Install Kind
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+        with:
+          install_only: true
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: "ui/.nvmrc"
           cache: "npm"
           cache-dependency-path: ui/package-lock.json
+
+      # Honor the pinned npm from ui/package.json "packageManager" (matches ui-chromatic).
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install dependencies
         working-directory: ./ui
@@ -39,9 +84,28 @@ jobs:
         working-directory: ./ui
         run: npx playwright install --with-deps chromium
 
+      - name: Set up cluster + real kagent
+        working-directory: ./ui
+        # Chat is mocked, so a dummy provider key satisfies `make helm-install`.
+        # DOCKER_BUILD_ARGS mirrors ci.yaml's e2e build: single-arch, pushed to the
+        # kind registry, with a GHA layer cache warmed by the main e2e build.
+        env:
+          OPENAI_API_KEY: fake
+          BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
+          KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
+          DOCKER_BUILD_ARGS: >-
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-ui-e2e
+            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
+            --cache-to=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-ui-e2e,mode=max
+            --platform=linux/amd64
+            --push
+        run: ./playwright/scripts/setup.sh
+
       - name: Run Playwright tests
         working-directory: ./ui
-        run: npm run test:pw
+        env:
+          CI: "true"
+        run: npm run test:e2e
 
       - name: Upload Playwright report
         if: always()

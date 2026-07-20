@@ -1,19 +1,25 @@
 import { test, expect } from "../../fixtures/test";
 
-// Onboarding wizard journey + variants. The wizard shows when
-// localStorage['kagent-onboarding'] !== "true"; the shared fixture sets it to
-// "true", so each test overrides it to "false" (init scripts run in registration
-// order, so this wins). With a seeded modelconfig, step 1 defaults to "select
-// existing", avoiding the create-a-provider path. Finish POSTs /api/agents and
-// flips the flag to "true".
+// Onboarding wizard — completion journey + skip, against the real backend. The
+// wizard shows when localStorage['kagent-onboarding'] !== "true"; the shared
+// fixture sets it to "true", so each test overrides it to "false" (init scripts
+// run in registration order, so this wins). With the seeded model config present,
+// step 1 defaults to "select existing", avoiding the create-a-provider path.
 //
-// The journey walks the whole "select existing model" wizard, phased by step.
-// The create-a-new-model branch and the skip path stay as their own tests.
+// Completing the wizard creates a real agent, so we give it a unique name and
+// delete it afterward. Creating a model in the wizard is covered by the models
+// suite, so this walks the "select existing model" path.
 
-test("onboarding wizard: completes end to end with an existing model", async ({ page, mock }) => {
+const NAMESPACE = "kagent";
+
+test("onboarding: complete the wizard", async ({ page }, testInfo) => {
+  const agentName = `e2e-onboard-${Date.now().toString(36)}-${testInfo.retry}`;
+  const ref = `${NAMESPACE}/${agentName}`;
+
   await page.addInitScript(() => window.localStorage.setItem("kagent-onboarding", "false"));
   await page.goto("/");
 
+  // region Creating — walk the wizard end to end to create an agent
   await test.step("welcome → get started", async () => {
     await expect(page.getByText("Bringing Agentic AI to Cloud Native")).toBeVisible();
     await page.getByRole("button", { name: /Let's Get Started/ }).click();
@@ -26,56 +32,46 @@ test("onboarding wizard: completes end to end with an existing model", async ({ 
     await page.getByRole("button", { name: "Next: Agent Setup" }).click();
   });
 
-  await test.step("step 2 — agent setup (prefilled)", async () => {
+  await test.step("step 2 — agent setup with a unique name", async () => {
     await expect(page.getByText("Step 2: Set Up The AI Agent")).toBeVisible();
+    await page.getByLabel("Agent Name", { exact: true }).fill(agentName);
     await page.getByRole("button", { name: "Next: Select Tools" }).click();
   });
 
   await test.step("step 3 — tools are optional", async () => {
-    // Seeded list is non-empty so Next is enabled.
     await expect(page.getByText("Step 3: Select Tools")).toBeVisible();
     await page.getByRole("button", { name: "Next: Review" }).click();
   });
 
-  await test.step("step 4 — review + finalize (POSTs /api/agents)", async () => {
+  await test.step("step 4 — review + finalize (creates the agent)", async () => {
     await expect(page.getByText("Step 4: Review Agent Configuration")).toBeVisible();
     await page.getByRole("button", { name: /Finish/ }).click();
   });
 
-  await test.step("step 5 — done, wizard dismissed and flag persisted", async () => {
+  await test.step("step 5 — lands on the agents list with the new agent", async () => {
     await expect(page.getByText("Setup Complete!")).toBeVisible();
     await page.getByRole("button", { name: /Go to Agent/ }).click();
 
     await expect(page.getByText("Setup Complete!")).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
+    // The agent the wizard created is present in the list it lands on.
+    await expect(page.getByText(agentName).first()).toBeVisible();
     expect(await page.evaluate(() => window.localStorage.getItem("kagent-onboarding"))).toBe("true");
+  });
 
-    const req = await mock.lastRequest("POST", "/api/agents");
-    expect(req, "expected a captured POST /api/agents at finish").not.toBeNull();
+  // region Deleting — remove the agent the wizard created
+  await test.step("cleans up the agent the wizard created", async () => {
+    await page.getByTestId(`agent-options-${ref}`).first().click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Delete" }).click();
+    await expect(page.getByText(agentName)).toHaveCount(0);
   });
 });
 
-test("onboarding: creates a new model config during the wizard (create path)", async ({ page, mock }) => {
-  await page.addInitScript(() => window.localStorage.setItem("kagent-onboarding", "false"));
-  await page.goto("/");
-
-  await expect(page.getByText("Bringing Agentic AI to Cloud Native")).toBeVisible();
-  await page.getByRole("button", { name: /Let's Get Started/ }).click();
-
-  await expect(page.getByText("Step 1: Configure AI Model")).toBeVisible();
-  await page.getByRole("radio", { name: "Create New" }).click();
-
-  // Provider/model via the ModelProviderCombobox, then API key.
-  await page.getByRole("combobox").first().click();
-  await page.getByRole("option", { name: /gpt-4o/ }).first().click();
-  await page.getByPlaceholder("Enter your API key").fill("sk-onboard");
-  await page.getByRole("button", { name: "Create & Continue" }).click();
-
-  await expect(page.getByText("Step 2: Set Up The AI Agent")).toBeVisible();
-  expect(await mock.lastRequest("POST", "/api/modelconfigs"), "expected POST /api/modelconfigs").not.toBeNull();
-});
-
-test("onboarding: skips the wizard", async ({ page }) => {
+test("onboarding: skip the wizard", async ({ page }) => {
+  // region Skipping — dismiss the wizard without creating anything
   await page.addInitScript(() => window.localStorage.setItem("kagent-onboarding", "false"));
   await page.goto("/");
 

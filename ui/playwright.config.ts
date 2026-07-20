@@ -17,6 +17,10 @@ const CI = !!process.env.CI;
 const STUB_PORT = 8899;
 const STUB_URL = `http://127.0.0.1:${STUB_PORT}`;
 const APP_URL = "http://localhost:8001";
+// Origin of the REAL kagent backend the proxy forwards to. Defaults to the
+// controller port-forward opened in playwright/setup.ts (localhost:8083). The
+// proxy mocks only the chat A2A stream; everything else hits this backend.
+const KAGENT_BACKEND_URL = process.env.KAGENT_BACKEND_URL ?? "http://127.0.0.1:8083";
 
 // `slowMo` adds an idle delay between every Playwright action (click, fill,
 // goto). The recorded videos play at real time, so without slowMo the test
@@ -34,6 +38,9 @@ const SLOW_MO_MS =
 export default defineConfig({
   testDir: "./playwright/tests",
   outputDir: "./playwright/test-results",
+  // Port-forward the real controller before the run, tear it down after.
+  globalSetup: "./playwright/setup.ts",
+  globalTeardown: "./playwright/teardown.ts",
   // Parallelism stays off until Stage 1 per-test data isolation lands: one
   // shared stub backend + one Next server means concurrent tests would race
   // against shared state (see README). Flip both `fullyParallel` and `workers`
@@ -42,7 +49,8 @@ export default defineConfig({
   forbidOnly: CI,
   retries: CI ? 1 : 0,
   workers: 1,
-  timeout: 30_000,
+  // Real-backend flows do create/list/delete round trips, so allow headroom.
+  timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: [["html", { open: "never" }], ["list"]],
   use: {
@@ -63,9 +71,9 @@ export default defineConfig({
       timeout: 30_000,
       stdout: "pipe",
       stderr: "pipe",
-      // Pin the port so a shell-exported STUB_PORT can't make the stub bind
-      // somewhere other than the health-check / BACKEND_INTERNAL_URL address.
-      env: { STUB_PORT: String(STUB_PORT) },
+      // Pin the proxy port (health-check / BACKEND_INTERNAL_URL address) and tell
+      // it where the real backend is (the port-forward from playwright/setup.ts).
+      env: { STUB_PORT: String(STUB_PORT), KAGENT_BACKEND_URL },
     },
     {
       // Force the webpack dev server (the default `npm run dev` uses Turbopack).
@@ -85,7 +93,8 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 120_000,
       env: {
-        // Redirect the server-side backend fetch to our stub.
+        // Route the UI's server-side backend fetches (and the /a2a route handler)
+        // through the proxy, which forwards to the real backend and mocks chat.
         BACKEND_INTERNAL_URL: `${STUB_URL}/api`,
       },
     },
