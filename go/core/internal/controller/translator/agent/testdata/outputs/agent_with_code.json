@@ -193,7 +193,7 @@
                     "value": "/config/srt-settings.json"
                   }
                 ],
-                "image": "ghcr.io/kagent-dev/kagent/app@sha256:test-app-full",
+                "image": "ghcr.io/kagent-dev/kagent/app:dev-full",
                 "imagePullPolicy": "IfNotPresent",
                 "name": "kagent",
                 "ports": [
