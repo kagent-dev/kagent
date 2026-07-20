@@ -107,6 +107,33 @@ class TestADKTokenPropagationPlugin:
         )
 
     @pytest.mark.asyncio
+    async def test_list_resource_and_audience_passed_to_exchange(self):
+        """Repeatable resource/audience lists are forwarded verbatim (RFC 8707/8693)."""
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = lambda state: state.get("subject-token")
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-token")
+        resource = ["https://a.example.com", "https://b.example.com"]
+        audience = ["backend-a", "backend-b"]
+        plugin = ADKTokenPropagationPlugin(sts, resource=resource, audience=audience)
+        ic = self._make_invocation_context(
+            "sess-resource-list",
+            headers=None,
+            extra_state={"subject-token": "subject-jwt"},
+        )
+        result = await plugin.before_run_callback(invocation_context=ic)
+        assert result is None
+        sts.exchange_token.assert_called_once_with(
+            subject_token="subject-jwt",
+            subject_token_type=TokenType.JWT,
+            actor_token="actor-token",
+            actor_token_type=TokenType.JWT,
+            resource=resource,
+            audience=audience,
+        )
+
+    @pytest.mark.asyncio
     async def test_subject_token_callback_returns_none(self):
         """Case: get_subject_token callback returns None -> returns None."""
         sts = Mock(spec=ADKSTSIntegration)

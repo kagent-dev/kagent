@@ -23,11 +23,25 @@ logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLeve
 app = typer.Typer()
 
 
+def _split_csv(value: Optional[str]) -> Optional[list[str]]:
+    """Parse a comma-separated env value into trimmed, non-empty entries.
+
+    Returns None when none are present so the exchange target stays unset.
+    resource/audience are RFC 8707/8693 repeatable, so a list scopes the token
+    to multiple backends.
+    """
+    if not value:
+        return None
+    entries = [p.strip() for p in value.split(",")]
+    entries = [p for p in entries if p]
+    return entries or None
+
+
 kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
-token_resource = os.getenv("KAGENT_STS_RESOURCE") or None
-token_audience = os.getenv("KAGENT_STS_AUDIENCE") or None
+token_resource = _split_csv(os.getenv("KAGENT_STS_RESOURCE"))
+token_audience = _split_csv(os.getenv("KAGENT_STS_AUDIENCE"))
 uvicorn_log_level = os.getenv("UVICORN_LOG_LEVEL", os.getenv("LOG_LEVEL", "info")).lower()
 
 
