@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage, expectToast, waitForAppReady } from "../../helpers/page";
+import { loadPage, waitForAppReady, expectScrolledIntoView } from "../../helpers/page";
 
 // Prompt libraries — full-CRUD lifecycle journey. /prompts lists via GET
 // /api/prompttemplates?namespace=<ns>; create is a dedicated route that POSTs then
@@ -28,11 +28,14 @@ test("prompt libraries: create, read, update, delete", async ({ page }, testInfo
     await page.getByLabel("Content").fill("Always be safe.");
     await page.getByRole("button", { name: "Create Library" }).click();
 
+    // Success is confirmed by durable state, not the auto-dismissing toast: the
+    // create redirects to the library's detail page, then the row appears on the list.
     await expect(page).toHaveURL(new RegExp(`/prompts/${NAMESPACE}/${name}`));
-    await expectToast(page, /created/i, { type: "success" });
 
     await loadPage(page, "/prompts", { heading: "Prompt Libraries" });
-    await expect(libraryRow(page, name)).toContainText("1 keys");
+    const createdRow = libraryRow(page, name);
+    await expectScrolledIntoView(createdRow);
+    await expect(createdRow).toContainText("1 keys");
   });
 
   // region Reading — open the library's detail page from the list
@@ -48,10 +51,13 @@ test("prompt libraries: create, read, update, delete", async ({ page }, testInfo
     await page.getByLabel("Key 2").fill("tone");
     await page.getByLabel("Content").nth(1).fill("Be kind.");
     await page.getByRole("button", { name: "Save changes" }).click();
-    await expectToast(page, /saved/i, { type: "success" });
 
+    // The saved fragment shows up as an updated key count on the list — a durable
+    // signal, unlike the auto-dismissing "saved" toast.
     await loadPage(page, "/prompts", { heading: "Prompt Libraries" });
-    await expect(libraryRow(page, name)).toContainText("2 keys");
+    const updatedRow = libraryRow(page, name);
+    await expectScrolledIntoView(updatedRow);
+    await expect(updatedRow).toContainText("2 keys");
   });
 
   // region Deleting — delete from the detail page, then confirm the row is gone
@@ -62,7 +68,8 @@ test("prompt libraries: create, read, update, delete", async ({ page }, testInfo
     await expect(dialog.getByText("Delete this prompt library?")).toBeVisible();
     await dialog.getByRole("button", { name: "Delete library" }).click();
 
-    await expectToast(page, /deleted/i, { type: "success" });
+    // Deletion is confirmed by the redirect to the list and the row disappearing,
+    // rather than the transient "deleted" toast.
     await expect(page).toHaveURL(new RegExp(`/prompts\\?namespace=${NAMESPACE}`));
     await expect(libraryRow(page, name)).toHaveCount(0);
   });

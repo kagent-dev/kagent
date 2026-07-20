@@ -101,6 +101,29 @@ async function handleChat(req, res) {
 
 // endregion
 
+// region Environment stubs
+//
+// A few read endpoints can't succeed against a kind-hosted backend and only add
+// noise to the run — like the chat stream above, we answer them locally:
+//
+//   - GET /mcp-apps/**/tools   the controller tries to dial the real MCP server
+//                              (grafana, querydoc, a just-created remote server),
+//                              which isn't reachable in kind → 500. No spec
+//                              asserts tool contents, so we return an empty list.
+//   - GET /sessions/**/shares  fired by ShareButton on every chat mount; the
+//                              upstream resets it ("socket hang up"). No spec
+//                              covers sharing, so we return an empty list.
+//
+// Both expect a BaseResponse; `{ data: [] }` is the empty-success shape. Only GET
+// is stubbed so create/call/delete on the same paths still reach the backend.
+
+const isStubbedGet = (method, pathname) =>
+  method === "GET" &&
+  ((pathname.includes("/mcp-apps/") && pathname.endsWith("/tools")) ||
+    (pathname.includes("/sessions/") && pathname.endsWith("/shares")));
+
+// endregion
+
 // region Proxy
 
 function forward(req, res) {
@@ -135,6 +158,12 @@ const server = createServer((req, res) => {
   // Chat: intercept the A2A stream so tests never need a live LLM.
   if (pathname.includes("/a2a/") || pathname.includes("/a2a-sandboxes/")) {
     return handleChat(req, res);
+  }
+
+  // Unreachable-in-kind reads: answer locally to keep the run quiet.
+  if (isStubbedGet(method, pathname)) {
+    console.log(`[proxy] ${method} ${url} -> stubbed empty list`);
+    return json(res, 200, { data: [] });
   }
 
   // Everything else: forward to the real backend.
