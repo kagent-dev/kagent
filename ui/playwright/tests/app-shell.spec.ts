@@ -11,12 +11,6 @@ import { gotoView, gotoCreate } from "../helpers/nav";
 // so the test doesn't break as the seeded set evolves.
 const SEEDED_AGENT = "k8s-agent";
 
-// The create pages are each compiled on-demand the first time they're hit (the CI
-// run uses the webpack dev server, not a prod build), so their first navigation can
-// exceed the default 10s expect timeout on a loaded runner. Give the create-page
-// heading assertions extra headroom to absorb that one-time compile latency.
-const COLD_NAV_TIMEOUT = 30_000;
-
 test("app shell: list and navigation", async ({ page }) => {
   // region Reading — the agents list renders from the backend
   await test.step("renders the agents list from the real backend", async () => {
@@ -42,18 +36,18 @@ test("app shell: list and navigation", async ({ page }) => {
     // The Create menu lives in the persistent header, so we navigate client-side
     // from wherever the View step left us (no extra full reload of "/").
     await gotoCreate(page, "New Agent", "**/agents/new");
-    await expect(page.getByRole("heading", { level: 1, name: "New Agent", exact: true })).toBeVisible({ timeout: COLD_NAV_TIMEOUT });
+    await expect(page.getByRole("heading", { level: 1, name: "New Agent", exact: true })).toBeVisible();
 
     await gotoCreate(page, "New Agent Harness", "**/agents/new-harness");
-    await expect(page.getByRole("heading", { level: 1, name: "New Agent Harness" })).toBeVisible({ timeout: COLD_NAV_TIMEOUT });
+    await expect(page.getByRole("heading", { level: 1, name: "New Agent Harness" })).toBeVisible();
 
     await gotoCreate(page, "New Model", "**/models/new");
-    await expect(page.getByRole("heading", { level: 1, name: "New Model" })).toBeVisible({ timeout: COLD_NAV_TIMEOUT });
+    await expect(page.getByRole("heading", { level: 1, name: "New Model" })).toBeVisible();
 
     await gotoCreate(page, "New MCP Server", "**/mcp/new");
-    await expect(page.getByRole("heading", { level: 1, name: "New MCP server" })).toBeVisible({ timeout: COLD_NAV_TIMEOUT });
+    await expect(page.getByRole("heading", { level: 1, name: "New MCP server" })).toBeVisible();
 
     await gotoCreate(page, "New prompt library", "**/prompts/new");
-    await expect(page.getByRole("heading", { level: 1, name: "New Prompt Library" })).toBeVisible({ timeout: COLD_NAV_TIMEOUT });
+    await expect(page.getByRole("heading", { level: 1, name: "New Prompt Library" })).toBeVisible();
   });
 });
