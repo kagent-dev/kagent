@@ -32,6 +32,11 @@ annotations: {}
 
 podAnnotations: {}
 
+# -- Additional labels to add to all pod templates (merged into pod labels of
+# the controller and UI Deployments; can be overridden per component).
+# Useful for admission policies that require specific labels on pods.
+podLabels: {}
+
 # -- Additional labels to add to all Kubernetes resources
 labels: {}
   # environment: production
@@ -174,6 +179,15 @@ controller:
     #   podLabels:
     #     team: platform
     #     environment: production
+    # -- Default nodeSelector applied to all agent deployments.
+    # Useful when admission policies require a nodeSelector on every
+    # Deployment, since wizard-created Agents carry none. A per-agent
+    # nodeSelector in the Agent CRD takes precedence over these defaults.
+    # @default -- {} (no default nodeSelector)
+    nodeSelector: {}
+    # Example:
+    #   nodeSelector:
+    #     kubernetes.io/os: linux
     # -- Default host address for agent pods to bind to.
     # Leave empty to use the controller's default fallback of "0.0.0.0".
     # Automatically set to "::" when ipv6.enabled is true.
@@ -181,7 +195,7 @@ controller:
     # @default -- "" (controller falls back to "0.0.0.0"; "::" when ipv6.enabled)
     host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
-  # @default -- `http://<fullname>-controller.<namespace>.svc.cluster.local:<port>`
+  # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
   a2aBaseUrl: ""
   agentImage:
     registry: ""
@@ -225,6 +239,11 @@ controller:
   annotations: {}
 
   podAnnotations: {}
+
+  # -- Additional labels for the controller pod template, merged over the
+  # global `podLabels` (per-key; component keys win). Selector labels can
+  # never be overridden.
+  podLabels: {}
 
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
@@ -426,6 +445,11 @@ ui:
 
   podAnnotations: {}
 
+  # -- Additional labels for the UI pod template, merged over the
+  # global `podLabels` (per-key; component keys win). Selector labels can
+  # never be overridden.
+  podLabels: {}
+
   # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   tolerations: []
 
@@ -466,6 +490,44 @@ ui:
   openshiftRoute:
     annotations:
       haproxy.router.openshift.io/timeout: 120m
+
+  # -- Gateway API `HTTPRoute` for the UI. Requires the Gateway API CRDs
+  # (`gateway.networking.k8s.io/v1`) and an existing `Gateway` to attach to via
+  # `parentRefs`. Disabled by default; enable to front the UI with a Gateway API
+  # implementation (kgateway, Istio, Envoy Gateway, etc.) instead of the
+  # OpenShift Route or bundled oauth2-proxy.
+  httpRoute:
+    enabled: false
+    # -- Extra labels to add to the `HTTPRoute` (merged with the chart labels).
+    labels: {}
+    # -- Annotations to add to the `HTTPRoute`.
+    annotations: {}
+    # -- Gateways this route attaches to. Required when `enabled` is `true`.
+    parentRefs: []
+    #   - name: my-gateway
+    #     namespace: gateway-system
+    #     sectionName: https
+    # -- Hostnames matched by the route.
+    hostnames: []
+    #   - kagent.example.com
+    # -- Routing rules. When a rule omits `backendRefs`, it defaults to the UI
+    # `Service` on `ui.service.ports.port`. Each rule may also set `matches`,
+    # `filters`, and `timeouts`.
+    rules: []
+    #   - matches:
+    #       - path:
+    #           type: PathPrefix
+    #           value: /
+    #     filters:
+    #       - type: RequestHeaderModifier
+    #         requestHeaderModifier:
+    #           set:
+    #             - name: X-Forwarded-Proto
+    #               value: https
+    #     timeouts:
+    #       request: "0s"
+    #       backendRequest: "0s"
+
 # ==============================================================================
 # LLM PROVIDERS CONFIGURATION
 # ==============================================================================
@@ -543,6 +605,10 @@ kagent-tools:
   enabled: true
   nameOverride: tools
   replicaCount: 1
+  # -- Node taints which will be tolerated for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  tolerations: []
+  # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
+  nodeSelector: {}
   podSecurityContext:
     runAsNonRoot: true
     seccompProfile:
@@ -761,9 +827,8 @@ querydoc:
 oauth2-proxy:
   enabled: false
 
-  # Disable Redis - use cookie-based sessions
-  redis:
-    enabled: false
+  # Cookie-based sessions (the redis-ha sub-chart is disabled by default;
+  # enable `redis-ha.enabled` + `sessionStorage.type: redis` to switch)
   sessionStorage:
     type: cookie
 
@@ -867,3 +932,35 @@ otel:
         endpoint: ""
         timeout: 15000 # milliseconds
         insecure: true
+
+# ==============================================================================
+# EXTRA OBJECTS
+# ==============================================================================
+
+# -- Additional arbitrary Kubernetes manifests to deploy alongside the chart.
+# Each list entry is rendered through `tpl`, so values may reference the release
+# context (e.g. `{{ include "kagent.fullname" . }}`, `{{ .Release.Namespace }}`).
+# Both map and multi-line string entries are supported. Use this to manage
+# resources such as ExternalSecret, HTTPRoute, or NetworkPolicy within the same
+# chart lifecycle without maintaining a separate chart.
+#
+# To use, replace the empty list below with your manifests, e.g.:
+#   extraObjects:
+#     - apiVersion: external-secrets.io/v1
+#       kind: ExternalSecret
+#       metadata:
+#         name: '{{ include "kagent.fullname" . }}-openai'
+#         namespace: '{{ .Release.Namespace }}'
+#       spec:
+#         secretStoreRef:
+#           name: aws-secretsmanager
+#           kind: ClusterSecretStore
+#         target:
+#           name: kagent-openai
+#         data:
+#           - secretKey: OPENAI_API_KEY
+#             remoteRef:
+#               key: prod/kagent/openai
+#               property: api_key
+# @default -- []
+extraObjects: []

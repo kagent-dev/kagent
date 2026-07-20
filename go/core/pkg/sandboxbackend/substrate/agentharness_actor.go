@@ -174,13 +174,14 @@ func (b *AgentHarnessSessionActorBackend) DeleteAllAgentHarnessActors(ctx contex
 		return true, nil
 	}
 	prefix := agentHarnessActorPrefix(ah)
-	actors, err := b.client.ListActors(ctx)
+	// Harness actors live in the harness's namespace atespace.
+	actors, err := b.client.ListActors(ctx, ah.Namespace)
 	if err != nil {
 		return false, fmt.Errorf("list substrate actors: %w", err)
 	}
 	allDone := true
 	for _, actor := range actors {
-		id := strings.TrimSpace(actor.GetActorId())
+		id := strings.TrimSpace(actorName(actor))
 		if id == "" {
 			continue
 		}

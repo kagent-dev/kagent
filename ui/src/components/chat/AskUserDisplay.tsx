@@ -9,8 +9,19 @@ import { cn, convertToUserFriendlyName } from "@/lib/utils";
 
 export interface AskUserQuestion {
   question: string;
-  choices?: string[];
+  /** Plain strings or `{ key, description }` objects from some agents. */
+  choices?: Array<string | { key?: string; description?: string }>;
   multiple?: boolean;
+}
+
+function choiceLabel(choice: string | { key?: string; description?: string }): string {
+  if (typeof choice === "string") return choice;
+  return choice.description ?? choice.key ?? "";
+}
+
+function choiceValue(choice: string | { key?: string; description?: string }): string {
+  if (typeof choice === "string") return choice;
+  return choice.key ?? choice.description ?? "";
 }
 
 interface AskUserDisplayProps {
@@ -50,19 +61,19 @@ export default function AskUserDisplay({
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const toggleChoice = (qIdx: number, choice: string) => {
+  const toggleChoice = (qIdx: number, choiceValue: string) => {
     if (isResolved || isSubmitting || !onSubmit) return;
     setSelectedChoices(prev => {
       const next = prev.map(s => [...s]);
       const q = questions[qIdx];
       const isMultiple = q.multiple ?? false;
-      if (next[qIdx].includes(choice)) {
-        next[qIdx] = next[qIdx].filter(c => c !== choice);
+      if (next[qIdx].includes(choiceValue)) {
+        next[qIdx] = next[qIdx].filter(c => c !== choiceValue);
       } else if (isMultiple) {
-        next[qIdx] = [...next[qIdx], choice];
+        next[qIdx] = [...next[qIdx], choiceValue];
       } else {
         // Single-select: deselect others
-        next[qIdx] = [choice];
+        next[qIdx] = [choiceValue];
       }
       return next;
     });
@@ -129,16 +140,18 @@ export default function AskUserDisplay({
               {/* Choice chips */}
               {q.choices && q.choices.length > 0 && (
                 <div className="flex flex-wrap gap-2">
-                  {q.choices.map((choice) => {
+                  {q.choices.map((choice, choiceIdx) => {
+                    const value = choiceValue(choice);
+                    const label = choiceLabel(choice);
                     const isSelected = isResolved
-                      ? answered.includes(choice)
-                      : selectedChoices[qIdx].includes(choice);
+                      ? answered.includes(value)
+                      : selectedChoices[qIdx].includes(value);
                     return (
                       <button
-                        key={choice}
+                        key={value || `choice-${choiceIdx}`}
                         type="button"
                         disabled={isResolved || isSubmitting || !onSubmit}
-                        onClick={() => toggleChoice(qIdx, choice)}
+                        onClick={() => toggleChoice(qIdx, value)}
                         className={cn(
                           "px-3 py-1 rounded-full text-xs border transition-colors",
                           isSelected
@@ -147,7 +160,7 @@ export default function AskUserDisplay({
                           (isResolved || isSubmitting || !onSubmit) && "cursor-default opacity-80"
                         )}
                       >
-                        {choice}
+                        {label}
                       </button>
                     );
                   })}
@@ -158,7 +171,7 @@ export default function AskUserDisplay({
               {isResolved ? (
                 /* Resolved: show the free-text portion of the answer (non-chip answers) */
                 (() => {
-                  const chipAnswers = q.choices ?? [];
+                  const chipAnswers = (q.choices ?? []).map(choiceValue);
                   const freeAnswers = answered.filter(a => !chipAnswers.includes(a));
                   return freeAnswers.length > 0 ? (
                     <p className="text-xs text-muted-foreground border rounded p-2 bg-muted/50">
