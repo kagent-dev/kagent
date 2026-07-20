@@ -3,7 +3,7 @@
 import inspect
 import logging
 import time
-from typing import Awaitable, Callable, Dict, Optional, Union
+from typing import Awaitable, Callable, Dict, List, Optional, Union
 
 import jwt
 from agentsts.core import STSIntegrationBase, TokenType
@@ -108,8 +108,8 @@ class ADKTokenPropagationPlugin(BasePlugin):
     def __init__(
         self,
         sts_integration: Optional[STSIntegrationBase] = None,
-        resource: Optional[Union[str, list]] = None,
-        audience: Optional[Union[str, list]] = None,
+        resource: Optional[Union[str, List[str]]] = None,
+        audience: Optional[Union[str, List[str]]] = None,
     ):
         """Initialize the token propagation plugin.
 
