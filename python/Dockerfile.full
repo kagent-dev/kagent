@@ -13,7 +13,7 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 # node:20-bookworm-slim is a digest-pinnable debian-bookworm base that ships Node 20 (the
 # sandbox-runtime requires node >= 20; debian's own nodejs package is still on 18).
 # Digest = multi-arch index resolved via `docker buildx imagetools inspect node:20-bookworm-slim`.
-FROM node:26-bookworm-slim@sha256:b16ca7b4dcfb20184e1c70f9ee30c6a75ed1da669cfafd6d2add4761b123d79f AS python-os
+FROM node:26-bookworm-slim@sha256:2d49d876e96237d76de412761cf05dbfe5aee325cc4406a4d41d5824c5bb8beb AS python-os
 ARG TOOLS_PYTHON_VERSION=3.13
 
 ENV LANG=C.UTF-8

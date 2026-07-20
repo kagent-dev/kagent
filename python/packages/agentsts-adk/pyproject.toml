@@ -16,7 +16,7 @@ dependencies = [
   "pydantic>=2.5.0",
   "typing-extensions>=4.16.0",
   "aiofiles>=24.1.0",
-  "anyio>=4.9.0",
+  "anyio>=4.14.2",
   "PyJWT>=2.13.0",
 ]
 

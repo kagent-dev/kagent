@@ -133,12 +133,12 @@ type createAtespaceFake struct {
 	err      error
 }
 
-func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.CreateAtespaceResponse, error) {
-	f.lastName = in.GetName()
+func (f *createAtespaceFake) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {
+	f.lastName = in.GetAtespace().GetMetadata().GetName()
 	if f.err != nil {
 		return nil, f.err
 	}
-	return &ateapipb.CreateAtespaceResponse{Atespace: &ateapipb.Atespace{Name: in.GetName()}}, nil
+	return &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: f.lastName}}, nil
 }
 
 func newTestTLSCert(t *testing.T) tls.Certificate {

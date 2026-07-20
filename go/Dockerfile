@@ -27,7 +27,7 @@ ARG LDFLAGS
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
     --mount=type=cache,target=/root/.cache/go-build,rw        \
     echo "Building on $BUILDPLATFORM -> linux/$TARGETARCH" && \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
 
 ### STAGE 2: final image
 # Use distroless as minimal base image to package the manager binary
