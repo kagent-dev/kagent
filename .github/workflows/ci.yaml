@@ -11,6 +11,10 @@ on:
       - "**/*.md"
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   # Cache key components for better organization
   CACHE_KEY_PREFIX: kagent-v2
@@ -49,16 +53,12 @@ jobs:
         # See https://github.com/openai/codex/issues/14919
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-        with:
-          platforms: linux/amd64,linux/arm64
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
           version: ${{ env.BUILDX_VERSION }}
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           use: "true"
           driver-opts: network=host
 
