@@ -15,6 +15,10 @@ on:
       - "ui/**"
   workflow_dispatch:
 
+concurrency:
+  group: ui-playwright-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   playwright:
     runs-on: ubuntu-latest
