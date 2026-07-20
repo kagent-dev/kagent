@@ -7,7 +7,7 @@ ARG BUILDPLATFORM
 ARG BUILD_PACKAGE=adk/cmd/main.go
 
 WORKDIR /workspace
-COPY go.mod go.sum .
+COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     --mount=type=cache,target=/root/.cache/go-build,rw \
     go mod download
@@ -22,7 +22,8 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     echo "Building on $BUILDPLATFORM -> linux/$TARGETARCH" && \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
 
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS srt-builder
+# sandbox-runtime produces architecture-independent JavaScript; build it natively to avoid QEMU.
+FROM --platform=$BUILDPLATFORM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest AS srt-builder
 ARG TOOLS_PYTHON_VERSION=3.13
 
 RUN --mount=type=cache,target=/var/cache/apk,rw \
