@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage, expectToast } from "../../helpers/page";
+import { loadPage } from "../../helpers/page";
 
 // Models / providers — full-CRUD lifecycle journey. Creates a uniquely-named
 // throwaway config (OpenAI + a real catalog model + dummy key), reads it back on
@@ -37,8 +37,9 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
     await page.getByTestId("model-api-key-input").fill("sk-e2e-test-key");
     await page.getByRole("button", { name: "Create Model" }).click();
 
+    // Success is confirmed by the redirect to the list and the new config's row
+    // appearing, not the auto-dismissing "created" toast.
     await expect(page).toHaveURL(/\/models(\?|$)/);
-    await expectToast(page, /created successfully/i, { type: "success" });
     await expect(page.getByRole("button", { name: `Edit model ${ref}` })).toBeVisible();
   });
 
@@ -51,11 +52,13 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
   // region Updating — rotate the API key and save (PUT)
   await test.step("updates the config's API key", async () => {
     // In edit mode only the API key is editable (provider/model/name are locked).
-    // The key is write-only, so a successful PUT is confirmed by the toast.
+    // The key is write-only, so it can't be read back; a successful PUT is instead
+    // confirmed by the redirect to the list with the config still present (a failed
+    // save keeps you on the edit page), rather than the auto-dismissing toast.
     await page.getByTestId("model-api-key-input").fill("sk-e2e-rotated-key");
     await page.getByRole("button", { name: "Save Changes" }).click();
     await expect(page).toHaveURL(/\/models(\?|$)/);
-    await expectToast(page, /updated successfully/i, { type: "success" });
+    await expect(page.getByRole("button", { name: `Edit model ${ref}` })).toBeVisible();
   });
 
   // region Deleting — remove the config and confirm the row is gone
@@ -65,7 +68,8 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
     await expect(dialog.getByText("Delete Model")).toBeVisible();
     await dialog.getByRole("button", { name: "Delete" }).click();
 
-    await expectToast(page, /deleted successfully/i, { type: "success" });
+    // The config's row disappearing from the list is the durable delete signal,
+    // rather than the transient "deleted" toast.
     await expect(page.getByRole("button", { name: `Delete model ${ref}` })).toHaveCount(0);
   });
 });
