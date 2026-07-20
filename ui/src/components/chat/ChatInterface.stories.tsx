@@ -25,8 +25,12 @@ const mockAgent: AgentResponse = {
   id: 1,
   agent: {
     metadata: { name: "test-agent", namespace: "default" },
-    spec: { type: "Declarative" },
+    spec: { type: "Declarative", description: "Storybook chat agent" },
   },
+  model: "gpt-4o",
+  modelProvider: "openai",
+  modelConfigRef: "default/test-model",
+  tools: [],
   deploymentReady: true,
   accepted: true,
 };
