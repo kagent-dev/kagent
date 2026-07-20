@@ -6,18 +6,31 @@ import (
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
 )
 
-// ListActors returns all actors reflected in ate-api.
-func (c *Client) ListActors(ctx context.Context) ([]*ateapipb.Actor, error) {
+// ListActors returns all actors in the given atespace (empty atespace = all atespaces,
+// including substrate's reserved golden atespace). The list API is paginated — pages are
+// followed until the token drains, since a single page may miss actors.
+func (c *Client) ListActors(ctx context.Context, atespace string) ([]*ateapipb.Actor, error) {
 	if c == nil {
 		return nil, nil
 	}
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	resp, err := c.ControlClient.ListActors(ctx, &ateapipb.ListActorsRequest{})
-	if err != nil {
-		return nil, err
+	var actors []*ateapipb.Actor
+	pageToken := ""
+	for {
+		resp, err := c.ControlClient.ListActors(ctx, &ateapipb.ListActorsRequest{
+			Atespace:  atespace,
+			PageToken: pageToken,
+		})
+		if err != nil {
+			return nil, err
+		}
+		actors = append(actors, resp.GetActors()...)
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			return actors, nil
+		}
 	}
-	return resp.GetActors(), nil
 }
 
 // ListWorkers returns all workers reflected in ate-api.

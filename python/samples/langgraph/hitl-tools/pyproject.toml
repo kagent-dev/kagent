@@ -6,15 +6,15 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "kagent-langgraph",
-    "langgraph>=1.2.7",
+    "langgraph>=1.2.9",
     "langchain-core>=0.3.0",
     "langchain-openai>=0.3.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
-    "langsmith[otel]>=0.9.8",
+    "langsmith[otel]>=0.10.2",
 ]
 
 [build-system]
-requires = ["setuptools>=83.0.0", "wheel>=0.46.2"]
+requires = ["setuptools>=83.0.0", "wheel>=0.47.0"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]

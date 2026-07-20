@@ -33,6 +33,12 @@ The central CRD. Defines an AI agent's configuration, tools, and deployment.
 AgentSpec
 ├── type: Declarative | BYO
 ├── description: string
+├── iconUrl: string (surfaced on the A2A AgentCard)
+├── documentationUrl: string (surfaced on the A2A AgentCard)
+├── version: string (surfaced on the A2A AgentCard)
+├── provider: AgentProvider (surfaced on the A2A AgentCard)
+│   ├── organization: string
+│   └── url: string
 ├── skills: SkillForAgent
 │   ├── refs: []string (OCI image refs)
 │   ├── gitRefs: []GitRepo
@@ -130,7 +136,7 @@ ModelConfigSpec
 │   ├── baseUrl, temperature, maxTokens, topP
 │   ├── frequencyPenalty, presencePenalty
 │   ├── seed, n, timeout
-│   └── reasoningEffort: minimal | low | medium | high
+│   └── reasoningEffort: none | minimal | low | medium | high
 ├── anthropic: AnthropicConfig
 │   └── baseUrl, maxTokens, temperature, topP, topK
 ├── azureOpenAI: AzureOpenAIConfig

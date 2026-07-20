@@ -1,0 +1,87 @@
+suite: test extra objects
+templates:
+  - extra-objects.yaml
+tests:
+  - it: should not render anything when extraObjects is empty
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render a map entry as a manifest
+    set:
+      extraObjects:
+        - apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: extra-cm
+          data:
+            foo: bar
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: extra-cm
+      - equal:
+          path: data.foo
+          value: bar
+
+  - it: should render multiple entries as separate documents
+    set:
+      extraObjects:
+        - apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: extra-cm-1
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: extra-secret-1
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: should evaluate tpl expressions against the release context in map entries
+    release:
+      name: my-release
+      namespace: my-namespace
+    set:
+      extraObjects:
+        - apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: '{{ include "kagent.fullname" . }}-extra'
+            namespace: '{{ .Release.Namespace }}'
+    asserts:
+      - equal:
+          path: metadata.name
+          value: my-release-extra
+      - equal:
+          path: metadata.namespace
+          value: my-namespace
+
+  - it: should render and template a multi-line string entry
+    release:
+      name: my-release
+    set:
+      extraObjects:
+        - |
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: {{ include "kagent.fullname" . }}-str
+          data:
+            release: {{ .Release.Name }}
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: my-release-str
+      - equal:
+          path: data.release
+          value: my-release

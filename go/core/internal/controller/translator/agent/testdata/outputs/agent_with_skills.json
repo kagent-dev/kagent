@@ -215,7 +215,7 @@
                     "value": "/config/srt-settings.json"
                   }
                 ],
-                "image": "cr.kagent.dev/kagent-dev/kagent/app@sha256:test-app-full",
+                "image": "ghcr.io/kagent-dev/kagent/app:dev-full",
                 "imagePullPolicy": "IfNotPresent",
                 "name": "kagent",
                 "ports": [
@@ -265,7 +265,7 @@
             ],
             "initContainers": [
               {
-                "image": "cr.kagent.dev/kagent-dev/kagent/skills-init:dev",
+                "image": "ghcr.io/kagent-dev/kagent/skills-init:dev",
                 "name": "skills-init",
                 "resources": {
                   "limits": {

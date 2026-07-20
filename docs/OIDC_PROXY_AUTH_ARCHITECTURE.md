@@ -1,10 +1,10 @@
 # OIDC Proxy Authentication Architecture
 
-This document describes the authentication architecture introduced in the `feature/oidc-proxy-auth` branch.
+This document describes the OIDC proxy-based authentication architecture in kagent.
 
 ## Overview
 
-This PR adds OIDC proxy-based authentication to Kagent, allowing integration with enterprise identity providers via oauth2-proxy. The architecture follows a "trust the proxy" model where an upstream reverse proxy (oauth2-proxy) handles OIDC authentication and injects JWT tokens into requests.
+kagent supports OIDC proxy-based authentication, allowing integration with enterprise identity providers via oauth2-proxy. The architecture follows a "trust the proxy" model where an upstream reverse proxy (oauth2-proxy) handles OIDC authentication and injects JWT tokens into requests.
 
 ## Authentication Flow
 
@@ -90,8 +90,8 @@ flowchart TB
 
 | Component | File | Purpose |
 |-----------|------|---------|
-| **ProxyAuthenticator** | `go/internal/httpserver/auth/proxy_authn.go` | Extract user identity from JWT Bearer tokens, pass through raw claims |
-| **CurrentUserHandler** | `go/internal/httpserver/handlers/current_user.go` | Returns raw JWT claims (or `{"sub": userId}` for non-JWT auth) |
+| **ProxyAuthenticator** | `go/core/internal/httpserver/auth/proxy_authn.go` | Extract user identity from JWT Bearer tokens, pass through raw claims |
+| **CurrentUserHandler** | `go/core/internal/httpserver/handlers/current_user.go` | Returns raw JWT claims (or `{"sub": userId}` for non-JWT auth) |
 
 ## Authentication Modes
 
