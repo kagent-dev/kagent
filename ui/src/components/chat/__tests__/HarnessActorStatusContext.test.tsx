@@ -58,4 +58,51 @@ describe("HarnessActorStatusProvider", () => {
 
     expect(mockGetStatus).toHaveBeenCalledTimes(2);
   });
+
+  it("ignores a response after its polling effect is replaced", async () => {
+    type StatusResponse = Awaited<ReturnType<typeof getAgentHarnessSessionStatus>>;
+    let resolveFirst!: (response: StatusResponse) => void;
+    let resolveSecond!: (response: StatusResponse) => void;
+    mockGetStatus
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+
+    const { rerender } = render(
+      <HarnessActorStatusProvider
+        namespace="kagent"
+        harnessName="harness"
+        sessionId="session-1"
+        enabled
+      >
+        <StatusConsumer label="status" />
+      </HarnessActorStatusProvider>,
+    );
+
+    act(() => jest.advanceTimersByTime(0));
+
+    rerender(
+      <HarnessActorStatusProvider
+        namespace="kagent"
+        harnessName="harness"
+        sessionId="session-2"
+        enabled
+      >
+        <StatusConsumer label="status" />
+      </HarnessActorStatusProvider>,
+    );
+
+    act(() => jest.advanceTimersByTime(0));
+
+    await act(async () => {
+      resolveSecond({ data: { state: "running" } });
+      await Promise.resolve();
+    });
+    expect(screen.getByText("status:running")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirst({ data: { state: "suspended" } });
+      await Promise.resolve();
+    });
+    expect(screen.getByText("status:running")).toBeInTheDocument();
+  });
 });

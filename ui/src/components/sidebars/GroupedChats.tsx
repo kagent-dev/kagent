@@ -48,11 +48,11 @@ export default function GroupedChats({
   const sessionStatuses = useMemo<Record<string, SessionActorState>>(() => {
     if (!isHarness || !harnessActorStatus?.state) return {};
     return Object.fromEntries(
-      sessions.flatMap((session) =>
+      localSessions.flatMap((session) =>
         session.id ? [[session.id, harnessActorStatus.state as SessionActorState]] : [],
       ),
     );
-  }, [harnessActorStatus?.state, isHarness, sessions]);
+  }, [harnessActorStatus?.state, isHarness, localSessions]);
 
   const groupedChats = useMemo(() => {
     type SessionWithActivity = {

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   getAgentHarnessSessionStatus,
   type AgentHarnessSessionState,
@@ -30,18 +30,30 @@ export function HarnessActorStatusProvider({
   children: ReactNode;
 }) {
   const [state, setState] = useState<AgentHarnessSessionState | undefined>(undefined);
+  const mountedRef = useRef(false);
 
-  const refresh = useCallback(async () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const refresh = useCallback(async (isCancelled?: () => boolean) => {
     if (!enabled || !sessionId) return;
     const response = await getAgentHarnessSessionStatus(namespace, harnessName, sessionId);
+    if (!mountedRef.current || isCancelled?.()) return;
     setState(response.data?.state ?? "missing");
   }, [enabled, harnessName, namespace, sessionId]);
 
   useEffect(() => {
     if (!enabled || !sessionId) return;
-    const initial = setTimeout(() => void refresh(), 0);
-    const interval = setInterval(() => void refresh(), STATUS_POLL_MS);
+    let cancelled = false;
+    const poll = () => void refresh(() => cancelled);
+    const initial = setTimeout(poll, 0);
+    const interval = setInterval(poll, STATUS_POLL_MS);
     return () => {
+      cancelled = true;
       clearTimeout(initial);
       clearInterval(interval);
     };
