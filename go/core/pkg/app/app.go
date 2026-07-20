@@ -41,6 +41,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	versionmetrics "github.com/kagent-dev/kagent/go/core/internal/metrics"
 	"github.com/kagent-dev/kagent/go/core/internal/telemetry"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"go.opentelemetry.io/otel/sdk/resource"
 
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
@@ -330,10 +332,43 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		setupLog.Error(err, "failed to load configuration from environment variables")
 		os.Exit(1)
 	}
-	logger := zap.New(zap.UseFlagOptions(&opts))
+	// Build the shared telemetry resource once so traces and logs report
+	// identical resource attributes (in particular a single service.instance.id;
+	// a per-signal build could otherwise diverge on hostname-lookup failure).
+	var telemetryResource *resource.Resource
+	if env.OtelTracingEnabled.Get() || env.OtelLoggingEnabled.Get() {
+		var resErr error
+		telemetryResource, resErr = telemetry.NewTelemetryResource(ctx, Version)
+		if resErr != nil {
+			ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+			setupLog.Error(resErr, "failed to build telemetry resource")
+			os.Exit(1)
+		}
+	}
+
+	// Initialize the OTLP logger provider before building the controller logger
+	// so the otelzap bridge core added by ControllerZapOpts binds to it. No-op
+	// unless OTEL_LOGGING_ENABLED. The OTLP pipeline ships the same levels as
+	// stdout. Note: these shutdowns run on graceful termination (manager stop);
+	// fatal startup os.Exit paths below crash-fast without flushing.
+	shutdownLogging, err := telemetry.InitLoggerProvider(ctx, telemetryResource, telemetry.MinSeverityForZap(opts.Level))
+	if err != nil {
+		ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+		setupLog.Error(err, "failed to initialize logging")
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownLogging(shutdownCtx); err != nil {
+			setupLog.Error(err, "failed to shutdown logging")
+		}
+	}()
+
+	logger := zap.New(append([]zap.Opts{zap.UseFlagOptions(&opts)}, telemetry.ControllerZapOpts()...)...)
 	ctrl.SetLogger(logger)
 
-	shutdownTracing, err := telemetry.InitTracerProvider(ctx, Version)
+	shutdownTracing, err := telemetry.InitTracerProvider(ctx, telemetryResource)
 	if err != nil {
 		setupLog.Error(err, "failed to initialize tracing")
 		os.Exit(1)
