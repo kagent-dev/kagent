@@ -1,11 +1,9 @@
 package a2a
 
 import (
-	"cmp"
 	"context"
 	"encoding/base64"
 	"fmt"
-	"slices"
 	"strconv"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -21,11 +19,11 @@ const (
 
 // TaskStore is the subset of the persistent store ListTasks reads from.
 // *database.Client satisfies it. GetSession errors (including a missing or
-// other-user session) surface to the caller.
+// other-user session) surface to the caller. ListUserTasks filters, orders,
+// and paginates server-side and returns the full filtered count.
 type TaskStore interface {
 	GetSession(ctx context.Context, sessionID, userID string) (*dbpkg.Session, error)
-	ListSessions(ctx context.Context, userID string) ([]dbpkg.Session, error)
-	ListTasksForSession(ctx context.Context, sessionID string) ([]*a2atype.Task, error)
+	ListUserTasks(ctx context.Context, params dbpkg.ListUserTasksParams) (tasks []*a2atype.Task, total int, err error)
 }
 
 // storeTaskQueryHandler answers ListTasks from kagent's task store, which is
@@ -75,34 +73,39 @@ func (h *storeTaskQueryHandler) ListTasks(ctx context.Context, req *a2atype.List
 		return &a2atype.ListTasksResponse{Tasks: []*a2atype.Task{}, PageSize: pageSize}, nil
 	}
 
-	tasks, err := h.collectUserTasks(ctx, userID, req.ContextID)
-	if err != nil {
-		return nil, err
-	}
-
-	filtered := filterTasks(tasks, req)
-	// Order by task id so the page-token offset is stable across calls: task
-	// ids are immutable, unlike session updated_at (which reorders on writes).
-	slices.SortFunc(filtered, func(a, b *a2atype.Task) int { return cmp.Compare(a.ID, b.ID) })
-
 	offset, err := decodePageToken(req.PageToken)
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidParams, "invalid pageToken")
 	}
-	total := len(filtered)
-	if offset > total {
-		offset = total
-	}
-	end := min(offset+pageSize, total)
 
-	page := filtered[offset:end]
-	shaped := make([]*a2atype.Task, 0, len(page))
-	for _, t := range page {
+	// A single-session query fails closed: a missing or other-user session is an
+	// error, not an empty page. The join in ListUserTasks also scopes by user, so
+	// this only distinguishes the error case and keeps share-context validation.
+	if req.ContextID != "" {
+		if _, err := h.store.GetSession(ctx, req.ContextID, userID); err != nil {
+			return nil, fmt.Errorf("get session %s: %w", req.ContextID, err)
+		}
+	}
+
+	tasks, total, err := h.store.ListUserTasks(ctx, dbpkg.ListUserTasksParams{
+		UserID:               userID,
+		SessionID:            req.ContextID,
+		Status:               req.Status,
+		StatusTimestampAfter: req.StatusTimestampAfter,
+		Limit:                pageSize,
+		Offset:               offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	shaped := make([]*a2atype.Task, 0, len(tasks))
+	for _, t := range tasks {
 		shaped = append(shaped, shapeTask(t, req.HistoryLength, req.IncludeArtifacts))
 	}
 
 	nextToken := ""
-	if end < total {
+	if end := offset + len(tasks); end < total {
 		nextToken = encodePageToken(end)
 	}
 
@@ -112,52 +115,6 @@ func (h *storeTaskQueryHandler) ListTasks(ctx context.Context, req *a2atype.List
 		TotalSize:     total,
 		NextPageToken: nextToken,
 	}, nil
-}
-
-// collectUserTasks returns the caller's tasks, either for a single session
-// (contextId) or across every session the user owns. Both paths are strictly
-// scoped to userID.
-func (h *storeTaskQueryHandler) collectUserTasks(ctx context.Context, userID, contextID string) ([]*a2atype.Task, error) {
-	if contextID != "" {
-		if _, err := h.store.GetSession(ctx, contextID, userID); err != nil {
-			return nil, fmt.Errorf("get session %s: %w", contextID, err)
-		}
-		return h.store.ListTasksForSession(ctx, contextID)
-	}
-
-	sessions, err := h.store.ListSessions(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("list sessions: %w", err)
-	}
-	var all []*a2atype.Task
-	for _, s := range sessions {
-		tasks, err := h.store.ListTasksForSession(ctx, s.ID)
-		if err != nil {
-			return nil, fmt.Errorf("list tasks for session %s: %w", s.ID, err)
-		}
-		all = append(all, tasks...)
-	}
-	return all, nil
-}
-
-func filterTasks(tasks []*a2atype.Task, req *a2atype.ListTasksRequest) []*a2atype.Task {
-	filtered := make([]*a2atype.Task, 0, len(tasks))
-	for _, t := range tasks {
-		if t == nil {
-			continue
-		}
-		if req.Status != a2atype.TaskStateUnspecified && t.Status.State != req.Status {
-			continue
-		}
-		if req.StatusTimestampAfter != nil {
-			ts := t.Status.Timestamp
-			if ts == nil || !ts.After(*req.StatusTimestampAfter) {
-				continue
-			}
-		}
-		filtered = append(filtered, t)
-	}
-	return filtered
 }
 
 // shapeTask returns a copy of task with history capped and artifacts included

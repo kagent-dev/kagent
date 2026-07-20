@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -803,4 +805,117 @@ func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
 	for err := range errs {
 		require.NoError(t, err, "concurrent memory search must not fail")
 	}
+}
+
+// TestListUserTasks exercises the ListUserTasks SQL query against a real
+// database: cross-user scoping via the session join, the optional single-session
+// predicate, status filtering across both persisted row shapes (legacy rows
+// written by StoreTask, and a v1 row inserted directly), the timestamp filter,
+// and LIMIT/OFFSET pagination with a stable COUNT(*) OVER() total.
+func TestListUserTasks(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	for _, s := range []struct{ id, user string }{
+		{"s1", "alice"}, {"s2", "alice"}, {"s3", "bob"},
+	} {
+		require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: s.id, UserID: s.user}))
+	}
+
+	early := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	late := time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)
+	mkTask := func(id, contextID string, state a2a.TaskState, ts time.Time) *a2a.Task {
+		return &a2a.Task{
+			ID:        a2a.TaskID(id),
+			ContextID: contextID,
+			Status:    a2a.TaskStatus{State: state, Timestamp: &ts},
+		}
+	}
+
+	// StoreTask persists legacy-format rows (protocol_version NULL, lowercase state).
+	require.NoError(t, client.StoreTask(ctx, mkTask("t1", "s1", a2a.TaskStateWorking, early)))
+	require.NoError(t, client.StoreTask(ctx, mkTask("t2", "s1", a2a.TaskStateCompleted, late)))
+	require.NoError(t, client.StoreTask(ctx, mkTask("t3", "s2", a2a.TaskStateWorking, late)))
+	require.NoError(t, client.StoreTask(ctx, mkTask("t4", "s3", a2a.TaskStateWorking, late))) // bob's
+
+	// A v1-format row (protocol_version 'v1', uppercase TASK_STATE_* state) to
+	// prove the JSON cast matches both row shapes.
+	v1Data, err := json.Marshal(mkTask("t5", "s1", a2a.TaskStateInputRequired, late))
+	require.NoError(t, err)
+	_, err = db.Exec(ctx,
+		`INSERT INTO task (id, data, session_id, protocol_version, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+		"t5", string(v1Data), "s1", trpcv0.ProtocolVersionV1)
+	require.NoError(t, err)
+
+	ids := func(tasks []*a2a.Task) []string {
+		out := make([]string, len(tasks))
+		for i, tk := range tasks {
+			out[i] = string(tk.ID)
+		}
+		return out
+	}
+
+	t.Run("all sessions ordered by id", func(t *testing.T) {
+		tasks, total, err := client.ListUserTasks(ctx, dbpkg.ListUserTasksParams{UserID: "alice", Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 4, total)
+		require.Equal(t, []string{"t1", "t2", "t3", "t5"}, ids(tasks))
+	})
+
+	t.Run("cross-user isolation", func(t *testing.T) {
+		tasks, total, err := client.ListUserTasks(ctx, dbpkg.ListUserTasksParams{UserID: "bob", Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 1, total)
+		require.Equal(t, []string{"t4"}, ids(tasks))
+	})
+
+	t.Run("single session predicate", func(t *testing.T) {
+		tasks, total, err := client.ListUserTasks(ctx, dbpkg.ListUserTasksParams{UserID: "alice", SessionID: "s1", Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 3, total)
+		require.Equal(t, []string{"t1", "t2", "t5"}, ids(tasks))
+	})
+
+	t.Run("status filter matches legacy rows", func(t *testing.T) {
+		tasks, total, err := client.ListUserTasks(ctx, dbpkg.ListUserTasksParams{UserID: "alice", Status: a2a.TaskStateWorking, Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 2, total)
+		require.Equal(t, []string{"t1", "t3"}, ids(tasks))
+	})
+
+	t.Run("status filter matches v1 rows", func(t *testing.T) {
+		tasks, total, err := client.ListUserTasks(ctx, dbpkg.ListUserTasksParams{UserID: "alice", Status: a2a.TaskStateInputRequired, Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 1, total)
+		require.Equal(t, []string{"t5"}, ids(tasks))
+	})
+
+	t.Run("status timestamp after", func(t *testing.T) {
+		cutoff := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
+		tasks, total, err := client.ListUserTasks(ctx, dbpkg.ListUserTasksParams{UserID: "alice", StatusTimestampAfter: &cutoff, Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 3, total) // t1 is early and excluded
+		require.Equal(t, []string{"t2", "t3", "t5"}, ids(tasks))
+	})
+
+	t.Run("pagination with stable total", func(t *testing.T) {
+		p1, total, err := client.ListUserTasks(ctx, dbpkg.ListUserTasksParams{UserID: "alice", Limit: 2, Offset: 0})
+		require.NoError(t, err)
+		require.Equal(t, 4, total)
+		require.Equal(t, []string{"t1", "t2"}, ids(p1))
+
+		p2, total, err := client.ListUserTasks(ctx, dbpkg.ListUserTasksParams{UserID: "alice", Limit: 2, Offset: 2})
+		require.NoError(t, err)
+		require.Equal(t, 4, total)
+		require.Equal(t, []string{"t3", "t5"}, ids(p2))
+	})
+
+	t.Run("offset past end keeps the true total", func(t *testing.T) {
+		tasks, total, err := client.ListUserTasks(ctx, dbpkg.ListUserTasksParams{UserID: "alice", Limit: 2, Offset: 10})
+		require.NoError(t, err)
+		require.Empty(t, tasks)
+		require.Equal(t, 4, total, "an empty over-range page must still report the full count")
+	})
 }
