@@ -187,10 +187,7 @@ def _add_post_response_flush(app: FastAPI) -> None:
                     message_type == "http.response.body"
                     and not expecting_trailers
                     and not message.get("more_body", False)
-                ) or (
-                    message_type == "http.response.trailers"
-                    and not message.get("more_trailers", False)
-                )
+                ) or (message_type == "http.response.trailers" and not message.get("more_trailers", False))
                 if is_terminal:
                     terminal_message = message
                 else:
