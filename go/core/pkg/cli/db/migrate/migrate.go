@@ -27,6 +27,7 @@ import (
 	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/source"
 	"github.com/spf13/cobra"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
@@ -217,8 +218,9 @@ func ensureClean(src migrations.Source, mg *migrate.Migrate) error {
 	return nil
 }
 
-// sourceFileVersions returns the (ascending-sorted) NNN versions parsed from
-// every NNN_name.up.sql file in src.FS/src.Dir.
+// sourceFileVersions returns the (ascending-sorted) versions parsed from
+// every up migration file in src.FS/src.Dir, using golang-migrate's own
+// filename parser so a file it would silently skip is never counted here.
 //
 // The set isn't required to be contiguous — gaps (e.g. a deleted 005) are
 // real and the missing numbers are treated as not-applicable-to-this-binary.
@@ -234,19 +236,11 @@ func sourceFileVersions(src migrations.Source) ([]int, error) {
 		if e.IsDir() {
 			continue
 		}
-		name := e.Name()
-		if !strings.HasSuffix(name, ".up.sql") {
+		m, err := source.DefaultParse(e.Name())
+		if err != nil || m.Direction != source.Up {
 			continue
 		}
-		parts := strings.SplitN(name, "_", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		v, err := strconv.Atoi(parts[0])
-		if err != nil {
-			continue
-		}
-		versions = append(versions, v)
+		versions = append(versions, int(m.Version))
 	}
 	slices.Sort(versions)
 	return versions, nil
