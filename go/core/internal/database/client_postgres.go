@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -116,7 +118,7 @@ func (c *postgresClient) ListSessions(ctx context.Context, userID string) ([]dbp
 	return sessions, nil
 }
 
-func (c *postgresClient) ListSessionsForAgent(ctx context.Context, agentID, userID string) ([]dbpkg.Session, error) {
+func (c *postgresClient) ListSessionsForAgent(ctx context.Context, agentID, userID string) ([]dbpkg.SessionWithShareToken, error) {
 	rows, err := c.q.ListSessionsForAgent(ctx, dbgen.ListSessionsForAgentParams{
 		AgentID: &agentID,
 		UserID:  userID,
@@ -124,9 +126,9 @@ func (c *postgresClient) ListSessionsForAgent(ctx context.Context, agentID, user
 	if err != nil {
 		return nil, fmt.Errorf("failed to list sessions for agent: %w", err)
 	}
-	sessions := make([]dbpkg.Session, len(rows))
+	sessions := make([]dbpkg.SessionWithShareToken, len(rows))
 	for i, r := range rows {
-		sessions[i] = *toSession(r)
+		sessions[i] = toSessionWithShareToken(r)
 	}
 	return sessions, nil
 }
@@ -145,6 +147,75 @@ func (c *postgresClient) ListSessionsForAgentAllUsers(ctx context.Context, agent
 
 func (c *postgresClient) DeleteSession(ctx context.Context, sessionID, userID string) error {
 	return c.q.SoftDeleteSession(ctx, dbgen.SoftDeleteSessionParams{ID: sessionID, UserID: userID})
+}
+
+// ── Session Shares ─────────────────────────────────────────────────────────────
+
+func toSessionShare(row dbgen.SessionShare) dbpkg.SessionShare {
+	return dbpkg.SessionShare{
+		ID:        row.ID,
+		Token:     row.Token,
+		SessionID: row.SessionID,
+		UserID:    row.UserID,
+		ReadOnly:  row.ReadOnly,
+		CreatedAt: row.CreatedAt.Time,
+	}
+}
+
+func (c *postgresClient) CreateSessionShare(ctx context.Context, share *dbpkg.SessionShare) (*dbpkg.SessionShare, error) {
+	row, err := c.q.CreateSessionShare(ctx, dbgen.CreateSessionShareParams{
+		Token:     share.Token,
+		SessionID: share.SessionID,
+		UserID:    share.UserID,
+		ReadOnly:  share.ReadOnly,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create session share: %w", err)
+	}
+	result := toSessionShare(row)
+	return &result, nil
+}
+
+func (c *postgresClient) GetSessionShareByToken(ctx context.Context, token string) (*dbpkg.SessionShare, error) {
+	row, err := c.q.GetSessionShareByToken(ctx, token)
+	if err != nil {
+		return nil, fmt.Errorf("get session share by token: %w", err)
+	}
+	result := toSessionShare(row)
+	return &result, nil
+}
+
+func (c *postgresClient) ListSessionSharesBySession(ctx context.Context, sessionID string) ([]dbpkg.SessionShare, error) {
+	rows, err := c.q.ListSessionSharesBySession(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list session shares by session: %w", err)
+	}
+	shares := make([]dbpkg.SessionShare, 0, len(rows))
+	for _, row := range rows {
+		shares = append(shares, toSessionShare(row))
+	}
+	return shares, nil
+}
+
+func (c *postgresClient) DeleteSessionShare(ctx context.Context, token, sessionID, userID string) error {
+	if err := c.q.DeleteSessionShare(ctx, dbgen.DeleteSessionShareParams{
+		Token:     token,
+		SessionID: sessionID,
+		UserID:    userID,
+	}); err != nil {
+		return fmt.Errorf("delete session share: %w", err)
+	}
+	return nil
+}
+
+func (c *postgresClient) RecordShareAccess(ctx context.Context, userID string, shareID int64) error {
+	if err := c.q.UpsertShareAccess(ctx, dbgen.UpsertShareAccessParams{
+		UserID:  userID,
+		ShareID: shareID,
+	}); err != nil {
+		return fmt.Errorf("record share access: %w", err)
+	}
+	return nil
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -642,13 +713,14 @@ func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userI
 		}
 	}
 
+	// Access-count bookkeeping is best-effort: a failure must not fail the search.
 	if len(results) > 0 {
 		ids := make([]string, len(results))
 		for i, r := range results {
 			ids[i] = r.ID
 		}
 		if err := c.q.IncrementMemoryAccessCount(ctx, ids); err != nil {
-			return nil, fmt.Errorf("failed to increment access count: %w", err)
+			log.Printf("failed to increment memory access count: %v", err)
 		}
 	}
 
@@ -730,6 +802,38 @@ func toSession(r dbgen.Session) *dbpkg.Session {
 	if r.Source != nil {
 		src := dbpkg.SessionSource(*r.Source)
 		s.Source = &src
+	}
+	return s
+}
+
+func toSessionWithShareToken(r dbgen.ListSessionsForAgentRow) dbpkg.SessionWithShareToken {
+	s := dbpkg.SessionWithShareToken{
+		Session: *toSession(dbgen.Session{
+			ID:        r.ID,
+			UserID:    r.UserID,
+			Name:      r.Name,
+			CreatedAt: r.CreatedAt,
+			UpdatedAt: r.UpdatedAt,
+			DeletedAt: r.DeletedAt,
+			AgentID:   r.AgentID,
+			Source:    r.Source,
+		}),
+	}
+	switch v := r.ShareToken.(type) {
+	case string:
+		s.ShareToken = &v
+	case pgtype.Text:
+		if v.Valid {
+			s.ShareToken = &v.String
+		}
+	}
+	switch v := r.ShareReadOnly.(type) {
+	case bool:
+		s.ShareReadOnly = &v
+	case pgtype.Bool:
+		if v.Valid {
+			s.ShareReadOnly = &v.Bool
+		}
 	}
 	return s
 }

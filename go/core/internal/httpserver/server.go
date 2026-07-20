@@ -35,6 +35,7 @@ const (
 	APIPathTasks                = "/api/tasks"
 	APIPathTools                = "/api/tools"
 	APIPathToolServers          = "/api/toolservers"
+	APIPathMCPApps              = "/api/mcp-apps"
 	APIPathToolServerTypes      = "/api/toolservertypes"
 	APIPathAgents               = "/api/agents"
 	APIPathSandboxAgents        = "/api/sandboxagents"
@@ -247,6 +248,9 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut, http.MethodPatch)
 	s.router.HandleFunc(APIPathSessions+"/{session_id}/events", adaptHandler(s.handlers.Sessions.HandleAddEventToSession)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleCreateSessionShare)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleListSessionShares)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares/{token}", adaptHandler(s.handlers.SessionShares.HandleDeleteSessionShare)).Methods(http.MethodDelete)
 
 	// Tasks
 	s.router.HandleFunc(APIPathTasks+"/{task_id}", adaptHandler(s.handlers.Tasks.HandleGetTask)).Methods(http.MethodGet)
@@ -260,6 +264,11 @@ func (s *HTTPServer) setupRoutes() {
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleListToolServers)).Methods(http.MethodGet)
 	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{name}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
+
+	// MCP Apps
+	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/tools", adaptHandler(s.handlers.MCPApps.HandleListTools)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/tools/{toolName}/call", adaptHandler(s.handlers.MCPApps.HandleCallTool)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/resources", adaptHandler(s.handlers.MCPApps.HandleReadResource)).Methods(http.MethodGet)
 
 	// Tool Server Types
 	s.router.HandleFunc(APIPathToolServerTypes, adaptHandler(s.handlers.ToolServerTypes.HandleListToolServerTypes)).Methods(http.MethodGet)
@@ -349,6 +358,7 @@ func (s *HTTPServer) setupRoutes() {
 	// Use middleware for common functionality (first registered runs outermost on incoming requests).
 	s.router.Use(wsAuthQueryMiddleware)
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
+	s.router.Use(s.shareTokenMiddleware)
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)

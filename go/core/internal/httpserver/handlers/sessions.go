@@ -15,6 +15,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -193,8 +194,19 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 }
 
 type SessionResponse struct {
-	Session *database.Session `json:"session"`
-	Events  []*database.Event `json:"events"`
+	Session  *database.Session `json:"session"`
+	Events   []*database.Event `json:"events"`
+	ReadOnly *bool             `json:"read_only,omitempty"`
+}
+
+// getEffectiveUserIDForSession returns the user ID to use for DB lookups on a specific session.
+// When the request carries a valid X-Share-Token scoped to sessionID, the share owner's user ID
+// is returned so that shared access works transparently.
+func getEffectiveUserIDForSession(r *http.Request, sessionID string) (string, error) {
+	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID {
+		return sc.UserID, nil
+	}
+	return getUserIDOrAgentUser(r)
 }
 
 // HandleGetSession handles GET /api/sessions/{session_id} requests using database
@@ -208,7 +220,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	userID, err := getUserIDOrAgentUser(r)
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -222,29 +234,10 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		return
 	}
 
-	queryOptions := database.QueryOptions{
-		Limit: 0,
-	}
-	if r.URL.Query().Get("order") == "asc" {
-		queryOptions.OrderAsc = true
-	}
-	after := r.URL.Query().Get("after")
-	if after != "" {
-		afterTime, err := time.Parse(time.RFC3339, after)
-		if err != nil {
-			w.RespondWithError(errors.NewBadRequestError("Failed to parse after timestamp", err))
-			return
-		}
-		queryOptions.After = afterTime
-	}
-
-	limit := r.URL.Query().Get("limit")
-	if limit != "" {
-		queryOptions.Limit, err = strconv.Atoi(limit)
-		if err != nil {
-			w.RespondWithError(errors.NewBadRequestError("Failed to parse limit", err))
-			return
-		}
+	queryOptions, err := eventQueryOptionsFromRequest(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError(err.Error(), err))
+		return
 	}
 
 	events, err := h.DatabaseService.ListEventsForSession(r.Context(), sessionID, userID, queryOptions)
@@ -254,11 +247,56 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	}
 
 	log.Info("Successfully retrieved session")
-	data := api.NewResponse(SessionResponse{
+	resp := SessionResponse{
 		Session: session,
 		Events:  events,
-	}, "Successfully retrieved session", false)
+	}
+	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID && sc.ReadOnly {
+		t := true
+		resp.ReadOnly = &t
+	}
+	data := api.NewResponse(resp, "Successfully retrieved session", false)
 	RespondWithJSON(w, http.StatusOK, data)
+}
+
+// eventQueryOptionsFromRequest parses the shared order/after/limit query params for event listings.
+func eventQueryOptionsFromRequest(r *http.Request) (database.QueryOptions, error) {
+	opts := database.QueryOptions{}
+	if r.URL.Query().Get("order") == "asc" {
+		opts.OrderAsc = true
+	}
+	if after := r.URL.Query().Get("after"); after != "" {
+		afterTime, err := time.Parse(time.RFC3339, after)
+		if err != nil {
+			return opts, fmt.Errorf("failed to parse after timestamp: %w", err)
+		}
+		opts.After = afterTime
+	}
+	if limit := r.URL.Query().Get("limit"); limit != "" {
+		var err error
+		opts.Limit, err = strconv.Atoi(limit)
+		if err != nil {
+			return opts, fmt.Errorf("failed to parse limit: %w", err)
+		}
+	}
+	return opts, nil
+}
+
+// substrateSandboxAgentForSession resolves the session's agent to a substrate SandboxAgent CR,
+// returning nil when the session has no agent or its agent is anything else.
+func (h *SessionsHandler) substrateSandboxAgentForSession(ctx context.Context, session *database.Session) (*v1alpha2.SandboxAgent, error) {
+	agent, err := h.DatabaseService.GetAgent(ctx, *session.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	if agent.WorkloadType != v1alpha2.WorkloadModeSandbox {
+		return nil, nil
+	}
+	sandboxAgent, isSubstrate, err := h.lookupSubstrateSandboxAgent(ctx, utils.ConvertToKubernetesIdentifier(*session.AgentID))
+	if err != nil || !isSubstrate {
+		return nil, err
+	}
+	return sandboxAgent, nil
 }
 
 // HandleUpdateSession handles PUT and PATCH /api/sessions/{session_id} requests.
@@ -342,14 +380,11 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 
 	var substrateCleanup *v1alpha2.SandboxAgent
 	if h.SubstrateSandboxActorBackend != nil {
-		session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
-		if getErr == nil && session.AgentID != nil {
-			if agent, agentErr := h.DatabaseService.GetAgent(r.Context(), *session.AgentID); agentErr == nil &&
-				agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
-				agentRef := utils.ConvertToKubernetesIdentifier(*session.AgentID)
-				if sa, isSubstrate, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), agentRef); lookupErr == nil && isSubstrate {
-					substrateCleanup = sa
-				}
+		// Best-effort preflight: a session without an agent (or whose agent is gone) simply has
+		// no actor to clean up — it must never block deleting the session row itself.
+		if session, getErr := h.DatabaseService.GetSession(r.Context(), sessionID, userID); getErr == nil && session != nil && session.AgentID != nil {
+			if sandboxAgent, lookupErr := h.substrateSandboxAgentForSession(r.Context(), session); lookupErr == nil {
+				substrateCleanup = sandboxAgent
 			}
 		}
 	}
@@ -381,7 +416,7 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	userID, err := GetUserID(r)
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
@@ -445,7 +480,7 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return
 	}
-	userID, err := getUserID(r)
+	userID, err := getEffectiveUserIDForSession(r, sessionID)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
 		return

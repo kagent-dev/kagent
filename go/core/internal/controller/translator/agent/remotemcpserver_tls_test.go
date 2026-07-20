@@ -9,6 +9,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -653,7 +654,7 @@ func Test_AdkApiTranslator_RMSTLS_SecretHashChangesAgentConfigHash(t *testing.T)
 		outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
 		require.NoError(t, err)
 		dep := findDeployment(t, outputs)
-		return dep.Spec.Template.Annotations["kagent.dev/config-hash"]
+		return dep.Spec.Template.Annotations[consts.ConfigHashAnnotation]
 	}
 
 	preRotate := build("deadbeef")

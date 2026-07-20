@@ -3,408 +3,25 @@
 import {
   Agent,
   AgentResponse,
-  AgentSpec,
   BaseResponse,
-  DeclarativeAgentSpec,
-  DeclarativeRuntime,
-  PromptSource,
-  SandboxAgent,
-  SkillForAgent,
-  Tool,
 } from "@/types";
 import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
-import { AgentFormData } from "@/components/AgentsProvider";
-import { isMcpTool } from "@/lib/toolUtils";
+import type {
+  AgentFormData,
+  AgentWorkloadFormData,
+} from "@/lib/agentFormDomain";
 import { k8sRefUtils } from "@/lib/k8sUtils";
-import { formRowsToGitRepos, type GitSkillFormRow } from "@/lib/agentSkillsForm";
 import { buildAgentHarnessCRDraft } from "@/lib/agentHarnessForm";
-import { buildSandboxSubstrateFromForm } from "@/lib/sandboxAgentForm";
+import {
+  agentFormDataToAgent,
+  agentFormDataToSandboxAgent,
+} from "@/lib/agentFormDomain";
 
-function declarativeRuntimeFromForm(agentFormData: AgentFormData): DeclarativeRuntime {
-  if (agentFormData.runInSandbox) {
-    return "go";
-  }
-  return agentFormData.declarativeRuntime === "python" ? "python" : "go";
-}
-
-function attachPromptTemplateToDeclarative(decl: DeclarativeAgentSpec, agentFormData: AgentFormData) {
-  if (!agentFormData.promptSources?.some((s) => s.name.trim())) {
-    return;
-  }
-  const dataSources: PromptSource[] = agentFormData.promptSources
-    .filter((s) => s.name.trim())
-    .map((s) => {
-      const src: PromptSource = {
-        kind: "ConfigMap",
-        name: s.name.trim(),
-        apiGroup: "",
-      };
-      const al = s.alias.trim();
-      if (al) {
-        src.alias = al;
-      }
-      return src;
-    });
-  if (dataSources.length > 0) {
-    decl.promptTemplate = { dataSources };
-  }
-}
-
-function buildSkillsForAgentSpec(agentFormData: AgentFormData): SkillForAgent | undefined {
-  const refs = (agentFormData.skillRefs || []).map((r) => r.trim()).filter(Boolean);
-  const rows: GitSkillFormRow[] = (agentFormData.skillGitRepos || []).map((g) => ({
-    url: g.url ?? "",
-    ref: g.ref ?? "",
-    path: g.path ?? "",
-    name: g.name ?? "",
-  }));
-  const gitRefs = formRowsToGitRepos(rows);
-
-  if (refs.length === 0 && gitRefs.length === 0) {
-    return undefined;
-  }
-
-  const skills: SkillForAgent = {};
-  if (refs.length > 0) {
-    skills.refs = refs;
-  }
-  if (gitRefs.length > 0) {
-    skills.gitRefs = gitRefs;
-    const secretName = agentFormData.skillsGitAuthSecretName?.trim();
-    if (secretName) {
-      skills.gitAuthSecretRef = { name: secretName };
-    }
-  }
-  return skills;
-}
-
-/**
- * Converts AgentFormData to Agent format
- * @param agentFormData The form data to convert
- * @returns An Agent object
- */
-function fromAgentFormDataToAgent(agentFormData: AgentFormData): Agent {
-  const modelConfigName = agentFormData.modelName?.includes("/")
-    ? agentFormData.modelName.split("/").pop() || ""
-    : agentFormData.modelName;
-
-  const type = agentFormData.type || "Declarative";
-  const agentNamespace = agentFormData.namespace || "";
-
-  const convertTools = (tools: Tool[]) =>
-    tools.map((tool) => {
-      if (isMcpTool(tool)) {
-        const mcpServer = tool.mcpServer;
-        if (!mcpServer) {
-          throw new Error("MCP server not found");
-        }
-
-        let name = mcpServer.name;
-        let namespace: string | undefined = mcpServer.namespace;
-
-        if (k8sRefUtils.isValidRef(mcpServer.name)) {
-          const parsed = k8sRefUtils.fromRef(mcpServer.name);
-          name = parsed.name;
-        }
-
-        if (!namespace) {
-          namespace = agentNamespace;
-        }
-
-        const requireApproval =
-          mcpServer.requireApproval && mcpServer.requireApproval.length > 0
-            ? mcpServer.requireApproval
-            : undefined;
-
-        return {
-          type: "McpServer",
-          mcpServer: {
-            name,
-            namespace,
-            kind: mcpServer.kind,
-            apiGroup: mcpServer.apiGroup,
-            toolNames: mcpServer.toolNames,
-            ...(requireApproval ? { requireApproval } : {}),
-          },
-        } as Tool;
-      }
-
-      if (tool.type === "Agent") {
-        const agent = tool.agent;
-        if (!agent) {
-          throw new Error("Agent not found");
-        }
-
-        let name = agent.name;
-        let namespace: string | undefined = agent.namespace;
-
-        if (k8sRefUtils.isValidRef(name)) {
-          const parsed = k8sRefUtils.fromRef(name);
-          name = parsed.name;
-        }
-
-        if (!namespace) {
-          namespace = agentNamespace;
-        }
-
-        return {
-          type: "Agent",
-          agent: {
-            name,
-            namespace,
-            kind: agent.kind || "Agent",
-            apiGroup: agent.apiGroup || "kagent.dev",
-          },
-        } as Tool;
-      }
-
-      console.warn("Unknown tool type:", tool);
-      return tool as Tool;
-    });
-
-  const base: Partial<Agent> = {
-    metadata: {
-      name: agentFormData.name,
-      namespace: agentFormData.namespace || "",
-    },
-    spec: {
-      type,
-      description: agentFormData.description,
-    } as AgentSpec,
-  };
-
-  if (type === "Declarative") {
-    base.spec!.declarative = {
-      runtime: declarativeRuntimeFromForm(agentFormData),
-      systemMessage: agentFormData.systemPrompt || "",
-      modelConfig: modelConfigName || "",
-      stream: agentFormData.stream ?? true,
-      tools: convertTools(agentFormData.tools || []),
-    };
-
-    const skills = buildSkillsForAgentSpec(agentFormData);
-    if (skills) {
-      base.spec!.skills = skills;
-    }
-
-    if (agentFormData.memory?.modelConfig) {
-      const memoryModel = agentFormData.memory.modelConfig;
-      const memoryModelName = k8sRefUtils.isValidRef(memoryModel)
-        ? k8sRefUtils.fromRef(memoryModel).name
-        : memoryModel;
-      base.spec!.declarative!.memory = {
-        modelConfig: memoryModelName,
-        ttlDays: agentFormData.memory.ttlDays,
-      };
-    }
-
-    if (agentFormData.context) {
-      base.spec!.declarative!.context = agentFormData.context;
-    }
-
-    const trimmedSA = agentFormData.serviceAccountName?.trim();
-    if (trimmedSA) {
-      base.spec!.declarative!.deployment = {
-        ...base.spec!.declarative!.deployment,
-        serviceAccountName: trimmedSA,
-      };
-    }
-
-    attachPromptTemplateToDeclarative(base.spec!.declarative!, agentFormData);
-  } else if (type === "BYO") {
-    base.spec!.byo = {
-      deployment: {
-        image: agentFormData.byoImage || "",
-        cmd: agentFormData.byoCmd,
-        args: agentFormData.byoArgs,
-        replicas: agentFormData.replicas,
-        imagePullSecrets: agentFormData.imagePullSecrets,
-        volumes: agentFormData.volumes,
-        volumeMounts: agentFormData.volumeMounts,
-        labels: agentFormData.labels,
-        annotations: agentFormData.annotations,
-        env: agentFormData.env,
-        imagePullPolicy: agentFormData.imagePullPolicy,
-        serviceAccountName: agentFormData.serviceAccountName,
-      },
-    };
-  }
-
-  return base as Agent;
-}
-
-function fromAgentFormDataToSandboxAgent(agentFormData: AgentFormData): SandboxAgent {
-  const substrate = buildSandboxSubstrateFromForm(agentFormData);
-  const kind = agentFormData.type || "Declarative";
-
-  if (kind === "BYO") {
-    return {
-      apiVersion: "kagent.dev/v1alpha2",
-      kind: "SandboxAgent",
-      metadata: {
-        name: agentFormData.name,
-        namespace: agentFormData.namespace || "",
-      },
-      spec: {
-        type: "BYO",
-        description: agentFormData.description,
-        // BYO agents are not supported on Agent Substrate.
-        substrate: undefined,
-        byo: {
-          deployment: {
-            image: agentFormData.byoImage || "",
-            cmd: agentFormData.byoCmd,
-            args: agentFormData.byoArgs,
-            replicas: agentFormData.replicas,
-            imagePullSecrets: agentFormData.imagePullSecrets,
-            volumes: agentFormData.volumes,
-            volumeMounts: agentFormData.volumeMounts,
-            labels: agentFormData.labels,
-            annotations: agentFormData.annotations,
-            env: agentFormData.env,
-            imagePullPolicy: agentFormData.imagePullPolicy,
-            serviceAccountName: agentFormData.serviceAccountName,
-          },
-        },
-      },
-    };
-  }
-
-  const modelConfigName = agentFormData.modelName?.includes("/")
-    ? agentFormData.modelName.split("/").pop() || ""
-    : agentFormData.modelName;
-
-  const agentNamespace = agentFormData.namespace || "";
-
-  const convertTools = (tools: Tool[]) =>
-    tools.map((tool) => {
-      if (isMcpTool(tool)) {
-        const mcpServer = tool.mcpServer;
-        if (!mcpServer) {
-          throw new Error("MCP server not found");
-        }
-
-        let name = mcpServer.name;
-        let namespace: string | undefined = mcpServer.namespace;
-
-        if (k8sRefUtils.isValidRef(mcpServer.name)) {
-          const parsed = k8sRefUtils.fromRef(mcpServer.name);
-          name = parsed.name;
-        }
-
-        if (!namespace) {
-          namespace = agentNamespace;
-        }
-
-        const requireApproval =
-          mcpServer.requireApproval && mcpServer.requireApproval.length > 0
-            ? mcpServer.requireApproval
-            : undefined;
-
-        return {
-          type: "McpServer",
-          mcpServer: {
-            name,
-            namespace,
-            kind: mcpServer.kind,
-            apiGroup: mcpServer.apiGroup,
-            toolNames: mcpServer.toolNames,
-            ...(requireApproval ? { requireApproval } : {}),
-          },
-        } as Tool;
-      }
-
-      if (tool.type === "Agent") {
-        const ag = tool.agent;
-        if (!ag) {
-          throw new Error("Agent not found");
-        }
-
-        let name = ag.name;
-        let namespace: string | undefined = ag.namespace;
-
-        if (k8sRefUtils.isValidRef(name)) {
-          const parsed = k8sRefUtils.fromRef(name);
-          name = parsed.name;
-        }
-
-        if (!namespace) {
-          namespace = agentNamespace;
-        }
-
-        return {
-          type: "Agent",
-          agent: {
-            name,
-            namespace,
-            kind: ag.kind || "Agent",
-            apiGroup: ag.apiGroup || "kagent.dev",
-          },
-        } as Tool;
-      }
-
-      console.warn("Unknown tool type:", tool);
-      return tool as Tool;
-    });
-
-  const decl: DeclarativeAgentSpec = {
-    runtime: declarativeRuntimeFromForm(agentFormData),
-    systemMessage: agentFormData.systemPrompt || "",
-    modelConfig: modelConfigName || "",
-    stream: agentFormData.stream ?? true,
-    tools: convertTools(agentFormData.tools || []),
-  };
-
-  if (agentFormData.memory?.modelConfig) {
-    const memoryModel = agentFormData.memory.modelConfig;
-    const memoryModelName = k8sRefUtils.isValidRef(memoryModel)
-      ? k8sRefUtils.fromRef(memoryModel).name
-      : memoryModel;
-    decl.memory = {
-      modelConfig: memoryModelName,
-      ttlDays: agentFormData.memory.ttlDays,
-    };
-  }
-
-  if (agentFormData.context) {
-    decl.context = agentFormData.context;
-  }
-
-  const trimmedSA = agentFormData.serviceAccountName?.trim();
-  if (trimmedSA) {
-    decl.deployment = {
-      ...decl.deployment,
-      serviceAccountName: trimmedSA,
-    };
-  }
-
-  attachPromptTemplateToDeclarative(decl, agentFormData);
-
-  const spec: AgentSpec = {
-    type: "Declarative",
-    declarative: decl,
-    description: agentFormData.description,
-  };
-
-  const skills = buildSkillsForAgentSpec(agentFormData);
-  if (skills) {
-    spec.skills = skills;
-  }
-
-  if (substrate) {
-    spec.substrate = substrate;
-  }
-
-  return {
-    apiVersion: "kagent.dev/v1alpha2",
-    kind: "SandboxAgent",
-    metadata: {
-      name: agentFormData.name,
-      namespace: agentFormData.namespace || "",
-    },
-    spec,
-  };
+function isAgentWorkloadFormData(
+  agentConfig: AgentFormData,
+): agentConfig is AgentWorkloadFormData {
+  return agentConfig.type !== "AgentHarness";
 }
 
 function revalidateAgentListAndChat(namespace: string | undefined, name: string): void {
@@ -414,12 +31,6 @@ function revalidateAgentListAndChat(namespace: string | undefined, name: string)
 }
 
 /** Mutates `agentConfig` — strips namespace/name ref to name only for API payloads. */
-function normalizeFormModelNameRef(agentConfig: AgentFormData): void {
-  if (agentConfig.modelName && k8sRefUtils.isValidRef(agentConfig.modelName)) {
-    agentConfig.modelName = k8sRefUtils.fromRef(agentConfig.modelName).name;
-  }
-}
-
 async function createAgentHarnessFromForm(agentConfig: AgentFormData): Promise<BaseResponse<Agent>> {
   if (!agentConfig.agentHarness) {
     throw new Error("AgentHarness configuration is missing.");
@@ -453,10 +64,10 @@ async function createAgentHarnessFromForm(agentConfig: AgentFormData): Promise<B
 }
 
 async function createOrUpdateSandboxAgentFromForm(
-  agentConfig: AgentFormData,
+  agentConfig: AgentWorkloadFormData,
   update: boolean,
 ): Promise<BaseResponse<Agent>> {
-  const sandboxPayload = fromAgentFormDataToSandboxAgent(agentConfig);
+  const sandboxPayload = agentFormDataToSandboxAgent(agentConfig);
   const ns = sandboxPayload.metadata.namespace || "";
   const name = sandboxPayload.metadata.name;
   const path = update ? `/sandboxagents/${ns}/${name}` : `/sandboxagents`;
@@ -478,10 +89,10 @@ async function createOrUpdateSandboxAgentFromForm(
 }
 
 async function createOrUpdateStandardAgentFromForm(
-  agentConfig: AgentFormData,
+  agentConfig: AgentWorkloadFormData,
   update: boolean,
 ): Promise<BaseResponse<Agent>> {
-  const agentPayload = fromAgentFormDataToAgent(agentConfig);
+  const agentPayload = agentFormDataToAgent(agentConfig);
   const response = await fetchApi<BaseResponse<Agent>>(`/agents`, {
     method: update ? "PUT" : "POST",
     headers: {
@@ -608,14 +219,12 @@ export async function deleteAgent(
  */
 export async function createAgent(agentConfig: AgentFormData, update: boolean = false): Promise<BaseResponse<Agent>> {
   try {
-    if (agentConfig.type === "AgentHarness") {
+    if (!isAgentWorkloadFormData(agentConfig)) {
       if (update) {
         throw new Error("Updating an AgentHarness from this form is not supported.");
       }
       return await createAgentHarnessFromForm(agentConfig);
     }
-
-    normalizeFormModelNameRef(agentConfig);
 
     if (agentConfig.runInSandbox) {
       return await createOrUpdateSandboxAgentFromForm(agentConfig, update);

@@ -6,6 +6,12 @@ import { revalidatePath } from "next/cache";
 import { fetchApi, createErrorResponse } from "./utils";
 import { Task } from "@a2a-js/sdk";
 
+export interface SessionWithEvents {
+  session: Session;
+  events: unknown[];
+  read_only?: boolean | null;
+}
+
 /**
  * Deletes a session
  * @param sessionId The session ID
@@ -27,14 +33,17 @@ export async function deleteSession(sessionId: string): Promise<BaseResponse<voi
 /**
  * Gets a session by ID
  * @param sessionId The session ID
+ * @param shareToken Optional X-Share-Token for accessing another user's shared session
  * @returns A promise with the session data
  */
-export async function getSession(sessionId: string): Promise<BaseResponse<Session>> {
+export async function getSession(sessionId: string, shareToken?: string): Promise<BaseResponse<Session>> {
   try {
     // GET /sessions/{id} responds with an envelope whose data nests the session
     // under `session` (alongside `events`): { data: { session, events } }.
     // Unwrap both layers so callers get the Session directly.
-    const response = await fetchApi<BaseResponse<{ session: Session; events: unknown[] }>>(`/sessions/${sessionId}`);
+    const response = await fetchApi<BaseResponse<{ session: Session; events: unknown[] }>>(`/sessions/${sessionId}`, {
+      headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
+    });
     return { message: "Session fetched successfully", data: response.data?.session };
   } catch (error) {
     return createErrorResponse<Session>(error, "Error getting session");
@@ -103,11 +112,14 @@ export async function renameSession(sessionId: string, name: string): Promise<Ba
 /**
  * Gets all messages for a session
  * @param sessionId The session ID
+ * @param shareToken Optional X-Share-Token for accessing another user's shared session
  * @returns A promise with the session messages
  */
-export async function getSessionTasks(sessionId: string): Promise<BaseResponse<Task[]>> {
+export async function getSessionTasks(sessionId: string, shareToken?: string): Promise<BaseResponse<Task[]>> {
   try {
-    const data = await fetchApi<BaseResponse<Task[]>>(`/sessions/${sessionId}/tasks`);
+    const data = await fetchApi<BaseResponse<Task[]>>(`/sessions/${sessionId}/tasks`, {
+      headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
+    });
     return data;
   } catch (error) {
     return createErrorResponse<Task[]>(error, "Error getting session tasks");
@@ -143,6 +155,23 @@ export async function getSubagentSessionWithEvents(
 }
 
 /**
+ * Gets a session with its events, optionally using a share token.
+ * @param sessionId The session ID
+ * @param shareToken Optional X-Share-Token for accessing a shared session
+ */
+export async function getSessionWithEvents(sessionId: string, shareToken?: string): Promise<BaseResponse<SessionWithEvents>> {
+  try {
+    const opts = {
+      headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
+    };
+    const data = await fetchApi<BaseResponse<SessionWithEvents>>(`/sessions/${sessionId}`, opts);
+    return data;
+  } catch (error) {
+    return createErrorResponse<SessionWithEvents>(error, "Error getting session");
+  }
+}
+
+/**
  * Check if a session exists
  * @param sessionId The session ID to check
  * @returns A promise with boolean indicating if session exists
@@ -151,10 +180,9 @@ export async function checkSessionExists(sessionId: string): Promise<BaseRespons
   try {
     const response = await fetchApi<BaseResponse<Session>>(`/sessions/${sessionId}`);
     return { message: "Session exists successfully", data: !!response.data };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
+  } catch (error: unknown) {
     // If we get a 404, return success: true but data: false
-    if (error?.status === 404) {
+    if (typeof error === "object" && error !== null && "status" in error && (error as { status: unknown }).status === 404) {
       return { message: "Session does not exist", data: false };
     }
     return createErrorResponse<boolean>(error, "Error checking session");

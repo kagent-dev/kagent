@@ -141,6 +141,12 @@ func (a *adkApiTranslator) CompileAgent(
 		if err != nil {
 			return nil, err
 		}
+		// BYO currently does not share configuration with the declarative
+		// runtime so this is a minimal config to support propagating agent config
+		// to BYO agents through this format
+		cfg = &adk.AgentConfig{
+			Description: spec.Description,
+		}
 
 	default:
 		return nil, fmt.Errorf("unknown agent type: %s", spec.Type)
@@ -149,6 +155,9 @@ func (a *adkApiTranslator) CompileAgent(
 	runInSandbox := agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox
 	if runInSandbox && a.sandboxBackend == nil {
 		return nil, fmt.Errorf("sandbox backend is not configured")
+	}
+	if runInSandbox {
+		cfg.SessionDBURL = a.sandboxBackend.SessionDBURL(agent)
 	}
 	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
 		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
@@ -279,6 +288,12 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		}
 
 		cfg.ContextConfig = contextCfg
+	}
+
+	// ShareTools: pass the flag through to AgentConfig; the Python runtime injects the tools.
+	if spec.Declarative.ShareTools != nil && *spec.Declarative.ShareTools {
+		t := true
+		cfg.ShareTools = &t
 	}
 
 	// Handle Memory Configuration: presence of Memory field enables it.

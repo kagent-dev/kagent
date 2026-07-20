@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"google.golang.org/adk/model"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
 
@@ -196,7 +196,7 @@ func (m *BedrockModel) GenerateContent(ctx context.Context, req *model.LLMReques
 		// Convert content to Bedrock messages.
 		// nameMap is passed so that any tool call recorded in conversation history
 		// is written with the sanitized name Bedrock already knows about.
-		messages, systemInstruction := convertGenaiContentsToBedrockMessages(req.Contents, nameMap)
+		messages, systemInstruction := convertGenaiContentsToBedrockMessages(req.Contents, nameMap, req.Config)
 
 		// temperature/top_p must not be sent when thinking is active. https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-extended-thinking.html
 		_, thinkingEnabled := m.Config.AdditionalModelRequestFields["thinking"]
@@ -559,7 +559,7 @@ func truncateToolResult(s string, maxLen int) string {
 // nameMap is the original->sanitized tool name map produced by convertGenaiToolsToBedrock.
 // Any FunctionCall found in the conversation history is written with the sanitized name so
 // that Bedrock can correlate it with the tool spec it already received. A nil nameMap is safe.
-func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap map[string]string) ([]types.Message, string) {
+func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap map[string]string, config *genai.GenerateContentConfig) ([]types.Message, string) {
 	var messages []types.Message
 	var systemInstruction string
 
@@ -684,7 +684,7 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 		}
 	}
 
-	return messages, systemInstruction
+	return messages, mergeSystemInstructionFromConfig(systemInstruction, config)
 }
 
 // convertGenaiToolsToBedrock converts genai.Tool to Bedrock Tool format.

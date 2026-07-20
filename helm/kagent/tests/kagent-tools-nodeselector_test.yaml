@@ -1,0 +1,39 @@
+suite: test kagent-tools nodeSelector and tolerations
+templates:
+  - charts/kagent-tools/templates/deployment.yaml
+tests:
+  - it: should not set nodeSelector by default
+    asserts:
+      - isNull:
+          path: spec.template.spec.nodeSelector
+
+  - it: should set nodeSelector when provided via kagent-tools.nodeSelector
+    set:
+      kagent-tools.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector.disktype
+          value: ssd
+
+  - it: should not set tolerations by default
+    asserts:
+      - isNull:
+          path: spec.template.spec.tolerations
+
+  - it: should set tolerations when provided via kagent-tools.tolerations
+    set:
+      kagent-tools.tolerations:
+        - key: role
+          operator: Equal
+          value: ai
+          effect: NoSchedule
+    asserts:
+      - contains:
+          any: true
+          path: spec.template.spec.tolerations
+          content:
+            key: role
+            operator: Equal
+            value: ai
+            effect: NoSchedule

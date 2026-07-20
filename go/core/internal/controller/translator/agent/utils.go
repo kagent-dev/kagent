@@ -11,8 +11,11 @@ import (
 func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 	spec := agent.GetAgentSpec()
 	card := a2atype.AgentCard{
-		Name:        strings.ReplaceAll(agent.GetName(), "-", "_"),
-		Description: spec.Description,
+		Name:             strings.ReplaceAll(agent.GetName(), "-", "_"),
+		Description:      spec.Description,
+		IconURL:          spec.IconURL,
+		DocumentationURL: spec.DocumentationURL,
+		Version:          spec.Version,
 		SupportedInterfaces: []*a2atype.AgentInterface{
 			{
 				URL:             fmt.Sprintf("http://%s.%s:8080", agent.GetName(), agent.GetNamespace()),
@@ -33,6 +36,12 @@ func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 		Skills:             []a2atype.AgentSkill{},
 		DefaultInputModes:  []string{"text"},
 		DefaultOutputModes: []string{"text"},
+	}
+	if spec.Provider != nil {
+		card.Provider = &a2atype.AgentProvider{
+			Org: spec.Provider.Organization,
+			URL: spec.Provider.URL,
+		}
 	}
 	if spec.Type == v1alpha2.AgentType_Declarative && spec.Declarative != nil && spec.Declarative.A2AConfig != nil {
 		card.Skills = make([]a2atype.AgentSkill, 0, len(spec.Declarative.A2AConfig.Skills))

@@ -23,6 +23,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -168,6 +169,11 @@ type AgentOptions struct {
 	Runtime        *v1alpha2.DeclarativeRuntime
 	Memory         *v1alpha2.MemorySpec
 	PromptTemplate *v1alpha2.PromptTemplateSpec
+
+	IconURL          string
+	DocumentationURL string
+	Version          string
+	Provider         *v1alpha2.AgentProvider
 }
 
 func pythonRuntime() *v1alpha2.DeclarativeRuntime {
@@ -521,6 +527,11 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 		agent.Spec.Declarative.PromptTemplate = opts.PromptTemplate
 	}
 
+	agent.Spec.IconURL = opts.IconURL
+	agent.Spec.DocumentationURL = opts.DocumentationURL
+	agent.Spec.Version = opts.Version
+	agent.Spec.Provider = opts.Provider
+
 	return agent
 }
 
@@ -636,6 +647,51 @@ func TestE2EInvokeInlineAgentWithStreaming(t *testing.T) {
 	t.Run("streaming_invocation", func(t *testing.T) {
 		runStreamingTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
 	})
+}
+
+// fetchAgentCard fetches and decodes the agent's A2A card from its well-known endpoint.
+func fetchAgentCard(t *testing.T, namespace, name string) a2atype.AgentCard {
+	t.Helper()
+	url := a2aURL(namespace, name, false) + a2asrv.WellKnownAgentCardPath
+
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := httpClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var card a2atype.AgentCard
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&card))
+	return card
+}
+
+func TestE2EAgentCardMetadata(t *testing.T) {
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_inline_agent.json")
+	defer stopServer()
+
+	cli := setupK8sClient(t, false)
+	modelCfg := setupModelConfig(t, cli, baseURL)
+
+	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
+		IconURL:          "https://example.com/icon.png",
+		DocumentationURL: "https://example.com/docs",
+		Version:          "1.2.3",
+		Provider: &v1alpha2.AgentProvider{
+			Organization: "Acme",
+			URL:          "https://acme.example.com",
+		},
+	})
+
+	card := fetchAgentCard(t, agent.Namespace, agent.Name)
+
+	require.Equal(t, "https://example.com/icon.png", card.IconURL)
+	require.Equal(t, "https://example.com/docs", card.DocumentationURL)
+	require.Equal(t, "1.2.3", card.Version)
+	require.NotNil(t, card.Provider)
+	require.Equal(t, "Acme", card.Provider.Org)
+	require.Equal(t, "https://acme.example.com", card.Provider.URL)
 }
 
 func TestE2EInvokeExternalAgent(t *testing.T) {

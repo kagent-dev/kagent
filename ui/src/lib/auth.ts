@@ -20,7 +20,9 @@ const BLOCKED_FORWARD_HEADERS = new Set([
 
 // Headers always forwarded. The Authorization header carries the JWT from
 // oauth2-proxy and is required for the backend to identify the user.
-const DEFAULT_FORWARD_HEADERS = ["authorization"] as const;
+// X-Share-Token is a capability token (not an identity header) that grants
+// read/write access to a specific shared session.
+const DEFAULT_FORWARD_HEADERS = ["authorization", "x-share-token"] as const;
 
 /**
  * Parse a comma-separated header allowlist (case-insensitive) and union it

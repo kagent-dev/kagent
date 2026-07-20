@@ -3,6 +3,11 @@ kind: Deployment
 metadata:
   name: {{ include "kagent.fullname" . }}-controller
   namespace: {{ include "kagent.namespace" . }}
+  {{- $annotations := mergeOverwrite (dict) (default dict .Values.annotations) (default dict .Values.controller.annotations) }}
+  {{- if $annotations }}
+  annotations:
+    {{- toYaml $annotations | nindent 4 }}
+  {{- end }}
   labels:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 spec:
@@ -19,7 +24,10 @@ spec:
           {{- toYaml . | nindent 8 }}
         {{- end }}
       labels:
-        {{- include "kagent.controller.selectorLabels" . | nindent 8 }}
+        {{- /* extra pod labels: component merged over global, selector labels
+             applied last so they can never be overridden */}}
+        {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.controller.podLabels | default dict) (include "kagent.controller.selectorLabels" . | fromYaml) }}
+        {{- toYaml $podLabels | nindent 8 }}
     spec:
       {{- with .Values.controller.imagePullSecrets | default .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -89,7 +97,7 @@ spec:
                   name: {{ include "kagent.passwordSecretName" . }}
                   key: POSTGRES_PASSWORD
             - name: POSTGRES_DATABASE_URL
-              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc.cluster.local:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
+              value: {{ printf "postgres://kagent:$(POSTGRES_PASSWORD)@%s.%s.svc:5432/kagent?sslmode=disable" (include "kagent.postgresqlServiceName" .) (include "kagent.namespace" .) | quote }}
             {{- else }}
             {{ fail "No database connection configured. Set database.postgres.url, database.postgres.urlFile, or enable database.postgres.bundled." }}
             {{- end }}
@@ -123,22 +131,6 @@ spec:
               value: {{ .Values.controller.substrate.defaultWorkerPool.name | default (ternary .Values.substrateWorkerPool.name "" .Values.substrateWorkerPool.create) | quote }}
             {{- with .Values.controller.substrate.pauseImage }}
             - name: SUBSTRATE_PAUSE_IMAGE
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.substrate.runscAMD64URL }}
-            - name: SUBSTRATE_RUNSC_AMD64_URL
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.substrate.runscAMD64SHA256 }}
-            - name: SUBSTRATE_RUNSC_AMD64_SHA256
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.substrate.runscARM64URL }}
-            - name: SUBSTRATE_RUNSC_ARM64_URL
-              value: {{ . | quote }}
-            {{- end }}
-            {{- with .Values.controller.substrate.runscARM64SHA256 }}
-            - name: SUBSTRATE_RUNSC_ARM64_SHA256
               value: {{ . | quote }}
             {{- end }}
             {{- end }}

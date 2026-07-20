@@ -12,9 +12,9 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"google.golang.org/adk/memory"
-	adkmodel "google.golang.org/adk/model"
-	adksession "google.golang.org/adk/session"
+	"google.golang.org/adk/v2/memory"
+	adkmodel "google.golang.org/adk/v2/model"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -64,7 +64,6 @@ func New(cfg Config) (*KagentMemoryService, error) {
 	}
 	embClient, err := embedding.New(embedding.Config{
 		EmbeddingConfig: cfg.EmbeddingConfig,
-		HTTPClient:      client,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create embedding client: %w", err)

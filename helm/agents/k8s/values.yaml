@@ -25,3 +25,6 @@ compaction: {}
 podSecurityContext: {}
 
 securityContext: {}
+
+# -- Optional nodeSelector to constrain the agent pods to nodes with matching labels.
+nodeSelector: {}

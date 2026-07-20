@@ -609,6 +609,7 @@ spec:
                   reasoningEffort:
                     description: Reasoning effort
                     enum:
+                    - none
                     - minimal
                     - low
                     - medium

@@ -10,7 +10,7 @@ dependencies:
     condition: kmcp.enabled
   - name: substrate
     version: ${SUBSTRATE_VERSION}
-    repository: oci://ghcr.io/kagent-dev/substrate/helm
+    repository: ${SUBSTRATE_REPO}
     condition: substrate.enabled
   - name: kagent-tools
     version: 0.2.1
@@ -65,6 +65,6 @@ dependencies:
     repository: file://../agents/cilium-debug
     condition: cilium-debug-agent.enabled
   - name: oauth2-proxy
-    version: "~7.0.0"
+    version: "~10.7.0"
     repository: "https://oauth2-proxy.github.io/manifests"
     condition: oauth2-proxy.enabled

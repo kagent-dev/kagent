@@ -1,11 +1,15 @@
 package substrate
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -15,11 +19,44 @@ import (
 // buildSandboxAgentActorTemplate is invoked from the translator via AgentsBackend.BuildSandbox.
 
 const (
-	sandboxAgentIDPrefix            = "asr"
-	defaultKagentContainer          = "kagent"
-	SandboxAgentLabelKey            = "kagent.dev/sandbox-agent"
-	defaultGoEntrypoint             = "/app"
+	sandboxAgentIDPrefix   = "asr"
+	defaultKagentContainer = "kagent"
+	SandboxAgentLabelKey   = "kagent.dev/sandbox-agent"
+	// desiredGenerationAnnotation records the SandboxAgent generation that last applied a given
+	// ActorTemplate; the template for the current desired config carries the highest value.
+	desiredGenerationAnnotation = "kagent.dev/desired-generation"
+	defaultGoEntrypoint         = "/app"
+	// defaultPythonEntrypoint is the absolute path to the kagent-adk console script in the
+	// Python ADK image venv. Substrate copies Command verbatim into the OCI Process.Args with
+	// no PATH/entrypoint fallback, so the path must be explicit and kept in sync with the
+	// Python Dockerfile's UV_PROJECT_ENVIRONMENT (/.kagent/.venv).
+	defaultPythonEntrypoint         = "/.kagent/.venv/bin/kagent-adk"
 	substrateKagentListenPort int32 = 80
+
+	// sandboxAgentTemplateNameMaxBase reserves room in the 63-char DNS-1123 budget for
+	// the "-<hash>" suffix (hash is up to 16 hex chars). A golden snapshot is an immutable
+	// memory image, so a SHAPE change must produce a NEW ActorTemplate (substrate snapshots
+	// once and no-ops in PhaseReady); folding the shape hash into the template name (and
+	// mirroring it as an annotation) is what achieves that.
+	sandboxAgentTemplateNameMaxBase = 46
+
+	// shapeHashAnnotation carries the hash of the rendered ActorTemplateSpec ("shape"). The
+	// session actor id is keyed on it: soft config changes ride Secret contents and never touch
+	// the spec, so sessions keep their actor (and durable dir) across config rollouts; anything
+	// that does change the spec (image digest, command, scopes, literal env) fans out blue-green
+	// to a new template + new actors, resetting session state (accepted, plan §4.2).
+	actorTemplateHashAnnotation = "kagent.dev/actor-template-hash"
+
+	durableDataVolume = "data"
+	durableDataMount  = "/data"
+	// The session-store URL reaches the runtime as AgentConfig.session_db_url inside the
+	// rendered config Secret (baked in by the translator via AgentsBackend.SessionDBURL).
+	// The value is runtime-specific.
+	// Python: google-adk's DatabaseSessionService uses SQLAlchemy's async engine, so the URL
+	// must name an async driver (aiosqlite is a core google-adk dependency, present in every
+	// runtime image). Go: the Go ADK's local store parses either form.
+	sessionDBURLPython = "sqlite+aiosqlite:///" + durableDataMount + "/sessions.db"
+	sessionDBURLGo     = "sqlite:///" + durableDataMount + "/sessions.db"
 )
 
 func (p *Lifecycle) buildSandboxAgentActorTemplate(
@@ -35,33 +72,108 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	if err != nil {
 		return nil, err
 	}
-	command, containerEnv := buildSubstrateKagentContainerCommand(sa)
+	secretName := sandboxAgentConfigSecretName(sa)
+	command, containerEnv, err := buildSubstrateKagentContainerCommand(sa, kagentContainer, secretName)
+	if err != nil {
+		return nil, err
+	}
+
+	spec := atev1alpha1.ActorTemplateSpec{
+		PauseImage:   p.Defaults.PauseImage,
+		SandboxClass: atev1alpha1.SandboxClassGvisor,
+		Containers: []atev1alpha1.Container{{
+			Name:    defaultKagentContainer,
+			Image:   image,
+			Command: command,
+			Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
+			// Gate actor readiness (the golden snapshot, and resume RPCs) on the app
+			// actually serving A2A traffic, so a startup crash or wrong listen port
+			// surfaces as Ready=False instead of a broken-chat "ready" agent. The
+			// agent-card path mirrors the k8s Deployment readiness probe contract and
+			// is served by both ADKs and any A2A-conformant BYO image; substrate's
+			// default Readyz path (/readyz) is served by neither.
+			Readyz: &atev1alpha1.ContainerReadyz{
+				HTTPGet: &atev1alpha1.HTTPGetAction{
+					Path: "/.well-known/agent-card.json",
+					Port: substrateKagentListenPort,
+				},
+			},
+		}},
+		WorkerSelector: workerSelectorForPool(wpKey),
+		SnapshotsConfig: atev1alpha1.SnapshotsConfig{
+			Location: sandboxAgentSnapshotsLocation(sa),
+			OnPause:  atev1alpha1.SnapshotScopeFull,
+			OnCommit: atev1alpha1.SnapshotScopeFull,
+		},
+	}
+	applyDurableDirSessionStore(&spec)
+
+	actorTemplateHash, err := actorTemplateShapeHash(spec)
+	if err != nil {
+		return nil, err
+	}
+
+	annotations := map[string]string{
+		// The agent generation at the time this template was (re)applied. It bumps only on a spec
+		// change, so the template matching the agent's CURRENT desired config always carries the
+		// highest generation — including on a flip-back to a retained older shape, where the
+		// reused template is re-applied with the new generation. ResolveCurrentActorTemplate uses
+		// this (not creationTimestamp) to pick the desired template, so chat/readiness follow the
+		// current config rather than whichever golden was built most recently.
+		desiredGenerationAnnotation: strconv.FormatInt(sa.GetGeneration(), 10),
+		actorTemplateHashAnnotation: actorTemplateHash,
+	}
+	// The translator's config hash is kept as an informational annotation (it changes on soft
+	// config rollouts while the template stays put; nothing keys on it anymore).
+	if configHash := shortConfigHash(podTemplate.Annotations[consts.ConfigHashAnnotation]); configHash != "" {
+		annotations[consts.ConfigHashAnnotation] = configHash
+	}
 
 	desired := &atev1alpha1.ActorTemplate{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      SandboxAgentActorTemplateName(sa),
-			Namespace: sa.Namespace,
-			Labels:    sandboxAgentLifecycleLabels(sa),
+			Name:        sandboxAgentActorTemplateName(sa, actorTemplateHash),
+			Namespace:   sa.Namespace,
+			Labels:      sandboxAgentLifecycleLabels(sa),
+			Annotations: annotations,
 		},
-		Spec: atev1alpha1.ActorTemplateSpec{
-			PauseImage: p.Defaults.PauseImage,
-			Runsc:      defaultRunscConfig(p.Defaults),
-			Containers: []atev1alpha1.Container{{
-				Name:    defaultKagentContainer,
-				Image:   image,
-				Command: command,
-				Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
-			}},
-			WorkerPoolRef: corev1.ObjectReference{Name: wpKey.Name, Namespace: wpKey.Namespace},
-			SnapshotsConfig: atev1alpha1.SnapshotsConfig{
-				Location: sandboxAgentSnapshotsLocation(sa),
-			},
-		},
+		Spec: spec,
 	}
 	if err := controllerutil.SetControllerReference(sa, desired, p.Client.Scheme()); err != nil {
 		return nil, fmt.Errorf("set ActorTemplate owner ref: %w", err)
 	}
 	return desired, nil
+}
+
+// actorTemplateShapeHash returns a short, deterministic hash of a rendered ActorTemplateSpec.
+// It covers everything in the spec (image digest, command, env including secretKeyRef names,
+// mounts, readyz, scopes, worker selector) and nothing outside it — Secret CONTENTS in
+// particular are invisible, which is exactly what makes config rollouts soft.
+func actorTemplateShapeHash(spec atev1alpha1.ActorTemplateSpec) (string, error) {
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("hash ActorTemplate spec: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%x", sum[:8]), nil
+}
+
+// applyDurableDirSessionStore mounts a durableDir volume at /data for the session sqlite DB
+// and flips the suspend scope to Data: per-turn suspends then capture only the durable dir
+// (KBs, not a full memory image), and every resume is a cold boot that re-resolves secretKeyRef
+// env from the live Secret — the only config-refresh channel on resume, which is what lets soft
+// config rollouts reach an existing session's actor (plan §4.2/§4.3). onPause stays Full so the
+// golden build and any future warm-pause tier keep a full snapshot available.
+func applyDurableDirSessionStore(spec *atev1alpha1.ActorTemplateSpec) {
+	spec.Volumes = append(spec.Volumes, atev1alpha1.Volume{
+		Name:         durableDataVolume,
+		VolumeSource: atev1alpha1.VolumeSource{DurableDir: &atev1alpha1.DurableDirVolumeSource{}},
+	})
+	c := &spec.Containers[0]
+	c.VolumeMounts = append(c.VolumeMounts, atev1alpha1.VolumeMount{
+		Name:      durableDataVolume,
+		MountPath: durableDataMount,
+	})
+	spec.SnapshotsConfig.OnCommit = atev1alpha1.SnapshotScopeData
 }
 
 func findKagentContainer(containers []corev1.Container) *corev1.Container {
@@ -76,31 +188,65 @@ func findKagentContainer(containers []corev1.Container) *corev1.Container {
 	return nil
 }
 
-// buildSubstrateKagentContainerCommand returns an ActorTemplate command for Substrate.
-// Substrate runs Command directly (no shell). Config is materialized from secret-backed
-// env vars at startup via MaterializeFromEnv in the Go ADK entrypoint.
-func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent) ([]string, []corev1.EnvVar) {
+// buildSubstrateKagentContainerCommand returns the ActorTemplate command and the prepended
+// env for a SandboxAgent on Substrate. Substrate runs Command directly (no shell) and copies
+// it verbatim into the OCI Process.Args with no PATH/entrypoint fallback, so the command must
+// be fully explicit.
+//
+// For declarative agents the command is the runtime ADK entrypoint and config is materialized
+// from secret-backed env vars at startup (Go: MaterializeFromEnv in the Go ADK; Python: the
+// `static` command materializes the same env vars before reading /config). For BYO agents the
+// user-provided container Command/Args are used verbatim; the BYO image must serve A2A on the
+// substrate listen port (80).
+func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *corev1.Container, configSecretName string) ([]string, []corev1.EnvVar, error) {
 	// KAGENT_NAME / KAGENT_NAMESPACE are normally injected by the translator pod
 	// template, but KAGENT_NAMESPACE uses a Downward API fieldRef which Substrate
 	// ActorTemplates do not support (it gets dropped by sanitizeActorTemplateEnvVar).
-	// Without it the Go ADK derives a wrong app name, and the controller rejects
+	// Without it the ADK derives a wrong app name, and the controller rejects
 	// session callbacks with "Session does not belong to this agent". Set both as
 	// literals here; they are prepended before the pod env so they win deduplication.
 	env := []corev1.EnvVar{
 		{Name: "KAGENT_NAME", Value: sa.Name},
 		{Name: "KAGENT_NAMESPACE", Value: sa.Namespace},
 	}
-	env = append(env, kagentAgentSecretEnv(sa)...)
-	return buildSubstrateGoKagentCommand(), env
+
+	spec := sa.GetAgentSpec()
+	if spec != nil && spec.Type == v1alpha2.AgentType_BYO {
+		// BYO: use the explicit container command + args verbatim. Validation
+		// (ValidateSubstrateSandboxAgentSpec) guarantees a command is set. The rendered
+		// (minimal) config is exposed the same way as for declaratives — secret-backed env —
+		// so kagent-owned settings like session_db_url are available to the image; whether
+		// the image consumes them is its own concern.
+		if len(container.Command) == 0 {
+			return nil, nil, fmt.Errorf("BYO substrate agent %q is missing an explicit container command", sa.Name)
+		}
+		cmd := append([]string{}, container.Command...)
+		cmd = append(cmd, container.Args...)
+		env = append(env, kagentAgentSecretEnv(configSecretName)...)
+		return cmd, env, nil
+	}
+
+	// Declarative: secret-backed config is materialized at startup from the per-config-hash Secret.
+	env = append(env, kagentAgentSecretEnv(configSecretName)...)
+	runtime := v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec())
+	return buildSubstrateDeclarativeCommand(runtime), env, nil
 }
 
-// buildSubstrateGoKagentCommand returns the explicit command for the declarative
-// Go ADK image. Substrate's atelet copies Command verbatim into the OCI spec's
-// Process.Args with no fallback to the image entrypoint, so an empty command
-// makes `runsc create` fail with "Spec.Process.Arg must be defined". BYO agents
-// are rejected for the substrate platform by validation, so only the declarative
-// entrypoint is needed here.
-func buildSubstrateGoKagentCommand() []string {
+// buildSubstrateDeclarativeCommand returns the explicit command for a declarative ADK image.
+// Substrate's atelet copies Command verbatim into the OCI spec's Process.Args with no fallback
+// to the image entrypoint, so an empty command makes `runsc create` fail with
+// "Spec.Process.Arg must be defined".
+func buildSubstrateDeclarativeCommand(runtime v1alpha2.DeclarativeRuntime) []string {
+	if runtime == v1alpha2.DeclarativeRuntime_Python {
+		// The Python ADK `static` command reads config.json/agent-card.json from its
+		// --filepath (default /config), which the materialization step populates from
+		// the secret-backed env vars before the server starts.
+		return []string{
+			defaultPythonEntrypoint, "static",
+			"--host", "0.0.0.0",
+			"--port", fmt.Sprintf("%d", substrateKagentListenPort),
+		}
+	}
 	return []string{
 		defaultGoEntrypoint,
 		"--host", "0.0.0.0",
@@ -108,8 +254,13 @@ func buildSubstrateGoKagentCommand() []string {
 	}
 }
 
-func kagentAgentSecretEnv(sa *v1alpha2.SandboxAgent) []corev1.EnvVar {
-	secretName := sa.Name
+// sandboxAgentConfigSecretName returns the agent's STABLE config Secret name — the agent name,
+// matching the Secret the translator renders and emits in BuildManifest.
+func sandboxAgentConfigSecretName(sa *v1alpha2.SandboxAgent) string {
+	return sa.Name
+}
+
+func kagentAgentSecretEnv(secretName string) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		secretEnv("KAGENT_CONFIG_JSON", secretName, "config.json"),
 		secretEnv("KAGENT_AGENT_CARD_JSON", secretName, "agent-card.json"),
@@ -141,9 +292,32 @@ func sandboxAgentLifecycleLabels(sa *v1alpha2.SandboxAgent) map[string]string {
 	}
 }
 
-// SandboxAgentActorTemplateName is the generated ActorTemplate name for a SandboxAgent.
-func SandboxAgentActorTemplateName(sa *v1alpha2.SandboxAgent) string {
+// sandboxAgentActorTemplateBaseName is the stable name prefix for a SandboxAgent's
+// ActorTemplate(s), independent of config. Used as the truncation base for hashed names.
+func sandboxAgentActorTemplateBaseName(sa *v1alpha2.SandboxAgent) string {
 	return truncateDNS1123(sa.Name)
+}
+
+// sandboxAgentActorTemplateName is the generated ActorTemplate name for a SandboxAgent at a
+// given shape hash. The hash suffix makes each distinct shape a distinct template (and golden).
+// When the hash is empty it falls back to the stable base name. Consumers must NOT assume this
+// name — they resolve the live template via ResolveCurrentActorTemplate.
+func sandboxAgentActorTemplateName(sa *v1alpha2.SandboxAgent, shapeHash string) string {
+	if shapeHash == "" {
+		return sandboxAgentActorTemplateBaseName(sa)
+	}
+	base := truncateDNS1123To(sa.Name, sandboxAgentTemplateNameMaxBase)
+	return fmt.Sprintf("%s-%s", base, shapeHash)
+}
+
+// shortConfigHash converts the translator's decimal config-hash annotation into a short,
+// DNS-1123-safe hex token (≤16 chars). Returns "" when the annotation is absent/unparseable.
+func shortConfigHash(annotationValue string) string {
+	v, err := strconv.ParseUint(strings.TrimSpace(annotationValue), 10, 64)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", v)
 }
 
 func sandboxAgentSnapshotsLocation(sa *v1alpha2.SandboxAgent) string {
