@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 
@@ -144,6 +145,69 @@ def force_flush(timeout_millis: int | None = None) -> None:
         logging.warning("Failed to flush pending spans", exc_info=True)
 
 
+# High-frequency probe endpoints with nothing worth flushing.
+_FLUSH_EXCLUDED_PATHS = frozenset({"/health", "/healthz", "/thread_dump"})
+
+
+def _should_flush(scope) -> bool:
+    if scope.get("type") != "http":
+        return False
+    path = scope.get("path", "")
+    return path not in _FLUSH_EXCLUDED_PATHS and not path.endswith("/.well-known/agent-card.json")
+
+
+def _add_post_response_flush(app: FastAPI) -> None:
+    """Flush buffered spans before each response completes: on Agent Substrate
+    the actor is checkpointed as soon as the response body closes, discarding
+    any unexported spans when the session uses a data-only snapshot.
+
+    Hold the terminal ASGI message outside the OTel middleware. This lets OTel
+    end the inbound server span, then flushes before the client receives the
+    response terminator and triggers suspension.
+    """
+    inner_build = app.build_middleware_stack
+
+    def build_middleware_stack():
+        inner = inner_build()
+
+        async def flushing_app(scope, receive, send):
+            if not _should_flush(scope):
+                await inner(scope, receive, send)
+                return
+
+            terminal_message = None
+            expecting_trailers = False
+
+            async def hold_terminal_message(message):
+                nonlocal expecting_trailers, terminal_message
+                message_type = message.get("type")
+                if message_type == "http.response.start":
+                    expecting_trailers = message.get("trailers", False)
+                is_terminal = (
+                    message_type == "http.response.body"
+                    and not expecting_trailers
+                    and not message.get("more_body", False)
+                ) or (
+                    message_type == "http.response.trailers"
+                    and not message.get("more_trailers", False)
+                )
+                if is_terminal:
+                    terminal_message = message
+                else:
+                    await send(message)
+
+            await inner(scope, receive, hold_terminal_message)
+            if terminal_message is not None:
+                try:
+                    await asyncio.to_thread(force_flush)
+                finally:
+                    await send(terminal_message)
+
+        return flushing_app
+
+    app.build_middleware_stack = build_middleware_stack
+
+
 def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: FastAPI | None = None):
     """Configure OpenTelemetry tracing and logging for this service.
 
@@ -201,6 +265,7 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
         HTTPXClientInstrumentor().instrument(excluded_urls=_excluded_urls)
         if fastapi_app:
             FastAPIInstrumentor().instrument_app(fastapi_app, excluded_urls=_excluded_urls)
+            _add_post_response_flush(fastapi_app)
     # Configure logging if enabled
     if logging_enabled:
         logging.info("Enabling logging for GenAI events")

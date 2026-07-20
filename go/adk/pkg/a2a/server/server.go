@@ -42,6 +42,16 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	RegisterHealthEndpoints(mux)
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
+	// Health and agent-card requests are neither traced nor flushed; only A2A
+	// requests get an inbound server span and a span flush.
+	isA2ARequest := func(r *http.Request) bool {
+		switch r.URL.Path {
+		case "/health", "/healthz", a2asrv.WellKnownAgentCardPath:
+			return false
+		default:
+			return true
+		}
+	}
 	// Wrap the whole server mux to enable trace context extraction and an inbound
 	// HTTP server span for each request.
 	instrumentedHandler := otelhttp.NewHandler(
@@ -50,14 +60,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return r.Method + " " + r.URL.Path
 		}),
-		otelhttp.WithFilter(func(r *http.Request) bool {
-			switch r.URL.Path {
-			case "/health", "/healthz", a2asrv.WellKnownAgentCardPath:
-				return false
-			default:
-				return true
-			}
-		}),
+		otelhttp.WithFilter(isA2ARequest),
 	)
 	// Flush buffered spans after the otelhttp server span ends (when the inner
 	// handler returns) but before net/http closes the response body: Agent
@@ -65,7 +68,9 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	// issued inside the executor can never include the still-open server span.
 	flushingHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		instrumentedHandler.ServeHTTP(w, r)
-		telemetry.ForceFlush(r.Context())
+		if isA2ARequest(r) {
+			telemetry.ForceFlush(r.Context())
+		}
 	})
 
 	addr := ":" + config.Port

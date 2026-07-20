@@ -20,16 +20,14 @@ import (
 )
 
 // substrateExecutor mimics KAgentExecutor's telemetry: it starts the
-// invocation span from the request-derived context, and flushes before
-// publishing the final event so the executor-side flush is deterministically
-// sequenced before the HTTP response. Even so, that flush can never include
-// the otelhttp server span — it is still open until the mux handler returns.
+// invocation span from the request-derived context. It does not flush —
+// exporting everything (including the otelhttp server span, still open
+// until the mux handler returns) is the server's flushing handler's job.
 type substrateExecutor struct{}
 
 func (substrateExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {
 	_, span := telemetry.StartInvocationSpan(ctx)
 	span.End()
-	telemetry.ForceFlush(ctx)
 
 	msg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: "done"})
 	msg.ContextID = reqCtx.ContextID

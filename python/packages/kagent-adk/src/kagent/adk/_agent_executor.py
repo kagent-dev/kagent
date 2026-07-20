@@ -44,7 +44,6 @@ from kagent.core.a2a import (
     extract_rejection_reasons_from_message,
     get_kagent_metadata_key,
 )
-from kagent.core.tracing import force_flush as force_flush_tracing
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -199,24 +198,6 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 event_queue,
                 str(e) or "A2A request execution was cancelled.",
             )
-        finally:
-            # Flush buffered spans before the response completes: on Agent
-            # Substrate the actor is checkpointed as soon as the response
-            # body closes, freezing any unexported spans into the snapshot.
-            # Run in a thread so the blocking gRPC export (bounded by the
-            # flush timeout) doesn't stall the event loop.
-            try:
-                await asyncio.to_thread(force_flush_tracing)
-            except asyncio.CancelledError:
-                # A cancellation landing during this await (same cross-task
-                # cancel-scope corruption handled above) must not escape
-                # execute() — that would 500 an otherwise-complete request.
-                # The flush is best-effort; clear the cancellation and move on.
-                current_task = asyncio.current_task()
-                if current_task is not None:
-                    while current_task.uncancel() > 0:
-                        pass
-                logger.warning("Cancelled while flushing spans; skipping flush")
 
     async def _execute_impl(
         self,

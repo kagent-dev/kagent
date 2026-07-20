@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -167,3 +168,87 @@ def test_force_flush_swallows_exporter_errors(monkeypatch):
     monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: provider)
 
     _utils.force_flush()
+
+
+def _flush_test_app():
+    from fastapi import FastAPI
+
+    app = FastAPI()
+
+    @app.post("/")
+    async def root():
+        return {"ok": True}
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    return app
+
+
+def test_post_response_flush_skips_excluded_paths(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    calls = []
+    monkeypatch.setattr(_utils, "force_flush", lambda: calls.append(True))
+
+    app = _flush_test_app()
+    _utils._add_post_response_flush(app)
+    client = TestClient(app)
+
+    assert client.get("/health").status_code == 200
+    assert calls == []
+
+    assert client.post("/").status_code == 200
+    assert calls == [True]
+
+
+def test_post_response_flush_precedes_terminal_body(monkeypatch):
+    from fastapi import FastAPI
+
+    events = []
+    app = FastAPI()
+
+    async def instrumented_app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200})
+        await send({"type": "http.response.body", "body": b"ok"})
+        events.append("server-span-ended")
+
+    app.build_middleware_stack = lambda: instrumented_app
+    monkeypatch.setattr(_utils, "force_flush", lambda: events.append("flushed"))
+    _utils._add_post_response_flush(app)
+
+    async def send(message):
+        events.append(message["type"])
+
+    asyncio.run(app.build_middleware_stack()({"type": "http", "path": "/"}, None, send))
+
+    assert events == ["http.response.start", "server-span-ended", "flushed", "http.response.body"]
+
+
+def test_post_response_flush_exports_server_span(monkeypatch):
+    # The inbound server span ends inside the OTel middleware's send wrapper,
+    # after the executor-level work is long done — only a flush wrapped
+    # *outside* that middleware can export it. Uses a batch processor so
+    # nothing is exported unless the flush actually runs.
+    from fastapi.testclient import TestClient
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(BatchSpanProcessor(exporter))
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: provider)
+
+    app = _flush_test_app()
+    FastAPIInstrumentor().instrument_app(app, tracer_provider=provider)
+    _utils._add_post_response_flush(app)
+
+    with TestClient(app) as client:
+        assert client.post("/").status_code == 200
+
+    names = [span.name for span in exporter.get_finished_spans()]
+    assert any("POST" in name for name in names), f"server span not exported by flush, got {names}"
+    provider.shutdown()
