@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { KAGENT_BACKEND_URL } from "./playwright/backend";
 
 /**
  * Playwright E2E config for the kagent UI.
@@ -17,10 +18,9 @@ const CI = !!process.env.CI;
 const STUB_PORT = 8899;
 const STUB_URL = `http://127.0.0.1:${STUB_PORT}`;
 const APP_URL = "http://localhost:8001";
-// Origin of the REAL kagent backend the proxy forwards to. Defaults to the
-// controller port-forward opened in playwright/setup.ts (localhost:8083). The
-// proxy mocks only the chat A2A stream; everything else hits this backend.
-const KAGENT_BACKEND_URL = process.env.KAGENT_BACKEND_URL ?? "http://127.0.0.1:8083";
+// KAGENT_BACKEND_URL — origin of the REAL kagent backend the proxy forwards to —
+// is defined in playwright/backend.ts alongside the port-forward config in
+// playwright/setup.ts, so the proxy target and the port-forward stay in sync.
 
 // `slowMo` adds an idle delay between every Playwright action (click, fill,
 // goto). The recorded videos play at real time, so without slowMo the test

@@ -10,14 +10,12 @@
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import * as path from "node:path";
+import { CONTROLLER_PORT, LOCAL_PORT } from "./backend";
 
 const PID_FILE = path.join(__dirname, ".e2e-pids.json");
 const KUBE_CONTEXT = process.env.KUBE_CONTEXT || "kind-kagent";
 const NAMESPACE = process.env.KUBE_NAMESPACE || "kagent";
 const CONTROLLER_SERVICE = "kagent-controller";
-const CONTROLLER_PORT = 8083;
-// Local port the proxy targets; keep in sync with KAGENT_BACKEND_URL in playwright.config.ts.
-const LOCAL_PORT = Number(process.env.KAGENT_BACKEND_PORT || 8083);
 
 // Any HTTP response (even 401/404) means the controller is serving; only a
 // connection failure means the port-forward isn't ready yet.
