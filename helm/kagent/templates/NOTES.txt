@@ -28,11 +28,6 @@ ENABLED TOOLS:
 {{- if index .Values "kagent-tools" "enabled" }}
   - Tool Server: Kagent's Built-in tools
 {{- end }}
-{{- range $tool, $config := .Values.tools }}
-{{- if $config.enabled }}
-  - {{ $tool }}
-{{- end }}
-{{- end }}
 
 ENABLED AGENTS:
 {{- $agents := list "k8s-agent" "kgateway-agent" "istio-agent" "promql-agent" "observability-agent" "argo-rollouts-agent" "helm-agent" "cilium-policy-agent" "cilium-manager-agent" "cilium-debug-agent" }}
