@@ -20,7 +20,7 @@ ARG LDFLAGS
 RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     --mount=type=cache,target=/root/.cache/go-build,rw \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-    go build -a -trimpath -ldflags "$LDFLAGS" -o /skills-init ./core/cmd/skills-init
+    go build -trimpath -ldflags "$LDFLAGS" -o /skills-init ./core/cmd/skills-init
 
 ### Stage 1: runtime
 FROM alpine:3.24

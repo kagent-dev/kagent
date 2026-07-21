@@ -7,7 +7,7 @@ name = "kagent-adk"
 version = "0.3.0"
 description = "kagent-adk is an sdk for integrating adk agents with kagent"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "agentsts-adk>=0.1.0",
   "agentsts-core>=0.1.0",
@@ -15,12 +15,12 @@ dependencies = [
   "kagent-skills>=0.1.0",
   "aiofiles>=24.1.0",
   "anyio>=4.14.2",
-  "typer>=0.15.0",
+  "typer>=0.27.0",
   "uvicorn>=0.34.0",
   "openai>=1.72.0",
   "mcp>=1.25.0",
   "protobuf>=6.33.5",  # CVE-2026-0994: Denial of Service due to recursion depth bypass
-  "anthropic[vertex]>=0.116.0",
+  "anthropic[vertex]>=0.117.0",
   "fastapi>=0.115.1",
   "google-adk>=1.28.1,<2",
   "opentelemetry-api>=1.0.0",  # memory.* span instrumentation (parity with Go ADK)
