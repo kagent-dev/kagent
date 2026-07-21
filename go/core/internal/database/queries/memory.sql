@@ -8,9 +8,9 @@ RETURNING id;
 -- COALESCE guards against NULL embeddings (score=0 rather than NULL); rows are still ordered last by the ORDER BY clause.
 SELECT *, COALESCE(1 - (embedding <=> $1), 0) AS score
 FROM memory
-WHERE agent_name = $2 AND user_id = $3
+WHERE (agent_name = $2 OR agent_name = $3) AND user_id = $4
 ORDER BY embedding <=> $1 ASC
-LIMIT $4;
+LIMIT $5;
 
 -- name: IncrementMemoryAccessCount :exec
 -- Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
