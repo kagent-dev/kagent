@@ -314,16 +314,6 @@ type SAPAICoreConfig struct {
 	AuthURL string `json:"authUrl,omitempty"`
 }
 
-// FoundryEndpointSource references an external source for the Foundry endpoint,
-// such as a ConfigMap populated by Azure Service Operator (ASO) when it
-// provisions the Azure AI Services / Foundry account.
-// +kubebuilder:validation:XValidation:message="configMapKeyRef is required",rule="has(self.configMapKeyRef)"
-type FoundryEndpointSource struct {
-	// ConfigMapKeyRef selects a key of a ConfigMap containing the Foundry endpoint.
-	// +optional
-	ConfigMapKeyRef *corev1.ConfigMapKeySelector `json:"configMapKeyRef,omitempty"`
-}
-
 // FoundryConfig contains Azure AI Foundry-specific configuration options.
 //
 // Authentication is implicit and mirrors the other cloud providers: if
@@ -340,11 +330,15 @@ type FoundryConfig struct {
 	// +optional
 	Endpoint string `json:"endpoint,omitempty"`
 
-	// EndpointFrom resolves the Foundry endpoint from an external source, such
-	// as a ConfigMap written by Azure Service Operator. Mutually exclusive with
-	// Endpoint.
+	// EndpointFrom resolves the Foundry endpoint from a ConfigMap key, such as
+	// one written by Azure Service Operator. Mutually exclusive with Endpoint.
+	//
+	// The selector's optional flag only controls how a missing key is handled: when
+	// set to true, the missing key is ignored while reading the ConfigMap, but a
+	// Foundry endpoint must always be supplied, so an unresolved endpointFrom still
+	// leaves the model unusable and the agent fails to start.
 	// +optional
-	EndpointFrom *FoundryEndpointSource `json:"endpointFrom,omitempty"`
+	EndpointFrom *corev1.ConfigMapKeySelector `json:"endpointFrom,omitempty"`
 
 	// Deployment is the Foundry model deployment name.
 	// +required

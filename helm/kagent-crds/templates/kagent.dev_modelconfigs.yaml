@@ -551,38 +551,34 @@ spec:
                     type: string
                   endpointFrom:
                     description: |-
-                      EndpointFrom resolves the Foundry endpoint from an external source, such
-                      as a ConfigMap written by Azure Service Operator. Mutually exclusive with
-                      Endpoint.
+                      EndpointFrom resolves the Foundry endpoint from a ConfigMap key, such as
+                      one written by Azure Service Operator. Mutually exclusive with Endpoint.
+
+                      The selector's optional flag only controls how a missing key is handled: when
+                      set to true, the missing key is ignored while reading the ConfigMap, but a
+                      Foundry endpoint must always be supplied, so an unresolved endpointFrom still
+                      leaves the model unusable and the agent fails to start.
                     properties:
-                      configMapKeyRef:
-                        description: ConfigMapKeyRef selects a key of a ConfigMap
-                          containing the Foundry endpoint.
-                        properties:
-                          key:
-                            description: The key to select.
-                            type: string
-                          name:
-                            default: ""
-                            description: |-
-                              Name of the referent.
-                              This field is effectively required, but due to backwards compatibility is
-                              allowed to be empty. Instances of this type with an empty value here are
-                              almost certainly wrong.
-                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                            type: string
-                          optional:
-                            description: Specify whether the ConfigMap or its key
-                              must be defined
-                            type: boolean
-                        required:
-                        - key
-                        type: object
-                        x-kubernetes-map-type: atomic
+                      key:
+                        description: The key to select.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the ConfigMap or its key must
+                          be defined
+                        type: boolean
+                    required:
+                    - key
                     type: object
-                    x-kubernetes-validations:
-                    - message: configMapKeyRef is required
-                      rule: has(self.configMapKeyRef)
+                    x-kubernetes-map-type: atomic
                 required:
                 - deployment
                 type: object
