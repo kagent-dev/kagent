@@ -97,7 +97,7 @@
     "@vitest/coverage-v8": "^4.1.2",
     "autoprefixer": "^10.5.4",
     "babel-plugin-react-compiler": "^1.0.0",
-    "chromatic": "^16.10.1",
+    "chromatic": "^18.0.1",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.2.10",
     "eslint-plugin-storybook": "^10.5.2",
