@@ -281,18 +281,21 @@ func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task, userID s
 	if err != nil {
 		return fmt.Errorf("failed to serialize task: %w", err)
 	}
-	// The WHERE clause on UpsertTask's ON CONFLICT is what actually stops a
-	// cross-user takeover; this check only turns that into a clean error.
-	if err := c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
+	// UpsertTask returns no rows when the write was rejected: the id belongs
+	// to another user, or to a soft-deleted task (deleted ids stay burned).
+	if _, err := c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
 		ID:              string(task.ID),
 		Data:            string(data),
 		SessionID:       strPtrIfNotEmpty(task.ContextID),
 		ProtocolVersion: nil,
 		UserID:          &userID,
 	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return dbpkg.ErrTaskOwnedByAnotherUser
+		}
 		return fmt.Errorf("failed to store task %s: %w", task.ID, err)
 	}
-	return c.checkTaskOwner(ctx, string(task.ID), userID)
+	return nil
 }
 
 // checkTaskOwner returns ErrTaskOwnedByAnotherUser if taskID still exists but

@@ -82,7 +82,11 @@ type Querier interface {
 	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
 	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
 	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error
-	UpsertTask(ctx context.Context, arg UpsertTaskParams) error
+	// UpsertTask returns the upserted id, or no rows when the write was rejected:
+	// the id belongs to another user, or it belongs to a soft-deleted task (a
+	// deleted id is never updated or resurrected, it stays burned). Callers map
+	// "no rows" to a conflict error.
+	UpsertTask(ctx context.Context, arg UpsertTaskParams) (string, error)
 	UpsertTool(ctx context.Context, arg UpsertToolParams) error
 	UpsertToolServer(ctx context.Context, arg UpsertToolServerParams) (Toolserver, error)
 }

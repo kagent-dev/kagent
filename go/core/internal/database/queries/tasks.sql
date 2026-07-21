@@ -30,7 +30,11 @@ WHERE task.session_id = $1 AND task.deleted_at IS NULL
       HAVING COUNT(DISTINCT s.user_id) = 1)))
 ORDER BY created_at ASC;
 
--- name: UpsertTask :exec
+-- UpsertTask returns the upserted id, or no rows when the write was rejected:
+-- the id belongs to another user, or it belongs to a soft-deleted task (a
+-- deleted id is never updated or resurrected, it stays burned). Callers map
+-- "no rows" to a conflict error.
+-- name: UpsertTask :one
 WITH upserted_task AS (
 INSERT INTO task (id, data, session_id, protocol_version, user_id, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
@@ -40,19 +44,23 @@ ON CONFLICT (id) DO UPDATE SET
     protocol_version = EXCLUDED.protocol_version,
     user_id          = EXCLUDED.user_id,
     updated_at       = NOW()
-WHERE task.user_id = EXCLUDED.user_id
+WHERE task.deleted_at IS NULL
+  AND (task.user_id = EXCLUDED.user_id
    OR (task.user_id IS NULL AND EXCLUDED.user_id = (
        SELECT MIN(s.user_id) FROM session s WHERE s.id = task.session_id
-       HAVING COUNT(DISTINCT s.user_id) = 1))
-RETURNING session_id, user_id
-)
+       HAVING COUNT(DISTINCT s.user_id) = 1)))
+RETURNING id, session_id, user_id
+),
+touched_session AS (
 UPDATE session
 SET updated_at = NOW()
 FROM upserted_task
 WHERE upserted_task.session_id IS NOT NULL
   AND session.id = upserted_task.session_id
   AND session.user_id = upserted_task.user_id
-  AND session.deleted_at IS NULL;
+  AND session.deleted_at IS NULL
+)
+SELECT id FROM upserted_task;
 
 -- name: SoftDeleteTask :exec
 UPDATE task SET deleted_at = NOW()

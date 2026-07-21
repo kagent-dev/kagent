@@ -360,6 +360,27 @@ func TestTaskAccessIsScopedToOwner(t *testing.T) {
 	require.NoError(t, client.DeleteTask(ctx, "task-owned", "user-a"), "deleting an already-gone task is not an error")
 }
 
+// A soft-deleted task keeps its primary key row, so its id is burned: reusing
+// it must fail loudly for everyone instead of reporting success while writing
+// nothing (or silently updating a row that stays deleted).
+func TestDeletedTaskIdCannotBeReused(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-dead"}, "alice"))
+	require.NoError(t, client.DeleteTask(ctx, "t-dead", "alice"))
+
+	err := client.StoreTask(ctx, &a2a.Task{ID: "t-dead"}, "bob")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "another user must not reuse a deleted id")
+
+	err = client.StoreTask(ctx, &a2a.Task{ID: "t-dead"}, "alice")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "the owner must not silently resurrect a deleted id")
+
+	_, err = client.GetTask(ctx, "t-dead", "alice")
+	require.Error(t, err, "the task must stay deleted")
+}
+
 // TestNullOwnedTaskAccess covers tasks with a NULL user_id: rows written
 // before the owner column existed, or by a pre-upgrade pod during a rolling
 // upgrade. Such a task is only visible to, and claimable by, the caller when
