@@ -201,6 +201,7 @@ go/bin/
 file::memory:*
 .vscode/
 .cursor/rules
+*.omc
 
 ## Helm
 *.tgz
