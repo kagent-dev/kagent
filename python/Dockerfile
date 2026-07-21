@@ -6,7 +6,7 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 # Build the uv-managed standalone Python interpreter and the project venv on a full base
 # (debian-slim, digest-pinnable). Nothing from this stage ships except /python and the venv.
 # Digest = multi-arch index resolved via `docker buildx imagetools inspect debian:12-slim`.
-FROM debian:13-slim@sha256:28de0877c2189802884ccd20f15ee41c203573bd87bb6b883f5f46362d24c5c2 AS builder
+FROM debian:13-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd AS builder
 ARG TOOLS_PYTHON_VERSION=3.13
 
 ENV LANG=C.UTF-8
@@ -70,7 +70,7 @@ RUN mkdir -p /staging/config
 # version-numbered tags (only :nonroot/:latest/:debug), so a digest is the only way to pin tighter
 # than "Debian 12". Tag kept for readability; bump the digest via dependency tooling.
 # Digest = multi-arch index resolved via `docker buildx imagetools inspect gcr.io/distroless/cc-debian12:nonroot`.
-FROM gcr.io/distroless/cc-debian12:nonroot@sha256:ce0d66bc0f64aae46e6a03add867b07f42cc7b8799c949c2e898057b7f75a151
+FROM gcr.io/distroless/cc-debian12:nonroot@sha256:66aa873a4a14fb164aa01296058efd8253744606d72715e45acface073359faa
 ARG VERSION
 
 ENV LANG=C.UTF-8
