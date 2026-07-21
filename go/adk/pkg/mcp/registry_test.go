@@ -2,14 +2,17 @@ package mcp
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/a2asrv"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/tool"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/genai"
 )
 
 // a2aCtx builds a context that carries an A2A CallContext with the given headers.
@@ -195,6 +198,67 @@ func TestMCPAppToolNamesFromToolsets(t *testing.T) {
 		t.Fatalf("MCPAppToolNamesFromToolsets() = %#v, want show_board and refresh", got)
 	}
 }
+
+func TestInitializeToolSetRecoversWhenServerStartsAfterInitialization(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	serverURL := "http://" + listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("listener.Close() error = %v", err)
+	}
+
+	toolset, err := initializeToolSet(t.Context(), mcpServerParams{
+		URL:        serverURL,
+		ServerType: "http",
+	}, map[string]bool{"getWeather": true, "disabledTool": false})
+	if err != nil {
+		t.Fatalf("initializeToolSet() error = %v, want lazy fallback", err)
+	}
+
+	mcpServer := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "weather-test", Version: "1.0.0"}, nil)
+	mcpsdk.AddTool(mcpServer, &mcpsdk.Tool{Name: "getWeather"}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"weather": "sunny"}, nil
+	})
+	mcpsdk.AddTool(mcpServer, &mcpsdk.Tool{Name: "disabledTool"}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, nil, nil
+	})
+	listener, err = net.Listen("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("net.Listen() after initialization error = %v", err)
+	}
+	httpServer := &http.Server{Handler: mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
+		return mcpServer
+	}, nil)}
+	t.Cleanup(func() {
+		_ = httpServer.Close()
+	})
+	go func() {
+		_ = httpServer.Serve(listener)
+	}()
+
+	tools, err := toolset.Tools(testReadonlyContext{Context: t.Context()})
+	if err != nil {
+		t.Fatalf("toolset.Tools() error = %v, want recovery after server startup", err)
+	}
+	if len(tools) != 1 || tools[0].Name() != "getWeather" {
+		t.Fatalf("toolset.Tools() = %#v, want getWeather", tools)
+	}
+}
+
+type testReadonlyContext struct {
+	context.Context
+}
+
+func (testReadonlyContext) UserContent() *genai.Content          { return nil }
+func (testReadonlyContext) InvocationID() string                 { return "test-invocation" }
+func (testReadonlyContext) AgentName() string                    { return "test-agent" }
+func (testReadonlyContext) ReadonlyState() session.ReadonlyState { return nil }
+func (testReadonlyContext) UserID() string                       { return "test-user" }
+func (testReadonlyContext) AppName() string                      { return "test-app" }
+func (testReadonlyContext) SessionID() string                    { return "test-session" }
+func (testReadonlyContext) Branch() string                       { return "" }
 
 type stubToolset struct {
 	name string

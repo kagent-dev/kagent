@@ -13,7 +13,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 const (
