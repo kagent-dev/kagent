@@ -1,6 +1,17 @@
+-- Task ownership: a task belongs to task.user_id. A NULL user_id (row written
+-- before the owner column existed, or by a pre-upgrade pod during a rolling
+-- upgrade) is only visible to, and claimable by, a caller whose session id
+-- maps to exactly one user across its whole history (deleted sessions
+-- included) and that user is the caller. Anything ambiguous stays hidden
+-- rather than guessed. This mirrors the backfill rule in migration
+-- 000007_task_owner.
+
 -- name: GetTask :one
 SELECT * FROM task
-WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+WHERE task.id = $1 AND task.deleted_at IS NULL
+  AND (task.user_id = $2 OR (task.user_id IS NULL AND $2 = (
+      SELECT MIN(s.user_id) FROM session s WHERE s.id = task.session_id
+      HAVING COUNT(DISTINCT s.user_id) = 1)))
 LIMIT 1;
 
 -- name: GetTaskOwner :one
@@ -13,7 +24,10 @@ SELECT EXISTS (
 
 -- name: ListTasksForSession :many
 SELECT * FROM task
-WHERE session_id = $1 AND deleted_at IS NULL
+WHERE task.session_id = $1 AND task.deleted_at IS NULL
+  AND (task.user_id = $2 OR (task.user_id IS NULL AND $2 = (
+      SELECT MIN(s.user_id) FROM session s WHERE s.id = task.session_id
+      HAVING COUNT(DISTINCT s.user_id) = 1)))
 ORDER BY created_at ASC;
 
 -- name: UpsertTask :exec
@@ -24,16 +38,25 @@ ON CONFLICT (id) DO UPDATE SET
     data             = EXCLUDED.data,
     session_id       = EXCLUDED.session_id,
     protocol_version = EXCLUDED.protocol_version,
+    user_id          = EXCLUDED.user_id,
     updated_at       = NOW()
-WHERE task.user_id = EXCLUDED.user_id OR task.user_id IS NULL
-RETURNING session_id
+WHERE task.user_id = EXCLUDED.user_id
+   OR (task.user_id IS NULL AND EXCLUDED.user_id = (
+       SELECT MIN(s.user_id) FROM session s WHERE s.id = task.session_id
+       HAVING COUNT(DISTINCT s.user_id) = 1))
+RETURNING session_id, user_id
 )
 UPDATE session
 SET updated_at = NOW()
 FROM upserted_task
 WHERE upserted_task.session_id IS NOT NULL
   AND session.id = upserted_task.session_id
+  AND session.user_id = upserted_task.user_id
   AND session.deleted_at IS NULL;
 
 -- name: SoftDeleteTask :exec
-UPDATE task SET deleted_at = NOW() WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL;
+UPDATE task SET deleted_at = NOW()
+WHERE task.id = $1 AND task.deleted_at IS NULL
+  AND (task.user_id = $2 OR (task.user_id IS NULL AND $2 = (
+      SELECT MIN(s.user_id) FROM session s WHERE s.id = task.session_id
+      HAVING COUNT(DISTINCT s.user_id) = 1)));

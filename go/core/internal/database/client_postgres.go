@@ -295,9 +295,12 @@ func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task, userID s
 	return c.checkTaskOwner(ctx, string(task.ID), userID)
 }
 
-// checkTaskOwner returns ErrTaskOwnedByAnotherUser if taskID exists and
-// belongs to someone else. A missing task is not an error: the caller
-// decides what that means (nothing to own yet, or already deleted).
+// checkTaskOwner returns ErrTaskOwnedByAnotherUser if taskID still exists but
+// does not belong to userID after an owner-scoped write. A NULL owner counts
+// as foreign too: a successful write always stamps the caller's user_id, so a
+// surviving NULL means the write was rejected. A missing task is not an
+// error: the caller decides what that means (nothing to own yet, or already
+// deleted).
 func (c *postgresClient) checkTaskOwner(ctx context.Context, taskID, userID string) error {
 	owner, err := c.q.GetTaskOwner(ctx, taskID)
 	if err != nil {
@@ -306,7 +309,7 @@ func (c *postgresClient) checkTaskOwner(ctx context.Context, taskID, userID stri
 		}
 		return fmt.Errorf("failed to check task owner for %s: %w", taskID, err)
 	}
-	if owner != nil && *owner != userID {
+	if owner == nil || *owner != userID {
 		return dbpkg.ErrTaskOwnedByAnotherUser
 	}
 	return nil
@@ -320,8 +323,8 @@ func (c *postgresClient) GetTask(ctx context.Context, taskID, userID string) (*a
 	return parseVersionedTask(row.Data, row.ProtocolVersion)
 }
 
-func (c *postgresClient) ListTasksForSession(ctx context.Context, sessionID string) ([]*a2a.Task, error) {
-	rows, err := c.q.ListTasksForSession(ctx, &sessionID)
+func (c *postgresClient) ListTasksForSession(ctx context.Context, sessionID, userID string) ([]*a2a.Task, error) {
+	rows, err := c.q.ListTasksForSession(ctx, dbgen.ListTasksForSessionParams{SessionID: &sessionID, UserID: &userID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tasks for session: %w", err)
 	}

@@ -21,6 +21,13 @@ type Querier interface {
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
 	GetSession(ctx context.Context, arg GetSessionParams) (Session, error)
 	GetSessionShareByToken(ctx context.Context, token string) (SessionShare, error)
+	// Task ownership: a task belongs to task.user_id. A NULL user_id (row written
+	// before the owner column existed, or by a pre-upgrade pod during a rolling
+	// upgrade) is only visible to, and claimable by, a caller whose session id
+	// maps to exactly one user across its whole history (deleted sessions
+	// included) and that user is the caller. Anything ambiguous stays hidden
+	// rather than guessed. This mirrors the backfill rule in migration
+	// 000007_task_owner.
 	GetTask(ctx context.Context, arg GetTaskParams) (Task, error)
 	GetTaskOwner(ctx context.Context, id string) (*string, error)
 	GetTool(ctx context.Context, id string) (Tool, error)
@@ -48,7 +55,7 @@ type Querier interface {
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]ListSessionsForAgentRow, error)
 	ListSessionsForAgentAllUsers(ctx context.Context, agentID *string) ([]Session, error)
-	ListTasksForSession(ctx context.Context, sessionID *string) ([]Task, error)
+	ListTasksForSession(ctx context.Context, arg ListTasksForSessionParams) ([]Task, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)

@@ -53,7 +53,7 @@ type Client interface {
 	// List methods
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
-	ListTasksForSession(ctx context.Context, sessionID string) ([]*a2a.Task, error)
+	ListTasksForSession(ctx context.Context, sessionID string, userID string) ([]*a2a.Task, error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]SessionWithShareToken, error)
 	ListSessionsForAgentAllUsers(ctx context.Context, agentID string) ([]Session, error)
