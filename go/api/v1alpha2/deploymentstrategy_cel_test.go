@@ -31,12 +31,10 @@ import (
 )
 
 // TestDeploymentStrategyCELValidation pins the deploymentStrategy CEL rules
-// against a real kube-apiserver loaded with the shipped CRDs:
-//   - the field-level rule rejecting type Recreate combined with a
-//     rollingUpdate block (the apps/v1 API server rejects the same
-//     combination at Deployment-apply time; this surfaces it at admission)
-//   - the SandboxAgentSpec rule rejecting deploymentStrategy entirely,
-//     since a SandboxAgent's workload is an ActorTemplate, not a Deployment
+// against a real kube-apiserver loaded with the shipped CRDs: the field-level
+// rules rejecting an invalid strategy type and type Recreate combined with a
+// rollingUpdate block (the apps/v1 API server rejects the same combination at
+// Deployment-apply time; this surfaces it at admission).
 func TestDeploymentStrategyCELValidation(t *testing.T) {
 	testEnv := &envtest.Environment{
 		BinaryAssetsDirectory: envtestAssetsDir(t),
@@ -136,55 +134,6 @@ func TestDeploymentStrategyCELValidation(t *testing.T) {
 				}
 			},
 			wantReject: "strategy type must be RollingUpdate or Recreate",
-		},
-		{
-			name: "SandboxAgent: declarative deploymentStrategy rejected",
-			build: func() ctrl_client.Object {
-				return &SandboxAgent{
-					ObjectMeta: metav1.ObjectMeta{Name: "sa-decl-strategy", Namespace: ns},
-					Spec: SandboxAgentSpec{
-						AgentSpec: declarativeSpec(&appsv1.DeploymentStrategy{
-							Type: appsv1.RecreateDeploymentStrategyType,
-						}),
-					},
-				}
-			},
-			wantReject: "deploymentStrategy is not supported for sandbox agents",
-		},
-		{
-			name: "SandboxAgent: byo deploymentStrategy rejected",
-			build: func() ctrl_client.Object {
-				return &SandboxAgent{
-					ObjectMeta: metav1.ObjectMeta{Name: "sa-byo-strategy", Namespace: ns},
-					Spec: SandboxAgentSpec{
-						AgentSpec: AgentSpec{
-							Type: AgentType_BYO,
-							BYO: &BYOAgentSpec{
-								Deployment: &ByoDeploymentSpec{
-									Image: "example.com/agent:latest",
-									SharedDeploymentSpec: SharedDeploymentSpec{
-										DeploymentStrategy: &appsv1.DeploymentStrategy{
-											Type: appsv1.RecreateDeploymentStrategyType,
-										},
-									},
-								},
-							},
-						},
-					},
-				}
-			},
-			wantReject: "deploymentStrategy is not supported for sandbox agents",
-		},
-		{
-			name: "SandboxAgent: no deploymentStrategy accepted",
-			build: func() ctrl_client.Object {
-				return &SandboxAgent{
-					ObjectMeta: metav1.ObjectMeta{Name: "sa-no-strategy", Namespace: ns},
-					Spec: SandboxAgentSpec{
-						AgentSpec: declarativeSpec(nil),
-					},
-				}
-			},
 		},
 	}
 

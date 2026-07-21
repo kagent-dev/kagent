@@ -38,7 +38,6 @@ type SandboxAgent struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.skills)",message="spec.skills is not supported for sandbox agents"
-// +kubebuilder:validation:XValidation:rule="!(has(self.declarative) && has(self.declarative.deployment) && has(self.declarative.deployment.deploymentStrategy)) && !(has(self.byo) && has(self.byo.deployment) && has(self.byo.deployment.deploymentStrategy))",message="deploymentStrategy is not supported for sandbox agents"
 type SandboxAgentSpec struct {
 	AgentSpec `json:",inline"`
 

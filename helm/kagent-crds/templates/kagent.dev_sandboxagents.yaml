@@ -11493,10 +11493,6 @@ spec:
             x-kubernetes-validations:
             - message: spec.skills is not supported for sandbox agents
               rule: '!has(self.skills)'
-            - message: deploymentStrategy is not supported for sandbox agents
-              rule: '!(has(self.declarative) && has(self.declarative.deployment) &&
-                has(self.declarative.deployment.deploymentStrategy)) && !(has(self.byo)
-                && has(self.byo.deployment) && has(self.byo.deployment.deploymentStrategy))'
             - message: type must be specified
               rule: has(self.type)
             - message: type must be either Declarative or BYO
