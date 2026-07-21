@@ -25,7 +25,7 @@ import { createSession, getSessionTasks, checkSessionExists, getSessionWithEvent
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
 import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 import ShareButton from "@/components/chat/ShareButton";
-import { getAgentWithResolvedKind, waitForSandboxAgentReady } from "@/app/actions/agents";
+import { waitForSandboxAgentReady } from "@/app/actions/agents";
 import { getUiRuntimeConfig } from "@/app/actions/config";
 import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
 import { toast } from "sonner";
@@ -33,25 +33,17 @@ import { useRouter } from "next/navigation";
 import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
-import { useChatRunInSandbox, useChatSubstrateSandbox } from "@/components/chat/ChatAgentContext";
+import { useChatRunInSandbox, useChatSubstrateSandbox, useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
 import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
 import { useChatMcpApps } from "@/components/chat/ChatMcpAppsContext";
-
-// Task states where the agent is actively processing — resubscribe to live stream.
-const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
-// Task states that mean the session is busy (used by the cross-tab send guard).
-const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
-
-// Server-authoritative high-water mark for cross-tab staleness detection.
-// Counts persisted history messages across all tasks — a value the DB assigns
-// and every tab reads identically, independent of how each tab rendered them
-// (synthetic tool/artifact/summary cards never land here). Comparing this against
-// the count a tab last synced reliably detects when another tab advanced the
-// conversation, without depending on fragile rendered-message-count parity.
-const countServerMessages = (tasks: Task[]): number =>
-  tasks.reduce((sum, task) => sum + (task.history?.length ?? 0), 0);
+import {
+  checkAndSyncChatSession,
+  countServerMessages,
+  RESUBSCRIBE_TASK_STATES,
+  type SessionGuardOptions,
+} from "@/lib/chatSessionGuard";
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -64,6 +56,7 @@ interface ChatInterfaceProps {
 
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId, shareToken }: ChatInterfaceProps) {
   const runInSandbox = useChatRunInSandbox();
+  const currentAgent = useCurrentChatAgent();
   const { getMcpAppForTool } = useChatMcpApps();
   const substrateSandbox = useChatSubstrateSandbox();
   const router = useRouter();
@@ -613,8 +606,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         try {
           if (substrateSandbox) {
             // ActorTemplate readiness only; per-session actors resume on the A2A request.
-            const agentRes = await getAgentWithResolvedKind(selectedAgentName, selectedNamespace);
-            if (!agentRes.data?.deploymentReady) {
+            if (!currentAgent.deploymentReady) {
               throw new Error("Sandbox agent is still starting. Wait a moment and try again.");
             }
           } else {
@@ -721,69 +713,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
    */
   const checkAndSyncSessionBeforeAction = async (
     guardSessionId: string,
-    opts: {
-      expectedTaskId?: string;
-      messages: {
-        inFlight: string;
-        inputRequired?: string;
-        staleOrChanged: string;
-      };
-    }
-  ): Promise<"proceed" | "blocked"> => {
-    let tasksCheck: Awaited<ReturnType<typeof getSessionTasks>>;
-    try {
-      tasksCheck = await getSessionTasks(guardSessionId);
-    } catch {
-      // Guard is best-effort: if the check fails, let the action proceed.
-      return "proceed";
-    }
-    if (!tasksCheck.data) return "proceed";
-
-    if (opts.expectedTaskId) {
-      const expectedTask = tasksCheck.data.findLast(task => task.id === opts.expectedTaskId);
-      if ((expectedTask?.status?.state as TaskState | undefined) !== "input-required") {
-        const inFlightTask = tasksCheck.data.findLast(
-          task => RESUBSCRIBE_TASK_STATES.includes(task.status?.state as TaskState)
-        );
-        if (inFlightTask) {
-          toast.info(opts.messages.inFlight);
-          setChatStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
-          await streamResubscribedTask(inFlightTask.id);
-        } else {
-          await reloadSessionFromDB();
-          toast.info(opts.messages.staleOrChanged);
-        }
-        return "blocked";
-      }
-      return "proceed";
-    }
-
-    const inFlightTask = tasksCheck.data.findLast(
-      task => ACTIVE_TASK_STATES.includes(task.status?.state as TaskState)
-    );
-    if (inFlightTask) {
-      if ((inFlightTask.status?.state as TaskState) === "input-required") {
-        await reloadSessionFromDB();
-        toast.info(opts.messages.inputRequired ?? opts.messages.staleOrChanged);
-      } else {
-        toast.info(opts.messages.inFlight);
-        setChatStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
-        await streamResubscribedTask(inFlightTask.id);
-      }
-      return "blocked";
-    }
-
-    // Send-guard mode: no specific task to verify. If the server holds more
-    // persisted messages than this tab has synced, another tab advanced the
-    // conversation — reload and block so the user sees the latest context first.
-    if (countServerMessages(tasksCheck.data) > syncedServerMsgCountRef.current) {
-      await reloadSessionFromDB();
-      toast.info(opts.messages.staleOrChanged);
-      return "blocked";
-    }
-
-    return "proceed";
-  };
+    options: SessionGuardOptions,
+  ) => checkAndSyncChatSession({
+    sessionId: guardSessionId,
+    syncedServerMessageCount: syncedServerMsgCountRef.current,
+    options,
+    reloadSession: reloadSessionFromDB,
+    resubscribeTask: streamResubscribedTask,
+    setStatus: setChatStatus,
+    notify: toast.info,
+  });
 
   const handleCancel = (e: React.FormEvent) => {
     e.preventDefault();

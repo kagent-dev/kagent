@@ -1,13 +1,14 @@
 "use client";
 import { useTheme } from "next-themes";
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 
-// Helper to detect if we're in browser environment
-const getIsMounted = (): boolean => typeof window !== 'undefined';
+const subscribe = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
 
 export default function KAgentLogoWithText({ className } : { className?: string }) {
   const { resolvedTheme } = useTheme();
-  const [mounted] = useState(getIsMounted);
+  const mounted = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
 
   if (!mounted) {
     return null;
