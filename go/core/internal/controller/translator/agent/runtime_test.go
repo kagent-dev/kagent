@@ -105,7 +105,8 @@ func TestRuntime_GoRuntime(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "golang-adk", "Image should use golang-adk repository")
-	assert.Contains(t, container.Image, "@sha256:test-go-base", "Go runtime should use digest-pinned golang-adk image")
+	assert.Contains(t, container.Image, ":"+translator.DefaultImageConfig.Tag, "Go runtime should reference the golang-adk image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 
 	// Verify Go runtime readiness probe timings (fast startup)
 	require.NotNil(t, container.ReadinessProbe)
@@ -178,7 +179,8 @@ func TestRuntime_GoRuntimeWithSkillsUsesFullImageTag(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "golang-adk", "Image should use golang-adk repository")
-	assert.Contains(t, container.Image, "@sha256:test-go-full", "Go runtime with skills should use digest-pinned golang-adk-full image")
+	assert.Contains(t, container.Image, ":"+translator.DefaultImageConfig.Tag+"-full", "Go runtime with skills should reference the golang-adk full image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 }
 
 func TestRuntime_PythonRuntime(t *testing.T) {
@@ -245,11 +247,12 @@ func TestRuntime_PythonRuntime(t *testing.T) {
 	}
 	require.NotNil(t, deployment, "Deployment should be in manifest")
 
-	// Verify container image uses digest-pinned app (Python ADK)
+	// Verify container image uses the tag-referenced app image (Python ADK)
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
-	assert.Contains(t, container.Image, "/app@", "Image should use app repository")
-	assert.Contains(t, container.Image, "@sha256:test-app", "Python runtime should use digest-pinned app image")
+	assert.Contains(t, container.Image, "/app:", "Image should use app repository")
+	assert.Contains(t, container.Image, ":"+translator.DefaultImageConfig.Tag, "Python runtime should reference the app image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 
 	// Verify Python runtime readiness probe timings (slower startup)
 	require.NotNil(t, container.ReadinessProbe)
@@ -322,11 +325,12 @@ func TestRuntime_DefaultToPython(t *testing.T) {
 	}
 	require.NotNil(t, deployment, "Deployment should be in manifest")
 
-	// Verify container image uses digest-pinned app (Python ADK) by default
+	// Verify container image uses the tag-referenced app image (Python ADK) by default
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
-	assert.Contains(t, container.Image, "/app@", "Image should default to app repository")
-	assert.Contains(t, container.Image, "@sha256:test-app", "Default Python runtime should use digest-pinned app image")
+	assert.Contains(t, container.Image, "/app:", "Image should default to app repository")
+	assert.Contains(t, container.Image, ":"+translator.DefaultImageConfig.Tag, "Default Python runtime should reference the app image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 
 	// Verify Python runtime readiness probe timings
 	require.NotNil(t, container.ReadinessProbe)
@@ -412,7 +416,8 @@ func TestRuntime_CustomRepositoryPath(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "my-registry.com/custom/golang-adk", "Image should use custom repository with golang-adk")
-	assert.Contains(t, container.Image, "@sha256:test-go-base", "Go runtime should use digest-pinned golang-adk image")
+	assert.Contains(t, container.Image, ":"+translator.DefaultImageConfig.Tag, "Go runtime should reference the golang-adk image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 }
 
 func TestRuntime_CustomRepositoryPath_WithSkillsUsesFullTag(t *testing.T) {
@@ -485,5 +490,6 @@ func TestRuntime_CustomRepositoryPath_WithSkillsUsesFullTag(t *testing.T) {
 	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
 	container := deployment.Spec.Template.Spec.Containers[0]
 	assert.Contains(t, container.Image, "my-registry.com/custom/golang-adk", "Image should use custom repository with golang-adk")
-	assert.Contains(t, container.Image, "@sha256:test-go-full", "Go runtime with skills should use digest-pinned golang-adk-full image")
+	assert.Contains(t, container.Image, ":"+translator.DefaultImageConfig.Tag+"-full", "Go runtime with skills should reference the golang-adk full image by tag")
+	assert.NotContains(t, container.Image, "@sha256:", "regular agents must not use digest-pinned images")
 }
