@@ -57,7 +57,7 @@ export default defineConfig({
     baseURL: APP_URL,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
-    video: "retain-on-failure",
+    video: "on",
     launchOptions: {
       slowMo: SLOW_MO_MS,
     },
