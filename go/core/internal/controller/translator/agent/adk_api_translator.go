@@ -128,6 +128,16 @@ var PythonADKFullImageDigest string
 var GoADKImageDigest string
 var GoADKFullImageDigest string
 
+// DefaultGoImageConfig is the image config for the Go (ADK) runtime agent.
+// Regular agents reference it by tag; sandbox agents pin by digest via
+// GoADKImageDigest / GoADKFullImageDigest.
+var DefaultGoImageConfig = ImageConfig{
+	Registry:   "ghcr.io",
+	Tag:        version.Get().Version,
+	PullPolicy: string(corev1.PullIfNotPresent),
+	Repository: "kagent-dev/kagent/golang-adk",
+}
+
 // DefaultSkillsInitImageConfig is the image config for the skills-init container
 // that clones skill repositories from Git and pulls OCI skill images.
 var DefaultSkillsInitImageConfig = ImageConfig{
