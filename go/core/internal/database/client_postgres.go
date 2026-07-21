@@ -684,11 +684,13 @@ func (c *postgresClient) StoreAgentMemories(ctx context.Context, memories []*dbp
 }
 
 func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
+	normalized := strings.ReplaceAll(agentName, "-", "_")
 	rows, err := c.q.SearchAgentMemory(ctx, dbgen.SearchAgentMemoryParams{
-		Embedding: embedding,
-		AgentName: &agentName,
-		UserID:    &userID,
-		Limit:     int32(limit),
+		Embedding:   embedding,
+		AgentName:   &agentName,
+		AgentName_2: &normalized,
+		UserID:      &userID,
+		Limit:       int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to search agent memory: %w", err)
