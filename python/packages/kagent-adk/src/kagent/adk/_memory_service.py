@@ -391,8 +391,10 @@ Conversation:
 Summary (JSON List):"""
 
         # A summarization pass with a real model is a memory.consolidate operation:
-        # it extracts distinct facts from raw session content. Fallbacks (empty /
-        # unparseable output) report item.count 0 — no facts were consolidated.
+        # it extracts distinct facts from raw session content. item.count is the
+        # number of items the pass yields for storage. Fallbacks (empty / unparseable
+        # output) return the original content as a single item, so they report
+        # item.count 1 — matching the Go runtime's summarizeContent fallback.
         with mtel.start_memory_span(
             mtel.SPAN_MEMORY_CONSOLIDATE, mtel.MEMORY_OPERATION_EXTRACT, mtel.MEMORY_SCOPE_USER, self.agent_name
         ) as span:
@@ -451,10 +453,11 @@ Summary (JSON List):"""
                         pass
 
                 logger.warning("Empty summary or invalid format returned, using original content")
-                span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 0)
+                span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 1)
                 return [content]
 
             except Exception as e:
                 mtel.record_span_error(span, e)
+                span.set_attribute(mtel.ATTR_MEMORY_ITEM_COUNT, 1)
                 logger.warning("Failed to summarize session content: %s. Using original.", e)
                 return [content]
