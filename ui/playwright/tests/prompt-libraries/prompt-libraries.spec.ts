@@ -25,7 +25,9 @@ test("prompt libraries: create, read, update, delete", async ({ page }, testInfo
 
     await page.getByLabel("Name", { exact: true }).fill(name);
     await page.getByLabel("Key 1").fill("safety-rules");
-    await page.getByLabel("Content").fill("Always be safe.");
+    // Target the textbox role, not getByLabel("Content"): the "Open … in editor"
+    // button's aria-label also contains "Content", so a label match is ambiguous.
+    await page.getByRole("textbox", { name: "Content" }).fill("Always be safe.");
     await page.getByRole("button", { name: "Create Library" }).click();
 
     // Success is confirmed by durable state, not the auto-dismissing toast: the
@@ -49,7 +51,7 @@ test("prompt libraries: create, read, update, delete", async ({ page }, testInfo
   await test.step("adds a fragment and sees the updated count on the list", async () => {
     await page.getByRole("button", { name: "Add fragment" }).click();
     await page.getByLabel("Key 2").fill("tone");
-    await page.getByLabel("Content").nth(1).fill("Be kind.");
+    await page.getByRole("textbox", { name: "Content" }).nth(1).fill("Be kind.");
     await page.getByRole("button", { name: "Save changes" }).click();
 
     // The saved fragment shows up as an updated key count on the list — a durable

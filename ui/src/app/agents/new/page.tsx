@@ -141,10 +141,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   );
 
   useEffect(() => {
-    // Guard against a stale fetch clobbering the user's edits. React Strict Mode
-    // (dev) invokes this effect twice, so two getAgent calls race; without the
-    // ignore flag the later response can land AFTER the user has changed a field
-    // and overwrite it with the stored value, silently reverting the edit on save.
+    // Guard against a stale fetch clobbering the user's edits. This effect can run
+    // more than once for the same agent (e.g. a remount as the route's search params
+    // resolve), so two getAgent calls race; without the ignore flag a superseded
+    // response can land AFTER the user has changed a field and overwrite it with the
+    // stored value, silently reverting the edit on save.
     let ignore = false;
     const fetchAgentData = async () => {
       if (isEditMode && agentName && agentNamespace) {
