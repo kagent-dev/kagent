@@ -26,34 +26,6 @@ export async function loadPage(
   }
 }
 
-/**
- * Navigate to `path` and run `assert`, re-navigating and retrying until it passes.
- *
- * The list endpoints are served from the controller-runtime *cached* (informer)
- * client, so a read taken immediately after a write can return a stale object —
- * the cache is updated asynchronously from the watch stream, not synchronously by
- * the write. A single `goto` + DOM poll can't recover: the stale server-rendered
- * HTML never re-fetches, so `toContainText`/`toHaveCount` just poll unchanged
- * markup until they time out. Reloading between attempts re-queries the backend
- * until the cache catches up.
- *
- * Keep the assertions inside `assert` short-timeout (e.g. `{ timeout: 2_000 }`) so
- * a stale render fails fast and triggers another reload instead of spending the
- * whole budget polling one stale page.
- */
-export async function reloadUntil(
-  page: Page,
-  path: string,
-  assert: () => Promise<void>,
-  opts: { timeout?: number } = {},
-): Promise<void> {
-  await expect(async () => {
-    await page.goto(path);
-    await waitForAppReady(page);
-    await assert();
-  }).toPass({ timeout: opts.timeout ?? 20_000 });
-}
-
 /** Assert the ErrorState component ("Error Encountered") is not on the page. */
 export async function expectNoErrors(page: Page): Promise<void> {
   await expect(page.getByText("Error Encountered")).toHaveCount(0);

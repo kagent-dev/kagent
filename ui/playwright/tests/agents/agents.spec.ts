@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage, expectScrolledIntoView, reloadUntil } from "../../helpers/page";
+import { loadPage, expectScrolledIntoView } from "../../helpers/page";
 import { selectOption, selectNamespace } from "../../helpers/select";
 import { firstModelConfig } from "../../helpers/resources";
 
@@ -43,16 +43,11 @@ test("agents: create, read, update, delete", async ({ page, request }, testInfo)
 
     await page.getByRole("button", { name: "Create Agent" }).click();
     // Verify the create on the actual agents list: the new card is present (scrolled
-    // into view) and shows the description we submitted. The list reads from the
-    // controller-runtime cached client, so reload until the informer cache reflects
-    // the new agent (see reloadUntil).
+    // into view) and shows the description we submitted.
     await expect(page).toHaveURL(/\/agents(\?|$)/);
-    await reloadUntil(page, "/agents", async () => {
-      const card = agentCard(page, ref);
-      await card.scrollIntoViewIfNeeded();
-      await expect(card).toBeInViewport({ timeout: 2_000 });
-      await expect(card).toContainText(DESCRIPTION, { timeout: 2_000 });
-    });
+    const card = agentCard(page, ref);
+    await expectScrolledIntoView(card);
+    await expect(card).toContainText(DESCRIPTION);
   });
 
   // region Reading — reopen the agent on its edit page and read the stored spec
@@ -68,15 +63,12 @@ test("agents: create, read, update, delete", async ({ page, request }, testInfo)
     await page.getByRole("button", { name: "Save Changes" }).click();
     await expect(page).toHaveURL(/\/agents(\?|$)/);
 
-    // Confirm the update on the actual agents list. The list reads from the
-    // controller-runtime cached client, which updates asynchronously after the PUT,
-    // so reload until the card reflects the edited description (see reloadUntil).
-    await reloadUntil(page, "/agents", async () => {
-      const card = agentCard(page, ref);
-      await card.scrollIntoViewIfNeeded();
-      await expect(card).toBeInViewport({ timeout: 2_000 });
-      await expect(card).toContainText(UPDATED_DESCRIPTION, { timeout: 2_000 });
-    });
+    // Confirm the update on the actual agents list: reload the list and assert the
+    // card now shows the edited description (scrolled into view).
+    await loadPage(page, "/agents", { heading: "Agents" });
+    const card = agentCard(page, ref);
+    await expectScrolledIntoView(card);
+    await expect(card).toContainText(UPDATED_DESCRIPTION);
   });
 
   // region Deleting — remove the agent and confirm the card is gone
@@ -87,10 +79,6 @@ test("agents: create, read, update, delete", async ({ page, request }, testInfo)
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Delete" }).click();
     // Confirm the delete on the actual agents list: the card for this agent is gone.
-    // The list reads from the controller-runtime cached client, so the deleted agent
-    // can linger for a beat; reload until its card is gone (see reloadUntil).
-    await reloadUntil(page, "/agents", async () => {
-      await expect(page.getByTestId(`agent-options-${ref}`)).toHaveCount(0, { timeout: 2_000 });
-    });
+    await expect(page.getByTestId(`agent-options-${ref}`)).toHaveCount(0);
   });
 });

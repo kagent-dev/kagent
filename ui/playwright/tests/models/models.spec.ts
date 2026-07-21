@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage, expectScrolledIntoView, reloadUntil } from "../../helpers/page";
+import { loadPage, expectScrolledIntoView } from "../../helpers/page";
 
 // Models / providers — full-CRUD lifecycle journey. Creates a uniquely-named
 // throwaway config (OpenAI + a real catalog model + dummy key), reads it back on
@@ -38,14 +38,9 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
     await page.getByRole("button", { name: "Create Model" }).click();
 
     // Verify the create on the actual models list: the new config's row is present
-    // (scrolled into view). The list reads from the controller-runtime cached client,
-    // so reload until the informer cache reflects the new config (see reloadUntil).
+    // (scrolled into view).
     await expect(page).toHaveURL(/\/models(\?|$)/);
-    await reloadUntil(page, "/models", async () => {
-      const row = page.getByRole("button", { name: `Edit model ${ref}` });
-      await row.scrollIntoViewIfNeeded();
-      await expect(row).toBeInViewport({ timeout: 2_000 });
-    });
+    await expectScrolledIntoView(page.getByRole("button", { name: `Edit model ${ref}` }));
   });
 
   // region Reading — open the edit page and load the stored config
@@ -76,11 +71,7 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
     await expect(dialog.getByText("Delete Model")).toBeVisible();
     await dialog.getByRole("button", { name: "Delete" }).click();
 
-    // The config's row disappearing from the list is the durable delete signal. The
-    // list reads from the controller-runtime cached client, so the deleted config can
-    // linger for a beat; reload until its row is gone (see reloadUntil).
-    await reloadUntil(page, "/models", async () => {
-      await expect(page.getByRole("button", { name: `Delete model ${ref}` })).toHaveCount(0, { timeout: 2_000 });
-    });
+    // The config's row disappearing from the list is the durable delete signal.
+    await expect(page.getByRole("button", { name: `Delete model ${ref}` })).toHaveCount(0);
   });
 });
