@@ -27,7 +27,7 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 # export your openAI key
 export OPENAI_API_KEY=your-openai-api-key
 export ANTHROPIC_API_KEY=your-anthropic-api-key
-export AZUREOPENAI_API_KEY=your-azure-api-key
+export AZURE_OPENAI_API_KEY=your-azure-api-key
 
 # install the kagent charts with openAI provider 
 make KAGENT_DEFAULT_MODEL_PROVIDER=openAI helm-install
