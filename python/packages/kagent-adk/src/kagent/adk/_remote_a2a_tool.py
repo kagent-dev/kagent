@@ -52,6 +52,9 @@ from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_REJECT,
     extract_hitl_info_from_task,
 )
+from opentelemetry.propagate import inject
+
+from . import _a2a_telemetry as a2atel
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -91,6 +94,18 @@ class _SubagentInterceptor(ClientCallInterceptor):
     async def intercept(self, method_name, request_payload, http_kwargs, agent_card, context):
         headers = dict(http_kwargs.get("headers", {}))
         headers[_SOURCE_HEADER] = _SOURCE_SUBAGENT
+
+        # Inject W3C trace context (traceparent/tracestate) so the remote agent
+        # CONTINUES this trace instead of starting a new root. This must live
+        # here — not in httpx/a2a-sdk auto-instrumentation — because both of
+        # those are disabled by default for span-noise reduction, and
+        # disabling them silently dropped cross-agent trace
+        # propagation. `inject()` reads the currently-active span
+        # context (the parent agent's invoke_agent/execute_tool span) via the
+        # global textmap propagator and writes only the correlation headers —
+        # it creates NO span, so trace continuity is restored without
+        # reintroducing the outbound client-span noise those changes removed.
+        inject(headers)
 
         if context:
             if _USER_ID_CONTEXT_KEY in context.state:
@@ -328,6 +343,13 @@ class KAgentRemoteA2ATool(BaseTool):
         # to the same user as the parent agent session.
         call_context = self._build_call_context(tool_context)
 
+        # Reflect the delegation on the active ADK execute_tool span: which
+        # sub-agent, and the conversation lineage that keeps its session
+        # continuous.
+        a2atel.annotate_delegation_request(
+            self.name, self._last_context_id, self._build_lineage_headers(tool_context)
+        )
+
         task: Optional[Task] = None
         try:
             async for response in client.send_message(request=message, context=call_context):
@@ -346,6 +368,9 @@ class KAgentRemoteA2ATool(BaseTool):
             return f"Remote agent '{self.name}' returned no result."
 
         state = task.status.state if task.status else None
+
+        # Stamp how the delegated task resolved onto the active span.
+        a2atel.annotate_delegation_result(task.id, state.value if state else None)
 
         if state == TaskState.input_required:
             return self._handle_input_required(task, tool_context)

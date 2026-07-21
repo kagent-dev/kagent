@@ -25,6 +25,7 @@ from kagent.core.a2a import (
     KAgentTaskStore,
     get_a2a_max_content_length,
 )
+from kagent.core.tracing import inject_trace_context
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
 from ._lifespan import LifespanManager
@@ -97,10 +98,18 @@ class KAgentApp:
 
         if not local:
             token_service = KAgentTokenService(self.app_name)
+            # Re-inject W3C trace context on every outbound controller call.
+            # httpx client auto-instrumentation is disabled by default,
+            # which also stopped injecting `traceparent` — so memory.read/write and
+            # session calls to the controller were orphaned into a separate root
+            # trace (the same regression was fixed on the A2A hop). This hook
+            # restores continuity without re-adding httpx transport spans.
+            event_hooks = token_service.event_hooks()
+            event_hooks.setdefault("request", []).append(inject_trace_context)
             http_client = httpx.AsyncClient(
                 # TODO: add user  and agent headers
                 base_url=kagent_url_override or self.kagent_url,
-                event_hooks=token_service.event_hooks(),
+                event_hooks=event_hooks,
             )
             if session_db_url:
                 session_service = DatabaseSessionService(db_url=session_db_url)

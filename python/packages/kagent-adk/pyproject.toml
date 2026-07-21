@@ -23,6 +23,7 @@ dependencies = [
   "anthropic[vertex]>=0.117.0",
   "fastapi>=0.115.1",
   "google-adk>=1.28.1,<2",
+  "opentelemetry-api>=1.0.0",  # memory.* span instrumentation (parity with Go ADK)
   "google-genai>=1.21.1",
   "google-auth>=2.40.2",
   "httpx>=0.25.0",

@@ -1,0 +1,30 @@
+// kagent memory observability — AFTER memory.* instrumentation
+// Run in the Dynatrace dev tenant against a kagent deployment WITH this change and
+// OTEL_TRACING_ENABLED=true. Expected: rows for memory.read / memory.write /
+// memory.consolidate, each carrying the memory.* governance attributes.
+//
+// Diff against kagent-baseline.dql: baseline returns 0 rows, this returns the memory
+// span inventory with operation, scope, injection outcome, and SUT descriptor.
+fetch spans
+| filter isNotNull(span.name) and matchesPhrase(span.name, "memory.")
+| filter k8s.namespace.name == "kagent"
+| fields timestamp,
+         span.name,
+         trace.id,
+         span.parent_id,
+         memory.operation,
+         memory.scope,
+         memory.source,
+         memory.index_ref,
+         memory.injection_result,
+         memory.item.count,
+         memory.sut.name,
+         memory.sut.architecture,
+         memory.sut.store_backend
+| sort timestamp desc
+| limit 100
+
+// Aggregate view — recall injection outcomes over time (governance signal):
+// fetch spans
+// | filter span.name == "memory.read" and k8s.namespace.name == "kagent"
+// | summarize recalls = count(), by: {memory.injection_result}

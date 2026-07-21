@@ -82,6 +82,94 @@ def test_configure_tracing_logging_disabled_uses_legacy_instrumentation(monkeypa
     assert instrument_calls["google_instrumented"] is True
 
 
+def _stub_tracing_side_effects(monkeypatch, instrument_calls):
+    """Neutralise the OTLP/exporter side effects of configure() so tests can
+    focus on which auto-instrumentors are (de)activated."""
+
+    class FakeOpenAIInstrumentor:
+        def __init__(self, **kwargs):
+            pass
+
+        def instrument(self, **kwargs):
+            pass
+
+    class FakeHTTPXInstrumentor:
+        def instrument(self, **kwargs):
+            instrument_calls["httpx_instrument_kwargs"] = kwargs
+
+    class FakeFastAPIInstrumentor:
+        def instrument_app(self, app, **kwargs):
+            instrument_calls["fastapi_instrument_kwargs"] = kwargs
+
+    monkeypatch.setattr(_utils, "OpenAIInstrumentor", FakeOpenAIInstrumentor)
+    monkeypatch.setattr(_utils, "HTTPXClientInstrumentor", FakeHTTPXInstrumentor)
+    monkeypatch.setattr(_utils, "FastAPIInstrumentor", FakeFastAPIInstrumentor)
+    monkeypatch.setattr(_utils, "_instrument_anthropic", lambda *a, **k: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda: None)
+    monkeypatch.setattr(_utils, "_create_span_exporter", lambda *a, **k: object())
+    monkeypatch.setattr(_utils, "BatchSpanProcessor", lambda *a, **k: object())
+    monkeypatch.setattr(_utils, "KagentAttributesSpanProcessor", lambda *a, **k: object())
+
+    class FakeTracerProvider:
+        def __init__(self, *a, **k):
+            pass
+
+        def add_span_processor(self, processor):
+            pass
+
+    # Stub the provider so configure() neither mutates global state nor registers
+    # a real atexit shutdown hook (the real SDK provider would).
+    monkeypatch.setattr(_utils, "TracerProvider", FakeTracerProvider)
+    monkeypatch.setattr(_utils.trace, "get_tracer_provider", lambda: object())
+    monkeypatch.setattr(_utils.trace, "set_tracer_provider", lambda provider: None)
+
+
+def test_configure_httpx_client_instrumentation_enabled_by_default(monkeypatch):
+    """httpx client-transport spans are on by default (upstream parity); they
+    carry outbound-call timing and on-wire trace context."""
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.delenv("OTEL_INSTRUMENTATION_HTTPX_CLIENT_ENABLED", raising=False)
+
+    instrument_calls = {}
+    _stub_tracing_side_effects(monkeypatch, instrument_calls)
+
+    _utils.configure(name="test", namespace="test")
+
+    assert "httpx_instrument_kwargs" in instrument_calls
+    assert "excluded_urls" in instrument_calls["httpx_instrument_kwargs"]
+
+
+def test_configure_httpx_client_instrumentation_opt_out_via_env(monkeypatch):
+    """Operators can opt out of the raw transport spans for leaner traces."""
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_INSTRUMENTATION_HTTPX_CLIENT_ENABLED", "false")
+
+    instrument_calls = {}
+    _stub_tracing_side_effects(monkeypatch, instrument_calls)
+
+    _utils.configure(name="test", namespace="test")
+
+    assert "httpx_instrument_kwargs" not in instrument_calls
+
+
+def test_configure_fastapi_keeps_standard_asgi_spans(monkeypatch):
+    """FastAPI is instrumented with the standard ASGI spans (upstream parity);
+    only the agent-card health-check endpoint is excluded via excluded_urls."""
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+
+    instrument_calls = {}
+    _stub_tracing_side_effects(monkeypatch, instrument_calls)
+
+    _utils.configure(name="test", namespace="test", fastapi_app=object())
+
+    kwargs = instrument_calls["fastapi_instrument_kwargs"]
+    assert "exclude_spans" not in kwargs
+    assert "excluded_urls" in kwargs
+
+
 def test_otel_sdk_default_propagator_includes_w3c_tracecontext():
     """The OTEL SDK must propagate W3C TraceContext by default.
 
