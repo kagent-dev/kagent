@@ -3,7 +3,7 @@ name = "basic"
 version = "0.1"
 description = "Basic agent"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.11, <3.14"
 dependencies = [
   "google-adk>=1.8.0",
 ]
