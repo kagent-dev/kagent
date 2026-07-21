@@ -106,11 +106,9 @@ func TestTranslateModelFoundryEndpointFrom(t *testing.T) {
 
 	modelConfig := foundryModelConfig("foundry-model")
 	modelConfig.Spec.Foundry.Endpoint = ""
-	modelConfig.Spec.Foundry.EndpointFrom = &v1alpha2.FoundryEndpointSource{
-		ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
-			Key:                  "endpoint",
-		},
+	modelConfig.Spec.Foundry.EndpointFrom = &corev1.ConfigMapKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+		Key:                  "endpoint",
 	}
 	endpointCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
@@ -136,11 +134,9 @@ func TestTranslateModelFoundryEndpointFromMissingKey(t *testing.T) {
 
 	modelConfig := foundryModelConfig("foundry-model")
 	modelConfig.Spec.Foundry.Endpoint = ""
-	modelConfig.Spec.Foundry.EndpointFrom = &v1alpha2.FoundryEndpointSource{
-		ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
-			Key:                  "endpoint",
-		},
+	modelConfig.Spec.Foundry.EndpointFrom = &corev1.ConfigMapKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+		Key:                  "endpoint",
 	}
 	endpointCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
@@ -164,12 +160,10 @@ func TestTranslateModelFoundryEndpointUnresolved(t *testing.T) {
 	optional := true
 	modelConfig := foundryModelConfig("foundry-model")
 	modelConfig.Spec.Foundry.Endpoint = ""
-	modelConfig.Spec.Foundry.EndpointFrom = &v1alpha2.FoundryEndpointSource{
-		ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-			LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
-			Key:                  "endpoint",
-			Optional:             &optional,
-		},
+	modelConfig.Spec.Foundry.EndpointFrom = &corev1.ConfigMapKeySelector{
+		LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+		Key:                  "endpoint",
+		Optional:             &optional,
 	}
 	endpointCM := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},

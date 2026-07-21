@@ -454,10 +454,10 @@ func (a *adkApiTranslator) resolveFoundryEndpoint(ctx context.Context, namespace
 	if cfg.Endpoint != "" {
 		return cfg.Endpoint, nil
 	}
-	if cfg.EndpointFrom == nil || cfg.EndpointFrom.ConfigMapKeyRef == nil {
+	if cfg.EndpointFrom == nil {
 		return "", nil
 	}
-	ref := cfg.EndpointFrom.ConfigMapKeyRef
+	ref := cfg.EndpointFrom
 	cm := &corev1.ConfigMap{}
 	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, cm); err != nil {
 		return "", fmt.Errorf("failed to get Foundry endpoint config map %s: %w", ref.Name, err)
