@@ -81,52 +81,23 @@ export async function createModelConfig(config: CreateModelConfigRequest): Promi
  * @param config The updated configuration data
  * @returns A promise with the updated model
  */
-// The update handler Gets the ModelConfig from the controller-runtime *cached*
-// client then Updates it; while a reconcile is in flight the cached resourceVersion
-// can be stale, so the write is rejected with a Kubernetes conflict ("the object has
-// been modified; please apply your changes to the latest version"). Re-running the
-// PUT re-reads a fresher version once the informer cache catches up, and since the
-// PUT replaces the full spec it is idempotent.
-const CONFLICT_MESSAGE_RE =
-  /the object has been modified|operation cannot be fulfilled|please apply your changes|conflict/i;
-
-function isConflictError(error: unknown): boolean {
-  return error instanceof Error && CONFLICT_MESSAGE_RE.test(error.message);
-}
-
-/** Run `fn`, retrying only on a Kubernetes write conflict with a small linear backoff. */
-async function retryOnConflict<T>(fn: () => Promise<T>, maxAttempts = 4): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (attempt >= maxAttempts || !isConflictError(error)) {
-        throw error;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 150 * attempt));
-    }
-  }
-}
-
 export async function updateModelConfig(
   configRef: string,
   config: UpdateModelConfigPayload
 ): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await retryOnConflict(() =>
-      fetchApi<BaseResponse<ModelConfig>>(`/modelconfigs/${configRef}`, {
-        method: "PUT",
-        body: JSON.stringify(config),
-        headers: {
-          "Content-Type": "application/json",
-        },
-      })
-    );
+    const response = await fetchApi<BaseResponse<ModelConfig>>(`/modelconfigs/${configRef}`, {
+      method: "PUT", // Or PATCH depending on backend implementation
+      body: JSON.stringify(config),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
 
     if (!response) {
       throw new Error("Failed to update model config");
     }
-
+    
     revalidatePath("/models"); // Revalidate list page
 
     const ref = k8sRefUtils.fromRef(configRef);

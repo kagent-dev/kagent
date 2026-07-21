@@ -51,11 +51,7 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
         console.warn("Could not parse error response:", parseError);
       }
 
-      // Carry the HTTP status so callers can branch on it (e.g. checkSessionExists
-      // treats a 404 as "does not exist" rather than a real error).
-      const httpError = new Error(errorMessage) as Error & { status?: number };
-      httpError.status = response.status;
-      throw httpError;
+      throw new Error(errorMessage);
     }
 
     // Handle 204 No Content response (common for DELETE)
@@ -78,10 +74,14 @@ export async function fetchApi<T>(path: string, options: ApiOptions = {}): Promi
       throw new Error(`Request timed out - server took too long to respond. ${url}`);
     }
 
-    // Re-throw as-is (preserving message and any attached status) rather than
-    // wrapping in a fresh Error. Callers log once via createErrorResponse, so
-    // logging here too would double up every failure in the server logs.
-    throw error instanceof Error ? error : new Error("Unknown error");
+    console.error("Error in fetchApi:", {
+      path,
+      url: `${path}`,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+
+    // Include more error details for debugging
+    throw new Error(`${error instanceof Error ? error.message : "Unknown error"}`);
   }
 }
 
