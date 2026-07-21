@@ -10,10 +10,10 @@ ARG UV_VERSION=0.11.15
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
 ### STAGE 2: base os + sandbox runtime
-# node:24-bookworm-slim is a digest-pinnable debian-bookworm base that ships Node 24 (the
+# node:26-bookworm-slim is a digest-pinnable debian-bookworm base that ships Node 26 (the
 # sandbox-runtime requires node >= 20; debian's own nodejs package is still on 18).
-# Digest = multi-arch index resolved via `docker buildx imagetools inspect node:24-bookworm-slim`.
-FROM node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS python-os
+# Digest = multi-arch index resolved via `docker buildx imagetools inspect node:26-bookworm-slim`.
+FROM node:26-bookworm-slim@sha256:2d49d876e96237d76de412761cf05dbfe5aee325cc4406a4d41d5824c5bb8beb AS python-os
 ARG TOOLS_PYTHON_VERSION=3.13
 
 ENV LANG=C.UTF-8
