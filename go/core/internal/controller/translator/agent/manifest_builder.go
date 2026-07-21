@@ -585,7 +585,10 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 		Port:       manifestCtx.deployment.Port,
 		TargetPort: intstr.FromInt(int(manifestCtx.deployment.Port)),
 	}
-	if s := manifestCtx.agent.GetAgentSpec(); s != nil && s.Declarative != nil && s.Declarative.A2AConfig != nil {
+	// BYO agents are always A2A servers (port 8080). Declarative agents get the
+	// marker only when a2aConfig is set.
+	if s := manifestCtx.agent.GetAgentSpec(); s != nil &&
+		(s.Type == v1alpha2.AgentType_BYO || (s.Declarative != nil && s.Declarative.A2AConfig != nil)) {
 		proto := "kgateway.dev/a2a"
 		svcPort.AppProtocol = &proto
 	}
