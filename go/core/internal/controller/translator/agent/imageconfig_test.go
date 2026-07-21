@@ -131,8 +131,13 @@ func TestResolvePythonRuntimeImageWithoutDigest(t *testing.T) {
 
 func TestResolveRuntimeImageByTag(t *testing.T) {
 	originalTag := DefaultImageConfig.Tag
-	t.Cleanup(func() { DefaultImageConfig.Tag = originalTag })
+	originalGoTag := DefaultGoImageConfig.Tag
+	t.Cleanup(func() {
+		DefaultImageConfig.Tag = originalTag
+		DefaultGoImageConfig.Tag = originalGoTag
+	})
 	DefaultImageConfig.Tag = "v9.9.9"
+	DefaultGoImageConfig.Tag = "v8.8.8"
 
 	got, err := resolvePythonRuntimeImage("my-registry.example.com", false, false)
 	require.NoError(t, err)
@@ -144,11 +149,11 @@ func TestResolveRuntimeImageByTag(t *testing.T) {
 
 	got, err = resolveGoRuntimeImage("my-registry.example.com", false, false)
 	require.NoError(t, err)
-	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v9.9.9", got)
+	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v8.8.8", got)
 
 	got, err = resolveGoRuntimeImage("my-registry.example.com", true, false)
 	require.NoError(t, err)
-	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v9.9.9-full", got)
+	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v8.8.8-full", got)
 }
 
 func TestResolveRuntimeImageByTagIgnoresMissingDigest(t *testing.T) {

@@ -658,6 +658,23 @@ func TestSearchAgentMemoryIsolation(t *testing.T) {
 	assert.Equal(t, mem1.ID, results[0].ID)
 }
 
+// TestSearchAgentMemoryNormalizedName verifies that a search with a hyphenated
+// agent name finds memories stored under the underscore form, matching the
+// normalization ListAgentMemories and DeleteAgentMemory already apply.
+func TestSearchAgentMemoryNormalizedName(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	stored := &dbpkg.Memory{AgentName: "ns__my_agent", UserID: "user-1", Content: "stored under underscore form", Embedding: makeEmbedding(0.5)}
+	require.NoError(t, client.StoreAgentMemory(ctx, stored))
+
+	results, err := client.SearchAgentMemory(ctx, "ns__my-agent", "user-1", makeEmbedding(0.5), 10)
+	require.NoError(t, err)
+	require.Len(t, results, 1, "Search should find memories stored under the normalized name")
+	assert.Equal(t, stored.ID, results[0].ID)
+}
+
 // TestDeleteAgentMemory verifies that DeleteAgentMemory removes all memories for the
 // given agent/user pair and that the hyphen-to-underscore normalization works correctly.
 func TestDeleteAgentMemory(t *testing.T) {
