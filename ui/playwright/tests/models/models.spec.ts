@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage, expectScrolledIntoView } from "../../helpers/page";
+import { loadPage, expectScrolledIntoView, reloadUntil } from "../../helpers/page";
 
 // Models / providers — full-CRUD lifecycle journey. Creates a uniquely-named
 // throwaway config (OpenAI + a real catalog model + dummy key), reads it back on
@@ -38,9 +38,14 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
     await page.getByRole("button", { name: "Create Model" }).click();
 
     // Verify the create on the actual models list: the new config's row is present
-    // (scrolled into view), not the auto-dismissing "created" toast.
+    // (scrolled into view). The list reads from the controller-runtime cached client,
+    // so reload until the informer cache reflects the new config (see reloadUntil).
     await expect(page).toHaveURL(/\/models(\?|$)/);
-    await expectScrolledIntoView(page.getByRole("button", { name: `Edit model ${ref}` }));
+    await reloadUntil(page, "/models", async () => {
+      const row = page.getByRole("button", { name: `Edit model ${ref}` });
+      await row.scrollIntoViewIfNeeded();
+      await expect(row).toBeInViewport({ timeout: 2_000 });
+    });
   });
 
   // region Reading — open the edit page and load the stored config
@@ -52,15 +57,14 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
   // region Updating — rotate the API key and save (PUT)
   await test.step("updates the config's API key", async () => {
     // In edit mode only the API key is editable (provider/model/name are locked).
-    // The key is write-only, so it can't be read back; a successful PUT is instead
-    // confirmed by the redirect to the list with the config still present (a failed
-    // save keeps you on the edit page), rather than the auto-dismissing toast.
+    // The key is write-only, so it can't be read back; a successful PUT is confirmed
+    // by the redirect to the list with the config still present.
     await page.getByTestId("model-api-key-input").fill("sk-e2e-rotated-key");
     await page.getByRole("button", { name: "Save Changes" }).click();
     // The rotated API key is write-only and never rendered on the list, so a model
-    // update produces no list-visible change. The strongest list-level check is that
-    // the config's row survives the save (scrolled into view) — a failed PUT keeps
-    // you on the edit page rather than redirecting back here.
+    // update produces no list-visible change. The list-level check is that the
+    // config's row survives the save (scrolled into view); a failed PUT keeps you on
+    // the edit page.
     await expect(page).toHaveURL(/\/models(\?|$)/);
     await expectScrolledIntoView(page.getByRole("button", { name: `Edit model ${ref}` }));
   });
@@ -72,8 +76,11 @@ test("models: create, read, update, delete", async ({ page }, testInfo) => {
     await expect(dialog.getByText("Delete Model")).toBeVisible();
     await dialog.getByRole("button", { name: "Delete" }).click();
 
-    // The config's row disappearing from the list is the durable delete signal,
-    // rather than the transient "deleted" toast.
-    await expect(page.getByRole("button", { name: `Delete model ${ref}` })).toHaveCount(0);
+    // The config's row disappearing from the list is the durable delete signal. The
+    // list reads from the controller-runtime cached client, so the deleted config can
+    // linger for a beat; reload until its row is gone (see reloadUntil).
+    await reloadUntil(page, "/models", async () => {
+      await expect(page.getByRole("button", { name: `Delete model ${ref}` })).toHaveCount(0, { timeout: 2_000 });
+    });
   });
 });
