@@ -391,22 +391,23 @@ Agents connect to tool servers using the [MCP protocol](https://modelcontextprot
 
 ## Go Module Structure
 
-The Go code is organized as a Go workspace (`go.work`) with three modules:
+The Go code is a single module (`github.com/kagent-dev/kagent/go`) with three top-level package trees:
 
 ```
 go/
-├── go.work
-├── api/        # github.com/kagent-dev/kagent/go/api
+├── api/        # Shared types
 │   ├── v1alpha2/         # CRD type definitions
+│   ├── adk/              # ADK config types (shared with Python)
 │   ├── database/         # database models
 │   ├── httpapi/          # HTTP API request/response types
 │   ├── client/           # REST client SDK for the HTTP API
 │   └── config/crd/       # Generated CRD manifests
 │
-├── core/       # github.com/kagent-dev/kagent/go/core
+├── core/       # Infrastructure
 │   ├── cmd/
-│   │   ├── controller/   # Main controller binary entry point
-│   │   └── kagent/       # CLI tool entry point
+│   │   └── controller/   # Main controller binary entry point
+│   ├── cli/
+│   │   └── cmd/kagent/   # CLI tool entry point
 │   ├── internal/
 │   │   ├── controller/   # K8s controllers and reconciler
 │   │   │   ├── reconciler/   # Shared kagentReconciler
@@ -416,8 +417,7 @@ go/
 │   │   └── database/     # Database client implementation
 │   └── test/e2e/         # E2E tests
 │
-└── adk/        # github.com/kagent-dev/kagent/go/adk
-    ├── types.go          # ADK config types (shared with Python)
+└── adk/        # Go Agent Development Kit
     ├── pkg/
     │   ├── app/          # KAgentApp - main application wiring
     │   ├── a2a/server/   # A2A HTTP server with health endpoints
