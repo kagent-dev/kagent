@@ -470,6 +470,59 @@ func Test_AdkApiTranslator_AzureOpenAIParams(t *testing.T) {
 	assert.Equal(t, &maxTokens, m.MaxTokens)
 }
 
+func Test_AdkApiTranslator_AzureOpenAINoAPIKeySecret(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	// AzureOpenAI authenticating via azureADToken: no apiKeySecret and no
+	// passthrough. The translator must not inject an AZURE_OPENAI_API_KEY env
+	// var pointing at a Secret with an empty name.
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: "ns"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4o",
+			Provider: v1alpha2.ModelProviderAzureOpenAI,
+			AzureOpenAI: &v1alpha2.AzureOpenAIConfig{
+				Endpoint:     "https://example.openai.azure.com",
+				AzureADToken: "ad-token",
+			},
+		},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "x",
+				ModelConfig:   "m",
+			},
+		},
+	}
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, modelConfig, agent).Build()
+	trans := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: "ns", Name: "m"}, nil, "", nil)
+
+	outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
+	require.NoError(t, err)
+
+	var dep *appsv1.Deployment
+	for _, obj := range outputs.Manifest {
+		if d, ok := obj.(*appsv1.Deployment); ok {
+			dep = d
+			break
+		}
+	}
+	require.NotNil(t, dep, "Deployment not found in manifest")
+
+	var envNames []string
+	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
+		envNames = append(envNames, e.Name)
+	}
+	assert.NotContains(t, envNames, "AZURE_OPENAI_API_KEY", "no API-key secret ref should be injected when apiKeySecret is unset")
+	assert.Contains(t, envNames, "AZURE_AD_TOKEN")
+}
+
 func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
