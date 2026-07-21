@@ -28,6 +28,12 @@ ENABLED TOOLS:
 {{- if index .Values "kagent-tools" "enabled" }}
   - Tool Server: Kagent's Built-in tools
 {{- end }}
+{{- if and (index .Values "grafana-mcp" "enabled") (index .Values "observability-agent" "enabled") }}
+  - Tool Server: Grafana MCP
+{{- end }}
+{{- if .Values.querydoc.enabled }}
+  - Tool Server: QueryDoc
+{{- end }}
 
 ENABLED AGENTS:
 {{- $agents := list "k8s-agent" "kgateway-agent" "istio-agent" "promql-agent" "observability-agent" "argo-rollouts-agent" "helm-agent" "cilium-policy-agent" "cilium-manager-agent" "cilium-debug-agent" }}
@@ -70,7 +76,7 @@ DOCUMENTATION:
 # WARNING: BUNDLED DATABASE IN USE                                             #
 ################################################################################
   The bundled PostgreSQL instance is enabled. It is intended for development and
-  evaluation only — not suitable for production use. Data may be lost if the
+  evaluation only, not suitable for production use. Data may be lost if the
   pod is restarted or rescheduled.
 
   To use an external database, set:
