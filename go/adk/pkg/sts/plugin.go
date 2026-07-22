@@ -5,11 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/a2aproject/a2a-go/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"google.golang.org/adk/v2/agent"
 	adkplugin "google.golang.org/adk/v2/plugin"
@@ -53,23 +56,66 @@ func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger) 
 	}
 }
 
+// parseUnverifiedClaims parses a JWT's claims WITHOUT signature or time
+// validation. It is used only for cache partitioning and TTL, never for a
+// security decision; tokens are validated server-side during STS exchange.
+func parseUnverifiedClaims(token string) (jwt.MapClaims, bool) {
+	if token == "" {
+		return nil, false
+	}
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseUnverified(token, claims); err != nil {
+		return nil, false
+	}
+	return claims, true
+}
+
 // subjectKey derives a stable per-principal cache discriminator from a bearer
-// token: the "sub" claim when present, otherwise a hash of the raw token so
-// opaque or sub-less tokens still partition per principal. The token is parsed
-// unverified — this only partitions the cache and never gates a security
-// decision; the token is validated server-side during STS exchange.
+// token: the issuer-scoped "sub" claim when present, otherwise a hash of the
+// raw token so opaque or sub-less tokens still partition per principal. "sub"
+// is only unique within an issuer, so it is combined with "iss" to avoid two
+// principals from different issuers colliding onto one cache entry.
 func subjectKey(token string) string {
 	if token == "" {
 		return ""
 	}
-	claims := jwt.MapClaims{}
-	if _, _, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseUnverified(token, claims); err == nil {
-		if sub, ok := claims["sub"].(string); ok && sub != "" {
-			return sub
+	if claims, ok := parseUnverifiedClaims(token); ok {
+		if sub, _ := claims["sub"].(string); sub != "" {
+			iss, _ := claims["iss"].(string)
+			return iss + "\x00" + sub
 		}
 	}
 	sum := sha256.Sum256([]byte(token))
 	return "h:" + hex.EncodeToString(sum[:])
+}
+
+// actingBearer recovers the caller's raw bearer token for this request. It
+// prefers the value executor.withBearerToken stored (models.BearerTokenKey) and
+// falls back to the A2A CallContext Authorization header. The fallback keeps the
+// per-subject cache key reliable at the MCP transport layer: the CallContext is
+// the same source the round-tripper's propagateToken path reads, so it reaches
+// the caller even when BearerTokenKey is not threaded to the MCP request context.
+func actingBearer(ctx context.Context) string {
+	if token, ok := ctx.Value(models.BearerTokenKey).(string); ok && token != "" {
+		return token
+	}
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ""
+	}
+	meta := callCtx.RequestMeta()
+	if meta == nil {
+		return ""
+	}
+	vals, ok := meta.Get(constants.AuthorizationHeader)
+	if !ok || len(vals) == 0 {
+		return ""
+	}
+	parts := strings.Fields(strings.TrimSpace(vals[0]))
+	if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
+	}
+	return ""
 }
 
 // cacheKey scopes a cache entry to both the session and the acting subject so a
@@ -162,16 +208,10 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 		return nil, nil
 	}
 
-	// Extract bearer token from context. executor.go stores it with models.BearerTokenKey.
-	// This must happen before the cache lookup: the cache is keyed by the acting
-	// subject, and a session shared by multiple subjects would otherwise reuse the
-	// first caller's token for every later caller.
-	bearerToken := ""
-	if v := ctx.Value(models.BearerTokenKey); v != nil {
-		if token, ok := v.(string); ok {
-			bearerToken = token
-		}
-	}
+	// Recover the acting bearer before the cache lookup: the cache is keyed by the
+	// acting subject, and a session shared by multiple subjects would otherwise
+	// reuse the first caller's token for every later caller.
+	bearerToken := actingBearer(ctx)
 
 	if bearerToken == "" {
 		p.logger.V(1).Info("No bearer token in context, skipping token propagation", "sessionID", sessionID)
@@ -273,15 +313,10 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 		return nil
 	}
 
-	// Recover the acting subject from the same bearer the executor stored, so the
-	// injected token matches the caller of this request rather than whichever
-	// subject first seeded the session.
-	subject := ""
-	if v := ctx.Value(models.BearerTokenKey); v != nil {
-		if token, ok := v.(string); ok {
-			subject = subjectKey(token)
-		}
-	}
+	// Recover the acting subject from this request's own bearer, so the injected
+	// token matches the caller of this request rather than whichever subject
+	// first seeded the session.
+	subject := subjectKey(actingBearer(ctx))
 
 	entry, ok := p.getCachedToken(sessionID, subject)
 	if !ok {
@@ -336,29 +371,17 @@ func (p *TokenPropagationPlugin) ADKPlugin() (*adkplugin.Plugin, error) {
 	})
 }
 
-// extractJWTExpiry extracts the 'exp' claim from a JWT token without verifying its signature.
-// This is ONLY used for cache TTL management, not for security decisions.
-// Token validation happens server-side during STS exchange.
+// extractJWTExpiry extracts the 'exp' claim from a JWT token without verifying
+// its signature. This is ONLY used for cache TTL management, not for security
+// decisions. Token validation happens server-side during STS exchange.
 func extractJWTExpiry(token string) int64 {
-	if token == "" {
+	claims, ok := parseUnverifiedClaims(token)
+	if !ok {
 		return 0
 	}
-
-	claims := jwt.MapClaims{}
-	if _, _, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseUnverified(token, claims); err != nil {
+	exp, err := claims.GetExpirationTime()
+	if err != nil || exp == nil {
 		return 0
 	}
-
-	if exp, ok := claims["exp"]; ok {
-		switch v := exp.(type) {
-		case float64:
-			return int64(v)
-		case int64:
-			return v
-		case int:
-			return int64(v)
-		}
-	}
-
-	return 0
+	return exp.Unix()
 }
