@@ -2,6 +2,8 @@ package sts
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -33,8 +35,8 @@ func (e *TokenCacheEntry) HasExpired(bufferSeconds int64) bool {
 // a header provider used by MCP tool transports.
 type TokenPropagationPlugin struct {
 	integration     *STSIntegration
-	tokenCache      map[string]*TokenCacheEntry // keyed by session ID
-	actorTokenCache *TokenCacheEntry            // used only for dynamic fetchActorToken providers
+	tokenCache      map[cacheKey]*TokenCacheEntry
+	actorTokenCache *TokenCacheEntry // used only for dynamic fetchActorToken providers
 	mu              sync.RWMutex
 	logger          logr.Logger
 	bufferSeconds   int64
@@ -45,18 +47,45 @@ type TokenPropagationPlugin struct {
 func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger) *TokenPropagationPlugin {
 	return &TokenPropagationPlugin{
 		integration:   integration,
-		tokenCache:    make(map[string]*TokenCacheEntry),
+		tokenCache:    make(map[cacheKey]*TokenCacheEntry),
 		logger:        logger.WithName("sts-plugin"),
 		bufferSeconds: 5,
 	}
 }
 
-// getCachedToken retrieves a valid cached token for the session.
-func (p *TokenPropagationPlugin) getCachedToken(sessionID string) (*TokenCacheEntry, bool) {
+// subjectKey derives a stable per-principal cache discriminator from a bearer
+// token: the "sub" claim when present, otherwise a hash of the raw token so
+// opaque or sub-less tokens still partition per principal. The token is parsed
+// unverified — this only partitions the cache and never gates a security
+// decision; the token is validated server-side during STS exchange.
+func subjectKey(token string) string {
+	if token == "" {
+		return ""
+	}
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseUnverified(token, claims); err == nil {
+		if sub, ok := claims["sub"].(string); ok && sub != "" {
+			return sub
+		}
+	}
+	sum := sha256.Sum256([]byte(token))
+	return "h:" + hex.EncodeToString(sum[:])
+}
+
+// cacheKey scopes a cache entry to both the session and the acting subject so a
+// session that carries messages from multiple subjects keeps one exchanged
+// token per subject rather than collapsing to whichever arrived first.
+type cacheKey struct {
+	sessionID string
+	subject   string
+}
+
+// getCachedToken retrieves a valid cached token for the session and subject.
+func (p *TokenPropagationPlugin) getCachedToken(sessionID, subject string) (*TokenCacheEntry, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	entry, ok := p.tokenCache[sessionID]
+	entry, ok := p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}]
 	if !ok {
 		return nil, false
 	}
@@ -68,12 +97,12 @@ func (p *TokenPropagationPlugin) getCachedToken(sessionID string) (*TokenCacheEn
 	return entry, true
 }
 
-// setCachedToken caches a token for the session.
-func (p *TokenPropagationPlugin) setCachedToken(sessionID string, token string, expiry int64) {
+// setCachedToken caches a token for the session and subject.
+func (p *TokenPropagationPlugin) setCachedToken(sessionID, subject, token string, expiry int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.tokenCache[sessionID] = &TokenCacheEntry{
+	p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}] = &TokenCacheEntry{
 		Token:  token,
 		Expiry: expiry,
 	}
@@ -133,17 +162,10 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 		return nil, nil
 	}
 
-	// Check if we already have a valid cached token for this session.
-	if entry, ok := p.getCachedToken(sessionID); ok {
-		p.logger.V(1).Info("Using cached STS token", "sessionID", sessionID)
-		if entry.Expiry > 0 {
-			p.logger.V(1).Info("Token expiry remaining",
-				"expiresIn", time.Until(time.Unix(entry.Expiry, 0)).String())
-		}
-		return nil, nil
-	}
-
 	// Extract bearer token from context. executor.go stores it with models.BearerTokenKey.
+	// This must happen before the cache lookup: the cache is keyed by the acting
+	// subject, and a session shared by multiple subjects would otherwise reuse the
+	// first caller's token for every later caller.
 	bearerToken := ""
 	if v := ctx.Value(models.BearerTokenKey); v != nil {
 		if token, ok := v.(string); ok {
@@ -153,6 +175,18 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 
 	if bearerToken == "" {
 		p.logger.V(1).Info("No bearer token in context, skipping token propagation", "sessionID", sessionID)
+		return nil, nil
+	}
+
+	subject := subjectKey(bearerToken)
+
+	// Check if we already have a valid cached token for this session and subject.
+	if entry, ok := p.getCachedToken(sessionID, subject); ok {
+		p.logger.V(1).Info("Using cached STS token", "sessionID", sessionID)
+		if entry.Expiry > 0 {
+			p.logger.V(1).Info("Token expiry remaining",
+				"expiresIn", time.Until(time.Unix(entry.Expiry, 0)).String())
+		}
 		return nil, nil
 	}
 
@@ -198,12 +232,12 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			// Fall back to JWT exp claim for cache TTL.
 			expiry = extractJWTExpiry(exchangedToken)
 		}
-		p.setCachedToken(sessionID, exchangedToken, expiry)
+		p.setCachedToken(sessionID, subject, exchangedToken, expiry)
 		p.logger.Info("Successfully exchanged and cached STS token", "sessionID", sessionID)
 	} else {
 		// No STS integration — cache the raw subject token for header injection.
 		expiry := extractJWTExpiry(subjectToken)
-		p.setCachedToken(sessionID, subjectToken, expiry)
+		p.setCachedToken(sessionID, subject, subjectToken, expiry)
 		p.logger.V(1).Info("Cached subject token (no STS exchange)", "sessionID", sessionID)
 	}
 
@@ -212,27 +246,16 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 
 // AfterRunCallback is called after the ADK run finishes.
 // It cleans up expired tokens from the cache.
-func (p *TokenPropagationPlugin) AfterRunCallback(ctx agent.InvocationContext) {
-	sessionID := ""
-	if session := ctx.Session(); session != nil {
-		sessionID = session.ID()
-	}
-	if sessionID == "" {
-		return
-	}
-
+func (p *TokenPropagationPlugin) AfterRunCallback(_ agent.InvocationContext) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Remove expired subject token.
-	if entry, ok := p.tokenCache[sessionID]; ok {
+	for key, entry := range p.tokenCache {
 		if entry.HasExpired(p.bufferSeconds) {
-			p.logger.V(1).Info("Removing expired subject token from cache", "sessionID", sessionID)
-			delete(p.tokenCache, sessionID)
+			delete(p.tokenCache, key)
 		}
 	}
 	if p.actorTokenCache != nil && p.actorTokenCache.HasExpired(p.bufferSeconds) {
-		p.logger.V(1).Info("Removing expired actor token from cache")
 		p.actorTokenCache = nil
 	}
 }
@@ -250,9 +273,19 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 		return nil
 	}
 
-	entry, ok := p.getCachedToken(sessionID)
+	// Recover the acting subject from the same bearer the executor stored, so the
+	// injected token matches the caller of this request rather than whichever
+	// subject first seeded the session.
+	subject := ""
+	if v := ctx.Value(models.BearerTokenKey); v != nil {
+		if token, ok := v.(string); ok {
+			subject = subjectKey(token)
+		}
+	}
+
+	entry, ok := p.getCachedToken(sessionID, subject)
 	if !ok {
-		p.logger.V(1).Info("No cached STS token for session, MCP request will use existing headers", "sessionID", sessionID)
+		p.logger.V(1).Info("No cached STS token for session/subject, MCP request will use existing headers", "sessionID", sessionID)
 		return nil
 	}
 
@@ -274,10 +307,10 @@ func sessionIDFromContext(ctx context.Context) string {
 	return sessionCtx.SessionID()
 }
 
-// GetTokenForSession retrieves the cached token for a specific session.
-// Returns empty string if no valid token is cached.
-func (p *TokenPropagationPlugin) GetTokenForSession(sessionID string) string {
-	entry, ok := p.getCachedToken(sessionID)
+// GetTokenForSession retrieves the cached token for a specific session and
+// subject. Returns empty string if no valid token is cached.
+func (p *TokenPropagationPlugin) GetTokenForSession(sessionID, subject string) string {
+	entry, ok := p.getCachedToken(sessionID, subject)
 	if !ok {
 		return ""
 	}
@@ -289,7 +322,7 @@ func (p *TokenPropagationPlugin) ClearCache() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.tokenCache = make(map[string]*TokenCacheEntry)
+	p.tokenCache = make(map[cacheKey]*TokenCacheEntry)
 	p.actorTokenCache = nil
 	p.logger.Info("Cleared STS token cache")
 }
