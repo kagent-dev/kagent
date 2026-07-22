@@ -358,7 +358,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
           <div className="flex items-center justify-end">
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options">
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options" data-testid={`agent-options-${k8sRefUtils.toRef(namespace, name)}`}>
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>

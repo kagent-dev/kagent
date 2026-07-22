@@ -1,48 +1,54 @@
 # Playwright E2E tests
 
-Page-level browser end-to-end tests for the kagent UI, run against a **mocked
-backend**. This suite fills the one gap nothing else covers: **multi-step user
-flows across components**.
+Page-level browser end-to-end tests for the kagent UI, run against a real kagent
+backend in a kind cluster. This suite covers **multi-step user flows across
+components** — the gap unit tests, Storybook, and Chromatic don't fill.
 
-## What this suite does and does not cover
+## What this suite covers
 
-| Layer | Tool | Not Playwright's job |
-|---|---|---|
-| Atoms (`src/components/ui/*`) | shadcn primitives | skip |
-| Visual / render states | Storybook + Vitest-browser + Chromatic | skip |
-| Unit / logic | Jest (`*.test.ts(x)`) | skip |
-| Page-load smoke (`h1` renders, page reachable) | Playwright (`tests/smoke.spec.ts`, Stage 0) | — |
-| **Multi-step flows: form submission, payload correctness, streaming, wizard completion, error/edge states** | **Playwright (this suite)** | — |
+| Layer | Tool |
+|---|---|
+| Atoms (`src/components/ui/*`) | shadcn primitives — skip |
+| Visual / render states | Storybook + Chromatic |
+| Unit / logic | Jest / Vitest |
+| **Multi-step flows: create → configure → use → delete, validation, streaming** | **Playwright (this suite)** |
 
-Rule: if Chromatic / Jest already assert it, Playwright does not.
+## How it works
 
-## How mocking works (important)
+The UI fetches data server-side (Next.js server actions), and the chat stream
+`POST /a2a/**` runs server-side through the Next route handler
+(`src/app/a2a/[namespace]/[agentName]/route.ts`). Both resolve their target via
+`getBackendUrl()` (`src/lib/utils.ts`), which reads `BACKEND_INTERNAL_URL`.
 
-Nearly every `/api/**` call runs **server-side** inside Next.js server actions
-(`src/app/actions/*.ts`, all `"use server"`). The browser sends an opaque RPC
-POST to the route; the Node server does the actual backend `fetch`. So browser
-`page.route("**/api/**")` intercepts **nothing** on load.
+A lightweight proxy (`mocks/server.mjs`) sits at that address and:
 
-Instead we run a standalone **stub backend** (`mocks/server.mjs`) and point Next
-at it with `BACKEND_INTERNAL_URL` — `getBackendUrl()` (`src/lib/utils.ts`) checks
-that env var first. Playwright's `webServer` (in `../playwright.config.ts`) boots
-both the stub (`:8899`) and `next dev` (`:8001`).
+- forwards every `/api/**` request to the real kagent backend (`KAGENT_BACKEND_URL`);
+- intercepts `/a2a/**` and `/a2a-sandboxes/**`, answering with a canned SSE reply,
+  so the suite never needs a live LLM.
 
-The one exception is A2A chat streaming (`POST /a2a/**`, SSE), which **is**
-browser-originated and `page.route`-able — used in the chat spec (Stage 2).
+```
+Browser ─▶ next dev :8001 ─┬─ /api/* (server actions) ─┐
+                           └─ /a2a/* (route handler) ───┤
+                                       proxy :8899 ─┬─ /a2a/* ─▶ mocked SSE
+                                                    └─ /api/* ─▶ real backend :8083
+```
+
+`playwright/setup.ts` port-forwards the controller to `:8083` for the run;
+`playwright/teardown.ts` stops it. Playwright's `webServer` boots the proxy and
+`next dev`.
 
 ## Layout
 
 ```
 playwright/
-  tests/          # *.spec.ts, one per feature area
-  helpers/        # (Stage 1) reusable drivers: page, forms, select, dialog, nav
+  tests/          # <area>.spec.ts + <area>-errors.spec.ts per area, plus cleanup.spec.ts
+  helpers/        # page, nav, select, a2a drivers
   mocks/
-    server.mjs    # stub backend (runtime source of happy-path data)
-    data.ts       # typed spec-side builders (mirror server.mjs shapes)
+    server.mjs    # proxy: forwards /api to the real backend, mocks chat
   fixtures/
-    test.ts       # import { test, expect } from here in every spec
-  tsconfig.json
+    test.ts       # import { test, expect } from here
+  scripts/
+    setup.sh      # build + install kagent into kind
 ```
 
 ## Running
@@ -50,38 +56,35 @@ playwright/
 ```bash
 cd ui
 npm install
-npx playwright install chromium   # first time only
-npm run test:pw                   # headless
-npm run test:pw:ui                # interactive UI mode
-npm run test:pw:debug             # step-through debugger
+npx playwright install chromium       # first time only
+
+./playwright/scripts/setup.sh         # kind cluster + real kagent (once)
+yarn run test:e2e                     # (or: npm run test:e2e)
 ```
 
-Playwright starts the stub + dev server automatically. To drive the app manually
-against the stub:
+`setup.sh` builds the images and installs kagent via `make create-kind-cluster`
+and `make helm-install`. It needs a provider key; since chat is mocked, a dummy
+works (`export OPENAI_API_KEY=fake`). `test:e2e` port-forwards the controller,
+boots the proxy + `next dev`, and runs the suite.
+
+Point at an already-reachable backend with `KAGENT_BACKEND_URL=http://<host>:8083`.
+
+Interactive / debug:
 
 ```bash
-node playwright/mocks/server.mjs &
-BACKEND_INTERNAL_URL=http://127.0.0.1:8899/api npm run dev
-# open http://localhost:8001
+npm run test:pw:ui       # interactive UI mode
+npm run test:pw:debug    # step-through debugger
 ```
 
 ## Conventions
 
-- Import `{ test, expect }` from `../fixtures/test`, never `@playwright/test`.
-- One spec file per feature area (`tests/agents/`, `tests/chat/`, …); use
-  `test.step()` for sub-phases of a multi-step flow.
-- **`data-testid` policy:** prefer `getByRole` / `getByLabel`. Add `data-testid`
-  only where role/text is ambiguous or unstable (list rows, per-item action
-  buttons, wizard steps, combobox options). Add incrementally — no upfront sweep.
-  Keep the existing `data-test` model-edit hooks; the Stage 2 Models flow relies
-  on them.
-
-## Roadmap
-
-- **Stage 0 (done):** foundation — config, stub backend, CI, one smoke test.
-- **Stage 1:** helper/driver library (`helpers/*`) + per-test scenario overrides
-  via the stub's `/__mock/scenario` endpoint. Prefer stateless scenario selection
-  keyed by request content (e.g. `?namespace=empty-ns` → `[]`); fall back to the
-  control endpoint with `workers: 1` for endpoints lacking a discriminator.
-- **Stage 2:** feature flows (gap-scoped), ordered by importance —
-  Create Agent → Chat/session (A2A SSE mock) → Models → MCP → Onboarding completion.
+- Import `{ test, expect }` from `../fixtures/test`.
+- Two specs per feature area: `<area>.spec.ts` (the success/CRUD journey) and
+  `<area>-errors.spec.ts` (the validation/error journey).
+- Mutating specs create uniquely-named resources and delete them; `cleanup.spec.ts`
+  sweeps any `e2e-*` leftovers from interrupted runs. Seeded resources (never
+  prefixed `e2e-`) are left untouched.
+- Prefer `getByRole` / `getByLabel`; add `data-testid` only where role/text is
+  ambiguous (list rows, per-item action buttons).
+- The suite runs serially (`workers: 1`) against one shared cluster.
+```

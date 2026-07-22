@@ -77,6 +77,7 @@ export function ProviderCombobox({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          data-testid="model-provider-select"
           variant="outline"
           role="combobox"
           aria-expanded={open}
