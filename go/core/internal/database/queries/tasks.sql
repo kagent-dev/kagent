@@ -78,7 +78,7 @@ WHERE session.user_id = @user_id
     sqlc.narg('status_after')::timestamptz IS NULL
     OR (
       CASE
-        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$'
         THEN (task.data::jsonb -> 'status' ->> 'timestamp')::timestamptz
       END
     ) > sqlc.narg('status_after')
@@ -110,7 +110,7 @@ WHERE session.user_id = @user_id
     sqlc.narg('status_after')::timestamptz IS NULL
     OR (
       CASE
-        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$'
         THEN (task.data::jsonb -> 'status' ->> 'timestamp')::timestamptz
       END
     ) > sqlc.narg('status_after')
