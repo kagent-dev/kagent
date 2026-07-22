@@ -2,6 +2,8 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -19,7 +21,8 @@ type TransportConfig struct {
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
 	APIKeyPassthrough     bool
-	Timeout               *int // seconds; nil = defaultTimeout
+	Timeout               *int // seconds; nil = defaultTimeout. Bounds the whole request (connect + write + read).
+	ConnectTimeout        *int // seconds; nil = Go transport default. Bounds connection establishment only.
 }
 
 // BuildHTTPClient creates an http.Client with the full transport stack:
@@ -35,6 +38,16 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 		return nil, err
 	}
 
+	// Apply the connect timeout to the transport's dialer. Clone first so we
+	// never mutate the shared http.DefaultTransport that BuildTLSTransport
+	// returns when no TLS override is set.
+	if tc.ConnectTimeout != nil {
+		transport, err = withConnectTimeout(transport, time.Duration(*tc.ConnectTimeout)*time.Second)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if len(tc.Headers) > 0 {
 		transport = &headerTransport{base: transport, headers: tc.Headers}
 	}
@@ -45,6 +58,21 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	}
 
 	return &http.Client{Timeout: timeout, Transport: transport}, nil
+}
+
+// withConnectTimeout returns a copy of base (which must be an *http.Transport)
+// whose DialContext enforces the given connection-establishment timeout. The
+// base transport is cloned so callers can safely pass http.DefaultTransport
+// without mutating the shared global.
+func withConnectTimeout(base http.RoundTripper, connectTimeout time.Duration) (http.RoundTripper, error) {
+	t, ok := base.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("BuildHTTPClient: connect timeout requires an *http.Transport base, got %T", base)
+	}
+	cloned := t.Clone()
+	dialer := &net.Dialer{Timeout: connectTimeout, KeepAlive: 30 * time.Second}
+	cloned.DialContext = dialer.DialContext
+	return cloned, nil
 }
 
 // BearerTokenKey is the context key for storing the bearer token for API key passthrough
