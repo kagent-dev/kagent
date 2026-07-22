@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -124,31 +123,14 @@ func getDefaultNodeSelector(incoming map[string]string) map[string]string {
 	return nodeSelector
 }
 
-// getRuntimeImageRepository returns the image repository for a given runtime.
-// It respects DefaultImageConfig.Repository for the Python runtime, and derives
-// the Go runtime repository by replacing the last path segment with "golang-adk".
-// This ensures custom repository configurations (e.g., --image-repository flag) work correctly.
+// getRuntimeImageRepository returns the image repository for a given runtime:
+// DefaultGoImageConfig.Repository for the Go runtime, DefaultImageConfig.Repository
+// otherwise.
 func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
-	switch runtime {
-	case v1alpha2.DeclarativeRuntime_Go:
-		// Derive Go runtime repository from the default Python repository
-		// by replacing the last segment (typically "app") with "golang-adk".
-		// This respects any custom repository configuration.
-		pythonRepo := DefaultImageConfig.Repository
-		lastSlash := strings.LastIndex(pythonRepo, "/")
-		if lastSlash == -1 {
-			// No slash found, repository is just the image name
-			return "golang-adk"
-		}
-		baseRepo := pythonRepo[:lastSlash]
-		return baseRepo + "/golang-adk"
-	case v1alpha2.DeclarativeRuntime_Python:
-		// Use the configured Python repository as-is
-		return DefaultImageConfig.Repository
-	default:
-		// Default to Python (should never happen due to enum validation)
-		return DefaultImageConfig.Repository
+	if runtime == v1alpha2.DeclarativeRuntime_Go {
+		return DefaultGoImageConfig.Repository
 	}
+	return DefaultImageConfig.Repository
 }
 
 // validateExtraContainers checks that none of the extra containers use the
@@ -175,7 +157,7 @@ func resolvePythonRuntimeImage(registry string, full, pinDigest bool) (string, e
 		digest = PythonADKFullImageDigest
 		imageLabel = "app-full"
 	}
-	return resolveRuntimeImage(registry, repo, digest, imageLabel, full, pinDigest)
+	return resolveRuntimeImage(registry, repo, DefaultImageConfig.Tag, digest, imageLabel, full, pinDigest)
 }
 
 func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error) {
@@ -186,7 +168,7 @@ func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error
 		digest = GoADKFullImageDigest
 		imageLabel = "golang-adk-full"
 	}
-	return resolveRuntimeImage(registry, repo, digest, imageLabel, full, pinDigest)
+	return resolveRuntimeImage(registry, repo, DefaultGoImageConfig.Tag, digest, imageLabel, full, pinDigest)
 }
 
 // resolveRuntimeImage builds the image reference for a declarative agent runtime.
@@ -200,9 +182,8 @@ func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error
 // Sandbox agents require pinDigest: Substrate ActorTemplate validation rejects
 // image refs without a digest, so those use the link-time (or flag-overridden)
 // runtime image digests.
-func resolveRuntimeImage(registry, repository, digest, imageLabel string, full, pinDigest bool) (string, error) {
+func resolveRuntimeImage(registry, repository, tag, digest, imageLabel string, full, pinDigest bool) (string, error) {
 	if !pinDigest {
-		tag := DefaultImageConfig.Tag
 		if full {
 			tag += "-full"
 		}
@@ -242,8 +223,16 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 	// Determine runtime (defaults to python when spec.declarative.runtime is unset).
 	runtime := v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 
-	// Get registry
-	registry := DefaultImageConfig.Registry
+	// Resolve base registry and pull policy; the Go runtime uses DefaultGoImageConfig.
+	baseRegistry := DefaultImageConfig.Registry
+	basePullPolicy := DefaultImageConfig.PullPolicy
+	if runtime == v1alpha2.DeclarativeRuntime_Go {
+		baseRegistry = DefaultGoImageConfig.Registry
+		basePullPolicy = DefaultGoImageConfig.PullPolicy
+	}
+
+	// Per-agent spec overrides take precedence over all defaults.
+	registry := baseRegistry
 	if spec.ImageRegistry != "" {
 		registry = spec.ImageRegistry
 	}
@@ -268,7 +257,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		}
 	}
 
-	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
+	imagePullPolicy := corev1.PullPolicy(basePullPolicy)
 	if spec.ImagePullPolicy != "" {
 		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
 	}
