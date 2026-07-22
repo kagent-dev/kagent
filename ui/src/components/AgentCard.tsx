@@ -112,6 +112,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
                 variant="ghost"
                 size="icon"
                 aria-label="Agent options"
+                data-testid={`agent-options-${agentRef}`}
                 className="bg-background/80 hover:bg-background shadow-sm"
               >
                 <MoreHorizontal className="h-4 w-4" />

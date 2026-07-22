@@ -166,7 +166,7 @@ const ToolDisplay = ({ call, result, status = "requested", isError = false, isDe
           : '';
 
   return (
-    <Card className={`mx-auto my-1 w-full min-w-0 max-w-full overflow-hidden ${borderClass}`}>
+    <Card data-testid="tool-call" className={`mx-auto my-1 w-full min-w-0 max-w-full overflow-hidden ${borderClass}`}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-xs flex space-x-5">
           <div className="flex items-center font-medium">
