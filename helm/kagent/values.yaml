@@ -202,6 +202,8 @@ controller:
     repository: kagent-dev/kagent/app
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
+    # -- Image pull secret name set on agent pods created by the controller
+    pullSecret: ""
   # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
   skillsInitImage:
     registry: ""
