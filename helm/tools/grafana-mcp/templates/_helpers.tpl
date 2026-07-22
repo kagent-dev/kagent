@@ -76,3 +76,17 @@ Join registry/repository for grafana-mcp image, skipping empty segments, then ap
 {{- $parts := compact (list $img.registry $img.repository) -}}
 {{- printf "%s:%s" (join "/" $parts) $img.tag -}}
 {{- end -}}
+
+{{- define "grafana-mcp.allowedHosts" -}}
+{{- if .Values.allowedHosts -}}
+{{- join "," .Values.allowedHosts -}}
+{{- else -}}
+{{- $fullname := include "grafana-mcp.fullname" . -}}
+{{- $ns := .Release.Namespace -}}
+{{- $port := .Values.service.port | int -}}
+{{- join "," (list (printf "%s.%s:%d" $fullname $ns $port)
+                   (printf "%s.%s.svc:%d" $fullname $ns $port)
+                   (printf "%s.%s.svc.cluster.local:%d" $fullname $ns $port)
+                   (printf "localhost:%d" $port)) -}}
+{{- end -}}
+{{- end -}}
