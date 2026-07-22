@@ -84,7 +84,8 @@ Join registry/repository for grafana-mcp image, skipping empty segments, then ap
 {{- $fullname := include "grafana-mcp.fullname" . -}}
 {{- $ns := .Release.Namespace -}}
 {{- $port := .Values.service.port | int -}}
-{{- join "," (list (printf "%s.%s:%d" $fullname $ns $port)
+{{- join "," (list (printf "%s:%d" $fullname $port)
+                   (printf "%s.%s:%d" $fullname $ns $port)
                    (printf "%s.%s.svc:%d" $fullname $ns $port)
                    (printf "%s.%s.svc.cluster.local:%d" $fullname $ns $port)
                    (printf "localhost:%d" $port)) -}}

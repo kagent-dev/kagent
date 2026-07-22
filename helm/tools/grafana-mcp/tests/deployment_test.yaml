@@ -126,7 +126,7 @@ tests:
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --allowed-hosts=RELEASE-NAME-grafana-mcp.NAMESPACE:8000,RELEASE-NAME-grafana-mcp.NAMESPACE.svc:8000,RELEASE-NAME-grafana-mcp.NAMESPACE.svc.cluster.local:8000,localhost:8000
+          content: --allowed-hosts=RELEASE-NAME-grafana-mcp:8000,RELEASE-NAME-grafana-mcp.NAMESPACE:8000,RELEASE-NAME-grafana-mcp.NAMESPACE.svc:8000,RELEASE-NAME-grafana-mcp.NAMESPACE.svc.cluster.local:8000,localhost:8000
 
   - it: should use custom allowedHosts when configured
     template: deployment.yaml
