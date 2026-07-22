@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
-import { SandboxBadge } from "@/components/AgentListView";
+import { SandboxBadge } from "@/components/SandboxBadge";
 import { MemoriesDialog } from "@/components/MemoriesDialog";
 import KagentLogo from "@/components/kagent-logo";
 import HermesLogo from "@/components/hermes-logo";
