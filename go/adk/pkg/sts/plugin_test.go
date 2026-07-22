@@ -65,7 +65,7 @@ func (f fakeSession) LastUpdateTime() time.Time { return time.Time{} }
 func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	t.Parallel()
 	plugin := NewTokenPropagationPlugin(nil, logr.Discard())
-	plugin.setCachedToken("sess-123", "token-abc", 0)
+	plugin.setCachedToken("sess-123", "", "token-abc", 0)
 
 	headers := plugin.HeaderProvider(fakeSessionContext{
 		Context:   context.Background(),
@@ -141,6 +141,149 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 	}
 	if exchangeCount != 2 {
 		t.Fatalf("token exchange calls = %d, want 2", exchangeCount)
+	}
+}
+
+func signedTokenWithSub(t *testing.T, sub string) string {
+	t.Helper()
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": sub}).SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatalf("failed to sign token: %v", err)
+	}
+	return token
+}
+
+// A session shared by multiple subjects must run each caller's tool calls under
+// that caller's exchanged token, not whichever subject seeded the session first.
+func TestSharedSessionKeepsPerSubjectTokens(t *testing.T) {
+	t.Parallel()
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":         srv.URL,
+				"token_endpoint": srv.URL + "/token",
+			})
+			return
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm() error = %v", err)
+		}
+		// Echo the incoming subject into the issued token so each caller receives
+		// a distinct exchanged token.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":      "exchanged-for-" + subjectKey(r.FormValue("subject_token")),
+			"issued_token_type": string(TokenTypeJWT),
+		})
+	}))
+	defer srv.Close()
+
+	integration, err := NewSTSIntegration(
+		srv.URL+"/.well-known/oauth-authorization-server",
+		"",
+		func(context.Context) (string, error) { return "actor", nil },
+		nil,
+		5,
+		true,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("NewSTSIntegration() error = %v", err)
+	}
+
+	plugin := NewTokenPropagationPlugin(integration, logr.Discard())
+
+	const sessionID = "shared-session"
+	alice := signedTokenWithSub(t, "alice")
+	bob := signedTokenWithSub(t, "bob")
+
+	for _, bearer := range []string{alice, bob} {
+		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+		if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+			t.Fatalf("BeforeRunCallback() error = %v", err)
+		}
+	}
+
+	for _, tc := range []struct {
+		bearer string
+		want   string
+	}{
+		{alice, "Bearer exchanged-for-alice"},
+		{bob, "Bearer exchanged-for-bob"},
+	} {
+		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, tc.bearer)
+		headers := plugin.HeaderProvider(fakeSessionContext{Context: ctx, sessionID: sessionID})
+		if headers["Authorization"] != tc.want {
+			t.Fatalf("Authorization header = %q, want %q", headers["Authorization"], tc.want)
+		}
+	}
+}
+
+// A repeat request from the same subject on the same session reuses the cached
+// exchange rather than exchanging again.
+func TestBeforeRunCallbackSameSubjectCachesExchange(t *testing.T) {
+	t.Parallel()
+
+	exchangeCount := 0
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":         srv.URL,
+				"token_endpoint": srv.URL + "/token",
+			})
+			return
+		}
+		exchangeCount++
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":      "access",
+			"issued_token_type": string(TokenTypeJWT),
+		})
+	}))
+	defer srv.Close()
+
+	integration, err := NewSTSIntegration(
+		srv.URL+"/.well-known/oauth-authorization-server",
+		"",
+		func(context.Context) (string, error) { return "actor", nil },
+		nil,
+		5,
+		true,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("NewSTSIntegration() error = %v", err)
+	}
+
+	plugin := NewTokenPropagationPlugin(integration, logr.Discard())
+	bearer := signedTokenWithSub(t, "alice")
+	for range 2 {
+		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+		if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: "sess"}); err != nil {
+			t.Fatalf("BeforeRunCallback() error = %v", err)
+		}
+	}
+
+	if exchangeCount != 1 {
+		t.Fatalf("token exchange calls = %d, want 1", exchangeCount)
+	}
+}
+
+// A request with no bearer must not receive another subject's cached token.
+func TestHeaderProviderNoBearerDoesNotLeakSubjectToken(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard())
+	plugin.setCachedToken("sess-x", "alice", "alice-token", 0)
+
+	headers := plugin.HeaderProvider(fakeSessionContext{
+		Context:   context.Background(),
+		sessionID: "sess-x",
+	})
+
+	if got, ok := headers["Authorization"]; ok {
+		t.Fatalf("expected no Authorization header for empty-bearer request, got %q", got)
 	}
 }
 
