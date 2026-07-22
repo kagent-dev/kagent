@@ -232,6 +232,12 @@ func TestStoreSessionIdempotence(t *testing.T) {
 	retrieved, err := client.GetSession(ctx, session.ID, userID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", *retrieved.Name, "Session should have updated name")
+
+	_, err = client.GetSession(ctx, "no-such-session", userID)
+	require.Error(t, err)
+
+	_, err = client.GetSession(ctx, session.ID, "other-user")
+	require.Error(t, err, "another user's session must not be readable")
 }
 
 func TestStoreSessionRejectsIDUsedByAnotherUser(t *testing.T) {
