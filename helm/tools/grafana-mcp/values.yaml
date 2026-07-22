@@ -31,6 +31,13 @@ securityContext:
     drop:
       - ALL
   readOnlyRootFilesystem: true
+  # A fixed non-root UID/GID is set so the chart installs on vanilla Kubernetes:
+  # runAsNonRoot (in podSecurityContext) needs a numeric non-root user and the
+  # mcp/grafana image does not ship one. On OpenShift, where the restricted-v2
+  # SCC assigns a per-namespace UID range and rejects a pinned UID outside it,
+  # override these to null so the SCC injects an in-range UID:
+  #   --set tools.grafana-mcp.securityContext.runAsUser=null
+  #   --set tools.grafana-mcp.securityContext.runAsGroup=null
   runAsUser: 1000
   runAsGroup: 999
 
