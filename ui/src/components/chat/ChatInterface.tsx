@@ -1102,6 +1102,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
             <form onSubmit={handleSendMessage}>
               <Textarea
+                data-testid="chat-input"
                 value={currentInputMessage}
                 onChange={(e) => setCurrentInputMessage(e.target.value)}
                 placeholder={getStatusPlaceholder(chatStatus)}
@@ -1141,7 +1142,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     </Tooltip>
                   </TooltipProvider>
                 )}
-                <Button type="submit" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
+                <Button type="submit" data-testid="chat-send" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
                   Send
                   <ArrowBigUp className="h-4 w-4 ml-2" />
                 </Button>
