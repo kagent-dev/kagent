@@ -13,6 +13,7 @@ import (
 
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
+	"github.com/golang-migrate/migrate/v4/source"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -653,13 +654,13 @@ func maxEmbeddedVersion(migrationsFS fs.FS, dir string) (uint, error) {
 			continue
 		}
 		foundUpSQL = true
-		var v uint
-		if _, scanErr := fmt.Sscanf(e.Name(), "%d", &v); scanErr != nil {
+		m, parseErr := source.DefaultParse(e.Name())
+		if parseErr != nil || m.Direction != source.Up {
 			continue
 		}
 		foundVersioned = true
-		if v > highest {
-			highest = v
+		if m.Version > highest {
+			highest = m.Version
 		}
 	}
 	if !foundUpSQL {

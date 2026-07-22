@@ -7,16 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   formUsesByoSections,
   formUsesDeclarativeSections,
-  formWorkloadKindFromApi,
   type AgentFormWorkloadKind,
 } from "@/lib/agentFormLayout";
 import {
-  sandboxFieldsFromApiSpec,
   substrateSupportedForAgentType,
 } from "@/lib/sandboxAgentForm";
-import { ModelConfig, ContextConfig, type DeclarativeRuntime } from "@/types";
+import { ModelConfig } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
-import { newPromptSourceRow, type PromptSourceRow } from "@/lib/promptSourceRow";
 import { generateId } from "@/lib/utils";
 import { ModelSelectionSection } from "@/components/create/ModelSelectionSection";
 import { ToolsSection } from "@/components/create/ToolsSection";
@@ -26,19 +23,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { AgentFormData } from "@/components/AgentsProvider";
+import type { AgentFormData } from "@/lib/agentFormDomain";
 import { useSubstrateEnabled } from "@/contexts/SubstrateFeaturesContext";
 import { Label } from "@/components/ui/label";
-import { Tool, EnvVar } from "@/types";
 import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import {
   MAX_SKILLS_PER_SOURCE,
   formRowsToGitRepos,
-  gitRepoToFormRow,
   newEmptyGitSkillRow,
-  validateDeclarativeAgentSkills,
-  type GitSkillFormRow,
 } from "@/lib/agentSkillsForm";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -50,6 +43,13 @@ import { DeclarativeRuntimeField } from "@/components/agent-form/DeclarativeRunt
 import { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";
 import { PageHeader } from "@/components/layout/PageHeader";
+import {
+  createInitialAgentFormState,
+  agentFormStateToData,
+  agentResponseToFormState,
+  validateAgentFormState,
+  type AgentFormState,
+} from "@/lib/agentFormDomain";
 
 interface AgentPageContentProps {
   isEditMode: boolean;
@@ -72,81 +72,18 @@ const DEFAULT_SYSTEM_PROMPT = `You're a helpful agent, made by the kagent team.
 
 function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageContentProps) {
   const router = useRouter();
-  const { models, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents();
+  const { models, loading, error, createNewAgent, updateAgent, getAgent, validateAgentData } = useAgents({ loadModels: true });
   const initialNamespace = !isEditMode && agentNamespace?.trim() ? agentNamespace.trim() : "default";
-
-  type SelectedModelType = ModelConfig;
-
-  interface FormState {
-    name: string;
-    namespace: string;
-    description: string;
-    agentType: AgentFormWorkloadKind;
-    runInSandbox: boolean;
-    systemPrompt: string;
-    selectedModel: SelectedModelType | null;
-    selectedMemoryModel: SelectedModelType | null;
-    memoryTtlDays: string;
-    selectedTools: Tool[];
-    skillRefs: string[];
-    skillGitRepos: GitSkillFormRow[];
-    skillsGitAuthSecretName: string;
-    byoImage: string;
-    byoCmd: string;
-    byoArgs: string;
-    replicas: string;
-    imagePullPolicy: string;
-    imagePullSecrets: string[];
-    envPairs: { name: string; value?: string; isSecret?: boolean; secretName?: string; secretKey?: string; optional?: boolean }[];
-    stream: boolean;
-    shareTools: boolean;
-    /** Python vs Go ADK (`spec.declarative.runtime`). */
-    declarativeRuntime: DeclarativeRuntime;
-    contextConfig: ContextConfig | undefined;
-    serviceAccountName: string;
-    promptSourceRows: PromptSourceRow[];
-    isSubmitting: boolean;
-    isLoading: boolean;
-    errors: AgentFormValidationErrors;
-    substrateWorkerPoolRefName: string;
-    substrateSnapshotsLocation: string;
-  }
 
   const [formDirty, setFormDirty] = useState(false);
 
-  const [state, setState] = useState<FormState>({
-    name: "",
-    namespace: initialNamespace,
-    description: "",
-    agentType: "Declarative",
-    runInSandbox: false,
-    systemPrompt: isEditMode ? "" : DEFAULT_SYSTEM_PROMPT,
-    selectedModel: null,
-    selectedMemoryModel: null,
-    memoryTtlDays: "",
-    selectedTools: [],
-    skillRefs: [""],
-    skillGitRepos: [newEmptyGitSkillRow()],
-    skillsGitAuthSecretName: "",
-    byoImage: "",
-    byoCmd: "",
-    byoArgs: "",
-    replicas: "",
-    imagePullPolicy: "",
-    imagePullSecrets: [""],
-    envPairs: [{ name: "", value: "", isSecret: false }],
-    stream: false,
-    shareTools: false,
-    declarativeRuntime: "go",
-    contextConfig: undefined,
-    serviceAccountName: "",
-    promptSourceRows: [newPromptSourceRow()],
-    isSubmitting: false,
-    isLoading: isEditMode,
-    errors: {},
-    substrateWorkerPoolRefName: "",
-    substrateSnapshotsLocation: "",
-  });
+  const [state, setState] = useState<AgentFormState>(() =>
+    createInitialAgentFormState({
+      namespace: initialNamespace,
+      isEditMode,
+      defaultSystemPrompt: DEFAULT_SYSTEM_PROMPT,
+    }),
+  );
 
   const substrateEnabled = useSubstrateEnabled();
 
@@ -215,107 +152,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             setState((prev) => ({ ...prev, isLoading: false }));
             return;
           }
-          const agent = agentResponse.agent;
-          if (agent) {
-            try {
-              const baseUpdates: Partial<FormState> = {
-                name: agent.metadata.name || "",
-                namespace: agent.metadata.namespace || "",
-                description: agent.spec?.description || "",
-                agentType: formWorkloadKindFromApi(agent.spec.type),
-                runInSandbox: agentResponse.workloadMode === "sandbox",
-              };
-              const sandboxFields =
-                agentResponse.workloadMode === "sandbox"
-                  ? sandboxFieldsFromApiSpec(agent.spec?.substrate)
-                  : {};
-              const useDeclarativeForm = agent.spec.type === "Declarative";
-              if (useDeclarativeForm) {
-                const decl = agent.spec?.declarative;
-                const memorySpec = decl?.memory;
-                const memoryModelConfig = memorySpec?.modelConfig
-                  ? `${agent.metadata.namespace}/${memorySpec.modelConfig}`
-                  : "";
-                const pt = decl?.promptTemplate;
-                const srcRows: PromptSourceRow[] =
-                  pt?.dataSources?.map((ds) => ({
-                    id: generateId(),
-                    name: ds.name || "",
-                    alias: ds.alias || "",
-                  })) ?? [newPromptSourceRow()];
-                setState((prev) => ({
-                  ...prev,
-                  ...baseUpdates,
-                  ...sandboxFields,
-                  systemPrompt: decl?.systemMessage || "",
-                  promptSourceRows: srcRows.length > 0 ? srcRows : [newPromptSourceRow()],
-                  selectedTools: decl?.tools && agentResponse.tools ? agentResponse.tools : [],
-                  selectedModel: agentResponse.modelConfigRef
-                    ? { ref: agentResponse.modelConfigRef, spec: { model: agentResponse.model || "", provider: "" } }
-                    : null,
-                  skillRefs: agent.spec?.skills?.refs && agent.spec.skills.refs.length > 0 ? agent.spec.skills.refs : [""],
-                  skillGitRepos:
-                    agent.spec?.skills?.gitRefs && agent.spec.skills.gitRefs.length > 0
-                      ? agent.spec.skills.gitRefs.map(gitRepoToFormRow)
-                      : [newEmptyGitSkillRow()],
-                  skillsGitAuthSecretName: agent.spec?.skills?.gitAuthSecretRef?.name || "",
-                  stream: decl?.stream ?? false,
-                  shareTools: decl?.shareTools ?? false,
-                  // Honor the persisted runtime for all platforms (substrate supports Python and Go).
-                  declarativeRuntime: decl?.runtime === "go" ? "go" : "python",
-                  selectedMemoryModel: memoryModelConfig
-                    ? { ref: memoryModelConfig, spec: { model: memorySpec?.modelConfig || "", provider: "" } }
-                    : null,
-                  memoryTtlDays: memorySpec?.ttlDays ? String(memorySpec.ttlDays) : "",
-                  contextConfig: decl?.context,
-                  serviceAccountName: decl?.deployment?.serviceAccountName || "",
-                  byoImage: "",
-                  byoCmd: "",
-                  byoArgs: "",
-                }));
-              } else {
-                setState((prev) => ({
-                  ...prev,
-                  ...baseUpdates,
-                  ...sandboxFields,
-                  systemPrompt: "",
-                  selectedModel: null,
-                  selectedTools: [],
-                  selectedMemoryModel: null,
-                  memoryTtlDays: "",
-                  byoImage: agent.spec?.byo?.deployment?.image || "",
-                  byoCmd: agent.spec?.byo?.deployment?.cmd || "",
-                  byoArgs: (agent.spec?.byo?.deployment?.args || []).join(" "),
-                  replicas: agent.spec?.byo?.deployment?.replicas !== undefined ? String(agent.spec?.byo?.deployment?.replicas) : "",
-                  imagePullPolicy: agent.spec?.byo?.deployment?.imagePullPolicy || "",
-                  imagePullSecrets: (agent.spec?.byo?.deployment?.imagePullSecrets || [])
-                    .map((s: { name: string }) => s.name)
-                    .concat((agent.spec?.byo?.deployment?.imagePullSecrets || []).length === 0 ? [""] : []),
-                  envPairs: (agent.spec?.byo?.deployment?.env || [])
-                    .map((e: EnvVar) =>
-                      e?.valueFrom?.secretKeyRef
-                        ? {
-                            name: e.name || "",
-                            isSecret: true,
-                            secretName: e.valueFrom.secretKeyRef.name || "",
-                            secretKey: e.valueFrom.secretKeyRef.key || "",
-                            optional: e.valueFrom.secretKeyRef.optional,
-                          }
-                        : { name: e.name || "", value: e.value || "", isSecret: false },
-                    )
-                    .concat((agent.spec?.byo?.deployment?.env || []).length === 0
-                      ? [{ name: "", value: "", isSecret: false }]
-                      : []),
-                  serviceAccountName: agent.spec?.byo?.deployment?.serviceAccountName || "",
-                }));
-              }
-            } catch (extractError) {
-              console.error("Error extracting assistant data:", extractError);
-              toast.error("Failed to extract agent data");
-            }
-          } else {
-            toast.error("Agent not found");
-          }
+          setState((prev) => ({ ...prev, ...agentResponseToFormState(agentResponse) }));
         } catch (e) {
           console.error("Error fetching agent:", e);
           toast.error("Failed to load agent data");
@@ -329,54 +166,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   }, [isEditMode, agentName, agentNamespace, getAgent]);
 
   const validateForm = () => {
-    const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
-    const formData = {
-      name: state.name,
-      namespace: state.namespace,
-      description: state.description,
-      type: state.agentType,
-      runInSandbox: state.runInSandbox,
-      systemPrompt: state.systemPrompt,
-      promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
-      modelName: state.selectedModel?.ref || "",
-      tools: state.selectedTools,
-      byoImage: state.byoImage,
-      memory: memoryEnabled
-        ? {
-            modelConfig: state.selectedMemoryModel?.ref || "",
-            ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
-          }
-        : undefined,
-      context: state.contextConfig,
-      serviceAccountName: state.serviceAccountName,
-      ...(useDeclarativeAgentFields ? { declarativeRuntime: state.declarativeRuntime } : {}),
-      ...(state.runInSandbox
-        ? {
-            substrateWorkerPoolRefName: state.substrateWorkerPoolRefName,
-            substrateSnapshotsLocation: state.substrateSnapshotsLocation,
-          }
-        : {}),
-    };
-
-    const newErrors = validateAgentData(formData);
-
-    // BYO agents on substrate must set an explicit command: substrate copies the container
-    // command verbatim and does not fall back to the image entrypoint (mirrors the backend).
-    if (state.agentType === "BYO" && substrateSandboxAgent && !state.byoCmd.trim()) {
-      newErrors.byoCmd = "Command is required for BYO agents on Agent Substrate";
-    }
-
-    if (useDeclarativeAgentFields && skillsEnabled) {
-      const skillsInput = {
-        skillRefs: state.skillRefs || [],
-        skillGitRepos: state.skillGitRepos || [],
-        skillsGitAuthSecretName: state.skillsGitAuthSecretName || "",
-      };
-      const skillsError = validateDeclarativeAgentSkills(skillsInput);
-      if (skillsError) {
-        newErrors.skills = skillsError;
-      }
-    }
+    const newErrors = validateAgentFormState(state);
 
     setState((prev) => ({ ...prev, errors: newErrors }));
     const valid = Object.keys(newErrors).length === 0;
@@ -459,77 +249,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         throw new Error("Model is required for this agent type.");
       }
 
-      const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
-
-      const agentData = {
-        name: state.name,
-        namespace: state.namespace,
-        description: state.description,
-        type: state.agentType,
-        runInSandbox: state.runInSandbox,
-        systemPrompt: state.systemPrompt,
-        promptSources: state.promptSourceRows.map(({ name, alias }) => ({ name, alias })),
-        modelName: state.selectedModel?.ref || "",
-        stream: state.stream,
-        shareTools: useDeclarativeAgentFields ? state.shareTools : undefined,
-        tools: state.selectedTools,
-        skillRefs: skillsEnabled ? (state.skillRefs || []).filter((ref) => ref.trim()) : undefined,
-        skillGitRepos: skillsEnabled ? formRowsToGitRepos(state.skillGitRepos || []) : undefined,
-        skillsGitAuthSecretName:
-          skillsEnabled && (state.skillsGitAuthSecretName || "").trim()
-            ? (state.skillsGitAuthSecretName || "").trim()
-            : undefined,
-        memory:
-          useDeclarativeAgentFields && memoryEnabled
-            ? {
-                modelConfig: state.selectedMemoryModel?.ref || "",
-                ttlDays: state.memoryTtlDays ? parseInt(state.memoryTtlDays, 10) : undefined,
-              }
-            : undefined,
-        context: useDeclarativeAgentFields ? state.contextConfig : undefined,
-        declarativeRuntime: useDeclarativeAgentFields ? state.declarativeRuntime : undefined,
-        byoImage: state.byoImage,
-        byoCmd: state.byoCmd || undefined,
-        byoArgs: state.byoArgs ? state.byoArgs.split(/\s+/).filter(Boolean) : undefined,
-        replicas: state.replicas ? parseInt(state.replicas, 10) : undefined,
-        imagePullPolicy: state.imagePullPolicy || undefined,
-        imagePullSecrets: (state.imagePullSecrets || [])
-          .filter((n) => n.trim())
-          .map((n) => ({ name: n.trim() })),
-        env: (state.envPairs || [])
-          .map<EnvVar | null>((ev) => {
-            const name = (ev.name || "").trim();
-            if (!name) {
-              return null;
-            }
-            if (ev.isSecret) {
-              const secName = (ev.secretName || "").trim();
-              const secKey = (ev.secretKey || "").trim();
-              if (!secName || !secKey) {
-                return null;
-              }
-              return {
-                name,
-                valueFrom: {
-                  secretKeyRef: {
-                    name: secName,
-                    key: secKey,
-                    optional: ev.optional,
-                  },
-                },
-              } as EnvVar;
-            }
-            return { name, value: ev.value ?? "" } as EnvVar;
-          })
-          .filter((e): e is EnvVar => e !== null),
-        serviceAccountName: state.serviceAccountName.trim() || undefined,
-        ...(state.runInSandbox
-          ? {
-              substrateWorkerPoolRefName: state.substrateWorkerPoolRefName,
-              substrateSnapshotsLocation: state.substrateSnapshotsLocation,
-            }
-          : {}),
-      };
+      const agentData = agentFormStateToData(state);
 
       let result;
 
@@ -687,10 +407,9 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                         setState((prev) => ({
                           ...prev,
                           runInSandbox: !!checked,
-                          // Sandbox agents run on Agent Substrate (Go runtime, no skills).
+                          // Sandbox agents do not support skills.
                           ...(checked
                             ? {
-                                declarativeRuntime: "go",
                                 skillRefs: [""],
                                 skillGitRepos: [newEmptyGitSkillRow()],
                                 skillsGitAuthSecretName: "",

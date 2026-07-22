@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -80,31 +79,26 @@ func getDefaultLabels(agentName string, incoming map[string]string) map[string]s
 	return defaultLabels
 }
 
-// getRuntimeImageRepository returns the image repository for a given runtime.
-// It respects DefaultImageConfig.Repository for the Python runtime, and derives
-// the Go runtime repository by replacing the last path segment with "golang-adk".
-// This ensures custom repository configurations (e.g., --image-repository flag) work correctly.
-func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
-	switch runtime {
-	case v1alpha2.DeclarativeRuntime_Go:
-		// Derive Go runtime repository from the default Python repository
-		// by replacing the last segment (typically "app") with "golang-adk".
-		// This respects any custom repository configuration.
-		pythonRepo := DefaultImageConfig.Repository
-		lastSlash := strings.LastIndex(pythonRepo, "/")
-		if lastSlash == -1 {
-			// No slash found, repository is just the image name
-			return "golang-adk"
-		}
-		baseRepo := pythonRepo[:lastSlash]
-		return baseRepo + "/golang-adk"
-	case v1alpha2.DeclarativeRuntime_Python:
-		// Use the configured Python repository as-is
-		return DefaultImageConfig.Repository
-	default:
-		// Default to Python (should never happen due to enum validation)
-		return DefaultImageConfig.Repository
+func getDefaultNodeSelector(incoming map[string]string) map[string]string {
+	// No global default (from --default-agent-node-selector flag): keep the
+	// per-agent value as-is (nil stays nil).
+	if len(DefaultAgentNodeSelector) == 0 {
+		return maps.Clone(incoming)
 	}
+	nodeSelector := maps.Clone(DefaultAgentNodeSelector)
+	// Per-agent nodeSelector overrides global defaults
+	maps.Copy(nodeSelector, incoming)
+	return nodeSelector
+}
+
+// getRuntimeImageRepository returns the image repository for a given runtime:
+// DefaultGoImageConfig.Repository for the Go runtime, DefaultImageConfig.Repository
+// otherwise.
+func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
+	if runtime == v1alpha2.DeclarativeRuntime_Go {
+		return DefaultGoImageConfig.Repository
+	}
+	return DefaultImageConfig.Repository
 }
 
 // validateExtraContainers checks that none of the extra containers use the
@@ -123,7 +117,7 @@ func validateExtraContainers(containers []corev1.Container) error {
 	return nil
 }
 
-func resolvePythonRuntimeImage(registry string, full bool) (string, error) {
+func resolvePythonRuntimeImage(registry string, full, pinDigest bool) (string, error) {
 	repo := DefaultImageConfig.Repository
 	digest := PythonADKImageDigest
 	imageLabel := "app"
@@ -131,16 +125,10 @@ func resolvePythonRuntimeImage(registry string, full bool) (string, error) {
 		digest = PythonADKFullImageDigest
 		imageLabel = "app-full"
 	}
-	if d := normalizeImageDigest(digest); d != "" {
-		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
-	}
-	return "", fmt.Errorf(
-		"%s image digest is not set at link time; rebuild the controller after pushing agent runtime images",
-		imageLabel,
-	)
+	return resolveRuntimeImage(registry, repo, DefaultImageConfig.Tag, digest, imageLabel, full, pinDigest)
 }
 
-func resolveGoRuntimeImage(registry string, full bool) (string, error) {
+func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error) {
 	repo := getRuntimeImageRepository(v1alpha2.DeclarativeRuntime_Go)
 	digest := GoADKImageDigest
 	imageLabel := "golang-adk"
@@ -148,12 +136,33 @@ func resolveGoRuntimeImage(registry string, full bool) (string, error) {
 		digest = GoADKFullImageDigest
 		imageLabel = "golang-adk-full"
 	}
+	return resolveRuntimeImage(registry, repo, DefaultGoImageConfig.Tag, digest, imageLabel, full, pinDigest)
+}
+
+// resolveRuntimeImage builds the image reference for a declarative agent runtime.
+//
+// Regular agents get a tag reference (registry/repository:tag) so mirrored
+// registries that do not preserve upstream manifest digests still resolve
+// (https://github.com/kagent-dev/kagent/issues/2055). Full-variant images share
+// the repository and are published under "<tag>-full" (see APP_FULL_IMAGE_TAG /
+// GOLANG_ADK_FULL_IMAGE_TAG in the Makefile).
+//
+// Sandbox agents require pinDigest: Substrate ActorTemplate validation rejects
+// image refs without a digest, so those use the link-time (or flag-overridden)
+// runtime image digests.
+func resolveRuntimeImage(registry, repository, tag, digest, imageLabel string, full, pinDigest bool) (string, error) {
+	if !pinDigest {
+		if full {
+			tag += "-full"
+		}
+		return fmt.Sprintf("%s/%s:%s", registry, repository, tag), nil
+	}
 	if d := normalizeImageDigest(digest); d != "" {
-		return fmt.Sprintf("%s/%s@%s", registry, repo, d), nil
+		return fmt.Sprintf("%s/%s@%s", registry, repository, d), nil
 	}
 	return "", fmt.Errorf(
-		"%s image digest is not set at link time; rebuild the controller after pushing agent runtime images",
-		imageLabel,
+		"%s image digest is not set; rebuild the controller after pushing agent runtime images, or override it via --%s-image-digest",
+		imageLabel, imageLabel,
 	)
 }
 
@@ -182,30 +191,41 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 	// Determine runtime (defaults to python when spec.declarative.runtime is unset).
 	runtime := v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 
-	// Get registry
-	registry := DefaultImageConfig.Registry
+	// Resolve base registry and pull policy; the Go runtime uses DefaultGoImageConfig.
+	baseRegistry := DefaultImageConfig.Registry
+	basePullPolicy := DefaultImageConfig.PullPolicy
+	if runtime == v1alpha2.DeclarativeRuntime_Go {
+		baseRegistry = DefaultGoImageConfig.Registry
+		basePullPolicy = DefaultGoImageConfig.PullPolicy
+	}
+
+	// Per-agent spec overrides take precedence over all defaults.
+	registry := baseRegistry
 	if spec.ImageRegistry != "" {
 		registry = spec.ImageRegistry
 	}
 
 	var image string
 	full := needsSRTSettings(agent, specRef.Sandbox)
+	// Substrate ActorTemplates reject tag refs, so sandbox agents pin by digest;
+	// everything else references by tag (resolvable in mirrored registries).
+	pinDigest := agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox
 	switch runtime {
 	case v1alpha2.DeclarativeRuntime_Go:
 		var err error
-		image, err = resolveGoRuntimeImage(registry, full)
+		image, err = resolveGoRuntimeImage(registry, full, pinDigest)
 		if err != nil {
 			return nil, err
 		}
 	default:
 		var err error
-		image, err = resolvePythonRuntimeImage(registry, full)
+		image, err = resolvePythonRuntimeImage(registry, full, pinDigest)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
+	imagePullPolicy := corev1.PullPolicy(basePullPolicy)
 	if spec.ImagePullPolicy != "" {
 		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
 	}
@@ -237,7 +257,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		Resources:            getDefaultResources(spec.Resources), // Set default resources if not specified
 		Tolerations:          slices.Clone(spec.Tolerations),
 		Affinity:             spec.Affinity,
-		NodeSelector:         maps.Clone(spec.NodeSelector),
+		NodeSelector:         getDefaultNodeSelector(spec.NodeSelector),
 		SecurityContext:      spec.SecurityContext,
 		PodSecurityContext:   spec.PodSecurityContext,
 		ServiceAccountName:   spec.ServiceAccountName,
@@ -321,7 +341,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		Resources:            getDefaultResources(spec.Resources), // Set default resources if not specified
 		Tolerations:          slices.Clone(spec.Tolerations),
 		Affinity:             spec.Affinity,
-		NodeSelector:         maps.Clone(spec.NodeSelector),
+		NodeSelector:         getDefaultNodeSelector(spec.NodeSelector),
 		SecurityContext:      spec.SecurityContext,
 		PodSecurityContext:   spec.PodSecurityContext,
 		ServiceAccountName:   spec.ServiceAccountName,

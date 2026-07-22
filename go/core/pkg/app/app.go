@@ -170,7 +170,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Metrics.CertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	commandLine.StringVar(&cfg.Webhook.CertPath, "webhook-cert-path", "",
 		"The directory that contains the webhook server certificate.")
-	commandLine.StringVar(&cfg.Webhook.CertName, "webhook-cert-name", "tls.crt", "The name of the wehbook server certificate file.")
+	commandLine.StringVar(&cfg.Webhook.CertName, "webhook-cert-name", "tls.crt", "The name of the webhook server certificate file.")
 	commandLine.StringVar(&cfg.Webhook.CertKey, "webhook-cert-key", "tls.key", "The name of the webhook server key file.")
 	commandLine.BoolVar(&cfg.EnableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
@@ -199,10 +199,18 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
+	commandLine.StringVar(&agent_translator.PythonADKImageDigest, "app-image-digest", agent_translator.PythonADKImageDigest, "Manifest digest (sha256:...) for the Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
+	commandLine.StringVar(&agent_translator.PythonADKFullImageDigest, "app-full-image-digest", agent_translator.PythonADKFullImageDigest, "Manifest digest (sha256:...) for the full Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
+	commandLine.StringVar(&agent_translator.GoADKImageDigest, "golang-adk-image-digest", agent_translator.GoADKImageDigest, "Manifest digest (sha256:...) for the Go agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
+	commandLine.StringVar(&agent_translator.GoADKFullImageDigest, "golang-adk-full-image-digest", agent_translator.GoADKFullImageDigest, "Manifest digest (sha256:...) for the full Go agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Registry, "skills-init-image-registry", agent_translator.DefaultSkillsInitImageConfig.Registry, "The registry to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Registry, "go-image-registry", agent_translator.DefaultGoImageConfig.Registry, "The registry to use for the Go (ADK) runtime agent image.")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Repository, "go-image-repository", agent_translator.DefaultGoImageConfig.Repository, "The repository to use for the Go (ADK) runtime agent image.")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Tag, "go-image-tag", agent_translator.DefaultGoImageConfig.Tag, "The tag to use for the Go (ADK) runtime agent image.")
+	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.PullPolicy, "go-image-pull-policy", agent_translator.DefaultGoImageConfig.PullPolicy, "The pull policy to use for the Go (ADK) runtime agent image.")
 
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
 	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
@@ -216,6 +224,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
 	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
+
+	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentNodeSelector}, "default-agent-node-selector", "Comma-separated key=value pairs of node selector terms to apply to all agent deployments (e.g. 'kubernetes.io/os=linux'). A per-agent nodeSelector takes precedence.")
 
 	commandLine.StringVar(&agent_translator.DefaultAgentBindHost, "default-agent-bind-host", agent_translator.DefaultAgentBindHost, "Default host address for agent pods to bind to. Use '0.0.0.0' for IPv4 only or '::' for dual-stack (IPv4+IPv6).")
 }
@@ -341,6 +351,15 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}()
 
 	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate, "config", cfg)
+
+	// The Go (ADK) runtime image is configured independently of the agent image.
+	// Warn operators who mirror only the agent image so a Go-runtime pod does not
+	// silently pull from the public registry.
+	if agent_translator.DefaultGoImageConfig.Registry != agent_translator.DefaultImageConfig.Registry {
+		setupLog.Info("Go (ADK) runtime image registry differs from the agent image registry; set --go-image-registry (GO_IMAGE_REGISTRY) to mirror it",
+			"goImageRegistry", agent_translator.DefaultGoImageConfig.Registry,
+			"agentImageRegistry", agent_translator.DefaultImageConfig.Registry)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

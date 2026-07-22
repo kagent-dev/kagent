@@ -1,4 +1,4 @@
-import type { AgentFormData } from "@/components/AgentsProvider";
+import type { AgentFormData } from "@/lib/agentFormDomain";
 import type { AgentResponse, SandboxSubstrateSpec } from "@/types";
 
 export function sandboxFieldsFromApiSpec(substrate?: SandboxSubstrateSpec): {
