@@ -141,11 +141,20 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   );
 
   useEffect(() => {
+    // Guard against a stale fetch clobbering the user's edits. This effect can run
+    // more than once for the same agent (e.g. a remount as the route's search params
+    // resolve), so two getAgent calls race; without the ignore flag a superseded
+    // response can land AFTER the user has changed a field and overwrite it with the
+    // stored value, silently reverting the edit on save.
+    let ignore = false;
     const fetchAgentData = async () => {
       if (isEditMode && agentName && agentNamespace) {
         try {
           setState((prev) => ({ ...prev, isLoading: true }));
           const agentResponse = await getAgent(agentName, agentNamespace);
+          if (ignore) {
+            return;
+          }
 
           if (!agentResponse) {
             toast.error("Agent not found");
@@ -154,15 +163,23 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
           }
           setState((prev) => ({ ...prev, ...agentResponseToFormState(agentResponse) }));
         } catch (e) {
+          if (ignore) {
+            return;
+          }
           console.error("Error fetching agent:", e);
           toast.error("Failed to load agent data");
         } finally {
-          setState((prev) => ({ ...prev, isLoading: false }));
+          if (!ignore) {
+            setState((prev) => ({ ...prev, isLoading: false }));
+          }
         }
       }
     };
 
     void fetchAgentData();
+    return () => {
+      ignore = true;
+    };
   }, [isEditMode, agentName, agentNamespace, getAgent]);
 
   const validateForm = () => {
