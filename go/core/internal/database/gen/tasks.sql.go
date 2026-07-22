@@ -26,7 +26,7 @@ WHERE session.user_id = $1
     $5::timestamptz IS NULL
     OR (
       CASE
-        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$'
         THEN (task.data::jsonb -> 'status' ->> 'timestamp')::timestamptz
       END
     ) > $5
@@ -129,7 +129,7 @@ WHERE session.user_id = $1
     $5::timestamptz IS NULL
     OR (
       CASE
-        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$'
         THEN (task.data::jsonb -> 'status' ->> 'timestamp')::timestamptz
       END
     ) > $5

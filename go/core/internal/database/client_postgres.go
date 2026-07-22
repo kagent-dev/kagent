@@ -337,11 +337,11 @@ func (c *postgresClient) ListUserTasks(ctx context.Context, params dbpkg.ListUse
 
 	total := 0
 	tasks := make([]*a2a.Task, 0, len(rows))
-	for i, r := range rows {
+	for _, r := range rows {
 		total = int(r.Total)
 		task, err := parseVersionedTask(r.Data, r.ProtocolVersion)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to parse task row %d: %w", i, err)
+			return nil, 0, fmt.Errorf("failed to parse task %s: %w", r.ID, err)
 		}
 		tasks = append(tasks, task)
 	}
