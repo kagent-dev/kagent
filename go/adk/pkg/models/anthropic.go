@@ -92,16 +92,26 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 // via Google Cloud Vertex AI using Application Default Credentials (ADC).
 // This is used for the GeminiAnthropic / AnthropicVertexAI provider type.
 func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicConfig, region, projectID string, logger logr.Logger) (*AnthropicModel, error) {
-	opts := []option.RequestOption{
-		vertex.WithGoogleAuth(ctx, region, projectID),
-	}
+	var opts []option.RequestOption
 
-	// Create HTTP client with timeout, custom headers, TLS, and passthrough
+	// Create HTTP client with timeout, custom headers, and TLS.
+	// This must be applied BEFORE vertex.WithGoogleAuth so that the Vertex
+	// option (which internally calls WithHTTPClient with an OAuth2-authenticated
+	// transport, sets the Vertex AI base URL, and registers middleware that
+	// rewrites /v1/messages to the rawPredict endpoint) takes precedence.
+	// Previously WithHTTPClient was appended AFTER WithGoogleAuth, which
+	// replaced the authenticated Vertex AI client with a plain HTTP client,
+	// causing requests to be sent to /v1/messages without OAuth2 credentials
+	// (HTTP 401).
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err
 	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
+
+	// Must be last: sets the Vertex AI base URL, registers URL-rewriting
+	// middleware, and replaces the HTTP client with an OAuth2-authenticated one.
+	opts = append(opts, vertex.WithGoogleAuth(ctx, region, projectID))
 
 	client := anthropic.NewClient(opts...)
 	logger.Info("Initialized Anthropic Vertex AI model", "model", config.Model, "region", region, "project", projectID)
