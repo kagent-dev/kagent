@@ -195,9 +195,15 @@ func TestSecurityContext_OnlyPodSecurityContext(t *testing.T) {
 	assert.Equal(t, int64(2000), *podSecurityContext.RunAsUser)
 	assert.Equal(t, int64(2000), *podSecurityContext.RunAsGroup)
 
-	// Container security context should be nil if not specified
+	// Container security context should get restricted-PSS defaults when not specified
 	containerSecurityContext := podTemplate.Spec.Containers[0].SecurityContext
-	assert.Nil(t, containerSecurityContext, "Container securityContext should be nil when not specified")
+	require.NotNil(t, containerSecurityContext, "Container securityContext should get restricted defaults")
+	assert.True(t, *containerSecurityContext.RunAsNonRoot, "Default runAsNonRoot should be true")
+	assert.False(t, *containerSecurityContext.AllowPrivilegeEscalation, "Default allowPrivilegeEscalation should be false")
+	require.NotNil(t, containerSecurityContext.Capabilities)
+	assert.Contains(t, containerSecurityContext.Capabilities.Drop, corev1.Capability("ALL"), "Default should drop ALL capabilities")
+	require.NotNil(t, containerSecurityContext.SeccompProfile)
+	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, containerSecurityContext.SeccompProfile.Type)
 }
 
 func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
@@ -264,9 +270,12 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 	require.NotNil(t, deployment)
 	podTemplate := &deployment.Spec.Template
 
-	// Pod security context should be nil if not specified
+	// Pod security context should get restricted-PSS defaults when not specified
 	podSecurityContext := podTemplate.Spec.SecurityContext
-	assert.Nil(t, podSecurityContext, "Pod securityContext should be nil when not specified")
+	require.NotNil(t, podSecurityContext, "Pod securityContext should get restricted defaults")
+	assert.True(t, *podSecurityContext.RunAsNonRoot, "Default runAsNonRoot should be true")
+	require.NotNil(t, podSecurityContext.SeccompProfile)
+	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, podSecurityContext.SeccompProfile.Type)
 
 	// Container security context should be set
 	containerSecurityContext := podTemplate.Spec.Containers[0].SecurityContext
@@ -428,4 +437,79 @@ func TestSecurityContext_SkillsPSSRestricted(t *testing.T) {
 	assert.Nil(t, containerSecurityContext.Privileged, "Privileged must not be set when AllowPrivilegeEscalation=false")
 	assert.Equal(t, int64(1000), *containerSecurityContext.RunAsUser, "User-provided runAsUser should be preserved")
 	assert.False(t, *containerSecurityContext.AllowPrivilegeEscalation, "AllowPrivilegeEscalation should be preserved as false")
+}
+
+// TestSecurityContext_NilSecurityContext_RestrictedDefaults verifies restricted-PSS defaults when no SecurityContext is set.
+func TestSecurityContext_NilSecurityContext_RestrictedDefaults(t *testing.T) {
+	ctx := context.Background()
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "Test agent",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	scheme := schemev1.Scheme
+	err := v1alpha2.AddToScheme(scheme)
+	require.NoError(t, err)
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, modelConfig).
+		Build()
+
+	defaultModel := types.NamespacedName{
+		Namespace: "test",
+		Name:      "test-model",
+	}
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient, defaultModel, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+
+	var deployment *appsv1.Deployment
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			deployment = dep
+			break
+		}
+	}
+	require.NotNil(t, deployment)
+	podTemplate := &deployment.Spec.Template
+
+	// Pod-level restricted defaults
+	podSC := podTemplate.Spec.SecurityContext
+	require.NotNil(t, podSC, "Pod securityContext should have restricted defaults")
+	assert.True(t, *podSC.RunAsNonRoot, "Pod runAsNonRoot should default to true")
+	require.NotNil(t, podSC.SeccompProfile)
+	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, podSC.SeccompProfile.Type)
+
+	// Container-level restricted defaults
+	containerSC := podTemplate.Spec.Containers[0].SecurityContext
+	require.NotNil(t, containerSC, "Container securityContext should have restricted defaults")
+	assert.True(t, *containerSC.RunAsNonRoot, "Container runAsNonRoot should default to true")
+	assert.False(t, *containerSC.AllowPrivilegeEscalation, "Container allowPrivilegeEscalation should default to false")
+	require.NotNil(t, containerSC.Capabilities)
+	assert.Contains(t, containerSC.Capabilities.Drop, corev1.Capability("ALL"), "Should drop ALL capabilities")
+	require.NotNil(t, containerSC.SeccompProfile)
+	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, containerSC.SeccompProfile.Type)
 }

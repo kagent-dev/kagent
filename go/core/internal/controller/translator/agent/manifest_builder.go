@@ -488,10 +488,37 @@ func buildContainerSecurityContext(
 	}
 
 	if !needCodeExecIsolation {
-		return nil
+		return defaultRestrictedContainerSecurityContext()
 	}
 
 	return &corev1.SecurityContext{Privileged: new(true)}
+}
+
+// defaultRestrictedContainerSecurityContext returns a restricted-PSS-compliant container SecurityContext.
+func defaultRestrictedContainerSecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		RunAsNonRoot:             new(true),
+		AllowPrivilegeEscalation: new(false),
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
+}
+
+// defaultPodSecurityContext returns the provided PodSecurityContext or a restricted-PSS-compliant default if nil.
+func defaultPodSecurityContext(provided *corev1.PodSecurityContext) *corev1.PodSecurityContext {
+	if provided != nil {
+		return provided
+	}
+	return &corev1.PodSecurityContext{
+		RunAsNonRoot: new(true),
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
 }
 
 func buildPodTemplate(
@@ -526,7 +553,7 @@ func buildPodTemplate(
 		Spec: corev1.PodSpec{
 			ServiceAccountName: *dep.ServiceAccountName,
 			ImagePullSecrets:   dep.ImagePullSecrets,
-			SecurityContext:    dep.PodSecurityContext,
+			SecurityContext:    defaultPodSecurityContext(dep.PodSecurityContext),
 			InitContainers:     runtimeInputs.initContainers,
 			Containers: append([]corev1.Container{{
 				Name:            "kagent",
