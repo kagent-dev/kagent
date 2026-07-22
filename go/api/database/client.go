@@ -38,6 +38,7 @@ type Client interface {
 	DeleteToolsForServer(ctx context.Context, serverName string, groupKind string) error
 
 	// Get methods
+
 	GetSession(ctx context.Context, sessionID string, userID string) (*Session, error)
 	GetAgent(ctx context.Context, name string) (*Agent, error)
 	GetTask(ctx context.Context, id string) (*a2a.Task, error)
