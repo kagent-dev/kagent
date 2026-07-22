@@ -47,3 +47,4 @@ next-env.d.ts
 /playwright-report
 /playwright/test-results
 /playwright/.cache
+/playwright/.e2e-pids.json

@@ -164,9 +164,10 @@ class KAgentApp:
 
         if self.tracing:
             try:
-                # Set OpenAI tracing disabled and set custom OTEL tracing to be enabled
+                # OpenAIAgentsInstrumentor (below) covers OpenAI; skip the low-level
+                # OpenAIInstrumentor, whose SDK monkeypatch breaks Agents SDK streaming.
                 logger.info("Configuring tracing for KAgent OpenAI app")
-                configure_tracing(self.config.name, self.config.namespace, app)
+                configure_tracing(self.config.name, self.config.namespace, app, instrument_openai_client=False)
 
                 # Configure tracing for OpenAI Agents SDK
                 tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
