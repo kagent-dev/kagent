@@ -306,6 +306,42 @@ class TestKAgentBedrockLlm:
         tool_names = [t["toolSpec"]["name"] for t in call_kwargs["toolConfig"]["tools"]]
         assert tool_names == ["fetch_get_url"]
 
+    @pytest.mark.asyncio
+    async def test_streaming_malformed_tool_input_degrades_to_empty_args(self):
+        """A truncated/malformed streamed tool-argument JSON must not abort the
+        turn: it degrades to empty args, matching the OpenAI and SAP AI Core
+        streaming paths."""
+        llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
+
+        stream_events = [
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "call-xyz", "name": "get_weather"}}}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"city": "Paris"'}}}},
+            {"messageStop": {"stopReason": "tool_use"}},
+        ]
+        mock_client = mock.MagicMock()
+        mock_client.converse_stream.return_value = {"stream": stream_events}
+
+        async def fake_to_thread(fn, **kwargs):
+            return fn(**kwargs)
+
+        request = mock.MagicMock()
+        request.model = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        request.contents = []
+        request.config = None
+
+        with (
+            mock.patch("kagent.adk.models._bedrock._get_bedrock_client", return_value=mock_client),
+            mock.patch("kagent.adk.models._bedrock.asyncio.to_thread", side_effect=fake_to_thread),
+        ):
+            responses = [r async for r in llm.generate_content_async(request, stream=True)]
+
+        final = responses[-1]
+        assert final.error_code is None
+        fc = final.content.parts[0].function_call
+        assert fc.name == "get_weather"
+        assert fc.id == "call-xyz"
+        assert fc.args == {}
+
     def test_create_llm_from_bedrock_model_config(self):
         from kagent.adk.types import Bedrock, _create_llm_from_model_config
 
