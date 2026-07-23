@@ -22,6 +22,7 @@ env:
   # Consistent builder configuration
   BUILDX_BUILDER_NAME: kagent-builder-v0.23.0
   BUILDX_VERSION: v0.23.0
+  BUILD_PLATFORMS: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
 jobs:
   setup:
     runs-on: ubuntu-latest
@@ -84,15 +85,14 @@ jobs:
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
-            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e,mode=max
             --platform=linux/amd64
             --push
+          CI_CACHE_KEY_PREFIX: ${{ needs.setup.outputs.cache-key }}-e2e
+          CI_CACHE_MAIN_KEY_PREFIX: ${{ env.CACHE_KEY_PREFIX }}-main
         run: |
           echo "Cache key: ${{ needs.setup.outputs.cache-key }}"
-          make helm-install
-          make push-test-agent push-test-skill
+          make -j2 helm-install-e2e
+          make -j2 push-test-agent-images push-test-skill
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready pod -l app.kubernetes.io/component=controller -n kagent --timeout=120s
           kubectl wait --for=condition=Ready  agents.kagent.dev -n kagent --all --timeout=60s || kubectl get po -n kagent -o wide ||:
@@ -121,6 +121,7 @@ jobs:
           OPENAI_API_KEY: fake
           KAGENT_HELM_EXTRA_ARGS: >-
             --set 'rbac.namespaces={kagent}'
+            --set ui.replicas=0
         run: |
           # Upgrade helm to use namespace-scoped RBAC
           make helm-install-provider
@@ -202,10 +203,10 @@ jobs:
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
             --platform=linux/amd64
             --push
+          CI_CACHE_KEY_PREFIX: ${{ needs.setup.outputs.cache-key }}-upgrade
+          CI_CACHE_MAIN_KEY_PREFIX: ${{ env.CACHE_KEY_PREFIX }}-main
         run: |
           make run-upgrade-tests UPGRADE_FROM_VERSION="${{ steps.prep.outputs.version }}"
       - name: fail print info
@@ -251,10 +252,10 @@ jobs:
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           KAGENT_HELM_EXTRA_ARGS: --cleanup-on-fail=false
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
             --platform=linux/amd64
             --push
+          CI_CACHE_KEY_PREFIX: ${{ needs.setup.outputs.cache-key }}-rolling-upgrade
+          CI_CACHE_MAIN_KEY_PREFIX: ${{ env.CACHE_KEY_PREFIX }}-main
         run: |
           make run-rolling-upgrade-tests UPGRADE_FROM_VERSION="${{ steps.prep.outputs.version }}"
       - name: fail print info
@@ -351,7 +352,8 @@ jobs:
         working-directory: ./ui
         run: npm run test:vitest
 
-  # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
+  # The controller target also builds its runtime and sandbox image dependencies.
+  # Pull requests validate amd64; main and release pushes validate both platforms.
   build:
     needs: setup
     env:
@@ -361,13 +363,7 @@ jobs:
         image:
           - controller
           - ui
-          - app
-          - cli
-          - golang-adk
-          - golang-adk-full
           - skills-init
-          - acp-sandbox-hermes
-          - acp-sandbox-openclaw
           - acp-sandbox-claude
     runs-on: ubuntu-latest
     services:
@@ -379,14 +375,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
       - name: Set up QEMU
+        if: contains(env.BUILD_PLATFORMS, 'linux/arm64')
         uses: docker/setup-qemu-action@v4
         with:
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.BUILD_PLATFORMS }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
         with:
           name: ${{ env.BUILDX_BUILDER_NAME }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.BUILD_PLATFORMS }}
           version: ${{ env.BUILDX_VERSION }}
           use: "true"
           driver-opts: network=host
@@ -394,15 +391,30 @@ jobs:
         env:
           BUILDX_BUILDER_NAME: ${{ env.BUILDX_BUILDER_NAME }}
           DOCKER_BUILD_ARGS: >-
-            --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }}
-            --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-${{ matrix.image }}
-            --cache-to=type=gha,scope=${{ needs.setup.outputs.cache-key }}-${{ matrix.image }},mode=max
-            --platform=linux/amd64,linux/arm64
+            --platform=${{ env.BUILD_PLATFORMS }}
             --push
+          CI_CACHE_KEY_PREFIX: ${{ needs.setup.outputs.cache-key }}
+          CI_CACHE_MAIN_KEY_PREFIX: ${{ env.CACHE_KEY_PREFIX }}-main
           DOCKER_REPO: "${{ github.repository_owner }}/kagent"
           DOCKER_BUILDER: "docker buildx build"
         run: make build-${{ matrix.image }}
         working-directory: ./
+
+  cli-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          cache: true
+          cache-dependency-path: go/go.sum
+
+      - name: Build CLI binaries
+        run: make -C go -j5 build
 
   go-lint:
     runs-on: ubuntu-latest
