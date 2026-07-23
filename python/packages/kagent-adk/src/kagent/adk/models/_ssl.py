@@ -188,14 +188,11 @@ def create_ssl_context(
     # Structured logging for TLS configuration at startup
     if disable_verify:
         logger.warning(
-            "\n"
-            "=" * 60 + "\n"
-            "⚠️  SSL VERIFICATION DISABLED ⚠️\n"
-            "=" * 60 + "\n"
+            "\n" + "=" * 60 + "\n"
+            "⚠️  SSL VERIFICATION DISABLED ⚠️\n" + "=" * 60 + "\n"
             "SSL certificate verification is disabled.\n"
             "This should ONLY be used in development/testing.\n"
-            "Production deployments MUST use proper certificates.\n"
-            "=" * 60
+            "Production deployments MUST use proper certificates.\n" + "=" * 60
         )
         logger.info("TLS Mode: Disabled (disable_verify=True)")
         return False  # httpx accepts False to disable verification
