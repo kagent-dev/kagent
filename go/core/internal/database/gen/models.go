@@ -150,6 +150,7 @@ type Task struct {
 	Data            string
 	SessionID       *string
 	ProtocolVersion *string
+	UserID          *string
 }
 
 type Tool struct {

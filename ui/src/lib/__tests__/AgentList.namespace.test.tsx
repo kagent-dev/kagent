@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRouter, useSearchParams } from "next/navigation";
 import AgentList from "@/components/AgentList";
@@ -57,6 +57,13 @@ function agent(namespace: string, name: string): AgentResponse {
   };
 }
 
+function creatingAgent(namespace: string, name: string): AgentResponse {
+  return {
+    ...agent(namespace, name),
+    deploymentReady: false,
+  };
+}
+
 function setup(search = "") {
   const push = jest.fn();
   mockUseRouter.mockReturnValue({ push });
@@ -73,25 +80,23 @@ describe("AgentList namespace filtering", () => {
     });
   });
 
-  it("fetches unscoped agents and renders all-namespace copy on /agents", async () => {
+  it("renders server-loaded agents without a duplicate client fetch", async () => {
     setup();
 
-    render(<AgentList />);
+    render(<AgentList initialAgents={[agent("kagent", "k8s-agent")]} />);
 
-    await waitFor(() => expect(mockGetAgents).toHaveBeenCalledWith({}));
+    expect(mockGetAgents).not.toHaveBeenCalled();
     expect(
       await screen.findByText("Showing agents across all namespaces."),
     ).toBeInTheDocument();
   });
 
-  it("fetches namespace-scoped agents from the namespace URL query", async () => {
+  it("renders namespace-scoped server data from the namespace URL query", async () => {
     setup("namespace=kagent");
 
-    render(<AgentList />);
+    render(<AgentList initialAgents={[agent("kagent", "k8s-agent")]} />);
 
-    await waitFor(() =>
-      expect(mockGetAgents).toHaveBeenCalledWith({ namespace: "kagent" }),
-    );
+    expect(mockGetAgents).not.toHaveBeenCalled();
     expect(
       await screen.findByText(/Showing agents in namespace/i),
     ).toBeInTheDocument();
@@ -121,12 +126,7 @@ describe("AgentList namespace filtering", () => {
 
   it("renders scoped empty state with a namespace-aware create link", async () => {
     setup("namespace=kube-system");
-    mockGetAgents.mockResolvedValueOnce({
-      message: "Successfully fetched agents",
-      data: [],
-    });
-
-    render(<AgentList />);
+    render(<AgentList initialAgents={[]} />);
 
     expect(
       await screen.findByText('No agents found in namespace "kube-system".'),
@@ -135,5 +135,33 @@ describe("AgentList namespace filtering", () => {
       "href",
       "/agents/new?namespace=kube-system",
     );
+  });
+
+  it("refreshes a transitional agent until it becomes ready", async () => {
+    jest.useFakeTimers();
+    try {
+      setup();
+      mockGetAgents.mockResolvedValue({
+        message: "Successfully fetched agents",
+        data: [agent("kagent", "k8s-agent")],
+      });
+
+      render(<AgentList initialAgents={[creatingAgent("kagent", "k8s-agent")]} />);
+
+      expect(screen.getByText("Agent not Ready")).toBeInTheDocument();
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(5000);
+      });
+
+      expect(mockGetAgents).toHaveBeenCalledWith({});
+      expect(screen.queryByText("Agent not Ready")).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /kagent\/k8s-agent/i })).toHaveAttribute(
+        "href",
+        "/agents/kagent/k8s-agent/chat",
+      );
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
