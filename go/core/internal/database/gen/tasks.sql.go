@@ -10,13 +10,36 @@ import (
 )
 
 const getTask = `-- name: GetTask :one
-SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version FROM task
-WHERE id = $1 AND deleted_at IS NULL
+
+SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version, user_id FROM task
+WHERE task.id = $1 AND task.deleted_at IS NULL
+  AND (task.user_id = $2 OR (task.user_id IS NULL AND $2 = (
+      SELECT MIN(s.user_id) FROM session s
+      WHERE s.id = task.session_id AND s.created_at <= task.created_at
+      HAVING COUNT(DISTINCT s.user_id) = 1)))
 LIMIT 1
 `
 
-func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
-	row := q.db.QueryRow(ctx, getTask, id)
+type GetTaskParams struct {
+	ID     string
+	UserID *string
+}
+
+// Task ownership: a task belongs to task.user_id. A NULL user_id (row written
+// before the owner column existed, or by a pre-upgrade pod during a rolling
+// upgrade) is only visible to, and claimable by, a caller whose session id
+// maps to exactly one user across its whole history (deleted sessions
+// included) and that user is the caller. Anything ambiguous stays hidden
+// rather than guessed. This mirrors the backfill rule in migration
+// 000007_task_owner.
+//
+// The resolving session must also have existed at or before the task was
+// written (s.created_at <= task.created_at). Without that bound, a task
+// whose original session is gone entirely (hard deleted, or never migrated)
+// would become claimable by whoever is first to create a brand new session
+// reusing that same id after the fact, handing them a stranger's task.
+func (q *Queries) GetTask(ctx context.Context, arg GetTaskParams) (Task, error) {
+	row := q.db.QueryRow(ctx, getTask, arg.ID, arg.UserID)
 	var i Task
 	err := row.Scan(
 		&i.ID,
@@ -26,18 +49,39 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.Data,
 		&i.SessionID,
 		&i.ProtocolVersion,
+		&i.UserID,
 	)
 	return i, err
 }
 
+const getTaskOwner = `-- name: GetTaskOwner :one
+SELECT user_id FROM task WHERE id = $1 AND deleted_at IS NULL LIMIT 1
+`
+
+func (q *Queries) GetTaskOwner(ctx context.Context, id string) (*string, error) {
+	row := q.db.QueryRow(ctx, getTaskOwner, id)
+	var user_id *string
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const listTasksForSession = `-- name: ListTasksForSession :many
-SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version FROM task
-WHERE session_id = $1 AND deleted_at IS NULL
+SELECT id, created_at, updated_at, deleted_at, data, session_id, protocol_version, user_id FROM task
+WHERE task.session_id = $1 AND task.deleted_at IS NULL
+  AND (task.user_id = $2 OR (task.user_id IS NULL AND $2 = (
+      SELECT MIN(s.user_id) FROM session s
+      WHERE s.id = task.session_id AND s.created_at <= task.created_at
+      HAVING COUNT(DISTINCT s.user_id) = 1)))
 ORDER BY created_at ASC
 `
 
-func (q *Queries) ListTasksForSession(ctx context.Context, sessionID *string) ([]Task, error) {
-	rows, err := q.db.Query(ctx, listTasksForSession, sessionID)
+type ListTasksForSessionParams struct {
+	SessionID *string
+	UserID    *string
+}
+
+func (q *Queries) ListTasksForSession(ctx context.Context, arg ListTasksForSessionParams) ([]Task, error) {
+	rows, err := q.db.Query(ctx, listTasksForSession, arg.SessionID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +97,7 @@ func (q *Queries) ListTasksForSession(ctx context.Context, sessionID *string) ([
 			&i.Data,
 			&i.SessionID,
 			&i.ProtocolVersion,
+			&i.UserID,
 		); err != nil {
 			return nil, err
 		}
@@ -65,11 +110,21 @@ func (q *Queries) ListTasksForSession(ctx context.Context, sessionID *string) ([
 }
 
 const softDeleteTask = `-- name: SoftDeleteTask :exec
-UPDATE task SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL
+UPDATE task SET deleted_at = NOW()
+WHERE task.id = $1 AND task.deleted_at IS NULL
+  AND (task.user_id = $2 OR (task.user_id IS NULL AND $2 = (
+      SELECT MIN(s.user_id) FROM session s
+      WHERE s.id = task.session_id AND s.created_at <= task.created_at
+      HAVING COUNT(DISTINCT s.user_id) = 1)))
 `
 
-func (q *Queries) SoftDeleteTask(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, softDeleteTask, id)
+type SoftDeleteTaskParams struct {
+	ID     string
+	UserID *string
+}
+
+func (q *Queries) SoftDeleteTask(ctx context.Context, arg SoftDeleteTaskParams) error {
+	_, err := q.db.Exec(ctx, softDeleteTask, arg.ID, arg.UserID)
 	return err
 }
 
@@ -77,6 +132,9 @@ const softDeleteTasksBySession = `-- name: SoftDeleteTasksBySession :exec
 UPDATE task SET deleted_at = NOW() WHERE session_id = $1 AND deleted_at IS NULL
 `
 
+// SoftDeleteTasksBySession cascades from an already owner-verified session
+// delete (the caller checked GetSession(id, userID) first), so it trusts
+// session_id alone and does not re-check ownership per task.
 func (q *Queries) SoftDeleteTasksBySession(ctx context.Context, sessionID *string) error {
 	_, err := q.db.Exec(ctx, softDeleteTasksBySession, sessionID)
 	return err
@@ -95,23 +153,34 @@ func (q *Queries) TaskExists(ctx context.Context, id string) (bool, error) {
 	return exists, err
 }
 
-const upsertTask = `-- name: UpsertTask :exec
+const upsertTask = `-- name: UpsertTask :one
 WITH upserted_task AS (
-INSERT INTO task (id, data, session_id, protocol_version, created_at, updated_at)
-VALUES ($1, $2, $3, $4, NOW(), NOW())
+INSERT INTO task (id, data, session_id, protocol_version, user_id, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     data             = EXCLUDED.data,
     session_id       = EXCLUDED.session_id,
     protocol_version = EXCLUDED.protocol_version,
+    user_id          = EXCLUDED.user_id,
     updated_at       = NOW()
-RETURNING session_id
-)
+WHERE task.deleted_at IS NULL
+  AND (task.user_id = EXCLUDED.user_id
+   OR (task.user_id IS NULL AND EXCLUDED.user_id = (
+       SELECT MIN(s.user_id) FROM session s
+       WHERE s.id = task.session_id AND s.created_at <= task.created_at
+       HAVING COUNT(DISTINCT s.user_id) = 1)))
+RETURNING id, session_id, user_id
+),
+touched_session AS (
 UPDATE session
 SET updated_at = NOW()
 FROM upserted_task
 WHERE upserted_task.session_id IS NOT NULL
   AND session.id = upserted_task.session_id
+  AND session.user_id = upserted_task.user_id
   AND session.deleted_at IS NULL
+)
+SELECT id FROM upserted_task
 `
 
 type UpsertTaskParams struct {
@@ -119,14 +188,22 @@ type UpsertTaskParams struct {
 	Data            string
 	SessionID       *string
 	ProtocolVersion *string
+	UserID          *string
 }
 
-func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) error {
-	_, err := q.db.Exec(ctx, upsertTask,
+// UpsertTask returns the upserted id, or no rows when the write was rejected:
+// the id belongs to another user, or it belongs to a soft-deleted task (a
+// deleted id is never updated or resurrected, it stays burned). Callers map
+// "no rows" to a conflict error.
+func (q *Queries) UpsertTask(ctx context.Context, arg UpsertTaskParams) (string, error) {
+	row := q.db.QueryRow(ctx, upsertTask,
 		arg.ID,
 		arg.Data,
 		arg.SessionID,
 		arg.ProtocolVersion,
+		arg.UserID,
 	)
-	return err
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }

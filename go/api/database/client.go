@@ -14,6 +14,10 @@ import (
 // different session (possibly owned by another user).
 var ErrSessionIDInUse = errors.New("session id already in use")
 
+// ErrTaskOwnedByAnotherUser means a task with this id already belongs to a
+// different user.
+var ErrTaskOwnedByAnotherUser = errors.New("task id owned by another user")
+
 type QueryOptions struct {
 	Limit    int
 	After    time.Time
@@ -29,7 +33,7 @@ type Client interface {
 	StoreFeedback(ctx context.Context, feedback *Feedback) error
 	StoreSession(ctx context.Context, session *Session) error
 	StoreAgent(ctx context.Context, agent *Agent) error
-	StoreTask(ctx context.Context, task *a2a.Task) error
+	StoreTask(ctx context.Context, task *a2a.Task, userID string) error
 	StorePushNotification(ctx context.Context, config *a2a.PushConfig) error
 	StoreToolServer(ctx context.Context, toolServer *ToolServer) (*ToolServer, error)
 	StoreEvents(ctx context.Context, messages ...*Event) error
@@ -38,7 +42,7 @@ type Client interface {
 	DeleteSession(ctx context.Context, sessionID string, userID string) error
 	DeleteAgent(ctx context.Context, agentID string) error
 	DeleteToolServer(ctx context.Context, serverName string, groupKind string) error
-	DeleteTask(ctx context.Context, taskID string) error
+	DeleteTask(ctx context.Context, taskID string, userID string) error
 	DeletePushNotification(ctx context.Context, taskID string) error
 	DeleteToolsForServer(ctx context.Context, serverName string, groupKind string) error
 
@@ -46,7 +50,7 @@ type Client interface {
 
 	GetSession(ctx context.Context, sessionID string, userID string) (*Session, error)
 	GetAgent(ctx context.Context, name string) (*Agent, error)
-	GetTask(ctx context.Context, id string) (*a2a.Task, error)
+	GetTask(ctx context.Context, id string, userID string) (*a2a.Task, error)
 	GetTool(ctx context.Context, name string) (*Tool, error)
 	GetToolServer(ctx context.Context, name string) (*ToolServer, error)
 	GetPushNotification(ctx context.Context, taskID string, configID string) (*a2a.PushConfig, error)
@@ -54,7 +58,7 @@ type Client interface {
 	// List methods
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
-	ListTasksForSession(ctx context.Context, sessionID string) ([]*a2a.Task, error)
+	ListTasksForSession(ctx context.Context, sessionID string, userID string) ([]*a2a.Task, error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]SessionWithShareToken, error)
 	ListSessionsForAgentAllUsers(ctx context.Context, agentID string) ([]Session, error)

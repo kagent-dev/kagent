@@ -150,7 +150,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 // don't corrupt data and that a session is always visible via GetSession
 // immediately after StoreSession returns. This validates that StoreSession
 // uses an explicit transaction (withTx) so the write is committed before
-// the function returns — preventing read-your-writes issues on pooled connections.
+// the function returns, preventing read-your-writes issues on pooled connections.
 func TestConcurrentSessionUpserts(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
@@ -180,7 +180,7 @@ func TestConcurrentSessionUpserts(t *testing.T) {
 				err := client.StoreSession(ctx, session)
 				assert.NoError(t, err, "StoreSession should not fail")
 
-				// Immediately read back — must be visible (validates withTx commit)
+				// Immediately read back, must be visible (validates withTx commit)
 				got, err := client.GetSession(ctx, sessionID, userID)
 				assert.NoError(t, err, "GetSession should find the session immediately after StoreSession")
 				if got != nil {
@@ -352,12 +352,181 @@ func TestStoreTaskTouchesSessionActivity(t *testing.T) {
 	err = client.StoreTask(ctx, &a2a.Task{
 		ID:        "task-1",
 		ContextID: sessionID,
-	})
+	}, userID)
 	require.NoError(t, err)
 
 	got, err := client.GetSession(ctx, sessionID, userID)
 	require.NoError(t, err)
 	assert.True(t, got.UpdatedAt.After(before.UpdatedAt), "session updated_at should advance after storing a task")
+}
+
+func TestTaskAccessIsScopedToOwner(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "task-owned"}, "user-a"))
+
+	_, err := client.GetTask(ctx, "task-owned", "user-b")
+	require.Error(t, err, "another user must not read this task")
+
+	err = client.DeleteTask(ctx, "task-owned", "user-b")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "another user must not delete this task")
+
+	task, err := client.GetTask(ctx, "task-owned", "user-a")
+	require.NoError(t, err, "task must still exist after another user's delete attempt")
+	assert.Equal(t, a2a.TaskID("task-owned"), task.ID)
+
+	err = client.StoreTask(ctx, &a2a.Task{ID: "task-owned"}, "user-b")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "another user must not take over this task id")
+
+	require.NoError(t, client.DeleteTask(ctx, "task-owned", "user-a"), "the real owner can delete it")
+	require.NoError(t, client.DeleteTask(ctx, "task-owned", "user-a"), "deleting an already-gone task is not an error")
+}
+
+// A soft-deleted task keeps its primary key row, so its id is burned: reusing
+// it must fail loudly for everyone instead of reporting success while writing
+// nothing (or silently updating a row that stays deleted).
+func TestDeletedTaskIdCannotBeReused(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-dead"}, "alice"))
+	require.NoError(t, client.DeleteTask(ctx, "t-dead", "alice"))
+
+	err := client.StoreTask(ctx, &a2a.Task{ID: "t-dead"}, "bob")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "another user must not reuse a deleted id")
+
+	err = client.StoreTask(ctx, &a2a.Task{ID: "t-dead"}, "alice")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "the owner must not silently resurrect a deleted id")
+
+	_, err = client.GetTask(ctx, "t-dead", "alice")
+	require.Error(t, err, "the task must stay deleted")
+}
+
+// TestNullOwnedTaskAccess covers tasks with a NULL user_id: rows written
+// before the owner column existed, or by a pre-upgrade pod during a rolling
+// upgrade. Such a task is only visible to, and claimable by, the caller when
+// its session id maps to exactly one user across its whole history.
+func TestNullOwnedTaskAccess(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	seedNullTask := func(id, sessionID string) {
+		_, err := db.Exec(ctx,
+			`INSERT INTO task (id, data, session_id, created_at, updated_at) VALUES ($1, '{}', $2, NOW(), NOW())`,
+			id, sessionID)
+		require.NoError(t, err)
+	}
+
+	// alice is the only user in session s-mine's history.
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-mine", UserID: "alice"}))
+	seedNullTask("t-legacy", "s-mine")
+
+	_, err := client.GetTask(ctx, "t-legacy", "alice")
+	require.NoError(t, err, "sole session owner must read the NULL-owned task")
+	_, err = client.GetTask(ctx, "t-legacy", "bob")
+	require.Error(t, err, "the NULL-owned task must stay hidden from other users")
+
+	tasks, err := client.ListTasksForSession(ctx, "s-mine", "alice")
+	require.NoError(t, err)
+	assert.Len(t, tasks, 1)
+	tasks, err = client.ListTasksForSession(ctx, "s-mine", "bob")
+	require.NoError(t, err)
+	assert.Empty(t, tasks)
+
+	err = client.StoreTask(ctx, &a2a.Task{ID: "t-legacy", ContextID: "s-mine"}, "bob")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "another user must not claim the NULL-owned task")
+	err = client.DeleteTask(ctx, "t-legacy", "bob")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "another user must not delete the NULL-owned task")
+
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-legacy", ContextID: "s-mine"}, "alice"),
+		"sole session owner claims the task by writing it")
+	err = client.StoreTask(ctx, &a2a.Task{ID: "t-legacy", ContextID: "s-mine"}, "bob")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "the claim must stick")
+
+	// A session id used by two users across its history is ambiguous: the
+	// NULL-owned task stays hidden from both, and neither can claim it. Two
+	// live sessions can no longer share an id (session_id_active_unique), so
+	// the ambiguity is built from alice's session having existed and been
+	// deleted before bob's session took over the same id.
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-shared", UserID: "alice"}))
+	require.NoError(t, client.DeleteSession(ctx, "s-shared", "alice"))
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-shared", UserID: "bob"}))
+	seedNullTask("t-ambiguous", "s-shared")
+
+	_, err = client.GetTask(ctx, "t-ambiguous", "alice")
+	require.Error(t, err)
+	_, err = client.GetTask(ctx, "t-ambiguous", "bob")
+	require.Error(t, err)
+	err = client.StoreTask(ctx, &a2a.Task{ID: "t-ambiguous", ContextID: "s-shared"}, "alice")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser)
+}
+
+// TestNullOwnedTaskAgainstLaterSessionIsInaccessible: a NULL-owned task whose
+// session_id has no session row *at all* (the original session was hard
+// deleted, or never migrated cleanly) must not become claimable just because
+// someone later creates a brand new session reusing that same id. The owner
+// resolution must only trust sessions that existed at or before the task was
+// written, never one created afterward.
+func TestNullOwnedTaskAgainstLaterSessionIsInaccessible(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	_, err := db.Exec(ctx,
+		`INSERT INTO task (id, data, session_id, created_at, updated_at) VALUES ($1, '{}', $2, NOW(), NOW())`,
+		"t-orphan", "s-freed")
+	require.NoError(t, err)
+
+	time.Sleep(10 * time.Millisecond)
+	// bob creates a session reusing the freed session id after the orphaned
+	// task already existed. bob must gain no access to it.
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-freed", UserID: "bob"}))
+
+	_, err = client.GetTask(ctx, "t-orphan", "bob")
+	require.Error(t, err, "a session created after an orphaned task must not resolve ownership to its creator")
+
+	tasks, err := client.ListTasksForSession(ctx, "s-freed", "bob")
+	require.NoError(t, err)
+	assert.Empty(t, tasks, "a session created after an orphaned task must not surface it in listings")
+
+	err = client.StoreTask(ctx, &a2a.Task{ID: "t-orphan", ContextID: "s-freed"}, "bob")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "bob must not be able to claim the orphaned task")
+	err = client.DeleteTask(ctx, "t-orphan", "bob")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "bob must not be able to delete the orphaned task")
+}
+
+// TestListTasksForSessionIsScopedToOwner: a session id is only unique among
+// live sessions (session_id_active_unique), so it can still be reused by a
+// different user once the original owner's session is deleted. Listing tasks
+// by session id alone must not resurface the previous owner's (now
+// cascade-deleted) tasks to whoever reuses the id, and writing the new
+// owner's task must not touch a stale row from the old owner.
+func TestListTasksForSessionIsScopedToOwner(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-reused", UserID: "alice"}))
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-alice", ContextID: "s-reused"}, "alice"))
+	require.NoError(t, client.DeleteSession(ctx, "s-reused", "alice"),
+		"deleting alice's session cascades to t-alice")
+
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-reused", UserID: "bob"}))
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-bob", ContextID: "s-reused"}, "bob"))
+
+	tasks, err := client.ListTasksForSession(ctx, "s-reused", "bob")
+	require.NoError(t, err)
+	require.Len(t, tasks, 1, "alice's cascade-deleted task must not resurface for bob")
+	assert.Equal(t, a2a.TaskID("t-bob"), tasks[0].ID)
+
+	// alice's session is gone; she gets nothing back for the id she used to own.
+	tasks, err = client.ListTasksForSession(ctx, "s-reused", "alice")
+	require.NoError(t, err)
+	assert.Empty(t, tasks)
 }
 
 // TestStoreAgentIdempotence verifies that calling StoreAgent multiple times
@@ -739,15 +908,15 @@ func TestPruneExpiredMemories(t *testing.T) {
 
 	past := time.Now().Add(-1 * time.Hour)
 
-	// Memory that is expired and unpopular — should be deleted
+	// Memory that is expired and unpopular, should be deleted
 	coldMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "cold expired memory", Embedding: makeEmbedding(0.1), ExpiresAt: &past, AccessCount: 2}
 	require.NoError(t, client.StoreAgentMemory(ctx, coldMem))
 
-	// Memory that is expired but popular (AccessCount >= 10) — TTL should be extended
+	// Memory that is expired but popular (AccessCount >= 10), TTL should be extended
 	hotMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "hot expired memory", Embedding: makeEmbedding(0.9), ExpiresAt: &past, AccessCount: 15}
 	require.NoError(t, client.StoreAgentMemory(ctx, hotMem))
 
-	// Memory that has not expired — should be untouched
+	// Memory that has not expired, should be untouched
 	future := time.Now().Add(24 * time.Hour)
 	liveMem := &dbpkg.Memory{AgentName: agentName, UserID: userID, Content: "non-expired memory", Embedding: makeEmbedding(0.5), ExpiresAt: &future, AccessCount: 0}
 	require.NoError(t, client.StoreAgentMemory(ctx, liveMem))
