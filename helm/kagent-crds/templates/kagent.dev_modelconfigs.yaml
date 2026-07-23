@@ -770,10 +770,9 @@ spec:
             - message: apiKeyPassthrough and apiKeySecret are mutually exclusive
               rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret)
                 && size(self.apiKeySecret) > 0)'
-            - message: apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI
+            - message: apiKeyPassthrough must be false if provider is GeminiVertexAI;AnthropicVertexAI
               rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider
-                == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
-                == ''AnthropicVertexAI''))'
+                == ''GeminiVertexAI'' || self.provider == ''AnthropicVertexAI''))'
             - message: openAI.tokenExchange requires apiKeySecret (the service account
                 secret)
               rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && (!has(self.apiKeySecret)
