@@ -24,6 +24,7 @@ const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?:
   'AnthropicVertexAI': Anthropic,
   'Bedrock': Bedrock,
   'SAPAICore': SAPAICore,
+  'Foundry': Azure,
 };
 
 function getProviderIcon(providerType: string | undefined): React.ReactNode | null {

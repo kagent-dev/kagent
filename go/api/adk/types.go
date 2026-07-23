@@ -104,6 +104,7 @@ const (
 	ModelTypeGemini          = "gemini"
 	ModelTypeBedrock         = "bedrock"
 	ModelTypeSAPAICore       = "sap_ai_core"
+	ModelTypeFoundry         = "foundry"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -124,6 +125,9 @@ func (o *OpenAI) GetType() string {
 
 type AzureOpenAI struct {
 	BaseModel
+	Endpoint    string   `json:"endpoint,omitempty"`
+	Deployment  string   `json:"deployment,omitempty"`
+	APIVersion  string   `json:"api_version,omitempty"`
 	MaxTokens   *int     `json:"max_tokens,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
 	TopP        *float64 `json:"top_p,omitempty"`
@@ -302,6 +306,30 @@ func (s *SAPAICore) GetType() string {
 	return ModelTypeSAPAICore
 }
 
+// Foundry is the Azure AI Foundry model type. Authentication is implicit: the
+// runtime uses FOUNDRY_API_KEY when set, otherwise DefaultAzureCredential.
+type Foundry struct {
+	BaseModel
+	Endpoint   string `json:"endpoint"`
+	Deployment string `json:"deployment"`
+	APIVersion string `json:"api_version"`
+}
+
+func (f *Foundry) MarshalJSON() ([]byte, error) {
+	type Alias Foundry
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeFoundry,
+		Alias: (*Alias)(f),
+	})
+}
+
+func (f *Foundry) GetType() string {
+	return ModelTypeFoundry
+}
+
 // GenericModel is a catch-all model type used by the Go ADK when the model
 // type doesn't match any known constant.
 type GenericModel struct {
@@ -370,6 +398,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &sapAICore, nil
+	case ModelTypeFoundry:
+		var foundry Foundry
+		if err := json.Unmarshal(bytes, &foundry); err != nil {
+			return nil, err
+		}
+		return &foundry, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
@@ -387,20 +421,31 @@ type EmbeddingConfig struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	BaseUrl  string `json:"base_url,omitempty"`
+	// Endpoint, Deployment, and APIVersion are the Azure data-plane settings,
+	// populated for the providers that use the shared azureai client.
+	Endpoint   string `json:"endpoint,omitempty"`
+	Deployment string `json:"deployment,omitempty"`
+	APIVersion string `json:"api_version,omitempty"`
 }
 
 func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Type     string `json:"type"`
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
-		BaseUrl  string `json:"base_url"`
+		Type       string `json:"type"`
+		Provider   string `json:"provider"`
+		Model      string `json:"model"`
+		BaseUrl    string `json:"base_url"`
+		Endpoint   string `json:"endpoint"`
+		Deployment string `json:"deployment"`
+		APIVersion string `json:"api_version"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
 	e.Model = tmp.Model
 	e.BaseUrl = tmp.BaseUrl
+	e.Endpoint = tmp.Endpoint
+	e.Deployment = tmp.Deployment
+	e.APIVersion = tmp.APIVersion
 	if tmp.Provider != "" {
 		e.Provider = tmp.Provider
 	} else {
@@ -422,6 +467,9 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		e.BaseUrl = v.BaseUrl
 	case *AzureOpenAI:
 		e.Model = v.Model
+		e.Endpoint = v.Endpoint
+		e.Deployment = v.Deployment
+		e.APIVersion = v.APIVersion
 	case *Anthropic:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
@@ -438,6 +486,11 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 	case *SAPAICore:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+	case *Foundry:
+		e.Model = v.Model
+		e.Endpoint = v.Endpoint
+		e.Deployment = v.Deployment
+		e.APIVersion = v.APIVersion
 	default:
 		e.Model = ""
 	}

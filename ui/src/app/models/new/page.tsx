@@ -21,6 +21,7 @@ import type {
     AnthropicVertexAIConfig,
     BedrockConfig,
     SAPAICoreConfigPayload,
+    FoundryConfig,
     ProviderModelsResponse,
 } from "@/types";
 import { toast } from "sonner";
@@ -248,7 +249,7 @@ function ModelPageContent() {
           const spec = modelData.spec;
           const fetchedParams: Record<string, unknown> =
             (spec.openAI ?? spec.anthropic ?? spec.azureOpenAI ?? spec.ollama ??
-             spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? spec.sapAICore ?? {}) as Record<string, unknown>;
+             spec.gemini ?? spec.geminiVertexAI ?? spec.anthropicVertexAI ?? spec.bedrock ?? spec.sapAICore ?? spec.foundry ?? {}) as Record<string, unknown>;
 
           if (provider?.type === 'Ollama') {
             setModelTag(extractedTag || 'latest');
@@ -611,6 +612,9 @@ function ModelPageContent() {
         break;
       case 'SAPAICore':
         spec.sapAICore = providerParams as SAPAICoreConfigPayload;
+        break;
+      case 'Foundry':
+        spec.foundry = providerParams as FoundryConfig;
         break;
       default:
         console.error("Unsupported provider type during payload construction:", providerType);

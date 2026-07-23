@@ -125,11 +125,13 @@ func TestAzureOpenAIProvider_RequestShape(t *testing.T) {
 	)
 
 	tests := []struct {
-		name       string
-		setEnv     bool
-		baseURL    string // used when setEnv is false; may contain "%s" for srv.URL
-		wantPath   string
-		wantAPIVer string
+		name        string
+		setEnv      bool
+		useEndpoint bool   // populate cfg.Endpoint instead of cfg.BaseUrl
+		baseURL     string // used when setEnv/useEndpoint is false; may contain "%s" for srv.URL
+		deployment  string // populate cfg.Deployment; falls back to cfg.Model when empty
+		wantPath    string
+		wantAPIVer  string
 	}{
 		{
 			name:       "root endpoint in base_url",
@@ -144,10 +146,17 @@ func TestAzureOpenAIProvider_RequestShape(t *testing.T) {
 			wantAPIVer: apiVersion,
 		},
 		{
-			name:       "deployment path already in base_url",
-			baseURL:    "%s/openai/deployments/text-embedding-3-small",
-			wantPath:   "/openai/deployments/text-embedding-3-small/embeddings",
-			wantAPIVer: apiVersion,
+			name:        "endpoint field",
+			useEndpoint: true,
+			wantPath:    "/openai/deployments/text-embedding-3-small/embeddings",
+			wantAPIVer:  apiVersion,
+		},
+		{
+			name:        "explicit deployment field",
+			useEndpoint: true,
+			deployment:  "custom-deploy",
+			wantPath:    "/openai/deployments/custom-deploy/embeddings",
+			wantAPIVer:  apiVersion,
 		},
 		{
 			name:       "endpoint from AZURE_OPENAI_ENDPOINT env",
@@ -173,12 +182,17 @@ func TestAzureOpenAIProvider_RequestShape(t *testing.T) {
 			defer srv.Close()
 
 			cfg := &adk.EmbeddingConfig{
-				Provider: "azure_openai",
-				Model:    deployment,
+				Provider:   "azure_openai",
+				Model:      deployment,
+				Deployment: tt.deployment,
 			}
-			if tt.setEnv {
+			switch {
+			case tt.setEnv:
 				t.Setenv("AZURE_OPENAI_ENDPOINT", srv.URL)
-			} else {
+			case tt.useEndpoint:
+				t.Setenv("AZURE_OPENAI_ENDPOINT", "")
+				cfg.Endpoint = srv.URL
+			default:
 				t.Setenv("AZURE_OPENAI_ENDPOINT", "")
 				cfg.BaseUrl = strings.Replace(tt.baseURL, "%s", srv.URL, 1)
 			}

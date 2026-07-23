@@ -51,6 +51,12 @@ func getRequiredKeysForModelProvider(providerType v1alpha2.ModelProvider) []stri
 		return []string{"region"}
 	case v1alpha2.ModelProviderSAPAICore:
 		return []string{"baseUrl"}
+	case v1alpha2.ModelProviderFoundry:
+		// In the UI, deployment and endpoint are both required. At the CRD level
+		// the endpoint may alternatively be resolved from a ConfigMap via
+		// endpointFrom, but that advanced path is configured via YAML, not this
+		// form, so the form requires an inline endpoint.
+		return []string{"deployment", "endpoint"}
 	case v1alpha2.ModelProviderOpenAI, v1alpha2.ModelProviderAnthropic, v1alpha2.ModelProviderOllama:
 		// These providers currently have no fields marked as strictly required in the API definition
 		return []string{}
@@ -128,6 +134,7 @@ func (h *ModelProviderConfigHandler) HandleListSupportedModelProviders(w ErrorRe
 		{v1alpha2.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha2.AnthropicVertexAIConfig]()},
 		{v1alpha2.ModelProviderBedrock, reflect.TypeFor[v1alpha2.BedrockConfig]()},
 		{v1alpha2.ModelProviderSAPAICore, reflect.TypeFor[v1alpha2.SAPAICoreConfig]()},
+		{v1alpha2.ModelProviderFoundry, reflect.TypeFor[v1alpha2.FoundryConfig]()},
 	}
 
 	providersResponse := []map[string]any{}
@@ -142,6 +149,11 @@ func (h *ModelProviderConfigHandler) HandleListSupportedModelProviders(w ErrorRe
 
 		optionalKeys := []string{}
 		for _, k := range allKeys {
+			// endpointFrom (Foundry) is a nested ConfigMap reference that does not
+			// map to a flat form field; it is configured declaratively via YAML.
+			if k == "endpointFrom" {
+				continue
+			}
 			if _, isRequired := requiredSet[k]; !isRequired {
 				optionalKeys = append(optionalKeys, k)
 			}
