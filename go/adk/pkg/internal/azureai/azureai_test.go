@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
@@ -170,5 +171,58 @@ func TestResolveFoundryDefaultsAPIVersion(t *testing.T) {
 	ep, dep, ver := ResolveFoundry("e", "d", "")
 	if ep != "e" || dep != "d" || ver != FoundryDefaultAPIVersion {
 		t.Fatalf("ResolveFoundry() = (%q, %q, %q), want default api-version", ep, dep, ver)
+	}
+}
+
+func TestApplyImplicitAuthUsesAPIKey(t *testing.T) {
+	cfg := &ClientConfig{}
+	if err := ApplyImplicitAuth(context.Background(), cfg, AuthOptions{
+		APIKey:     "secret",
+		Credential: fakeCredential{err: fmt.Errorf("should not be consulted")},
+		EagerProbe: true,
+	}); err != nil {
+		t.Fatalf("ApplyImplicitAuth() error = %v", err)
+	}
+	if cfg.APIKey != "secret" || cfg.Credential != nil {
+		t.Fatalf("APIKey=%q Credential=%v, want key set and no credential", cfg.APIKey, cfg.Credential)
+	}
+}
+
+func TestApplyImplicitAuthUsesCredentialWithEagerProbe(t *testing.T) {
+	cfg := &ClientConfig{}
+	if err := ApplyImplicitAuth(context.Background(), cfg, AuthOptions{
+		Credential: fakeCredential{t: t, token: "tok"},
+		EagerProbe: true,
+	}); err != nil {
+		t.Fatalf("ApplyImplicitAuth() error = %v", err)
+	}
+	if cfg.APIKey != "" || cfg.Credential == nil {
+		t.Fatalf("APIKey=%q Credential=%v, want credential set and no key", cfg.APIKey, cfg.Credential)
+	}
+}
+
+func TestApplyImplicitAuthEagerProbeFailure(t *testing.T) {
+	cfg := &ClientConfig{}
+	err := ApplyImplicitAuth(context.Background(), cfg, AuthOptions{
+		Credential: fakeCredential{err: fmt.Errorf("no ambient credential")},
+		EagerProbe: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "no Azure credential resolved") {
+		t.Fatalf("ApplyImplicitAuth() error = %v, want credential-not-resolved", err)
+	}
+}
+
+func TestApplyImplicitAuthNoProbeSkipsTokenAcquisition(t *testing.T) {
+	cfg := &ClientConfig{}
+	// EagerProbe is false, so an erroring credential must not be consulted at
+	// apply time (embeddings defer token acquisition to the first request).
+	if err := ApplyImplicitAuth(context.Background(), cfg, AuthOptions{
+		Credential: fakeCredential{err: fmt.Errorf("should not be consulted")},
+		EagerProbe: false,
+	}); err != nil {
+		t.Fatalf("ApplyImplicitAuth() error = %v", err)
+	}
+	if cfg.Credential == nil {
+		t.Fatalf("Credential not set")
 	}
 }

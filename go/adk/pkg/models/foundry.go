@@ -11,6 +11,9 @@ import (
 )
 
 // FoundryConfig holds Azure AI Foundry configuration.
+//
+// TODO: Foundry support for the Anthropic transport is planned and may add its
+// own config fields.
 type FoundryConfig struct {
 	TransportConfig
 	Model      string
@@ -64,31 +67,15 @@ func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logge
 		HTTPClient: httpClient,
 	}
 
-	// Implicit auth: use the API key when provided, otherwise fall back to
-	// DefaultAzureCredential (Workload Identity in-cluster, az CLI in dev).
-	if apiKey := os.Getenv(azureai.FoundryAPIKeyEnvVar); apiKey != "" {
-		clientCfg.APIKey = apiKey
-		if logger.GetSink() != nil {
-			logger.Info("Foundry authenticating with API key", "deployment", deployment)
-		}
-	} else {
-		credential := config.credential
-		if credential == nil {
-			credential, err = azureai.NewDefaultCredential()
-			if err != nil {
-				return nil, fmt.Errorf("failed to create Azure credential for Foundry: %w", err)
-			}
-		}
-		// Eagerly acquire a token so a missing or misconfigured Workload Identity
-		// fails readiness at startup with an actionable error, instead of failing
-		// silently on the first inference request.
-		if _, err := azureai.AcquireToken(ctx, credential); err != nil {
-			return nil, fmt.Errorf("no Foundry credential resolved: set an API key (apiKeySecret / FOUNDRY_API_KEY) or configure Azure Workload Identity (pod label + ServiceAccount annotation + federated credential): %w", err)
-		}
-		clientCfg.Credential = credential
-		if logger.GetSink() != nil {
-			logger.Info("Foundry authenticating with DefaultAzureCredential (Workload Identity)", "deployment", deployment)
-		}
+	// Implicit auth: the API key when provided, otherwise DefaultAzureCredential
+	// (Workload Identity in-cluster, az CLI in dev), eagerly probed so a
+	// misconfigured identity fails readiness at startup.
+	if err := azureai.ApplyImplicitAuth(ctx, &clientCfg, azureai.AuthOptions{
+		APIKey:     os.Getenv(azureai.FoundryAPIKeyEnvVar),
+		Credential: config.credential,
+		EagerProbe: true,
+	}); err != nil {
+		return nil, err
 	}
 
 	// A future apiFormat=anthropic discriminator on the ModelConfig would branch

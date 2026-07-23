@@ -112,7 +112,7 @@ func TestFoundryWorkloadIdentityEagerProbeFailsReadiness(t *testing.T) {
 		Deployment: "gpt-4-1-nano",
 		credential: erroringFoundryCredential{},
 	}, logr.Discard())
-	if err == nil || !strings.Contains(err.Error(), "no Foundry credential resolved") {
+	if err == nil || !strings.Contains(err.Error(), "no Azure credential resolved") {
 		t.Fatalf("NewFoundryModelWithLogger() error = %v, want credential-not-resolved", err)
 	}
 }

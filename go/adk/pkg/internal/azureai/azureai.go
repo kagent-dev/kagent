@@ -1,11 +1,9 @@
-// Package azureai contains helpers shared across the Azure AI Services data plane
-// (Azure AI Foundry and Azure OpenAI): Azure AD credential construction, token
-// acquisition, the bearer-token middleware, and constructors for the concrete
-// SDK clients that speak each Azure AI wire surface.
+// Package azureai contains helpers shared by the Azure providers: credential
+// construction, token acquisition, the bearer-token middleware, and the SDK
+// client constructors.
 //
-// It is internal to adk/pkg so it can be shared by the model (adk/pkg/models) and
-// embedding (adk/pkg/embedding) packages without exposing an Azure-specific
-// surface outside the ADK.
+// It is internal to adk/pkg so the model and embedding packages can share it
+// without exposing an Azure-specific surface outside the ADK.
 package azureai
 
 import (
@@ -24,8 +22,7 @@ import (
 )
 
 // CognitiveServicesScope is the Azure data-plane scope used to request AAD tokens
-// for the Azure AI Services (Cognitive Services) data plane. It is shared by the
-// OpenAI-compatible and (future) Anthropic surfaces.
+// for the Azure providers.
 const CognitiveServicesScope = "https://cognitiveservices.azure.com/.default"
 
 // Foundry-specific configuration conventions. These are the environment variables
@@ -76,7 +73,7 @@ func NewDefaultCredential() (TokenCredential, error) {
 	return azidentity.NewDefaultAzureCredential(nil)
 }
 
-// AcquireToken fetches a bearer token for the Azure AI Services data-plane scope.
+// AcquireToken fetches a bearer token for the Azure data-plane scope.
 func AcquireToken(ctx context.Context, cred TokenCredential) (string, error) {
 	token, err := cred.GetToken(ctx, policy.TokenRequestOptions{Scopes: []string{CognitiveServicesScope}})
 	if err != nil {
@@ -85,12 +82,8 @@ func AcquireToken(ctx context.Context, cred TokenCredential) (string, error) {
 	return token.Token, nil
 }
 
-// BearerTokenMiddleware implements the implicit Workload Identity auth path: it
-// acquires an Azure AD bearer token from the credential (DefaultAzureCredential,
-// which resolves to Azure Workload Identity in-cluster) and attaches it to each
-// request, replacing the placeholder API key. This is distinct from API-key
-// passthrough — the token comes from the workload's own identity, not from an
-// incoming caller request.
+// BearerTokenMiddleware acquires an Azure AD bearer token from the credential and
+// attaches it to each request, replacing the placeholder API key.
 func BearerTokenMiddleware(cred TokenCredential) option.Middleware {
 	return func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
 		token, err := AcquireToken(r.Context(), cred)
@@ -103,10 +96,10 @@ func BearerTokenMiddleware(cred TokenCredential) option.Middleware {
 	}
 }
 
-// ClientConfig configures a client for the Azure AI Services OpenAI-compatible
+// ClientConfig configures a client for the Azure providers' OpenAI-compatible
 // data plane.
 type ClientConfig struct {
-	// Endpoint is the Azure AI Services account endpoint, e.g.
+	// Endpoint is the account endpoint, e.g.
 	// https://<account>.cognitiveservices.azure.com.
 	Endpoint string
 	// Deployment is the deployment name, placed in the data-plane URL path.
@@ -122,15 +115,14 @@ type ClientConfig struct {
 	HTTPClient *http.Client
 }
 
-// NewOpenAIClient builds an openai-go client for the Azure AI Services
+// NewOpenAIClient builds an openai-go client for the Azure providers'
 // OpenAI-compatible surface (chat + embeddings), rooted at
 // {endpoint}/openai/deployments/{deployment}/ with the api-version query and
 // implicit auth: the Api-Key header when APIKey is set, otherwise an Azure AD
 // bearer token from Credential.
 //
-// A NewAnthropicClient for the Azure AI Foundry Anthropic (Claude) surface is
-// planned and will live alongside this constructor, reusing the same credential
-// and token helpers.
+// A NewAnthropicClient for the Anthropic (Claude) surface is planned and will
+// live alongside this constructor, reusing the same credential and token helpers.
 func NewOpenAIClient(cfg ClientConfig) (openai.Client, error) {
 	if cfg.Endpoint == "" {
 		return openai.Client{}, fmt.Errorf("endpoint is required")
@@ -169,4 +161,48 @@ func NewOpenAIClient(cfg ClientConfig) (openai.Client, error) {
 		)
 	}
 	return openai.NewClient(opts...), nil
+}
+
+// AuthOptions configures the implicit auth chain shared by the different Azure
+// providers.
+type AuthOptions struct {
+	// APIKey is the already-resolved data-plane API key: the provider's env
+	// value, or the "passthrough" placeholder for API-key passthrough. When
+	// non-empty it is used directly and no credential is resolved.
+	APIKey string
+	// Credential injects a specific Azure credential for the Workload Identity
+	// path. When nil (and APIKey is empty), NewDefaultCredential is used. It
+	// exists mainly so tests can inject a fake credential.
+	Credential TokenCredential
+	// EagerProbe acquires a token immediately so a missing or misconfigured
+	// Workload Identity fails readiness at startup with an actionable error,
+	// instead of failing silently on the first request. Chat models enable this;
+	// embedding providers leave it false.
+	EagerProbe bool
+}
+
+// ApplyImplicitAuth populates cfg.APIKey or cfg.Credential using the implicit
+// auth chain shared by the Azure providers: the API key when set, otherwise a
+// DefaultAzureCredential bearer token (Azure Workload Identity in-cluster, or
+// the az CLI in local development).
+func ApplyImplicitAuth(ctx context.Context, cfg *ClientConfig, opts AuthOptions) error {
+	if opts.APIKey != "" {
+		cfg.APIKey = opts.APIKey
+		return nil
+	}
+	cred := opts.Credential
+	if cred == nil {
+		var err error
+		cred, err = NewDefaultCredential()
+		if err != nil {
+			return fmt.Errorf("failed to create Azure credential: %w", err)
+		}
+	}
+	if opts.EagerProbe {
+		if _, err := AcquireToken(ctx, cred); err != nil {
+			return fmt.Errorf("no Azure credential resolved: set an API key or configure Azure Workload Identity (pod label + ServiceAccount annotation + federated credential): %w", err)
+		}
+	}
+	cfg.Credential = cred
+	return nil
 }
