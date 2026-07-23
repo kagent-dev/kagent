@@ -88,6 +88,7 @@ func TestResolveWritePath_BlocksSkillsSymlink(t *testing.T) {
 func TestNewSkillsTools_ReturnsExpectedToolSet(t *testing.T) {
 	skillsDir := t.TempDir()
 	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
+	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 	skillDir := filepath.Join(skillsDir, "demo")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		t.Fatalf("failed to create skill dir: %v", err)
@@ -120,6 +121,7 @@ description: Demo skill.
 func TestNewSkillsTools_OmitsBashWithoutSRTSettings(t *testing.T) {
 	skillsDir := t.TempDir()
 	t.Setenv("KAGENT_SRT_SETTINGS_PATH", "")
+	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 
 	tools, err := NewSkillsTools(skillsDir)
 	if err != nil {
@@ -141,6 +143,74 @@ func TestNewSkillsTools_OmitsBashWithoutSRTSettings(t *testing.T) {
 	}
 }
 
+func TestNewSkillsTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
+	skillsDir := t.TempDir()
+	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
+	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
+
+	tools, err := NewSkillsTools(skillsDir)
+	if err != nil {
+		t.Fatalf("NewSkillsTools() error = %v, want nil (list_files/grep_file should be omitted, not fatal)", err)
+	}
+
+	got := map[string]bool{}
+	for _, tool := range tools {
+		got[tool.Name()] = true
+	}
+
+	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "bash"} {
+		if !got[name] {
+			t.Errorf("expected tool %q to be present even without KAGENT_ENABLE_FILE_SEARCH_TOOLS", name)
+		}
+	}
+	if got["list_files"] {
+		t.Error("expected list_files tool to be omitted by default")
+	}
+	if got["grep_file"] {
+		t.Error("expected grep_file tool to be omitted by default")
+	}
+}
+
+func TestNewSkillsTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t *testing.T) {
+	skillsDir := t.TempDir()
+	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
+
+	findBash := func(t *testing.T, tools []tool.Tool) tool.Tool {
+		t.Helper()
+		for _, tl := range tools {
+			if tl.Name() == "bash" {
+				return tl
+			}
+		}
+		t.Fatal("expected bash tool to be present")
+		return nil
+	}
+
+	t.Run("disabled by default", func(t *testing.T) {
+		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
+		tools, err := NewSkillsTools(skillsDir)
+		if err != nil {
+			t.Fatalf("NewSkillsTools() error = %v", err)
+		}
+		desc := findBash(t, tools).Description()
+		if strings.Contains(desc, "list_files") || strings.Contains(desc, "grep_file") {
+			t.Errorf("bash description should not mention list_files/grep_file when disabled, got %q", desc)
+		}
+	})
+
+	t.Run("mentioned when enabled", func(t *testing.T) {
+		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
+		tools, err := NewSkillsTools(skillsDir)
+		if err != nil {
+			t.Fatalf("NewSkillsTools() error = %v", err)
+		}
+		desc := findBash(t, tools).Description()
+		if !strings.Contains(desc, "list_files and grep_file") {
+			t.Errorf("bash description should mention list_files and grep_file when enabled, got %q", desc)
+		}
+	})
+}
+
 // TestListFilesAndGrepFileTools_RunThroughADK invokes the real functiontool.Run()
 // path (the same one the ADK flow engine uses to execute a model's tool call),
 // rather than calling ListDirContent/GrepContent directly, to verify the
@@ -150,6 +220,7 @@ func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	skillsDir := t.TempDir()
 	t.Setenv("KAGENT_SRT_SETTINGS_PATH", "")
+	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 
 	tools, err := NewSkillsTools(skillsDir)
 	if err != nil {

@@ -17,6 +17,7 @@ from .session import (
 from .shell import (
     edit_file_content,
     execute_command,
+    file_search_tools_enabled,
     grep_content,
     list_dir_content,
     read_file_content,
@@ -33,6 +34,7 @@ __all__ = [
     "list_dir_content",
     "grep_content",
     "execute_command",
+    "file_search_tools_enabled",
     "generate_skills_tool_description",
     "get_read_file_description",
     "get_write_file_description",

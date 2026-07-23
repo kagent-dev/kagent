@@ -12,6 +12,7 @@ except ImportError:
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.tools import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
+from kagent.skills import file_search_tools_enabled
 
 from ..tools import BashTool, EditFileTool, GrepFileTool, ListFilesTool, ReadFileTool, WriteFileTool
 from .skill_tool import SkillsTool
@@ -52,8 +53,15 @@ class SkillsToolset(BaseToolset):
         self.read_file_tool = ReadFileTool(skills_directory)
         self.write_file_tool = WriteFileTool()
         self.edit_file_tool = EditFileTool()
-        self.list_files_tool = ListFilesTool(skills_directory)
-        self.grep_file_tool = GrepFileTool(skills_directory)
+        # list_files/grep_file are opt-in: they give an agent broad
+        # filesystem visibility, so some deployments want them off unless
+        # explicitly enabled, same as bash. A single list (rather than two
+        # separately-nullable attributes) keeps "both present or both
+        # absent" a structural guarantee instead of a convention the two
+        # attributes have to be kept in sync by hand.
+        self._file_search_tools: list[BaseTool] = (
+            [ListFilesTool(skills_directory), GrepFileTool(skills_directory)] if file_search_tools_enabled() else []
+        )
         self.bash_tool = BashTool(skills_directory)
 
     @override
@@ -62,13 +70,13 @@ class SkillsToolset(BaseToolset):
 
         Returns:
           List containing all skills tools: skills, read, write, edit, list, grep, and bash.
+          list/grep are omitted unless KAGENT_ENABLE_FILE_SEARCH_TOOLS is enabled.
         """
         return [
             self.skills_tool,
             self.read_file_tool,
             self.write_file_tool,
             self.edit_file_tool,
-            self.list_files_tool,
-            self.grep_file_tool,
+            *self._file_search_tools,
             self.bash_tool,
         ]

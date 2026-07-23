@@ -13,12 +13,14 @@ from kagent.skills import (
     discover_skills,
     edit_file_content,
     execute_command,
+    file_search_tools_enabled,
     grep_content,
     list_dir_content,
     load_skill_content,
     read_file_content,
     write_file_content,
 )
+from kagent.skills.prompts import get_bash_description
 from kagent.skills.shell import _get_srt_settings_args, _sanitize_env
 
 
@@ -199,6 +201,42 @@ def test_get_srt_settings_args_requires_mounted_path():
     with patch.dict("os.environ", {}, clear=True):
         with pytest.raises(ValueError, match="KAGENT_SRT_SETTINGS_PATH is not set"):
             _get_srt_settings_args()
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, False),
+        ("", False),
+        ("false", False),
+        ("0", False),
+        ("no", False),
+        ("true", True),
+        ("TRUE", True),
+        ("True", True),
+        ("1", True),
+        ("t", True),
+        ("T", True),
+    ],
+)
+def test_file_search_tools_enabled(value, expected):
+    """list_files/grep_file are disabled by default and opt-in via the env var."""
+    env = {} if value is None else {"KAGENT_ENABLE_FILE_SEARCH_TOOLS": value}
+    with patch.dict("os.environ", env, clear=True):
+        assert file_search_tools_enabled() is expected
+
+
+def test_get_bash_description_omits_file_search_tools_by_default():
+    with patch.dict("os.environ", {}, clear=True):
+        desc = get_bash_description()
+    assert "list_files" not in desc
+    assert "grep_file" not in desc
+
+
+def test_get_bash_description_mentions_file_search_tools_when_enabled():
+    with patch.dict("os.environ", {"KAGENT_ENABLE_FILE_SEARCH_TOOLS": "true"}, clear=True):
+        desc = get_bash_description()
+    assert "list_files and grep_file" in desc
 
 
 # --- Path traversal tests ---

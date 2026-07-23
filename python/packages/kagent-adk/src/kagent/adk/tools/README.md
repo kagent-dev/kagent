@@ -185,6 +185,7 @@ return_artifacts(file_paths=["outputs/report.pdf"])
 - File size limits (100 MB max)
 - `grep_file` skips symlinked entries that resolve outside the directory being searched, so a symlink can't be used to read files outside the session's working directory
 - `recursive=True` does not descend into symlinked subdirectories (this is standard Go/Python stdlib walk behavior, not something this tool adds) — since `skills/` is itself a symlink, a recursive search from the working directory root will not find matches inside it; pass `skills/...` as the path directly to search skill contents
+- `list_files`/`grep_file` are disabled by default — they give an agent broad filesystem visibility, so they're opt-in. Set `KAGENT_ENABLE_FILE_SEARCH_TOOLS=true` on the agent's env to enable them (`read_file`/`write_file`/`edit_file`/`bash` are unaffected and always available in this Python runtime)
 
 **Bash tool:**
 

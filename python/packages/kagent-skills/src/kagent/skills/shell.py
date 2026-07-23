@@ -293,6 +293,18 @@ def _sanitize_env(env: dict[str, str] | None = None) -> dict[str, str]:
     return {k: v for k, v in source.items() if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)}
 
 
+_ENABLE_FILE_SEARCH_TOOLS_ENV = "KAGENT_ENABLE_FILE_SEARCH_TOOLS"
+
+
+def file_search_tools_enabled() -> bool:
+    """Whether the list_files/grep_file tools are enabled.
+
+    Disabled by default, same as bash: both give an agent broad filesystem
+    visibility, so some deployments want them off unless explicitly enabled.
+    """
+    return os.environ.get(_ENABLE_FILE_SEARCH_TOOLS_ENV, "").strip().lower() in ("1", "t", "true")
+
+
 def _get_srt_settings_args() -> list[str]:
     """Return srt settings args using the mounted config path."""
     settings_path_env = os.environ.get("KAGENT_SRT_SETTINGS_PATH", "").strip()
