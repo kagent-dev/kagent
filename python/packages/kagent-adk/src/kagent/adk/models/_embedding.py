@@ -14,8 +14,10 @@ import logging
 import os
 from typing import Any, List, Union
 
+import httpx
 import numpy as np
 
+from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.types import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
@@ -142,9 +144,33 @@ class KAgentEmbedding:
             norm = np.linalg.norm(x, 2, axis=1, keepdims=True)
             return np.where(norm == 0, x, x / norm)
 
+    def _has_tls_config(self) -> bool:
+        """Return True if any TLS field is set on the embedding config."""
+        return bool(
+            getattr(self.config, "tls_disable_verify", None)
+            or getattr(self.config, "tls_ca_cert_path", None)
+            or getattr(self.config, "tls_disable_system_cas", None)
+        )
+
+    def _tls_http_client(self) -> "httpx.AsyncClient | None":
+        """Build a TLS-aware httpx client from the embedding config.
+
+        Returns None when no TLS field is set so the OpenAI SDK keeps its
+        default http client (preserving the pre-existing default behaviour).
+        """
+        if not self._has_tls_config():
+            return None
+        verify = create_ssl_context(
+            disable_verify=bool(getattr(self.config, "tls_disable_verify", None)),
+            ca_cert_path=getattr(self.config, "tls_ca_cert_path", None),
+            disable_system_cas=bool(getattr(self.config, "tls_disable_system_cas", None)),
+        )
+        return httpx.AsyncClient(verify=verify)
+
     async def _embed_openai(self, texts: List[str]) -> List[List[float]]:
         """Embed using the OpenAI or Azure OpenAI SDK."""
         provider = self.config.provider.lower()
+        http_client = self._tls_http_client()
 
         if provider == "azure_openai":
             from openai import AsyncAzureOpenAI
@@ -153,11 +179,17 @@ class KAgentEmbedding:
             api_base = self.config.base_url or os.environ.get("AZURE_OPENAI_ENDPOINT")
             if not api_base:
                 raise ValueError("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
-            client = AsyncAzureOpenAI(api_version=api_version, azure_endpoint=api_base)
+            azure_kwargs: dict[str, Any] = {"api_version": api_version, "azure_endpoint": api_base}
+            if http_client is not None:
+                azure_kwargs["http_client"] = http_client
+            client = AsyncAzureOpenAI(**azure_kwargs)
         else:
             from openai import AsyncOpenAI
 
-            client = AsyncOpenAI(base_url=self.config.base_url or None)
+            openai_kwargs: dict[str, Any] = {"base_url": self.config.base_url or None}
+            if http_client is not None:
+                openai_kwargs["http_client"] = http_client
+            client = AsyncOpenAI(**openai_kwargs)
 
         response = await client.embeddings.create(
             model=self.config.model,

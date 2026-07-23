@@ -387,20 +387,32 @@ type EmbeddingConfig struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	BaseUrl  string `json:"base_url,omitempty"`
+
+	// TLS/SSL configuration (mirrors BaseModel) so the embedding HTTP client
+	// honours the same ModelConfig.spec.tls as the chat path.
+	TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify,omitempty"`
+	TLSCACertPath         *string `json:"tls_ca_cert_path,omitempty"`
+	TLSDisableSystemCAs   *bool   `json:"tls_disable_system_cas,omitempty"`
 }
 
 func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Type     string `json:"type"`
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
-		BaseUrl  string `json:"base_url"`
+		Type                  string  `json:"type"`
+		Provider              string  `json:"provider"`
+		Model                 string  `json:"model"`
+		BaseUrl               string  `json:"base_url"`
+		TLSInsecureSkipVerify *bool   `json:"tls_insecure_skip_verify"`
+		TLSCACertPath         *string `json:"tls_ca_cert_path"`
+		TLSDisableSystemCAs   *bool   `json:"tls_disable_system_cas"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
 	e.Model = tmp.Model
 	e.BaseUrl = tmp.BaseUrl
+	e.TLSInsecureSkipVerify = tmp.TLSInsecureSkipVerify
+	e.TLSCACertPath = tmp.TLSCACertPath
+	e.TLSDisableSystemCAs = tmp.TLSDisableSystemCAs
 	if tmp.Provider != "" {
 		e.Provider = tmp.Provider
 	} else {
@@ -416,28 +428,45 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		return nil
 	}
 	e := &EmbeddingConfig{Provider: m.GetType()}
+	// copyTLS copies the TLS pointer fields from a model's embedded BaseModel
+	// onto the EmbeddingConfig so the Python embedding client honours the same
+	// ModelConfig.spec.tls as the chat path.
+	copyTLS := func(b BaseModel) {
+		e.TLSInsecureSkipVerify = b.TLSInsecureSkipVerify
+		e.TLSCACertPath = b.TLSCACertPath
+		e.TLSDisableSystemCAs = b.TLSDisableSystemCAs
+	}
 	switch v := m.(type) {
 	case *OpenAI:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+		copyTLS(v.BaseModel)
 	case *AzureOpenAI:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Anthropic:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+		copyTLS(v.BaseModel)
 	case *GeminiVertexAI:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *GeminiAnthropic:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Ollama:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Gemini:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *Bedrock:
 		e.Model = v.Model
+		copyTLS(v.BaseModel)
 	case *SAPAICore:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+		copyTLS(v.BaseModel)
 	default:
 		e.Model = ""
 	}
