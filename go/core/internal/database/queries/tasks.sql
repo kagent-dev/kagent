@@ -78,3 +78,9 @@ WHERE task.id = $1 AND task.deleted_at IS NULL
       SELECT MIN(s.user_id) FROM session s
       WHERE s.id = task.session_id AND s.created_at <= task.created_at
       HAVING COUNT(DISTINCT s.user_id) = 1)));
+
+-- SoftDeleteTasksBySession cascades from an already owner-verified session
+-- delete (the caller checked GetSession(id, userID) first), so it trusts
+-- session_id alone and does not re-check ownership per task.
+-- name: SoftDeleteTasksBySession :exec
+UPDATE task SET deleted_at = NOW() WHERE session_id = $1 AND deleted_at IS NULL;

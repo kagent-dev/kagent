@@ -57,3 +57,6 @@ LIMIT $2;
 -- name: SoftDeleteEvent :exec
 UPDATE event SET deleted_at = NOW()
 WHERE id = $1 AND deleted_at IS NULL;
+
+-- name: SoftDeleteEventsBySession :exec
+UPDATE event SET deleted_at = NOW() WHERE session_id = $1 AND deleted_at IS NULL;

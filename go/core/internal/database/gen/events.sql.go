@@ -329,3 +329,12 @@ func (q *Queries) SoftDeleteEvent(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, softDeleteEvent, id)
 	return err
 }
+
+const softDeleteEventsBySession = `-- name: SoftDeleteEventsBySession :exec
+UPDATE event SET deleted_at = NOW() WHERE session_id = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) SoftDeleteEventsBySession(ctx context.Context, sessionID *string) error {
+	_, err := q.db.Exec(ctx, softDeleteEventsBySession, sessionID)
+	return err
+}

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -178,6 +179,10 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		"name", sessionRequest.Name)
 
 	if err := h.DatabaseService.StoreSession(r.Context(), session); err != nil {
+		if stderrors.Is(err, database.ErrSessionIDInUse) {
+			w.RespondWithError(errors.NewConflictError("Session ID is already in use", err))
+			return
+		}
 		w.RespondWithError(errors.NewInternalServerError("Failed to create session", err))
 		return
 	}

@@ -11,6 +11,7 @@ import (
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
@@ -83,7 +84,7 @@ func (c *postgresClient) DeleteAgent(ctx context.Context, agentID string) error 
 // ── Sessions ──────────────────────────────────────────────────────────────────
 
 func (c *postgresClient) StoreSession(ctx context.Context, session *dbpkg.Session) error {
-	return c.withTx(ctx, func(q *dbgen.Queries) error {
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		params := dbgen.UpsertSessionParams{
 			ID:      session.ID,
 			UserID:  session.UserID,
@@ -96,6 +97,11 @@ func (c *postgresClient) StoreSession(ctx context.Context, session *dbpkg.Sessio
 		}
 		return q.UpsertSession(ctx, params)
 	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.ConstraintName == "session_id_active_unique" {
+		return dbpkg.ErrSessionIDInUse
+	}
+	return err
 }
 
 func (c *postgresClient) GetSession(ctx context.Context, sessionID, userID string) (*dbpkg.Session, error) {
@@ -146,7 +152,24 @@ func (c *postgresClient) ListSessionsForAgentAllUsers(ctx context.Context, agent
 }
 
 func (c *postgresClient) DeleteSession(ctx context.Context, sessionID, userID string) error {
-	return c.q.SoftDeleteSession(ctx, dbgen.SoftDeleteSessionParams{ID: sessionID, UserID: userID})
+	return c.withTx(ctx, func(q *dbgen.Queries) error {
+		if _, err := q.GetSession(ctx, dbgen.GetSessionParams{ID: sessionID, UserID: userID}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return err
+		}
+		if err := q.SoftDeleteTasksBySession(ctx, &sessionID); err != nil {
+			return err
+		}
+		if err := q.SoftDeleteEventsBySession(ctx, &sessionID); err != nil {
+			return err
+		}
+		if err := q.DeleteSessionSharesBySession(ctx, sessionID); err != nil {
+			return err
+		}
+		return q.SoftDeleteSession(ctx, dbgen.SoftDeleteSessionParams{ID: sessionID, UserID: userID})
+	})
 }
 
 // ── Session Shares ─────────────────────────────────────────────────────────────
