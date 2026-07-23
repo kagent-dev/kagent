@@ -1,17 +1,12 @@
 package models
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
-	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
@@ -34,7 +29,15 @@ type OpenAIConfig struct {
 // AzureOpenAIConfig holds Azure OpenAI configuration
 type AzureOpenAIConfig struct {
 	TransportConfig
-	Model string
+	Model      string
+	Endpoint   string
+	Deployment string
+	APIVersion string
+
+	// credential overrides the Azure credential used for the implicit Workload
+	// Identity auth path. When nil, azureai.NewDefaultCredential is used. It is
+	// unexported and exists so tests can inject a fake credential.
+	credential azureai.TokenCredential
 }
 
 // OpenAIModel implements model.LLM (see openai_adk.go) for OpenAI/Azure OpenAI.
@@ -106,44 +109,79 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 }
 
 // NewAzureOpenAIModelWithLogger creates a new Azure OpenAI model instance with a logger.
-// Uses Azure-style base URL, Api-Key header, and path rewriting so we do not depend on the azure package.
-func NewAzureOpenAIModelWithLogger(config *AzureOpenAIConfig, logger logr.Logger) (*OpenAIModel, error) {
-	apiVersion := os.Getenv("OPENAI_API_VERSION")
+// It targets the Azure OpenAI OpenAI-compatible data plane
+// (POST {endpoint}/openai/deployments/{deployment}/chat/completions) through the
+// shared azureai client. Endpoint, api-version, and deployment come from the
+// model config, with AZURE_OPENAI_ENDPOINT / OPENAI_API_VERSION env fallbacks.
+//
+// Authentication is implicit and mirrors Foundry: the incoming bearer token when
+// APIKeyPassthrough is enabled; otherwise the AZURE_OPENAI_API_KEY Api-Key header
+// when set; otherwise DefaultAzureCredential, which resolves to Azure Workload
+// Identity in-cluster (or the az CLI in local development). The Workload Identity
+// path eagerly acquires a token so a missing or misconfigured identity fails
+// readiness at startup instead of on the first inference request.
+func NewAzureOpenAIModelWithLogger(ctx context.Context, config *AzureOpenAIConfig, logger logr.Logger) (*OpenAIModel, error) {
+	endpoint := config.Endpoint
+	if endpoint == "" {
+		endpoint = os.Getenv("AZURE_OPENAI_ENDPOINT")
+	}
+	if endpoint == "" {
+		return nil, fmt.Errorf("AZURE_OPENAI_ENDPOINT environment variable is not set")
+	}
+
+	apiVersion := config.APIVersion
+	if apiVersion == "" {
+		apiVersion = os.Getenv("OPENAI_API_VERSION")
+	}
 	if apiVersion == "" {
 		apiVersion = "2024-02-15-preview"
 	}
 
-	azureEndpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")
-	if azureEndpoint == "" {
-		return nil, fmt.Errorf("AZURE_OPENAI_ENDPOINT environment variable is not set")
-	}
-
-	opts := []option.RequestOption{
-		option.WithBaseURL(strings.TrimSuffix(azureEndpoint, "/") + "/"),
-		option.WithQueryAdd("api-version", apiVersion),
-		option.WithMiddleware(azurePathRewriteMiddleware()),
-	}
-
-	if !config.APIKeyPassthrough {
-		apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("AZURE_OPENAI_API_KEY environment variable is not set")
-		}
-		opts = append(opts, option.WithHeader("Api-Key", apiKey))
+	deployment := config.Deployment
+	if deployment == "" {
+		deployment = config.Model
 	}
 
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err
 	}
-	opts = append(opts, option.WithHTTPClient(httpClient))
 
-	client := openai.NewClient(opts...)
+	clientCfg := azureai.ClientConfig{
+		Endpoint:   endpoint,
+		Deployment: deployment,
+		APIVersion: apiVersion,
+		HTTPClient: httpClient,
+	}
+
+	// Implicit auth: the incoming bearer token when APIKeyPassthrough is enabled
+	// (a placeholder Api-Key is overwritten per request by openAIPassthroughOpts),
+	// otherwise the AZURE_OPENAI_API_KEY Api-Key header, otherwise
+	// DefaultAzureCredential (Workload Identity), eagerly probed for readiness.
+	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	if config.APIKeyPassthrough {
+		apiKey = "passthrough"
+	}
+	if err := azureai.ApplyImplicitAuth(ctx, &clientCfg, azureai.AuthOptions{
+		APIKey:     apiKey,
+		Credential: config.credential,
+		EagerProbe: true,
+	}); err != nil {
+		return nil, err
+	}
+
+	client, err := azureai.NewOpenAIClient(clientCfg)
+	if err != nil {
+		return nil, err
+	}
 	if logger.GetSink() != nil {
-		logger.Info("Initialized Azure OpenAI model", "model", config.Model, "endpoint", azureEndpoint, "apiVersion", apiVersion)
+		logger.Info("Initialized Azure OpenAI model", "model", config.Model, "deployment", deployment, "endpoint", endpoint, "apiVersion", apiVersion)
 	}
 	return &OpenAIModel{
-		Config:  &OpenAIConfig{Model: config.Model},
+		Config: &OpenAIConfig{
+			TransportConfig: config.TransportConfig,
+			Model:           deployment,
+		},
 		Client:  client,
 		IsAzure: true,
 		Logger:  logger,
@@ -164,46 +202,4 @@ func openAIPassthroughOpts(ctx context.Context, m *OpenAIModel) []option.Request
 		return []option.RequestOption{option.WithAPIKey(token)}
 	}
 	return nil
-}
-
-// azurePathRewriteMiddleware rewrites .../chat/completions to .../openai/deployments/{model}/chat/completions
-// by reading the request body for the model field (Azure deployment name).
-// Preserves the path prefix (e.g. /api/v1/proxy/) so proxies with a base path still work.
-func azurePathRewriteMiddleware() option.Middleware {
-	return func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-		pathSuffix := strings.TrimPrefix(r.URL.Path, "/")
-		var suffix string
-		switch {
-		case strings.HasSuffix(pathSuffix, "chat/completions"):
-			suffix = "chat/completions"
-		case strings.HasSuffix(pathSuffix, "completions"):
-			suffix = "completions"
-		case strings.HasSuffix(pathSuffix, "embeddings"):
-			suffix = "embeddings"
-		default:
-			return next(r)
-		}
-		if r.Body == nil {
-			return next(r)
-		}
-		var buf bytes.Buffer
-		if _, err := buf.ReadFrom(r.Body); err != nil {
-			return nil, err
-		}
-		r.Body = io.NopCloser(&buf)
-		var payload struct {
-			Model string `json:"model"`
-		}
-		if err := json.NewDecoder(bytes.NewReader(buf.Bytes())).Decode(&payload); err != nil || payload.Model == "" {
-			r.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
-			return next(r)
-		}
-		deployment := url.PathEscape(payload.Model)
-		// Keep base path (e.g. /api/v1/proxy), replace suffix with Azure-style path
-		basePath := strings.TrimSuffix(r.URL.Path, suffix)
-		basePath = strings.TrimRight(basePath, "/")
-		r.URL.Path = basePath + "/openai/deployments/" + deployment + "/" + suffix
-		r.Body = io.NopCloser(bytes.NewReader(buf.Bytes()))
-		return next(r)
-	}
 }

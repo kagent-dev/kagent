@@ -125,6 +125,9 @@ func (o *OpenAI) GetType() string {
 
 type AzureOpenAI struct {
 	BaseModel
+	Endpoint    string   `json:"endpoint,omitempty"`
+	Deployment  string   `json:"deployment,omitempty"`
+	APIVersion  string   `json:"api_version,omitempty"`
 	MaxTokens   *int     `json:"max_tokens,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
 	TopP        *float64 `json:"top_p,omitempty"`
@@ -418,17 +421,8 @@ type EmbeddingConfig struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	BaseUrl  string `json:"base_url,omitempty"`
-	// Endpoint, Deployment, and APIVersion are the Azure data-plane coordinates
-	// (account endpoint / deployment name / api-version). They are currently
-	// populated only for the "foundry" provider, whose auth is implicit
-	// (FOUNDRY_API_KEY, else DefaultAzureCredential).
-	//
-	// TODO: these are not Foundry-specific. The "azure_openai" provider uses the
-	// same triplet (v1alpha2.AzureOpenAIConfig azureEndpoint/azureDeployment/
-	// apiVersion) and should be migrated onto these fields. Today
-	// azureOpenAIProvider reads EmbeddingConfig.BaseUrl, which
-	// ModelToEmbeddingConfig never sets for AzureOpenAI, so azure_openai memory
-	// embeddings do not work on the Go runtime.
+	// Endpoint, Deployment, and APIVersion are the Azure data-plane settings,
+	// populated for the providers that use the shared azureai client.
 	Endpoint   string `json:"endpoint,omitempty"`
 	Deployment string `json:"deployment,omitempty"`
 	APIVersion string `json:"api_version,omitempty"`
@@ -473,6 +467,9 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		e.BaseUrl = v.BaseUrl
 	case *AzureOpenAI:
 		e.Model = v.Model
+		e.Endpoint = v.Endpoint
+		e.Deployment = v.Deployment
+		e.APIVersion = v.APIVersion
 	case *Anthropic:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
