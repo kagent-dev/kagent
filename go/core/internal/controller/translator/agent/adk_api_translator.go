@@ -832,6 +832,13 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			PromptCaching:                model.Spec.Bedrock.PromptCaching,
 			CacheTTL:                     model.Spec.Bedrock.CacheTTL,
 		}
+		if model.Spec.Bedrock.Guardrail != nil {
+			bedrock.Guardrail = &adk.BedrockGuardrail{
+				Identifier: model.Spec.Bedrock.Guardrail.Identifier,
+				Version:    model.Spec.Bedrock.Guardrail.Version,
+				Trace:      model.Spec.Bedrock.Guardrail.Trace,
+			}
+		}
 
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&bedrock.BaseModel, model.Spec.TLS)

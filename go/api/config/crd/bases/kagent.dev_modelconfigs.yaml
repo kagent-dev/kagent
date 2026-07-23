@@ -503,6 +503,33 @@ spec:
                     - 5m
                     - 1h
                     type: string
+                  guardrail:
+                    properties:
+                      identifier:
+                        description: |-
+                          Identifier is the guardrail ID or full ARN. AWS accepts either a bare
+                          guardrail ID or an arn:aws:bedrock:...:guardrail/... ARN, so the value is
+                          only length-bounded here (AWS caps guardrailIdentifier at 2048 chars).
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      trace:
+                        default: disabled
+                        enum:
+                        - disabled
+                        - enabled
+                        - enabled_full
+                        type: string
+                      version:
+                        description: 'Version is the guardrail version: a numeric
+                          version (e.g. "1") or "DRAFT".'
+                        maxLength: 8
+                        minLength: 1
+                        type: string
+                    required:
+                    - identifier
+                    - version
+                    type: object
                   promptCaching:
                     default: false
                     description: |-
