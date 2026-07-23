@@ -574,7 +574,7 @@ func (c *postgresClient) ListCheckpoints(ctx context.Context, userID, threadID, 
 				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointID: *checkpointID,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to get checkpoint: %w", err)
+				return fmt.Errorf("failed to get checkpoint: %w", notFoundOr(err))
 			}
 			checkpoints = []dbgen.LgCheckpoint{cp}
 		} else if limit > 0 {
