@@ -314,6 +314,11 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			PromptCaching:                m.PromptCaching,
 			CacheTTL:                     m.CacheTTL,
 		}
+		if m.Guardrail != nil {
+			cfg.GuardrailIdentifier = m.Guardrail.Identifier
+			cfg.GuardrailVersion = m.Guardrail.Version
+			cfg.GuardrailTrace = m.Guardrail.Trace
+		}
 		return models.NewBedrockModelWithLogger(ctx, cfg, log)
 
 	case *adk.GeminiAnthropic:
