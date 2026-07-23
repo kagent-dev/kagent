@@ -5,12 +5,19 @@
 -- included) and that user is the caller. Anything ambiguous stays hidden
 -- rather than guessed. This mirrors the backfill rule in migration
 -- 000007_task_owner.
+--
+-- The resolving session must also have existed at or before the task was
+-- written (s.created_at <= task.created_at). Without that bound, a task
+-- whose original session is gone entirely (hard deleted, or never migrated)
+-- would become claimable by whoever is first to create a brand new session
+-- reusing that same id after the fact, handing them a stranger's task.
 
 -- name: GetTask :one
 SELECT * FROM task
 WHERE task.id = $1 AND task.deleted_at IS NULL
   AND (task.user_id = $2 OR (task.user_id IS NULL AND $2 = (
-      SELECT MIN(s.user_id) FROM session s WHERE s.id = task.session_id
+      SELECT MIN(s.user_id) FROM session s
+      WHERE s.id = task.session_id AND s.created_at <= task.created_at
       HAVING COUNT(DISTINCT s.user_id) = 1)))
 LIMIT 1;
 
@@ -26,7 +33,8 @@ SELECT EXISTS (
 SELECT * FROM task
 WHERE task.session_id = $1 AND task.deleted_at IS NULL
   AND (task.user_id = $2 OR (task.user_id IS NULL AND $2 = (
-      SELECT MIN(s.user_id) FROM session s WHERE s.id = task.session_id
+      SELECT MIN(s.user_id) FROM session s
+      WHERE s.id = task.session_id AND s.created_at <= task.created_at
       HAVING COUNT(DISTINCT s.user_id) = 1)))
 ORDER BY created_at ASC;
 
@@ -47,7 +55,8 @@ ON CONFLICT (id) DO UPDATE SET
 WHERE task.deleted_at IS NULL
   AND (task.user_id = EXCLUDED.user_id
    OR (task.user_id IS NULL AND EXCLUDED.user_id = (
-       SELECT MIN(s.user_id) FROM session s WHERE s.id = task.session_id
+       SELECT MIN(s.user_id) FROM session s
+       WHERE s.id = task.session_id AND s.created_at <= task.created_at
        HAVING COUNT(DISTINCT s.user_id) = 1)))
 RETURNING id, session_id, user_id
 ),
@@ -66,5 +75,6 @@ SELECT id FROM upserted_task;
 UPDATE task SET deleted_at = NOW()
 WHERE task.id = $1 AND task.deleted_at IS NULL
   AND (task.user_id = $2 OR (task.user_id IS NULL AND $2 = (
-      SELECT MIN(s.user_id) FROM session s WHERE s.id = task.session_id
+      SELECT MIN(s.user_id) FROM session s
+      WHERE s.id = task.session_id AND s.created_at <= task.created_at
       HAVING COUNT(DISTINCT s.user_id) = 1)));

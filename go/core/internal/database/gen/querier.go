@@ -28,6 +28,12 @@ type Querier interface {
 	// included) and that user is the caller. Anything ambiguous stays hidden
 	// rather than guessed. This mirrors the backfill rule in migration
 	// 000007_task_owner.
+	//
+	// The resolving session must also have existed at or before the task was
+	// written (s.created_at <= task.created_at). Without that bound, a task
+	// whose original session is gone entirely (hard deleted, or never migrated)
+	// would become claimable by whoever is first to create a brand new session
+	// reusing that same id after the fact, handing them a stranger's task.
 	GetTask(ctx context.Context, arg GetTaskParams) (Task, error)
 	GetTaskOwner(ctx context.Context, id string) (*string, error)
 	GetTool(ctx context.Context, id string) (Tool, error)

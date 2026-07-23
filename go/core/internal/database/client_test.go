@@ -443,6 +443,40 @@ func TestNullOwnedTaskAccess(t *testing.T) {
 	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser)
 }
 
+// TestNullOwnedTaskAgainstLaterSessionIsInaccessible: a NULL-owned task whose
+// session_id has no session row *at all* (the original session was hard
+// deleted, or never migrated cleanly) must not become claimable just because
+// someone later creates a brand new session reusing that same id. The owner
+// resolution must only trust sessions that existed at or before the task was
+// written, never one created afterward.
+func TestNullOwnedTaskAgainstLaterSessionIsInaccessible(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	_, err := db.Exec(ctx,
+		`INSERT INTO task (id, data, session_id, created_at, updated_at) VALUES ($1, '{}', $2, NOW(), NOW())`,
+		"t-orphan", "s-freed")
+	require.NoError(t, err)
+
+	time.Sleep(10 * time.Millisecond)
+	// bob creates a session reusing the freed session id after the orphaned
+	// task already existed. bob must gain no access to it.
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-freed", UserID: "bob"}))
+
+	_, err = client.GetTask(ctx, "t-orphan", "bob")
+	require.Error(t, err, "a session created after an orphaned task must not resolve ownership to its creator")
+
+	tasks, err := client.ListTasksForSession(ctx, "s-freed", "bob")
+	require.NoError(t, err)
+	assert.Empty(t, tasks, "a session created after an orphaned task must not surface it in listings")
+
+	err = client.StoreTask(ctx, &a2a.Task{ID: "t-orphan", ContextID: "s-freed"}, "bob")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "bob must not be able to claim the orphaned task")
+	err = client.DeleteTask(ctx, "t-orphan", "bob")
+	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "bob must not be able to delete the orphaned task")
+}
+
 // TestListTasksForSessionIsScopedToOwner: session ids are not globally unique
 // (session's key is (id, user_id)), so listing tasks by session id alone
 // would leak one user's tasks to another user holding the same session id.
