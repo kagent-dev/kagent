@@ -1,6 +1,31 @@
 import { k8sRefUtils } from "@/lib/k8sUtils";
-import type{ Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
+import type { Tool, McpServerTool, ToolsResponse, DiscoveredTool, TypedLocalReference, AgentResponse } from "@/types";
 
+/**
+ * Build the `args` array for a stdio MCPServer deployment.
+ *
+ * The executor (`cmd`) is supplied separately; this helper returns the
+ * remaining arguments in the same order shown in the command preview:
+ *   [commandPrefix...] <packageName> [additionalArgs...]
+ *
+ * `packageName` is required and is always included; callers must validate
+ * that it is non-empty before invoking this helper.
+ */
+export const buildMCPServerArgs = (
+  commandPrefix: string,
+  packageName: string,
+  argPairs: string[],
+): string[] => {
+  const args: string[] = [];
+  if (commandPrefix.trim()) {
+    args.push(...commandPrefix.trim().split(/\s+/));
+  }
+  args.push(packageName.trim());
+  argPairs
+    .filter((arg) => arg.trim() !== "")
+    .forEach((arg) => args.push(arg.trim()));
+  return args;
+};
 
 // Constants for MCP server types and defaults
 const DEFAULT_API_GROUP = "kagent.dev";
@@ -19,17 +44,17 @@ export const isAgentTool = (value: unknown): value is { type: "Agent"; agent: Ty
 // Compare server names it handles both "namespace/name" refs and plain names
 export const serverNamesMatch = (serverName1: string, serverName2: string): boolean => {
   if (!serverName1 || !serverName2) return false;
-  
+
   if (serverName1 === serverName2) return true;
-  
+
   try {
-    const name1 = k8sRefUtils.isValidRef(serverName1) 
-      ? k8sRefUtils.fromRef(serverName1).name 
+    const name1 = k8sRefUtils.isValidRef(serverName1)
+      ? k8sRefUtils.fromRef(serverName1).name
       : serverName1;
-    const name2 = k8sRefUtils.isValidRef(serverName2) 
-      ? k8sRefUtils.fromRef(serverName2).name 
+    const name2 = k8sRefUtils.isValidRef(serverName2)
+      ? k8sRefUtils.fromRef(serverName2).name
       : serverName2;
-    
+
     return name1 === name2;
   } catch {
     return false;
@@ -100,10 +125,10 @@ export const groupMcpToolsByServer = (tools: Tool[]): {
   // Convert to Tool objects- preserve original kind, apiGroup, and namespace from the first tool of each server
   const groupedMcpTools = Array.from(mcpToolsByServer.entries()).map(([serverNameRef, toolNamesSet]) => {
     // Find the first tool from this server to get its kind, apiGroup, and namespace
-    const originalTool = tools.find(tool => 
+    const originalTool = tools.find(tool =>
       isMcpTool(tool) && tool.mcpServer?.name === serverNameRef
     );
-    
+
     const originalMcpServer = originalTool?.mcpServer;
     const rawApprovals = mcpApprovalsByServer.get(serverNameRef) || new Set<string>();
     const mergedApprovals = Array.from(rawApprovals).filter((n) => toolNamesSet.has(n));
@@ -213,7 +238,7 @@ export const getToolResponseCategory = (tool: ToolsResponse | undefined | null):
       return parts[0];
     } else {
       return (tool as ToolsResponse).id;
-    } 
+    }
   }
   return (tool as ToolsResponse).server_name;
 };
@@ -226,17 +251,17 @@ export const getToolResponseIdentifier = (tool: ToolsResponse | undefined | null
 // Convert DiscoveredTool to Tool for agent creation
 export const toolResponseToAgentTool = (tool: ToolsResponse, serverRef: string): Tool => {
   const { apiGroup, kind } = parseGroupKind(tool.group_kind);
-  
+
   // Parse namespace and name from serverRef if it's in namespace/name format
   let name = serverRef;
   let namespace: string | undefined;
-  
+
   if (k8sRefUtils.isValidRef(serverRef)) {
     const parsed = k8sRefUtils.fromRef(serverRef);
     name = parsed.name;
     namespace = parsed.namespace;
   }
-  
+
   return {
     type: MCP_SERVER_TYPE,
     mcpServer: {
@@ -266,7 +291,7 @@ export const getDiscoveredToolCategory = (tool: DiscoveredTool, serverRef: strin
       return parts[0];
     } else {
       return tool.name;
-    } 
+    }
   }
   return serverRef;
 };
