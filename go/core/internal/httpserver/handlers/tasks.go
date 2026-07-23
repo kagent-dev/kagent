@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	stderrors "errors"
 	"fmt"
 	"net/http"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -33,7 +35,13 @@ func (h *TasksHandler) HandleGetTask(w ErrorResponseWriter, r *http.Request) {
 	}
 	log = log.WithValues("task_id", taskID)
 
-	task, err := h.DatabaseService.GetTask(r.Context(), taskID)
+	userID, err := getUserIDOrAgentUser(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+
+	task, err := h.DatabaseService.GetTask(r.Context(), taskID, userID)
 	if err != nil {
 		RespondNotFoundOrError(w, "Task not found", err)
 		return
@@ -106,7 +114,17 @@ func (h *TasksHandler) HandleCreateTask(w ErrorResponseWriter, r *http.Request) 
 	}
 	log = log.WithValues("task_id", task.ID)
 
-	if err := h.DatabaseService.StoreTask(r.Context(), &task); err != nil {
+	userID, err := getUserIDOrAgentUser(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+
+	if err := h.DatabaseService.StoreTask(r.Context(), &task, userID); err != nil {
+		if stderrors.Is(err, database.ErrTaskOwnedByAnotherUser) {
+			w.RespondWithError(errors.NewConflictError("Task ID is already in use", err))
+			return
+		}
 		w.RespondWithError(errors.NewInternalServerError("Failed to create task", err))
 		return
 	}
@@ -141,7 +159,17 @@ func (h *TasksHandler) HandleDeleteTask(w ErrorResponseWriter, r *http.Request) 
 	}
 	log = log.WithValues("task_id", taskID)
 
-	if err := h.DatabaseService.DeleteTask(r.Context(), taskID); err != nil {
+	userID, err := getUserIDOrAgentUser(r)
+	if err != nil {
+		w.RespondWithError(errors.NewBadRequestError("Failed to get user ID", err))
+		return
+	}
+
+	if err := h.DatabaseService.DeleteTask(r.Context(), taskID, userID); err != nil {
+		if stderrors.Is(err, database.ErrTaskOwnedByAnotherUser) {
+			w.RespondWithError(errors.NewNotFoundError("Task not found", err))
+			return
+		}
 		w.RespondWithError(errors.NewInternalServerError("Failed to delete task", err))
 		return
 	}

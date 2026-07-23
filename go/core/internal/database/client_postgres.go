@@ -281,7 +281,7 @@ func (c *postgresClient) ListEventsForSession(ctx context.Context, sessionID, us
 
 // TODO(0.11.0): Switch task writes to v1 storage format and remove legacy conversion from this write path.
 // NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0
-func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task) error {
+func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task, userID string) error {
 	legacyTask, err := trpcv0.ToLegacyTask(task)
 	if err != nil {
 		return fmt.Errorf("failed to convert task to legacy format: %w", err)
@@ -290,24 +290,53 @@ func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task) error {
 	if err != nil {
 		return fmt.Errorf("failed to serialize task: %w", err)
 	}
-	return c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
+	// UpsertTask returns no rows when the write was rejected: the id belongs
+	// to another user, or to a soft-deleted task (deleted ids stay burned).
+	if _, err := c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
 		ID:              string(task.ID),
 		Data:            string(data),
 		SessionID:       strPtrIfNotEmpty(task.ContextID),
 		ProtocolVersion: nil,
-	})
+		UserID:          &userID,
+	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return dbpkg.ErrTaskOwnedByAnotherUser
+		}
+		return fmt.Errorf("failed to store task %s: %w", task.ID, err)
+	}
+	return nil
 }
 
-func (c *postgresClient) GetTask(ctx context.Context, taskID string) (*a2a.Task, error) {
-	row, err := c.q.GetTask(ctx, taskID)
+// checkTaskOwner returns ErrTaskOwnedByAnotherUser if taskID still exists but
+// does not belong to userID after an owner-scoped write. A NULL owner counts
+// as foreign too: a successful write always stamps the caller's user_id, so a
+// surviving NULL means the write was rejected. A missing task is not an
+// error: the caller decides what that means (nothing to own yet, or already
+// deleted).
+func (c *postgresClient) checkTaskOwner(ctx context.Context, taskID, userID string) error {
+	owner, err := c.q.GetTaskOwner(ctx, taskID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return fmt.Errorf("failed to check task owner for %s: %w", taskID, err)
+	}
+	if owner == nil || *owner != userID {
+		return dbpkg.ErrTaskOwnedByAnotherUser
+	}
+	return nil
+}
+
+func (c *postgresClient) GetTask(ctx context.Context, taskID, userID string) (*a2a.Task, error) {
+	row, err := c.q.GetTask(ctx, dbgen.GetTaskParams{ID: taskID, UserID: &userID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get task %s: %w", taskID, notFoundOr(err))
 	}
 	return parseVersionedTask(row.Data, row.ProtocolVersion)
 }
 
-func (c *postgresClient) ListTasksForSession(ctx context.Context, sessionID string) ([]*a2a.Task, error) {
-	rows, err := c.q.ListTasksForSession(ctx, &sessionID)
+func (c *postgresClient) ListTasksForSession(ctx context.Context, sessionID, userID string) ([]*a2a.Task, error) {
+	rows, err := c.q.ListTasksForSession(ctx, dbgen.ListTasksForSessionParams{SessionID: &sessionID, UserID: &userID})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tasks for session: %w", err)
 	}
@@ -322,8 +351,13 @@ func (c *postgresClient) ListTasksForSession(ctx context.Context, sessionID stri
 	return tasks, nil
 }
 
-func (c *postgresClient) DeleteTask(ctx context.Context, taskID string) error {
-	return c.q.SoftDeleteTask(ctx, taskID)
+func (c *postgresClient) DeleteTask(ctx context.Context, taskID, userID string) error {
+	if err := c.q.SoftDeleteTask(ctx, dbgen.SoftDeleteTaskParams{ID: taskID, UserID: &userID}); err != nil {
+		return fmt.Errorf("failed to delete task %s: %w", taskID, err)
+	}
+	// The delete only takes effect if user_id matched; if the task is still
+	// there and owned by someone else, say so instead of a misleading success.
+	return c.checkTaskOwner(ctx, taskID, userID)
 }
 
 // ── Push Notifications ────────────────────────────────────────────────────────
@@ -693,11 +727,13 @@ func (c *postgresClient) StoreAgentMemories(ctx context.Context, memories []*dbp
 }
 
 func (c *postgresClient) SearchAgentMemory(ctx context.Context, agentName, userID string, embedding pgvector.Vector, limit int) ([]dbpkg.AgentMemorySearchResult, error) {
+	normalized := strings.ReplaceAll(agentName, "-", "_")
 	rows, err := c.q.SearchAgentMemory(ctx, dbgen.SearchAgentMemoryParams{
-		Embedding: embedding,
-		AgentName: &agentName,
-		UserID:    &userID,
-		Limit:     int32(limit),
+		Embedding:   embedding,
+		AgentName:   &agentName,
+		AgentName_2: &normalized,
+		UserID:      &userID,
+		Limit:       int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to search agent memory: %w", err)
