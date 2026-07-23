@@ -232,6 +232,12 @@ func TestStoreSessionIdempotence(t *testing.T) {
 	retrieved, err := client.GetSession(ctx, session.ID, userID)
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", *retrieved.Name, "Session should have updated name")
+
+	_, err = client.GetSession(ctx, "no-such-session", userID)
+	require.Error(t, err)
+
+	_, err = client.GetSession(ctx, session.ID, "other-user")
+	require.Error(t, err, "another user's session must not be readable")
 }
 
 func TestListSessionsOrdersByRecentActivity(t *testing.T) {
@@ -650,6 +656,23 @@ func TestSearchAgentMemoryIsolation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, results, 1, "Should only return memories for agent-a / user-1")
 	assert.Equal(t, mem1.ID, results[0].ID)
+}
+
+// TestSearchAgentMemoryNormalizedName verifies that a search with a hyphenated
+// agent name finds memories stored under the underscore form, matching the
+// normalization ListAgentMemories and DeleteAgentMemory already apply.
+func TestSearchAgentMemoryNormalizedName(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	stored := &dbpkg.Memory{AgentName: "ns__my_agent", UserID: "user-1", Content: "stored under underscore form", Embedding: makeEmbedding(0.5)}
+	require.NoError(t, client.StoreAgentMemory(ctx, stored))
+
+	results, err := client.SearchAgentMemory(ctx, "ns__my-agent", "user-1", makeEmbedding(0.5), 10)
+	require.NoError(t, err)
+	require.Len(t, results, 1, "Search should find memories stored under the normalized name")
+	assert.Equal(t, stored.ID, results[0].ID)
 }
 
 // TestDeleteAgentMemory verifies that DeleteAgentMemory removes all memories for the

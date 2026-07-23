@@ -42,3 +42,9 @@ next-env.d.ts
 
 # storybook
 /storybook-static
+
+# playwright
+/playwright-report
+/playwright/test-results
+/playwright/.cache
+/playwright/.e2e-pids.json

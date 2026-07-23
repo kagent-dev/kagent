@@ -23,6 +23,10 @@ data:
   SKILLS_INIT_IMAGE_REGISTRY: {{ .Values.controller.skillsInitImage.registry | default .Values.registry | quote }}
   SKILLS_INIT_IMAGE_REPOSITORY: {{ .Values.controller.skillsInitImage.repository | quote }}
   SKILLS_INIT_IMAGE_TAG: {{ coalesce .Values.controller.skillsInitImage.tag .Values.tag .Chart.Version | quote }}
+  GO_IMAGE_PULL_POLICY: {{ .Values.controller.goAgentImage.pullPolicy | default .Values.imagePullPolicy | quote }}
+  GO_IMAGE_REGISTRY: {{ .Values.controller.goAgentImage.registry | default .Values.registry | quote }}
+  GO_IMAGE_REPOSITORY: {{ .Values.controller.goAgentImage.repository | quote }}
+  GO_IMAGE_TAG: {{ coalesce .Values.controller.goAgentImage.tag .Values.tag .Chart.Version | quote }}
   LEADER_ELECT: {{ include "kagent.leaderElectionEnabled" . | quote }}
   # OpenTelemetry Configuration
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
@@ -81,5 +85,14 @@ data:
   {{- end }}
   {{- if $pairs }}
   DEFAULT_AGENT_POD_LABELS: {{ join "," $pairs | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.nodeSelector }}
+  {{- $nsPairs := list }}
+  {{- range $k := keys .Values.controller.agentDeployment.nodeSelector | sortAlpha }}
+  {{- $nsPairs = append $nsPairs (printf "%s=%s" $k (index $.Values.controller.agentDeployment.nodeSelector $k | toString)) }}
+  {{- end }}
+  {{- if $nsPairs }}
+  DEFAULT_AGENT_NODE_SELECTOR: {{ join "," $nsPairs | quote }}
   {{- end }}
   {{- end }}

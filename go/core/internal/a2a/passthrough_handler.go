@@ -35,6 +35,16 @@ func validateShareContext(ctx context.Context, contextID string) error {
 	return nil
 }
 
+// requireWritableShare rejects a mutating operation issued under a read-only
+// share token. A read-only share grants viewing the owner's session, not
+// changing it. Requests without a share token are unaffected.
+func requireWritableShare(ctx context.Context) error {
+	if sc, ok := pkgauth.ShareContextFrom(ctx); ok && sc.ReadOnly {
+		return fmt.Errorf("share token is read-only")
+	}
+	return nil
+}
+
 // injectInitiatedBy records the caller's identity in message metadata when the
 // request carries a share token, so the agent can attribute the interaction.
 func injectInitiatedBy(ctx context.Context, msg *a2atype.Message) {
@@ -71,10 +81,16 @@ func (h *PassthroughRequestHandler) ListTasks(ctx context.Context, req *a2atype.
 }
 
 func (h *PassthroughRequestHandler) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
+	if err := requireWritableShare(ctx); err != nil {
+		return nil, err
+	}
 	return h.client.CancelTask(ctx, req)
 }
 
 func (h *PassthroughRequestHandler) SendMessage(ctx context.Context, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+	if err := requireWritableShare(ctx); err != nil {
+		return nil, err
+	}
 	if req.Message != nil {
 		if err := validateShareContext(ctx, req.Message.ContextID); err != nil {
 			return nil, err
@@ -89,6 +105,12 @@ func (h *PassthroughRequestHandler) SubscribeToTask(ctx context.Context, req *a2
 }
 
 func (h *PassthroughRequestHandler) SendStreamingMessage(ctx context.Context, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	if err := requireWritableShare(ctx); err != nil {
+		return func(yield func(a2atype.Event, error) bool) {
+			var zero a2atype.Event
+			yield(zero, err)
+		}
+	}
 	if req.Message != nil {
 		if err := validateShareContext(ctx, req.Message.ContextID); err != nil {
 			return func(yield func(a2atype.Event, error) bool) {
@@ -114,10 +136,16 @@ func (h *PassthroughRequestHandler) ListTaskPushConfigs(ctx context.Context, req
 }
 
 func (h *PassthroughRequestHandler) CreateTaskPushConfig(ctx context.Context, req *a2atype.PushConfig) (*a2atype.PushConfig, error) {
+	if err := requireWritableShare(ctx); err != nil {
+		return nil, err
+	}
 	return h.client.CreateTaskPushConfig(ctx, req)
 }
 
 func (h *PassthroughRequestHandler) DeleteTaskPushConfig(ctx context.Context, req *a2atype.DeleteTaskPushConfigRequest) error {
+	if err := requireWritableShare(ctx); err != nil {
+		return err
+	}
 	return h.client.DeleteTaskPushConfig(ctx, req)
 }
 

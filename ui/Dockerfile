@@ -10,19 +10,21 @@ ARG BUILDPLATFORM
 ARG TOOLS_NODE_VERSION
 
 RUN echo "Installing on $BUILDPLATFORM" \
-    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" npm node-gyp \
+    && apk add --no-cache curl bash openssl unzip ca-certificates nginx supervisor "nodejs~${TOOLS_NODE_VERSION}" node-gyp \
     && update-ca-certificates
 
 ENV DO_NOT_TRACK=1
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV CYPRESS_INSTALL_BINARY=0
 
 WORKDIR /app/ui
 
-# Copy package files and install dependencies
+# Pin npm to package.json's "packageManager" version; the wolfi-base default
+# npm is a newer major that rejects the committed package-lock.json.
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm,rw \
-    npm ci
+    NPM_VERSION="$(sed -n 's/.*"packageManager"[[:space:]]*:[[:space:]]*"npm@\([0-9.]*\)".*/\1/p' package.json)" \
+    && apk add --no-cache "npm=~${NPM_VERSION}" \
+    && npm ci
 
 ### STAGE 2: Build
 FROM --platform=$BUILDPLATFORM deps AS builder
