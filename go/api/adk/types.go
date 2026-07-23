@@ -263,6 +263,15 @@ type Bedrock struct {
 	// "5m" (default) or "1h". See the v1alpha2.BedrockConfig CRD doc for the
 	// cost/compatibility trade-offs of "1h".
 	CacheTTL string `json:"cache_ttl,omitempty"`
+	// ReadTimeout is the Bedrock HTTP client read timeout in seconds. Nil keeps
+	// each runtime's default. Python ADK: overrides botocore's ~60s read timeout,
+	// which otherwise aborts long completions with a ReadTimeoutError. Go ADK:
+	// bounds the whole Converse request (overall HTTP client timeout, default 30m).
+	ReadTimeout *int `json:"read_timeout,omitempty"`
+	// ConnectTimeout is the Bedrock HTTP client connection-establishment timeout
+	// in seconds. Nil keeps each runtime's default (Python ADK: botocore; Go ADK:
+	// net dialer). Bounds connection setup only, not the response read.
+	ConnectTimeout *int `json:"connect_timeout,omitempty"`
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {

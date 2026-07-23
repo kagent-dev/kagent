@@ -305,9 +305,14 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		if modelName == "" {
 			return nil, fmt.Errorf("bedrock requires a model name (e.g. anthropic.claude-3-sonnet-20240229-v1:0)")
 		}
-		// Use Bedrock Converse API for ALL models (including Anthropic)
+		// Use Bedrock Converse API for ALL models (including Anthropic).
+		// ReadTimeout maps to the overall HTTP client timeout (whole Converse
+		// request) and ConnectTimeout to the dialer, mirroring the Python ADK's
+		// botocore read/connect timeouts so the config is honored on both runtimes.
+		tc := transportConfigFromBase(m.BaseModel, m.ReadTimeout)
+		tc.ConnectTimeout = m.ConnectTimeout
 		cfg := &models.BedrockConfig{
-			TransportConfig:              transportConfigFromBase(m.BaseModel, nil),
+			TransportConfig:              tc,
 			Model:                        modelName,
 			Region:                       region,
 			AdditionalModelRequestFields: m.AdditionalModelRequestFields,

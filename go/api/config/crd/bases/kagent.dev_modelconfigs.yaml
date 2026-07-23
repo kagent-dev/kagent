@@ -503,6 +503,14 @@ spec:
                     - 5m
                     - 1h
                     type: string
+                  connectTimeout:
+                    description: |-
+                      ConnectTimeout is the Bedrock HTTP client connection-establishment timeout
+                      in seconds, applied by both the Python and Go ADK runtimes. It bounds
+                      connection setup only, not the response read. When unset, each runtime's
+                      default is used (Python ADK: botocore; Go ADK: net dialer).
+                    minimum: 1
+                    type: integer
                   promptCaching:
                     default: false
                     description: |-
@@ -521,6 +529,17 @@ spec:
                       See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
                       for the current list of supported models and minimum prefix sizes.
                     type: boolean
+                  readTimeout:
+                    description: |-
+                      ReadTimeout is the Bedrock HTTP client read timeout in seconds, applied by
+                      both the Python and Go ADK runtimes. Raise this for agents that make long
+                      Converse calls (large tool-augmented turns, extended reasoning). On the
+                      Python ADK it overrides botocore's ~60s read timeout, which otherwise
+                      aborts long completions with a ReadTimeoutError; on the Go ADK it bounds
+                      the whole Converse request (default 30m). When unset, each runtime's
+                      default is used.
+                    minimum: 1
+                    type: integer
                   region:
                     description: AWS region where the Bedrock model is available (e.g.,
                       us-east-1, us-west-2)

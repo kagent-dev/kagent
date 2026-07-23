@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -283,6 +284,59 @@ func TestConfigDeserialization_Bedrock(t *testing.T) {
 	}
 	if br.Region != "us-east-1" {
 		t.Errorf("region = %q, want %q", br.Region, "us-east-1")
+	}
+}
+
+// TestCreateLLM_BedrockTimeouts verifies that the Bedrock read/connect timeouts
+// from the model config are wired into the Go ADK's HTTP transport, so the same
+// ModelConfig fields are honored by both the Python and Go runtimes.
+func TestCreateLLM_BedrockTimeouts(t *testing.T) {
+	read := 1800
+	connect := 10
+	m := &adk.Bedrock{
+		BaseModel:      adk.BaseModel{Type: "bedrock", Model: "anthropic.claude-3-sonnet-20240229-v1:0"},
+		Region:         "us-east-1",
+		ReadTimeout:    &read,
+		ConnectTimeout: &connect,
+	}
+
+	llm, err := CreateLLM(context.Background(), m, logr.Discard())
+	if err != nil {
+		t.Fatalf("CreateLLM: %v", err)
+	}
+	bm, ok := llm.(*models.BedrockModel)
+	if !ok {
+		t.Fatalf("model is %T, want *models.BedrockModel", llm)
+	}
+	if bm.Config.Timeout == nil || *bm.Config.Timeout != read {
+		t.Errorf("Config.Timeout = %v, want %d", bm.Config.Timeout, read)
+	}
+	if bm.Config.ConnectTimeout == nil || *bm.Config.ConnectTimeout != connect {
+		t.Errorf("Config.ConnectTimeout = %v, want %d", bm.Config.ConnectTimeout, connect)
+	}
+}
+
+// TestCreateLLM_BedrockTimeoutsUnset verifies that omitting the timeouts leaves
+// them nil so each runtime keeps its own default behavior.
+func TestCreateLLM_BedrockTimeoutsUnset(t *testing.T) {
+	m := &adk.Bedrock{
+		BaseModel: adk.BaseModel{Type: "bedrock", Model: "anthropic.claude-3-sonnet-20240229-v1:0"},
+		Region:    "us-east-1",
+	}
+
+	llm, err := CreateLLM(context.Background(), m, logr.Discard())
+	if err != nil {
+		t.Fatalf("CreateLLM: %v", err)
+	}
+	bm, ok := llm.(*models.BedrockModel)
+	if !ok {
+		t.Fatalf("model is %T, want *models.BedrockModel", llm)
+	}
+	if bm.Config.Timeout != nil {
+		t.Errorf("Config.Timeout = %v, want nil", *bm.Config.Timeout)
+	}
+	if bm.Config.ConnectTimeout != nil {
+		t.Errorf("Config.ConnectTimeout = %v, want nil", *bm.Config.ConnectTimeout)
 	}
 }
 
