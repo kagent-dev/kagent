@@ -58,7 +58,10 @@ func (f *fakeTaskStore) ListSessions(_ context.Context, userID string) ([]dbpkg.
 	return out, nil
 }
 
-func (f *fakeTaskStore) ListTasksForSession(_ context.Context, sessionID string) ([]*a2atype.Task, error) {
+func (f *fakeTaskStore) ListTasksForSession(_ context.Context, sessionID, userID string) ([]*a2atype.Task, error) {
+	if s, ok := f.sessions[sessionID]; !ok || s.UserID != userID {
+		return nil, nil
+	}
 	return f.tasks[sessionID], nil
 }
 
@@ -271,7 +274,7 @@ func (f failingTaskStore) ListSessions(context.Context, string) ([]dbpkg.Session
 	return nil, f.err
 }
 
-func (f failingTaskStore) ListTasksForSession(context.Context, string) ([]*a2atype.Task, error) {
+func (f failingTaskStore) ListTasksForSession(context.Context, string, string) ([]*a2atype.Task, error) {
 	return nil, f.err
 }
 
