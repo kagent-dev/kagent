@@ -103,7 +103,8 @@ class OpenAIAgentExecutor(AgentExecutor):
     ) -> None:
         """Stream agent execution events and convert them to A2A events."""
         task_result_aggregator = TaskResultAggregator()
-        session_context = SessionContext(session_id=session.session_id)
+        session_id = session.session_id if session else getattr(context, "session_id", None) or context.context_id
+        session_context = SessionContext(session_id=session_id)
 
         try:
             # Use run_streamed for streaming support
