@@ -58,6 +58,7 @@ type configHashInput struct {
 type podRuntimeInputs struct {
 	initContainers  []corev1.Container
 	envVars         []corev1.EnvVar
+	envFrom         []corev1.EnvFromSource
 	volumes         []corev1.Volume
 	volumeMounts    []corev1.VolumeMount
 	securityContext *corev1.SecurityContext
@@ -327,6 +328,7 @@ func buildPodRuntime(
 	return &podRuntimeInputs{
 		initContainers:      initContainers,
 		envVars:             envVars,
+		envFrom:             manifestCtx.deployment.EnvFrom,
 		volumes:             volumes,
 		volumeMounts:        volumeMounts,
 		securityContext:     buildContainerSecurityContext(manifestCtx.deployment.SecurityContext, needCodeExecIsolation),
@@ -538,6 +540,7 @@ func buildPodTemplate(
 				Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
 				Resources:       dep.Resources,
 				Env:             runtimeInputs.envVars,
+				EnvFrom:         runtimeInputs.envFrom,
 				ReadinessProbe: &corev1.Probe{
 					ProbeHandler: corev1.ProbeHandler{
 						HTTPGet: &corev1.HTTPGetAction{
