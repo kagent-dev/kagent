@@ -18,7 +18,7 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.openAI.api
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=ollama
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=openAI       --set providers.openAI.apiKey=your-openai-api-key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key
-helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-azure-openai-api-key
 ```
 
 ### Using Make

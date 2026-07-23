@@ -40,7 +40,7 @@ on the kagent chart), prefix these keys with `substrate.` — e.g.
 Then install the Substrate platform and kagent:
 
 ```bash
-export SUBSTRATE_VERSION=0.0.7
+export SUBSTRATE_VERSION=0.0.8
 
 helm upgrade --install substrate-crds \
   oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds \
@@ -83,7 +83,6 @@ metadata:
   name: peterj-claw
   namespace: kagent
 spec:
-  runtime: substrate
   backend: openclaw
   description: OpenClaw on Agent Substrate
   modelConfigRef: default-model-config
@@ -145,12 +144,12 @@ With `controller.substrate.enabled=true`, the kagent Helm chart installs a names
 Port-forward the UI:
 
 ```bash
-kubectl port-forward -n kagent svc/kagent-ui 8001:8080
+kubectl port-forward -n kagent svc/kagent-ui 3000:8080
 ```
 
 Navigate to the deployed agent harness. If the OpenClaw Control UI asks for a gateway connection, use:
 
-- Gateway URL: `http://localhost:8001/api/agentharnesses/kagent/peterj-claw/gateway/`
+- Gateway URL: `http://localhost:3000/api/agentharnesses/kagent/peterj-claw/gateway/`
 
 The gateway URL must include the trailing slash. The gateway runs without authentication; the actor's only externally reachable surface is reached through the controller's same-origin proxy over the actor's private atenet ingress.
 

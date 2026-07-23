@@ -2,7 +2,7 @@
 
 ## Prerequisites
 - [uv package manager](https://docs.astral.sh/uv/getting-started/installation/)
-- OpenAI API key
+- An LLM provider API key (OpenAI, Anthropic, Gemini, etc.)
 
 ## Python
 
