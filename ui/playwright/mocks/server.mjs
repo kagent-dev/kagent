@@ -1,83 +1,29 @@
-// Standalone stub backend for Playwright E2E.
+// Lightweight dev proxy for the Playwright E2E suite.
 //
-// The kagent UI fetches data server-side (Next.js server actions), so the
-// backend fetch happens in the Node process, not the browser — browser-level
-// page.route cannot mock it. Instead we run this tiny HTTP server and point
-// Next at it via BACKEND_INTERNAL_URL (see playwright.config.ts). getBackendUrl()
-// in src/lib/utils.ts checks BACKEND_INTERNAL_URL first, so every /api/* call
-// lands here.
+// It forwards every request to a real kagent backend — deployed into kind by
+// playwright/scripts/setup.sh and reached through a port-forward started in
+// playwright/setup.ts — EXCEPT the chat A2A stream, which it intercepts and
+// answers with a canned SSE reply so the suite never needs a live LLM.
+//
+//   Next (BACKEND_INTERNAL_URL) ─▶ this proxy ─┬─ /a2a, /a2a-sandboxes ─▶ mocked SSE
+//                                              └─ everything else ──────▶ KAGENT_BACKEND_URL
+//
+// Both the server-side /api calls (Next server actions) and the browser chat call
+// (POST /a2a/... via the Next route handler in src/app/a2a/.../route.ts) resolve
+// their target through getBackendUrl() → BACKEND_INTERNAL_URL, so a single proxy
+// sees both and can split them.
 //
 // Dependency-free (Node built-in http only) so it runs without a TS/build step.
-// Payloads mirror the shapes in src/types/index.ts; the typed spec-side builders
-// live in playwright/mocks/data.ts. Keep the two in sync until Stage 1 unifies
-// them behind the /__mock/scenario control endpoint.
 
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 
 const PORT = Number(process.env.STUB_PORT ?? 8899);
+// Real kagent backend ORIGIN (no trailing /api — Next sends the full /api/... path,
+// so we append req.url as-is). Defaults to the port-forward set up in setup.ts.
+const BACKEND_ORIGIN = (process.env.KAGENT_BACKEND_URL ?? "http://127.0.0.1:8083").replace(/\/$/, "");
 
-// region Payloads (happy path)
-
-// Success envelope used by the Go backend: { message, data }.
-const ok = (data, message = "OK") => ({ message, data });
-
-const agent = {
-  id: "1",
-  agent: {
-    metadata: { name: "e2e-agent", namespace: "default" },
-    spec: { type: "Declarative", description: "Seeded E2E agent" },
-  },
-  model: "gpt-4o",
-  modelProvider: "OpenAI",
-  modelConfigRef: "default/default-model-config",
-  tools: [],
-  deploymentReady: true,
-  accepted: true,
-};
-
-const modelConfig = {
-  ref: "default/default-model-config",
-  spec: { model: "gpt-4o", provider: "OpenAI" },
-};
-
-const toolServer = {
-  ref: "default/e2e-tool-server",
-  groupKind: "RemoteMCPServer.kagent.dev",
-  discoveredTools: [],
-};
-
-const tool = {
-  id: "e2e-tool",
-  server_name: "e2e-tool-server",
-  created_at: "2026-01-01T00:00:00Z",
-  updated_at: "2026-01-01T00:00:00Z",
-  deleted_at: "",
-  description: "Seeded E2E tool",
-  group_kind: "RemoteMCPServer.kagent.dev",
-};
-
-const substrateStatus = {
-  enabled: false,
-  workerPools: [],
-  actorTemplates: [],
-  actors: [],
-  workers: [],
-};
-
-// GET route table keyed by pathname (query string stripped before lookup).
-const GET_ROUTES = {
-  "/api/agents": () => ok([agent], "Successfully fetched agents"),
-  "/api/models": () => ok({ openai: [{ name: "gpt-4o", function_calling: true }] }),
-  "/api/modelconfigs": () => ok([modelConfig]),
-  "/api/namespaces": () => ok([{ name: "default", status: "Active" }], "Namespaces fetched successfully"),
-  "/api/toolservers": () => ok([toolServer]),
-  "/api/tools": () => ok([tool]),
-  "/api/substrate/status": () => ok(substrateStatus, "Substrate status fetched"),
-};
-
-// endregion
-
-// region Server
+// region Helpers
 
 const json = (res, status, body) => {
   const payload = JSON.stringify(body);
@@ -88,36 +34,144 @@ const json = (res, status, body) => {
   res.end(payload);
 };
 
+const readBody = (req) =>
+  new Promise((resolve) => {
+    let raw = "";
+    req.on("data", (chunk) => {
+      raw += chunk;
+    });
+    req.on("end", () => resolve(raw));
+    req.on("error", () => resolve(""));
+  });
+
+// endregion
+
+// region Chat mock (A2A SSE)
+//
+// The A2A stream is a text/event-stream of JSON-RPC frames (see src/lib/a2aClient.ts
+// processSSEStream): frames are "\n\n"-delimited, each line prefixed "data: ", each
+// payload unwrapped as `.result`. We echo the caller's own contextId/taskId (read
+// from the request) so the mocked reply lines up with the real session the backend
+// just created — no hard-coded session id needed.
+
+const AGENT_REPLY = process.env.E2E_AGENT_REPLY ?? "Hello from the agent";
+
+const frame = (event) => `data: ${JSON.stringify({ jsonrpc: "2.0", id: "1", result: event })}\n\n`;
+
+function chatStream(contextId, taskId) {
+  const message = {
+    kind: "message",
+    role: "agent",
+    parts: [{ kind: "text", text: AGENT_REPLY }],
+    contextId,
+    taskId,
+    messageId: 1,
+    metadata: {},
+  };
+  const completed = {
+    kind: "status-update",
+    taskId,
+    contextId,
+    final: true,
+    status: { state: "completed", message },
+  };
+  return frame(completed) + "data: [DONE]\n\n";
+}
+
+async function handleChat(req, res) {
+  const raw = await readBody(req);
+  let contextId = "e2e-session";
+  let taskId = "e2e-task";
+  try {
+    const rpc = JSON.parse(raw);
+    const msg = rpc?.params?.message ?? {};
+    if (typeof msg.contextId === "string") contextId = msg.contextId;
+    if (typeof msg.taskId === "string") taskId = msg.taskId;
+  } catch {
+    // Keep the fallback ids on a malformed body.
+  }
+  console.log(`[proxy] CHAT ${req.method} ${req.url} -> mocked SSE (contextId=${contextId})`);
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.end(chatStream(contextId, taskId));
+}
+
+// endregion
+
+// region Environment stubs
+//
+// A few read endpoints can't succeed against a kind-hosted backend and only add
+// noise to the run — like the chat stream above, we answer them locally:
+//
+//   - GET /mcp-apps/**/tools   the controller tries to dial the real MCP server
+//                              (grafana, querydoc, a just-created remote server),
+//                              which isn't reachable in kind → 500. No spec
+//                              asserts tool contents, so we return an empty list.
+//   - GET /sessions/**/shares  fired by ShareButton on every chat mount; the
+//                              upstream resets it ("socket hang up"). No spec
+//                              covers sharing, so we return an empty list.
+//
+// Both expect a BaseResponse; `{ data: [] }` is the empty-success shape. Only GET
+// is stubbed so create/call/delete on the same paths still reach the backend.
+
+const isStubbedGet = (method, pathname) =>
+  method === "GET" &&
+  ((pathname.includes("/mcp-apps/") && pathname.endsWith("/tools")) ||
+    (pathname.includes("/sessions/") && pathname.endsWith("/shares")));
+
+// endregion
+
+// region Proxy
+
+function forward(req, res) {
+  const target = new URL(`${BACKEND_ORIGIN}${req.url}`);
+  const doRequest = target.protocol === "https:" ? httpsRequest : httpRequest;
+  const headers = { ...req.headers, host: target.host };
+  const upstream = doRequest(target, { method: req.method, headers }, (up) => {
+    console.log(`[proxy] ${req.method} ${req.url} -> ${up.statusCode} (${BACKEND_ORIGIN})`);
+    res.writeHead(up.statusCode ?? 502, up.headers);
+    up.pipe(res);
+  });
+  upstream.on("error", (err) => {
+    console.error(`[proxy] ${req.method} ${req.url} -> upstream error: ${err.message}`);
+    if (!res.headersSent) res.writeHead(502, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: `proxy to ${BACKEND_ORIGIN} failed: ${err.message}` }));
+  });
+  req.pipe(upstream);
+}
+
+// endregion
+
+// region Server
+
 const server = createServer((req, res) => {
-  // req.method/url are typed string|undefined; default them so a malformed
-  // request can't throw on the split below.
   const method = req.method ?? "GET";
   const url = req.url ?? "/";
   const pathname = url.split("?")[0];
 
-  // Control + health endpoints.
+  // Health check — playwright.config.ts webServer waits on this.
   if (pathname === "/__mock/health") return json(res, 200, { status: "ok" });
-  if (method === "POST" && pathname === "/__mock/reset") {
-    // No scenario state yet — happy path only. Wired up in Stage 1.
-    return json(res, 200, { status: "reset" });
-  }
-  if (method === "POST" && pathname === "/__mock/scenario") {
-    // Placeholder for per-test overrides (Stage 1).
-    return json(res, 200, { status: "noop" });
+
+  // Chat: intercept the A2A stream so tests never need a live LLM.
+  if (pathname.includes("/a2a/") || pathname.includes("/a2a-sandboxes/")) {
+    return handleChat(req, res);
   }
 
-  if (method === "GET" && GET_ROUTES[pathname]) {
-    console.log(`[stub] ${method} ${url} -> 200`);
-    return json(res, 200, GET_ROUTES[pathname]());
+  // Unreachable-in-kind reads: answer locally to keep the run quiet.
+  if (isStubbedGet(method, pathname)) {
+    console.log(`[proxy] ${method} ${url} -> stubbed empty list`);
+    return json(res, 200, { data: [] });
   }
 
-  // Anything unmocked is a real gap — make it loud so we notice leaks.
-  console.warn(`[stub] UNHANDLED ${method} ${url} -> 404`);
-  return json(res, 404, { error: `No stub for ${method} ${pathname}` });
+  // Everything else: forward to the real backend.
+  return forward(req, res);
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`[stub] kagent mock backend listening on http://127.0.0.1:${PORT}`);
+  console.log(`[proxy] kagent E2E proxy on http://127.0.0.1:${PORT} -> ${BACKEND_ORIGIN} (chat mocked)`);
 });
 
 // endregion

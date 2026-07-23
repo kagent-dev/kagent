@@ -41,7 +41,7 @@ function harnessBackendForType(
 
 function AgentHarnessPageContent() {
   const router = useRouter();
-  const { models, loading, error, createNewAgent, validateAgentData } = useAgents();
+  const { models, loading, error, createNewAgent, validateAgentData } = useAgents({ loadModels: true });
 
   type SelectedModelType = ModelConfig;
 

@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
+import { SandboxBadge } from "@/components/SandboxBadge";
 import { MemoriesDialog } from "@/components/MemoriesDialog";
 import KagentLogo from "@/components/kagent-logo";
 import HermesLogo from "@/components/hermes-logo";
@@ -102,6 +103,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
             <KagentLogo className="h-5 w-5 flex-shrink-0" />
           )}
           <span className="truncate">{agentRef}</span>
+          {agentResponse.workloadMode === "sandbox" && <SandboxBadge />}
         </CardTitle>
         <div className="relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
@@ -110,6 +112,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
                 variant="ghost"
                 size="icon"
                 aria-label="Agent options"
+                data-testid={`agent-options-${agentRef}`}
                 className="bg-background/80 hover:bg-background shadow-sm"
               >
                 <MoreHorizontal className="h-4 w-4" />
