@@ -974,3 +974,38 @@ func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
 		require.NoError(t, err, "concurrent memory search must not fail")
 	}
 }
+
+// TestSingleRowReadsMapMissingToErrNotFound verifies that every single-row
+// read maps the driver's no-rows error to dbpkg.ErrNotFound, so callers can
+// match with errors.Is without importing pgx.
+func TestSingleRowReadsMapMissingToErrNotFound(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+	missing := "missing"
+
+	tests := []struct {
+		name string
+		read func() error
+	}{
+		{name: "GetAgent", read: func() error { _, err := client.GetAgent(ctx, "missing"); return err }},
+		{name: "GetSession", read: func() error { _, err := client.GetSession(ctx, "missing", "user"); return err }},
+		{name: "GetSessionShareByToken", read: func() error { _, err := client.GetSessionShareByToken(ctx, "missing"); return err }},
+		{name: "GetTask", read: func() error { _, err := client.GetTask(ctx, "missing", "user"); return err }},
+		{name: "GetPushNotification", read: func() error { _, err := client.GetPushNotification(ctx, "missing", "missing"); return err }},
+		{name: "GetTool", read: func() error { _, err := client.GetTool(ctx, "missing"); return err }},
+		{name: "GetToolServer", read: func() error { _, err := client.GetToolServer(ctx, "missing"); return err }},
+		{name: "ListCheckpoints by ID", read: func() error {
+			_, err := client.ListCheckpoints(ctx, "user", "thread", "namespace", &missing, 0)
+			return err
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.read()
+			require.Error(t, err)
+			require.ErrorIs(t, err, dbpkg.ErrNotFound)
+		})
+	}
+}

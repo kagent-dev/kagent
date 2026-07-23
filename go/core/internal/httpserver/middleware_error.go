@@ -8,7 +8,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/kagent-dev/kagent/go/api/database"
 	apierrors "github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -67,7 +67,7 @@ func (w *errorResponseWriter) RespondWithError(err error) {
 		underlying = err
 	}
 
-	if underlying != nil && !errors.Is(underlying, pgx.ErrNoRows) {
+	if underlying != nil && !errors.Is(underlying, database.ErrNotFound) {
 		log.Error(underlying, message)
 	} else {
 		log.Info(message)
@@ -76,7 +76,9 @@ func (w *errorResponseWriter) RespondWithError(err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	errMsg := message
-	if underlying != nil {
+	// 5xx bodies carry only the generic message: the underlying error is
+	// backend-internal detail (already logged above) and must not reach clients.
+	if underlying != nil && statusCode < http.StatusInternalServerError {
 		errMsg = message + ": " + underlying.Error()
 	}
 	json.NewEncoder(w).Encode(map[string]string{"error": errMsg}) //nolint:errcheck
