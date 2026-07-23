@@ -928,6 +928,19 @@ oauth2-proxy:
 # ==============================================================================
 
 otel:
+  # -- Logical service name reported to the OTLP backend, rendered as OTEL_SERVICE_NAME.
+  # WARNING: the controller copies every OTEL_ env var from its own process into
+  # every agent pod it creates (see collectOtelEnvFromProcess), so setting this
+  # also relabels the service name reported by every agent's telemetry, not just
+  # the controller's.
+  # @default -- "" (SDK default)
+  serviceName: ""
+  # -- Additional OpenTelemetry resource attributes, rendered as a comma-joined
+  # key=value list in OTEL_RESOURCE_ATTRIBUTES.
+  # WARNING: like serviceName, this is copied into every agent pod's environment
+  # as well as the controller's.
+  # Example: { deployment.environment: production, service.namespace: kagent }
+  resourceAttributes: {}
   tracing:
     enabled: false
     exporter:
@@ -936,6 +949,14 @@ otel:
         protocol: "grpc"
         timeout: 15000 # milliseconds
         insecure: true
+        # -- Headers sent with OTLP trace export requests, rendered as a comma-joined
+        # key=value list in OTEL_EXPORTER_OTLP_TRACES_HEADERS.
+        # WARNING: values land in the controller ConfigMap in plain text, AND the
+        # controller copies every OTEL_ env var into every agent pod it creates, so
+        # any secret set here (API keys, tokens) is exposed in plain text on every
+        # agent pod too, not just the controller. Prefer injecting such headers via
+        # controller.env / envFrom from a Secret instead.
+        headers: {}
   logging:
     enabled: false
     exporter:
@@ -943,6 +964,14 @@ otel:
         endpoint: ""
         timeout: 15000 # milliseconds
         insecure: true
+        # -- Headers sent with OTLP log export requests, rendered as a comma-joined
+        # key=value list in OTEL_EXPORTER_OTLP_LOGS_HEADERS.
+        # WARNING: values land in the controller ConfigMap in plain text, AND the
+        # controller copies every OTEL_ env var into every agent pod it creates, so
+        # any secret set here (API keys, tokens) is exposed in plain text on every
+        # agent pod too, not just the controller. Prefer injecting such headers via
+        # controller.env / envFrom from a Secret instead.
+        headers: {}
 
 # ==============================================================================
 # EXTRA OBJECTS
