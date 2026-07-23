@@ -1,11 +1,14 @@
 package agent
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func TestResolveByoDeployment_NilReplicasPreserved(t *testing.T) {
@@ -124,4 +127,73 @@ func TestGetDefaultNodeSelector(t *testing.T) {
 			t.Errorf("getDefaultNodeSelector() = %v, want merged map with per-agent pool=gpu", got)
 		}
 	})
+}
+
+func TestGetDeploymentStrategyOrDefault(t *testing.T) {
+	intOrStr := func(v int32) *intstr.IntOrString {
+		return &intstr.IntOrString{Type: intstr.Int, IntVal: v}
+	}
+	defaultStrategy := appsv1.DeploymentStrategy{
+		Type: appsv1.RollingUpdateDeploymentStrategyType,
+		RollingUpdate: &appsv1.RollingUpdateDeployment{
+			MaxUnavailable: intOrStr(0),
+			MaxSurge:       intOrStr(1),
+		},
+	}
+	fromString := intstr.FromString("50%")
+
+	tests := []struct {
+		name  string
+		input *appsv1.DeploymentStrategy
+		want  appsv1.DeploymentStrategy
+	}{
+		{
+			name:  "nil falls back to default RollingUpdate",
+			input: nil,
+			want:  defaultStrategy,
+		},
+		{
+			name:  "Recreate passes through unchanged",
+			input: &appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
+			want:  appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
+		},
+		{
+			name:  "empty type defaults to RollingUpdate with defaults filled",
+			input: &appsv1.DeploymentStrategy{},
+			want:  defaultStrategy,
+		},
+		{
+			name:  "RollingUpdate with nil rollingUpdate block gets defaults filled",
+			input: &appsv1.DeploymentStrategy{Type: appsv1.RollingUpdateDeploymentStrategyType},
+			want:  defaultStrategy,
+		},
+		{
+			name: "partial rollingUpdate keeps user value and fills the rest",
+			input: &appsv1.DeploymentStrategy{
+				Type: appsv1.RollingUpdateDeploymentStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDeployment{
+					MaxSurge: &fromString,
+				},
+			},
+			want: appsv1.DeploymentStrategy{
+				Type: appsv1.RollingUpdateDeploymentStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDeployment{
+					MaxUnavailable: intOrStr(0),
+					MaxSurge:       &fromString,
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getDeploymentStrategyOrDefault(tt.input)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("getDeploymentStrategyOrDefault() = %+v, want %+v", got, tt.want)
+			}
+			if tt.input != nil && tt.input.RollingUpdate != nil && got.RollingUpdate == tt.input.RollingUpdate {
+				t.Error("getDeploymentStrategyOrDefault() must not alias the input's RollingUpdate pointer")
+			}
+		})
+	}
 }

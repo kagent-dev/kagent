@@ -599,13 +599,7 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 			ObjectMeta: manifestCtx.objectMeta(),
 			Spec: appsv1.DeploymentSpec{
 				Replicas: manifestCtx.deployment.Replicas,
-				Strategy: appsv1.DeploymentStrategy{
-					Type: appsv1.RollingUpdateDeploymentStrategyType,
-					RollingUpdate: &appsv1.RollingUpdateDeployment{
-						MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-						MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
-					},
-				},
+				Strategy: manifestCtx.deployment.DeploymentStrategy,
 				Selector: &metav1.LabelSelector{MatchLabels: manifestCtx.selectorLabels},
 				Template: podTemplate,
 			},

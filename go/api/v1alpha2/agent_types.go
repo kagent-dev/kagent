@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -484,6 +485,17 @@ type SharedDeploymentSpec struct {
 	// Useful for sidecars such as token proxies, log shippers, or security agents.
 	// +optional
 	ExtraContainers []corev1.Container `json:"extraContainers,omitempty"`
+	// DeploymentStrategy overrides the agent Deployment update strategy.
+	// Useful for agents mounting ReadWriteOnce volumes, which require the
+	// Recreate strategy to avoid multi-attach errors during rollouts.
+	// When unset, defaults to RollingUpdate with maxUnavailable 0 and maxSurge 1.
+	// When set with type RollingUpdate (or with type omitted), any unset
+	// rollingUpdate fields default the same way: maxUnavailable to 0 and
+	// maxSurge to 1. Recreate is passed through as-is.
+	// +kubebuilder:validation:XValidation:rule="!has(self.type) || self.type in ['RollingUpdate', 'Recreate']",message="strategy type must be RollingUpdate or Recreate"
+	// +kubebuilder:validation:XValidation:rule="!(has(self.type) && self.type == 'Recreate' && has(self.rollingUpdate))",message="rollingUpdate may not be specified when strategy type is Recreate"
+	// +optional
+	DeploymentStrategy *appsv1.DeploymentStrategy `json:"deploymentStrategy,omitempty"`
 }
 
 type ServiceAccountConfig struct {

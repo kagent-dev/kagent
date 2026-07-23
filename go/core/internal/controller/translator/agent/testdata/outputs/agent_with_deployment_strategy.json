@@ -1,0 +1,290 @@
+{
+  "agentCard": {
+    "capabilities": {
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "agent_with_deployment_strategy",
+    "skills": null,
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "0.3",
+        "url": "http://agent-with-deployment-strategy.test:8080"
+      },
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://agent-with-deployment-strategy.test:8080"
+      }
+    ],
+    "version": ""
+  },
+  "config": {
+    "description": "",
+    "instruction": "You are a helpful assistant.",
+    "model": {
+      "base_url": "",
+      "model": "gpt-4o",
+      "type": "openai"
+    },
+    "stream": false
+  },
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-deployment-strategy",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-deployment-strategy"
+        },
+        "name": "agent-with-deployment-strategy",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-deployment-strategy",
+            "uid": ""
+          }
+        ]
+      },
+      "stringData": {
+        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"agent_with_deployment_strategy\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://agent-with-deployment-strategy.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://agent-with-deployment-strategy.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://agent-with-deployment-strategy.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-deployment-strategy",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-deployment-strategy"
+        },
+        "name": "agent-with-deployment-strategy",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-deployment-strategy",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-deployment-strategy",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-deployment-strategy"
+        },
+        "name": "agent-with-deployment-strategy",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-deployment-strategy",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "agent-with-deployment-strategy"
+          }
+        },
+        "strategy": {
+          "type": "Recreate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "17166104137763354010"
+            },
+            "labels": {
+              "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "agent-with-deployment-strategy",
+              "app.kubernetes.io/part-of": "kagent",
+              "kagent": "agent-with-deployment-strategy"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "args": [
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config"
+                ],
+                "env": [
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "value": "agent-with-deployment-strategy"
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
+                  }
+                ],
+                "image": "ghcr.io/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/.well-known/agent-card.json",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "384Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/tokens",
+                    "name": "kagent-token"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "agent-with-deployment-strategy",
+            "volumes": [
+              {
+                "name": "config",
+                "secret": {
+                  "secretName": "agent-with-deployment-strategy"
+                }
+              },
+              {
+                "name": "kagent-token",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "kagent",
+                        "expirationSeconds": 3600,
+                        "path": "kagent-token"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-deployment-strategy",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-deployment-strategy"
+        },
+        "name": "agent-with-deployment-strategy",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-deployment-strategy",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "agent-with-deployment-strategy"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ]
+}
