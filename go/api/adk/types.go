@@ -79,16 +79,17 @@ type TokenExchangeConfig struct {
 
 type OpenAI struct {
 	BaseModel
-	BaseUrl          string   `json:"base_url"`
-	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
-	MaxTokens        *int     `json:"max_tokens,omitempty"`
-	N                *int     `json:"n,omitempty"`
-	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
-	ReasoningEffort  *string  `json:"reasoning_effort,omitempty"`
-	Seed             *int     `json:"seed,omitempty"`
-	Temperature      *float64 `json:"temperature,omitempty"`
-	Timeout          *int     `json:"timeout,omitempty"`
-	TopP             *float64 `json:"top_p,omitempty"`
+	BaseUrl             string   `json:"base_url"`
+	FrequencyPenalty    *float64 `json:"frequency_penalty,omitempty"`
+	MaxTokens           *int     `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int     `json:"max_completion_tokens,omitempty"`
+	N                   *int     `json:"n,omitempty"`
+	PresencePenalty     *float64 `json:"presence_penalty,omitempty"`
+	ReasoningEffort     *string  `json:"reasoning_effort,omitempty"`
+	Seed                *int     `json:"seed,omitempty"`
+	Temperature         *float64 `json:"temperature,omitempty"`
+	Timeout             *int     `json:"timeout,omitempty"`
+	TopP                *float64 `json:"top_p,omitempty"`
 
 	// TokenExchange configures dynamic bearer token acquisition
 	TokenExchange *TokenExchangeConfig `json:"token_exchange,omitempty"`
