@@ -208,6 +208,11 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *
 	env := []corev1.EnvVar{
 		{Name: "KAGENT_NAME", Value: sa.Name},
 		{Name: "KAGENT_NAMESPACE", Value: sa.Namespace},
+		// Substrate checkpoints the actor as soon as the response body closes,
+		// so the ADKs' opt-in pre-response span flush is the only reliable
+		// export window; the batch exporter's timer never fires in the ~1s an
+		// actor lives past its response. Ordinary Deployments leave this off.
+		{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	}
 
 	spec := sa.GetAgentSpec()

@@ -69,10 +69,10 @@ Create the querydoc server URL
 {{- end }}
 
 {{/*
-Constructs the full image reference from registry/repository/tag for querydoc image
+Constructs the full image reference from registry/repository/name/tag for querydoc image
 */}}
 {{- define "querydoc.image" -}}
 {{- $img := .Values.image -}}
-{{- $parts := compact (list $img.registry $img.repository) -}}
+{{- $parts := compact (list $img.registry $img.repository $img.name) -}}
 {{- printf "%s:%s" (join "/" $parts) ($img.tag | default .Chart.AppVersion) -}}
 {{- end }}
