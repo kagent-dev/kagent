@@ -198,17 +198,18 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 	switch m := m.(type) {
 	case *adk.OpenAI:
 		cfg := &models.OpenAIConfig{
-			TransportConfig:  transportConfigFromBase(m.BaseModel, m.Timeout),
-			Model:            m.Model,
-			BaseUrl:          m.BaseUrl,
-			FrequencyPenalty: m.FrequencyPenalty,
-			MaxTokens:        m.MaxTokens,
-			N:                m.N,
-			PresencePenalty:  m.PresencePenalty,
-			ReasoningEffort:  m.ReasoningEffort,
-			Seed:             m.Seed,
-			Temperature:      m.Temperature,
-			TopP:             m.TopP,
+			TransportConfig:     transportConfigFromBase(m.BaseModel, m.Timeout),
+			Model:               m.Model,
+			BaseUrl:             m.BaseUrl,
+			FrequencyPenalty:    m.FrequencyPenalty,
+			MaxTokens:           m.MaxTokens,
+			MaxCompletionTokens: m.MaxCompletionTokens,
+			N:                   m.N,
+			PresencePenalty:     m.PresencePenalty,
+			ReasoningEffort:     m.ReasoningEffort,
+			Seed:                m.Seed,
+			Temperature:         m.Temperature,
+			TopP:                m.TopP,
 		}
 		return models.NewOpenAIModelWithLogger(cfg, log)
 

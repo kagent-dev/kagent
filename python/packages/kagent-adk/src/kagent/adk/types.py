@@ -270,6 +270,7 @@ class OpenAI(BaseLLM):
     base_url: str | None = None
     frequency_penalty: float | None = None
     max_tokens: int | None = None
+    max_completion_tokens: int | None = Field(default=None, ge=1)
     n: int | None = None
     presence_penalty: float | None = None
     reasoning_effort: str | None = None
@@ -658,6 +659,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             default_headers=extra_headers,
             frequency_penalty=model_config.frequency_penalty,
             max_tokens=model_config.max_tokens,
+            max_completion_tokens=model_config.max_completion_tokens,
             model=model_config.model,
             n=model_config.n,
             presence_penalty=model_config.presence_penalty,

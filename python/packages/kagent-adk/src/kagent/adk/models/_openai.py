@@ -374,6 +374,7 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
     frequency_penalty: Optional[float] = None
     default_headers: Optional[dict[str, str]] = None
     max_tokens: Optional[int] = None
+    max_completion_tokens: Optional[int] = None
     n: Optional[int] = None
     presence_penalty: Optional[float] = None
     reasoning_effort: Optional[str] = None
@@ -461,7 +462,14 @@ class BaseOpenAI(KAgentTLSMixin, BaseLlm):
 
         if self.frequency_penalty is not None:
             kwargs["frequency_penalty"] = self.frequency_penalty
-        if self.max_tokens:
+        # max_tokens and max_completion_tokens are mutually exclusive on the
+        # OpenAI API: reasoning models (GPT-5 / o-series) reject max_tokens,
+        # while some OpenAI-compatible endpoints only accept max_tokens. Never
+        # send both; max_completion_tokens (the modern, superset parameter)
+        # takes precedence when both are configured.
+        if self.max_completion_tokens:
+            kwargs["max_completion_tokens"] = self.max_completion_tokens
+        elif self.max_tokens:
             kwargs["max_tokens"] = self.max_tokens
         if self.n is not None:
             kwargs["n"] = self.n

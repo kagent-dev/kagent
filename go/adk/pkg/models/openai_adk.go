@@ -171,7 +171,14 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 	if cfg.Temperature != nil {
 		params.Temperature = openai.Float(*cfg.Temperature)
 	}
-	if cfg.MaxTokens != nil {
+	// max_tokens and max_completion_tokens are mutually exclusive on the OpenAI
+	// API: reasoning models (GPT-5 / o-series) reject max_tokens, while some
+	// OpenAI-compatible endpoints only accept max_tokens. Never send both;
+	// max_completion_tokens (the modern, superset parameter) takes precedence
+	// when both are configured.
+	if cfg.MaxCompletionTokens != nil {
+		params.MaxCompletionTokens = openai.Int(int64(*cfg.MaxCompletionTokens))
+	} else if cfg.MaxTokens != nil {
 		params.MaxTokens = openai.Int(int64(*cfg.MaxTokens))
 	}
 	if cfg.TopP != nil {
