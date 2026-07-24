@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import os
 import shutil
@@ -12,10 +13,14 @@ from kagent.skills import (
     discover_skills,
     edit_file_content,
     execute_command,
+    file_search_tools_enabled,
+    grep_content,
+    list_dir_content,
     load_skill_content,
     read_file_content,
     write_file_content,
 )
+from kagent.skills.prompts import get_bash_description
 from kagent.skills.shell import _get_srt_settings_args, _sanitize_env
 
 
@@ -198,6 +203,42 @@ def test_get_srt_settings_args_requires_mounted_path():
             _get_srt_settings_args()
 
 
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, False),
+        ("", False),
+        ("false", False),
+        ("0", False),
+        ("no", False),
+        ("true", True),
+        ("TRUE", True),
+        ("True", True),
+        ("1", True),
+        ("t", True),
+        ("T", True),
+    ],
+)
+def test_file_search_tools_enabled(value, expected):
+    """list_files/grep_file are disabled by default and opt-in via the env var."""
+    env = {} if value is None else {"KAGENT_ENABLE_FILE_SEARCH_TOOLS": value}
+    with patch.dict("os.environ", env, clear=True):
+        assert file_search_tools_enabled() is expected
+
+
+def test_get_bash_description_omits_file_search_tools_by_default():
+    with patch.dict("os.environ", {}, clear=True):
+        desc = get_bash_description()
+    assert "list_files" not in desc
+    assert "grep_file" not in desc
+
+
+def test_get_bash_description_mentions_file_search_tools_when_enabled():
+    with patch.dict("os.environ", {"KAGENT_ENABLE_FILE_SEARCH_TOOLS": "true"}, clear=True):
+        desc = get_bash_description()
+    assert "list_files and grep_file" in desc
+
+
 # --- Path traversal tests ---
 
 
@@ -278,6 +319,277 @@ def test_edit_file_blocks_path_traversal(tmp_path):
         assert outside_file.read_text() == "original"
     finally:
         outside_file.unlink(missing_ok=True)
+
+
+# --- list_dir_content / grep_content tests ---
+
+
+def test_list_dir_content_lists_entries(tmp_path):
+    (tmp_path / "b.txt").write_text("hello")
+    (tmp_path / "a-subdir").mkdir()
+
+    result = list_dir_content(tmp_path)
+    assert "a-subdir/" in result
+    assert "b.txt\t5" in result
+
+
+def test_list_dir_content_empty_directory(tmp_path):
+    assert list_dir_content(tmp_path) == "Directory is empty."
+
+
+def test_list_dir_content_nonexistent_path(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        list_dir_content(tmp_path / "does-not-exist")
+
+
+def test_list_dir_content_blocks_path_traversal(tmp_path):
+    outside = tmp_path.parent / "outside-dir"
+    outside.mkdir(exist_ok=True)
+    try:
+        with pytest.raises(PermissionError, match="outside the allowed director"):
+            list_dir_content(outside, allowed_root=tmp_path)
+    finally:
+        shutil.rmtree(outside, ignore_errors=True)
+
+
+def test_grep_content_finds_match(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("hello world\nFOO bar\n")
+
+    result = grep_content(f, "hello")
+    assert "a.txt:1:hello world" in result
+
+
+def test_grep_content_no_matches(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("hello world\n")
+
+    assert grep_content(f, "nope") == "no matches found"
+
+
+def test_grep_content_ignore_case(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("FOO bar\n")
+
+    result = grep_content(f, "foo", ignore_case=True)
+    assert "FOO bar" in result
+
+
+def test_grep_content_directory_requires_recursive(tmp_path):
+    (tmp_path / "a.txt").write_text("foo\n")
+
+    with pytest.raises(IsADirectoryError, match="set recursive=true"):
+        grep_content(tmp_path, "foo")
+
+
+def test_grep_content_recursive_searches_subdirectories(tmp_path):
+    (tmp_path / "a.txt").write_text("hello\n")
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "b.txt").write_text("another foo line\n")
+
+    result = grep_content(tmp_path, "foo", recursive=True)
+    assert "b.txt:1:another foo line" in result
+
+
+def test_grep_content_invalid_pattern(tmp_path):
+    f = tmp_path / "a.txt"
+    f.write_text("hello\n")
+
+    with pytest.raises(ValueError, match="invalid pattern"):
+        grep_content(f, "(")
+
+
+def test_grep_content_blocks_path_traversal(tmp_path):
+    outside = tmp_path.parent / "outside.txt"
+    outside.write_text("secret")
+
+    try:
+        with pytest.raises(PermissionError, match="outside the allowed director"):
+            grep_content(outside, "secret", allowed_root=tmp_path)
+    finally:
+        outside.unlink(missing_ok=True)
+
+
+def test_grep_content_recursive_skips_symlinks_that_escape_root(tmp_path):
+    outside_dir = tmp_path.parent / "grep_symlink_outside"
+    outside_dir.mkdir(exist_ok=True)
+    secret = outside_dir / "secret.txt"
+    secret.write_text("top secret foo\n")
+
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    link = sub / "escape.txt"
+
+    try:
+        link.symlink_to(secret)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported")
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+        assert "top secret" not in result
+    finally:
+        link.unlink(missing_ok=True)
+        secret.unlink(missing_ok=True)
+        outside_dir.rmdir()
+
+
+def _call_with_timeout(fn, *args, timeout=5, **kwargs):
+    """Run fn in a worker thread and fail loudly if it doesn't return in time.
+
+    The whole point of a regression test for a hang bug is that the test
+    itself must not be hangable: calling grep_content directly on the test
+    thread would, on a regression, block the entire pytest run with no
+    diagnostic (no pytest-timeout plugin is configured for this package).
+    """
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(fn, *args, **kwargs)
+        return future.result(timeout=timeout)
+
+
+def test_grep_content_recursive_skips_fifo_and_finds_matches_around_it(tmp_path):
+    (tmp_path / "aaa_before.txt").write_text("foo before\n")
+    fifo_path = tmp_path / "mmm_pipe"
+    try:
+        os.mkfifo(fifo_path)
+    except (AttributeError, OSError):
+        pytest.skip("FIFOs not supported")
+    (tmp_path / "zzz_after.txt").write_text("foo after\n")
+
+    try:
+        result = _call_with_timeout(grep_content, tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    except concurrent.futures.TimeoutError:
+        pytest.fail("grep_content hung on a FIFO instead of skipping it")
+    assert "aaa_before.txt:1:foo before" in result
+    assert "zzz_after.txt:1:foo after" in result
+
+
+def test_grep_content_single_target_fifo_raises_instead_of_hanging(tmp_path):
+    fifo_path = tmp_path / "pipe"
+    try:
+        os.mkfifo(fifo_path)
+    except (AttributeError, OSError):
+        pytest.skip("FIFOs not supported")
+
+    try:
+        with pytest.raises(OSError, match="not a regular file"):
+            _call_with_timeout(grep_content, fifo_path, "foo", allowed_root=tmp_path)
+    except concurrent.futures.TimeoutError:
+        pytest.fail("grep_content hung opening a FIFO directly instead of erroring")
+
+
+def test_grep_content_no_matches_found_is_annotated_when_a_file_could_not_be_read(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses file permissions; cannot exercise this case")
+
+    # An unreadable *file* (listed fine, but fails to open) exercises the
+    # skip-counting path via grep_file's own except OSError handler.
+    unreadable = tmp_path / "hidden.txt"
+    unreadable.write_text("foo hidden\n")
+    unreadable.chmod(0o000)
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        unreadable.chmod(0o644)
+
+    assert "no matches found" in result
+    assert "could not be read" in result
+
+
+def test_grep_content_recursive_does_not_abort_or_discard_matches_on_an_unreadable_subdirectory(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    ok_sub = tmp_path / "aaa_ok"
+    ok_sub.mkdir()
+    (ok_sub / "match.txt").write_text("foo readable\n")
+
+    noperm_sub = tmp_path / "mmm_noperm"
+    noperm_sub.mkdir()
+    (noperm_sub / "hidden.txt").write_text("foo hidden\n")
+    noperm_sub.chmod(0o000)
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        noperm_sub.chmod(0o755)
+
+    assert "match.txt:1:foo readable" in result
+
+
+def test_grep_content_annotates_skip_count_alongside_real_matches(tmp_path):
+    """A skip count found alongside real matches must not be silently dropped."""
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    ok_sub = tmp_path / "aaa_ok"
+    ok_sub.mkdir()
+    (ok_sub / "match.txt").write_text("foo readable\n")
+
+    noperm_sub = tmp_path / "mmm_noperm"
+    noperm_sub.mkdir()
+    (noperm_sub / "hidden.txt").write_text("foo hidden\n")
+    noperm_sub.chmod(0o000)
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        noperm_sub.chmod(0o755)
+
+    assert "match.txt:1:foo readable" in result
+    assert "could not be read" in result
+
+
+def test_grep_content_no_matches_found_is_annotated_when_a_subdirectory_could_not_be_read(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    # The only match lives inside a subdirectory that can't be listed. Before
+    # switching from rglob() (which silently omits directories it can't
+    # list, at any depth, with no hook to observe the failure) to os.walk's
+    # onerror callback, this returned a bare "no matches found" -- a
+    # confidently wrong empty result -- with no indication anything was
+    # skipped.
+    noperm_sub = tmp_path / "noperm"
+    noperm_sub.mkdir()
+    (noperm_sub / "hidden.txt").write_text("foo hidden\n")
+    noperm_sub.chmod(0o000)
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        noperm_sub.chmod(0o755)
+
+    assert "no matches found" in result
+    assert "could not be read" in result
+
+
+def test_grep_content_recursive_on_fully_unreadable_root_raises_instead_of_empty_result(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    (tmp_path / "hidden.txt").write_text("foo hidden\n")
+    tmp_path.chmod(0o000)
+
+    try:
+        with pytest.raises(OSError, match="could not be read"):
+            grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        tmp_path.chmod(0o755)
+
+
+def test_grep_content_truncates_long_matched_lines(tmp_path):
+    long_line = "foo " + "x" * 3000
+    f = tmp_path / "long.txt"
+    f.write_text(long_line + "\n")
+
+    result = grep_content(f, "foo", allowed_root=tmp_path)
+    assert result.endswith("...")
+    assert long_line not in result
+    matched_line = result.split(":", 2)[-1]
+    assert len(matched_line) < 2100
 
 
 def test_skill_discovery_and_loading(skill_test_env: Path):

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,31 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
 )
+
+// enableFileSearchToolsEnv gates the list_files and grep_file tools, which
+// are opt-in (disabled by default): they let an agent walk the filesystem
+// under its session/skills roots without a shell, which some deployments
+// want to keep off by default alongside bash rather than enable implicitly.
+//
+// Also registered (separately, for `kagent env` CLI discoverability only,
+// not read here) as KagentEnableFileSearchTools in go/core/pkg/env/kagent.go
+// -- keep both string literals in sync if this name ever changes.
+const enableFileSearchToolsEnv = "KAGENT_ENABLE_FILE_SEARCH_TOOLS"
+
+// fileSearchToolsEnabled accepts the same case-insensitive true-values as
+// Python's file_search_tools_enabled() (kagent-skills/shell.py), so the
+// same literal env var value behaves identically in either runtime rather
+// than relying on Go's strconv.ParseBool grammar, which Python doesn't
+// replicate exactly (e.g. ParseBool requires the exact casing "True", not
+// "tRue").
+func fileSearchToolsEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(enableFileSearchToolsEnv))) {
+	case "1", "t", "true":
+		return true
+	default:
+		return false
+	}
+}
 
 const (
 	readFileDescription = `Reads a file from the filesystem with line numbers.
@@ -46,6 +72,24 @@ Usage:
 - old_string and new_string must be different
 - Note: skills/ directory is read-only`
 
+	listFilesDescription = `Lists files and directories at a given path.
+
+Usage:
+- Provide a path (absolute or relative to your working directory); defaults to the working directory
+- Directories are listed with a trailing "/"; files are followed by their size in bytes
+- You can list skills/ directory, uploads/, outputs/, or any directory in your session`
+
+	grepFileDescription = `Searches for a regular expression pattern in a file or directory.
+
+Usage:
+- Provide a pattern and a path (absolute or relative to your working directory)
+- Set recursive=true to search all files under a directory path
+- Recursion does not follow symlinked subdirectories (e.g. skills/ is a symlink) -
+  point path directly at skills/ to search inside it
+- Set ignore_case=true for case-insensitive matching
+- Returns matching lines as path:line_number:content
+- You can search the skills/ directory, uploads/, outputs/, or any file/directory in your session`
+
 	bashDescription = `Execute bash commands in the skills environment with sandbox protection.
 
 Working Directory & Structure:
@@ -67,6 +111,14 @@ For file operations:
 Timeouts:
 - python scripts: 60s
 - other commands: 30s`
+
+	// fileSearchToolsBashHint is appended to bashDescription only when
+	// list_files/grep_file are enabled, so bash's own description doesn't
+	// point the model at tools that aren't registered. Appended as a
+	// trailing paragraph rather than interpolated into bashDescription, so
+	// the long, free-form prose above stays a plain string -- not a format
+	// template where a stray '%' added later could silently corrupt output.
+	fileSearchToolsBashHint = "\nAlso available: list_files and grep_file, for exploring the filesystem without a full shell command."
 )
 
 type skillsInput struct {
@@ -96,6 +148,17 @@ type editFileInput struct {
 	ReplaceAll bool   `json:"replace_all,omitempty"`
 }
 
+type listFilesInput struct {
+	Path string `json:"path,omitempty"`
+}
+
+type grepFileInput struct {
+	Pattern    string `json:"pattern"`
+	Path       string `json:"path"`
+	Recursive  bool   `json:"recursive,omitempty"`
+	IgnoreCase bool   `json:"ignore_case,omitempty"`
+}
+
 func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	skillsDirectory = strings.TrimSpace(skillsDirectory)
 	if skillsDirectory == "" {
@@ -113,10 +176,6 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	discoveredSkills, err := skillruntime.DiscoverSkills(absSkillsDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover skills: %w", err)
-	}
-	commandExecutor, err := skillruntime.NewCommandExecutorFromEnv()
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure bash sandbox: %w", err)
 	}
 
 	skillsTool, err := functiontool.New(functiontool.Config{
@@ -199,31 +258,105 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 		return nil, fmt.Errorf("failed to create edit_file tool: %w", err)
 	}
 
-	bashTool, err := functiontool.New(functiontool.Config{
-		Name:        "bash",
-		Description: bashDescription,
-	}, func(ctx adkagent.Context, in bashInput) (string, error) {
-		command := strings.TrimSpace(in.Command)
-		if command == "" {
-			return "Error: No command provided", nil
+	tools := []tool.Tool{skillsTool, readFileTool, writeFileTool, editFileTool}
+
+	// list_files/grep_file are opt-in: they give an agent broad filesystem
+	// visibility, so some deployments want them off unless explicitly
+	// enabled, same as bash below.
+	fileSearchEnabled := fileSearchToolsEnabled()
+	if fileSearchEnabled {
+		listFilesTool, err := functiontool.New(functiontool.Config{
+			Name:        "list_files",
+			Description: listFilesDescription,
+		}, func(ctx adkagent.Context, in listFilesInput) (string, error) {
+			requestedPath := in.Path
+			if strings.TrimSpace(requestedPath) == "" {
+				requestedPath = "."
+			}
+
+			path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, requestedPath)
+			if err != nil {
+				return fmt.Sprintf("Error listing %s: %v", requestedPath, err), nil
+			}
+
+			content, err := skillruntime.ListDirContent(path)
+			if err != nil {
+				return fmt.Sprintf("Error listing %s: %v", requestedPath, err), nil
+			}
+			return content, nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create list_files tool: %w", err)
 		}
 
-		sessionPath, err := skillruntime.GetSessionPath(ctx.SessionID(), absSkillsDir)
+		grepFileTool, err := functiontool.New(functiontool.Config{
+			Name:        "grep_file",
+			Description: grepFileDescription,
+		}, func(ctx adkagent.Context, in grepFileInput) (string, error) {
+			if strings.TrimSpace(in.Pattern) == "" {
+				return "Error: No pattern provided", nil
+			}
+			if strings.TrimSpace(in.Path) == "" {
+				return "Error: No file path provided", nil
+			}
+
+			path, err := resolveReadPath(ctx.SessionID(), absSkillsDir, in.Path)
+			if err != nil {
+				return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
+			}
+
+			content, err := skillruntime.GrepContent(path, in.Pattern, in.Recursive, in.IgnoreCase)
+			if err != nil {
+				return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
+			}
+			return content, nil
+		})
 		if err != nil {
-			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
+			return nil, fmt.Errorf("failed to create grep_file tool: %w", err)
 		}
 
-		result, err := commandExecutor.ExecuteCommand(ctx, command, sessionPath)
-		if err != nil {
-			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
-		}
-		return result, nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bash tool: %w", err)
+		tools = append(tools, listFilesTool, grepFileTool)
+	} else {
+		slog.Debug("omitting list_files/grep_file tools: " + enableFileSearchToolsEnv + " not enabled")
 	}
 
-	return []tool.Tool{skillsTool, readFileTool, writeFileTool, editFileTool, bashTool}, nil
+	// bash requires the sandbox-runtime (KAGENT_SRT_SETTINGS_PATH); when that's not
+	// configured (e.g. bash is intentionally disabled), skip only this tool rather
+	// than failing the whole toolset.
+	if commandExecutor, err := skillruntime.NewCommandExecutorFromEnv(); err == nil {
+		desc := bashDescription
+		if fileSearchEnabled {
+			desc += fileSearchToolsBashHint
+		}
+		bashTool, err := functiontool.New(functiontool.Config{
+			Name:        "bash",
+			Description: desc,
+		}, func(ctx adkagent.Context, in bashInput) (string, error) {
+			command := strings.TrimSpace(in.Command)
+			if command == "" {
+				return "Error: No command provided", nil
+			}
+
+			sessionPath, err := skillruntime.GetSessionPath(ctx.SessionID(), absSkillsDir)
+			if err != nil {
+				return fmt.Sprintf("Error executing command %q: %v", command, err), nil
+			}
+
+			result, err := commandExecutor.ExecuteCommand(ctx, command, sessionPath)
+			if err != nil {
+				return fmt.Sprintf("Error executing command %q: %v", command, err), nil
+			}
+			return result, nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create bash tool: %w", err)
+		}
+		tools = append(tools, bashTool)
+	} else {
+		slog.Debug("omitting bash tool: sandbox-runtime not configured", "error", err)
+	}
+
+	return tools, nil
 }
 
 func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
@@ -242,7 +375,7 @@ func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, 
 		return "", err
 	}
 
-	sessionRoot, err := filepath.Abs(sessionPath)
+	sessionRoot, err := filepath.EvalSymlinks(sessionPath)
 	if err != nil {
 		return "", err
 	}
@@ -251,7 +384,7 @@ func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, 
 		return "", err
 	}
 
-	if !isWithinRoot(resolvedCandidate, sessionRoot) && !isWithinRoot(resolvedCandidate, skillsRoot) {
+	if !skillruntime.WithinRoot(resolvedCandidate, sessionRoot) && !skillruntime.WithinRoot(resolvedCandidate, skillsRoot) {
 		return "", fmt.Errorf("path %q is outside the allowed roots", requestedPath)
 	}
 
@@ -274,11 +407,11 @@ func resolveEditPath(sessionID, skillsDirectory, requestedPath string) (string, 
 		return "", err
 	}
 
-	sessionRoot, err := filepath.Abs(sessionPath)
+	sessionRoot, err := filepath.EvalSymlinks(sessionPath)
 	if err != nil {
 		return "", err
 	}
-	if !isWithinRoot(resolvedCandidate, sessionRoot) {
+	if !skillruntime.WithinRoot(resolvedCandidate, sessionRoot) {
 		return "", fmt.Errorf("path %q is outside the writable session directory", requestedPath)
 	}
 
@@ -301,11 +434,11 @@ func resolveWritePath(sessionID, skillsDirectory, requestedPath string) (string,
 		return "", err
 	}
 
-	sessionRoot, err := filepath.Abs(sessionPath)
+	sessionRoot, err := filepath.EvalSymlinks(sessionPath)
 	if err != nil {
 		return "", err
 	}
-	if !isWithinRoot(resolvedCandidate, sessionRoot) {
+	if !skillruntime.WithinRoot(resolvedCandidate, sessionRoot) {
 		return "", fmt.Errorf("path %q is outside the writable session directory", requestedPath)
 	}
 
@@ -357,10 +490,4 @@ func resolvePathWithExistingParents(path string) (string, error) {
 		}
 		current = parent
 	}
-}
-
-func isWithinRoot(path, root string) bool {
-	path = filepath.Clean(path)
-	root = filepath.Clean(root)
-	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
