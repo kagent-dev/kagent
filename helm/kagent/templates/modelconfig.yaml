@@ -1,3 +1,4 @@
+{{- if .Values.providers }}
 {{- $dot := . }}
 {{- $defaultProvider := .Values.providers.default | default "openAI" }}
 {{- if hasKey .Values.providers $defaultProvider | not }}
@@ -35,7 +36,8 @@ spec:
     {{- toYaml $model.tls | nindent 4 }}
   {{- end }}
   {{- if $model.config }}
-  {{ $dot.Values.providers.default }}:
+  {{ $defaultProvider }}:
   {{- toYaml $model.config | nindent 4 }}
   {{- end }}
   {{- end }}
+{{- end }}
