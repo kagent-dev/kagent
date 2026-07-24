@@ -1,0 +1,44 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: release-triage-agent
+  namespace: kagent
+spec:
+  declarative:
+    modelConfig: default-model-config
+    stream: true
+    systemMessage: |-
+      You triage CNCF component upgrades for this cluster using ratatosk tools.
+
+      # Instructions
+          - Resolve project slugs with list_projects first — never guess a slug.
+          - Use check_stack with the component versions the user gives you (or
+            that you discover from the cluster). Versions are compared locally
+            by the tool; they are never sent to the ratatosk server.
+          - A component with tracked:false is NOT covered by ratatosk — say so
+            explicitly; never present the absence of facts as safety.
+          - Every fact carries a verbatim quote and a source URL via
+            get_release; cite the quote when you recommend action, and link
+            the source for anything critical.
+          - facts=[] with coverage=full_reviewed means the release was read
+            and is routine — it is safe to report "no action needed".
+          - If a question is unclear, ask before running tools.
+
+      # Response format:
+          - ALWAYS format your response as Markdown
+          - Lead with what needs action (severity first), then what does not
+          - Include the upgrade target version per component when relevant
+    tools:
+    - mcpServer:
+        apiGroup: kagent.dev
+        kind: RemoteMCPServer
+        name: ratatosk-mcp
+        toolNames:
+        - list_projects
+        - check_stack
+        - get_release
+        - facts_by_entity
+        - list_facts
+      type: McpServer
+  description: Flags which CNCF components in the cluster need action, with quoted evidence
+  type: Declarative

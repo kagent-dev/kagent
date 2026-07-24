@@ -1,0 +1,51 @@
+# ratatosk-mcp in-cluster deployment (streamable HTTP mode).
+# Read-only client of the public ratatosk.io API — no RBAC, no credentials,
+# no cluster permissions. Alternatively install via the Helm chart in
+# https://github.com/garlicKim21/ratatosk-mcp/tree/main/charts/ratatosk-mcp
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ratatosk-mcp
+  namespace: kagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ratatosk-mcp
+  template:
+    metadata:
+      labels:
+        app: ratatosk-mcp
+    spec:
+      containers:
+        - name: ratatosk-mcp
+          image: ghcr.io/garlickim21/ratatosk-mcp:0.3.4
+          env:
+            - name: MCP_HTTP_ADDR
+              value: ":8080"
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ratatosk-mcp
+  namespace: kagent
+spec:
+  selector:
+    app: ratatosk-mcp
+  ports:
+    - port: 8080
+      targetPort: 8080

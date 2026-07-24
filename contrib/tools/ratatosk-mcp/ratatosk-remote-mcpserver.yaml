@@ -1,0 +1,12 @@
+## Ratatosk MCP server — CNCF release intelligence
+## https://github.com/garlicKim21/ratatosk-mcp
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: ratatosk-mcp
+  namespace: kagent
+spec:
+  url: "http://ratatosk-mcp:8080/mcp"
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  description: "Typed, quoted facts from CNCF release notes; check_stack compares running versions locally"
