@@ -19,16 +19,17 @@ import (
 // OpenAIConfig holds OpenAI configuration
 type OpenAIConfig struct {
 	TransportConfig
-	Model            string
-	BaseUrl          string
-	FrequencyPenalty *float64
-	MaxTokens        *int
-	N                *int
-	PresencePenalty  *float64
-	ReasoningEffort  *string
-	Seed             *int
-	Temperature      *float64
-	TopP             *float64
+	Model               string
+	BaseUrl             string
+	FrequencyPenalty    *float64
+	MaxTokens           *int
+	MaxCompletionTokens *int
+	N                   *int
+	PresencePenalty     *float64
+	ReasoningEffort     *string
+	Seed                *int
+	Temperature         *float64
+	TopP                *float64
 }
 
 // AzureOpenAIConfig holds Azure OpenAI configuration

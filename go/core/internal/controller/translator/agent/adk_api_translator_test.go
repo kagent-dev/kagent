@@ -523,6 +523,47 @@ func Test_AdkApiTranslator_AzureOpenAINoAPIKeySecret(t *testing.T) {
 	assert.Contains(t, envNames, "AZURE_AD_TOKEN")
 }
 
+func Test_AdkApiTranslator_OpenAIMaxCompletionTokens(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	maxCompletionTokens := 8192
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: "ns"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:             "gpt-5",
+			Provider:          v1alpha2.ModelProviderOpenAI,
+			APIKeyPassthrough: true,
+			OpenAI: &v1alpha2.OpenAIConfig{
+				MaxCompletionTokens: maxCompletionTokens,
+			},
+		},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "x",
+				ModelConfig:   "m",
+			},
+		},
+	}
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, modelConfig, agent).Build()
+	trans := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: "ns", Name: "m"}, nil, "", nil)
+
+	outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
+	require.NoError(t, err)
+
+	m, ok := outputs.Config.Model.(*adk.OpenAI)
+	require.True(t, ok)
+	assert.Equal(t, &maxCompletionTokens, m.MaxCompletionTokens)
+	// maxTokens (deprecated) must not be set when only maxCompletionTokens is configured.
+	assert.Nil(t, m.MaxTokens)
+}
+
 func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
