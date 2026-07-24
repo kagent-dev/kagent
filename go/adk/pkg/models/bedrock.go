@@ -87,7 +87,33 @@ type BedrockConfig struct {
 	// CacheTTL selects the cache retention window when PromptCaching is on.
 	// "" or "5m" uses Bedrock's default 5-minute cache (broadest model
 	// support); "1h" opts into extended-TTL caching. See bedrockCachePointBlock.
-	CacheTTL string
+	CacheTTL            string
+	GuardrailIdentifier string
+	GuardrailVersion    string
+	GuardrailTrace      string
+}
+
+func bedrockGuardrailConfig(c *BedrockConfig) *types.GuardrailConfiguration {
+	if c.GuardrailIdentifier == "" {
+		return nil
+	}
+	return &types.GuardrailConfiguration{
+		GuardrailIdentifier: aws.String(c.GuardrailIdentifier),
+		GuardrailVersion:    aws.String(c.GuardrailVersion),
+		Trace:               types.GuardrailTrace(c.GuardrailTrace),
+	}
+}
+
+func bedrockGuardrailStreamConfig(c *BedrockConfig) *types.GuardrailStreamConfiguration {
+	if c.GuardrailIdentifier == "" {
+		return nil
+	}
+	return &types.GuardrailStreamConfiguration{
+		GuardrailIdentifier:  aws.String(c.GuardrailIdentifier),
+		GuardrailVersion:     aws.String(c.GuardrailVersion),
+		Trace:                types.GuardrailTrace(c.GuardrailTrace),
+		StreamProcessingMode: types.GuardrailStreamProcessingModeSync,
+	}
 }
 
 // bedrockCachePointBlock builds a Converse CachePoint marker honoring the
@@ -255,6 +281,7 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 		InferenceConfig:              inferenceConfig,
 		ToolConfig:                   toolConfig,
 		AdditionalModelRequestFields: additionalFields,
+		GuardrailConfig:              bedrockGuardrailStreamConfig(m.Config),
 	})
 
 	if err != nil {
@@ -448,6 +475,7 @@ func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string,
 		InferenceConfig:              inferenceConfig,
 		ToolConfig:                   toolConfig,
 		AdditionalModelRequestFields: additionalFields,
+		GuardrailConfig:              bedrockGuardrailConfig(m.Config),
 	})
 
 	if err != nil {

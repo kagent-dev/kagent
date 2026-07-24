@@ -294,6 +294,30 @@ type BedrockConfig struct {
 	// +kubebuilder:validation:Enum="5m";"1h"
 	// +kubebuilder:default="5m"
 	CacheTTL string `json:"cacheTTL,omitempty"`
+
+	// +optional
+	Guardrail *BedrockGuardrailConfig `json:"guardrail,omitempty"`
+}
+
+type BedrockGuardrailConfig struct {
+	// Identifier is the guardrail ID or full ARN. AWS accepts either a bare
+	// guardrail ID or an arn:aws:bedrock:...:guardrail/... ARN, so the value is
+	// only length-bounded here (AWS caps guardrailIdentifier at 2048 chars).
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	Identifier string `json:"identifier"`
+
+	// Version is the guardrail version: a numeric version (e.g. "1") or "DRAFT".
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=8
+	Version string `json:"version"`
+
+	// +optional
+	// +kubebuilder:validation:Enum="disabled";"enabled";"enabled_full"
+	// +kubebuilder:default="disabled"
+	Trace string `json:"trace,omitempty"`
 }
 
 // SAPAICoreConfig contains SAP AI Core-specific configuration options.

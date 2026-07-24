@@ -815,3 +815,72 @@ func TestConvertGenaiToolsToBedrockPromptCaching(t *testing.T) {
 		}
 	})
 }
+
+func TestBedrockGuardrailConfig(t *testing.T) {
+	t.Run("no identifier returns nil", func(t *testing.T) {
+		if got := bedrockGuardrailConfig(&BedrockConfig{}); got != nil {
+			t.Fatalf("expected nil guardrail config, got %+v", got)
+		}
+	})
+
+	t.Run("identifier set builds config", func(t *testing.T) {
+		got := bedrockGuardrailConfig(&BedrockConfig{
+			GuardrailIdentifier: "gr-123",
+			GuardrailVersion:    "2",
+			GuardrailTrace:      "enabled",
+		})
+		if got == nil {
+			t.Fatal("expected non-nil guardrail config")
+		}
+		if got.GuardrailIdentifier == nil || *got.GuardrailIdentifier != "gr-123" {
+			t.Errorf("GuardrailIdentifier = %v, want gr-123", got.GuardrailIdentifier)
+		}
+		if got.GuardrailVersion == nil || *got.GuardrailVersion != "2" {
+			t.Errorf("GuardrailVersion = %v, want 2", got.GuardrailVersion)
+		}
+		if got.Trace != types.GuardrailTraceEnabled {
+			t.Errorf("Trace = %q, want %q", got.Trace, types.GuardrailTraceEnabled)
+		}
+	})
+
+	t.Run("empty trace maps to zero value", func(t *testing.T) {
+		got := bedrockGuardrailConfig(&BedrockConfig{
+			GuardrailIdentifier: "gr-123",
+			GuardrailVersion:    "1",
+		})
+		if got.Trace != types.GuardrailTrace("") {
+			t.Errorf("Trace = %q, want empty", got.Trace)
+		}
+	})
+}
+
+func TestBedrockGuardrailStreamConfig(t *testing.T) {
+	t.Run("no identifier returns nil", func(t *testing.T) {
+		if got := bedrockGuardrailStreamConfig(&BedrockConfig{}); got != nil {
+			t.Fatalf("expected nil guardrail stream config, got %+v", got)
+		}
+	})
+
+	t.Run("identifier set builds sync stream config", func(t *testing.T) {
+		got := bedrockGuardrailStreamConfig(&BedrockConfig{
+			GuardrailIdentifier: "gr-abc",
+			GuardrailVersion:    "DRAFT",
+			GuardrailTrace:      "enabled_full",
+		})
+		if got == nil {
+			t.Fatal("expected non-nil guardrail stream config")
+		}
+		if got.GuardrailIdentifier == nil || *got.GuardrailIdentifier != "gr-abc" {
+			t.Errorf("GuardrailIdentifier = %v, want gr-abc", got.GuardrailIdentifier)
+		}
+		if got.GuardrailVersion == nil || *got.GuardrailVersion != "DRAFT" {
+			t.Errorf("GuardrailVersion = %v, want DRAFT", got.GuardrailVersion)
+		}
+		if got.Trace != types.GuardrailTraceEnabledFull {
+			t.Errorf("Trace = %q, want %q", got.Trace, types.GuardrailTraceEnabledFull)
+		}
+		if got.StreamProcessingMode != types.GuardrailStreamProcessingModeSync {
+			t.Errorf("StreamProcessingMode = %q, want %q", got.StreamProcessingMode, types.GuardrailStreamProcessingModeSync)
+		}
+	})
+}
