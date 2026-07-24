@@ -252,6 +252,42 @@ def _flush_test_app():
     return app
 
 
+@pytest.mark.parametrize(
+    ("env_value", "expect_installed"),
+    [
+        ("true", True),
+        ("false", False),
+        (None, False),
+    ],
+)
+def test_configure_gates_post_response_flush_on_env(monkeypatch, env_value, expect_installed):
+    # Pre-response flushing is opt-in via KAGENT_PRE_RESPONSE_TRACE_FLUSH (set
+    # by the controller on Agent Substrate actors); ordinary deployments keep
+    # pure batch-timer export.
+    from fastapi import FastAPI
+
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+    if env_value is None:
+        monkeypatch.delenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", raising=False)
+    else:
+        monkeypatch.setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", env_value)
+
+    installed = []
+    monkeypatch.setattr(_utils, "_add_post_response_flush", lambda app: installed.append(app))
+    monkeypatch.setattr(
+        _utils, "FastAPIInstrumentor", lambda: SimpleNamespace(instrument_app=lambda app, excluded_urls: None)
+    )
+    monkeypatch.setattr(_utils, "OpenAIInstrumentor", lambda **kwargs: SimpleNamespace(instrument=lambda **kw: None))
+    monkeypatch.setattr(_utils, "_instrument_anthropic", lambda *a, **kw: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda: None)
+
+    app = FastAPI()
+    _utils.configure(name="test", namespace="test", fastapi_app=app)
+
+    assert (installed == [app]) is expect_installed
+
+
 def test_post_response_flush_skips_excluded_paths(monkeypatch):
     from fastapi.testclient import TestClient
 

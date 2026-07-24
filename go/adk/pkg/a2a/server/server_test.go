@@ -39,13 +39,13 @@ func (substrateExecutor) Cancel(context.Context, *a2asrv.RequestContext, eventqu
 	return nil
 }
 
-// The A2A server must export every span of a request's trace — including the
-// otelhttp server span, which only ends after the inner handler returns —
-// before the response body closes: Agent Substrate checkpoints the actor at
-// body close, freezing any still-buffered spans into the snapshot. ServeHTTP
-// returning is the last instant before net/http closes the body, so
-// everything must be exported by then.
-func TestSpansExportedBeforeResponseBodyCloses(t *testing.T) {
+// runA2ARequest builds a server against an in-memory batch exporter, serves
+// one message/send, and returns the span names exported by the time ServeHTTP
+// returned — the last instant before net/http closes the response body (on
+// Agent Substrate, the checkpoint instant).
+func runA2ARequest(t *testing.T) map[string]bool {
+	t.Helper()
+
 	exporter := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sdktrace.NewBatchSpanProcessor(exporter)))
 	prev := otel.GetTracerProvider()
@@ -84,10 +84,31 @@ func TestSpansExportedBeforeResponseBodyCloses(t *testing.T) {
 	for _, s := range exporter.GetSpans() {
 		exported[s.Name] = true
 	}
+	return exported
+}
+
+// With KAGENT_PRE_RESPONSE_TRACE_FLUSH (set by the controller on Agent
+// Substrate actors), every span of a request's trace — including the otelhttp
+// server span, which only ends after the inner handler returns — must be
+// exported before the response body closes: substrate checkpoints the actor at
+// body close, freezing any still-buffered spans into the snapshot.
+func TestSpansExportedBeforeResponseBodyCloses(t *testing.T) {
+	t.Setenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "true")
+
+	exported := runA2ARequest(t)
 	if !exported["invocation"] {
 		t.Errorf("invocation span not exported before body close, got %v", exported)
 	}
 	if !exported["POST /"] {
 		t.Errorf("server span not exported before body close, got %v", exported)
+	}
+}
+
+// Without the opt-in, spans stay in the batch processor for its timer to
+// export — no per-request flush.
+func TestNoPreResponseFlushByDefault(t *testing.T) {
+	exported := runA2ARequest(t)
+	if len(exported) != 0 {
+		t.Errorf("spans exported at handler return without opt-in, got %v", exported)
 	}
 }

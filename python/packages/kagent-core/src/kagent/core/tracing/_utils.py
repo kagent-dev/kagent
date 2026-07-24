@@ -276,7 +276,14 @@ def configure(
         HTTPXClientInstrumentor().instrument(excluded_urls=_excluded_urls)
         if fastapi_app:
             FastAPIInstrumentor().instrument_app(fastapi_app, excluded_urls=_excluded_urls)
-            _add_post_response_flush(fastapi_app)
+            # Pre-response flushing is opt-in (the controller sets this on Agent
+            # Substrate actors): a checkpoint/suspend runtime freezes as soon as
+            # the response body closes, making this the only reliable export
+            # window. Everywhere else the batch exporter's timer suffices, and a
+            # per-request flush would only add export churn and, during a
+            # collector outage, response-tail latency.
+            if os.getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "").strip().lower() == "true":
+                _add_post_response_flush(fastapi_app)
     # Configure logging if enabled
     if logging_enabled:
         logging.info("Enabling logging for GenAI events")

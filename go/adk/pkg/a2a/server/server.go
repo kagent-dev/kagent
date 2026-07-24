@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -62,16 +63,25 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		}),
 		otelhttp.WithFilter(isA2ARequest),
 	)
-	// Flush buffered spans after the otelhttp server span ends (when the inner
-	// handler returns) but before net/http closes the response body: Agent
-	// Substrate checkpoints the actor as soon as the body closes, and a flush
+	// Pre-response span flushing is opt-in via KAGENT_PRE_RESPONSE_TRACE_FLUSH
+	// (the controller sets it on Agent Substrate actors): a checkpoint/suspend
+	// runtime freezes as soon as the response body closes, making this the only
+	// reliable export window. Everywhere else the batch exporter's timer
+	// suffices, and a per-request flush would only add export churn and, during
+	// a collector outage, response-tail latency.
+	//
+	// When enabled, flush after the otelhttp server span ends (when the inner
+	// handler returns) but before net/http closes the response body — a flush
 	// issued inside the executor can never include the still-open server span.
-	flushingHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		instrumentedHandler.ServeHTTP(w, r)
-		if isA2ARequest(r) {
-			telemetry.ForceFlush(r.Context())
-		}
-	})
+	handler := http.Handler(instrumentedHandler)
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH")), "true") {
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			instrumentedHandler.ServeHTTP(w, r)
+			if isA2ARequest(r) {
+				telemetry.ForceFlush(r.Context())
+			}
+		})
+	}
 
 	addr := ":" + config.Port
 	if config.Host != "" {
@@ -81,7 +91,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	return &A2AServer{
 		httpServer: &http.Server{
 			Addr:    addr,
-			Handler: flushingHandler,
+			Handler: handler,
 		},
 		logger: logger,
 		config: config,
