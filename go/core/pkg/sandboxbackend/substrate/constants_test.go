@@ -71,8 +71,12 @@ func TestAcpSandboxImageResolve(t *testing.T) {
 
 	t.Run("errors when digest missing", func(t *testing.T) {
 		cfg := acpSandboxImageConfig{Registry: "ghcr.io", Repository: "kagent-dev/kagent/app"}
-		if _, err := cfg.resolve("acp-sandbox-openclaw", "  "); err == nil {
+		_, err := cfg.resolve("acp-sandbox-openclaw", "  ")
+		if err == nil {
 			t.Fatal("expected error for missing digest")
+		}
+		if !strings.Contains(err.Error(), "--acp-sandbox-openclaw-image-digest") {
+			t.Fatalf("error should point at the override flag, got: %v", err)
 		}
 	})
 
