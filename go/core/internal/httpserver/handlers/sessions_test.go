@@ -682,11 +682,11 @@ func TestSessionsHandler(t *testing.T) {
 			require.NoError(t, dbClient.StoreTask(context.Background(), &a2a.Task{
 				ID:        "task-1",
 				ContextID: sessionID,
-			}))
+			}, userID))
 			require.NoError(t, dbClient.StoreTask(context.Background(), &a2a.Task{
 				ID:        "task-2",
 				ContextID: sessionID,
-			}))
+			}, userID))
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/tasks", nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})

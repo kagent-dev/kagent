@@ -202,10 +202,18 @@ controller:
     repository: kagent-dev/kagent/app
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
+    # -- Image pull secret name set on agent pods created by the controller
+    pullSecret: ""
   # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
   skillsInitImage:
     registry: ""
     repository: kagent-dev/kagent/skills-init
+    tag: "" # Will default to global, then Chart version
+    pullPolicy: ""
+  # -- The image used for the Go (ADK) runtime agent.
+  goAgentImage:
+    registry: ""
+    repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
   # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
@@ -535,6 +543,9 @@ ui:
 
 providers:
   default: openAI
+  # -- Annotations added to the metadata of the generated default ModelConfig
+  # (the one derived from `providers.default`). Omitted from the resource when empty.
+  annotations: {}
   openAI:
     provider: OpenAI
     model: "gpt-4.1-mini"

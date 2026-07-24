@@ -52,9 +52,9 @@ def test_configure_tracing_logging_enabled_uses_event_logger_provider(monkeypatc
     assert instrument_calls["anthropic_event_logger_provider"] == instrument_calls["event_logger_provider"]
 
 
-def test_configure_tracing_logging_disabled_uses_legacy_instrumentation(monkeypatch):
+def test_configure_tracing_only_uses_legacy_instrumentation(monkeypatch):
     monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
-    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
 
     instrument_calls = {}
 
@@ -81,6 +81,72 @@ def test_configure_tracing_logging_disabled_uses_legacy_instrumentation(monkeypa
     assert instrument_calls["instrument_kwargs"] == {}
     assert instrument_calls["anthropic_event_logger_provider"] is None
     assert instrument_calls["google_instrumented"] is True
+
+
+def test_configure_all_disabled_skips_instrumentation(monkeypatch):
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
+
+    instrument_calls = {"openai_instrumented": False, "google_instrumented": False}
+
+    class FakeOpenAIInstrumentor:
+        def __init__(self, **kwargs):
+            instrument_calls["openai_instrumented"] = True
+
+        def instrument(self, **kwargs):
+            instrument_calls["openai_instrumented"] = True
+
+    def fake_instrument_anthropic(event_logger_provider=None):
+        instrument_calls["anthropic_called"] = True
+
+    def fake_instrument_google():
+        instrument_calls["google_instrumented"] = True
+
+    monkeypatch.setattr(_utils, "OpenAIInstrumentor", FakeOpenAIInstrumentor)
+    monkeypatch.setattr(_utils, "_instrument_anthropic", fake_instrument_anthropic)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", fake_instrument_google)
+
+    _utils.configure(name="test", namespace="test")
+
+    # With no signal enabled, telemetry must not touch the OpenAI SDK at all.
+    assert instrument_calls["openai_instrumented"] is False
+    assert instrument_calls["google_instrumented"] is False
+    assert "anthropic_called" not in instrument_calls
+
+
+@pytest.mark.parametrize("logging_enabled", [True, False])
+def test_configure_instrument_openai_client_false_skips_openai(monkeypatch, logging_enabled):
+    # A signal is enabled either way; only the OpenAI client instrumentor must be skipped.
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "true" if logging_enabled else "false")
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+
+    instrument_calls = {"openai_instrumented": False}
+
+    class FakeOpenAIInstrumentor:
+        def __init__(self, **kwargs):
+            instrument_calls["openai_instrumented"] = True
+
+        def instrument(self, **kwargs):
+            instrument_calls["openai_instrumented"] = True
+
+    def fake_instrument_anthropic(event_logger_provider=None):
+        instrument_calls["anthropic_called"] = True
+
+    monkeypatch.setattr(_utils, "OpenAIInstrumentor", FakeOpenAIInstrumentor)
+    monkeypatch.setattr(_utils, "EventLoggerProvider", lambda logger_provider: {"lp": logger_provider})
+    monkeypatch.setattr(_utils, "_create_log_exporter", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        _utils, "BatchLogRecordProcessor", lambda *args, **kwargs: SimpleNamespace(shutdown=lambda: None)
+    )
+    monkeypatch.setattr(_utils, "_instrument_anthropic", fake_instrument_anthropic)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda: None)
+    monkeypatch.setattr(_utils, "_logs", SimpleNamespace(set_logger_provider=lambda provider: None))
+
+    _utils.configure(name="test", namespace="test", instrument_openai_client=False)
+
+    # Higher-level instrumentors own OpenAI; anthropic still runs.
+    assert instrument_calls["openai_instrumented"] is False
+    assert instrument_calls["anthropic_called"] is True
 
 
 def test_otel_sdk_default_propagator_includes_w3c_tracecontext():
@@ -224,6 +290,34 @@ def test_post_response_flush_precedes_terminal_body(monkeypatch):
     asyncio.run(app.build_middleware_stack()({"type": "http", "path": "/"}, None, send))
 
     assert events == ["http.response.start", "server-span-ended", "flushed", "http.response.body"]
+
+
+def test_post_response_flush_sends_terminal_body_when_app_raises(monkeypatch):
+    # An exception raised after the app produced its terminal body must not
+    # swallow that body: the middleware holds it back for the flush, so it is
+    # responsible for forwarding it even on the error path. The exception
+    # itself still propagates.
+    from fastapi import FastAPI
+
+    events = []
+    app = FastAPI()
+
+    async def instrumented_app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200})
+        await send({"type": "http.response.body", "body": b"ok"})
+        raise RuntimeError("post-response instrumentation failure")
+
+    app.build_middleware_stack = lambda: instrumented_app
+    monkeypatch.setattr(_utils, "force_flush", lambda: events.append("flushed"))
+    _utils._add_post_response_flush(app)
+
+    async def send(message):
+        events.append(message["type"])
+
+    with pytest.raises(RuntimeError, match="post-response instrumentation failure"):
+        asyncio.run(app.build_middleware_stack()({"type": "http", "path": "/"}, None, send))
+
+    assert events == ["http.response.start", "flushed", "http.response.body"]
 
 
 def test_post_response_flush_exports_server_span(monkeypatch):

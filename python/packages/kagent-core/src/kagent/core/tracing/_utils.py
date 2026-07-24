@@ -193,19 +193,29 @@ def _add_post_response_flush(app: FastAPI) -> None:
                 else:
                     await send(message)
 
-            await inner(scope, receive, hold_terminal_message)
-            if terminal_message is not None:
-                try:
-                    await asyncio.to_thread(force_flush)
-                finally:
-                    await send(terminal_message)
+            try:
+                await inner(scope, receive, hold_terminal_message)
+            finally:
+                # Always forward a held terminal message — even when the app
+                # raises after producing it — or the client never receives the
+                # response terminator.
+                if terminal_message is not None:
+                    try:
+                        await asyncio.to_thread(force_flush)
+                    finally:
+                        await send(terminal_message)
 
         return flushing_app
 
     app.build_middleware_stack = build_middleware_stack
 
 
-def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: FastAPI | None = None):
+def configure(
+    name: str = "kagent",
+    namespace: str = "kagent",
+    fastapi_app: FastAPI | None = None,
+    instrument_openai_client: bool = True,
+):
     """Configure OpenTelemetry tracing and logging for this service.
 
     This sets up OpenTelemetry providers and exporters for tracing and logging,
@@ -216,6 +226,10 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
         namespace: logical namespace for the service (used as ``service.namespace``). Default is "kagent".
         fastapi_app: Optional FastAPI application instance to instrument. If
             provided and tracing is enabled, FastAPI routes will be instrumented.
+        instrument_openai_client: Install the low-level ``OpenAIInstrumentor``. Set
+            ``False`` when a higher-level instrumentor already covers OpenAI (e.g. the
+            Agents SDK's ``OpenAIAgentsInstrumentor``); double-wrapping the OpenAI SDK
+            breaks the Agents SDK streaming Responses path.
     """
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
@@ -291,11 +305,14 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
         logging.info("OpenAI instrumentation configured with event logging capability")
         # Create event logger provider using the configured logger provider
         event_logger_provider = EventLoggerProvider(logger_provider)
-        OpenAIInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
+        if instrument_openai_client:
+            OpenAIInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
         _instrument_anthropic(event_logger_provider)
-    else:
+    elif tracing_enabled:
         # Use legacy attributes (input/output as GenAI span attributes)
         logging.info("OpenAI instrumentation configured with legacy GenAI span attributes")
-        OpenAIInstrumentor().instrument()
+        if instrument_openai_client:
+            OpenAIInstrumentor().instrument()
         _instrument_anthropic()
         _instrument_google_generativeai()
+    # Neither signal enabled: skip GenAI instrumentation so telemetry has no runtime side effects.
