@@ -95,22 +95,17 @@ func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicC
 	var opts []option.RequestOption
 
 	// Create HTTP client with timeout, custom headers, and TLS.
-	// This must be applied BEFORE vertex.WithGoogleAuth so that the Vertex
-	// option (which internally calls WithHTTPClient with an OAuth2-authenticated
-	// transport, sets the Vertex AI base URL, and registers middleware that
-	// rewrites /v1/messages to the rawPredict endpoint) takes precedence.
-	// Previously WithHTTPClient was appended AFTER WithGoogleAuth, which
-	// replaced the authenticated Vertex AI client with a plain HTTP client,
-	// causing requests to be sent to /v1/messages without OAuth2 credentials
-	// (HTTP 401).
+	// Must come BEFORE vertex.WithGoogleAuth: WithHTTPClient options are
+	// applied in order and last one wins, so the Vertex auth client must
+	// be set last to avoid being overwritten.
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err
 	}
 	opts = append(opts, option.WithHTTPClient(httpClient))
 
-	// Must be last: sets the Vertex AI base URL, registers URL-rewriting
-	// middleware, and replaces the HTTP client with an OAuth2-authenticated one.
+	// Must be last: last WithHTTPClient wins, so Vertex auth must come after
+	// any custom HTTP client.
 	opts = append(opts, vertex.WithGoogleAuth(ctx, region, projectID))
 
 	client := anthropic.NewClient(opts...)
