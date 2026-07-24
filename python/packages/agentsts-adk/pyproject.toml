@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "agentsts-adk"
 version = "0.1.0"
 description = "Framework-specific integration points with agentsts-core"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "agentsts-core>=0.1.0",
   "google-adk>=1.28.1,<2",
@@ -16,7 +16,7 @@ dependencies = [
   "pydantic>=2.5.0",
   "typing-extensions>=4.16.0",
   "aiofiles>=24.1.0",
-  "anyio>=4.9.0",
+  "anyio>=4.14.2",
   "PyJWT>=2.13.0",
 ]
 

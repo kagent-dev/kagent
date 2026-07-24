@@ -2,6 +2,7 @@
 python/.env
 .env
 values.local.yaml
+.playwright*
 
 test_results
 
@@ -200,6 +201,8 @@ go/bin/
 file::memory:*
 .vscode/
 .cursor/rules
+*.omc
+.DS_Store
 
 ## Helm
 *.tgz

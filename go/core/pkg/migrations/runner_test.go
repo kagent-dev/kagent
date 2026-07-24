@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -346,6 +347,12 @@ func TestMaxEmbeddedVersion(t *testing.T) {
 		{
 			name:    "up.sql files with unparseable names returns error",
 			fs:      fstest.MapFS{"core/init.up.sql": {}},
+			dir:     "core",
+			wantErr: true,
+		},
+		{
+			name:    "no underscore returns error, matches golang-migrate",
+			fs:      fstest.MapFS{"core/000003foo.up.sql": {}},
 			dir:     "core",
 			wantErr: true,
 		},
@@ -971,4 +978,111 @@ func TestApplySource_DirtyStateRecoveryOnRestart(t *testing.T) {
 	if got := trackVersion(t, connStr, "schema_migrations"); got != 1 {
 		t.Errorf("after restart: version = %d, want 1 (dirty cleared, rolled back)", got)
 	}
+}
+
+// TestVerifyMigrated covers the SKIP_MIGRATIONS boot guard: refuse an
+// un-migrated or behind or dirty database, tolerate exact-match and ahead
+// (compatibility mode), and work on a connection whose role has no DDL
+// privileges — the deployment mode the guard exists for.
+func TestVerifyMigrated(t *testing.T) {
+	ctx := context.Background()
+	connStr := startTestDB(t)
+	full := []Source{coreSource(goodCoreFS)} // max embedded version 2
+
+	t.Run("unmigrated database is refused", func(t *testing.T) {
+		err := VerifyMigrated(ctx, connStr, full)
+		if err == nil || !strings.Contains(err.Error(), "has not been migrated") {
+			t.Fatalf("error = %v, want missing-tracking-table refusal", err)
+		}
+	})
+
+	t.Run("pending migrations are refused", func(t *testing.T) {
+		if _, err := applySource(ctx, connStr, coreSource(oneCoreFS)); err != nil {
+			t.Fatalf("apply v1: %v", err)
+		}
+		err := VerifyMigrated(ctx, connStr, full)
+		if err == nil || !strings.Contains(err.Error(), "requires version 2") {
+			t.Fatalf("error = %v, want behind-binary refusal", err)
+		}
+	})
+
+	t.Run("fully migrated database passes", func(t *testing.T) {
+		if _, err := applySource(ctx, connStr, coreSource(goodCoreFS)); err != nil {
+			t.Fatalf("apply v2: %v", err)
+		}
+		if err := VerifyMigrated(ctx, connStr, full); err != nil {
+			t.Fatalf("VerifyMigrated() = %v, want nil", err)
+		}
+	})
+
+	t.Run("works without DDL privileges", func(t *testing.T) {
+		db, err := sql.Open("pgx", connStr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		for _, q := range []string{
+			`CREATE ROLE readonly LOGIN PASSWORD 'ro'`,
+			`GRANT USAGE ON SCHEMA public TO readonly`,
+			`GRANT SELECT ON ALL TABLES IN SCHEMA public TO readonly`,
+		} {
+			if _, err := db.ExecContext(ctx, q); err != nil {
+				t.Fatalf("%s: %v", q, err)
+			}
+		}
+		u, err := url.Parse(connStr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.User = url.UserPassword("readonly", "ro")
+		if err := VerifyMigrated(ctx, u.String(), full); err != nil {
+			t.Fatalf("VerifyMigrated() as readonly = %v, want nil", err)
+		}
+	})
+
+	t.Run("database ahead of binary passes", func(t *testing.T) {
+		if err := VerifyMigrated(ctx, connStr, []Source{coreSource(oneCoreFS)}); err != nil {
+			t.Fatalf("VerifyMigrated() with older binary = %v, want nil (compatibility mode)", err)
+		}
+	})
+
+	t.Run("dirty tracking table is refused", func(t *testing.T) {
+		db, err := sql.Open("pgx", connStr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		if _, err := db.ExecContext(ctx, `UPDATE schema_migrations SET dirty = true`); err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if _, err := db.ExecContext(ctx, `UPDATE schema_migrations SET dirty = false`); err != nil {
+				t.Fatal(err)
+			}
+		}()
+		err = VerifyMigrated(ctx, connStr, full)
+		if err == nil || !strings.Contains(err.Error(), "dirty") {
+			t.Fatalf("error = %v, want dirty refusal", err)
+		}
+	})
+
+	t.Run("resolved schema collision is refused", func(t *testing.T) {
+		// Schema "" resolves to public here, colliding with the explicit
+		// "public" source on the same tracking table — the same source set
+		// RunUp rejects.
+		collide := []Source{
+			coreSource(goodCoreFS),
+			{Name: "explicit", Schema: "public", TrackingTable: "schema_migrations", FS: goodCoreFS, Dir: "core"},
+		}
+		err := VerifyMigrated(ctx, connStr, collide)
+		if err == nil || !strings.Contains(err.Error(), "resolve to the same tracking table") {
+			t.Fatalf("error = %v, want resolved-schema collision refusal", err)
+		}
+	})
+
+	t.Run("no sources is a no-op", func(t *testing.T) {
+		if err := VerifyMigrated(ctx, "postgres://unused", nil); err != nil {
+			t.Fatalf("VerifyMigrated() with no sources = %v, want nil", err)
+		}
+	})
 }

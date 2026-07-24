@@ -3,7 +3,7 @@ name = "kagent-langgraph"
 version = "0.1.0"
 description = "LangGraph integration for KAgent with A2A server support"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "langgraph>=0.6.5",
   "langchain-core>=0.3.0",
@@ -14,7 +14,7 @@ dependencies = [
   "uvicorn>=0.20.0",
   "a2a-sdk>=0.3.23",
   "kagent-core>=0.1.0",
-  "langsmith[otel]>=0.9.8",
+  "langsmith[otel]>=0.10.6",
 ]
 
 [project.optional-dependencies]
@@ -22,7 +22,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "ruff>=0.1.0",
+    "ruff>=0.15.22",
 ]
 
 [tool.uv.sources]
@@ -37,10 +37,10 @@ packages = ["src/kagent"]
 
 [tool.black]
 line-length = 120
-target-version = ['py310']
+target-version = ['py311']
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 lint.select = ["E", "F", "I", "N", "W", "UP"]
 lint.ignore = ["E501", "N803", "N806"]

@@ -2,11 +2,17 @@ package mcp
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/a2asrv"
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/genai"
 )
 
 // newTestTransport returns a transport private to the test. These parallel
@@ -185,6 +191,159 @@ func TestAllowedRequestHeaders_EmptyAllowedList(t *testing.T) {
 	got = allowedRequestHeaders(ctx, []string{})
 	if got != nil {
 		t.Errorf("expected nil for empty allowed list, got %v", got)
+	}
+}
+
+func TestMCPAppToolNamesFromToolsets(t *testing.T) {
+	t.Parallel()
+
+	inner := &stubToolset{name: "mcp-server"}
+	toolsets := []tool.Toolset{
+		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"show_board": true}},
+		&mcpAppToolset{inner: inner, appToolNames: map[string]bool{"refresh": true}},
+		inner,
+	}
+
+	got := MCPAppToolNamesFromToolsets(toolsets)
+	if len(got) != 2 || !got["show_board"] || !got["refresh"] {
+		t.Fatalf("MCPAppToolNamesFromToolsets() = %#v, want show_board and refresh", got)
+	}
+}
+
+func TestInitializeToolSetRecoversWhenServerStartsAfterInitialization(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	serverURL := "http://" + listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("listener.Close() error = %v", err)
+	}
+
+	toolset, err := initializeToolSet(t.Context(), mcpServerParams{
+		URL:        serverURL,
+		ServerType: "http",
+	}, map[string]bool{"getWeather": true, "disabledTool": false})
+	if err != nil {
+		t.Fatalf("initializeToolSet() error = %v, want lazy fallback", err)
+	}
+
+	mcpServer := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "weather-test", Version: "1.0.0"}, nil)
+	mcpsdk.AddTool(mcpServer, &mcpsdk.Tool{Name: "getWeather"}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, map[string]any{"weather": "sunny"}, nil
+	})
+	mcpsdk.AddTool(mcpServer, &mcpsdk.Tool{Name: "disabledTool"}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+		return nil, nil, nil
+	})
+	listener, err = net.Listen("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("net.Listen() after initialization error = %v", err)
+	}
+	httpServer := &http.Server{Handler: mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
+		return mcpServer
+	}, nil)}
+	t.Cleanup(func() {
+		_ = httpServer.Close()
+	})
+	go func() {
+		_ = httpServer.Serve(listener)
+	}()
+
+	tools, err := toolset.Tools(testReadonlyContext{Context: t.Context()})
+	if err != nil {
+		t.Fatalf("toolset.Tools() error = %v, want recovery after server startup", err)
+	}
+	if len(tools) != 1 || tools[0].Name() != "getWeather" {
+		t.Fatalf("toolset.Tools() = %#v, want getWeather", tools)
+	}
+}
+
+type testReadonlyContext struct {
+	context.Context
+}
+
+func (testReadonlyContext) UserContent() *genai.Content          { return nil }
+func (testReadonlyContext) InvocationID() string                 { return "test-invocation" }
+func (testReadonlyContext) AgentName() string                    { return "test-agent" }
+func (testReadonlyContext) ReadonlyState() session.ReadonlyState { return nil }
+func (testReadonlyContext) UserID() string                       { return "test-user" }
+func (testReadonlyContext) AppName() string                      { return "test-app" }
+func (testReadonlyContext) SessionID() string                    { return "test-session" }
+func (testReadonlyContext) Branch() string                       { return "" }
+
+type stubToolset struct {
+	name string
+}
+
+func (s *stubToolset) Name() string { return s.name }
+
+func (s *stubToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
+	_ = ctx
+	return nil, nil
+}
+
+func TestMCPToolKindOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		meta mcpsdk.Meta
+		want mcpToolKind
+	}{
+		{
+			name: "app visibility list is app-only",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"app"}}},
+			want: mcpToolKindAppInternal,
+		},
+		{
+			name: "app visibility string is app-only",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": "app"}},
+			want: mcpToolKindAppInternal,
+		},
+		{
+			name: "app-only wins over a declared resource uri",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"app"}, "resourceUri": "ui://forms/form.html"}},
+			want: mcpToolKindAppInternal,
+		},
+		{
+			name: "model and app visibility without resource is a plain model tool",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"model", "app"}}},
+			want: mcpToolKindModel,
+		},
+		{
+			name: "model and app visibility with resource renders as app",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"app", "model"}, "resourceUri": "ui://forms/form.html"}},
+			want: mcpToolKindApp,
+		},
+		{
+			name: "model only visibility is a plain model tool",
+			meta: mcpsdk.Meta{"ui": map[string]any{"visibility": []any{"model"}}},
+			want: mcpToolKindModel,
+		},
+		{
+			name: "resource uri in ui object renders as app",
+			meta: mcpsdk.Meta{"ui": map[string]any{"resourceUri": "ui://forms/form.html"}},
+			want: mcpToolKindApp,
+		},
+		{
+			name: "legacy resource uri key renders as app",
+			meta: mcpsdk.Meta{"ui/resourceUri": "ui://forms/form.html"},
+			want: mcpToolKindApp,
+		},
+		{
+			name: "plain tool",
+			meta: mcpsdk.Meta{},
+			want: mcpToolKindModel,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := mcpToolKindOf(tt.meta); got != tt.want {
+				t.Fatalf("mcpToolKindOf() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 
