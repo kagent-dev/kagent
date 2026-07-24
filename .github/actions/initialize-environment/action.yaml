@@ -5,10 +5,6 @@ description: Initialization steps for kagent actions
 runs:
   using: "composite"
   steps:
-    - name: Cancel Previous Actions
-      uses: styfle/cancel-workflow-action@85880fa0301c86cca9da44039ee3bb12d3bedbfa # 0.12.1
-      with:
-        access_token: ${{ github.token }}
     - name: Free disk space
       shell: bash
       run: |

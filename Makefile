@@ -32,6 +32,15 @@ BUILDKIT_VERSION = v0.23.0
 BUILDX_NO_DEFAULT_ATTESTATIONS=1
 BUILDX_BUILDER_NAME ?= kagent-builder-$(BUILDKIT_VERSION)
 
+# CI sets these prefixes to share BuildKit layers per image across jobs without
+# letting one image's cache export overwrite another's.
+CI_CACHE_KEY_PREFIX ?=
+CI_CACHE_MAIN_KEY_PREFIX ?=
+comma := ,
+define docker-cache-args
+$(if $(CI_CACHE_KEY_PREFIX),--cache-from=type=gha$(comma)scope=$(CI_CACHE_KEY_PREFIX)-$(1)) $(if $(CI_CACHE_MAIN_KEY_PREFIX),--cache-from=type=gha$(comma)scope=$(CI_CACHE_MAIN_KEY_PREFIX)-$(1)) $(if $(CI_CACHE_KEY_PREFIX),--cache-to=type=gha$(comma)scope=$(CI_CACHE_KEY_PREFIX)-$(1)$(comma)mode=max)
+endef
+
 ifeq ($(CONTAINER_RUNTIME),podman)
   DOCKER_BUILDER ?= $(CONTAINER_RUNTIME) build
   DOCKER_BUILD_ARGS ?= --platform linux/$(LOCALARCH)
@@ -84,6 +93,8 @@ ACP_SANDBOX_BASE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_BASE_IMA
 ACP_SANDBOX_HERMES_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_HERMES_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
 ACP_SANDBOX_OPENCLAW_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_OPENCLAW_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
 ACP_SANDBOX_CLAUDE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_CLAUDE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
+E2E_ACP_SANDBOX_OPENCLAW_IMG ?= $(ACP_SANDBOX_OPENCLAW_IMG)@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+E2E_ACP_SANDBOX_HERMES_IMG ?= $(ACP_SANDBOX_HERMES_IMG)@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -279,57 +290,81 @@ build-controller: buildx-create controller-manifests build-app build-app-full bu
 		ACP_SANDBOX_HERMES_IMG=$(ACP_SANDBOX_HERMES_IMG) \
 		./scripts/controller-digest-ldflags.sh); \
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		$(call docker-cache-args,controller) \
 		--build-arg LDFLAGS="$(LDFLAGS)$$DIGEST_LDFLAGS" \
 		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 
+.PHONY: build-controller-e2e
+build-controller-e2e: ## Build the E2E controller from committed manifests without unused ACP sandbox images
+build-controller-e2e: buildx-create build-app build-app-full build-golang-adk build-golang-adk-full
+	@set -e; \
+	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
+		APP_IMG=$(APP_IMG) \
+		APP_FULL_IMG=$(APP_FULL_IMG) \
+		GOLANG_ADK_IMG=$(GOLANG_ADK_IMG) \
+		GOLANG_ADK_FULL_IMG=$(GOLANG_ADK_FULL_IMG) \
+		ACP_SANDBOX_OPENCLAW_IMG=$(E2E_ACP_SANDBOX_OPENCLAW_IMG) \
+		ACP_SANDBOX_HERMES_IMG=$(E2E_ACP_SANDBOX_HERMES_IMG) \
+		./scripts/controller-digest-ldflags.sh); \
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		$(call docker-cache-args,controller) \
+		--build-arg LDFLAGS="$(LDFLAGS)$$DIGEST_LDFLAGS" \
+		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
+		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_PUSH) $(CONTROLLER_IMG)
+
+.PHONY: build-e2e
+build-e2e: ## Build and push only the component images exercised by E2E tests
+build-e2e: buildx-create build-skills-init build-controller-e2e
+
 .PHONY: build-ui
 build-ui: ## Build and push the UI image
 build-ui: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,ui) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 	$(DOCKER_PUSH) $(UI_IMG)
 
 .PHONY: build-kagent-adk
 build-kagent-adk: ## Build and push the Python kagent ADK image
 build-kagent-adk: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,kagent-adk) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
 .PHONY: build-app
 build-app: ## Build and push the app image (distroless slim; depends on kagent-adk)
 build-app: buildx-create build-kagent-adk
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,app) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
 	$(DOCKER_PUSH) $(APP_IMG)
 
 .PHONY: build-kagent-adk-full
 build-kagent-adk-full: ## Build and push the full Python kagent ADK image (includes sandbox runtime)
 build-kagent-adk-full: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_FULL_IMG) -f python/Dockerfile.full ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,kagent-adk-full) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_FULL_IMG) -f python/Dockerfile.full ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_FULL_IMG)
 
 .PHONY: build-app-full
 build-app-full: ## Build and push the full app image (sandbox runtime; depends on kagent-adk-full)
 build-app-full: buildx-create build-kagent-adk-full
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_FULL_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_FULL_IMG) -f python/Dockerfile.app ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,app-full) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_FULL_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_FULL_IMG) -f python/Dockerfile.app ./python
 	$(DOCKER_PUSH) $(APP_FULL_IMG)
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
 build-golang-adk: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,golang-adk) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
 
 .PHONY: build-golang-adk-full
 build-golang-adk-full: ## Build and push the Go ADK full image (with extra tooling)
 build-golang-adk-full: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,golang-adk-full) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_FULL_IMG)
 
 .PHONY: build-skills-init
 build-skills-init: ## Build and push the skills-init image
 build-skills-init: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,skills-init) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile ./go
 	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
 
 .PHONY: build-acp-sandbox
@@ -339,25 +374,25 @@ build-acp-sandbox: build-acp-sandbox-hermes build-acp-sandbox-openclaw build-acp
 .PHONY: build-acp-sandbox-base
 build-acp-sandbox-base: ## Build and push the ACP sandbox base image (acp-shim only, no agent)
 build-acp-sandbox-base: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target base -t $(ACP_SANDBOX_BASE_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,acp-sandbox-base) $(TOOLS_IMAGE_BUILD_ARGS) --target base -t $(ACP_SANDBOX_BASE_IMG) -f docker/acp-sandbox/Dockerfile ./go
 	$(DOCKER_PUSH) $(ACP_SANDBOX_BASE_IMG)
 
 .PHONY: build-acp-sandbox-hermes
 build-acp-sandbox-hermes: ## Build and push the ACP sandbox Hermes image
 build-acp-sandbox-hermes: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target hermes -t $(ACP_SANDBOX_HERMES_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,acp-sandbox-hermes) $(TOOLS_IMAGE_BUILD_ARGS) --target hermes -t $(ACP_SANDBOX_HERMES_IMG) -f docker/acp-sandbox/Dockerfile ./go
 	$(DOCKER_PUSH) $(ACP_SANDBOX_HERMES_IMG)
 
 .PHONY: build-acp-sandbox-openclaw
 build-acp-sandbox-openclaw: ## Build and push the ACP sandbox OpenClaw image
 build-acp-sandbox-openclaw: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target openclaw -t $(ACP_SANDBOX_OPENCLAW_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,acp-sandbox-openclaw) $(TOOLS_IMAGE_BUILD_ARGS) --target openclaw -t $(ACP_SANDBOX_OPENCLAW_IMG) -f docker/acp-sandbox/Dockerfile ./go
 	$(DOCKER_PUSH) $(ACP_SANDBOX_OPENCLAW_IMG)
 
 .PHONY: build-acp-sandbox-claude
 build-acp-sandbox-claude: ## Build and push the ACP sandbox Claude image
 build-acp-sandbox-claude: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --target claude -t $(ACP_SANDBOX_CLAUDE_IMG) -f docker/acp-sandbox/Dockerfile ./go
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,acp-sandbox-claude) $(TOOLS_IMAGE_BUILD_ARGS) --target claude -t $(ACP_SANDBOX_CLAUDE_IMG) -f docker/acp-sandbox/Dockerfile ./go
 	$(DOCKER_PUSH) $(ACP_SANDBOX_CLAUDE_IMG)
 
 .PHONY: push
@@ -374,21 +409,25 @@ lint: ## Run linters for Go and Python
 
 .PHONY: push-test-agent
 push-test-agent: buildx-create build-kagent-adk build-kagent-adk-full ## Build and push E2E test agent images to the local registry
+	$(MAKE) push-test-agent-images
+
+.PHONY: push-test-agent-images
+push-test-agent-images: buildx-create ## Build and push E2E test agents after their ADK base images are available
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)-full"
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,test-kebab) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab:latest
 	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,test-poem-flow) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/poem-flow:latest
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,test-basic-openai) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/basic-openai:latest
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,test-langgraph-kebab) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/langgraph-kebab:latest
 
 .PHONY: push-test-skill
 push-test-skill: buildx-create ## Build and push E2E test skill images to the local registry
 	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(call docker-cache-args,test-kebab-maker) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab-maker:latest
 
 
@@ -514,6 +553,11 @@ helm-install-provider: helm-version check-api-key
 helm-install: ## Build all images then install kagent onto the kind cluster
 helm-install: build
 helm-install: helm-install-provider
+
+.PHONY: helm-install-e2e
+helm-install-e2e: ## Build the E2E image set and install kagent without the unused UI workload
+helm-install-e2e: build-e2e
+	$(MAKE) helm-install-provider KAGENT_HELM_EXTRA_ARGS="$(KAGENT_HELM_EXTRA_ARGS) --set ui.replicas=0"
 
 .PHONY: helm-test-install
 helm-test-install: ## Dry-run helm install to validate chart rendering (pipe to tee for inspection)
