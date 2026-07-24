@@ -345,6 +345,26 @@ func TestListDirContent(t *testing.T) {
 			t.Fatal("expected error for nonexistent path")
 		}
 	})
+
+	t.Run("symlink to a directory is listed as a directory", func(t *testing.T) {
+		realDir := filepath.Join(tmpDir, "a-subdir")
+		linkPath := filepath.Join(tmpDir, "dir-link")
+		if err := os.Symlink(realDir, linkPath); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+		defer os.Remove(linkPath)
+
+		result, err := ListDirContent(tmpDir)
+		if err != nil {
+			t.Fatalf("ListDirContent() error = %v", err)
+		}
+		if !strings.Contains(result, "dir-link/") {
+			t.Errorf("expected symlinked directory to be listed with a trailing slash, got %q", result)
+		}
+		if strings.Contains(result, "dir-link\t") {
+			t.Errorf("expected symlinked directory not to be listed as a file, got %q", result)
+		}
+	})
 }
 
 func TestGrepContent(t *testing.T) {
@@ -434,6 +454,35 @@ func TestGrepContent(t *testing.T) {
 		}
 		if strings.Contains(result, "top secret") {
 			t.Errorf("expected symlinked file outside root to be skipped, got %q", result)
+		}
+	})
+
+	t.Run("recursive search greps the resolved target of an in-bounds file symlink", func(t *testing.T) {
+		realFile := filepath.Join(subDir, "real_target.txt")
+		if err := os.WriteFile(realFile, []byte("foo via symlink\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+		linkPath := filepath.Join(subDir, "file_link.txt")
+		if err := os.Symlink(realFile, linkPath); err != nil {
+			t.Skipf("symlinks not supported: %v", err)
+		}
+		defer os.Remove(linkPath)
+
+		result, err := GrepContent(subDir, "foo via symlink", true, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		// The match must be reported against the resolved target path
+		// (real_target.txt), not the walked symlink path (file_link.txt):
+		// classifyWalkEntry verifies the resolved target is in-bounds, and
+		// the actual read must use that same resolved value rather than
+		// re-deriving/reopening the raw symlink path, or the verified-safe
+		// check and the actual read could diverge (TOCTOU).
+		if !strings.Contains(result, "real_target.txt:1:foo via symlink") {
+			t.Errorf("expected match to be reported against the resolved target path, got %q", result)
+		}
+		if strings.Contains(result, "file_link.txt:") {
+			t.Errorf("expected match not to be reported against the unresolved symlink path, got %q", result)
 		}
 	})
 
@@ -632,6 +681,46 @@ func TestGrepContent(t *testing.T) {
 		}
 		if !strings.Contains(result, "no matches found") || !strings.Contains(result, "could not be read") {
 			t.Errorf("expected an annotated no-matches message noting unreadable entries, got %q", result)
+		}
+	})
+
+	t.Run("matches are annotated with the skip count when some entries could not be read", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses directory permissions; cannot exercise this case")
+		}
+
+		walkDir := createTempDir(t)
+		defer os.RemoveAll(walkDir)
+
+		okSub := filepath.Join(walkDir, "aaa_ok")
+		if err := os.Mkdir(okSub, 0755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(okSub, "match.txt"), []byte("foo readable\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		noPermSub := filepath.Join(walkDir, "mmm_noperm")
+		if err := os.Mkdir(noPermSub, 0755); err != nil {
+			t.Fatalf("Failed to create subdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(noPermSub, "hidden.txt"), []byte("foo hidden\n"), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+		if err := os.Chmod(noPermSub, 0000); err != nil {
+			t.Fatalf("Failed to chmod subdir: %v", err)
+		}
+		defer os.Chmod(noPermSub, 0755)
+
+		result, err := GrepContent(walkDir, "foo", true, false)
+		if err != nil {
+			t.Fatalf("GrepContent() error = %v", err)
+		}
+		if !strings.Contains(result, "match.txt:1:foo readable") {
+			t.Errorf("expected the real match to still be reported, got %q", result)
+		}
+		if !strings.Contains(result, "could not be read") {
+			t.Errorf("expected the skip count to be reported alongside real matches, not silently dropped, got %q", result)
 		}
 	})
 

@@ -257,7 +257,10 @@ def grep_content(
             return f"no matches found ({skipped} entries could not be read)"
         return "no matches found"
 
-    return "\n".join(results)
+    output = "\n".join(results)
+    if skipped:
+        output += f"\n\n({skipped} entries could not be read)"
+    return output
 
 
 # --- Shell Operation Tools ---

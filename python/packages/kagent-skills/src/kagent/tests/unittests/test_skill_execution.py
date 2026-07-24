@@ -519,6 +519,29 @@ def test_grep_content_recursive_does_not_abort_or_discard_matches_on_an_unreadab
     assert "match.txt:1:foo readable" in result
 
 
+def test_grep_content_annotates_skip_count_alongside_real_matches(tmp_path):
+    """A skip count found alongside real matches must not be silently dropped."""
+    if os.geteuid() == 0:
+        pytest.skip("root bypasses directory permissions; cannot exercise this case")
+
+    ok_sub = tmp_path / "aaa_ok"
+    ok_sub.mkdir()
+    (ok_sub / "match.txt").write_text("foo readable\n")
+
+    noperm_sub = tmp_path / "mmm_noperm"
+    noperm_sub.mkdir()
+    (noperm_sub / "hidden.txt").write_text("foo hidden\n")
+    noperm_sub.chmod(0o000)
+
+    try:
+        result = grep_content(tmp_path, "foo", recursive=True, allowed_root=tmp_path)
+    finally:
+        noperm_sub.chmod(0o755)
+
+    assert "match.txt:1:foo readable" in result
+    assert "could not be read" in result
+
+
 def test_grep_content_no_matches_found_is_annotated_when_a_subdirectory_could_not_be_read(tmp_path):
     if os.geteuid() == 0:
         pytest.skip("root bypasses directory permissions; cannot exercise this case")
