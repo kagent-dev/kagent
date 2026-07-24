@@ -523,6 +523,81 @@ func Test_AdkApiTranslator_AzureOpenAINoAPIKeySecret(t *testing.T) {
 	assert.Contains(t, envNames, "AZURE_AD_TOKEN")
 }
 
+func Test_AdkApiTranslator_GeminiMaxOutputTokens(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	geminiModel := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "gm", Namespace: "ns"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:           "gemini-2.5-flash",
+			Provider:        v1alpha2.ModelProviderGemini,
+			APIKeySecret:    "keys",
+			APIKeySecretKey: "GEMINI_API_KEY",
+			Gemini:          &v1alpha2.GeminiConfig{MaxOutputTokens: 2048},
+		},
+	}
+	vertexModel := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "vx", Namespace: "ns"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:           "gemini-2.5-pro",
+			Provider:        v1alpha2.ModelProviderGeminiVertexAI,
+			APIKeySecret:    "keys",
+			APIKeySecretKey: "service-account.json",
+			GeminiVertexAI: &v1alpha2.GeminiVertexAIConfig{
+				BaseVertexAIConfig: v1alpha2.BaseVertexAIConfig{
+					ProjectID: "my-project",
+					Location:  "us-central1",
+				},
+				MaxOutputTokens: 1024,
+			},
+		},
+	}
+
+	makeAgent := func(model string) *v1alpha2.Agent {
+		return &v1alpha2.Agent{
+			ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns"},
+			Spec: v1alpha2.AgentSpec{
+				Type: v1alpha2.AgentType_Declarative,
+				Declarative: &v1alpha2.DeclarativeAgentSpec{
+					SystemMessage: "x",
+					ModelConfig:   model,
+				},
+			},
+		}
+	}
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+
+	t.Run("native Gemini", func(t *testing.T) {
+		agent := makeAgent("gm")
+		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, geminiModel, agent).Build()
+		trans := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: "ns", Name: "gm"}, nil, "", nil)
+
+		outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
+		require.NoError(t, err)
+
+		m, ok := outputs.Config.Model.(*adk.Gemini)
+		require.True(t, ok, "expected model to be of type Gemini")
+		require.NotNil(t, m.MaxOutputTokens)
+		assert.Equal(t, 2048, *m.MaxOutputTokens)
+	})
+
+	t.Run("Gemini Vertex AI", func(t *testing.T) {
+		agent := makeAgent("vx")
+		kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns, vertexModel, agent).Build()
+		trans := translator.NewAdkApiTranslator(kubeClient, types.NamespacedName{Namespace: "ns", Name: "vx"}, nil, "", nil)
+
+		outputs, err := translator.TranslateAgent(context.Background(), trans, agent)
+		require.NoError(t, err)
+
+		m, ok := outputs.Config.Model.(*adk.GeminiVertexAI)
+		require.True(t, ok, "expected model to be of type GeminiVertexAI")
+		require.NotNil(t, m.MaxOutputTokens)
+		assert.Equal(t, 1024, *m.MaxOutputTokens)
+	})
+}
+
 func Test_AdkApiTranslator_ServiceAccountNameOverride(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha2.AddToScheme(scheme))

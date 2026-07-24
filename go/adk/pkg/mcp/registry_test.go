@@ -15,6 +15,17 @@ import (
 	"google.golang.org/genai"
 )
 
+// newTestTransport returns a transport private to the test. These parallel
+// tests must not share newTestTransport(t): httptest.Server.Close (deferred
+// in each test) also closes the default transport's idle connections, which
+// can break another test's request with "http: CloseIdleConnections called".
+func newTestTransport(t *testing.T) http.RoundTripper {
+	t.Helper()
+	tr := &http.Transport{}
+	t.Cleanup(tr.CloseIdleConnections)
+	return tr
+}
+
 // a2aCtx builds a context that carries an A2A CallContext with the given headers.
 // Keys are stored case-insensitively by NewRequestMeta, matching the behaviour
 // of a real A2A server.
@@ -45,7 +56,7 @@ func TestAllowedRequestHeaders_ForwardsMatchingHeaders(t *testing.T) {
 	})
 
 	rt := &headerRoundTripper{
-		base:           http.DefaultTransport,
+		base:           newTestTransport(t),
 		headers:        map[string]string{"X-Static": "static-value"},
 		allowedHeaders: []string{"Authorization", "X-Custom"},
 	}
@@ -85,7 +96,7 @@ func TestAllowedRequestHeaders_StaticOverridesDynamic(t *testing.T) {
 	})
 
 	rt := &headerRoundTripper{
-		base:           http.DefaultTransport,
+		base:           newTestTransport(t),
 		headers:        map[string]string{"Authorization": "Bearer static"},
 		allowedHeaders: []string{"Authorization"},
 	}
@@ -115,7 +126,7 @@ func TestAllowedRequestHeaders_NoA2AContext(t *testing.T) {
 	defer srv.Close()
 
 	rt := &headerRoundTripper{
-		base:           http.DefaultTransport,
+		base:           newTestTransport(t),
 		allowedHeaders: []string{"Authorization"},
 	}
 
@@ -148,7 +159,7 @@ func TestAllowedRequestHeaders_IgnoresNonAllowed(t *testing.T) {
 	})
 
 	rt := &headerRoundTripper{
-		base:           http.DefaultTransport,
+		base:           newTestTransport(t),
 		allowedHeaders: []string{"Authorization"},
 	}
 
@@ -416,7 +427,7 @@ func TestPropagateToken_ForwardsAuthorizationToMCP(t *testing.T) {
 	})
 
 	rt := &headerRoundTripper{
-		base:           http.DefaultTransport,
+		base:           newTestTransport(t),
 		propagateToken: true,
 	}
 
@@ -449,7 +460,7 @@ func TestPropagateToken_DoesNotForwardWhenDisabled(t *testing.T) {
 	})
 
 	rt := &headerRoundTripper{
-		base:           http.DefaultTransport,
+		base:           newTestTransport(t),
 		propagateToken: false,
 	}
 
@@ -498,7 +509,7 @@ func TestDynamicHeaders_OverridePropagatedAndAllowedHeaders(t *testing.T) {
 	})
 
 	rt := &headerRoundTripper{
-		base:           http.DefaultTransport,
+		base:           newTestTransport(t),
 		propagateToken: true,
 		allowedHeaders: []string{"Authorization", "X-Custom"},
 		headerProvider: func(context.Context) map[string]string {
@@ -537,7 +548,7 @@ func TestStaticHeaders_OverrideDynamic(t *testing.T) {
 	defer srv.Close()
 
 	rt := &headerRoundTripper{
-		base:    http.DefaultTransport,
+		base:    newTestTransport(t),
 		headers: map[string]string{"Authorization": "Bearer static"},
 		headerProvider: func(context.Context) map[string]string {
 			return map[string]string{"Authorization": "Bearer dynamic"}

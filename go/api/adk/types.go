@@ -171,6 +171,7 @@ func (a *Anthropic) GetType() string {
 
 type GeminiVertexAI struct {
 	BaseModel
+	MaxOutputTokens *int `json:"max_output_tokens,omitempty"`
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
@@ -229,6 +230,7 @@ func (o *Ollama) GetType() string {
 
 type Gemini struct {
 	BaseModel
+	MaxOutputTokens *int `json:"max_output_tokens,omitempty"`
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {

@@ -126,15 +126,16 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	beforeToolCallbacks = append(beforeToolCallbacks, makeBeforeToolCallback(log))
 
 	llmAgentConfig := llmagent.Config{
-		Name:                 agentName,
-		Description:          agentConfig.Description,
-		Instruction:          agentConfig.Instruction,
-		Model:                llmModel,
-		IncludeContents:      llmagent.IncludeContentsDefault,
-		Tools:                localTools,
-		Toolsets:             toolsets,
-		BeforeToolCallbacks:  beforeToolCallbacks,
-		BeforeModelCallbacks: beforeModelCallbacks,
+		Name:                  agentName,
+		Description:           agentConfig.Description,
+		Instruction:           agentConfig.Instruction,
+		Model:                 llmModel,
+		GenerateContentConfig: generateContentConfig(agentConfig.Model),
+		IncludeContents:       llmagent.IncludeContentsDefault,
+		Tools:                 localTools,
+		Toolsets:              toolsets,
+		BeforeToolCallbacks:   beforeToolCallbacks,
+		BeforeModelCallbacks:  beforeModelCallbacks,
 		AfterToolCallbacks: []llmagent.AfterToolCallback{
 			makeAfterToolCallback(log),
 		},
@@ -190,6 +191,28 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 	}
 	localTools = append(localTools, askUserTool)
 	return localTools, nil
+}
+
+// generateContentConfig returns the agent-level generation config derived from
+// the model definition, or nil when the model doesn't specify any. ADK seeds
+// each LLMRequest.Config from this value, so per-request mutations (e.g. in
+// before-model callbacks) still take precedence.
+//
+// The native Gemini models read generation config from the per-request
+// LLMRequest.Config rather than from the model definition, so a
+// ModelConfig-level setting such as maxOutputTokens must be applied here.
+func generateContentConfig(m adk.Model) *genai.GenerateContentConfig {
+	var maxOutputTokens *int
+	switch m := m.(type) {
+	case *adk.Gemini:
+		maxOutputTokens = m.MaxOutputTokens
+	case *adk.GeminiVertexAI:
+		maxOutputTokens = m.MaxOutputTokens
+	}
+	if maxOutputTokens == nil || *maxOutputTokens <= 0 {
+		return nil
+	}
+	return &genai.GenerateContentConfig{MaxOutputTokens: int32(*maxOutputTokens)}
 }
 
 // CreateLLM creates an adkmodel.LLM from the model configuration.
