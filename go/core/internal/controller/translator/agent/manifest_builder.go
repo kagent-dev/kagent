@@ -87,6 +87,9 @@ func (a *adkApiTranslator) BuildManifest(
 	if err != nil {
 		return nil, err
 	}
+	// The translator is the single writer of the config Secret for every workload mode; sandbox
+	// backends contribute their config (e.g. session_db_url) upstream in CompileAgent, and their
+	// ActorTemplates reference this Secret by the agent's stable name.
 	outputs.Manifest = append(outputs.Manifest, configSecret.secret)
 
 	if sa := buildServiceAccount(manifestCtx); sa != nil {
@@ -113,7 +116,7 @@ func (a *adkApiTranslator) BuildManifest(
 
 	podTemplate := buildPodTemplate(manifestCtx, podRuntime, configHash)
 
-	workloadObjects, err := a.buildWorkloadObjects(ctx, manifestCtx, podTemplate, configSecret.secret)
+	workloadObjects, err := a.buildWorkloadObjects(ctx, manifestCtx, podTemplate)
 	if err != nil {
 		return nil, err
 	}
@@ -565,13 +568,11 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 	ctx context.Context,
 	manifestCtx manifestContext,
 	podTemplate corev1.PodTemplateSpec,
-	configSecret *corev1.Secret,
 ) ([]client.Object, error) {
 	if manifestCtx.runInSandbox() {
 		sbObjs, err := a.sandboxBackend.BuildSandbox(ctx, sandboxbackend.BuildInput{
-			Agent:        manifestCtx.agent,
-			PodTemplate:  podTemplate,
-			ConfigSecret: configSecret,
+			Agent:       manifestCtx.agent,
+			PodTemplate: podTemplate,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("build sandbox workload: %w", err)
@@ -584,7 +585,10 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 		Port:       manifestCtx.deployment.Port,
 		TargetPort: intstr.FromInt(int(manifestCtx.deployment.Port)),
 	}
-	if s := manifestCtx.agent.GetAgentSpec(); s != nil && s.Declarative != nil && s.Declarative.A2AConfig != nil {
+	// BYO agents are always A2A servers (port 8080). Declarative agents get the
+	// marker only when a2aConfig is set.
+	if s := manifestCtx.agent.GetAgentSpec(); s != nil &&
+		(s.Type == v1alpha2.AgentType_BYO || (s.Declarative != nil && s.Declarative.A2AConfig != nil)) {
 		proto := "kgateway.dev/a2a"
 		svcPort.AppProtocol = &proto
 	}

@@ -162,7 +162,8 @@ func (h *SubstrateHandler) listAteAPIState(ctx context.Context, namespaces []str
 		}
 	}
 
-	actorPB, err := h.AteClient.ListActors(ctx)
+	// Status view spans all atespaces (per-namespace actor atespaces + the golden atespace).
+	actorPB, err := h.AteClient.ListActors(ctx, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -204,8 +205,8 @@ func (h *SubstrateHandler) listAteAPIState(ctx context.Context, namespaces []str
 
 func actorEntryFromPB(a *ateapipb.Actor) api.SubstrateActorEntry {
 	return api.SubstrateActorEntry{
-		ActorID:                a.GetActorId(),
-		Atespace:               a.GetAtespace(),
+		ActorID:                a.GetMetadata().GetName(),
+		Atespace:               a.GetMetadata().GetAtespace(),
 		Status:                 substrate.ActorStatusLabel(a.GetStatus()),
 		ActorTemplateNamespace: a.GetActorTemplateNamespace(),
 		ActorTemplateName:      a.GetActorTemplateName(),
@@ -215,7 +216,7 @@ func actorEntryFromPB(a *ateapipb.Actor) api.SubstrateActorEntry {
 		LatestSnapshot:         snapshotInfoString(a.GetLatestSnapshotInfo()),
 		WorkerPoolName:         a.GetWorkerPoolName(),
 		InProgressSnapshot:     a.GetInProgressSnapshot(),
-		Version:                a.GetVersion(),
+		Version:                a.GetMetadata().GetVersion(),
 	}
 }
 
@@ -252,9 +253,9 @@ func workerEntryFromPB(w *ateapipb.Worker) api.SubstrateWorkerEntry {
 		WorkerNamespace: w.GetWorkerNamespace(),
 		WorkerPool:      w.GetWorkerPool(),
 		WorkerPod:       w.GetWorkerPod(),
-		ActorNamespace:  w.GetActorNamespace(),
-		ActorTemplate:   w.GetActorTemplate(),
-		ActorID:         w.GetActorId(),
+		ActorNamespace:  w.GetAssignment().GetActorTemplate().GetNamespace(),
+		ActorTemplate:   w.GetAssignment().GetActorTemplate().GetName(),
+		ActorID:         w.GetAssignment().GetActor().GetName(),
 		IP:              w.GetIp(),
 		Version:         w.GetVersion(),
 	}

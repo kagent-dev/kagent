@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { useAgents, AgentFormData } from "@/components/AgentsProvider";
+import { useAgents } from "@/components/AgentsProvider";
+import type { AgentFormData } from "@/lib/agentFormDomain";
 import type { Tool } from "@/types";
 import { WelcomeStep } from './steps/WelcomeStep';
 import { ModelConfigStep } from './steps/ModelConfigStep';
@@ -63,7 +64,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       tools: availableTools,
       loading: loadingTools,
       error: errorTools
-    } = useAgents();
+    } = useAgents({ loadModels: true, loadTools: true });
 
   const handleNextFromWelcome = () => {
       setCurrentStep(1);

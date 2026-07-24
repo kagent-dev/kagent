@@ -32,18 +32,25 @@ ARTIFACT_ID_SEPARATOR = "-"
 logger = logging.getLogger("kagent_adk." + __name__)
 
 
-def serialize_metadata_value(value: Any) -> str:
-    """Safely serializes metadata values to string format.
+def serialize_metadata_value(value: Any) -> str | dict[str, Any]:
+    """Safely serializes a metadata value for A2A message/event metadata.
+
+    Pydantic values (anything with ``model_dump``) are returned as their
+    JSON-compatible serialized ``dict`` so structured metadata such as
+    ``usage_metadata`` stays machine-readable for consumers (for example the UI
+    reads the token counts as object fields). Everything else is returned as its
+    string representation.
 
     Args:
       value: The value to serialize.
 
     Returns:
-      String representation of the value.
+      The value's JSON-compatible ``model_dump`` dict for Pydantic values,
+      otherwise its string representation.
     """
     if hasattr(value, "model_dump"):
         try:
-            return value.model_dump(exclude_none=True, by_alias=True)
+            return value.model_dump(mode="json", exclude_none=True, by_alias=True)
         except Exception as e:
             logger.warning("Failed to serialize metadata value: %s", e)
             return str(value)

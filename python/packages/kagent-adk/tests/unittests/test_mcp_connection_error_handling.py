@@ -14,7 +14,22 @@ from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData
 
+from kagent.adk._mcp_apps import MCPAppToolNames
 from kagent.adk._mcp_toolset import ConnectionSafeMcpTool, KAgentMcpToolset
+
+
+def _make_mcp_tool(name, visibility=None, resource_uri=None):
+    """Build a real McpTool stub whose visibility/mcp_app_resource_uri
+    properties read from a fake raw MCP tool's _meta.ui block."""
+    tool = McpTool.__new__(McpTool)
+    tool.name = name
+    ui = {}
+    if visibility is not None:
+        ui["visibility"] = visibility
+    if resource_uri is not None:
+        ui["resourceUri"] = resource_uri
+    tool._mcp_tool = MagicMock(meta={"ui": ui} if ui else None)
+    return tool
 
 
 def _make_connection_safe_tool(side_effect):
@@ -155,3 +170,30 @@ async def test_get_tools_wraps_mcp_tools():
     assert tools[0].name == "wrapped-tool"
     assert tools[0]._some_attr == "value"
     assert tools[1] is fake_other_tool
+
+
+@pytest.mark.asyncio
+async def test_get_tools_hides_app_only_tools_from_model():
+    """App-only tools (_meta.ui.visibility ["app"] without "model") must not be
+    exposed to the model, mirroring the Go ADK filter. Model-visible app tools
+    are kept and recorded for result compaction."""
+    model_app_tool = _make_mcp_tool("get_weather", visibility=["model", "app"], resource_uri="ui://w/dash")
+    app_only_tool = _make_mcp_tool("refresh_dashboard", visibility=["app"], resource_uri="ui://w/dash")
+    plain_tool = _make_mcp_tool("echo")  # no visibility -> model-visible by default
+
+    app_tool_names = MCPAppToolNames()
+    toolset = KAgentMcpToolset.__new__(KAgentMcpToolset)
+    toolset._app_tool_names = app_tool_names
+
+    async def mock_super_get_tools(self_arg, readonly_context=None):
+        return [model_app_tool, app_only_tool, plain_tool]
+
+    with patch.object(McpToolset, "get_tools", mock_super_get_tools):
+        tools = await toolset.get_tools()
+
+    names = {t.name for t in tools}
+    assert "refresh_dashboard" not in names
+    assert names == {"get_weather", "echo"}
+    # Model-visible app tool is recorded; app-only tool is not.
+    assert "get_weather" in app_tool_names
+    assert "refresh_dashboard" not in app_tool_names

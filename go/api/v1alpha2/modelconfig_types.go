@@ -205,7 +205,9 @@ type OpenAIConfig struct {
 }
 
 // OpenAIReasoningEffort represents how many reasoning tokens the model generates before producing a response.
-// +kubebuilder:validation:Enum=minimal;low;medium;high
+// Set to "none" to disable reasoning; some models (e.g. gpt-5.6-terra) require this to use
+// function tools via the Chat Completions API.
+// +kubebuilder:validation:Enum=none;minimal;low;medium;high
 type OpenAIReasoningEffort string
 
 // AzureOpenAIConfig contains Azure OpenAI-specific configuration options

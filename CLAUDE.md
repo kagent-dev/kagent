@@ -33,7 +33,7 @@ The skill includes detailed reference materials on CRD workflows, translator pat
        ▼                  ▼
 ┌─────────────┐   ┌──────────────┐
 │  Database   │   │ Agent Runtime│
-│ (SQLite/PG) │   │   (Python)   │
+│ (Postgres)  │   │   (Python)   │
 └─────────────┘   └──────────────┘
 ```
 
@@ -76,6 +76,8 @@ kagent/
 ---
 
 ## Core Conventions
+
+See [STYLE.md](STYLE.md) for the full style guide (general principles + per-language rules).
 
 ### Error Handling
 
@@ -202,6 +204,7 @@ Breaking changes are acceptable in alpha versions.
 
 ## Additional Resources
 
+- **Style guide:** See [STYLE.md](STYLE.md) for coding conventions (general + per-language)
 - **Development setup:** See [DEVELOPMENT.md](DEVELOPMENT.md)
 - **Contributing:** See [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Architecture:** See [docs/architecture/](docs/architecture/)

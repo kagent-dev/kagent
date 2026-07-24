@@ -14,6 +14,7 @@ from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnect
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
 from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
+from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
@@ -385,6 +386,9 @@ class AgentConfig(BaseModel):
     network: NetworkConfig | None = None
     context_config: ContextConfig | None = None
     share_tools: bool | None = None  # Enable built-in share link tools
+    # Selects a local (in-actor) session store when set — substrate sandbox agents with
+    # durable-dir session storage. Set by the controller in the rendered config.
+    session_db_url: str | None = None
 
     def to_agent(
         self, name: str, sts_integration: Optional[ADKTokenPropagationPlugin] = None, propagate_token: bool = False
@@ -393,6 +397,9 @@ class AgentConfig(BaseModel):
             raise ValueError("Agent name must be a non-empty string.")
         tools: list[ToolUnion] = []
         tools_requiring_approval: set[str] = set()
+        # Names of MCP App (UI-rendering) tools, filled in lazily as MCP tools
+        # are resolved; used to compact their results for the model.
+        mcp_app_tool_names = MCPAppToolNames()
         sts_header_provider = None
         if sts_integration:
             sts_header_provider = sts_integration.header_provider
@@ -412,6 +419,7 @@ class AgentConfig(BaseModel):
                         connection_params=http_tool.params,
                         tool_filter=http_tool.tools,
                         header_provider=tool_header_provider,
+                        app_tool_names=mcp_app_tool_names,
                     )
                 )
                 if http_tool.require_approval:
@@ -429,6 +437,7 @@ class AgentConfig(BaseModel):
                         connection_params=sse_tool.params,
                         tool_filter=sse_tool.tools,
                         header_provider=tool_header_provider,
+                        app_tool_names=mcp_app_tool_names,
                     )
                 )
                 if sse_tool.require_approval:
@@ -516,7 +525,13 @@ class AgentConfig(BaseModel):
 
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
-        before_model_callback = strip_confirmation_parts_callback if tools_requiring_approval else None
+        # before_model callbacks run in order. Strip synthetic HITL confirmation
+        # parts (when approval is in play), then compact MCP App tool results so
+        # the model treats a rendered widget as terminal instead of re-calling it.
+        before_model_callbacks = []
+        if tools_requiring_approval:
+            before_model_callbacks.append(strip_confirmation_parts_callback)
+        before_model_callbacks.append(make_mcp_app_model_result_callback(mcp_app_tool_names))
 
         # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(
@@ -527,7 +542,7 @@ class AgentConfig(BaseModel):
             tools=tools,
             code_executor=code_executor,
             before_tool_callback=before_tool_callback,
-            before_model_callback=before_model_callback,
+            before_model_callback=before_model_callbacks,
         )
 
         # Configure memory if enabled

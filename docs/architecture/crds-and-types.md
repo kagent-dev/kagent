@@ -136,7 +136,7 @@ ModelConfigSpec
 │   ├── baseUrl, temperature, maxTokens, topP
 │   ├── frequencyPenalty, presencePenalty
 │   ├── seed, n, timeout
-│   └── reasoningEffort: minimal | low | medium | high
+│   └── reasoningEffort: none | minimal | low | medium | high
 ├── anthropic: AnthropicConfig
 │   └── baseUrl, maxTokens, temperature, topP, topK
 ├── azureOpenAI: AzureOpenAIConfig
@@ -252,8 +252,8 @@ The same configuration data flows through three type systems:
 
 ```
 CRD Types (Go)                    Go ADK Types              Python ADK Types
-go/api/v1alpha2/                  go/adk/types.go           kagent/adk/types.py
-────────────────                  ──────────────            ────────────────────
+go/api/v1alpha2/                  go/api/adk/types.go       kagent/adk/types.py
+────────────────                  ───────────────────       ────────────────────
 AgentSpec                    ──▶  AgentConfig          ──▶  AgentConfig
 DeclarativeAgentSpec         ──▶  AgentConfig.Agent    ──▶  AgentConfig.agent
 ModelConfigSpec              ──▶  ModelConfig          ──▶  ModelConfig
@@ -342,7 +342,7 @@ When adding a field to an existing CRD, update all layers:
 1. **CRD type** — `go/api/v1alpha2/*_types.go` (add field with kubebuilder markers)
 2. **Code generation** — `make -C go generate` (DeepCopy, CRD manifests)
 3. **Helm CRD chart** — `cp go/api/config/crd/bases/*.yaml helm/kagent-crds/templates/`
-4. **Go ADK types** — `go/adk/types.go` (if field affects agent config)
+4. **Go ADK types** — `go/api/adk/types.go` (if field affects agent config)
 5. **Translator** — `go/core/internal/controller/translator/agent/adk_api_translator.go` (wire field into config)
 6. **Python ADK types** — `python/packages/kagent-adk/src/kagent/adk/types.py` (mirror Go types)
 7. **Python runtime** — Use the field in agent setup if it affects runtime behavior

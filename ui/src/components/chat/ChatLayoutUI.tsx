@@ -1,15 +1,17 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { usePathname } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
 import SessionsSidebar from "@/components/sidebars/SessionsSidebar";
 import { AgentDetailsSidebar } from "@/components/sidebars/AgentDetailsSidebar";
 import { getSessionsForAgent } from "@/app/actions/sessions";
 import { AgentResponse, Session, RemoteMCPServerResponse, ToolsResponse } from "@/types";
 import { toast } from "sonner";
 import { ChatAgentProvider } from "@/components/chat/ChatAgentContext";
+import { ChatMcpAppsProvider } from "@/components/chat/ChatMcpAppsContext";
 import { isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
 import { mergeSessionUpdate, normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
+import { HarnessActorStatusProvider } from "@/components/chat/HarnessActorStatusContext";
 
 interface ChatLayoutUIProps {
   agentName: string;
@@ -29,6 +31,8 @@ export default function ChatLayoutUI({
   children
 }: ChatLayoutUIProps) {
   const pathname = usePathname();
+  const routeParams = useParams<{ chatId?: string }>();
+  const currentChatId = typeof routeParams?.chatId === "string" ? routeParams.chatId : undefined;
   const [sessions, setSessions] = useState<Session[]>([]);
   const [acpSessions, setAcpSessions] = useState<Array<{ sessionId: string; title?: string; updatedAt?: string }>>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
@@ -134,7 +138,12 @@ export default function ChatLayoutUI({
   }, []);
 
   return (
-    <>
+    <HarnessActorStatusProvider
+      namespace={namespace}
+      harnessName={agentName}
+      sessionId={currentChatId ?? sessions.find((session) => session.id)?.id}
+      enabled={Boolean(currentAgent.substrateAgentHarness)}
+    >
       <SessionsSidebar
         agentName={agentName}
         agentNamespace={namespace}
@@ -144,21 +153,24 @@ export default function ChatLayoutUI({
         acpSessions={acpSessions}
         isLoadingSessions={isLoadingSessions}
       />
-      <main className="flex min-w-0 flex-1 flex-col overflow-x-hidden px-4">
-        <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-1 flex-col">
-          <ChatAgentProvider
-            agentType={currentAgent.agent.spec.type}
-            runInSandbox={currentAgent.workloadMode === "sandbox"}
-            substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
-          >
-            {children}
-          </ChatAgentProvider>
+      <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden px-4">
+        <div className="mx-auto flex h-full min-h-0 w-full min-w-0 max-w-6xl flex-1 flex-col">
+          <ChatMcpAppsProvider currentAgent={currentAgent}>
+            <ChatAgentProvider
+              currentAgent={currentAgent}
+              agentType={currentAgent.agent.spec.type}
+              runInSandbox={currentAgent.workloadMode === "sandbox"}
+              substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
+            >
+              {children}
+            </ChatAgentProvider>
+          </ChatMcpAppsProvider>
         </div>
       </main>
       <AgentDetailsSidebar
         currentAgent={currentAgent}
         allTools={convertedTools}
       />
-    </>
+    </HarnessActorStatusProvider>
   );
 }
