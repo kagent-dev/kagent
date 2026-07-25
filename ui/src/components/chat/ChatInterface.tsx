@@ -1020,6 +1020,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         const placeCursorAtEnd = (text: string) =>
           requestAnimationFrame(() => textarea.setSelectionRange(text.length, text.length));
 
+        // The history list can shrink while browsing it (a session reload
+        // replaces the message list), so clamp the index before use —
+        // otherwise recall reads past the end and yields undefined.
+        if (historyIndexRef.current !== null) {
+          historyIndexRef.current = Math.min(historyIndexRef.current, userMessageHistory.length);
+        }
+
         if (e.key === "ArrowUp" && collapsed && onFirstLine) {
           if (historyIndexRef.current === null) {
             historyDraftRef.current = value;
