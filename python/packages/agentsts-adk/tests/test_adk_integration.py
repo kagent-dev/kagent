@@ -984,7 +984,7 @@ class TestADKTokenPropagationPlugin:
     def _jwt(iss: str, sub: str) -> str:
         import jwt as pyjwt
 
-        return pyjwt.encode({"iss": iss, "sub": sub}, "secret", algorithm="HS256")
+        return pyjwt.encode({"iss": iss, "sub": sub}, "test-signing-key-of-at-least-32-bytes!", algorithm="HS256")
 
     @pytest.mark.asyncio
     async def test_two_subjects_in_one_session_keep_separate_tokens(self):
@@ -1065,6 +1065,22 @@ class TestADKTokenPropagationPlugin:
         # bob runs; alice's entry has expired and must not survive the sweep.
         await plugin.after_run_callback(invocation_context=ic_bob)
         assert plugin.cache_key(ic_alice) not in plugin.token_cache
+
+    @pytest.mark.asyncio
+    async def test_tokenless_caller_does_not_reuse_cached_session_token(self):
+        """Case: session holds a cached token, but a caller with no subject token gets nothing back."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic_alice = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic_alice)
+        assert len(plugin.token_cache) == 1
+
+        ic_anon = self._make_invocation_context("shared-sess", headers=None)
+        await plugin.before_run_callback(invocation_context=ic_anon)
+        assert len(plugin.token_cache) == 1
+
+        assert plugin.header_provider(self._make_readonly_context(ic_anon)) == {}
 
 
 class TestADKSTSIntegration:

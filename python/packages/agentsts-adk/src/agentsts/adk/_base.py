@@ -47,8 +47,10 @@ def _subject_key(token: Optional[str]) -> str:
     a hash of the raw token so they still partition per principal.
 
     NOTE: this parses the token without verification and uses it only to
-    partition the cache, never to gate a security decision. Tokens are validated
-    server-side during the STS exchange.
+    partition the cache. On a cache hit the key selects which cached delegated
+    token the caller receives, so authenticating the inbound bearer remains the
+    caller's (upstream) responsibility; tokens are validated server-side during
+    the STS exchange on a miss.
     """
     if not token:
         return ""
