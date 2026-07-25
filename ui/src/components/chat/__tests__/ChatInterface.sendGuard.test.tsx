@@ -75,12 +75,12 @@ const mockGetSessionTasks = getSessionTasks as jest.MockedFunction<typeof getSes
 const mockSendMessageStream = kagentA2AClient.sendMessageStream as jest.MockedFunction<typeof kagentA2AClient.sendMessageStream>;
 const mockToastInfo = toast.info as jest.MockedFunction<typeof toast.info>;
 
-const staleToastMessage = "New messages loaded — please review before sending";
+const staleToastMessage = "New messages loaded, please review before sending";
 
 // The send guard is server-authoritative: it compares the count of persisted
 // history messages across all tasks (the high-water mark) against the count this
 // tab last synced. These helpers build tasks whose `history.length` drives that
-// count — the message content is irrelevant to the guard.
+// count, the message content is irrelevant to the guard.
 
 // The backend snapshot the mocked getSessionTasks currently returns. The stream
 // generators advance it to model a turn being persisted after it streams.
