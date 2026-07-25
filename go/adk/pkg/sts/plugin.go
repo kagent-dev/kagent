@@ -342,16 +342,6 @@ func sessionIDFromContext(ctx context.Context) string {
 	return sessionCtx.SessionID()
 }
 
-// GetTokenForSession retrieves the cached token for a specific session and
-// subject. Returns empty string if no valid token is cached.
-func (p *TokenPropagationPlugin) GetTokenForSession(sessionID, subject string) string {
-	entry, ok := p.getCachedToken(sessionID, subject)
-	if !ok {
-		return ""
-	}
-	return entry.Token
-}
-
 // ClearCache clears all cached tokens.
 func (p *TokenPropagationPlugin) ClearCache() {
 	p.mu.Lock()
