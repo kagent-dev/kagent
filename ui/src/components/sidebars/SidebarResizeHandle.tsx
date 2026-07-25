@@ -8,18 +8,23 @@ interface SidebarResizeHandleProps {
   onResize: (width: number) => void;
   /** Double-click resets to the default width. */
   onReset: () => void;
+  /** Called when a drag starts/ends so width transitions can be suppressed
+   *  only while dragging (otherwise collapsing snaps instead of sliding). */
+  onResizeStart?: () => void;
+  onResizeEnd?: () => void;
 }
 
 /**
  * Invisible drag strip on a sidebar's inner edge. Dragging resizes the
  * sidebar (via onResize with the new px width); double-click resets.
  */
-export default function SidebarResizeHandle({ side, onResize, onReset }: SidebarResizeHandleProps) {
+export default function SidebarResizeHandle({ side, onResize, onReset, onResizeStart, onResizeEnd }: SidebarResizeHandleProps) {
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       const target = e.currentTarget;
       target.setPointerCapture(e.pointerId);
+      onResizeStart?.();
 
       const onMove = (event: PointerEvent) => {
         const next = side === "left" ? event.clientX : window.innerWidth - event.clientX;
@@ -34,13 +39,14 @@ export default function SidebarResizeHandle({ side, onResize, onReset }: Sidebar
         target.removeEventListener("pointermove", onMove);
         target.removeEventListener("pointerup", stop);
         target.removeEventListener("pointercancel", stop);
+        onResizeEnd?.();
       };
       target.addEventListener("pointermove", onMove);
       target.addEventListener("pointerup", stop);
       // Touch interruptions (scroll takeover, alt-tab) end the drag cleanly.
       target.addEventListener("pointercancel", stop);
     },
-    [side, onResize]
+    [side, onResize, onResizeStart, onResizeEnd]
   );
 
   return (

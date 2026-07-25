@@ -31,9 +31,9 @@ export default function SessionsSidebar({
   onAcpSessionClick,
   isLoadingSessions = false
 }: SessionsSidebarProps) {
-  const { width, setWidth, reset } = useSidebarWidth("kagent.sidebar.left.width", 256);
+  const { width, setWidth, reset, isResizing, beginResize, endResize } = useSidebarWidth("kagent.sidebar.left.width", 256);
   return (
-    <Sidebar side="left" collapsible="offcanvas" width={`${width}px`}>
+    <Sidebar side="left" collapsible="offcanvas" width={`${width}px`} isResizing={isResizing}>
       <SidebarHeader>
         <AgentSwitcher currentAgent={currentAgent} allAgents={allAgents} />
       </SidebarHeader>
@@ -58,7 +58,7 @@ export default function SessionsSidebar({
         </ScrollArea>
       </SidebarContent>
       <SidebarRail />
-      <SidebarResizeHandle side="left" onResize={setWidth} onReset={reset} />
+      <SidebarResizeHandle side="left" onResize={setWidth} onReset={reset} onResizeStart={beginResize} onResizeEnd={endResize} />
     </Sidebar>
   );
 }

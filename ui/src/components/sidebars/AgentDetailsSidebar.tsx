@@ -29,7 +29,14 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
   const [toolDescriptions, setToolDescriptions] = useState<Record<string, string>>({});
   const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [availableAgents, setAvailableAgents] = useState<AgentResponse[]>([]);
-  const { width: detailsWidth, setWidth: setDetailsWidth, reset: resetDetailsWidth } = useSidebarWidth("kagent.sidebar.right.width", 256);
+  const {
+    width: detailsWidth,
+    setWidth: setDetailsWidth,
+    reset: resetDetailsWidth,
+    isResizing: isResizingDetails,
+    beginResize: beginResizeDetails,
+    endResize: endResizeDetails,
+  } = useSidebarWidth("kagent.sidebar.right.width", 256);
   const routeParams = useParams<{ chatId?: string }>();
   const currentChatId = typeof routeParams?.chatId === "string" ? routeParams.chatId : undefined;
 
@@ -250,8 +257,14 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
 
   return (
     <>
-      <Sidebar side={"right"} collapsible="offcanvas" width={`${detailsWidth}px`}>
-        <SidebarResizeHandle side="right" onResize={setDetailsWidth} onReset={resetDetailsWidth} />
+      <Sidebar side={"right"} collapsible="offcanvas" width={`${detailsWidth}px`} isResizing={isResizingDetails}>
+        <SidebarResizeHandle
+          side="right"
+          onResize={setDetailsWidth}
+          onReset={resetDetailsWidth}
+          onResizeStart={beginResizeDetails}
+          onResizeEnd={endResizeDetails}
+        />
         <SidebarHeader className="flex flex-row items-center justify-between gap-2">
           <span className="text-sm font-semibold leading-none">Agent Details</span>
           <Button

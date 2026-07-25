@@ -11,6 +11,10 @@ export const SIDEBAR_MAX_WIDTH = 480;
  */
 export function useSidebarWidth(storageKey: string, defaultWidth: number) {
   const [width, setWidthState] = useState<number>(defaultWidth);
+  // True only while a resize drag is in progress. Width transitions are
+  // suppressed during the drag so the panel tracks the pointer 1:1, but stay
+  // enabled otherwise so collapsing still slides instead of snapping.
+  const [isResizing, setIsResizing] = useState(false);
 
   useEffect(() => {
     try {
@@ -51,5 +55,8 @@ export function useSidebarWidth(storageKey: string, defaultWidth: number) {
     }
   }, [storageKey, defaultWidth]);
 
-  return { width, setWidth, reset };
+  const beginResize = useCallback(() => setIsResizing(true), []);
+  const endResize = useCallback(() => setIsResizing(false), []);
+
+  return { width, setWidth, reset, isResizing, beginResize, endResize };
 }
