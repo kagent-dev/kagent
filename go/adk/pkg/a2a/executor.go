@@ -270,6 +270,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		lastNonPartialParts a2atype.ContentParts
 		hitlParts           a2atype.ContentParts
 		runErr              error
+		usage               turnUsage
 	)
 
 	for adkEvent, adkErr := range r.Run(ctx, userID, sessionID, content, runConfig) {
@@ -286,6 +287,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 			invocationID = adkEvent.InvocationID
 			invocationSpan.SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", invocationID))
 		}
+
+		// Aggregate token usage for the terminal status update.
+		usage.add(adkEvent)
 
 		// Build per-event metadata (inherits baseMeta + adds invocation_id, usage etc.).
 		eventMeta := buildEventMeta(baseMeta, adkEvent)
@@ -382,6 +386,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	finalMeta := maps.Clone(baseMeta)
 	if invocationID != "" {
 		finalMeta[adka2a.ToA2AMetaKey("invocation_id")] = invocationID
+	}
+	if !usage.empty() {
+		finalMeta[GetKAgentMetadataKey("usage_total")] = usage.toMetadata()
 	}
 
 	if runErr != nil {
