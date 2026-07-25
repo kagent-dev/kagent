@@ -151,6 +151,12 @@ rbac:
 # ==============================================================================
 
 controller:
+  # -- ServiceAccount settings for the controller pod
+  serviceAccount:
+    # -- Annotations to add to the controller ServiceAccount.
+    # Useful for GCP Workload Identity, AWS IRSA, or Azure Workload Identity.
+    # @default -- {} (no extra annotations)
+    annotations: {}
   replicas: 1
   loglevel: "info"
   # Authentication mode: "unsecure" (default) or "trusted-proxy"
@@ -374,6 +380,12 @@ substrateWorkerPool:
 # ==============================================================================
 
 ui:
+  # -- ServiceAccount settings for the UI pod
+  serviceAccount:
+    # -- Annotations to add to the UI ServiceAccount.
+    # Useful for GCP Workload Identity, AWS IRSA, or Azure Workload Identity.
+    # @default -- {} (no extra annotations)
+    annotations: {}
   # -- Additional annotations to add to the UI Deployment metadata
   annotations: {}
 
