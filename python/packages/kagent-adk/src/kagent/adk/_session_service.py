@@ -47,7 +47,7 @@ class KAgentSessionService(BaseSessionService):
 
         # Make API call to create session
         # Pass user_id as a query param so the controller's auth middleware
-        # (UnsecureAuthenticator) reads it consistently — matching the user_id
+        # (UnsecureAuthenticator) reads it consistently, matching the user_id
         # used by get_session, list_sessions, delete_session, and append_event.
         # Without this, unsecure-mode requests fall back to "admin@kagent.dev"
         # while all lookups use the A2A-derived user_id, causing SessionNotFoundError.
@@ -77,20 +77,16 @@ class KAgentSessionService(BaseSessionService):
         config: Optional[GetSessionConfig] = None,
     ) -> Optional[Session]:
         try:
-            # ADK requires events to be chronological (especially for calculating deltas)
-            url = f"/api/sessions/{session_id}?user_id={user_id}&order=asc"
-            if config:
-                if config.after_timestamp:
-                    # TODO: implement
-                    # url += f"&after={config.after_timestamp}"
-                    pass
-                if config.num_recent_events:
-                    url += f"&limit={config.num_recent_events}"
-                else:
-                    url += "&limit=-1"
-            else:
-                # return all
-                url += "&limit=-1"
+            # ADK requires events to be chronological (especially for calculating deltas).
+            # Always fetch the full history: state is built by replaying every event's
+            # state_delta below, so limiting the fetch here would silently drop state set
+            # by events outside the window. num_recent_events is applied after, by
+            # trimming session.events once state is already correct.
+            url = f"/api/sessions/{session_id}?user_id={user_id}&order=asc&limit=-1"
+            if config and config.after_timestamp:
+                # TODO: implement
+                # url += f"&after={config.after_timestamp}"
+                pass
 
             # Make API call to get session
             response: httpx.Response = await self.client.get(url)
@@ -123,6 +119,9 @@ class KAgentSessionService(BaseSessionService):
 
             for event in events:
                 await super().append_event(session, event)
+
+            if config and config.num_recent_events:
+                session.events = session.events[-config.num_recent_events :]
 
             return session
         except httpx.HTTPStatusError as e:

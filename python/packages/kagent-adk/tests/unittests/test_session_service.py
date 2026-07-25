@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from google.adk.events.event import Event, EventActions
+from google.adk.sessions.base_session_service import GetSessionConfig
 
 from kagent.adk._session_service import KAgentSessionService
 
@@ -74,7 +75,7 @@ async def test_create_session_passes_user_id_as_query_param():
     the controller's UnsecureAuthenticator resolves identity from the query param
     (or X-User-Id header), not the JSON body.  Without the query param the
     controller falls back to "admin@kagent.dev" for the session create, while
-    every subsequent GET uses the A2A-derived user_id — guaranteeing a 404.
+    every subsequent GET uses the A2A-derived user_id, guaranteeing a 404.
     Fixes: https://github.com/kagent-dev/kagent/issues/1882
     """
     mock_response = MagicMock(spec=httpx.Response)
@@ -138,7 +139,7 @@ async def test_get_session_events_not_duplicated(make_event, session_response, s
 
     assert session is not None
     assert len(session.events) == len(events), (
-        f"Expected {len(events)} events but got {len(session.events)} — possible event duplication in get_session"
+        f"Expected {len(events)} events but got {len(session.events)}, possible event duplication in get_session"
     )
 
 
@@ -178,8 +179,47 @@ async def test_get_session_state_delta_applied_once(make_event, session_response
     # so for an idempotent string the bug was silent; here we use a distinct value
     # and just verify the key is present with the correct value.)
     assert session.state.get("counter") == 7, (
-        f"Expected state['counter'] == 7, got {session.state.get('counter')} — "
+        f"Expected state['counter'] == 7, got {session.state.get('counter')}, "
         "state_delta may have been applied more than once"
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_session_state_kept_outside_recent_events_window(make_event, session_response):
+    """A state delta from an event outside the num_recent_events window must
+    still land in session.state, only session.events is trimmed to the window.
+
+    The mock server here behaves like the real one: a &limit=N query param
+    returns only the last N events, while &limit=-1 returns everything. This
+    is what makes the test fail against the old code, which asked the server
+    for only num_recent_events and so never saw the older state_delta at all.
+    """
+    all_events = [
+        make_event("assistant", state_delta={"old_key": "old_value"}),
+        make_event("user"),
+        make_event("assistant"),
+    ]
+
+    def get_side_effect(url: str):
+        limited = "limit=-1" not in url
+        events = all_events[-2:] if limited else all_events
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = session_response(events)
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    client = MagicMock(spec=httpx.AsyncClient)
+    client.get = AsyncMock(side_effect=get_side_effect)
+
+    session = await KAgentSessionService(client).get_session(
+        app_name="app", user_id="u1", session_id="s1", config=GetSessionConfig(num_recent_events=2)
+    )
+
+    assert session is not None
+    assert len(session.events) == 2
+    assert session.state.get("old_key") == "old_value", (
+        "state from the first event must still apply even though only the last 2 events are kept in session.events"
     )
 
 
