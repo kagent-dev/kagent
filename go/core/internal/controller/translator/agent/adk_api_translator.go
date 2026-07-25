@@ -507,6 +507,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			if model.Spec.OpenAI.MaxTokens > 0 {
 				openai.MaxTokens = &model.Spec.OpenAI.MaxTokens
 			}
+			if model.Spec.OpenAI.MaxCompletionTokens > 0 {
+				openai.MaxCompletionTokens = &model.Spec.OpenAI.MaxCompletionTokens
+			}
 			if model.Spec.OpenAI.Seed != nil {
 				openai.Seed = model.Spec.OpenAI.Seed
 			}

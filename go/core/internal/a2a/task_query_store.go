@@ -25,7 +25,7 @@ const (
 type TaskStore interface {
 	GetSession(ctx context.Context, sessionID, userID string) (*dbpkg.Session, error)
 	ListSessions(ctx context.Context, userID string) ([]dbpkg.Session, error)
-	ListTasksForSession(ctx context.Context, sessionID string) ([]*a2atype.Task, error)
+	ListTasksForSession(ctx context.Context, sessionID, userID string) ([]*a2atype.Task, error)
 }
 
 // storeTaskQueryHandler answers ListTasks from kagent's task store, which is
@@ -122,7 +122,7 @@ func (h *storeTaskQueryHandler) collectUserTasks(ctx context.Context, userID, co
 		if _, err := h.store.GetSession(ctx, contextID, userID); err != nil {
 			return nil, fmt.Errorf("get session %s: %w", contextID, err)
 		}
-		return h.store.ListTasksForSession(ctx, contextID)
+		return h.store.ListTasksForSession(ctx, contextID, userID)
 	}
 
 	sessions, err := h.store.ListSessions(ctx, userID)
@@ -131,7 +131,7 @@ func (h *storeTaskQueryHandler) collectUserTasks(ctx context.Context, userID, co
 	}
 	var all []*a2atype.Task
 	for _, s := range sessions {
-		tasks, err := h.store.ListTasksForSession(ctx, s.ID)
+		tasks, err := h.store.ListTasksForSession(ctx, s.ID, userID)
 		if err != nil {
 			return nil, fmt.Errorf("list tasks for session %s: %w", s.ID, err)
 		}
