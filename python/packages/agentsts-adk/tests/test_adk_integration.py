@@ -1,5 +1,6 @@
 """Tests for ADK integration classes (STS + token propagation)."""
 
+import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from agentsts.adk._base import HEADERS_KEY
 from agentsts.adk._base import _extract_jwt_expiry as extract_jwt_expiry
 from agentsts.adk._base import _extract_jwt_from_headers as extract_jwt_from_headers
 from agentsts.adk._base import _has_token_expired as has_token_expired
+from agentsts.adk._base import _subject_key as subject_key
 
 
 class TestADKTokenPropagationPlugin:
@@ -76,8 +78,8 @@ class TestADKTokenPropagationPlugin:
             actor_token="actor-token",
             actor_token_type=TokenType.JWT,
         )
-        assert "sess-key-1" in plugin.token_cache
-        assert plugin.token_cache["sess-key-1"].token == "exchanged-token"
+        assert plugin.cache_key(ic) in plugin.token_cache
+        assert plugin.token_cache[plugin.cache_key(ic)].token == "exchanged-token"
 
     @pytest.mark.asyncio
     async def test_subject_token_callback_returns_none(self):
@@ -125,7 +127,7 @@ class TestADKTokenPropagationPlugin:
             actor_token="actor-token",
             actor_token_type=TokenType.JWT,
         )
-        assert plugin.token_cache["sess-key-4"].token == "exchanged-via-headers"
+        assert plugin.token_cache[plugin.cache_key(ic)].token == "exchanged-via-headers"
 
     @pytest.mark.asyncio
     async def test_downstream_token_propagation_without_sts(self):
@@ -134,8 +136,8 @@ class TestADKTokenPropagationPlugin:
         ic = self._make_invocation_context("sess-2", headers={"Authorization": "Bearer subj-token-123"})
         result = await plugin.before_run_callback(invocation_context=ic)
         assert result is None
-        assert "sess-2" in plugin.token_cache
-        assert plugin.token_cache["sess-2"].token == "subj-token-123"
+        assert plugin.cache_key(ic) in plugin.token_cache
+        assert plugin.token_cache[plugin.cache_key(ic)].token == "subj-token-123"
 
         # propagate toolset
         mcp_toolset = Mock(spec=MCPToolset)
@@ -153,7 +155,7 @@ class TestADKTokenPropagationPlugin:
         # cleanup - token should still be cached if not expired
         await plugin.after_run_callback(invocation_context=ic)
         # Token has no expiry, so it's preserved
-        assert "sess-2" in plugin.token_cache
+        assert plugin.cache_key(ic) in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_sts_token_exchange_success(self):
@@ -176,8 +178,8 @@ class TestADKTokenPropagationPlugin:
             )
             # optional debug log length check
             mock_logger.debug.assert_called()  # at least one debug log
-        assert "sess-3" in plugin.token_cache
-        assert plugin.token_cache["sess-3"].token == "access-token-XYZ"
+        assert plugin.cache_key(ic) in plugin.token_cache
+        assert plugin.token_cache[plugin.cache_key(ic)].token == "access-token-XYZ"
 
         ro_ctx = self._make_readonly_context(ic)
         headers = plugin.header_provider(ro_ctx)
@@ -186,7 +188,7 @@ class TestADKTokenPropagationPlugin:
         # cleanup - token should still be cached if not expired
         await plugin.after_run_callback(invocation_context=ic)
         # Token has no expiry, so it's preserved
-        assert "sess-3" in plugin.token_cache
+        assert plugin.cache_key(ic) in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_sts_token_exchange_failure(self):
@@ -202,7 +204,7 @@ class TestADKTokenPropagationPlugin:
             result = await plugin.before_run_callback(invocation_context=ic)
             assert result is None
             mock_logger.warning.assert_called_once()
-        assert "sess-4" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
         # header provider should yield empty dict
         ro_ctx = self._make_readonly_context(ic)
         assert plugin.header_provider(ro_ctx) == {}
@@ -228,11 +230,11 @@ class TestADKTokenPropagationPlugin:
         # Mock expiry to return expired timestamp
         with patch("agentsts.adk._base._extract_jwt_expiry", return_value=past_expiry):
             await plugin.before_run_callback(invocation_context=ic)
-            assert "sess-6" in plugin.token_cache
+            assert plugin.cache_key(ic) in plugin.token_cache
 
         # Token is expired, should be removed
         await plugin.after_run_callback(invocation_context=ic)
-        assert "sess-6" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_dynamic_token_fetch_success_sync(self):
@@ -267,8 +269,8 @@ class TestADKTokenPropagationPlugin:
             assert any("Fetched and cached new actor token" in call for call in debug_calls)
 
         # Verify token is cached
-        assert "sess-7" in plugin.token_cache
-        cache_entry = plugin.token_cache["sess-7"]
+        assert plugin.cache_key(ic) in plugin.token_cache
+        cache_entry = plugin.token_cache[plugin.cache_key(ic)]
         assert cache_entry.token == "access-token-dynamic"
 
     @pytest.mark.asyncio
@@ -304,8 +306,8 @@ class TestADKTokenPropagationPlugin:
             assert any("Fetched and cached new actor token" in call for call in debug_calls)
 
         # Verify token is cached
-        assert "sess-7a" in plugin.token_cache
-        cache_entry = plugin.token_cache["sess-7a"]
+        assert plugin.cache_key(ic) in plugin.token_cache
+        cache_entry = plugin.token_cache[plugin.cache_key(ic)]
         assert cache_entry.token == "access-token-dynamic-async"
 
     @pytest.mark.asyncio
@@ -333,7 +335,7 @@ class TestADKTokenPropagationPlugin:
             assert "Failed to fetch actor token dynamically" in warning_msg
 
         # No token should be cached
-        assert "sess-8" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_dynamic_token_fetch_failure_async(self):
@@ -360,7 +362,7 @@ class TestADKTokenPropagationPlugin:
             assert "Failed to fetch actor token dynamically" in warning_msg
 
         # No token should be cached
-        assert "sess-8a" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_dynamic_token_preserved_when_not_expired(self):
@@ -384,15 +386,15 @@ class TestADKTokenPropagationPlugin:
             await plugin.before_run_callback(invocation_context=ic)
 
         # Verify token is cached with expiry
-        assert "sess-9" in plugin.token_cache
-        cache_entry = plugin.token_cache["sess-9"]
+        assert plugin.cache_key(ic) in plugin.token_cache
+        cache_entry = plugin.token_cache[plugin.cache_key(ic)]
         assert cache_entry.expiry == future_expiry
 
         # Call after_run_callback - token should be preserved
         await plugin.after_run_callback(invocation_context=ic)
 
         # Verify token is still cached (not expired)
-        assert "sess-9" in plugin.token_cache
+        assert plugin.cache_key(ic) in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_dynamic_token_removed_when_expired(self):
@@ -416,13 +418,13 @@ class TestADKTokenPropagationPlugin:
             await plugin.before_run_callback(invocation_context=ic)
 
         # Verify token is cached
-        assert "sess-10" in plugin.token_cache
+        assert plugin.cache_key(ic) in plugin.token_cache
 
         # Call after_run_callback - token should be removed (expired)
         await plugin.after_run_callback(invocation_context=ic)
 
         # Verify token is removed
-        assert "sess-10" not in plugin.token_cache
+        assert plugin.cache_key(ic) not in plugin.token_cache
 
     @pytest.mark.asyncio
     async def test_valid_token_preserved_in_cache(self):
@@ -439,15 +441,15 @@ class TestADKTokenPropagationPlugin:
         await plugin.before_run_callback(invocation_context=ic)
 
         # Verify token is cached with expected value
-        assert "sess-11" in plugin.token_cache
-        cache_entry = plugin.token_cache["sess-11"]
+        assert plugin.cache_key(ic) in plugin.token_cache
+        cache_entry = plugin.token_cache[plugin.cache_key(ic)]
         assert cache_entry.token == "access-token-static"
 
         # Call after_run_callback - token should still be in cache if not expired
         await plugin.after_run_callback(invocation_context=ic)
 
         # Verify the same cache entry is still present
-        assert plugin.token_cache.get("sess-11") is cache_entry
+        assert plugin.token_cache.get(plugin.cache_key(ic)) is cache_entry
 
     @pytest.mark.asyncio
     async def test_actor_token_cached_and_reused(self):
@@ -655,8 +657,8 @@ class TestADKTokenPropagationPlugin:
             assert sts.exchange_token.call_count == 1
 
             # Verify token is cached
-            assert "sess-18" in plugin.token_cache
-            assert plugin.token_cache["sess-18"].token == "exchanged-token"
+            assert plugin.cache_key(ic) in plugin.token_cache
+            assert plugin.token_cache[plugin.cache_key(ic)].token == "exchanged-token"
 
             # Second call with same session - should use cached token
             await plugin.before_run_callback(invocation_context=ic)
@@ -685,12 +687,12 @@ class TestADKTokenPropagationPlugin:
         with patch("agentsts.adk._base._extract_jwt_expiry", return_value=past_expiry):
             await plugin.before_run_callback(invocation_context=ic)
             assert sts.exchange_token.call_count == 1
-            assert plugin.token_cache["sess-19"].token == "token-1"
-            assert plugin.token_cache["sess-19"].expiry == past_expiry
+            assert plugin.token_cache[plugin.cache_key(ic)].token == "token-1"
+            assert plugin.token_cache[plugin.cache_key(ic)].expiry == past_expiry
 
             # Cleanup expired token
             await plugin.after_run_callback(invocation_context=ic)
-            assert "sess-19" not in plugin.token_cache
+            assert plugin.cache_key(ic) not in plugin.token_cache
 
         # Second call - should detect missing cache and re-exchange
         with patch("agentsts.adk._base._extract_jwt_expiry", return_value=future_expiry):
@@ -698,8 +700,8 @@ class TestADKTokenPropagationPlugin:
 
             # Verify exchange was called again
             assert sts.exchange_token.call_count == 2
-            assert plugin.token_cache["sess-19"].token == "token-2"
-            assert plugin.token_cache["sess-19"].expiry == future_expiry
+            assert plugin.token_cache[plugin.cache_key(ic)].token == "token-2"
+            assert plugin.token_cache[plugin.cache_key(ic)].expiry == future_expiry
 
     @pytest.mark.asyncio
     async def test_subject_token_cache_no_expiry(self):
@@ -718,11 +720,11 @@ class TestADKTokenPropagationPlugin:
             # First call
             await plugin.before_run_callback(invocation_context=ic)
             assert sts.exchange_token.call_count == 1
-            assert plugin.token_cache["sess-20"].expiry is None
+            assert plugin.token_cache[plugin.cache_key(ic)].expiry is None
 
             # after_run_callback should preserve it (no expiry)
             await plugin.after_run_callback(invocation_context=ic)
-            assert "sess-20" in plugin.token_cache
+            assert plugin.cache_key(ic) in plugin.token_cache
 
             # Second call - should reuse cached token
             await plugin.before_run_callback(invocation_context=ic)
@@ -977,6 +979,92 @@ class TestADKTokenPropagationPlugin:
 
         assert extract_jwt_expiry(no_exp_token) is None
         assert has_token_expired(extract_jwt_expiry(no_exp_token)) is False
+
+    @staticmethod
+    def _jwt(iss: str, sub: str) -> str:
+        import jwt as pyjwt
+
+        return pyjwt.encode({"iss": iss, "sub": sub}, "secret", algorithm="HS256")
+
+    @pytest.mark.asyncio
+    async def test_two_subjects_in_one_session_keep_separate_tokens(self):
+        """Case: one session, two callers -> each keeps and reuses its own exchanged token."""
+        alice = self._jwt("https://dex.example", "alice")
+        bob = self._jwt("https://dex.example", "bob")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(side_effect=lambda subject_token, **_: f"exchanged-for-{subject_token[-5:]}")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic_alice = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        ic_bob = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {bob}"})
+
+        await plugin.before_run_callback(invocation_context=ic_alice)
+        await plugin.before_run_callback(invocation_context=ic_bob)
+
+        # Both callers share a session id, so a session-only key would have
+        # collapsed them onto whichever exchanged first.
+        assert plugin.cache_key(ic_alice) != plugin.cache_key(ic_bob)
+        assert len(plugin.token_cache) == 2
+        assert sts.exchange_token.await_count == 2
+
+        # Each caller's tool invocation gets its own token back.
+        alice_headers = plugin.header_provider(self._make_readonly_context(ic_alice))
+        bob_headers = plugin.header_provider(self._make_readonly_context(ic_bob))
+        assert alice_headers["Authorization"] == f"Bearer {plugin.token_cache[plugin.cache_key(ic_alice)].token}"
+        assert alice_headers != bob_headers
+
+    @pytest.mark.asyncio
+    async def test_same_subject_reuses_cached_token(self):
+        """Case: same caller twice in one session -> exchanged once, second call is a cache hit."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-once")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        await plugin.before_run_callback(invocation_context=ic)
+
+        assert sts.exchange_token.await_count == 1
+        assert len(plugin.token_cache) == 1
+
+    def test_subject_key_does_not_collide_across_issuers(self):
+        """Case: same sub at two issuers -> distinct keys, since sub is issuer-scoped."""
+        assert subject_key(self._jwt("https://iss-a", "same")) != subject_key(self._jwt("https://iss-b", "same"))
+
+    def test_subject_key_falls_back_to_hash_for_opaque_tokens(self):
+        """Case: non-JWT (or sub-less) tokens still partition per principal."""
+        assert subject_key("opaque-a") != subject_key("opaque-b")
+        assert subject_key("opaque-a") == subject_key("opaque-a")
+        assert subject_key("opaque-a").startswith("h:")
+        assert subject_key(None) == ""
+
+    @pytest.mark.asyncio
+    async def test_after_run_sweeps_other_subjects_expired_entries(self):
+        """Case: expired entry for a subject other than the acting one is still evicted."""
+        alice = self._jwt("https://dex.example", "alice")
+        bob = self._jwt("https://dex.example", "bob")
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic_alice = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        ic_bob = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {bob}"})
+
+        past_expiry = int(time.time()) - 100
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=past_expiry):
+            await plugin.before_run_callback(invocation_context=ic_alice)
+        assert plugin.cache_key(ic_alice) in plugin.token_cache
+
+        # bob runs; alice's entry has expired and must not survive the sweep.
+        await plugin.after_run_callback(invocation_context=ic_bob)
+        assert plugin.cache_key(ic_alice) not in plugin.token_cache
 
 
 class TestADKSTSIntegration:

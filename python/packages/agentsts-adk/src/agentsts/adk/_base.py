@@ -1,5 +1,6 @@
 """Google ADK-specific STS integration."""
 
+import hashlib
 import inspect
 import logging
 import time
@@ -36,6 +37,29 @@ def _default_get_subject_token(state: dict) -> Optional[str]:
     """Default subject token retrieval from Authorization header in session state."""
     headers = state.get(HEADERS_KEY, None)
     return _extract_jwt_from_headers(headers)
+
+
+def _subject_key(token: Optional[str]) -> str:
+    """Derive a stable per-principal cache discriminator from a bearer token.
+
+    Prefers the issuer-scoped ``sub`` claim. ``sub`` is unique only within an
+    issuer, so it is paired with ``iss``. Opaque or sub-less tokens fall back to
+    a hash of the raw token so they still partition per principal.
+
+    NOTE: this parses the token without verification and uses it only to
+    partition the cache, never to gate a security decision. Tokens are validated
+    server-side during the STS exchange.
+    """
+    if not token:
+        return ""
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+    except Exception:
+        claims = {}
+    sub = claims.get("sub")
+    if sub:
+        return f"{claims.get('iss', '')}\0{sub}"
+    return "h:" + hashlib.sha256(token.encode()).hexdigest()
 
 
 class ADKSTSIntegration(STSIntegrationBase):
@@ -156,7 +180,15 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Propagate token to model before execution."""
-        cache_key = self.cache_key(invocation_context)
+        # Resolve the acting subject before the cache lookup: the cache is keyed
+        # by subject, and a session carrying messages from several subjects would
+        # otherwise reuse whichever caller arrived first.
+        subject_token = self._read_subject_token(invocation_context.session.state)
+        if not subject_token:
+            logger.debug("subject token not found in session state for token propagation")
+            return None
+
+        cache_key = self._cache_key_for(invocation_context.session.id, subject_token)
 
         # Check if we have a valid cached subject token
         cached_entry = self.token_cache.get(cache_key)
@@ -166,17 +198,6 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.debug(f"Using cached subject token (expires in {cached_entry.expiry - current_time}s)")
             else:
                 logger.debug("Using cached subject token (no expiry)")
-            return None
-
-        # No valid cached token, need to get/exchange subject token
-        get_subject_token = (
-            self.sts_integration.get_subject_token
-            if self.sts_integration and self.sts_integration.get_subject_token
-            else _default_get_subject_token
-        )
-        subject_token = get_subject_token(invocation_context.session.state)
-        if not subject_token:
-            logger.debug("subject token not found in session state for token propagation")
             return None
 
         if self.sts_integration:
@@ -208,9 +229,24 @@ class ADKTokenPropagationPlugin(BasePlugin):
         logger.debug("Cached new subject token")
         return None
 
+    def _read_subject_token(self, state: dict) -> Optional[str]:
+        """Resolve the acting caller's subject token from session state."""
+        get_subject_token = (
+            self.sts_integration.get_subject_token
+            if self.sts_integration and self.sts_integration.get_subject_token
+            else _default_get_subject_token
+        )
+        return get_subject_token(state)
+
+    def _cache_key_for(self, session_id: str, subject_token: Optional[str]) -> str:
+        return f"{session_id}\0{_subject_key(subject_token)}"
+
     def cache_key(self, invocation_context: InvocationContext) -> str:
-        """Generate a cache key based on the session ID."""
-        return invocation_context.session.id
+        """Key the cache on the session and the acting subject, so a session
+        carrying messages from several subjects keeps one token per subject
+        instead of collapsing onto whichever arrived first."""
+        session = invocation_context.session
+        return self._cache_key_for(session.id, self._read_subject_token(session.state))
 
     async def _get_actor_token(self) -> Optional[str]:
         """Get actor token from cache or fetch dynamically.
@@ -264,13 +300,12 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Clean up expired tokens after run, preserving valid tokens."""
-        cache_key = self.cache_key(invocation_context)
-        cache_entry = self.token_cache.get(cache_key)
-
-        # Clean up subject token cache - only remove if expired
-        if cache_entry and _has_token_expired(cache_entry.expiry):
+        # A session now holds one entry per subject, and only the acting
+        # subject's key is derivable here, so sweep every expired entry rather
+        # than leaving the other subjects' behind.
+        for key in [key for key, entry in self.token_cache.items() if _has_token_expired(entry.expiry)]:
             logger.debug("Removing expired subject token from cache")
-            self.token_cache.pop(cache_key, None)
+            self.token_cache.pop(key, None)
 
         # Clean up expired actor token cache
         if self.actor_token_cache and _has_token_expired(self.actor_token_cache.expiry):
