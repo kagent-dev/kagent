@@ -39,6 +39,7 @@ export function ContextSection({
           </p>
         </div>
         <Switch
+          data-testid="context-compaction-switch"
           checked={compactionEnabled}
           onCheckedChange={toggleCompaction}
           disabled={isSubmitting}

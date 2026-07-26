@@ -580,6 +580,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({
                                 return (
                                   <div
                                     key={identifier}
+                                    data-testid={`tool-row-${identifier}`}
                                     className={`flex items-center justify-between p-3 pr-2 group min-w-0 ${isDisabled ? "opacity-50 cursor-not-allowed" : isSelected ? "cursor-default" : "cursor-pointer hover:bg-muted/50"}`}
                                     onClick={() =>
                                       !isDisabled &&
