@@ -303,7 +303,7 @@ func buildPodRuntime(
 	volumeMounts = append(volumeMounts, manifestCtx.deployment.VolumeMounts...)
 
 	needCodeExecIsolation := cfg != nil && cfg.GetExecuteCode()
-	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
+	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +399,6 @@ func buildSkillsRuntime(
 	sharedEnv *[]corev1.EnvVar,
 	volumes *[]corev1.Volume,
 	volumeMounts *[]corev1.VolumeMount,
-	needCodeExecIsolation *bool,
 ) ([]corev1.Container, *corev1.ConfigMap, error) {
 	spec := manifestCtx.agent.GetAgentSpec()
 	if spec.Skills == nil {
@@ -412,7 +411,6 @@ func buildSkillsRuntime(
 		return nil, nil, nil
 	}
 
-	*needCodeExecIsolation = true
 	*sharedEnv = append(*sharedEnv, corev1.EnvVar{
 		Name:  env.KagentSkillsFolder.Name(),
 		Value: "/skills",
@@ -445,7 +443,7 @@ func buildSkillsRuntime(
 		spec.Skills.GitAuthSecretRef,
 		skills,
 		spec.Skills.InsecureSkipVerify,
-		manifestCtx.deployment.SecurityContext,
+		buildContainerSecurityContext(manifestCtx.deployment.SecurityContext, false),
 		initEnv,
 		getDefaultResources(initResources),
 		spec.Skills.ImagePullSecrets,
@@ -488,10 +486,26 @@ func buildContainerSecurityContext(
 	}
 
 	if !needCodeExecIsolation {
-		return nil
+		return restrictedSecurityContext()
 	}
 
 	return &corev1.SecurityContext{Privileged: new(true)}
+}
+
+// restrictedSecurityContext satisfies the Pod Security Standards "restricted"
+// profile, so agents are admitted on clusters enforcing it without a
+// per-agent securityContext override.
+func restrictedSecurityContext() *corev1.SecurityContext {
+	return &corev1.SecurityContext{
+		AllowPrivilegeEscalation: new(false),
+		RunAsNonRoot:             new(true),
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
 }
 
 func buildPodTemplate(

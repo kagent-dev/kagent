@@ -186,6 +186,18 @@
                     "memory": "384Mi"
                   }
                 },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  },
+                  "runAsNonRoot": true,
+                  "seccompProfile": {
+                    "type": "RuntimeDefault"
+                  }
+                },
                 "volumeMounts": [
                   {
                     "mountPath": "/config",
