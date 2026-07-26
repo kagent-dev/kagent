@@ -53,6 +53,7 @@ from typing_extensions import override
 
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from ._remote_a2a_tool import SubagentSessionProvider
+from ._turn_usage import TurnUsage
 from .converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
 from .converters.part_converter import convert_a2a_part_to_genai_part, convert_genai_part_to_a2a_part
 from .converters.request_converter import convert_a2a_request_to_adk_run_args
@@ -241,12 +242,15 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
 
             # Handle the request and publish updates to the event queue
             runner = await self._resolve_runner()
+            # Shared with _handle_request so failed terminals still carry the
+            # metadata accumulated before the error (invocation_id, usage total).
+            run_metadata: dict[str, Any] = {}
             try:
-                await self._handle_request(context, event_queue, runner, run_args)
+                await self._handle_request(context, event_queue, runner, run_args, run_metadata)
             except asyncio.CancelledError as e:
                 logger.error("A2A request execution was cancelled", exc_info=True)
                 error_message = str(e) or "A2A request execution was cancelled."
-                await self._publish_failed_status_event(context, event_queue, error_message)
+                await self._publish_failed_status_event(context, event_queue, error_message, metadata=run_metadata)
             except Exception as e:
                 logger.error("Error handling A2A request: %s", e, exc_info=True)
 
@@ -267,7 +271,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                             "2. Use a model that supports function calling (e.g., OpenAI, Anthropic, or Gemini models)."
                         )
                 # Publish failure event
-                await self._publish_failed_status_event(context, event_queue, error_message)
+                await self._publish_failed_status_event(context, event_queue, error_message, metadata=run_metadata)
         finally:
             clear_kagent_span_attributes(context_token)
             # close the runner which cleans up the mcptoolsets
@@ -321,6 +325,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
         error_message: str,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         try:
             await event_queue.enqueue_event(
@@ -337,6 +342,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                     ),
                     context_id=context.context_id,
                     final=True,
+                    metadata=metadata or None,
                 )
             )
         except BaseException as enqueue_error:
@@ -526,6 +532,7 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         event_queue: EventQueue,
         runner: Runner,
         run_args: dict[str, Any],
+        run_metadata: dict[str, Any],
     ):
         # ensure the session exists
         session = await self._prepare_session(context, run_args, runner)
@@ -561,11 +568,13 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         )
 
         # Base metadata for events (invocation_id will be updated once we see it from ADK)
-        run_metadata = {
-            get_kagent_metadata_key("app_name"): runner.app_name,
-            get_kagent_metadata_key("user_id"): run_args["user_id"],
-            get_kagent_metadata_key("session_id"): run_args["session_id"],
-        }
+        run_metadata.update(
+            {
+                get_kagent_metadata_key("app_name"): runner.app_name,
+                get_kagent_metadata_key("user_id"): run_args["user_id"],
+                get_kagent_metadata_key("session_id"): run_args["session_id"],
+            }
+        )
 
         # publish the task working event
         await event_queue.enqueue_event(
@@ -587,6 +596,12 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         real_invocation_id: str | None = None
         last_usage_metadata = None
 
+        # Aggregate token usage across the run for the terminal status update.
+        # Resumed tasks (HITL cycles, follow-up messages) carry the previously
+        # persisted total; seed it so kagent_usage_total stays a task-lifetime sum.
+        turn_usage = TurnUsage()
+        turn_usage.seed_from_task(context.current_task)
+
         # Build a mapping of tool name -> subagent session ID once so the
         # event converter can stamp it onto function_call DataParts.
         subagent_session_ids: dict[str, str] = {}
@@ -595,36 +610,43 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
                 subagent_session_ids[tool.name] = tool.subagent_session_id
 
         task_result_aggregator = TaskResultAggregator()
-        async with Aclosing(runner.run_async(**run_args)) as agen:
-            async for adk_event in agen:
-                # Capture the real invocation_id from the first ADK event that has one
-                event_inv_id = getattr(adk_event, "invocation_id", None)
-                if event_inv_id and not real_invocation_id:
-                    real_invocation_id = event_inv_id
-                    run_metadata[get_kagent_metadata_key("invocation_id")] = real_invocation_id
+        try:
+            async with Aclosing(runner.run_async(**run_args)) as agen:
+                async for adk_event in agen:
+                    # Capture the real invocation_id from the first ADK event that has one
+                    event_inv_id = getattr(adk_event, "invocation_id", None)
+                    if event_inv_id and not real_invocation_id:
+                        real_invocation_id = event_inv_id
+                        run_metadata[get_kagent_metadata_key("invocation_id")] = real_invocation_id
 
-                # Track the last usage_metadata so it can be included in the final
-                # event's run_metadata. The A2A task_manager merges run_metadata into
-                # task.metadata, making it available to callers (e.g. KAgentRemoteA2ATool).
-                if getattr(adk_event, "usage_metadata", None) is not None:
-                    last_usage_metadata = adk_event.usage_metadata
+                    # Track the last usage_metadata so it can be included in the final
+                    # event's run_metadata. The A2A task_manager merges run_metadata into
+                    # task.metadata, making it available to callers (e.g. KAgentRemoteA2ATool).
+                    if getattr(adk_event, "usage_metadata", None) is not None:
+                        last_usage_metadata = adk_event.usage_metadata
 
-                for a2a_event in convert_event_to_a2a_events(
-                    adk_event,
-                    invocation_context,
-                    context.task_id,
-                    context.context_id,
-                    subagent_session_ids=subagent_session_ids or None,
-                ):
-                    # Only aggregate non-partial events to avoid duplicates from streaming chunks
-                    # Partial events are sent to frontend for display but not accumulated
-                    if not adk_event.partial:
-                        task_result_aggregator.process_event(a2a_event)
-                    await event_queue.enqueue_event(a2a_event)
+                    turn_usage.add(adk_event)
 
-                # Break on confirmation events that use long running tools
-                if getattr(adk_event, "long_running_tool_ids", None):
-                    break
+                    for a2a_event in convert_event_to_a2a_events(
+                        adk_event,
+                        invocation_context,
+                        context.task_id,
+                        context.context_id,
+                        subagent_session_ids=subagent_session_ids or None,
+                    ):
+                        # Only aggregate non-partial events to avoid duplicates from streaming chunks
+                        # Partial events are sent to frontend for display but not accumulated
+                        if not adk_event.partial:
+                            task_result_aggregator.process_event(a2a_event)
+                        await event_queue.enqueue_event(a2a_event)
+
+                    # Break on confirmation events that use long running tools
+                    if getattr(adk_event, "long_running_tool_ids", None):
+                        break
+        finally:
+            # Stamp on every exit so failed terminals published by the caller
+            # carry the tokens burned before the error too.
+            turn_usage.stamp(run_metadata)
 
         # Attach the last LLM usage to run_metadata so the A2A task_manager
         # merges it into task.metadata on the completed Task object.

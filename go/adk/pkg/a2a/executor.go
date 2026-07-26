@@ -272,6 +272,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		runErr              error
 		usage               turnUsage
 	)
+	// Resumed tasks (HITL cycles, follow-up messages) carry the previously
+	// persisted total; seed it so kagent_usage_total stays a task-lifetime sum.
+	usage.seedFromTask(reqCtx.StoredTask)
 
 	for adkEvent, adkErr := range r.Run(ctx, userID, sessionID, content, runConfig) {
 		if adkErr != nil {
@@ -303,6 +306,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 					a2atype.TextPart{Text: fmt.Sprintf("LLM error: %s %s", adkEvent.ErrorCode, adkEvent.ErrorMessage)})
 				failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
 				failed.Final = true
+				usage.stamp(eventMeta)
 				failed.Metadata = eventMeta
 				return queue.Write(ctx, failed)
 			}
@@ -315,6 +319,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 				a2atype.TextPart{Text: fmt.Sprintf("LLM error: %s %s", adkEvent.ErrorCode, adkEvent.ErrorMessage)})
 			failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
 			failed.Final = true
+			usage.stamp(eventMeta)
 			failed.Metadata = eventMeta
 			return queue.Write(ctx, failed)
 		}
@@ -387,9 +392,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	if invocationID != "" {
 		finalMeta[adka2a.ToA2AMetaKey("invocation_id")] = invocationID
 	}
-	if !usage.empty() {
-		finalMeta[GetKAgentMetadataKey("usage_total")] = usage.toMetadata()
-	}
+	usage.stamp(finalMeta)
 
 	if runErr != nil {
 		errMsg := newAgentMessage(reqCtx, a2atype.TextPart{Text: runErr.Error()})
