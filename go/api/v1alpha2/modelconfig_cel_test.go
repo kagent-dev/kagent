@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 )
 
-// TestOpenAIConfigCELValidation pins the OpenAIConfig admission rules against a
+// TestOpenAIConfigValidation pins the OpenAIConfig admission rules against a
 // real kube-apiserver loaded with the shipped CRDs:
 //   - maxTokens and maxCompletionTokens are mutually exclusive (type-level
 //     XValidation), because native OpenAI reasoning models reject max_tokens
@@ -36,7 +36,9 @@ import (
 //     sending both risks hard 400s.
 //   - both fields carry Minimum=1, so a non-positive value is rejected at
 //     admission rather than silently ignored by the translator.
-func TestOpenAIConfigCELValidation(t *testing.T) {
+//   - reasoningEffort accepts the provider-wide superset, including xhigh and
+//     minimal, while rejecting values outside that set.
+func TestOpenAIConfigValidation(t *testing.T) {
 	testEnv := &envtest.Environment{
 		BinaryAssetsDirectory: envtestAssetsDir(t),
 		CRDDirectoryPaths:     []string{crdBasesDir(t)},
@@ -141,6 +143,46 @@ func TestOpenAIConfigCELValidation(t *testing.T) {
 					},
 				}
 			},
+		},
+		{
+			name: "xhigh reasoning effort accepted",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-reasoning-xhigh", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:    "gpt-5.6-luna",
+						Provider: ModelProviderOpenAI,
+						OpenAI:   &OpenAIConfig{ReasoningEffort: new(OpenAIReasoningEffort("xhigh"))},
+					},
+				}
+			},
+		},
+		{
+			name: "minimal reasoning effort remains accepted",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-reasoning-minimal", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:    "compatible-reasoning-model",
+						Provider: ModelProviderOpenAI,
+						OpenAI:   &OpenAIConfig{ReasoningEffort: new(OpenAIReasoningEffort("minimal"))},
+					},
+				}
+			},
+		},
+		{
+			name: "unknown reasoning effort rejected",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-reasoning-unknown", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:    "gpt-5.6-luna",
+						Provider: ModelProviderOpenAI,
+						OpenAI:   &OpenAIConfig{ReasoningEffort: new(OpenAIReasoningEffort("extreme"))},
+					},
+				}
+			},
+			wantReject: "reasoningEffort",
 		},
 	}
 
