@@ -89,8 +89,8 @@ func TestListAgentsInputSchemaHasProperties(t *testing.T) {
 // declarative Agents report "DeploymentReady", SandboxAgents "WorkloadReady".
 func readyConditions(readyReason string) []metav1.Condition {
 	return []metav1.Condition{
-		{Type: "Accepted", Status: metav1.ConditionTrue, Reason: "AgentReconciled"},
-		{Type: "Ready", Status: metav1.ConditionTrue, Reason: readyReason},
+		{Type: v1alpha2.AgentConditionTypeAccepted, Status: metav1.ConditionTrue, Reason: "Reconciled"},
+		{Type: v1alpha2.AgentConditionTypeReady, Status: metav1.ConditionTrue, Reason: readyReason},
 	}
 }
 
@@ -118,8 +118,8 @@ func TestListReadyAgents_IncludesSandboxAgents(t *testing.T) {
 		&v1alpha2.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "pending-sandbox"},
 			Status: v1alpha2.AgentStatus{Conditions: []metav1.Condition{
-				{Type: "Accepted", Status: metav1.ConditionTrue, Reason: "AgentReconciled"},
-				{Type: "Ready", Status: metav1.ConditionFalse, Reason: "SandboxBackendNotConfigured"},
+				{Type: v1alpha2.AgentConditionTypeAccepted, Status: metav1.ConditionTrue, Reason: "Reconciled"},
+				{Type: v1alpha2.AgentConditionTypeReady, Status: metav1.ConditionFalse, Reason: "SandboxBackendNotConfigured"},
 			}},
 		},
 	}
@@ -137,9 +137,9 @@ func TestListReadyAgents_IncludesSandboxAgents(t *testing.T) {
 	}
 
 	assert.Contains(t, refs, "default/ready-agent", "ready declarative Agent should be listed")
-	assert.Contains(t, refs, "default/ready-sandbox", "ready SandboxAgent should be listed")
-	assert.NotContains(t, refs, "default/pending-sandbox", "not-ready SandboxAgent must be excluded")
-	assert.Equal(t, "sandbox agent", refs["default/ready-sandbox"], "SandboxAgent description should be surfaced")
+	assert.Contains(t, refs, "sandboxes/default/ready-sandbox", "ready SandboxAgent should be listed")
+	assert.NotContains(t, refs, "sandboxes/default/pending-sandbox", "not-ready SandboxAgent must be excluded")
+	assert.Equal(t, "sandbox agent", refs["sandboxes/default/ready-sandbox"], "SandboxAgent description should be surfaced")
 }
 
 // a2aBackend is a fake A2A server that records whether it was called.
@@ -185,11 +185,11 @@ func newA2ABackend(t *testing.T) *a2aBackend {
 }
 
 // newTestRegistry builds an AgentClientRegistry with a single agent pre-registered.
-func newTestRegistry(t *testing.T, namespace, name, backendURL string) *a2a.AgentClientRegistry {
+func newTestRegistry(t *testing.T, agentRef, backendURL string) *a2a.AgentClientRegistry {
 	t.Helper()
 	interfaces := []*a2atype.AgentInterface{
 		{
-			URL:             backendURL + "/" + namespace + "/" + name + "/",
+			URL:             backendURL + "/" + agentRef + "/",
 			ProtocolBinding: a2atype.TransportProtocolJSONRPC,
 			ProtocolVersion: a2atype.Version,
 		},
@@ -197,14 +197,14 @@ func newTestRegistry(t *testing.T, namespace, name, backendURL string) *a2a.Agen
 	c, err := a2aclient.NewFromEndpoints(context.Background(), interfaces, a2aclient.WithJSONRPCTransport(&http.Client{}))
 	require.NoError(t, err)
 	registry := a2a.NewAgentClientRegistry()
-	registry.Register(namespace, name, c)
+	registry.RegisterRef(agentRef, c)
 	return registry
 }
 
 // TestInvokeAgent_InvalidAgentRef verifies that invoke_agent returns a tool
-// error for agent references that are not exactly "namespace/name".
+// error for malformed declarative and sandbox agent references.
 func TestInvokeAgent_InvalidAgentRef(t *testing.T) {
-	for _, ref := range []string{"no-slash", "ns/name/extra", "/name", "ns/"} {
+	for _, ref := range []string{"no-slash", "ns/name/extra", "/name", "ns/", "sandboxes/ns", "sandboxes//name"} {
 		t.Run(ref, func(t *testing.T) {
 			registry := a2a.NewAgentClientRegistry()
 			mcpHandler, err := NewMCPHandler(nil, registry, nil)
@@ -266,31 +266,30 @@ func TestInvokeAgent_UnregisteredAgent(t *testing.T) {
 // TestInvokeAgent_RoutesViaRegistry verifies that invoke_agent retrieves the
 // pre-registered A2A client from AgentClientRegistry and forwards the call.
 func TestInvokeAgent_RoutesViaRegistry(t *testing.T) {
-	backend := newA2ABackend(t)
+	for _, agentRef := range []string{"default/test-agent", "sandboxes/default/test-agent"} {
+		t.Run(agentRef, func(t *testing.T) {
+			backend := newA2ABackend(t)
+			registry := newTestRegistry(t, agentRef, backend.server.URL)
+			mcpHandler, err := NewMCPHandler(nil, registry, nil)
+			require.NoError(t, err)
 
-	registry := newTestRegistry(t, "default", "test-agent", backend.server.URL)
-	mcpHandler, err := NewMCPHandler(nil, registry, nil)
-	require.NoError(t, err)
+			mcpServer := httptest.NewServer(mcpHandler)
+			t.Cleanup(mcpServer.Close)
+			transport := &mcpsdk.StreamableClientTransport{Endpoint: mcpServer.URL, DisableStandaloneSSE: true}
 
-	mcpServer := httptest.NewServer(mcpHandler)
-	t.Cleanup(mcpServer.Close)
+			ctx := context.Background()
+			cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "1.0"}, nil).
+				Connect(ctx, transport, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { cs.Close() })
 
-	transport := &mcpsdk.StreamableClientTransport{
-		Endpoint:             mcpServer.URL,
-		DisableStandaloneSSE: true,
+			result, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
+				Name:      "invoke_agent",
+				Arguments: map[string]any{"agent": agentRef, "task": "say hello"},
+			})
+			require.NoError(t, err)
+			assert.False(t, result.IsError, "unexpected tool error: %v", result.Content)
+			assert.True(t, backend.wasCalled(), "A2A backend should have received the forwarded request")
+		})
 	}
-
-	ctx := context.Background()
-	cs, err := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test", Version: "1.0"}, nil).
-		Connect(ctx, transport, nil)
-	require.NoError(t, err)
-	t.Cleanup(func() { cs.Close() })
-
-	result, err := cs.CallTool(ctx, &mcpsdk.CallToolParams{
-		Name:      "invoke_agent",
-		Arguments: map[string]any{"agent": "default/test-agent", "task": "say hello"},
-	})
-	require.NoError(t, err)
-	assert.False(t, result.IsError, "unexpected tool error: %v", result.Content)
-	assert.True(t, backend.wasCalled(), "A2A backend should have received the forwarded request")
 }

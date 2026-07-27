@@ -43,7 +43,7 @@ type AgentSummary struct {
 }
 
 type InvokeAgentInput struct {
-	Agent     string `json:"agent" jsonschema:"Agent reference in format namespace/name. To find a list of available sources, use the 'agents' resource."`
+	Agent     string `json:"agent" jsonschema:"Agent reference returned by the 'agents' resource."`
 	Task      string `json:"task" jsonschema:"Task to run"`
 	ContextID string `json:"context_id,omitempty" jsonschema:"Optional A2A context ID to continue a conversation"`
 }
@@ -148,12 +148,12 @@ func (h *MCPHandler) listReadyAgents(ctx context.Context) ([]AgentSummary, error
 
 	agents := make([]AgentSummary, 0, len(agentList.Items)+len(sandboxAgentList.Items))
 	for i := range agentList.Items {
-		if summary, ok := readyAgentSummary(&agentList.Items[i]); ok {
+		if summary, ok := readyAgentSummary(&agentList.Items[i], false); ok {
 			agents = append(agents, summary)
 		}
 	}
 	for i := range sandboxAgentList.Items {
-		if summary, ok := readyAgentSummary(&sandboxAgentList.Items[i]); ok {
+		if summary, ok := readyAgentSummary(&sandboxAgentList.Items[i], true); ok {
 			agents = append(agents, summary)
 		}
 	}
@@ -162,7 +162,7 @@ func (h *MCPHandler) listReadyAgents(ctx context.Context) ([]AgentSummary, error
 
 // readyAgentSummary reports whether the given agent is accepted and ready, and
 // if so returns its AgentSummary.
-func readyAgentSummary(agent v1alpha2.AgentObject) (AgentSummary, bool) {
+func readyAgentSummary(agent v1alpha2.AgentObject, sandbox bool) (AgentSummary, bool) {
 	status := agent.GetAgentStatus()
 	if status == nil {
 		return AgentSummary{}, false
@@ -182,9 +182,11 @@ func readyAgentSummary(agent v1alpha2.AgentObject) (AgentSummary, bool) {
 	if !accepted || !ready {
 		return AgentSummary{}, false
 	}
-	summary := AgentSummary{
-		Ref: agent.GetNamespace() + "/" + agent.GetName(),
+	ref := agent.GetNamespace() + "/" + agent.GetName()
+	if sandbox {
+		ref = "sandboxes/" + ref
 	}
+	summary := AgentSummary{Ref: ref}
 	if spec := agent.GetAgentSpec(); spec != nil {
 		summary.Description = spec.Description
 	}
@@ -266,18 +268,20 @@ func (h *MCPHandler) NotifyAgentsChanged(ctx context.Context) {
 func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallToolRequest, input InvokeAgentInput) (*mcpsdk.CallToolResult, InvokeAgentOutput, error) {
 	log := ctrllog.FromContext(ctx).WithName("mcp-handler").WithValues("tool", "invoke_agent")
 
-	// Parse agent reference — must be exactly "namespace/name".
+	// Declarative agents use "namespace/name" and sandbox agents use
+	// "sandboxes/namespace/name", matching the A2A client registry keys.
 	parts := strings.SplitN(input.Agent, "/", 3)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	validAgentRef := len(parts) == 2 && parts[0] != "" && parts[1] != ""
+	validSandboxRef := len(parts) == 3 && parts[0] == "sandboxes" && parts[1] != "" && parts[2] != ""
+	if !validAgentRef && !validSandboxRef {
 		return &mcpsdk.CallToolResult{
 			Content: []mcpsdk.Content{
-				&mcpsdk.TextContent{Text: "agent must be in format 'namespace/name'"},
+				&mcpsdk.TextContent{Text: "agent must be in format 'namespace/name' or 'sandboxes/namespace/name'"},
 			},
 			IsError: true,
 		}, InvokeAgentOutput{}, nil
 	}
-	agentNS, agentName := parts[0], parts[1]
-	agentRef := agentNS + "/" + agentName
+	agentRef := input.Agent
 
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(input.Task))
 	if input.ContextID != "" {
@@ -285,7 +289,7 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 		log.V(1).Info("Using context_id from client request", "context_id", input.ContextID)
 	}
 
-	result, err := h.agentClients.SendMessage(ctx, agentNS, agentName, &a2atype.SendMessageRequest{Message: message})
+	result, err := h.agentClients.SendMessageRef(ctx, agentRef, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
 		log.Error(err, "Failed to send A2A message", "agent", agentRef)
 		return &mcpsdk.CallToolResult{
