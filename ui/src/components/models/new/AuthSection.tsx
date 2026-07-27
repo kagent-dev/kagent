@@ -51,6 +51,7 @@ export const AuthSection: React.FC<AuthSectionProps> = ({
             <div className="flex items-center space-x-2">
               <div className="relative flex-grow">
                  <Input
+                   data-testid="model-api-key-input"
                    type={showApiKey ? "text" : "password"}
                    value={apiKey}
                    onChange={(e) => onApiKeyChange(e.target.value)}

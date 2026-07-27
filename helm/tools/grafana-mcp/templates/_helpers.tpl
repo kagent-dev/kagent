@@ -69,11 +69,11 @@ Create the grafana server URL
 {{- end }}
 
 {{/*
-Join registry/repository for grafana-mcp image, skipping empty segments, then append tag
+Join registry/repository/name/tag for grafana-mcp image, skipping empty segments, then append tag
 */}}
 {{- define "grafana-mcp.image" -}}
 {{- $img := .Values.image -}}
-{{- $parts := compact (list $img.registry $img.repository) -}}
+{{- $parts := compact (list $img.registry $img.repository $img.name) -}}
 {{- printf "%s:%s" (join "/" $parts) $img.tag -}}
 {{- end -}}
 

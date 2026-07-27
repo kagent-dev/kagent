@@ -507,6 +507,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			if model.Spec.OpenAI.MaxTokens > 0 {
 				openai.MaxTokens = &model.Spec.OpenAI.MaxTokens
 			}
+			if model.Spec.OpenAI.MaxCompletionTokens > 0 {
+				openai.MaxCompletionTokens = &model.Spec.OpenAI.MaxCompletionTokens
+			}
 			if model.Spec.OpenAI.Seed != nil {
 				openai.Seed = model.Spec.OpenAI.Seed
 			}
@@ -659,6 +662,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
 		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
+		if model.Spec.GeminiVertexAI.MaxOutputTokens > 0 {
+			gemini.MaxOutputTokens = &model.Spec.GeminiVertexAI.MaxOutputTokens
+		}
+
 		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil {
@@ -745,6 +752,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		if model.Spec.Gemini != nil && model.Spec.Gemini.MaxOutputTokens > 0 {
+			gemini.MaxOutputTokens = &model.Spec.Gemini.MaxOutputTokens
+		}
 		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil {

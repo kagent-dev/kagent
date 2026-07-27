@@ -45,6 +45,7 @@ export function ModelCombobox({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          data-testid="model-select"
           variant="outline"
           role="combobox"
           aria-expanded={open}

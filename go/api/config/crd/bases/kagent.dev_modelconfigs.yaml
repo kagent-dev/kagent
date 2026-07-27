@@ -534,6 +534,11 @@ spec:
                 type: object
               gemini:
                 description: Gemini-specific configuration
+                properties:
+                  maxOutputTokens:
+                    description: Maximum output tokens to generate for a single response
+                    minimum: 1
+                    type: integer
                 type: object
               geminiVertexAI:
                 description: Gemini Vertex AI-specific configuration
@@ -546,6 +551,7 @@ spec:
                     type: string
                   maxOutputTokens:
                     description: Maximum output tokens
+                    minimum: 1
                     type: integer
                   projectID:
                     description: The project ID
@@ -594,8 +600,22 @@ spec:
                   frequencyPenalty:
                     description: Frequency penalty
                     type: string
+                  maxCompletionTokens:
+                    description: |-
+                      Maximum completion tokens to generate. Sent as the OpenAI
+                      `max_completion_tokens` request parameter (an upper bound on visible
+                      output plus reasoning tokens). This is the parameter reasoning models
+                      (GPT-5 / o-series) require in place of the deprecated maxTokens.
+                      Mutually exclusive with maxTokens.
+                    minimum: 1
+                    type: integer
                   maxTokens:
-                    description: Maximum tokens to generate
+                    description: |-
+                      Maximum tokens to generate. Sent as the OpenAI `max_tokens` request
+                      parameter, which is deprecated and rejected by reasoning models
+                      (GPT-5 / o-series). For those models set maxCompletionTokens instead.
+                      Mutually exclusive with maxCompletionTokens.
+                    minimum: 1
                     type: integer
                   "n":
                     description: N value
@@ -614,6 +634,7 @@ spec:
                     - low
                     - medium
                     - high
+                    - xhigh
                     type: string
                   seed:
                     description: Seed value
@@ -653,6 +674,9 @@ spec:
                     description: Top-p sampling parameter
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: maxTokens and maxCompletionTokens are mutually exclusive
+                  rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
               provider:
                 default: OpenAI
                 description: The provider of the model

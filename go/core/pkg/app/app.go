@@ -685,7 +685,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	// Register A2A handlers on all replicas
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, dbClient)
 	ateneRouterURL := cfg.Substrate.AtenetRouterURL
 	if ateneRouterURL == "" {
 		ateneRouterURL = substrate.DefaultAtenetRouterURL
