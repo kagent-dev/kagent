@@ -97,11 +97,11 @@ class OpenAIAgentExecutor(AgentExecutor):
         agent: Agent,
         user_input: str,
         session: KAgentSession | None,
+        session_id: str,
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
         """Stream agent execution events and convert them to A2A events."""
-        session_id = session.session_id if session else getattr(context, "session_id", None) or context.context_id
         session_context = SessionContext(session_id=session_id)
         emitted_text = False
 
@@ -227,6 +227,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                     agent,
                     user_input,
                     session,
+                    session_id,
                     context,
                     event_queue,
                 ),
