@@ -384,6 +384,7 @@ func TestExtractSessionName(t *testing.T) {
 		{name: "nil message", msg: nil, want: ""},
 		{name: "no parts", msg: &a2atype.Message{}, want: ""},
 		{name: "short ascii", msg: textMsg("hello"), want: "hello"},
+		{name: "surrounding whitespace is trimmed", msg: textMsg("  hello\n"), want: "hello"},
 		{
 			name: "ascii at limit is not truncated",
 			msg:  textMsg("01234567890123456789"), // exactly 20 runes
@@ -404,6 +405,11 @@ func TestExtractSessionName(t *testing.T) {
 			name: "long multibyte truncated on rune boundary",
 			msg:  textMsg("あいうえおかきくけこさしすせそたちつてとな"), // 21 runes
 			want: "あいうえおかきくけこさしすせそたちつてと...",
+		},
+		{
+			name: "whitespace is trimmed before truncation",
+			msg:  textMsg("  012345678901234567890  "),
+			want: "01234567890123456789...",
 		},
 		{
 			name: "skips empty text part and uses first non-empty",

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"iter"
 	"strings"
-	"unicode/utf8"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -243,8 +242,13 @@ func extractSessionName(message *a2atype.Message) string {
 			continue
 		}
 		if text := part.Text(); text != "" {
-			if utf8.RuneCountInString(text) > sessionNameMaxLength {
-				return string([]rune(text)[:sessionNameMaxLength]) + "..."
+			text = strings.TrimSpace(text)
+			runeCount := 0
+			for byteIndex := range text {
+				if runeCount == sessionNameMaxLength {
+					return text[:byteIndex] + "..."
+				}
+				runeCount++
 			}
 			return text
 		}
