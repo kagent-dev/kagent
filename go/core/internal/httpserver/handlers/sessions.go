@@ -67,7 +67,7 @@ func (h *SessionsHandler) HandleGetSessionsForAgent(w ErrorResponseWriter, r *ht
 	// agent table as regular agents, so the lookup is uniform.
 	agentID := utils.ConvertToPythonIdentifier(namespace + "/" + agentName)
 	if _, err := h.DatabaseService.GetAgent(r.Context(), agentID); err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
+		RespondNotFoundOrError(w, "Agent not found", err)
 		return
 	}
 
@@ -230,7 +230,7 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	log.V(1).Info("Getting session from database")
 	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+		RespondNotFoundOrError(w, "Session not found", err)
 		return
 	}
 
@@ -333,7 +333,7 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 
 	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+		RespondNotFoundOrError(w, "Session not found", err)
 		return
 	}
 
@@ -344,7 +344,7 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 		log = log.WithValues("agentRef", *sessionRequest.AgentRef)
 		agent, err := h.DatabaseService.GetAgent(r.Context(), utils.ConvertToPythonIdentifier(*sessionRequest.AgentRef))
 		if err != nil {
-			w.RespondWithError(errors.NewNotFoundError("Agent not found", err))
+			RespondNotFoundOrError(w, "Agent not found", err)
 			return
 		}
 		session.AgentID = &agent.ID
@@ -426,12 +426,12 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 	// Verify session exists
 	_, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found for given ID", err))
+		RespondNotFoundOrError(w, "Session not found for given ID", err)
 		return
 	}
 
 	log.V(1).Info("Getting session tasks from database")
-	tasks, err := h.DatabaseService.ListTasksForSession(r.Context(), sessionID)
+	tasks, err := h.DatabaseService.ListTasksForSession(r.Context(), sessionID, userID)
 	if err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to get session runs", err))
 		return
@@ -499,7 +499,7 @@ func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http
 	// Get session to verify it exists
 	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
 	if err != nil {
-		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
+		RespondNotFoundOrError(w, "Session not found", err)
 		return
 	}
 

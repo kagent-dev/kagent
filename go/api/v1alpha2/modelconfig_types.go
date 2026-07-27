@@ -138,6 +138,8 @@ type TokenExchangeConfig struct {
 }
 
 // OpenAIConfig contains OpenAI-specific configuration options
+//
+// +kubebuilder:validation:XValidation:message="maxTokens and maxCompletionTokens are mutually exclusive",rule="!(has(self.maxTokens) && has(self.maxCompletionTokens))"
 type OpenAIConfig struct {
 	// Base URL for the OpenAI API (overrides default)
 	// +optional
@@ -151,9 +153,22 @@ type OpenAIConfig struct {
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 
-	// Maximum tokens to generate
+	// Maximum tokens to generate. Sent as the OpenAI `max_tokens` request
+	// parameter, which is deprecated and rejected by reasoning models
+	// (GPT-5 / o-series). For those models set maxCompletionTokens instead.
+	// Mutually exclusive with maxCompletionTokens.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MaxTokens int `json:"maxTokens,omitempty"`
+
+	// Maximum completion tokens to generate. Sent as the OpenAI
+	// `max_completion_tokens` request parameter (an upper bound on visible
+	// output plus reasoning tokens). This is the parameter reasoning models
+	// (GPT-5 / o-series) require in place of the deprecated maxTokens.
+	// Mutually exclusive with maxTokens.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxCompletionTokens int `json:"maxCompletionTokens,omitempty"`
 
 	// Top-p sampling parameter
 	// +optional
@@ -190,9 +205,9 @@ type OpenAIConfig struct {
 }
 
 // OpenAIReasoningEffort represents how many reasoning tokens the model generates before producing a response.
-// Set to "none" to disable reasoning; some models (e.g. gpt-5.6-terra) require this to use
-// function tools via the Chat Completions API.
-// +kubebuilder:validation:Enum=none;minimal;low;medium;high
+// Supported values vary by model. Set to "none" to disable reasoning; some models (e.g. gpt-5.6-terra)
+// require this to use function tools via the Chat Completions API.
+// +kubebuilder:validation:Enum=none;minimal;low;medium;high;xhigh
 type OpenAIReasoningEffort string
 
 // AzureOpenAIConfig contains Azure OpenAI-specific configuration options
