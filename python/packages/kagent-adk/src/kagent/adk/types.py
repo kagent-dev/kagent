@@ -19,7 +19,7 @@ from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
-from kagent.adk.models._gemini import KAgentGeminiLlm
+from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import OpenAI as OpenAINative
@@ -296,6 +296,7 @@ class Anthropic(BaseLLM):
 
 
 class GeminiVertexAI(BaseLLM):
+    max_output_tokens: int | None = Field(default=None, ge=1)
     type: Literal["gemini_vertex_ai"]
 
 
@@ -309,6 +310,7 @@ class Ollama(BaseLLM):
 
 
 class Gemini(BaseLLM):
+    max_output_tokens: int | None = Field(default=None, ge=1)
     type: Literal["gemini"]
 
 
@@ -679,7 +681,10 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini_vertex_ai":
-        return GeminiLLM(model=model_config.model)
+        return KAgentGeminiVertexAILlm(
+            model=model_config.model,
+            max_output_tokens=model_config.max_output_tokens,
+        )
     if model_config.type == "gemini_anthropic":
         return ClaudeLLM(model=model_config.model)
     if model_config.type == "ollama":
@@ -702,6 +707,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return KAgentGeminiLlm(
             model=model_config.model,
             extra_headers=extra_headers,
+            max_output_tokens=model_config.max_output_tokens,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "bedrock":

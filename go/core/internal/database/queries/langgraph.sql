@@ -31,11 +31,11 @@ WHERE user_id = $1 AND thread_id = $2 AND checkpoint_ns = $3
   AND checkpoint_id = $4 AND deleted_at IS NULL
 LIMIT 1;
 
--- name: ListCheckpointWrites :many
+-- name: ListCheckpointWritesForCheckpoints :many
 SELECT * FROM lg_checkpoint_write
 WHERE user_id = $1 AND thread_id = $2 AND checkpoint_ns = $3
-  AND checkpoint_id = $4 AND deleted_at IS NULL
-ORDER BY task_id, write_idx;
+  AND checkpoint_id = ANY(sqlc.arg(checkpoint_ids)::text[]) AND deleted_at IS NULL
+ORDER BY checkpoint_id, task_id, write_idx;
 
 -- name: UpsertCheckpointWrite :exec
 INSERT INTO lg_checkpoint_write (

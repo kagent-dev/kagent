@@ -74,6 +74,7 @@ type GeminiVertexAIConfig struct {
 
 	// Maximum output tokens
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
 
 	// Candidate count
@@ -205,9 +206,9 @@ type OpenAIConfig struct {
 }
 
 // OpenAIReasoningEffort represents how many reasoning tokens the model generates before producing a response.
-// Set to "none" to disable reasoning; some models (e.g. gpt-5.6-terra) require this to use
-// function tools via the Chat Completions API.
-// +kubebuilder:validation:Enum=none;minimal;low;medium;high
+// Supported values vary by model. Set to "none" to disable reasoning; some models (e.g. gpt-5.6-terra)
+// require this to use function tools via the Chat Completions API.
+// +kubebuilder:validation:Enum=none;minimal;low;medium;high;xhigh
 type OpenAIReasoningEffort string
 
 // AzureOpenAIConfig contains Azure OpenAI-specific configuration options
@@ -257,7 +258,13 @@ type OllamaConfig struct {
 	Options map[string]string `json:"options,omitempty"`
 }
 
-type GeminiConfig struct{}
+// GeminiConfig contains Gemini (AI Studio, API-key) specific configuration options
+type GeminiConfig struct {
+	// Maximum output tokens to generate for a single response
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+}
 
 // BedrockConfig contains AWS Bedrock-specific configuration options.
 type BedrockConfig struct {
