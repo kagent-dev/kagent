@@ -3,11 +3,12 @@ import { use, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import ChatInterface from "@/components/chat/ChatInterface";
 import AcpHarnessChat from "@/components/chat/AcpHarnessChat";
-import { getAgentWithResolvedKind } from "@/app/actions/agents";
+import { useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
 import { Loader2 } from "lucide-react";
 
 function ChatPageViewInner({ params }: { params: Promise<{ name: string; namespace: string; chatId: string }> }) {
   const { name, namespace, chatId } = use(params);
+  const currentAgent = useCurrentChatAgent();
   const searchParams = useSearchParams();
   const shareToken = searchParams.get("share") ?? undefined;
   // A brand-new chat (just created via "New Chat") arrives with ?new=1 and stays
@@ -21,9 +22,8 @@ function ChatPageViewInner({ params }: { params: Promise<{ name: string; namespa
     let cancelled = false;
     (async () => {
       try {
-        const agentRes = await getAgentWithResolvedKind(name, namespace);
         if (cancelled) return;
-        const substrateHarness = agentRes.data?.substrateAgentHarness;
+        const substrateHarness = currentAgent.substrateAgentHarness;
         if (substrateHarness) {
           const acpBase =
             substrateHarness.acpPath ||
@@ -41,7 +41,7 @@ function ChatPageViewInner({ params }: { params: Promise<{ name: string; namespa
     return () => {
       cancelled = true;
     };
-  }, [name, namespace, chatId, isNew]);
+  }, [name, namespace, chatId, isNew, currentAgent]);
 
   if (gate === "loading") {
     return (

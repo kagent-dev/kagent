@@ -20,75 +20,31 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+// recordingActorClient embeds ControlClient so unused RPCs panic (nil deref) if
+// ever called; only the methods the cleanup path exercises are overridden.
 type recordingActorClient struct {
+	ateapipb.ControlClient
 	deleted []string
 }
 
-func (r *recordingActorClient) GetActor(_ context.Context, in *ateapipb.GetActorRequest, _ ...grpc.CallOption) (*ateapipb.GetActorResponse, error) {
-	name := in.GetActorRef().GetName()
+func (r *recordingActorClient) GetActor(_ context.Context, in *ateapipb.GetActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
+	name := in.GetActor().GetName()
 	if slices.Contains(r.deleted, name) {
 		return nil, status.Error(codes.NotFound, "actor deleted")
 	}
-	return &ateapipb.GetActorResponse{
-		Actor: &ateapipb.Actor{
-			ActorId:  name,
-			Atespace: in.GetActorRef().GetAtespace(),
-			Status:   ateapipb.Actor_STATUS_SUSPENDED,
-		},
+	return &ateapipb.Actor{
+		Metadata: &ateapipb.ResourceMetadata{Name: name, Atespace: in.GetActor().GetAtespace()},
+		Status:   ateapipb.Actor_STATUS_SUSPENDED,
 	}, nil
 }
 
-func (r *recordingActorClient) DeleteActor(_ context.Context, in *ateapipb.DeleteActorRequest, _ ...grpc.CallOption) (*ateapipb.DeleteActorResponse, error) {
-	r.deleted = append(r.deleted, in.GetActorRef().GetName())
-	return &ateapipb.DeleteActorResponse{}, nil
+func (r *recordingActorClient) DeleteActor(_ context.Context, in *ateapipb.DeleteActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
+	r.deleted = append(r.deleted, in.GetActor().GetName())
+	return &ateapipb.Actor{}, nil
 }
 
-func (r *recordingActorClient) CreateActor(context.Context, *ateapipb.CreateActorRequest, ...grpc.CallOption) (*ateapipb.CreateActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) SuspendActor(context.Context, *ateapipb.SuspendActorRequest, ...grpc.CallOption) (*ateapipb.SuspendActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) ResumeActor(context.Context, *ateapipb.ResumeActorRequest, ...grpc.CallOption) (*ateapipb.ResumeActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) PauseActor(context.Context, *ateapipb.PauseActorRequest, ...grpc.CallOption) (*ateapipb.PauseActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) UpdateActor(context.Context, *ateapipb.UpdateActorRequest, ...grpc.CallOption) (*ateapipb.UpdateActorResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) ListWorkers(context.Context, *ateapipb.ListWorkersRequest, ...grpc.CallOption) (*ateapipb.ListWorkersResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) ListActors(context.Context, *ateapipb.ListActorsRequest, ...grpc.CallOption) (*ateapipb.ListActorsResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) DebugClear(context.Context, *ateapipb.DebugClearRequest, ...grpc.CallOption) (*ateapipb.DebugClearResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.CreateAtespaceResponse, error) {
-	return &ateapipb.CreateAtespaceResponse{Atespace: &ateapipb.Atespace{Name: in.GetName()}}, nil
-}
-
-func (r *recordingActorClient) GetAtespace(context.Context, *ateapipb.GetAtespaceRequest, ...grpc.CallOption) (*ateapipb.GetAtespaceResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) ListAtespaces(context.Context, *ateapipb.ListAtespacesRequest, ...grpc.CallOption) (*ateapipb.ListAtespacesResponse, error) {
-	panic("not used")
-}
-
-func (r *recordingActorClient) DeleteAtespace(context.Context, *ateapipb.DeleteAtespaceRequest, ...grpc.CallOption) (*ateapipb.DeleteAtespaceResponse, error) {
-	panic("not used")
+func (r *recordingActorClient) CreateAtespace(_ context.Context, in *ateapipb.CreateAtespaceRequest, _ ...grpc.CallOption) (*ateapipb.Atespace, error) {
+	return &ateapipb.Atespace{Metadata: &ateapipb.ResourceMetadata{Name: in.GetAtespace().GetMetadata().GetName()}}, nil
 }
 
 func TestLifecycleCleanupGeneratedTemplate_DeletesGoldenActor(t *testing.T) {

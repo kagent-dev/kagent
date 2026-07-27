@@ -351,6 +351,12 @@ func TestMaxEmbeddedVersion(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "no underscore returns error, matches golang-migrate",
+			fs:      fstest.MapFS{"core/000003foo.up.sql": {}},
+			dir:     "core",
+			wantErr: true,
+		},
+		{
 			name:    "empty dir returns error",
 			fs:      fstest.MapFS{"core/.keep": {}},
 			dir:     "core",

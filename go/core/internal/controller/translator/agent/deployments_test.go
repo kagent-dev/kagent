@@ -85,3 +85,43 @@ func TestValidateExtraContainers(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDefaultNodeSelector(t *testing.T) {
+	setGlobal := func(t *testing.T, v map[string]string) {
+		t.Helper()
+		prev := DefaultAgentNodeSelector
+		DefaultAgentNodeSelector = v
+		t.Cleanup(func() { DefaultAgentNodeSelector = prev })
+	}
+
+	t.Run("nil stays nil without a global default", func(t *testing.T) {
+		setGlobal(t, nil)
+		if got := getDefaultNodeSelector(nil); got != nil {
+			t.Errorf("getDefaultNodeSelector(nil) = %v, want nil", got)
+		}
+	})
+
+	t.Run("per-agent value kept without a global default", func(t *testing.T) {
+		setGlobal(t, nil)
+		got := getDefaultNodeSelector(map[string]string{"disktype": "ssd"})
+		if got["disktype"] != "ssd" || len(got) != 1 {
+			t.Errorf("getDefaultNodeSelector() = %v, want map[disktype:ssd]", got)
+		}
+	})
+
+	t.Run("global default applied when agent sets nothing", func(t *testing.T) {
+		setGlobal(t, map[string]string{"kubernetes.io/os": "linux"})
+		got := getDefaultNodeSelector(nil)
+		if got["kubernetes.io/os"] != "linux" || len(got) != 1 {
+			t.Errorf("getDefaultNodeSelector(nil) = %v, want the global default", got)
+		}
+	})
+
+	t.Run("per-agent nodeSelector overrides the global default", func(t *testing.T) {
+		setGlobal(t, map[string]string{"kubernetes.io/os": "linux", "pool": "default"})
+		got := getDefaultNodeSelector(map[string]string{"pool": "gpu"})
+		if got["pool"] != "gpu" || got["kubernetes.io/os"] != "linux" || len(got) != 2 {
+			t.Errorf("getDefaultNodeSelector() = %v, want merged map with per-agent pool=gpu", got)
+		}
+	})
+}

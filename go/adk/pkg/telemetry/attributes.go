@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/adk/model"
+	"google.golang.org/adk/v2/model"
 )
 
 const (

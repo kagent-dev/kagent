@@ -15,9 +15,9 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 )
 
 // userIDContextKey is the context key for passing the session user_id to the subagent.
@@ -177,7 +177,7 @@ func NewKAgentRemoteA2ATool(name, description, baseURL string, httpClient *http.
 	ft, err := functiontool.New(functiontool.Config{
 		Name:        name,
 		Description: description,
-	}, func(ctx adkagent.ToolContext, in remoteA2AInput) (map[string]any, error) {
+	}, func(ctx adkagent.Context, in remoteA2AInput) (map[string]any, error) {
 		return state.run(ctx, in.Request)
 	})
 	if err != nil {
@@ -239,7 +239,7 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 }
 
 // run dispatches to handleResume or handleFirstCall based on ToolConfirmation presence.
-func (s *remoteA2AState) run(ctx adkagent.ToolContext, requestText string) (map[string]any, error) {
+func (s *remoteA2AState) run(ctx adkagent.Context, requestText string) (map[string]any, error) {
 	if ctx.ToolConfirmation() != nil {
 		return s.handleResume(ctx)
 	}
@@ -247,7 +247,7 @@ func (s *remoteA2AState) run(ctx adkagent.ToolContext, requestText string) (map[
 }
 
 // handleFirstCall is Phase 1: send the request to the remote agent.
-func (s *remoteA2AState) handleFirstCall(ctx adkagent.ToolContext, requestText string) (map[string]any, error) {
+func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText string) (map[string]any, error) {
 	if requestText == "" {
 		return map[string]any{"error": "missing or empty 'request' argument"}, nil
 	}
@@ -275,7 +275,7 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.ToolContext, requestText s
 }
 
 // handleResume is Phase 2: forward the user's decision to the remote agent's pending task.
-func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (map[string]any, error) {
+func (s *remoteA2AState) handleResume(ctx adkagent.Context) (map[string]any, error) {
 	confirmation := ctx.ToolConfirmation()
 	payload, _ := confirmation.Payload.(map[string]any)
 	hitlPayload := a2a.ParseHitlConfirmationPayload(payload)
@@ -337,7 +337,7 @@ func (s *remoteA2AState) handleResume(ctx adkagent.ToolContext) (map[string]any,
 }
 
 // processResult converts a SendMessageResult into a tool return value.
-func (s *remoteA2AState) processResult(ctx adkagent.ToolContext, result a2atype.SendMessageResult) (map[string]any, error) {
+func (s *remoteA2AState) processResult(ctx adkagent.Context, result a2atype.SendMessageResult) (map[string]any, error) {
 	switch r := result.(type) {
 	case *a2atype.Message:
 		return map[string]any{"result": extractTextFromMessage(r)}, nil
@@ -371,7 +371,7 @@ func (s *remoteA2AState) processResult(ctx adkagent.ToolContext, result a2atype.
 }
 
 // handleInputRequired pauses parent agent execution via RequestConfirmation.
-func (s *remoteA2AState) handleInputRequired(ctx adkagent.ToolContext, task *a2atype.Task) map[string]any {
+func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype.Task) map[string]any {
 	if task == nil {
 		slog.Error("Subagent returned input_required without task", "tool", s.name)
 		return map[string]any{

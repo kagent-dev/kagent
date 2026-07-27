@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -87,7 +86,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 		{
 			name: "invalid token returns 403",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return nil, pgx.ErrNoRows
+				return nil, dbpkg.ErrNotFound
 			},
 			buildReq: func() *http.Request {
 				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
@@ -98,11 +97,11 @@ func TestShareTokenMiddleware(t *testing.T) {
 			wantShareCtx: false,
 		},
 		{
-			// Revocation deletes the session_share row; subsequent lookups return pgx.ErrNoRows,
+			// Revocation deletes the session_share row; subsequent lookups return database.ErrNotFound,
 			// so revoked tokens are rejected immediately — no grace period.
 			name: "revoked token returns 403",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return nil, pgx.ErrNoRows
+				return nil, dbpkg.ErrNotFound
 			},
 			buildReq: func() *http.Request {
 				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
@@ -168,7 +167,10 @@ func TestShareTokenMiddleware(t *testing.T) {
 			wantReadOnly: false,
 		},
 		{
-			name: "valid read-only token with POST to A2A path returns 403",
+			// A2A is JSON-RPC over POST, so read-only enforcement can't be done by
+			// verb here; the middleware passes the request through with a ShareContext
+			// and the A2A handler rejects mutating methods per-method.
+			name: "valid read-only token with POST to A2A path passes through with ShareContext",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
 				return okShare, nil
 			},
@@ -177,8 +179,9 @@ func TestShareTokenMiddleware(t *testing.T) {
 				r.Header.Set("X-Share-Token", "valid-token")
 				return withUser(r, "visitor-id")
 			},
-			wantStatus:   http.StatusForbidden,
-			wantShareCtx: false,
+			wantStatus:   http.StatusOK,
+			wantShareCtx: true,
+			wantReadOnly: true,
 		},
 		{
 			name: "valid read-write token with POST to A2A path passes through",

@@ -3,7 +3,7 @@ name = "kagent-openai"
 version = "0.1.0"
 description = "OpenAI integration for KAgent with A2A server support"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
   "openai>=1.72.0",
   "openai-agents>=0.4.0",
@@ -15,7 +15,7 @@ dependencies = [
   "uvicorn>=0.20.0",
   "pydantic>=2.0.0",
   "typing-extensions>=4.16.0",
-  "opentelemetry-instrumentation-openai-agents>=0.50.0"
+  "opentelemetry-instrumentation-openai-agents>=0.50.0,<0.53.0"
 ]
 
 [project.optional-dependencies]
@@ -23,7 +23,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
-    "ruff>=0.15.21",
+    "ruff>=0.15.22",
 ]
 
 [tool.uv.sources]
@@ -39,10 +39,10 @@ packages = ["src/kagent"]
 
 [tool.black]
 line-length = 120
-target-version = ['py310']
+target-version = ['py311']
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py311"
 lint.select = ["E", "F", "I", "N", "W", "UP"]
 lint.ignore = ["E501", "N803", "N806"]

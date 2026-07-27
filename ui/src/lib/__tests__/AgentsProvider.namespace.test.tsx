@@ -25,7 +25,7 @@ const mockGetModelConfigs = getModelConfigs as jest.MockedFunction<typeof getMod
 // A tiny consumer that surfaces the two pieces of provider state we assert on:
 // the shared `error` string and the list of model configs.
 function ModelsConsumer() {
-  const { error, models } = useAgents();
+  const { error, models } = useAgents({ loadModels: true });
   return (
     <div>
       <p data-testid="model-error">{error}</p>
@@ -48,7 +48,7 @@ describe("AgentsProvider list fetching", () => {
     });
   });
 
-  it("does not fetch all agents on mount", async () => {
+  it("does not fetch resources until a consumer requests them", async () => {
     render(
       <AgentsProvider>
         <div>provider child</div>
@@ -56,7 +56,9 @@ describe("AgentsProvider list fetching", () => {
     );
 
     expect(screen.getByText("provider child")).toBeInTheDocument();
-    await waitFor(() => expect(mockGetTools).toHaveBeenCalled());
+    await act(async () => {});
+    expect(mockGetTools).not.toHaveBeenCalled();
+    expect(mockGetModelConfigs).not.toHaveBeenCalled();
     expect(mockGetAgents).not.toHaveBeenCalled();
   });
 

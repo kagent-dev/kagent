@@ -12,8 +12,8 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"google.golang.org/adk/memory"
-	adksession "google.golang.org/adk/session"
+	"google.golang.org/adk/v2/memory"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 

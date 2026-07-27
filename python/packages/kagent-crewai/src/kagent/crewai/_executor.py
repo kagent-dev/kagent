@@ -115,7 +115,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                 inputs = None
                 if context.message and context.message.parts:
                     for part in context.message.parts:
-                        if isinstance(part, DataPart):
+                        if isinstance(part.root, DataPart):
                             inputs = part.root.data
                             break
                 if inputs is None:

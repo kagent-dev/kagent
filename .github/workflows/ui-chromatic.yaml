@@ -14,6 +14,10 @@ on:
       - "ui/**"
   workflow_dispatch:
 
+concurrency:
+  group: ui-chromatic-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   chromatic:
     runs-on: ubuntu-latest
@@ -27,16 +31,19 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version-file: ui/.nvmrc
           cache: "npm"
           cache-dependency-path: ui/package-lock.json
 
+      # Honor the pinned npm from ui/package.json "packageManager" so npm ci
+      # resolves the lock file with the same npm version it was generated with.
+      - name: Enable Corepack
+        run: corepack enable
+
       - name: Install dependencies
         working-directory: ./ui
-        env:
-          CYPRESS_INSTALL_BINARY: 0
         run: npm ci
 
       - name: Build Storybook

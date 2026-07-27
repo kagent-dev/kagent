@@ -24,21 +24,21 @@ type statusActorClient struct {
 	resumes  []string
 }
 
-func (c *statusActorClient) add(a *ateapipb.Actor) { c.actors[a.GetActorId()] = a }
+func (c *statusActorClient) add(a *ateapipb.Actor) { c.actors[actorName(a)] = a }
 
-func (c *statusActorClient) GetActor(_ context.Context, in *ateapipb.GetActorRequest, _ ...grpc.CallOption) (*ateapipb.GetActorResponse, error) {
-	a, ok := c.actors[in.GetActorRef().GetName()]
+func (c *statusActorClient) GetActor(_ context.Context, in *ateapipb.GetActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
+	a, ok := c.actors[in.GetActor().GetName()]
 	if !ok {
 		return nil, status.Error(codes.NotFound, "actor not found")
 	}
-	return &ateapipb.GetActorResponse{Actor: a}, nil
+	return a, nil
 }
 
-func (c *statusActorClient) DeleteActor(_ context.Context, in *ateapipb.DeleteActorRequest, _ ...grpc.CallOption) (*ateapipb.DeleteActorResponse, error) {
-	id := in.GetActorRef().GetName()
+func (c *statusActorClient) DeleteActor(_ context.Context, in *ateapipb.DeleteActorRequest, _ ...grpc.CallOption) (*ateapipb.Actor, error) {
+	id := in.GetActor().GetName()
 	c.deleted = append(c.deleted, id)
 	delete(c.actors, id)
-	return &ateapipb.DeleteActorResponse{}, nil
+	return &ateapipb.Actor{}, nil
 }
 
 func (c *statusActorClient) ListActors(context.Context, *ateapipb.ListActorsRequest, ...grpc.CallOption) (*ateapipb.ListActorsResponse, error) {
@@ -50,17 +50,17 @@ func (c *statusActorClient) ListActors(context.Context, *ateapipb.ListActorsRequ
 }
 
 func (c *statusActorClient) SuspendActor(_ context.Context, in *ateapipb.SuspendActorRequest, _ ...grpc.CallOption) (*ateapipb.SuspendActorResponse, error) {
-	c.suspends = append(c.suspends, in.GetActorRef().GetName())
+	c.suspends = append(c.suspends, in.GetActor().GetName())
 	return &ateapipb.SuspendActorResponse{}, nil
 }
 
 func (c *statusActorClient) ResumeActor(_ context.Context, in *ateapipb.ResumeActorRequest, _ ...grpc.CallOption) (*ateapipb.ResumeActorResponse, error) {
-	a, ok := c.actors[in.GetActorRef().GetName()]
+	a, ok := c.actors[in.GetActor().GetName()]
 	if !ok {
 		return nil, status.Error(codes.NotFound, "actor not found")
 	}
 	a.Status = ateapipb.Actor_STATUS_RUNNING
-	c.resumes = append(c.resumes, in.GetActorRef().GetName())
+	c.resumes = append(c.resumes, in.GetActor().GetName())
 	return &ateapipb.ResumeActorResponse{Actor: a}, nil
 }
 
@@ -72,7 +72,7 @@ func TestDeleteSandboxAgentSessionActor(t *testing.T) {
 	actorID := SandboxAgentSessionActorID(sa, "sess-1")
 
 	rec := &statusActorClient{actors: map[string]*ateapipb.Actor{}}
-	rec.add(&ateapipb.Actor{ActorId: actorID, Status: ateapipb.Actor_STATUS_SUSPENDED})
+	rec.add(&ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: actorID}, Status: ateapipb.Actor_STATUS_SUSPENDED})
 	b := &SandboxAgentActorBackend{client: &Client{ControlClient: rec}}
 
 	// deleteActor performs at most one mutating step per call; requeue until done.

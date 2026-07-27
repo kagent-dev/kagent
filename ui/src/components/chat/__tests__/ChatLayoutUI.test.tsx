@@ -3,6 +3,11 @@ import { render, screen, waitFor } from "@testing-library/react";
 import ChatLayoutUI from "@/components/chat/ChatLayoutUI";
 import type { AgentResponse } from "@/types";
 
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/agents/kagent/kanban-mcp-agent/chat",
+  useParams: () => ({}),
+}));
+
 // Heavy descendants and server actions are stubbed; this test only verifies the
 // layout wiring, not their behavior.
 jest.mock("@/app/actions/sessions", () => ({

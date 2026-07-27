@@ -1,5 +1,4 @@
 from ._config import get_a2a_max_content_length
-from ._context import get_request_user_id, set_request_user_id
 from ._consts import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT,
@@ -18,6 +17,7 @@ from ._consts import (
     get_kagent_metadata_key,
     read_metadata_value,
 )
+from ._context import get_request_user_id, set_request_user_id
 from ._hitl_utils import (
     DecisionType,
     HitlPartInfo,

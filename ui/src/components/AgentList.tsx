@@ -17,6 +17,7 @@ import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import type { AgentResponse } from "@/types";
 
 const AGENTS_VIEW_KEY = "kagent-agents-view";
+const AGENT_STATUS_POLL_MS = 5000;
 type AgentsView = "grid" | "list";
 
 function readStoredView(): AgentsView {
@@ -27,22 +28,30 @@ function readStoredView(): AgentsView {
   return v === "list" ? "list" : "grid";
 }
 
-export default function AgentList() {
+export default function AgentList({
+  initialAgents = [],
+  initialError = "",
+}: {
+  initialAgents?: AgentResponse[];
+  initialError?: string;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedNamespace = searchParams.get("namespace")?.trim() || "";
-  const [agents, setAgents] = useState<AgentResponse[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [agents, setAgents] = useState<AgentResponse[]>(initialAgents);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(initialError);
   const [view, setView] = useState<AgentsView>("grid");
   const latestFetchRequestId = useRef(0);
 
-  const fetchAgents = useCallback(async () => {
+  const fetchAgents = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     const requestId = latestFetchRequestId.current + 1;
     latestFetchRequestId.current = requestId;
 
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       const result = await getAgents(selectedNamespace ? { namespace: selectedNamespace } : {});
       if (requestId !== latestFetchRequestId.current) {
         return;
@@ -56,9 +65,11 @@ export default function AgentList() {
       if (requestId !== latestFetchRequestId.current) {
         return;
       }
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      if (!silent) {
+        setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      }
     } finally {
-      if (requestId === latestFetchRequestId.current) {
+      if (!silent && requestId === latestFetchRequestId.current) {
         setLoading(false);
       }
     }
@@ -72,8 +83,36 @@ export default function AgentList() {
   }, []);
 
   useEffect(() => {
-    void fetchAgents();
-  }, [fetchAgents]);
+    setAgents(initialAgents);
+    setError(initialError);
+    setLoading(false);
+  }, [initialAgents, initialError]);
+
+  useEffect(() => {
+    const hasTransitionalAgent = agents.some(
+      (agent) => !agent.accepted || !agent.deploymentReady,
+    );
+    if (!hasTransitionalAgent) {
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      if (!document.hidden) {
+        await fetchAgents({ silent: true });
+      }
+      if (!cancelled) {
+        timeoutId = setTimeout(poll, AGENT_STATUS_POLL_MS);
+      }
+    };
+
+    timeoutId = setTimeout(poll, AGENT_STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [agents, fetchAgents]);
 
   const setViewAndPersist = useCallback((next: AgentsView) => {
     setView(next);

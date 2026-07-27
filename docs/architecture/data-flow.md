@@ -208,7 +208,7 @@ Agent Pod reads /config/config.json at startup
 AgentConfig → creates ADK Agent with tools, callbacks, session service
 ```
 
-**config.json structure** (Go types in `go/adk/types.go`, Python types in `python/packages/kagent-adk/src/kagent/adk/types.py`):
+**config.json structure** (Go types in `go/api/adk/types.go`, Python types in `python/packages/kagent-adk/src/kagent/adk/types.py`):
 
 ```json
 {

@@ -19,7 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	adkagent "google.golang.org/adk/agent"
+	adkagent "google.golang.org/adk/v2/agent"
 )
 
 const (

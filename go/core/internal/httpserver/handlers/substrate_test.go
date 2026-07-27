@@ -106,7 +106,7 @@ func TestHandleGetSubstrateStatus(t *testing.T) {
 
 	ate := &substrate.Client{ControlClient: &stubAteControl{
 		actors: []*ateapipb.Actor{{
-			ActorId:                "ahr-kagent-my-claw",
+			Metadata:               &ateapipb.ResourceMetadata{Name: "ahr-kagent-my-claw"},
 			Status:                 ateapipb.Actor_STATUS_RUNNING,
 			ActorTemplateNamespace: "kagent",
 			ActorTemplateName:      "my-claw",
@@ -115,7 +115,7 @@ func TestHandleGetSubstrateStatus(t *testing.T) {
 			WorkerNamespace: "kagent",
 			WorkerPool:      "default-wp",
 			WorkerPod:       "ateom-0",
-			ActorId:         "ahr-kagent-my-claw",
+			Assignment:      &ateapipb.Assignment{Actor: &ateapipb.ObjectRef{Name: "ahr-kagent-my-claw"}},
 		}},
 	}}
 

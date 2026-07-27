@@ -177,9 +177,9 @@ check-api-key: ## Validate required API key for the configured model provider
 			exit 1; \
 		fi; \
 	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "azureOpenAI" ]; then \
-		if [ -z "$(AZUREOPENAI_API_KEY)" ]; then \
-			echo "Error: AZUREOPENAI_API_KEY environment variable is not set for Azure OpenAI provider"; \
-			echo "Please set it with: export AZUREOPENAI_API_KEY=your-api-key"; \
+		if [ -z "$(AZURE_OPENAI_API_KEY)" ]; then \
+			echo "Error: AZURE_OPENAI_API_KEY environment variable is not set for Azure OpenAI provider"; \
+			echo "Please set it with: export AZURE_OPENAI_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
 	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "gemini" ]; then \
@@ -497,7 +497,7 @@ helm-install-provider: helm-version check-api-key
 		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
-		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
+		--set providers.azureOpenAI.apiKey=$(AZURE_OPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \

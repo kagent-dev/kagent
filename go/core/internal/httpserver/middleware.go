@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -111,7 +111,7 @@ func (s *HTTPServer) shareTokenMiddleware(next http.Handler) http.Handler {
 
 		share, err := s.config.DbClient.GetSessionShareByToken(r.Context(), token)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, database.ErrNotFound) {
 				http.Error(w, "Invalid or expired share token", http.StatusForbidden)
 			} else {
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -119,14 +119,15 @@ func (s *HTTPServer) shareTokenMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Enforce read-only on session and A2A paths only. Visitors retain full
-		// authenticated access to all other endpoints (creating their own sessions,
-		// submitting feedback, etc.) — the share token should not restrict unrelated operations.
+		// Enforce read-only on the session REST path by HTTP verb. A2A traffic is
+		// JSON-RPC over POST, so the verb does not distinguish reads from writes;
+		// its read-only enforcement is per-method in the A2A request handler
+		// (requireWritableShare), which lets a read-only share list and get tasks
+		// while still rejecting message sends, cancels, and push-config writes.
+		// Visitors retain full authenticated access to all other endpoints
+		// (creating their own sessions, submitting feedback, etc.).
 		if share.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead {
-			path := r.URL.Path
-			if strings.HasPrefix(path, APIPathSessions+"/") ||
-				strings.HasPrefix(path, APIPathA2A+"/") ||
-				strings.HasPrefix(path, APIPathA2ASandboxes+"/") {
+			if strings.HasPrefix(r.URL.Path, APIPathSessions+"/") {
 				http.Error(w, "This share link is read-only", http.StatusForbidden)
 				return
 			}

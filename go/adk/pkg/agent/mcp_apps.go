@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/agent/llmagent"
-	adkmodel "google.golang.org/adk/model"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
+	adkmodel "google.golang.org/adk/v2/model"
 )
 
 // mcpAppRenderedNotice is the terminal message the model sees in place of an
@@ -26,7 +26,7 @@ const mcpAppRenderedNotice = "The interactive UI for this tool has been rendered
 // prevents the model from looping on the rendering tool. Errors are passed
 // through so the model can still react to and recover from failures.
 func MakeMCPAppModelResultCallback(appToolNames map[string]bool) llmagent.BeforeModelCallback {
-	return func(_ agent.CallbackContext, req *adkmodel.LLMRequest) (*adkmodel.LLMResponse, error) {
+	return func(_ agent.Context, req *adkmodel.LLMRequest) (*adkmodel.LLMResponse, error) {
 		for _, content := range req.Contents {
 			if content == nil {
 				continue

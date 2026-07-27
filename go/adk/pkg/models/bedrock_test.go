@@ -187,6 +187,44 @@ func TestConvertGenaiContentsToBedrockMessages(t *testing.T) {
 	}
 }
 
+// TestConvertGenaiContentsNoArgToolInput verifies that a tool call with no
+// arguments serializes toolUse.input as an empty JSON object rather than null.
+// A no-argument FunctionCall arrives here with a nil Args map because genai's
+// FunctionCall.Args is `json:"args,omitempty"`, so the empty map is dropped when
+// the event is persisted to the session store and reloaded. Bedrock Converse
+// rejects a null input with "ValidationException: Malformed input request"
+// ("The value at messages.N.content.M.toolUse.input is empty").
+func TestConvertGenaiContentsNoArgToolInput(t *testing.T) {
+	for _, args := range []map[string]any{nil, {}} {
+		contents := []*genai.Content{
+			{
+				Role: "model",
+				Parts: []*genai.Part{
+					{FunctionCall: &genai.FunctionCall{ID: "call_noargs", Name: "datetime_get_current_time", Args: args}},
+				},
+			},
+		}
+		msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil, nil)
+		if len(msgs) != 1 || len(msgs[0].Content) != 1 {
+			t.Fatalf("args=%v: expected 1 message with 1 content block, got %d messages", args, len(msgs))
+		}
+		tu, ok := msgs[0].Content[0].(*types.ContentBlockMemberToolUse)
+		if !ok {
+			t.Fatalf("args=%v: want *ContentBlockMemberToolUse, got %T", args, msgs[0].Content[0])
+		}
+		if tu.Value.Input == nil {
+			t.Fatalf("args=%v: toolUse.Input is nil; Bedrock requires a JSON object", args)
+		}
+		got := documentToMap(tu.Value.Input)
+		if got == nil {
+			t.Fatalf("args=%v: toolUse.Input serialized to null; want an empty JSON object {}", args)
+		}
+		if len(got) != 0 {
+			t.Errorf("args=%v: expected empty input object, got %v", args, got)
+		}
+	}
+}
+
 // TestConvertGenaiToolsToBedrock verifies schema conversion for all three tool
 // sources: genai.Schema (declaration-based), map[string]any (MCP), and
 // *jsonschema.Schema (functiontool.New).

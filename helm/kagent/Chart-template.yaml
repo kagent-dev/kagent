@@ -65,6 +65,6 @@ dependencies:
     repository: file://../agents/cilium-debug
     condition: cilium-debug-agent.enabled
   - name: oauth2-proxy
-    version: "~7.0.0"
+    version: "~10.7.0"
     repository: "https://oauth2-proxy.github.io/manifests"
     condition: oauth2-proxy.enabled

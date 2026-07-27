@@ -112,6 +112,39 @@ tests:
           path: spec.tls.disableSystemCAs
           value: true
 
+  - it: should render annotations on the default modelconfig when set
+    set:
+      providers:
+        annotations:
+          example.com/display-name: "GPT-4.1 mini"
+          team: platform
+    asserts:
+      - equal:
+          path: metadata.annotations["example.com/display-name"]
+          value: "GPT-4.1 mini"
+      - equal:
+          path: metadata.annotations.team
+          value: platform
+
+  - it: should omit annotations when not set
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: should render annotations independently of the default provider
+    set:
+      providers:
+        default: anthropic
+        annotations:
+          example.com/display-name: "Claude Haiku 4.5"
+    asserts:
+      - equal:
+          path: spec.provider
+          value: "Anthropic"
+      - equal:
+          path: metadata.annotations["example.com/display-name"]
+          value: "Claude Haiku 4.5"
+
   - it: should have correct labels
     asserts:
       - equal:

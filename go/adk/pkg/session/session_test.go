@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 func mustJSON(t *testing.T, v any) []byte {
@@ -113,6 +114,61 @@ func TestGet_DeserializesEvents(t *testing.T) {
 	}
 	if evts[0].Author != "agent" {
 		t.Errorf("event author = %q, want agent", evts[0].Author)
+	}
+}
+
+func TestGet_ForwardsFiltersAndReturnsRecentEventsChronologically(t *testing.T) {
+	newerEvent, _ := json.Marshal(map[string]any{"id": "newer", "author": "agent"})
+	olderEvent, _ := json.Marshal(map[string]any{"id": "older", "author": "user"})
+	after := time.Date(2026, 7, 27, 10, 30, 0, 123456000, time.UTC)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/sessions/sess-filtered", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if got := query.Get("user_id"); got != "u" {
+			t.Errorf("user_id = %q, want u", got)
+		}
+		if got := query.Get("after"); got != "2026-07-27T10:30:00.123456Z" {
+			t.Errorf("after = %q, want RFC3339 timestamp", got)
+		}
+		if got := query.Get("limit"); got != "2" {
+			t.Errorf("limit = %q, want 2", got)
+		}
+		if got := query.Get("order"); got != "desc" {
+			t.Errorf("order = %q, want desc", got)
+		}
+
+		body := map[string]any{
+			"data": map[string]any{
+				"session": map[string]any{"id": "sess-filtered", "user_id": "u"},
+				"events": []any{
+					map[string]any{"data": json.RawMessage(newerEvent)},
+					map[string]any{"data": json.RawMessage(olderEvent)},
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(mustJSON(t, body))
+	})
+
+	svc := newService(t, mux)
+	resp, err := svc.Get(context.Background(), &adksession.GetRequest{
+		AppName:         "app",
+		UserID:          "u",
+		SessionID:       "sess-filtered",
+		After:           after,
+		NumRecentEvents: 2,
+	})
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+
+	events := EventsFromSession(resp.Session)
+	if len(events) != 2 {
+		t.Fatalf("events count = %d, want 2", len(events))
+	}
+	if events[0].ID != "older" || events[1].ID != "newer" {
+		t.Errorf("event IDs = [%q, %q], want [older, newer]", events[0].ID, events[1].ID)
 	}
 }
 

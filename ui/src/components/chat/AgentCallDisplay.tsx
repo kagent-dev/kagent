@@ -1,14 +1,17 @@
-import { createContext, useContext, useMemo, useState, useEffect } from "react";
-import { FunctionCall, TokenStats } from "@/types";
+import { createContext, useContext, useMemo, useState, useEffect, useCallback } from "react";
+import { FunctionCall, TokenStats, AgentResponse } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { convertToUserFriendlyName } from "@/lib/utils";
+import { convertToUserFriendlyName, isAgentToolName } from "@/lib/utils";
 import { ChevronDown, ChevronUp, MessageSquare, Loader2, AlertCircle, CheckCircle, Activity } from "lucide-react";
 import KagentLogo from "../kagent-logo";
 import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
 import { getSubagentSessionWithEvents } from "@/app/actions/sessions";
+import { getAgent } from "@/app/actions/agents";
 import { Message, Task } from "@a2a-js/sdk";
 import { extractMessagesFromTasks } from "@/lib/messageHandlers";
 import ChatMessage from "@/components/chat/ChatMessage";
+import ToolCallGroup, { groupToolCallMessages, buildToolCallResultsIndex, collectPendingApprovalIds } from "@/components/chat/ToolCallGroup";
+import { ChatMcpAppsProvider, useChatMcpApps } from "@/components/chat/ChatMcpAppsContext";
 
 // Track and avoid too deep nested agent viewing to avoid UI issues
 // In theory this works for infinite depth
@@ -32,12 +35,80 @@ interface AgentCallDisplayProps {
 interface SubagentActivityPanelProps {
   sessionId: string;
   isComplete: boolean;
+  /** The agent tool name (namespace__NS__agent_name) used to resolve the subagent's MCP apps. */
+  agentToolName: string;
 }
 
-function SubagentActivityPanel({ sessionId, isComplete }: SubagentActivityPanelProps) {
+/**
+ * Renders the subagent transcript with the MCP apps registry from the
+ * ENCLOSING provider — the panel nests a ChatMcpAppsProvider scoped to the
+ * subagent so its MCP app tool calls (which the parent agent doesn't know
+ * about) resolve to their interactive UI. Tool-call runs fold into the same
+ * collapsible groups as the main chat.
+ */
+function SubagentMessageList({ messages }: { messages: Message[] }) {
+  const { getMcpAppForTool } = useChatMcpApps();
+
+  const isStandaloneToolName = useCallback(
+    (toolName: string) => isAgentToolName(toolName) || !!getMcpAppForTool(toolName),
+    [getMcpAppForTool],
+  );
+  const renderItems = useMemo(() => {
+    const pendingApprovalIds = collectPendingApprovalIds(messages);
+    return groupToolCallMessages(messages, { isStandaloneToolName, pendingApprovalIds });
+  }, [messages, isStandaloneToolName]);
+  const resultsByCallId = useMemo(() => buildToolCallResultsIndex(messages), [messages]);
+
+  const renderMsg = (msg: Message) => (
+    <ChatMessage
+      key={msg.messageId}
+      message={msg}
+      allMessages={messages}
+      getMcpAppForTool={getMcpAppForTool}
+      // Read-only: no approve/reject/ask-user/app-send callbacks
+    />
+  );
+
+  return (
+    <div className="space-y-1 mt-1">
+      {renderItems.map((item) =>
+        item.kind === "group" ? (
+          <ToolCallGroup key={`subagent-group-${item.startIndex}`} messages={item.messages} resultsByCallId={resultsByCallId}>
+            {item.messages.map(renderMsg)}
+          </ToolCallGroup>
+        ) : (
+          renderMsg(item.message)
+        ),
+      )}
+    </div>
+  );
+}
+
+function SubagentActivityPanel({ sessionId, isComplete, agentToolName }: SubagentActivityPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(true);
+  const [subagent, setSubagent] = useState<AgentResponse | null>(null);
+
+  // Resolve the subagent so its MCP app tools render their interactive UI.
+  // Tool names encode namespace/name as namespace__NS__name with hyphens
+  // replaced by underscores; convertToUserFriendlyName reverses both.
+  useEffect(() => {
+    if (!isAgentToolName(agentToolName)) return;
+    const [namespace, name] = convertToUserFriendlyName(agentToolName).split("/");
+    if (!namespace || !name) return;
+    let cancelled = false;
+    getAgent(name, namespace)
+      .then((resp) => {
+        if (!cancelled && resp.data) setSubagent(resp.data);
+      })
+      .catch(() => {
+        // Fall back to the parent chat's app registry.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentToolName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,18 +181,10 @@ function SubagentActivityPanel({ sessionId, isComplete }: SubagentActivityPanelP
     );
   }
 
-  return (
-    <div className="space-y-1 mt-1">
-      {messages.map((msg) => (
-        <ChatMessage
-          key={msg.messageId}
-          message={msg}
-          allMessages={messages}
-          // Read-only: no approve/reject/ask-user callbacks
-        />
-      ))}
-    </div>
-  );
+  const list = <SubagentMessageList messages={messages} />;
+  // Scope the MCP apps registry to the subagent's own tool servers; without
+  // the subagent (fetch pending/failed) fall through to the parent's provider.
+  return subagent ? <ChatMcpAppsProvider currentAgent={subagent}>{list}</ChatMcpAppsProvider> : list;
 }
 
 const AgentCallDisplay = ({ call, result, status = "requested", isError = false, tokenStats, subagentSessionId }: AgentCallDisplayProps) => {
@@ -245,7 +308,7 @@ const AgentCallDisplay = ({ call, result, status = "requested", isError = false,
             {activityExpanded && (
               <ActivityDepthContext.Provider value={activityDepth + 1}>
                 <div className="mt-2 border rounded bg-muted/20 p-2 max-h-96 overflow-y-auto">
-                  <SubagentActivityPanel sessionId={subagentSessionId} isComplete={status === "completed"} />
+                  <SubagentActivityPanel sessionId={subagentSessionId} isComplete={status === "completed"} agentToolName={call.name} />
                 </div>
               </ActivityDepthContext.Provider>
             )}

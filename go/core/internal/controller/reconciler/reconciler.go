@@ -297,7 +297,7 @@ func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1al
 			if deployment.Spec.Replicas != nil {
 				replicas = *deployment.Spec.Replicas
 			}
-			if deployment.Status.AvailableReplicas >= replicas {
+			if deployment.Status.AvailableReplicas > 0 {
 				deployedCondition.Status = metav1.ConditionTrue
 				deployedCondition.Reason = AgentReadyReasonDeploymentReady
 				deployedCondition.Message = "Deployment is ready"

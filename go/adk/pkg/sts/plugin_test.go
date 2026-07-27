@@ -11,8 +11,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/golang-jwt/jwt/v5"
 	kagentmodels "github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/session"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 
@@ -31,18 +31,23 @@ type fakeInvocationContext struct {
 	ended     bool
 }
 
-func (f fakeInvocationContext) Agent() agent.Agent          { return nil }
-func (f fakeInvocationContext) Artifacts() agent.Artifacts  { return nil }
-func (f fakeInvocationContext) Memory() agent.Memory        { return nil }
-func (f fakeInvocationContext) Session() session.Session    { return fakeSession{id: f.sessionID} }
-func (f fakeInvocationContext) InvocationID() string        { return "" }
-func (f fakeInvocationContext) Branch() string              { return "" }
-func (f fakeInvocationContext) UserContent() *genai.Content { return nil }
-func (f fakeInvocationContext) RunConfig() *agent.RunConfig { return nil }
-func (f *fakeInvocationContext) EndInvocation()             { f.ended = true }
-func (f fakeInvocationContext) Ended() bool                 { return f.ended }
+func (f fakeInvocationContext) Agent() agent.Agent              { return nil }
+func (f fakeInvocationContext) Artifacts() agent.Artifacts      { return nil }
+func (f fakeInvocationContext) Memory() agent.Memory            { return nil }
+func (f fakeInvocationContext) Session() session.Session        { return fakeSession{id: f.sessionID} }
+func (f fakeInvocationContext) InvocationID() string            { return "" }
+func (f fakeInvocationContext) Branch() string                  { return "" }
+func (f fakeInvocationContext) IsolationScope() string          { return "" }
+func (f fakeInvocationContext) UserContent() *genai.Content     { return nil }
+func (f fakeInvocationContext) RunConfig() *agent.RunConfig     { return nil }
+func (f *fakeInvocationContext) EndInvocation()                 { f.ended = true }
+func (f fakeInvocationContext) Ended() bool                     { return f.ended }
+func (f fakeInvocationContext) ResumedInput(string) (any, bool) { return nil, false }
 func (f fakeInvocationContext) WithContext(ctx context.Context) agent.InvocationContext {
 	f.Context = ctx
+	return &f
+}
+func (f fakeInvocationContext) WithICDelta(*agent.InvocationContextDelta) agent.InvocationContext {
 	return &f
 }
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Agent, AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
 import { MemoriesDialog } from "@/components/MemoriesDialog";
+import { SandboxBadge } from "@/components/SandboxBadge";
 import KagentLogo from "@/components/kagent-logo";
 import HermesLogo from "@/components/hermes-logo";
 import OpenClawLogo from "@/components/openclaw-logo";
@@ -19,7 +20,7 @@ import {
 import { countAgentToolBindings } from "@/lib/countAgentTools";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Brain, Lock, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import {
   agentHarnessTypeLabel,
   getAgentHarnessBackend,
@@ -55,19 +56,6 @@ function baseTypeLabel(type: string | undefined): string {
     default:
       return "Declarative";
   }
-}
-
-function SandboxBadge() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex items-center" aria-label="Sandbox: Agent Substrate">
-          <Lock className="h-3.5 w-3.5 text-muted-foreground/70 hover:text-muted-foreground transition-colors" />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">Agent Substrate</TooltipContent>
-    </Tooltip>
-  );
 }
 
 function RowTypeCell({ item }: { item: AgentResponse }) {
@@ -358,7 +346,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
           <div className="flex items-center justify-end">
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options">
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options" data-testid={`agent-options-${k8sRefUtils.toRef(namespace, name)}`}>
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>

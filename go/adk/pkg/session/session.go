@@ -9,11 +9,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	adksession "google.golang.org/adk/session"
+	adksession "google.golang.org/adk/v2/session"
 )
 
 const (
@@ -113,8 +115,21 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 	log := logr.FromContextOrDiscard(ctx)
 	log.V(1).Info("Getting session", "appName", req.AppName, "userID", req.UserID, "sessionID", req.SessionID)
 
-	url := fmt.Sprintf("%s/api/sessions/%s?user_id=%s&limit=-1&order=asc", s.BaseURL, url.PathEscape(req.SessionID), url.QueryEscape(req.UserID))
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	query := url.Values{
+		"user_id": {req.UserID},
+		"limit":   {"-1"},
+		"order":   {"asc"},
+	}
+	if !req.After.IsZero() {
+		query.Set("after", req.After.UTC().Format(time.RFC3339Nano))
+	}
+	if req.NumRecentEvents > 0 {
+		query.Set("limit", strconv.Itoa(req.NumRecentEvents))
+		query.Set("order", "desc")
+	}
+
+	requestURL := fmt.Sprintf("%s/api/sessions/%s?%s", s.BaseURL, url.PathEscape(req.SessionID), query.Encode())
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build get session request: %w", err)
 	}
@@ -147,6 +162,9 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode get session response: %w", err)
+	}
+	if req.NumRecentEvents > 0 {
+		slices.Reverse(result.Data.Events)
 	}
 
 	log.V(1).Info("Session retrieved", "sessionID", result.Data.Session.ID, "eventsCount", len(result.Data.Events))

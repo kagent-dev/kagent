@@ -154,7 +154,7 @@ tests:
     asserts:
       - equal:
           path: data.A2A_BASE_URL
-          value: "http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:8083"
+          value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8083"
 
   - it: should set A2A_BASE_URL with custom value when explicitly set
     template: controller-configmap.yaml
@@ -268,6 +268,35 @@ tests:
       - equal:
           path: data.DEFAULT_AGENT_POD_LABELS
           value: "team=platform"
+
+  - it: should set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is configured
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          nodeSelector:
+            kubernetes.io/os: linux
+            pool: agents
+    asserts:
+      - equal:
+          path: data.DEFAULT_AGENT_NODE_SELECTOR
+          value: "kubernetes.io/os=linux,pool=agents"
+
+  - it: should not set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is empty
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentDeployment:
+          nodeSelector: {}
+    asserts:
+      - notExists:
+          path: data.DEFAULT_AGENT_NODE_SELECTOR
+
+  - it: should not set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is not configured
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.DEFAULT_AGENT_NODE_SELECTOR
 
   - it: should set DEFAULT_AGENT_BIND_HOST when host is configured
     template: controller-configmap.yaml
@@ -460,7 +489,7 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: POSTGRES_DATABASE_URL
-            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc.cluster.local:5432/kagent?sslmode=disable"
+            value: "postgres://kagent:$(POSTGRES_PASSWORD)@RELEASE-NAME-postgresql.NAMESPACE.svc:5432/kagent?sslmode=disable"
 
   - it: should set POSTGRES_DATABASE_URL with external url when url is set
     template: controller-deployment.yaml

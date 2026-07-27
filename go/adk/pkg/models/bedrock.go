@@ -15,7 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
-	"google.golang.org/adk/model"
+	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
 
@@ -647,10 +647,22 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 				if sanitized, ok := nameMap[callName]; ok {
 					callName = sanitized
 				}
+				// Bedrock requires toolUse.input to be a JSON object. A tool call
+				// with no arguments arrives here with a nil Args map (genai's
+				// FunctionCall.Args is `json:"args,omitempty"`, so an empty map is
+				// dropped when the event is persisted to the session store and
+				// reloaded as nil). NewLazyDocument(nil) serializes to `null`, which
+				// Bedrock rejects with "ValidationException: Malformed input request"
+				// ("The value at messages.N.content.M.toolUse.input is empty").
+				// Coerce nil to an empty object so no-argument tool calls round-trip.
+				args := part.FunctionCall.Args
+				if args == nil {
+					args = map[string]any{}
+				}
 				toolUse := types.ToolUseBlock{
 					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionCall.ID, idMap, &idCounter)),
 					Name:      aws.String(callName),
-					Input:     document.NewLazyDocument(part.FunctionCall.Args),
+					Input:     document.NewLazyDocument(args),
 				}
 				contentBlocks = append(contentBlocks, &types.ContentBlockMemberToolUse{
 					Value: toolUse,

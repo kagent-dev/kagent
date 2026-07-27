@@ -9,8 +9,8 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"google.golang.org/adk/agent"
-	adkplugin "google.golang.org/adk/plugin"
+	"google.golang.org/adk/v2/agent"
+	adkplugin "google.golang.org/adk/v2/plugin"
 	"google.golang.org/genai"
 )
 

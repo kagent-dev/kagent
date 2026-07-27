@@ -4,9 +4,9 @@ import { use, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ChatInterface from "@/components/chat/ChatInterface";
 import AcpHarnessChat from "@/components/chat/AcpHarnessChat";
-import { getAgentWithResolvedKind } from "@/app/actions/agents";
 import { createSession } from "@/app/actions/sessions";
 import { isSubstrateSandboxAgent } from "@/lib/sandboxAgentForm";
+import { useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
 import { Button } from "@/components/ui/button";
 import { Loader2, PlusCircle } from "lucide-react";
 import type { Session } from "@/types";
@@ -22,6 +22,7 @@ function notifySidebarSession(agentRef: string, session: Session) {
 
 export default function ChatAgentPage({ params }: { params: Promise<{ name: string; namespace: string }> }) {
   const { name, namespace } = use(params);
+  const currentAgent = useCurrentChatAgent();
   const router = useRouter();
   const searchParams = useSearchParams();
   const apcSessionId = searchParams.get("sessionId") || undefined;
@@ -42,16 +43,11 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
     let cancelled = false;
     (async () => {
       try {
-        const agentRes = await getAgentWithResolvedKind(name, namespace);
         if (cancelled) return;
-        if (agentRes.error || !agentRes.data) {
-          setGate("ready");
-          return;
-        }
         // Substrate AgentHarness: chat over ACP through the controller's
         // same-origin WebSocket proxy instead of the A2A session flow. Each chat
         // session maps to its own substrate actor, keyed by the DB session id.
-        const substrateHarness = agentRes.data.substrateAgentHarness;
+        const substrateHarness = currentAgent.substrateAgentHarness;
         if (substrateHarness) {
           const acpBase =
             substrateHarness.acpPath ||
@@ -79,13 +75,13 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
           setGate("ready");
           return;
         }
-        if (agentRes.data.workloadMode !== "sandbox") {
+        if (currentAgent.workloadMode !== "sandbox") {
           setGate("ready");
           return;
         }
         // Substrate sandbox agents: provision a session up front (same as "New Chat") so the
         // first message uses /chat/:id and does not inline-create + block on readiness polling.
-        if (isSubstrateSandboxAgent(agentRes.data)) {
+        if (isSubstrateSandboxAgent(currentAgent)) {
           const created = await createSession({
             agent_ref: `${namespace}/${name}`,
           });
@@ -106,7 +102,7 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
     return () => {
       cancelled = true;
     };
-  }, [name, namespace, router, apcSessionId, wantNewHarnessChat]);
+  }, [name, namespace, router, apcSessionId, wantNewHarnessChat, currentAgent]);
 
   const startNewHarnessChat = async () => {
     if (!harnessAcpBase) return;

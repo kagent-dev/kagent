@@ -5,7 +5,7 @@ import {
   sandboxFieldsFromApiSpec,
   substrateSupportedForAgentType,
 } from "@/lib/sandboxAgentForm";
-import type { AgentFormData } from "@/components/AgentsProvider";
+import type { AgentFormData } from "@/lib/agentFormDomain";
 import type { AgentResponse } from "@/types";
 
 describe("sandboxFieldsFromApiSpec", () => {

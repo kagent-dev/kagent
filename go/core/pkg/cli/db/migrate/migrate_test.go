@@ -362,3 +362,36 @@ func markDirty(t *testing.T, dsn, table string) {
 		t.Fatalf("mark %s dirty: %v", table, err)
 	}
 }
+
+func TestSourceFileVersions(t *testing.T) {
+	tests := []struct {
+		name  string
+		files []string
+		want  []int
+	}{
+		{"standard format", []string{"000001_create.up.sql", "000002_alter.up.sql"}, []int{1, 2}},
+		{"no underscore ignored", []string{"000003foo.up.sql"}, nil},
+		{"no leading digits ignored", []string{"notes.up.sql"}, nil},
+		{"down files ignored", []string{"000001_create.down.sql", "000001_create.up.sql"}, []int{1}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mfs := fstest.MapFS{}
+			for _, f := range tt.files {
+				mfs["m/"+f] = &fstest.MapFile{Data: []byte("-- sql")}
+			}
+			got, err := sourceFileVersions(migrations.Source{FS: mfs, Dir: "m"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("[%d] got %d, want %d", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}

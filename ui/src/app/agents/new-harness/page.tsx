@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 import { useAgents } from "@/components/AgentsProvider";
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import type { AgentFormData } from "@/components/AgentsProvider";
+import type { AgentFormData } from "@/lib/agentFormDomain";
 import { toast } from "sonner";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,7 +41,7 @@ function harnessBackendForType(
 
 function AgentHarnessPageContent() {
   const router = useRouter();
-  const { models, loading, error, createNewAgent, validateAgentData } = useAgents();
+  const { models, loading, error, createNewAgent, validateAgentData } = useAgents({ loadModels: true });
 
   type SelectedModelType = ModelConfig;
 

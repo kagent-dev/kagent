@@ -1,0 +1,15 @@
+operation: translateAgent
+targetObject: byo-agent
+namespace: test
+objects:
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: byo-agent
+      namespace: test
+    spec:
+      type: BYO
+      description: A BYO test agent
+      byo:
+        deployment:
+          image: example.com/my-agent:latest

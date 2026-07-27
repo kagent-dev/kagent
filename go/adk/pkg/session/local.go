@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/glebarez/sqlite"
-	adksession "google.golang.org/adk/session"
-	"google.golang.org/adk/session/database"
+	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/session/database"
 )
 
 // LocalSessionService is used by substrate sandbox agents to store ADK session state in a local sqlite DB.

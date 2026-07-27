@@ -12,9 +12,9 @@ import (
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	adkagent "google.golang.org/adk/agent"
-	"google.golang.org/adk/runner"
-	adksession "google.golang.org/adk/session"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
 

@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import ChatInterface from "./ChatInterface";
+import { ChatAgentProvider } from "./ChatAgentContext";
 import { worker } from "@/mocks/browser";
+import type { AgentResponse } from "@/types";
 import {
   createMockSession,
   createMockTask,
@@ -18,6 +20,20 @@ import {
 // ---------------------------------------------------------------------------
 
 const mockSession = createMockSession();
+
+const mockAgent: AgentResponse = {
+  id: 1,
+  agent: {
+    metadata: { name: "test-agent", namespace: "default" },
+    spec: { type: "Declarative", description: "Storybook chat agent" },
+  },
+  model: "gpt-4o",
+  modelProvider: "openai",
+  modelConfigRef: "default/test-model",
+  tools: [],
+  deploymentReady: true,
+  accepted: true,
+};
 
 const singleExchangeTask = createMockTask("task-1", "session-123", [
   {
@@ -141,7 +157,12 @@ const meta = {
   decorators: [
     (Story) => (
       <div style={{ height: "100vh", width: "100%" }}>
-        <Story />
+        <ChatAgentProvider
+          currentAgent={mockAgent}
+          agentType={mockAgent.agent.spec.type}
+        >
+          <Story />
+        </ChatAgentProvider>
       </div>
     ),
   ],

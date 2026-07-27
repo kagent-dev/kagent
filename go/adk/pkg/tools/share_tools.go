@@ -10,9 +10,9 @@ import (
 	"os"
 	"strings"
 
-	"google.golang.org/adk/agent"
-	"google.golang.org/adk/tool"
-	"google.golang.org/adk/tool/functiontool"
+	"google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/functiontool"
 )
 
 // shareClient holds the dependencies for share link tools, captured at construction time.
@@ -97,7 +97,7 @@ func NewCreateShareLinkTool(httpClient *http.Client, baseURL, appName string) (t
 			"The link is read-only by default (visitors cannot send messages). " +
 			"Set read_only=false to allow visitors to interact. " +
 			"Each call creates a new token; existing tokens remain valid.",
-	}, func(ctx agent.ToolContext, in createShareInput) (map[string]any, error) {
+	}, func(ctx agent.Context, in createShareInput) (map[string]any, error) {
 		sessionID := ctx.SessionID()
 		if sessionID == "" {
 			return nil, fmt.Errorf("create_share_link: no session ID in context")
@@ -142,7 +142,7 @@ func NewListShareLinksTool(httpClient *http.Client, baseURL, appName string) (to
 		Description: "Lists all active share links for the current session. " +
 			"Returns each share token and creation time. " +
 			"Use this to find a token before calling delete_share_link.",
-	}, func(ctx agent.ToolContext, _ struct{}) (map[string]any, error) {
+	}, func(ctx agent.Context, _ struct{}) (map[string]any, error) {
 		sessionID := ctx.SessionID()
 		if sessionID == "" {
 			return nil, fmt.Errorf("list_share_links: no session ID in context")
@@ -184,7 +184,7 @@ func NewDeleteShareLinkTool(httpClient *http.Client, baseURL, appName string) (t
 		Name: "delete_share_link",
 		Description: "Deletes a share link by token, immediately revoking access for anyone using it. " +
 			"Use list_share_links first to find the token you want to revoke.",
-	}, func(ctx agent.ToolContext, in deleteShareInput) (map[string]any, error) {
+	}, func(ctx agent.Context, in deleteShareInput) (map[string]any, error) {
 		if in.Token == "" {
 			return nil, fmt.Errorf("delete_share_link: token is required")
 		}

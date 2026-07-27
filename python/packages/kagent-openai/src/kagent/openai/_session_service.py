@@ -163,14 +163,7 @@ class KAgentSession(SessionABC):
         # Store items as an event in the session
         import json
         import uuid
-        from datetime import datetime
-
-        try:
-            from datetime import UTC  # Python 3.11+
-        except ImportError:
-            from datetime import timezone
-
-            UTC = timezone.utc
+        from datetime import UTC, datetime
 
         event_data = {
             "id": str(uuid.uuid4()),

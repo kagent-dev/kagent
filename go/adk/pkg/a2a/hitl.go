@@ -5,7 +5,7 @@ import (
 	"maps"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"google.golang.org/adk/tool/toolconfirmation"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
 
 const (
