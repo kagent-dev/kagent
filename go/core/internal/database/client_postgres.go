@@ -596,7 +596,7 @@ func (c *postgresClient) ListCheckpoints(ctx context.Context, userID, threadID, 
 		writesByCheckpoint := make(map[string][]*dbpkg.LangGraphCheckpointWrite, len(checkpoints))
 		if len(checkpointIDs) > 0 {
 			writes, err := q.ListCheckpointWritesForCheckpoints(ctx, dbgen.ListCheckpointWritesForCheckpointsParams{
-				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, Column4: checkpointIDs,
+				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointIds: checkpointIDs,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to get checkpoint writes: %w", err)

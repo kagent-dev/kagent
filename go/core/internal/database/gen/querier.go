@@ -46,7 +46,6 @@ type Querier interface {
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
-	ListCheckpointWrites(ctx context.Context, arg ListCheckpointWritesParams) ([]LgCheckpointWrite, error)
 	ListCheckpointWritesForCheckpoints(ctx context.Context, arg ListCheckpointWritesForCheckpointsParams) ([]LgCheckpointWrite, error)
 	ListCheckpoints(ctx context.Context, arg ListCheckpointsParams) ([]LgCheckpoint, error)
 	ListCheckpointsLimit(ctx context.Context, arg ListCheckpointsLimitParams) ([]LgCheckpoint, error)
