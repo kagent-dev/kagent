@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -82,14 +83,12 @@ class KAgentSessionService(BaseSessionService):
             # state_delta below, so limiting the fetch here would silently drop state set
             # by events outside the window. num_recent_events is applied after, by
             # trimming session.events once state is already correct.
-            url = f"/api/sessions/{session_id}?user_id={user_id}&order=asc&limit=-1"
-            if config and config.after_timestamp:
-                # TODO: implement
-                # url += f"&after={config.after_timestamp}"
-                pass
+            params: dict[str, str | int] = {"user_id": user_id, "order": "asc", "limit": -1}
+            if config and config.after_timestamp is not None:
+                params["after"] = datetime.fromtimestamp(config.after_timestamp, tz=timezone.utc).isoformat()
 
             # Make API call to get session
-            response: httpx.Response = await self.client.get(url)
+            response: httpx.Response = await self.client.get(f"/api/sessions/{session_id}", params=params)
             if response.status_code == 404:
                 return None
             response.raise_for_status()
@@ -103,6 +102,8 @@ class KAgentSessionService(BaseSessionService):
             session_data = data["data"]["session"]
 
             events_data = data["data"]["events"]
+            if config and config.num_recent_events == 0:
+                events_data = []
 
             events: list[Event] = []
             for event_data in events_data:
