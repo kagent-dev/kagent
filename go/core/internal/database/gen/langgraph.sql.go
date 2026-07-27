@@ -48,26 +48,26 @@ func (q *Queries) GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (L
 	return i, err
 }
 
-const listCheckpointWrites = `-- name: ListCheckpointWrites :many
+const listCheckpointWritesForCheckpoints = `-- name: ListCheckpointWritesForCheckpoints :many
 SELECT user_id, thread_id, checkpoint_ns, checkpoint_id, write_idx, value, value_type, channel, task_id, created_at, updated_at, deleted_at FROM lg_checkpoint_write
 WHERE user_id = $1 AND thread_id = $2 AND checkpoint_ns = $3
-  AND checkpoint_id = $4 AND deleted_at IS NULL
-ORDER BY task_id, write_idx
+  AND checkpoint_id = ANY($4::text[]) AND deleted_at IS NULL
+ORDER BY checkpoint_id, task_id, write_idx
 `
 
-type ListCheckpointWritesParams struct {
-	UserID       string
-	ThreadID     string
-	CheckpointNs string
-	CheckpointID string
+type ListCheckpointWritesForCheckpointsParams struct {
+	UserID        string
+	ThreadID      string
+	CheckpointNs  string
+	CheckpointIds []string
 }
 
-func (q *Queries) ListCheckpointWrites(ctx context.Context, arg ListCheckpointWritesParams) ([]LgCheckpointWrite, error) {
-	rows, err := q.db.Query(ctx, listCheckpointWrites,
+func (q *Queries) ListCheckpointWritesForCheckpoints(ctx context.Context, arg ListCheckpointWritesForCheckpointsParams) ([]LgCheckpointWrite, error) {
+	rows, err := q.db.Query(ctx, listCheckpointWritesForCheckpoints,
 		arg.UserID,
 		arg.ThreadID,
 		arg.CheckpointNs,
-		arg.CheckpointID,
+		arg.CheckpointIds,
 	)
 	if err != nil {
 		return nil, err
