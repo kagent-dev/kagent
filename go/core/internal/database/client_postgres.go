@@ -57,10 +57,19 @@ func (c *postgresClient) StoreAgent(ctx context.Context, agent *dbpkg.Agent) err
 	})
 }
 
+// notFoundOr maps the driver's no-rows error to dbpkg.ErrNotFound so callers
+// outside this package match on the exported sentinel, never on pgx.
+func notFoundOr(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return dbpkg.ErrNotFound
+	}
+	return err
+}
+
 func (c *postgresClient) GetAgent(ctx context.Context, id string) (*dbpkg.Agent, error) {
 	row, err := c.q.GetAgent(ctx, id)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get agent %s: %w", id, err)
+		return nil, fmt.Errorf("failed to get agent %s: %w", id, notFoundOr(err))
 	}
 	return toAgent(row), nil
 }
@@ -107,7 +116,7 @@ func (c *postgresClient) StoreSession(ctx context.Context, session *dbpkg.Sessio
 func (c *postgresClient) GetSession(ctx context.Context, sessionID, userID string) (*dbpkg.Session, error) {
 	row, err := c.q.GetSession(ctx, dbgen.GetSessionParams{ID: sessionID, UserID: userID})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get session %s: %w", sessionID, err)
+		return nil, fmt.Errorf("failed to get session %s: %w", sessionID, notFoundOr(err))
 	}
 	return toSession(row), nil
 }
@@ -202,7 +211,7 @@ func (c *postgresClient) CreateSessionShare(ctx context.Context, share *dbpkg.Se
 func (c *postgresClient) GetSessionShareByToken(ctx context.Context, token string) (*dbpkg.SessionShare, error) {
 	row, err := c.q.GetSessionShareByToken(ctx, token)
 	if err != nil {
-		return nil, fmt.Errorf("get session share by token: %w", err)
+		return nil, fmt.Errorf("get session share by token: %w", notFoundOr(err))
 	}
 	result := toSessionShare(row)
 	return &result, nil
@@ -344,7 +353,7 @@ func (c *postgresClient) checkTaskOwner(ctx context.Context, taskID, userID stri
 func (c *postgresClient) GetTask(ctx context.Context, taskID, userID string) (*a2a.Task, error) {
 	row, err := c.q.GetTask(ctx, dbgen.GetTaskParams{ID: taskID, UserID: &userID})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get task %s: %w", taskID, err)
+		return nil, fmt.Errorf("failed to get task %s: %w", taskID, notFoundOr(err))
 	}
 	return parseVersionedTask(row.Data, row.ProtocolVersion)
 }
@@ -395,7 +404,7 @@ func (c *postgresClient) StorePushNotification(ctx context.Context, config *a2a.
 func (c *postgresClient) GetPushNotification(ctx context.Context, taskID, configID string) (*a2a.PushConfig, error) {
 	row, err := c.q.GetPushNotification(ctx, dbgen.GetPushNotificationParams{TaskID: taskID, ID: configID})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get push notification: %w", err)
+		return nil, fmt.Errorf("failed to get push notification: %w", notFoundOr(err))
 	}
 	return parseVersionedPushConfig(row.Data, row.ProtocolVersion)
 }
@@ -450,7 +459,7 @@ func (c *postgresClient) ListFeedback(ctx context.Context, userID string) ([]dbp
 func (c *postgresClient) GetTool(ctx context.Context, name string) (*dbpkg.Tool, error) {
 	row, err := c.q.GetTool(ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get tool %s: %w", name, err)
+		return nil, fmt.Errorf("failed to get tool %s: %w", name, notFoundOr(err))
 	}
 	return toTool(row), nil
 }
@@ -507,7 +516,7 @@ func (c *postgresClient) RefreshToolsForServer(ctx context.Context, serverName, 
 func (c *postgresClient) GetToolServer(ctx context.Context, name string) (*dbpkg.ToolServer, error) {
 	row, err := c.q.GetToolServer(ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get tool server %s: %w", name, err)
+		return nil, fmt.Errorf("failed to get tool server %s: %w", name, notFoundOr(err))
 	}
 	return toToolServer(row), nil
 }
@@ -588,7 +597,7 @@ func (c *postgresClient) ListCheckpoints(ctx context.Context, userID, threadID, 
 				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointID: *checkpointID,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to get checkpoint: %w", err)
+				return fmt.Errorf("failed to get checkpoint: %w", notFoundOr(err))
 			}
 			checkpoints = []dbgen.LgCheckpoint{cp}
 		} else if limit > 0 {
@@ -607,17 +616,33 @@ func (c *postgresClient) ListCheckpoints(ctx context.Context, userID, threadID, 
 			}
 		}
 
-		tuples = make([]*dbpkg.LangGraphCheckpointTuple, 0, len(checkpoints))
-		for _, cp := range checkpoints {
-			writes, err := q.ListCheckpointWrites(ctx, dbgen.ListCheckpointWritesParams{
-				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointID: cp.CheckpointID,
+		// Fetch all writes for the returned checkpoints in a single query and
+		// bucket them by checkpoint ID, instead of issuing one query per
+		// checkpoint (which turned reading a thread's history into 1+N round
+		// trips that grew with the conversation length).
+		checkpointIDs := make([]string, len(checkpoints))
+		for i, cp := range checkpoints {
+			checkpointIDs[i] = cp.CheckpointID
+		}
+
+		writesByCheckpoint := make(map[string][]*dbpkg.LangGraphCheckpointWrite, len(checkpoints))
+		if len(checkpointIDs) > 0 {
+			writes, err := q.ListCheckpointWritesForCheckpoints(ctx, dbgen.ListCheckpointWritesForCheckpointsParams{
+				UserID: userID, ThreadID: threadID, CheckpointNs: checkpointNS, CheckpointIds: checkpointIDs,
 			})
 			if err != nil {
 				return fmt.Errorf("failed to get checkpoint writes: %w", err)
 			}
-			dbWrites := make([]*dbpkg.LangGraphCheckpointWrite, len(writes))
-			for i, w := range writes {
-				dbWrites[i] = toCheckpointWrite(w)
+			for _, w := range writes {
+				writesByCheckpoint[w.CheckpointID] = append(writesByCheckpoint[w.CheckpointID], toCheckpointWrite(w))
+			}
+		}
+
+		tuples = make([]*dbpkg.LangGraphCheckpointTuple, 0, len(checkpoints))
+		for _, cp := range checkpoints {
+			dbWrites := writesByCheckpoint[cp.CheckpointID]
+			if dbWrites == nil {
+				dbWrites = []*dbpkg.LangGraphCheckpointWrite{}
 			}
 			tuples = append(tuples, &dbpkg.LangGraphCheckpointTuple{
 				Checkpoint: toCheckpoint(cp),
