@@ -6,7 +6,6 @@ import (
 	"maps"
 	"os"
 	"strings"
-	"unicode/utf8"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
@@ -434,10 +433,15 @@ func extractSessionName(message *a2atype.Message) string {
 	}
 	for _, part := range message.Parts {
 		if tp, ok := part.(a2atype.TextPart); ok && tp.Text != "" {
-			if utf8.RuneCountInString(tp.Text) > sessionNameMaxLength {
-				return string([]rune(tp.Text)[:sessionNameMaxLength]) + "..."
+			text := strings.TrimSpace(tp.Text)
+			runeCount := 0
+			for byteIndex := range text {
+				if runeCount == sessionNameMaxLength {
+					return text[:byteIndex] + "..."
+				}
+				runeCount++
 			}
-			return tp.Text
+			return text
 		}
 	}
 	return ""
