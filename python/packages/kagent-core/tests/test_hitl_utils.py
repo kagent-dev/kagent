@@ -1,6 +1,8 @@
 """Tests for HITL utility functions in kagent.core.a2a._hitl_utils."""
 
-from a2a.types import DataPart, Message, Part, Role, Task, TaskState, TaskStatus
+from a2a.types import Message, Part, Role, Task, TaskState, TaskStatus
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
 
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
@@ -25,11 +27,11 @@ from kagent.core.a2a import (
 def _make_message(*data_parts: dict) -> Message:
     """Build a Message with one or more DataPart dicts."""
     return Message(
-        role=Role.user,
+        role=Role.ROLE_USER,
         message_id="test",
         task_id="task1",
         context_id="ctx1",
-        parts=[Part(DataPart(data=d)) for d in data_parts],
+        parts=[Part(data=ParseDict(d, Value())) for d in data_parts],
     )
 
 
@@ -39,22 +41,20 @@ def _make_hitl_task(*hitl_data_dicts: dict) -> Task:
     for d in hitl_data_dicts:
         parts.append(
             Part(
-                DataPart(
-                    data=d,
-                    metadata={
-                        "adk_type": "function_call",
-                        "adk_is_long_running": True,
-                    },
-                )
+                data=ParseDict(d, Value()),
+                metadata={
+                    "adk_type": "function_call",
+                    "adk_is_long_running": True,
+                },
             )
         )
     return Task(
         id="task-1",
         context_id="ctx-1",
         status=TaskStatus(
-            state=TaskState.input_required,
+            state=TaskState.TASK_STATE_INPUT_REQUIRED,
             message=Message(
-                role=Role.agent,
+                role=Role.ROLE_AGENT,
                 message_id="msg-1",
                 parts=parts,
             ),
@@ -93,7 +93,7 @@ class TestExtractDecisionFromMessage:
         assert extract_decision_from_message(None) is None
 
     def test_empty_parts(self):
-        msg = Message(role=Role.user, message_id="x", task_id="t", context_id="c", parts=[])
+        msg = Message(role=Role.ROLE_USER, message_id="x", task_id="t", context_id="c", parts=[])
         assert extract_decision_from_message(msg) is None
 
     def test_no_decision_key(self):
@@ -465,7 +465,7 @@ class TestExtractHitlInfoFromTask:
         assert result[1].tool_name == "write_file"
 
     def test_no_message(self):
-        task = Task(id="t", context_id="c", status=TaskStatus(state=TaskState.completed))
+        task = Task(id="t", context_id="c", status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED))
         assert extract_hitl_info_from_task(task) is None
 
     def test_no_parts(self):
@@ -473,8 +473,8 @@ class TestExtractHitlInfoFromTask:
             id="t",
             context_id="c",
             status=TaskStatus(
-                state=TaskState.input_required,
-                message=Message(role=Role.agent, message_id="m", parts=[]),
+                state=TaskState.TASK_STATE_INPUT_REQUIRED,
+                message=Message(role=Role.ROLE_AGENT, message_id="m", parts=[]),
             ),
         )
         assert extract_hitl_info_from_task(task) is None
@@ -485,16 +485,14 @@ class TestExtractHitlInfoFromTask:
             id="t",
             context_id="c",
             status=TaskStatus(
-                state=TaskState.input_required,
+                state=TaskState.TASK_STATE_INPUT_REQUIRED,
                 message=Message(
-                    role=Role.agent,
+                    role=Role.ROLE_AGENT,
                     message_id="m",
                     parts=[
                         Part(
-                            DataPart(
-                                data={"name": "some_function", "args": {}},
-                                metadata={"adk_type": "function_call"},
-                            )
+                            data=ParseDict({"name": "some_function", "args": {}}, Value()),
+                            metadata={"adk_type": "function_call"},
                         ),
                     ],
                 ),
@@ -508,25 +506,26 @@ class TestExtractHitlInfoFromTask:
             id="t",
             context_id="c",
             status=TaskStatus(
-                state=TaskState.input_required,
+                state=TaskState.TASK_STATE_INPUT_REQUIRED,
                 message=Message(
-                    role=Role.agent,
+                    role=Role.ROLE_AGENT,
                     message_id="m",
                     parts=[
                         Part(
-                            DataPart(
-                                data={
+                            data=ParseDict(
+                                {
                                     "name": "adk_request_confirmation",
                                     "id": "conf_1",
                                     "args": {
                                         "originalFunctionCall": {"name": "delete_file", "args": {}, "id": "c1"},
                                     },
                                 },
-                                metadata={
-                                    "kagent_type": "function_call",
-                                    "kagent_is_long_running": True,
-                                },
-                            )
+                                Value(),
+                            ),
+                            metadata={
+                                "kagent_type": "function_call",
+                                "kagent_is_long_running": True,
+                            },
                         ),
                     ],
                 ),

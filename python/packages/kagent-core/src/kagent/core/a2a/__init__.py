@@ -31,6 +31,7 @@ from ._hitl_utils import (
 from ._requests import KAgentRequestContextBuilder
 from ._task_result_aggregator import TaskResultAggregator
 from ._task_store import KAgentTaskStore
+from ._time import now_timestamp
 
 __all__ = [
     "get_a2a_max_content_length",
@@ -38,6 +39,7 @@ __all__ = [
     "set_request_user_id",
     "KAgentRequestContextBuilder",
     "KAgentTaskStore",
+    "now_timestamp",
     "get_kagent_metadata_key",
     "read_metadata_value",
     "ADK_METADATA_KEY_PREFIX",

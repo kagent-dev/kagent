@@ -1,7 +1,6 @@
 {
   "name": "currency-converter",
   "description": "A currency converter LangGraph agent that can convert currencies",
-  "url": "localhost:8080",
   "version": "0.1.0",
   "capabilities": {
     "streaming": true

@@ -4,14 +4,21 @@ import httpx
 import pytest
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
-from a2a.types import DataPart, Message, MessageSendParams, Part, Role, TextPart
+from a2a.types import Message, Part, Role, SendMessageRequest
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
 
 from kagent.crewai._executor import CrewAIAgentExecutor
 
 
 def _request_context(*parts: Part) -> RequestContext:
-    message = Message(role=Role.user, message_id="msg-1", parts=list(parts))
-    return RequestContext(request=MessageSendParams(message=message))
+    message = Message(role=Role.ROLE_USER, message_id="msg-1", parts=list(parts))
+    return RequestContext(
+        call_context=MagicMock(),
+        request=SendMessageRequest(message=message),
+        task_id="task-1",
+        context_id="ctx-1",
+    )
 
 
 def _make_crew() -> MagicMock:
@@ -34,7 +41,7 @@ async def _run(crew: MagicMock, context: RequestContext) -> None:
 @pytest.mark.asyncio
 async def test_execute_passes_datapart_data_as_inputs():
     crew = _make_crew()
-    context = _request_context(Part(DataPart(data={"topic": "ai"})))
+    context = _request_context(Part(data=ParseDict({"topic": "ai"}, Value())))
 
     await _run(crew, context)
 
@@ -44,7 +51,7 @@ async def test_execute_passes_datapart_data_as_inputs():
 @pytest.mark.asyncio
 async def test_execute_falls_back_to_text_input_without_datapart():
     crew = _make_crew()
-    context = _request_context(Part(TextPart(text="hello")))
+    context = _request_context(Part(text="hello"))
 
     await _run(crew, context)
 

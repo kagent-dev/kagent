@@ -6,24 +6,24 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 
 import hashlib
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 from a2a.types import (
-    DataPart,
     Message,
     Part,
     Role,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
     A2A_DATA_PART_METADATA_TYPE_KEY,
     get_kagent_metadata_key,
+    now_timestamp,
 )
 from langchain_core.messages import (
     AIMessage,
@@ -69,27 +69,28 @@ async def _convert_langgraph_event_to_a2a(
 
             if isinstance(message, AIMessage):
                 # Handle AI messages (assistant responses)
-                a2a_message = Message(message_id=str(uuid.uuid4()), role=Role.agent, parts=[])
+                a2a_message = Message(message_id=str(uuid.uuid4()), role=Role.ROLE_AGENT, parts=[])
                 if message.content and isinstance(message.content, str) and message.content.strip():
-                    a2a_message.parts.append(Part(TextPart(text=message.content)))
+                    a2a_message.parts.append(Part(text=message.content))
 
                 # Handle tool calls in AI messages
                 if hasattr(message, "tool_calls") and message.tool_calls:
                     for tool_call in message.tool_calls:
                         a2a_message.parts.append(
                             Part(
-                                DataPart(
-                                    data={
+                                data=ParseDict(
+                                    {
                                         "id": tool_call["id"],
                                         "name": tool_call["name"],
                                         "args": tool_call["args"],
                                     },
-                                    metadata={
-                                        get_kagent_metadata_key(
-                                            A2A_DATA_PART_METADATA_TYPE_KEY
-                                        ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-                                    },
-                                )
+                                    Value(),
+                                ),
+                                metadata={
+                                    get_kagent_metadata_key(
+                                        A2A_DATA_PART_METADATA_TYPE_KEY
+                                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                                },
                             )
                         )
 
@@ -101,12 +102,11 @@ async def _convert_langgraph_event_to_a2a(
                     TaskStatusUpdateEvent(
                         task_id=task_id,
                         status=TaskStatus(
-                            state=TaskState.working,
-                            timestamp=datetime.now(UTC).isoformat(),
+                            state=TaskState.TASK_STATE_WORKING,
+                            timestamp=now_timestamp(),
                             message=a2a_message,
                         ),
                         context_id=context_id,
-                        final=False,
                         metadata=get_rich_event_metadata(
                             app_name=app_name,
                             session_id=context_id,
@@ -121,31 +121,31 @@ async def _convert_langgraph_event_to_a2a(
                         TaskStatusUpdateEvent(
                             task_id=task_id,
                             status=TaskStatus(
-                                state=TaskState.working,
-                                timestamp=datetime.now(UTC).isoformat(),
+                                state=TaskState.TASK_STATE_WORKING,
+                                timestamp=now_timestamp(),
                                 message=Message(
                                     message_id=str(uuid.uuid4()),
-                                    role=Role.agent,
+                                    role=Role.ROLE_AGENT,
                                     parts=[
                                         Part(
-                                            DataPart(
-                                                data={
+                                            data=ParseDict(
+                                                {
                                                     "id": message.tool_call_id,
                                                     "name": message.name,
                                                     "response": message.content,
                                                 },
-                                                metadata={
-                                                    get_kagent_metadata_key(
-                                                        A2A_DATA_PART_METADATA_TYPE_KEY
-                                                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-                                                },
-                                            )
+                                                Value(),
+                                            ),
+                                            metadata={
+                                                get_kagent_metadata_key(
+                                                    A2A_DATA_PART_METADATA_TYPE_KEY
+                                                ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
+                                            },
                                         )
                                     ],
                                 ),
                             ),
                             context_id=context_id,
-                            final=False,
                             metadata=get_rich_event_metadata(
                                 app_name=app_name,
                                 session_id=context_id,

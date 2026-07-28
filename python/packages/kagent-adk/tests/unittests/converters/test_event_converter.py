@@ -50,10 +50,14 @@ class TestEventConverter:
             event1, invocation_context, task_id="test_task_1", context_id="test_context_1"
         )
         error_events1 = [
-            e for e in result1 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+            e
+            for e in result1
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_FAILED
         ]
         working_events1 = [
-            e for e in result1 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+            e
+            for e in result1
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_WORKING
         ]
         assert len(error_events1) == 0, (
             f"Expected no error events for STOP with empty content, got {len(error_events1)}"
@@ -72,10 +76,14 @@ class TestEventConverter:
             event2, invocation_context, task_id="test_task_2", context_id="test_context_2"
         )
         error_events2 = [
-            e for e in result2 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+            e
+            for e in result2
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_FAILED
         ]
         working_events2 = [
-            e for e in result2 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+            e
+            for e in result2
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_WORKING
         ]
         assert len(error_events2) == 0, f"Expected no error events for STOP with empty parts, got {len(error_events2)}"
         assert len(working_events2) == 0, (
@@ -90,10 +98,14 @@ class TestEventConverter:
             event3, invocation_context, task_id="test_task_3", context_id="test_context_3"
         )
         error_events3 = [
-            e for e in result3 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+            e
+            for e in result3
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_FAILED
         ]
         working_events3 = [
-            e for e in result3 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+            e
+            for e in result3
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_WORKING
         ]
         assert len(error_events3) == 0, (
             f"Expected no error events for STOP with missing content, got {len(error_events3)}"
@@ -110,7 +122,9 @@ class TestEventConverter:
             event4, invocation_context, task_id="test_task_4", context_id="test_context_4"
         )
         error_events4 = [
-            e for e in result4 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+            e
+            for e in result4
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_FAILED
         ]
         assert len(error_events4) == 1, f"Expected 1 error event for MALFORMED_FUNCTION_CALL, got {len(error_events4)}"
 
@@ -130,7 +144,9 @@ class TestEventConverter:
         result = convert_event_to_a2a_events(event, invocation_context, task_id="task-xyz", context_id="ctx-xyz")
 
         working_events = [
-            e for e in result if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+            e
+            for e in result
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_WORKING
         ]
         assert len(working_events) == 1
         message = working_events[0].status.message

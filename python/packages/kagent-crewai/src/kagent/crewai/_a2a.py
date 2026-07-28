@@ -4,16 +4,16 @@ import os
 from typing import Union
 
 import httpx
-from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
+from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
-    get_a2a_max_content_length,
 )
 from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
 
@@ -42,13 +42,13 @@ class KAgentApp:
         self,
         *,
         crew: Union[Crew, Flow],
-        agent_card: AgentCard,
+        agent_card: AgentCard | dict,
         config: KAgentConfig = KAgentConfig(),
         executor_config: CrewAIAgentExecutorConfig | None = None,
         tracing: bool = True,
     ):
         self._crew = crew
-        self.agent_card = AgentCard.model_validate(agent_card)
+        self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
         self.config = config
         self.executor_config = executor_config or CrewAIAgentExecutorConfig()
         self.tracing = tracing
@@ -71,13 +71,6 @@ class KAgentApp:
             request_context_builder=request_context_builder,
         )
 
-        max_content_length = get_a2a_max_content_length()
-        a2a_app = A2AStarletteApplication(
-            agent_card=self.agent_card,
-            http_handler=request_handler,
-            max_content_length=max_content_length,
-        )
-
         faulthandler.enable()
         app = FastAPI(
             title=f"KAgent CrewAI: {self.config.app_name}",
@@ -94,6 +87,7 @@ class KAgentApp:
 
         app.add_route("/health", methods=["GET"], route=def_health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-        a2a_app.add_routes_to_app(app)
+        app.router.routes.extend(create_agent_card_routes(self.agent_card))
+        app.router.routes.extend(create_jsonrpc_routes(request_handler, rpc_url="/"))
 
         return app
