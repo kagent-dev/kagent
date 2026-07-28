@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"iter"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2asrv"
-	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -25,18 +25,27 @@ import (
 // until the mux handler returns) is the server's flushing handler's job.
 type substrateExecutor struct{}
 
-func (substrateExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestContext, queue eventqueue.Queue) error {
-	_, span := telemetry.StartInvocationSpan(ctx)
-	span.End()
+func (substrateExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		_, span := telemetry.StartInvocationSpan(ctx)
+		defer span.End()
 
-	msg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.TextPart{Text: "done"})
-	msg.ContextID = reqCtx.ContextID
-	msg.TaskID = reqCtx.TaskID
-	return queue.Write(ctx, msg)
+		if !yield(a2atype.NewSubmittedTask(reqCtx, reqCtx.Message), nil) {
+			return
+		}
+		if !yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil), nil) {
+			return
+		}
+
+		msg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("done"))
+		msg.ContextID = reqCtx.ContextID
+		msg.TaskID = reqCtx.TaskID
+		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, msg), nil)
+	}
 }
 
-func (substrateExecutor) Cancel(context.Context, *a2asrv.RequestContext, eventqueue.Queue) error {
-	return nil
+func (substrateExecutor) Cancel(context.Context, *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {}
 }
 
 // runA2ARequest builds a server against an in-memory batch exporter, serves
@@ -63,9 +72,9 @@ func runA2ARequest(t *testing.T) map[string]bool {
 	body, err := json.Marshal(map[string]any{
 		"jsonrpc": "2.0",
 		"id":      "1",
-		"method":  "message/send",
-		"params": &a2atype.MessageSendParams{
-			Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.TextPart{Text: "hi"}),
+		"method":  "SendMessage",
+		"params": &a2atype.SendMessageRequest{
+			Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
 		},
 	})
 	if err != nil {
@@ -73,6 +82,7 @@ func runA2ARequest(t *testing.T) map[string]bool {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(a2atype.SvcParamVersion, string(a2atype.Version))
 	rec := httptest.NewRecorder()
 
 	srv.httpServer.Handler.ServeHTTP(rec, req)

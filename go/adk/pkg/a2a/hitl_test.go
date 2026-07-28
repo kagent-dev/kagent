@@ -3,8 +3,16 @@ package a2a
 import (
 	"testing"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 )
+
+func dataPart(data map[string]any, metadata map[string]any) *a2atype.Part {
+	p := a2atype.NewDataPart(data)
+	if metadata != nil {
+		p.Metadata = metadata
+	}
+	return p
+}
 
 // ---------------------------------------------------------------------------
 // ExtractDecisionFromMessage
@@ -12,19 +20,19 @@ import (
 
 func TestExtractDecisionFromMessage_DataPart(t *testing.T) {
 	approveData := map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove}
-	msg := a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: approveData})
+	msg := a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(approveData, nil))
 	if got := ExtractDecisionFromMessage(msg); got != DecisionApprove {
 		t.Errorf("approve DataPart = %q, want %q", got, DecisionApprove)
 	}
 
 	rejectData := map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeReject}
-	msg = a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: rejectData})
+	msg = a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(rejectData, nil))
 	if got := ExtractDecisionFromMessage(msg); got != DecisionReject {
 		t.Errorf("reject DataPart = %q, want %q", got, DecisionReject)
 	}
 
 	batchData := map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeBatch}
-	msg = a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: batchData})
+	msg = a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(batchData, nil))
 	if got := ExtractDecisionFromMessage(msg); got != DecisionBatch {
 		t.Errorf("batch DataPart = %q, want %q", got, DecisionBatch)
 	}
@@ -39,13 +47,13 @@ func TestExtractDecisionFromMessage_EdgeCases(t *testing.T) {
 		t.Errorf("empty parts = %q, want empty", got)
 	}
 	// Text-only message — no decision (text extraction removed)
-	msg = a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.TextPart{Text: "approve"})
+	msg = a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("approve"))
 	if got := ExtractDecisionFromMessage(msg); got != "" {
 		t.Errorf("text-only message = %q, want empty (text extraction removed)", got)
 	}
 	// Unknown decision type
 	msg = a2atype.NewMessage(a2atype.MessageRoleUser,
-		&a2atype.DataPart{Data: map[string]any{KAgentHitlDecisionTypeKey: "unknown"}})
+		dataPart(map[string]any{KAgentHitlDecisionTypeKey: "unknown"}, nil))
 	if got := ExtractDecisionFromMessage(msg); got != "" {
 		t.Errorf("unknown decision = %q, want empty", got)
 	}
@@ -123,25 +131,25 @@ func TestExtractBatchDecisionsFromMessage(t *testing.T) {
 		{name: "nil message", message: nil, want: nil},
 		{
 			name: "valid batch",
-			message: a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: map[string]any{
+			message: a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(map[string]any{
 				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeBatch,
 				KAgentHitlDecisionsKey:    map[string]any{"call_1": "approve", "call_2": "reject"},
-			}}),
+			}, nil)),
 			want: map[string]DecisionType{"call_1": DecisionApprove, "call_2": DecisionReject},
 		},
 		{
 			name: "invalid values filtered",
-			message: a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: map[string]any{
+			message: a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(map[string]any{
 				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeBatch,
 				KAgentHitlDecisionsKey:    map[string]any{"call_1": "approve", "call_2": "bad"},
-			}}),
+			}, nil)),
 			want: map[string]DecisionType{"call_1": DecisionApprove},
 		},
 		{
 			name: "non-batch type returns nil",
-			message: a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: map[string]any{
+			message: a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(map[string]any{
 				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove,
-			}}),
+			}, nil)),
 			want: nil,
 		},
 	}
@@ -174,25 +182,25 @@ func TestExtractRejectionReasonsFromMessage(t *testing.T) {
 		{name: "nil message", message: nil, want: nil},
 		{
 			name: "uniform reject with reason",
-			message: a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: map[string]any{
+			message: a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(map[string]any{
 				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeReject,
 				"rejection_reason":        "too dangerous",
-			}}),
+			}, nil)),
 			want: map[string]string{"*": "too dangerous"},
 		},
 		{
 			name: "uniform reject without reason returns nil",
-			message: a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: map[string]any{
+			message: a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(map[string]any{
 				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeReject,
-			}}),
+			}, nil)),
 			want: nil,
 		},
 		{
 			name: "batch with reasons",
-			message: a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: map[string]any{
+			message: a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(map[string]any{
 				KAgentHitlDecisionTypeKey:     KAgentHitlDecisionTypeBatch,
 				KAgentHitlRejectionReasonsKey: map[string]any{"call_1": "policy violation"},
-			}}),
+			}, nil)),
 			want: map[string]string{"call_1": "policy violation"},
 		},
 	}
@@ -217,18 +225,18 @@ func TestExtractRejectionReasonsFromMessage(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExtractAskUserAnswersFromMessage(t *testing.T) {
-	msg := a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: map[string]any{
+	msg := a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(map[string]any{
 		KAgentAskUserAnswersKey: []any{map[string]any{"answer": []any{"yes"}}},
-	}})
+	}, nil))
 	got := ExtractAskUserAnswersFromMessage(msg)
 	if len(got) != 1 {
 		t.Errorf("len = %d, want 1", len(got))
 	}
 
 	// Non-list value returns nil
-	msg = a2atype.NewMessage(a2atype.MessageRoleUser, &a2atype.DataPart{Data: map[string]any{
+	msg = a2atype.NewMessage(a2atype.MessageRoleUser, dataPart(map[string]any{
 		KAgentAskUserAnswersKey: "not a list",
-	}})
+	}, nil))
 	if got := ExtractAskUserAnswersFromMessage(msg); got != nil {
 		t.Errorf("non-list = %v, want nil", got)
 	}
@@ -357,8 +365,8 @@ func TestBuildConfirmationPayload(t *testing.T) {
 
 func TestExtractPendingConfirmationsFromParts(t *testing.T) {
 	parts := a2atype.ContentParts{
-		&a2atype.DataPart{
-			Data: map[string]any{
+		dataPart(
+			map[string]any{
 				"name": "adk_request_confirmation",
 				"id":   "confirm_1",
 				"args": map[string]any{
@@ -378,11 +386,11 @@ func TestExtractPendingConfirmationsFromParts(t *testing.T) {
 					},
 				},
 			},
-			Metadata: map[string]any{
+			map[string]any{
 				"kagent_type":            "function_call",
 				"kagent_is_long_running": true,
 			},
-		},
+		),
 	}
 
 	pending := ExtractPendingConfirmationsFromParts(parts)
@@ -408,8 +416,8 @@ func TestExtractPendingConfirmationsFromParts(t *testing.T) {
 
 func TestExtractHitlInfoFromParts_PointerDataPart(t *testing.T) {
 	parts := a2atype.ContentParts{
-		&a2atype.DataPart{
-			Data: map[string]any{
+		dataPart(
+			map[string]any{
 				"name": "adk_request_confirmation",
 				"id":   "confirm_1",
 				"args": map[string]any{
@@ -420,11 +428,11 @@ func TestExtractHitlInfoFromParts_PointerDataPart(t *testing.T) {
 					},
 				},
 			},
-			Metadata: map[string]any{
+			map[string]any{
 				"kagent_type":            "function_call",
 				"kagent_is_long_running": true,
 			},
-		},
+		),
 	}
 
 	got := ExtractHitlInfoFromParts(parts)
@@ -448,8 +456,8 @@ func TestBuildResumeHITLMessage(t *testing.T) {
 			State: a2atype.TaskStateInputRequired,
 			Message: a2atype.NewMessage(
 				a2atype.MessageRoleAgent,
-				&a2atype.DataPart{
-					Data: map[string]any{
+				dataPart(
+					map[string]any{
 						"name": "adk_request_confirmation",
 						"id":   "confirm_1",
 						"args": map[string]any{
@@ -464,18 +472,18 @@ func TestBuildResumeHITLMessage(t *testing.T) {
 							},
 						},
 					},
-					Metadata: map[string]any{
+					map[string]any{
 						"kagent_type":            "function_call",
 						"kagent_is_long_running": true,
 					},
-				},
+				),
 			),
 		},
 	}
 
 	incoming := a2atype.NewMessage(
 		a2atype.MessageRoleUser,
-		&a2atype.DataPart{Data: map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove}},
+		dataPart(map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove}, nil),
 	)
 
 	resume := BuildResumeHITLMessage(storedTask, incoming)
@@ -491,11 +499,11 @@ func TestBuildResumeHITLMessage(t *testing.T) {
 		t.Fatal("resume part is not a DataPart")
 		return
 	}
-	if dp.Data[PartKeyName] != "adk_request_confirmation" {
-		t.Fatalf("resume FunctionResponse name = %#v", dp.Data[PartKeyName])
+	if dp[PartKeyName] != "adk_request_confirmation" {
+		t.Fatalf("resume FunctionResponse name = %#v", dp[PartKeyName])
 	}
-	if dp.Data[PartKeyID] != "confirm_1" {
-		t.Fatalf("resume FunctionResponse id = %#v", dp.Data[PartKeyID])
+	if dp[PartKeyID] != "confirm_1" {
+		t.Fatalf("resume FunctionResponse id = %#v", dp[PartKeyID])
 	}
 }
 
@@ -510,7 +518,7 @@ func TestProcessHitlDecision(t *testing.T) {
 
 	t.Run("uniform approve", func(t *testing.T) {
 		msg := a2atype.NewMessage(a2atype.MessageRoleUser,
-			&a2atype.DataPart{Data: map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove}})
+			dataPart(map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove}, nil))
 		parts := ProcessHitlDecision(pending, DecisionApprove, msg)
 		if len(parts) != 1 {
 			t.Fatalf("len = %d, want 1", len(parts))
@@ -520,17 +528,17 @@ func TestProcessHitlDecision(t *testing.T) {
 			t.Fatal("part is not DataPart")
 			return
 		}
-		if dp.Data[PartKeyName] != "adk_request_confirmation" {
-			t.Errorf("name = %v", dp.Data[PartKeyName])
+		if dp[PartKeyName] != "adk_request_confirmation" {
+			t.Errorf("name = %v", dp[PartKeyName])
 		}
 	})
 
 	t.Run("uniform reject with reason", func(t *testing.T) {
 		msg := a2atype.NewMessage(a2atype.MessageRoleUser,
-			&a2atype.DataPart{Data: map[string]any{
+			dataPart(map[string]any{
 				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeReject,
 				"rejection_reason":        "not safe",
-			}})
+			}, nil))
 		parts := ProcessHitlDecision(pending, DecisionReject, msg)
 		if len(parts) != 1 {
 			t.Fatalf("len = %d, want 1", len(parts))
@@ -539,7 +547,7 @@ func TestProcessHitlDecision(t *testing.T) {
 
 	t.Run("empty pending returns nil", func(t *testing.T) {
 		msg := a2atype.NewMessage(a2atype.MessageRoleUser,
-			&a2atype.DataPart{Data: map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove}})
+			dataPart(map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove}, nil))
 		if parts := ProcessHitlDecision(map[string]PendingConfirmation{}, DecisionApprove, msg); parts != nil {
 			t.Errorf("empty pending = %v, want nil", parts)
 		}
@@ -547,10 +555,10 @@ func TestProcessHitlDecision(t *testing.T) {
 
 	t.Run("ask-user answers take priority", func(t *testing.T) {
 		msg := a2atype.NewMessage(a2atype.MessageRoleUser,
-			&a2atype.DataPart{Data: map[string]any{
+			dataPart(map[string]any{
 				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove,
 				KAgentAskUserAnswersKey:   []any{map[string]any{"answer": []any{"yes"}}},
-			}})
+			}, nil))
 		parts := ProcessHitlDecision(pending, DecisionApprove, msg)
 		if len(parts) != 1 {
 			t.Fatalf("ask-user len = %d, want 1", len(parts))
@@ -563,10 +571,10 @@ func TestProcessHitlDecision(t *testing.T) {
 			"fc_2": {OriginalID: "orig_2"},
 		}
 		msg := a2atype.NewMessage(a2atype.MessageRoleUser,
-			&a2atype.DataPart{Data: map[string]any{
+			dataPart(map[string]any{
 				KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeBatch,
 				KAgentHitlDecisionsKey:    map[string]any{"orig_1": "approve", "orig_2": "reject"},
-			}})
+			}, nil))
 		parts := ProcessHitlDecision(pendingBatch, DecisionBatch, msg)
 		if len(parts) != 2 {
 			t.Fatalf("batch len = %d, want 2", len(parts))

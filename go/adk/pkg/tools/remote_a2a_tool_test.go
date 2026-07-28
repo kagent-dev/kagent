@@ -4,21 +4,21 @@ import (
 	"context"
 	"testing"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2aclient"
-	"github.com/a2aproject/a2a-go/a2asrv"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
-// newReq returns an empty outbound client Request with an initialized CallMeta.
+// newReq returns an empty outbound client Request with initialized service params.
 func newReq() *a2aclient.Request {
-	return &a2aclient.Request{Meta: a2aclient.CallMeta{}}
+	return &a2aclient.Request{ServiceParams: a2aclient.ServiceParams{}}
 }
 
 // withCallContext returns a context that carries an a2asrv.CallContext whose
-// RequestMeta exposes the given inbound headers, so the interceptor's
-// CallContextFrom + RequestMeta path can be exercised.
+// service params expose the given inbound headers, so the interceptor's
+// CallContextFrom + ServiceParams path can be exercised.
 func withCallContext(parent context.Context, inbound map[string][]string) context.Context {
-	ctx, _ := a2asrv.WithCallContext(parent, a2asrv.NewRequestMeta(inbound))
+	ctx, _ := a2asrv.NewCallContext(parent, a2asrv.NewServiceParams(inbound))
 	return ctx
 }
 
@@ -34,7 +34,7 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		ctx := context.WithValue(context.Background(), parentContextIDContextKey{}, ownSession)
 		req := newReq()
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
@@ -50,7 +50,7 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		})
 		req := newReq()
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
@@ -68,7 +68,7 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		})
 		req := newReq()
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
@@ -82,19 +82,19 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		ctx := context.Background()
 		req := newReq()
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
-		if got := req.Meta.Get(ParentContextIDHeader); len(got) != 0 {
+		if got := req.ServiceParams.Get(ParentContextIDHeader); len(got) != 0 {
 			t.Errorf("expected no parent header, got %v", got)
 		}
-		if got := req.Meta.Get(RootContextIDHeader); len(got) != 0 {
+		if got := req.ServiceParams.Get(RootContextIDHeader); len(got) != 0 {
 			t.Errorf("expected no root header, got %v", got)
 		}
 	})
 
-	t.Run("pre-existing header on req.Meta wins over lineage", func(t *testing.T) {
+	t.Run("pre-existing header on req.ServiceParams wins over lineage", func(t *testing.T) {
 		// Analogous to Python's header_provider override: a caller-supplied
 		// header that is already present on the outbound request must not be
 		// overwritten by the lineage interceptor.
@@ -103,10 +103,10 @@ func TestLineageHeaderPropagation(t *testing.T) {
 			RootContextIDHeader: {upstreamRoot},
 		})
 		req := newReq()
-		req.Meta.Append(ParentContextIDHeader, "caller-override-parent")
-		req.Meta.Append(RootContextIDHeader, "caller-override-root")
+		req.ServiceParams.Append(ParentContextIDHeader, "caller-override-parent")
+		req.ServiceParams.Append(RootContextIDHeader, "caller-override-root")
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
@@ -117,7 +117,7 @@ func TestLineageHeaderPropagation(t *testing.T) {
 
 func assertSingleHeader(t *testing.T, req *a2aclient.Request, key, want string) {
 	t.Helper()
-	got := req.Meta.Get(key)
+	got := req.ServiceParams.Get(key)
 	if len(got) != 1 {
 		t.Fatalf("%s: expected exactly 1 value, got %v", key, got)
 	}
@@ -170,7 +170,7 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("direct Message result", func(t *testing.T) {
-		msg := &a2atype.Message{Parts: a2atype.ContentParts{a2atype.TextPart{Text: "hi"}}}
+		msg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("hi"))
 		resp, err := s.processResult(nil, contextID, msg)
 		_ = ctx
 		if err != nil {

@@ -3,8 +3,8 @@ package a2a
 import (
 	"testing"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2asrv"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
 // TestNewAgentMessage_StampsContextAndTaskID verifies agent messages carry the
@@ -12,12 +12,12 @@ import (
 // canonical carrier), but stamping them lets consumers that flatten task.history
 // key each message to its task without backfilling.
 func TestNewAgentMessage_StampsContextAndTaskID(t *testing.T) {
-	reqCtx := &a2asrv.RequestContext{
+	reqCtx := &a2asrv.ExecutorContext{
 		ContextID: "ctx-xyz",
 		TaskID:    a2atype.TaskID("task-xyz"),
 	}
 
-	msg := newAgentMessage(reqCtx, a2atype.TextPart{Text: "hello"})
+	msg := newAgentMessage(reqCtx, a2atype.NewTextPart("hello"))
 
 	if msg.ContextID != "ctx-xyz" {
 		t.Errorf("ContextID = %q, want %q", msg.ContextID, "ctx-xyz")
@@ -37,13 +37,13 @@ func TestNewAgentMessage_StampsContextAndTaskID(t *testing.T) {
 // message keys differently from its locally-streamed counterpart and falsely
 // blocks the next send. Mirrors the Python converter test.
 func TestNewAgentStatusEvent_MessageCarriesIDs(t *testing.T) {
-	reqCtx := &a2asrv.RequestContext{
+	reqCtx := &a2asrv.ExecutorContext{
 		ContextID: "ctx-xyz",
 		TaskID:    a2atype.TaskID("task-xyz"),
 	}
 	meta := map[string]any{"k": "v"}
 
-	ev := newAgentStatusEvent(reqCtx, a2atype.ContentParts{a2atype.TextPart{Text: "hi"}}, meta)
+	ev := newAgentStatusEvent(reqCtx, a2atype.ContentParts{a2atype.NewTextPart("hi")}, meta)
 
 	if ev.Status.State != a2atype.TaskStateWorking {
 		t.Errorf("State = %q, want %q", ev.Status.State, a2atype.TaskStateWorking)
