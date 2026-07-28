@@ -14,8 +14,8 @@ const (
 )
 
 // NegotiateA2AWireVersion returns the A2A wire version requested by the client.
-// kagent's go/core A2A endpoints are v1-only, so clients must send
-// A2A-Version: 1.0 explicitly during the cutover.
+// Use only on A2A protocol endpoints (JSON-RPC mux). kagent REST APIs do not
+// negotiate A2A-Version. Protocol clients must send A2A-Version: 1.0.
 func NegotiateA2AWireVersion(r *http.Request) (A2AWireVersion, error) {
 	version := r.Header.Get(a2atype.SvcParamVersion)
 	switch version {

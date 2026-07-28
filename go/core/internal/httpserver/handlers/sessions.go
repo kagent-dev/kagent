@@ -435,15 +435,6 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 		w.RespondWithError(errors.NewInternalServerError("Failed to get session runs", err))
 		return
 	}
-	wireVersion, err := utils.NegotiateA2AWireVersion(r)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", err))
-		return
-	}
-	if wireVersion != utils.A2AWireVersionV1 {
-		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", nil))
-		return
-	}
 
 	log.Info("Successfully retrieved session tasks", "count", len(tasks))
 	data := api.NewResponse(tasks, "Successfully retrieved session tasks", false)

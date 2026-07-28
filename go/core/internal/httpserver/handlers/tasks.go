@@ -8,7 +8,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -43,33 +42,14 @@ func (h *TasksHandler) HandleGetTask(w ErrorResponseWriter, r *http.Request) {
 		RespondNotFoundOrError(w, "Task not found", err)
 		return
 	}
-	wireVersion, err := utils.NegotiateA2AWireVersion(r)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", err))
-		return
-	}
 
 	log.Info("Successfully retrieved task")
-	if wireVersion != utils.A2AWireVersionV1 {
-		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", nil))
-		return
-	}
 	response := api.NewResponse(task, "Successfully retrieved task", false)
 	RespondWithJSON(w, http.StatusOK, response)
 }
 
 func (h *TasksHandler) HandleCreateTask(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("tasks-handler").WithValues("operation", "create-task")
-
-	wireVersion, err := utils.NegotiateA2AWireVersion(r)
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", err))
-		return
-	}
-	if wireVersion != utils.A2AWireVersionV1 {
-		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", nil))
-		return
-	}
 
 	task := a2a.Task{}
 	if err := DecodeJSONBody(r, &task); err != nil {
