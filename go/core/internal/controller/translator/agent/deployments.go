@@ -38,6 +38,7 @@ type resolvedDeployment struct {
 	Labels               map[string]string
 	Annotations          map[string]string
 	Env                  []corev1.EnvVar
+	EnvFrom              []corev1.EnvFromSource
 	Resources            corev1.ResourceRequirements
 	Tolerations          []corev1.Toleration
 	Affinity             *corev1.Affinity
@@ -254,6 +255,7 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		Labels:               getDefaultLabels(agent.GetName(), spec.Labels),
 		Annotations:          maps.Clone(spec.Annotations),
 		Env:                  append(slices.Clone(spec.Env), mdd.EnvVars...),
+		EnvFrom:              slices.Clone(spec.EnvFrom),
 		Resources:            getDefaultResources(spec.Resources), // Set default resources if not specified
 		Tolerations:          slices.Clone(spec.Tolerations),
 		Affinity:             spec.Affinity,
@@ -338,6 +340,7 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		Labels:               getDefaultLabels(agent.GetName(), spec.Labels),
 		Annotations:          maps.Clone(spec.Annotations),
 		Env:                  slices.Clone(spec.Env),
+		EnvFrom:              slices.Clone(spec.EnvFrom),
 		Resources:            getDefaultResources(spec.Resources), // Set default resources if not specified
 		Tolerations:          slices.Clone(spec.Tolerations),
 		Affinity:             spec.Affinity,
