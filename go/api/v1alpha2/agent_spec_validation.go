@@ -26,7 +26,9 @@ func AgentSpecHasSkills(spec *AgentSpec) bool {
 // command because substrate copies the container Command verbatim with no image-entrypoint
 // fallback. A per-agent deployment.nodeSelector is rejected: substrate ActorTemplates carry
 // no node placement (actors run on WorkerPool workers), so the selector would otherwise be
-// silently dropped.
+// silently dropped. The skills and nodeSelector checks are also enforced at admission by CEL
+// rules on SandboxAgentSpec; this function keeps them effective for objects created before
+// those rules shipped and for callers that bypass the API server.
 func ValidateSubstrateSandboxAgentSpec(agent *SandboxAgent) error {
 	if agent == nil {
 		return nil
