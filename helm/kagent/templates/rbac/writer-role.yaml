@@ -11,6 +11,7 @@
   - memories
   - remotemcpservers
   - mcpservers
+  - scheduledruns
   verbs:
   - create
   - update
@@ -28,6 +29,7 @@
   - memories/finalizers
   - remotemcpservers/finalizers
   - mcpservers/finalizers
+  - scheduledruns/finalizers
   verbs:
   - update
 - apiGroups:

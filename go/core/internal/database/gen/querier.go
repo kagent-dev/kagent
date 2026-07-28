@@ -19,6 +19,7 @@ type Querier interface {
 	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
+	GetScheduledRunExecutionBySessionID(ctx context.Context, sessionID *string) (ScheduledRunExecution, error)
 	GetSession(ctx context.Context, arg GetSessionParams) (Session, error)
 	GetSessionShareByToken(ctx context.Context, token string) (SessionShare, error)
 	// Task ownership: a task belongs to task.user_id. A NULL user_id (row written
@@ -56,7 +57,9 @@ type Querier interface {
 	ListEventsForSessionDesc(ctx context.Context, arg ListEventsForSessionDescParams) ([]Event, error)
 	ListEventsForSessionDescLimit(ctx context.Context, arg ListEventsForSessionDescLimitParams) ([]Event, error)
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
+	ListInProgressScheduledRunExecutions(ctx context.Context) ([]ScheduledRunExecution, error)
 	ListPushNotifications(ctx context.Context, taskID string) ([]PushNotification, error)
+	ListScheduledRunExecutions(ctx context.Context, arg ListScheduledRunExecutionsParams) ([]ScheduledRunExecution, error)
 	ListSessionSharesBySession(ctx context.Context, sessionID string) ([]SessionShare, error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]ListSessionsForAgentRow, error)
@@ -86,6 +89,7 @@ type Querier interface {
 	UpsertCrewAIFlowState(ctx context.Context, arg UpsertCrewAIFlowStateParams) error
 	UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error
 	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
+	UpsertScheduledRunExecution(ctx context.Context, arg UpsertScheduledRunExecutionParams) error
 	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
 	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error
 	// UpsertTask returns the upserted id, or no rows when the write was rejected:

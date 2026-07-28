@@ -6,6 +6,7 @@ LIMIT 1;
 -- name: ListSessions :many
 SELECT * FROM session
 WHERE user_id = $1 AND deleted_at IS NULL
+  AND (source IS NULL OR source != 'scheduled_run')
 ORDER BY updated_at DESC, created_at DESC;
 
 -- name: ListSessionsForAgent :many
@@ -22,7 +23,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) sh ON true
 WHERE s.agent_id = $1 AND s.deleted_at IS NULL
-  AND (s.source IS NULL OR s.source != 'agent')
+  AND (s.source IS NULL OR s.source NOT IN ('agent', 'scheduled_run'))
   AND (s.user_id = $2 OR sh.token IS NOT NULL)
 ORDER BY s.updated_at DESC, s.created_at DESC;
 
@@ -38,7 +39,7 @@ VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
 ON CONFLICT (id, user_id) DO UPDATE SET
     name       = EXCLUDED.name,
     agent_id   = EXCLUDED.agent_id,
-    source     = EXCLUDED.source,
+    source     = COALESCE(EXCLUDED.source, session.source),
     updated_at = NOW();
 
 -- name: SoftDeleteSession :exec

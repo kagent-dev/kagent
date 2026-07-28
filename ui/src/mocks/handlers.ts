@@ -22,10 +22,10 @@ const BACKEND_URL = "http://localhost:8083/api";
 // Handler factories – compose these in per-story `beforeEach` calls
 // ---------------------------------------------------------------------------
 
-/** GET /sessions/:sessionId – returns a session (used by checkSessionExists & getSession) */
-export function sessionExistsHandler(session: Session) {
+/** GET /sessions/:sessionId - returns a session with its read-only state. */
+export function sessionWithEventsHandler(session: Session) {
   return http.get(`${BACKEND_URL}/sessions/:sessionId`, () => {
-    return HttpResponse.json({ data: session });
+    return HttpResponse.json({ data: { session, events: [], read_only: false } });
   });
 }
 
@@ -63,11 +63,11 @@ export function createSessionHandler(session: Session) {
   });
 }
 
-/** Adds an artificial delay to the session exists check (for loading-state stories) */
-export function slowSessionExistsHandler(session: Session, ms = 2000) {
+/** Adds an artificial delay to the session fetch (for loading-state stories). */
+export function slowSessionWithEventsHandler(session: Session, ms = 2000) {
   return http.get(`${BACKEND_URL}/sessions/:sessionId`, async () => {
     await delay(ms);
-    return HttpResponse.json({ data: session });
+    return HttpResponse.json({ data: { session, events: [], read_only: false } });
   });
 }
 

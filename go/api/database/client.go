@@ -28,6 +28,7 @@ type Client interface {
 	// Store methods
 	StoreFeedback(ctx context.Context, feedback *Feedback) error
 	StoreSession(ctx context.Context, session *Session) error
+	StoreScheduledRunExecution(ctx context.Context, execution *ScheduledRunExecutionRecord) error
 	StoreAgent(ctx context.Context, agent *Agent) error
 	StoreTask(ctx context.Context, task *a2a.Task, userID string) error
 	StorePushNotification(ctx context.Context, config *a2a.PushConfig) error
@@ -45,6 +46,7 @@ type Client interface {
 	// Get methods
 
 	GetSession(ctx context.Context, sessionID string, userID string) (*Session, error)
+	GetScheduledRunExecutionBySessionID(ctx context.Context, sessionID string) (*ScheduledRunExecutionRecord, error)
 	GetAgent(ctx context.Context, name string) (*Agent, error)
 	GetTask(ctx context.Context, id string, userID string) (*a2a.Task, error)
 	GetTool(ctx context.Context, name string) (*Tool, error)
@@ -58,6 +60,8 @@ type Client interface {
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]SessionWithShareToken, error)
 	ListSessionsForAgentAllUsers(ctx context.Context, agentID string) ([]Session, error)
+	ListScheduledRunExecutions(ctx context.Context, namespace, name, scheduledRunUID string, options ScheduledRunExecutionQueryOptions) ([]ScheduledRunExecutionRecord, error)
+	ListInProgressScheduledRunExecutions(ctx context.Context) ([]ScheduledRunExecutionRecord, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
 	ListToolServers(ctx context.Context) ([]ToolServer, error)
 	ListToolsForServer(ctx context.Context, serverName string, groupKind string) ([]Tool, error)
