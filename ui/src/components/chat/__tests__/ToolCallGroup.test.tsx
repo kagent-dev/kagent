@@ -1,55 +1,45 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { Message } from "@a2a-js/sdk";
+import { Role, type Message } from "@a2a-js/sdk";
 import ToolCallGroup, { groupToolCallMessages, isGroupableToolMessage, buildToolCallResultsIndex, collectPendingApprovalIds } from "@/components/chat/ToolCallGroup";
 import { isAgentToolName } from "@/lib/utils";
+import { createDataPart, createMockMessage, createTextPart } from "@/mocks/factories";
 
-const textMessage = (text: string, role: "user" | "agent" = "agent"): Message => ({
-  kind: "message",
-  messageId: `text-${text}`,
-  role,
-  parts: [{ kind: "text", text }],
-});
+const baseMessage = (overrides: Partial<Message> & Pick<Message, "messageId" | "role">): Message =>
+  createMockMessage({
+    contextId: "ctx-1",
+    taskId: "task-1",
+    ...overrides,
+  });
 
-const requestMessage = (id: string, name: string): Message => ({
-  kind: "message",
-  messageId: `req-${id}`,
-  role: "agent",
-  parts: [
-    {
-      kind: "data",
-      data: { id, name, args: {} },
-      metadata: { adk_type: "function_call" },
-    },
-  ],
-});
+const textMessage = (text: string, role: Role = Role.ROLE_AGENT): Message =>
+  baseMessage({
+    messageId: `text-${text}`,
+    role,
+    parts: [createTextPart(text)],
+  });
 
-const responseMessage = (id: string, name: string, isError = false): Message => ({
-  kind: "message",
-  messageId: `res-${id}`,
-  role: "agent",
-  parts: [
-    {
-      kind: "data",
-      data: { id, name, response: { result: isError ? "boom" : "ok", isError } },
-      metadata: { adk_type: "function_response" },
-    },
-  ],
-});
+const requestMessage = (id: string, name: string): Message =>
+  baseMessage({
+    messageId: `req-${id}`,
+    role: Role.ROLE_AGENT,
+    parts: [createDataPart({ id, name, args: {} }, { adk_type: "function_call" })],
+  });
 
-const approvalMessage = (id: string, approvalDecision?: unknown): Message => ({
-  kind: "message",
-  messageId: `approval-${id}`,
-  role: "agent",
-  metadata: { originalType: "ToolApprovalRequest", ...(approvalDecision !== undefined ? { approvalDecision } : {}) },
-  parts: [
-    {
-      kind: "data",
-      data: { id, name: "dangerous_tool", args: {} },
-      metadata: { adk_type: "function_call" },
-    },
-  ],
-});
+const responseMessage = (id: string, name: string, isError = false): Message =>
+  baseMessage({
+    messageId: `res-${id}`,
+    role: Role.ROLE_AGENT,
+    parts: [createDataPart({ id, name, response: { result: isError ? "boom" : "ok", isError } }, { adk_type: "function_response" })],
+  });
+
+const approvalMessage = (id: string, approvalDecision?: unknown): Message =>
+  baseMessage({
+    messageId: `approval-${id}`,
+    role: Role.ROLE_AGENT,
+    metadata: { originalType: "ToolApprovalRequest", ...(approvalDecision !== undefined ? { approvalDecision } : {}) },
+    parts: [createDataPart({ id, name: "dangerous_tool", args: {} }, { adk_type: "function_call" })],
+  });
 
 describe("isGroupableToolMessage", () => {
   it("accepts function_call and function_response messages", () => {
@@ -58,20 +48,19 @@ describe("isGroupableToolMessage", () => {
   });
 
   it("rejects user and plain text messages", () => {
-    expect(isGroupableToolMessage(textMessage("hi", "user"))).toBe(false);
+    expect(isGroupableToolMessage(textMessage("hi", Role.ROLE_USER))).toBe(false);
     expect(isGroupableToolMessage(textMessage("hello"))).toBe(false);
   });
 
   it("never groups undecided approval or ask-user messages", () => {
     expect(isGroupableToolMessage(approvalMessage("c1"))).toBe(false);
     expect(
-      isGroupableToolMessage({
-        kind: "message",
+      isGroupableToolMessage(baseMessage({
         messageId: "ask-1",
-        role: "agent",
+        role: Role.ROLE_AGENT,
         metadata: { originalType: "AskUserRequest" },
         parts: [],
-      }),
+      })),
     ).toBe(false);
   });
 
@@ -90,7 +79,7 @@ describe("isGroupableToolMessage", () => {
 describe("groupToolCallMessages", () => {
   it("folds consecutive tool messages into one group and keeps text standalone", () => {
     const messages = [
-      textMessage("question", "user"),
+      textMessage("question", Role.ROLE_USER),
       requestMessage("c1", "tool_a"),
       responseMessage("c1", "tool_a"),
       requestMessage("c2", "tool_b"),

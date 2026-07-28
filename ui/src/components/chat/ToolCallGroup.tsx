@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Message } from "@a2a-js/sdk";
+import { type Message } from "@a2a-js/sdk";
 import { ChevronRight, Wrench, Loader2, CheckCircle, XCircle } from "lucide-react";
-import { cn, convertToUserFriendlyName } from "@/lib/utils";
+import { cn, convertToUserFriendlyName, isDataPart, isUserRole } from "@/lib/utils";
 import { extractToolCallRequests, extractToolCallResults } from "@/lib/toolCallExtraction";
 import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
 import { ToolDecision } from "@/types";
@@ -99,7 +99,7 @@ export const collectPendingApprovalIds = (
 type ToolMessageKind = "group" | "standalone" | "other";
 
 const classifyToolMessage = (message: Message, options?: GroupingOptions): ToolMessageKind => {
-  if (message.role === "user") return "other";
+  if (isUserRole(message.role)) return "other";
 
   const metadata = message.metadata as ADKMetadata;
   const originalType = metadata?.originalType;
@@ -108,12 +108,10 @@ const classifyToolMessage = (message: Message, options?: GroupingOptions): ToolM
   const isToolMessage =
     (originalType !== undefined && STREAMING_TOOL_TYPES.has(originalType)) ||
     originalType === "ToolApprovalRequest" ||
-    (message.parts?.some(part => {
-      if (part.kind === "data" && part.metadata) {
-        const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
-        return partType === "function_call" || partType === "function_response";
-      }
-      return false;
+    (message.parts?.some((part) => {
+      if (!isDataPart(part) || !part.metadata) return false;
+      const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
+      return partType === "function_call" || partType === "function_response";
     }) ?? false);
   if (!isToolMessage) return "other";
 

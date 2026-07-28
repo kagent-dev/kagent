@@ -1,8 +1,8 @@
 import React, { useMemo } from "react";
-import { Message } from "@a2a-js/sdk";
+import { type Message } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
-import { isAgentToolName } from "@/lib/utils";
+import { isAgentToolName, isDataPart } from "@/lib/utils";
 import { ADKMetadata, ProcessedToolCallData, getMetadataValue } from "@/lib/messageHandlers";
 import {
   isToolCallRequestMessage,
@@ -120,10 +120,11 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             // For agent tools, resolve the subagent session ID.
             let subagentSessionId: string | undefined = matchingCallData?.subagent_session_id;
             if (!subagentSessionId && isAgentToolName(request.name)) {
-              const fcDataPart = message.parts?.find(p =>
-                p.kind === "data" && p.metadata &&
+              const fcDataPart = message.parts?.find((p) =>
+                isDataPart(p) &&
+                p.metadata &&
                 getMetadataValue<string>(p.metadata as Record<string, unknown>, "type") === "function_call" &&
-                (p.data as Record<string, unknown>)?.id === request.id
+                (p.content.value as Record<string, unknown> | undefined)?.id === request.id
               );
               subagentSessionId = fcDataPart?.metadata
                 ? getMetadataValue<string>(fcDataPart.metadata as Record<string, unknown>, "subagent_session_id")

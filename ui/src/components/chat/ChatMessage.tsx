@@ -1,4 +1,4 @@
-import { Message, TextPart } from "@a2a-js/sdk";
+import { type Message } from "@a2a-js/sdk";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
@@ -9,7 +9,7 @@ import type { TokenStats } from "@/types";
 import { useState } from "react";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
-import { convertToUserFriendlyName } from "@/lib/utils";
+import { convertToUserFriendlyName, isDataPart, isTextPart, isUserRole } from "@/lib/utils";
 import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
 import { ToolDecision } from "@/types";
 import type { ChatMcpAppTool } from "@/components/chat/ChatMcpAppsContext";
@@ -35,10 +35,9 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
 
   if (!message) return null;
 
-  const textParts = message.parts?.filter(part => part.kind === "text") || [];
-  const content = textParts.map(part => (part as TextPart).text).join("");
+  const content = message.parts?.filter(isTextPart).map((part) => part.content.value).join("") || "";
 
-  const source = message.role === "user" ? "user" : "assistant";
+  const source = isUserRole(message.role) ? "user" : "assistant";
   const tokenStats = (message.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
   const messageId = message.messageId;
 
@@ -80,12 +79,10 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
   const originalType = metadata?.originalType;
 
   // Check for tool call parts (works for both stored and streaming messages)
-  const hasToolCallParts = message.parts?.some(part => {
-    if (part.kind === "data" && part.metadata) {
-      const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
-      return partType === "function_call" || partType === "function_response";
-    }
-    return false;
+  const hasToolCallParts = message.parts?.some((part) => {
+    if (!isDataPart(part) || !part.metadata) return false;
+    const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
+    return partType === "function_call" || partType === "function_response";
   });
 
   // Also check for streaming tool calls via originalType (fallback for streaming messages)
@@ -135,15 +132,13 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
   }
 
   if (originalType === "ToolCallSummaryMessage") {
-    const hasToolCalls = allMessages.some(msg => {
-      return msg.parts?.some(part => {
-        if (part.kind === "data" && part.metadata) {
-          const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
-          return partType === "function_call" || partType === "function_response";
-        }
-        return false;
-      });
-    });
+    const hasToolCalls = allMessages.some((msg) =>
+      msg.parts?.some((part) => {
+        if (!isDataPart(part) || !part.metadata) return false;
+        const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
+        return partType === "function_call" || partType === "function_response";
+      }),
+    );
 
     if (hasToolCalls) {
       return <ToolCallDisplay currentMessage={message} allMessages={allMessages} getMcpAppForTool={getMcpAppForTool} onMcpAppSendMessage={onMcpAppSendMessage} />;

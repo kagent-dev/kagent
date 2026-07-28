@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ChatMessage from "@/components/chat/ChatMessage";
 import ToolCallGroup, { groupToolCallMessages, buildToolCallResultsIndex, collectPendingApprovalIds } from "@/components/chat/ToolCallGroup";
-import { isAgentToolName } from "@/lib/utils";
+import { isAgentToolName, isUserRole } from "@/lib/utils";
 import ChatMinimap from "@/components/chat/ChatMinimap";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
@@ -36,7 +36,7 @@ import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatRunInSandbox, useChatSubstrateSandbox, useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
-import { Message, DataPart, Task, TaskState } from "@a2a-js/sdk";
+import { Role, taskStateFromJSON, type Message, type StreamResponse, type Task } from "@a2a-js/sdk";
 import { useChatMcpApps } from "@/components/chat/ChatMcpAppsContext";
 import {
   checkAndSyncChatSession,
@@ -261,7 +261,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             // Check for a task still actively running (not input-required, not terminal).
             // input-required is excluded: it needs the approval UI, not a stream.
             activeTask = messagesResponse.data.findLast(
-              task => RESUBSCRIBE_TASK_STATES.includes(task.status?.state as TaskState)
+              task => RESUBSCRIBE_TASK_STATES.includes(taskStateFromJSON(task.status?.state))
             );
           }
         }
@@ -277,7 +277,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setIsLoading(false);
 
       if (activeTask) {
-        setChatStatus(mapA2AStateToStatus(activeTask.status?.state as TaskState));
+        setChatStatus(mapA2AStateToStatus(activeTask.status?.state));
         await streamResubscribedTask(activeTask.id);
       }
     }
@@ -349,19 +349,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     const messageId = uuidv4();
 
     // For new sessions or when no stored messages exist, show the user message immediately
-    const userMessage: Message = {
-      kind: "message",
+    const userMessage = createMessage(userMessageText, "user", {
       messageId,
-      role: "user",
-      parts: [{
-        kind: "text",
-        text: userMessageText
-      }],
       contextId: guardSessionId,
-      metadata: {
-        timestamp: Date.now()
-      }
-    };
+      additionalMetadata: { timestamp: Date.now() },
+    });
 
     // Add user message to streaming messages to show immediately
     // (will be replaced by server response that includes the user message)
@@ -505,7 +497,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     });
   };
 
-  const consumeStream = async (stream: AsyncIterable<unknown>) => {
+  const consumeStream = async (stream: AsyncIterable<StreamResponse>) => {
     let timeoutTimer: NodeJS.Timeout | null = null;
     let streamActive = true;
 
@@ -533,7 +525,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       for await (const event of stream) {
         startTimeout();
         try {
-          handleMessageEvent(event as Message);
+          handleMessageEvent(event);
         } catch (err) {
           console.error("Error handling stream event:", err);
         }
@@ -624,7 +616,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         }
       }
       isCreatingSessionRef.current = false;
-      const sendParams = { message: a2aMessage, metadata: {} };
+      const sendParams = {
+        tenant: "",
+        message: a2aMessage,
+        configuration: undefined,
+        metadata: {},
+      };
       const stream = await kagentA2AClient.sendMessageStream(
         selectedNamespace,
         selectedAgentName,
@@ -806,18 +803,29 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     const messageId = uuidv4();
     const a2aMessage: Message = {
-      kind: "message",
       messageId,
-      role: "user",
+      role: Role.ROLE_USER,
       parts: [
-        { kind: "data", data: decisionData, metadata: {} } as DataPart,
-        { kind: "text", text: displayText },
+        {
+          content: { $case: "data", value: decisionData },
+          metadata: undefined,
+          filename: "",
+          mediaType: "application/json",
+        },
+        {
+          content: { $case: "text", value: displayText },
+          metadata: undefined,
+          filename: "",
+          mediaType: "text/plain",
+        },
       ],
-      contextId: currentSessionId,
-      taskId: approvalTaskId,
+      contextId: currentSessionId ?? "",
+      taskId: approvalTaskId ?? "",
       metadata: {
         timestamp: Date.now(),
       },
+      extensions: [],
+      referenceTaskIds: [],
     };
 
     await streamA2AMessage(a2aMessage, {
@@ -956,20 +964,27 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     const messageId = uuidv4();
     const a2aMessage: Message = {
-      kind: "message",
       messageId,
-      role: "user",
+      role: Role.ROLE_USER,
       parts: [
         {
-          kind: "data",
-          data: { decision_type: "approve", ask_user_answers: answers },
-          metadata: {},
-        } as DataPart,
-        { kind: "text", text: "Answered questions" },
+          content: { $case: "data", value: { decision_type: "approve", ask_user_answers: answers } },
+          metadata: undefined,
+          filename: "",
+          mediaType: "application/json",
+        },
+        {
+          content: { $case: "text", value: "Answered questions" },
+          metadata: undefined,
+          filename: "",
+          mediaType: "text/plain",
+        },
       ],
-      contextId: currentSessionId,
-      taskId: askUserTaskId,
+      contextId: currentSessionId ?? "",
+      taskId: askUserTaskId ?? "",
       metadata: { timestamp: Date.now() },
+      extensions: [],
+      referenceTaskIds: [],
     };
 
     await streamA2AMessage(a2aMessage, {
@@ -1016,7 +1031,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           </ToolCallGroup>
         </div>
       ) : (
-        <div key={`${keyPrefix}-${item.startIndex}`} data-mm-item data-mm-role={item.message.role === "user" ? "user" : "assistant"}>
+        <div key={`${keyPrefix}-${item.startIndex}`} data-mm-item data-mm-role={isUserRole(item.message.role) ? "user" : "assistant"}>
           {renderChatMessage(item.message, `${keyPrefix}-msg-${item.startIndex}`)}
         </div>
       )

@@ -3,11 +3,12 @@
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Message, Task, TaskStatusUpdateEvent } from "@a2a-js/sdk";
+import { Role, TaskState, type Message, type StreamResponse, type Task } from "@a2a-js/sdk";
 import { checkSessionExists, createSession, getSessionTasks } from "@/app/actions/sessions";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { toast } from "sonner";
 import ChatInterface from "@/components/chat/ChatInterface";
+import { createMockSession, createMockTask, createMockTextMessage } from "@/mocks/factories";
 import type { Session } from "@/types";
 
 jest.mock("@/app/actions/sessions", () => ({
@@ -58,10 +59,20 @@ jest.mock("@/components/chat/ChatMessage", () => ({
   default: ({ message }: { message: Message }) => (
     <div data-testid={`chat-message-${message.role}`}>
       {message.parts
-        ?.map((part) => part.kind === "text" ? part.text : JSON.stringify(part))
+        ?.map((part) => {
+          if ((part as { content?: { $case?: string; value?: unknown } }).content?.$case === "text") {
+            return (part as { content?: { value?: string } }).content?.value ?? "";
+          }
+          return JSON.stringify(part);
+        })
         .join("")}
     </div>
   ),
+}));
+
+jest.mock("@/components/chat/ShareButton", () => ({
+  __esModule: true,
+  default: () => null,
 }));
 
 jest.mock("@/components/chat/StreamingMessage", () => ({
@@ -86,50 +97,42 @@ const staleToastMessage = "New messages loaded — please review before sending"
 // generators advance it to model a turn being persisted after it streams.
 let currentTasks: Task[] = [];
 
-function textMessage(messageId: string, role: "user" | "agent", text: string, contextId = "session-1", taskId = "task-1"): Message {
-  return {
-    kind: "message",
-    messageId,
-    role,
+function textMessage(messageId: string, role: Role, text: string, contextId = "session-1", taskId = "task-1"): Message {
+  return createMockTextMessage(messageId, role, text, {
     contextId,
     taskId,
-    parts: [{ kind: "text", text }],
     metadata: { timestamp: Date.now() },
-  } as Message;
+  });
 }
 
 /** A completed task whose history (a user + agent turn) contributes 2 to the mark. */
 function completedTurnTask(taskId: string, prompt: string, answer: string, contextId = "session-1"): Task {
-  return {
-    id: taskId,
-    contextId,
-    status: {
-      state: "completed",
-      timestamp: new Date().toISOString(),
-    },
-    history: [
-      textMessage(`${taskId}-user`, "user", prompt, contextId, taskId),
-      textMessage(`${taskId}-agent`, "agent", answer, contextId, taskId),
-    ],
-  } as Task;
+  return createMockTask(taskId, contextId, [
+    textMessage(`${taskId}-user`, Role.ROLE_USER, prompt, contextId, taskId),
+    textMessage(`${taskId}-agent`, Role.ROLE_AGENT, answer, contextId, taskId),
+  ]);
 }
 
-function completedStatusEvent(text: string, contextId = "session-1", taskId = "task-streamed"): TaskStatusUpdateEvent {
+function completedStatusEvent(text: string, contextId = "session-1", taskId = "task-streamed"): StreamResponse {
   return {
-    kind: "status-update",
-    contextId,
-    taskId,
-    final: true,
-    status: {
-      state: "completed",
-      timestamp: new Date().toISOString(),
-      message: textMessage(`assistant-${taskId}`, "agent", text, contextId, taskId),
+    payload: {
+      $case: "statusUpdate",
+      value: {
+        contextId,
+        taskId,
+        metadata: undefined,
+        status: {
+          state: TaskState.TASK_STATE_COMPLETED,
+          timestamp: new Date().toISOString(),
+          message: textMessage(`assistant-${taskId}`, Role.ROLE_AGENT, text, contextId, taskId),
+        },
+      },
     },
-  } as TaskStatusUpdateEvent;
+  } as StreamResponse;
 }
 
 /** Yields the given events, then advances the backend snapshot as if the turn was persisted. */
-async function* streamThenPersist(events: unknown[], persistedTasks: Task[]): AsyncIterable<unknown> {
+async function* streamThenPersist(events: StreamResponse[], persistedTasks: Task[]): AsyncIterable<StreamResponse> {
   for (const event of events) {
     yield event;
   }
@@ -137,16 +140,13 @@ async function* streamThenPersist(events: unknown[], persistedTasks: Task[]): As
 }
 
 function sessionFixture(overrides: Partial<Session> = {}): Session {
-  return {
+  return createMockSession({
     id: "session-1",
     name: "Existing chat",
     agent_id: "kagent__NS__test-agent",
     user_id: "user-1",
-    created_at: "2026-03-07T10:00:00Z",
-    updated_at: "2026-03-07T10:05:00Z",
-    deleted_at: "",
     ...overrides,
-  };
+  });
 }
 
 function renderExistingSession() {
@@ -174,11 +174,11 @@ describe("ChatInterface send guard (high-water mark)", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCheckSessionExists.mockResolvedValue({ data: true });
-    mockCreateSession.mockResolvedValue({ error: "unexpected createSession call" });
+    mockCheckSessionExists.mockResolvedValue({ message: "ok", data: true });
+    mockCreateSession.mockResolvedValue({ message: "unexpected createSession call", error: "unexpected createSession call" });
     // Every getSessionTasks (load, guard, refreshServerMark, reload) reads the
     // current backend snapshot; streams mutate it to simulate persistence.
-    mockGetSessionTasks.mockImplementation(async () => ({ data: currentTasks }));
+    mockGetSessionTasks.mockImplementation(async () => ({ message: "ok", data: currentTasks }));
   });
 
   it("does not block the next send after a same-tab turn advances the mark", async () => {

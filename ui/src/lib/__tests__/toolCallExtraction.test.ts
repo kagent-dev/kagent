@@ -1,4 +1,4 @@
-import type { Message } from "@a2a-js/sdk";
+import { Role, type Message, type Part } from "@a2a-js/sdk";
 import {
   isToolCallRequestMessage,
   isToolCallExecutionMessage,
@@ -6,26 +6,22 @@ import {
   extractToolCallRequests,
   extractToolCallResults,
 } from "@/lib/toolCallExtraction";
+import { createDataPart, createMockMessage, createTextPart } from "@/mocks/factories";
 
-const message = (overrides: Partial<Message>): Message => ({
-  kind: "message",
-  messageId: "m1",
-  role: "agent",
-  parts: [],
-  ...overrides,
-});
+const message = (overrides: Partial<Message> = {}): Message =>
+  createMockMessage({
+    messageId: "m1",
+    role: Role.ROLE_AGENT,
+    contextId: "ctx-1",
+    taskId: "task-1",
+    ...overrides,
+  });
 
-const requestPart = (id: string, name: string, prefix: "adk" | "kagent" = "adk") => ({
-  kind: "data" as const,
-  data: { id, name, args: { foo: "bar" } },
-  metadata: { [`${prefix}_type`]: "function_call" },
-});
+const requestPart = (id: string, name: string, prefix: "adk" | "kagent" = "adk"): Part =>
+  createDataPart({ id, name, args: { foo: "bar" } }, { [`${prefix}_type`]: "function_call" });
 
-const responsePart = (id: string, name: string, response: Record<string, unknown>, prefix: "adk" | "kagent" = "adk") => ({
-  kind: "data" as const,
-  data: { id, name, response },
-  metadata: { [`${prefix}_type`]: "function_response" },
-});
+const responsePart = (id: string, name: string, response: Record<string, unknown>, prefix: "adk" | "kagent" = "adk"): Part =>
+  createDataPart({ id, name, response }, { [`${prefix}_type`]: "function_response" });
 
 describe("message type predicates", () => {
   it("detects request/execution messages from data parts", () => {
@@ -46,7 +42,7 @@ describe("message type predicates", () => {
   });
 
   it("rejects plain text messages", () => {
-    const text = message({ parts: [{ kind: "text", text: "hello" }] });
+    const text = message({ parts: [createTextPart("hello")] });
     expect(isToolCallRequestMessage(text)).toBe(false);
     expect(isToolCallExecutionMessage(text)).toBe(false);
     expect(isToolCallSummaryMessage(text)).toBe(false);
@@ -88,12 +84,12 @@ describe("extractToolCallRequests", () => {
   });
 
   it("returns [] for non-request messages and malformed JSON content", () => {
-    expect(extractToolCallRequests(message({ parts: [{ kind: "text", text: "hi" }] }))).toEqual([]);
+    expect(extractToolCallRequests(message({ parts: [createTextPart("hi")] }))).toEqual([]);
     expect(
       extractToolCallRequests(
         message({
           metadata: { originalType: "ToolCallRequestEvent" },
-          parts: [{ kind: "text", text: "not json" }],
+          parts: [createTextPart("not json")],
         }),
       ),
     ).toEqual([]);
