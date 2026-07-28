@@ -68,7 +68,7 @@ func (h *SessionSharesHandler) HandleCreateSessionShare(w ErrorResponseWriter, r
 
 	// Verify the session belongs to the caller.
 	if _, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID); err != nil {
-		w.RespondWithError(errors.NewNotFoundError("session not found", err))
+		RespondNotFoundOrError(w, "session not found", err)
 		return
 	}
 
@@ -113,7 +113,7 @@ func (h *SessionSharesHandler) HandleListSessionShares(w ErrorResponseWriter, r 
 
 	// Verify the session belongs to the caller.
 	if _, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID); err != nil {
-		w.RespondWithError(errors.NewNotFoundError("session not found", err))
+		RespondNotFoundOrError(w, "session not found", err)
 		return
 	}
 
@@ -152,7 +152,7 @@ func (h *SessionSharesHandler) HandleDeleteSessionShare(w ErrorResponseWriter, r
 
 	// Verify the session belongs to the caller before attempting deletion.
 	if _, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID); err != nil {
-		w.RespondWithError(errors.NewNotFoundError("session not found", err))
+		RespondNotFoundOrError(w, "session not found", err)
 		return
 	}
 
