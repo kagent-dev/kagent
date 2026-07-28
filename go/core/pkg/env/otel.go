@@ -10,10 +10,25 @@ var (
 		ComponentController,
 	)
 
+	// OtelLoggingEnabled controls agent-side OpenTelemetry logging (gen_ai
+	// input/output records). It is forwarded verbatim to agent pods (see
+	// collectOtelEnvFromProcess), so it must NOT double as the controller's own
+	// log-export switch — that is ControllerOtlpLogsEnabled below.
 	OtelLoggingEnabled = RegisterBoolVar(
 		"OTEL_LOGGING_ENABLED",
 		false,
-		"Enable OpenTelemetry logging.",
+		"Enable OpenTelemetry logging on agents (gen_ai input/output records).",
+		ComponentController,
+	)
+
+	// ControllerOtlpLogsEnabled turns on OTLP export of the controller's OWN
+	// logs. It is intentionally NOT prefixed OTEL_ so it is not propagated to
+	// agent pods, keeping controller log export decoupled from agent gen_ai
+	// logging (OtelLoggingEnabled).
+	ControllerOtlpLogsEnabled = RegisterBoolVar(
+		"KAGENT_CONTROLLER_OTLP_LOGS_ENABLED",
+		false,
+		"Enable OTLP export of the controller's own logs.",
 		ComponentController,
 	)
 

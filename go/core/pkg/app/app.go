@@ -340,7 +340,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	// identical resource attributes (in particular a single service.instance.id;
 	// a per-signal build could otherwise diverge on hostname-lookup failure).
 	var telemetryResource *resource.Resource
-	if env.OtelTracingEnabled.Get() || env.OtelLoggingEnabled.Get() {
+	if env.OtelTracingEnabled.Get() || env.ControllerOtlpLogsEnabled.Get() {
 		var resErr error
 		telemetryResource, resErr = telemetry.NewTelemetryResource(ctx, Version)
 		if resErr != nil {
@@ -352,7 +352,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 
 	// Initialize the OTLP logger provider before building the controller logger
 	// so the otelzap bridge core added by ControllerZapOpts binds to it. No-op
-	// unless OTEL_LOGGING_ENABLED. The OTLP pipeline ships the same levels as
+	// unless KAGENT_CONTROLLER_OTLP_LOGS_ENABLED. The OTLP pipeline ships the same levels as
 	// stdout. Note: these shutdowns run on graceful termination (manager stop);
 	// fatal startup os.Exit paths below crash-fast without flushing.
 	shutdownLogging, err := telemetry.InitLoggerProvider(ctx, telemetryResource, telemetry.MinSeverityForZap(opts.Level))

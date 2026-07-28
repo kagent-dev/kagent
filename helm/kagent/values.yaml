@@ -949,7 +949,16 @@ otel:
         timeout: 15000 # milliseconds
         insecure: true
   logging:
+    # -- Enable OpenTelemetry logging on agents (gen_ai input/output records).
+    # Forwarded to agent pods as OTEL_LOGGING_ENABLED. This is independent of
+    # `controller.enabled` below.
     enabled: false
+    # Controller's own log export (decoupled from agent gen_ai logging above).
+    controller:
+      # -- Export the controller's own logs over OTLP (in addition to stdout).
+      # Set as KAGENT_CONTROLLER_OTLP_LOGS_ENABLED on the controller only; not
+      # propagated to agent pods.
+      enabled: false
     exporter:
       otlp:
         endpoint: ""

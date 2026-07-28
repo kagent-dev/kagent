@@ -62,7 +62,7 @@ func startLogsReceiver(t *testing.T) (string, <-chan *collogspb.ExportLogsServic
 func TestInitLoggerProvider_E2E_ExportsControllerLogsOverOTLP(t *testing.T) {
 	addr, received := startLogsReceiver(t)
 
-	t.Setenv("OTEL_LOGGING_ENABLED", "true")
+	t.Setenv("KAGENT_CONTROLLER_OTLP_LOGS_ENABLED", "true")
 	t.Setenv("OTEL_LOGS_EXPORTER", "otlp")
 	t.Setenv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "grpc")
 	// http:// scheme selects an insecure (plaintext) gRPC connection.

@@ -31,10 +31,10 @@ const loggerBridgeName = "github.com/kagent-dev/kagent/go/core"
 // not ship info/debug records when the operator is running at a higher level.
 //
 // The returned shutdown function must be called on process exit to flush
-// in-flight log records. When OTEL_LOGGING_ENABLED is unset the pipeline is not
-// created and a no-op shutdown is returned (default-OFF).
+// in-flight log records. When KAGENT_CONTROLLER_OTLP_LOGS_ENABLED is unset the
+// pipeline is not created and a no-op shutdown is returned (default-OFF).
 func InitLoggerProvider(ctx context.Context, res *resource.Resource, minSeverity minsev.Severity) (func(context.Context) error, error) {
-	if !env.OtelLoggingEnabled.Get() {
+	if !env.ControllerOtlpLogsEnabled.Get() {
 		return func(context.Context) error { return nil }, nil
 	}
 
@@ -58,10 +58,10 @@ func InitLoggerProvider(ctx context.Context, res *resource.Resource, minSeverity
 }
 
 // ControllerZapOpts returns controller-runtime zap options. When
-// OTEL_LOGGING_ENABLED is set it additively tees the controller's stdout zap
-// core with an otelzap bridge core, exporting the controller's logs through the
-// global OTLP LoggerProvider while preserving stdout logging. When disabled it
-// returns no options, leaving the logger byte-identical to upstream.
+// KAGENT_CONTROLLER_OTLP_LOGS_ENABLED is set it additively tees the controller's
+// stdout zap core with an otelzap bridge core, exporting the controller's logs
+// through the global OTLP LoggerProvider while preserving stdout logging. When
+// disabled it returns no options, leaving the logger byte-identical to upstream.
 //
 // InitLoggerProvider must be called first so the bridge core binds to the
 // configured global LoggerProvider.
@@ -74,7 +74,7 @@ func InitLoggerProvider(ctx context.Context, res *resource.Resource, minSeverity
 // tests). Automatic correlation for all controller logs would need a separate
 // mechanism and is out of scope here.
 func ControllerZapOpts() []crzap.Opts {
-	if !env.OtelLoggingEnabled.Get() {
+	if !env.ControllerOtlpLogsEnabled.Get() {
 		return nil
 	}
 	bridgeCore := otelzap.NewCore(loggerBridgeName,

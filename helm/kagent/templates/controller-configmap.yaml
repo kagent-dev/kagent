@@ -30,7 +30,10 @@ data:
   LEADER_ELECT: {{ include "kagent.leaderElectionEnabled" . | quote }}
   # OpenTelemetry Configuration
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
+  # Agent gen_ai input/output logging (forwarded to agent pods).
   OTEL_LOGGING_ENABLED: {{ .Values.otel.logging.enabled | quote }}
+  # Controller's own log export over OTLP (controller-only, not propagated to agents).
+  KAGENT_CONTROLLER_OTLP_LOGS_ENABLED: {{ .Values.otel.logging.controller.enabled | quote }}
   {{- $tracesEndpoint := .Values.otel.tracing.exporter.otlp.endpoint }}
   {{- $logsEndpoint := .Values.otel.logging.exporter.otlp.endpoint }}
   {{- if and $tracesEndpoint $logsEndpoint (eq $tracesEndpoint $logsEndpoint) }}
