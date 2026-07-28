@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	corev1 "k8s.io/api/core/v1"
@@ -22,6 +24,17 @@ type ErrorResponseWriter interface {
 	http.ResponseWriter
 	RespondWithError(err error)
 	Flush()
+}
+
+// RespondNotFoundOrError writes a 404 only when err is a missing-record error
+// from the database client; anything else is a backend failure and must
+// surface as a 500 rather than masquerade as not-found.
+func RespondNotFoundOrError(w ErrorResponseWriter, notFoundMessage string, err error) {
+	if stderrors.Is(err, database.ErrNotFound) {
+		w.RespondWithError(errors.NewNotFoundError(notFoundMessage, err))
+		return
+	}
+	w.RespondWithError(errors.NewInternalServerError("Internal server error", err))
 }
 
 func RespondWithJSON(w http.ResponseWriter, code int, payload any) {
