@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -26,6 +27,60 @@ func TestResolveByoDeployment_NilReplicasPreserved(t *testing.T) {
 	}
 	if dep.Replicas != nil {
 		t.Errorf("Replicas = %v, want nil so HPA can manage replicas", *dep.Replicas)
+	}
+}
+
+func TestResolveByoDeployment_EnvFromPropagated(t *testing.T) {
+	envFrom := []corev1.EnvFromSource{
+		{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "my-secret"}}},
+		{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "my-config"}}},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "my-image:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						EnvFrom: envFrom,
+					},
+				},
+			},
+		},
+	}
+	dep, err := resolveByoDeployment(agent)
+	if err != nil {
+		t.Fatalf("resolveByoDeployment() error = %v", err)
+	}
+	if !reflect.DeepEqual(dep.EnvFrom, envFrom) {
+		t.Errorf("EnvFrom = %v, want %v", dep.EnvFrom, envFrom)
+	}
+}
+
+func TestResolveInlineDeployment_EnvFromPropagated(t *testing.T) {
+	envFrom := []corev1.EnvFromSource{
+		{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "my-secret"}}},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						EnvFrom: envFrom,
+					},
+				},
+			},
+		},
+	}
+	dep, err := resolveInlineDeployment(agent, &modelDeploymentData{})
+	if err != nil {
+		t.Fatalf("resolveInlineDeployment() error = %v", err)
+	}
+	if !reflect.DeepEqual(dep.EnvFrom, envFrom) {
+		t.Errorf("EnvFrom = %v, want %v", dep.EnvFrom, envFrom)
 	}
 }
 
