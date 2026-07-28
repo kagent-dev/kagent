@@ -81,6 +81,67 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
 	})
 
+	t.Run("rejects declarative agents with a nodeSelector", func(t *testing.T) {
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				AgentSpec: AgentSpec{
+					Type: AgentType_Declarative,
+					Declarative: &DeclarativeAgentSpec{
+						Runtime: DeclarativeRuntime_Go,
+						Deployment: &DeclarativeDeploymentSpec{
+							SharedDeploymentSpec: SharedDeploymentSpec{
+								NodeSelector: map[string]string{"kubernetes.io/arch": "amd64", "topology.kubernetes.io/zone": "z1"},
+							},
+						},
+					},
+				},
+			},
+		}
+		err := ValidateSubstrateSandboxAgentSpec(agent)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), substrateSandboxNodeSelectorUnsupportedMsg)
+	})
+
+	t.Run("rejects BYO agents with a nodeSelector", func(t *testing.T) {
+		cmd := "/app"
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO: &BYOAgentSpec{Deployment: &ByoDeploymentSpec{
+						Image: "example/agent:latest",
+						Cmd:   &cmd,
+						SharedDeploymentSpec: SharedDeploymentSpec{
+							NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"},
+						},
+					}},
+				},
+			},
+		}
+		err := ValidateSubstrateSandboxAgentSpec(agent)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), substrateSandboxNodeSelectorUnsupportedMsg)
+	})
+
+	t.Run("allows declarative agents with an empty nodeSelector", func(t *testing.T) {
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				AgentSpec: AgentSpec{
+					Type: AgentType_Declarative,
+					Declarative: &DeclarativeAgentSpec{
+						Runtime: DeclarativeRuntime_Go,
+						Deployment: &DeclarativeDeploymentSpec{
+							SharedDeploymentSpec: SharedDeploymentSpec{
+								NodeSelector: map[string]string{},
+							},
+						},
+					},
+				},
+			},
+		}
+		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
+	})
+
 	t.Run("allows go runtime", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
