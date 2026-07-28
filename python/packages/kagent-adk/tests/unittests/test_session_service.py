@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from google.adk.events.event import Event, EventActions
+from google.adk.sessions.base_session_service import GetSessionConfig
 
 from kagent.adk._session_service import KAgentSessionService
 
@@ -112,6 +113,98 @@ async def test_get_session_returns_none_when_no_data(service):
     session = await service({"data": None}).get_session(app_name="app", user_id="u1", session_id="s1")
 
     assert session is None
+
+
+@pytest.mark.asyncio
+async def test_get_session_passes_after_timestamp_to_api(mock_client, session_response):
+    """Incremental session loads only request events newer than the configured timestamp."""
+    client = mock_client(session_response([]))
+    svc = KAgentSessionService(client)
+
+    await svc.get_session(
+        app_name="app",
+        user_id="u1",
+        session_id="s1",
+        config=GetSessionConfig(after_timestamp=1785148200.0, num_recent_events=25),
+    )
+
+    client.get.assert_awaited_once_with(
+        "/api/sessions/s1",
+        params={
+            "user_id": "u1",
+            "order": "desc",
+            "after": "2026-07-27T10:30:00+00:00",
+            "limit": 25,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_session_passes_epoch_timestamp_to_api(mock_client, session_response):
+    """Unix epoch zero is a valid timestamp filter, not an absent value."""
+    client = mock_client(session_response([]))
+    svc = KAgentSessionService(client)
+
+    await svc.get_session(
+        app_name="app",
+        user_id="u1",
+        session_id="s1",
+        config=GetSessionConfig(after_timestamp=0.0),
+    )
+
+    client.get.assert_awaited_once_with(
+        "/api/sessions/s1",
+        params={
+            "user_id": "u1",
+            "order": "asc",
+            "after": "1970-01-01T00:00:00+00:00",
+            "limit": -1,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_session_with_zero_recent_events_returns_no_events(make_event, session_response, mock_client):
+    """ADK defines a zero recent-event limit as returning session metadata without history."""
+    client = mock_client(session_response([make_event("user")]))
+    svc = KAgentSessionService(client)
+
+    session = await svc.get_session(
+        app_name="app",
+        user_id="u1",
+        session_id="s1",
+        config=GetSessionConfig(num_recent_events=0),
+    )
+
+    assert session is not None
+    assert session.events == []
+    client.get.assert_awaited_once_with(
+        "/api/sessions/s1",
+        params={"user_id": "u1", "order": "desc", "limit": 1},
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_session_returns_recent_events_in_chronological_order(make_event, session_response, mock_client):
+    """Recent-event limits select newest rows while presenting them to ADK oldest-first."""
+    older_event = make_event("older")
+    newer_event = make_event("newer")
+    client = mock_client(session_response([newer_event, older_event]))
+    svc = KAgentSessionService(client)
+
+    session = await svc.get_session(
+        app_name="app",
+        user_id="u1",
+        session_id="s1",
+        config=GetSessionConfig(num_recent_events=2),
+    )
+
+    assert session is not None
+    assert [event.id for event in session.events] == [older_event.id, newer_event.id]
+    client.get.assert_awaited_once_with(
+        "/api/sessions/s1",
+        params={"user_id": "u1", "order": "desc", "limit": 2},
+    )
 
 
 @pytest.mark.asyncio

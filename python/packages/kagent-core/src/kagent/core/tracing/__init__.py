@@ -1,3 +1,3 @@
-from ._utils import configure
+from ._utils import configure, force_flush
 
-__all__ = ["configure"]
+__all__ = ["configure", "force_flush"]
