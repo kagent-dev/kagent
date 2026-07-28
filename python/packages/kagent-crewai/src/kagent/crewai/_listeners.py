@@ -211,7 +211,9 @@ class A2ACrewAIListener(BaseEventListener):
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
-                            parts=[Part(text=f"Method {event.method_name} from flow {event.flow_name} started execution.")],
+                            parts=[
+                                Part(text=f"Method {event.method_name} from flow {event.flow_name} started execution.")
+                            ],
                         ),
                     ),
                     context_id=self.context.context_id,
@@ -230,7 +232,9 @@ class A2ACrewAIListener(BaseEventListener):
                         message=Message(
                             message_id=str(uuid.uuid4()),
                             role=Role.ROLE_AGENT,
-                            parts=[Part(text=f"Method {event.method_name} from flow {event.flow_name} finished execution.")],
+                            parts=[
+                                Part(text=f"Method {event.method_name} from flow {event.flow_name} finished execution.")
+                            ],
                         ),
                     ),
                     context_id=self.context.context_id,

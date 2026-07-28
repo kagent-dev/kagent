@@ -140,7 +140,10 @@ def _process_long_running_tool(a2a_part: A2APart, event: Event) -> None:
         return
 
     metadata = MessageToDict(a2a_part.metadata) if a2a_part.metadata else {}
-    if metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY)) != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL:
+    if (
+        metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
+    ):
         return
 
     part_data = MessageToDict(a2a_part.data)
@@ -162,7 +165,10 @@ def _process_subagent_session_id(a2a_part: A2APart, subagent_session_ids: Dict[s
     if not a2a_part.HasField("data"):
         return
     metadata = MessageToDict(a2a_part.metadata) if a2a_part.metadata else {}
-    if metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY)) != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL:
+    if (
+        metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
+    ):
         return
     part_data = MessageToDict(a2a_part.data)
     tool_name = part_data.get("name") if isinstance(part_data, dict) else None
@@ -312,7 +318,10 @@ def _create_status_update_event(
         if not part.HasField("data"):
             continue
         metadata = MessageToDict(part.metadata) if part.metadata else {}
-        if metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY)) != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL:
+        if (
+            metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+            != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
+        ):
             continue
         if metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is not True:
             continue

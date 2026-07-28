@@ -366,9 +366,9 @@ class LangGraphAgentExecutor(AgentExecutor):
         # Get thread_id from existing task metadata (critical for resume!)
         thread_id = None
         if context.current_task and context.current_task.metadata:
-            thread_id = context.current_task.metadata.get(get_kagent_metadata_key("thread_id")) or context.current_task.metadata.get(
-                "thread_id"
-            )
+            thread_id = context.current_task.metadata.get(
+                get_kagent_metadata_key("thread_id")
+            ) or context.current_task.metadata.get("thread_id")
 
         if not thread_id:
             # Fallback to computing from context (same as initial)
