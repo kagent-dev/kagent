@@ -165,8 +165,11 @@ async def test_get_session_passes_epoch_timestamp_to_api(mock_client, session_re
 
 @pytest.mark.asyncio
 async def test_get_session_with_zero_recent_events_returns_no_events(make_event, session_response, mock_client):
-    """ADK defines a zero recent-event limit as returning session metadata without history."""
-    client = mock_client(session_response([make_event("user")]))
+    """ADK defines a zero recent-event limit as returning session metadata without history.
+
+    State still has to be complete: every event is replayed, only the events list is emptied.
+    """
+    client = mock_client(session_response([make_event("user", state_delta={"key": "value"})]))
     svc = KAgentSessionService(client)
 
     session = await svc.get_session(
@@ -178,6 +181,7 @@ async def test_get_session_with_zero_recent_events_returns_no_events(make_event,
 
     assert session is not None
     assert session.events == []
+    assert session.state.get("key") == "value", "state must survive even when no events are returned"
     client.get.assert_awaited_once_with(
         "/api/sessions/s1",
         params={"user_id": "u1", "order": "asc", "limit": -1},

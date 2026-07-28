@@ -102,8 +102,6 @@ class KAgentSessionService(BaseSessionService):
             session_data = data["data"]["session"]
 
             events_data = data["data"]["events"]
-            if config and config.num_recent_events == 0:
-                events_data = []
 
             events: list[Event] = []
             for event_data in events_data:
@@ -121,8 +119,12 @@ class KAgentSessionService(BaseSessionService):
             for event in events:
                 await super().append_event(session, event)
 
-            if config and config.num_recent_events:
-                session.events = session.events[-config.num_recent_events :]
+            if config and config.num_recent_events is not None:
+                # Trim only after every event has been replayed, so state is complete.
+                # num_recent_events == 0 means "no events", not "all events" ([-0:] would
+                # keep everything).
+                num_recent_events = config.num_recent_events
+                session.events = session.events[-num_recent_events:] if num_recent_events else []
 
             return session
         except httpx.HTTPStatusError as e:
