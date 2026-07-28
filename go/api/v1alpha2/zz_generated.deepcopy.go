@@ -21,6 +21,7 @@ limitations under the License.
 package v1alpha2
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1821,6 +1822,11 @@ func (in *SharedDeploymentSpec) DeepCopyInto(out *SharedDeploymentSpec) {
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
+	}
+	if in.DeploymentStrategy != nil {
+		in, out := &in.DeploymentStrategy, &out.DeploymentStrategy
+		*out = new(appsv1.DeploymentStrategy)
+		(*in).DeepCopyInto(*out)
 	}
 }
 
