@@ -57,6 +57,15 @@ func NewInternalServerError(message string, err error) *APIError {
 	}
 }
 
+// NewServiceUnavailableError creates a retryable service unavailable error.
+func NewServiceUnavailableError(message string, err error) *APIError {
+	return &APIError{
+		Code:    http.StatusServiceUnavailable,
+		Message: message,
+		Err:     err,
+	}
+}
+
 // NewValidationError creates a new validation error
 func NewValidationError(message string, err error) *APIError {
 	return &APIError{

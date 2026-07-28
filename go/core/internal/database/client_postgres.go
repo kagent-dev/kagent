@@ -21,6 +21,10 @@ import (
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
+// defaultScheduledRunExecutionPageSize bounds a ListScheduledRunExecutions query
+// when the caller does not specify a positive limit.
+const defaultScheduledRunExecutionPageSize = 50
+
 type postgresClient struct {
 	q  *dbgen.Queries
 	db *pgxpool.Pool
@@ -143,6 +147,94 @@ func (c *postgresClient) ListSessionsForAgentAllUsers(ctx context.Context, agent
 		sessions[i] = *toSession(r)
 	}
 	return sessions, nil
+}
+
+// ── Executions ──────────────────────────────────────────────────────────────
+
+func (c *postgresClient) StoreScheduledRunExecution(ctx context.Context, execution *dbpkg.ScheduledRunExecutionRecord) error {
+	return c.q.UpsertScheduledRunExecution(ctx, dbgen.UpsertScheduledRunExecutionParams{
+		ID:                    execution.ID,
+		ScheduledRunNamespace: execution.ScheduledRunNamespace,
+		ScheduledRunName:      execution.ScheduledRunName,
+		ScheduledRunUid:       execution.ScheduledRunUID,
+		StartTime:             execution.StartTime,
+		CompletionTime:        execution.CompletionTime,
+		Trigger:               string(execution.Trigger),
+		SessionID:             execution.SessionID,
+		TaskID:                execution.TaskID,
+		Status:                string(execution.Status),
+		StatusMessage:         execution.StatusMessage,
+	})
+}
+
+func (c *postgresClient) ListScheduledRunExecutions(ctx context.Context, namespace, name, scheduledRunUID string, options dbpkg.ScheduledRunExecutionQueryOptions) ([]dbpkg.ScheduledRunExecutionRecord, error) {
+	limit := options.Limit
+	if limit <= 0 {
+		limit = defaultScheduledRunExecutionPageSize
+	}
+	var before *time.Time
+	if !options.Before.IsZero() {
+		before = &options.Before
+	}
+	var beforeID *string
+	if options.BeforeID != "" {
+		beforeID = &options.BeforeID
+	}
+	rows, err := c.q.ListScheduledRunExecutions(ctx, dbgen.ListScheduledRunExecutionsParams{
+		ScheduledRunNamespace: namespace,
+		ScheduledRunName:      name,
+		ScheduledRunUid:       scheduledRunUID,
+		Before:                before,
+		BeforeID:              beforeID,
+		PageLimit:             int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list executions for ScheduledRun %s/%s: %w", namespace, name, err)
+	}
+	executions := make([]dbpkg.ScheduledRunExecutionRecord, len(rows))
+	for i, row := range rows {
+		executions[i] = toScheduledRunExecutionRecord(row)
+	}
+	return executions, nil
+}
+
+func (c *postgresClient) ListInProgressScheduledRunExecutions(ctx context.Context) ([]dbpkg.ScheduledRunExecutionRecord, error) {
+	rows, err := c.q.ListInProgressScheduledRunExecutions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list in-progress executions: %w", err)
+	}
+	executions := make([]dbpkg.ScheduledRunExecutionRecord, len(rows))
+	for i, row := range rows {
+		executions[i] = toScheduledRunExecutionRecord(row)
+	}
+	return executions, nil
+}
+
+func (c *postgresClient) GetScheduledRunExecutionBySessionID(ctx context.Context, sessionID string) (*dbpkg.ScheduledRunExecutionRecord, error) {
+	row, err := c.q.GetScheduledRunExecutionBySessionID(ctx, &sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("get execution for session %s: %w", sessionID, err)
+	}
+	execution := toScheduledRunExecutionRecord(row)
+	return &execution, nil
+}
+
+func toScheduledRunExecutionRecord(row dbgen.ScheduledRunExecution) dbpkg.ScheduledRunExecutionRecord {
+	return dbpkg.ScheduledRunExecutionRecord{
+		ID:                    row.ID,
+		ScheduledRunNamespace: row.ScheduledRunNamespace,
+		ScheduledRunName:      row.ScheduledRunName,
+		ScheduledRunUID:       row.ScheduledRunUid,
+		StartTime:             row.StartTime,
+		CompletionTime:        row.CompletionTime,
+		Trigger:               v1alpha2.ScheduledRunExecutionTrigger(row.Trigger),
+		SessionID:             row.SessionID,
+		TaskID:                row.TaskID,
+		Status:                v1alpha2.ScheduledRunExecutionStatus(row.Status),
+		StatusMessage:         row.StatusMessage,
+		CreatedAt:             row.CreatedAt,
+		UpdatedAt:             row.UpdatedAt,
+	}
 }
 
 func (c *postgresClient) DeleteSession(ctx context.Context, sessionID, userID string) error {

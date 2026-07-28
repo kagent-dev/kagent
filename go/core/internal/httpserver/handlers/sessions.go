@@ -13,11 +13,13 @@ import (
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -199,6 +201,51 @@ type SessionResponse struct {
 	ReadOnly *bool             `json:"read_only,omitempty"`
 }
 
+// ScheduledRunSessionAccess contains the authorization and route scope attached
+// to a ScheduledRun-owned session.
+type ScheduledRunSessionAccess struct {
+	UserID     string
+	ReadOnly   bool
+	TargetKind string
+	Target     types.NamespacedName
+}
+
+// ResolveScheduledRunSessionAccess resolves a ScheduledRun-owned session after
+// verifying that the caller may read the owning ScheduledRun.
+func (h *SessionsHandler) ResolveScheduledRunSessionAccess(r *http.Request, sessionID string) (ScheduledRunSessionAccess, bool) {
+	if h.KubeClient == nil || h.DatabaseService == nil || h.Authorizer == nil {
+		return ScheduledRunSessionAccess{}, false
+	}
+	principal, err := GetPrincipal(r)
+	if err != nil {
+		return ScheduledRunSessionAccess{}, false
+	}
+
+	// Durable execution history is the authoritative lookup. It keeps sessions
+	// accessible after their summary has been trimmed from Scheduled Run status.
+	executionRecord, executionErr := h.DatabaseService.GetScheduledRunExecutionBySessionID(r.Context(), sessionID)
+	if executionErr != nil {
+		return ScheduledRunSessionAccess{}, false
+	}
+	key := types.NamespacedName{Namespace: executionRecord.ScheduledRunNamespace, Name: executionRecord.ScheduledRunName}
+	var sr v1alpha2.ScheduledRun
+	if err := h.KubeClient.Get(r.Context(), key, &sr); err == nil && string(sr.UID) == executionRecord.ScheduledRunUID {
+		if err := h.Authorizer.Check(r.Context(), principal, auth.VerbGet, auth.Resource{Type: "ScheduledRun", Name: key.String()}); err == nil {
+			return scheduledRunSessionAccess(&sr), true
+		}
+	}
+	return ScheduledRunSessionAccess{}, false
+}
+
+func scheduledRunSessionAccess(sr *v1alpha2.ScheduledRun) ScheduledRunSessionAccess {
+	return ScheduledRunSessionAccess{
+		UserID:     scheduledrun.SessionUserID,
+		ReadOnly:   !scheduledrun.AllowsSessionInteraction(sr),
+		TargetKind: sr.Spec.TargetRef.Kind,
+		Target:     scheduledrun.TargetKey(sr.Namespace, sr.Spec.TargetRef),
+	}
+}
+
 // getEffectiveUserIDForSession returns the user ID to use for DB lookups on a specific session.
 // When the request carries a valid X-Share-Token scoped to sessionID, the share owner's user ID
 // is returned so that shared access works transparently.
@@ -229,6 +276,18 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 
 	log.V(1).Info("Getting session from database")
 	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+	scheduledRunReadOnly := false
+	if err != nil {
+		if access, ok := h.ResolveScheduledRunSessionAccess(r, sessionID); ok {
+			if scheduledSession, scheduledErr := h.DatabaseService.GetSession(r.Context(), sessionID, access.UserID); scheduledErr == nil {
+				userID = access.UserID
+				session = scheduledSession
+				err = nil
+				scheduledRunReadOnly = access.ReadOnly
+				log = log.WithValues("scheduledRunSession", true)
+			}
+		}
+	}
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found", err))
 		return
@@ -252,6 +311,10 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		Events:  events,
 	}
 	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID && sc.ReadOnly {
+		t := true
+		resp.ReadOnly = &t
+	}
+	if scheduledRunReadOnly {
 		t := true
 		resp.ReadOnly = &t
 	}
@@ -425,6 +488,15 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 
 	// Verify session exists
 	_, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+	if err != nil {
+		if access, ok := h.ResolveScheduledRunSessionAccess(r, sessionID); ok {
+			if _, scheduledErr := h.DatabaseService.GetSession(r.Context(), sessionID, access.UserID); scheduledErr == nil {
+				userID = access.UserID
+				err = nil
+				log = log.WithValues("scheduledRunSession", true)
+			}
+		}
+	}
 	if err != nil {
 		w.RespondWithError(errors.NewNotFoundError("Session not found for given ID", err))
 		return
