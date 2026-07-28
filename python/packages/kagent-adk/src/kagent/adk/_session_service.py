@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -78,22 +79,24 @@ class KAgentSessionService(BaseSessionService):
     ) -> Optional[Session]:
         try:
             # ADK requires events to be chronological (especially for calculating deltas)
-            url = f"/api/sessions/{session_id}?user_id={user_id}&order=asc"
+            params: dict[str, str | int] = {"user_id": user_id, "order": "asc"}
             if config:
-                if config.after_timestamp:
-                    # TODO: implement
-                    # url += f"&after={config.after_timestamp}"
-                    pass
-                if config.num_recent_events:
-                    url += f"&limit={config.num_recent_events}"
+                if config.after_timestamp is not None:
+                    params["after"] = datetime.fromtimestamp(config.after_timestamp, tz=timezone.utc).isoformat()
+                if config.num_recent_events is not None:
+                    # Ascending order with a limit selects the oldest events, while ADK requests
+                    # the most recent events in chronological order. Fetch newest-first, then reverse below.
+                    # The API treats limit=0 as unlimited, so request one event and discard it below.
+                    params["order"] = "desc"
+                    params["limit"] = max(config.num_recent_events, 1)
                 else:
-                    url += "&limit=-1"
+                    params["limit"] = -1
             else:
                 # return all
-                url += "&limit=-1"
+                params["limit"] = -1
 
             # Make API call to get session
-            response: httpx.Response = await self.client.get(url)
+            response: httpx.Response = await self.client.get(f"/api/sessions/{session_id}", params=params)
             if response.status_code == 404:
                 return None
             response.raise_for_status()
@@ -107,6 +110,11 @@ class KAgentSessionService(BaseSessionService):
             session_data = data["data"]["session"]
 
             events_data = data["data"]["events"]
+            if config and config.num_recent_events is not None:
+                if config.num_recent_events == 0:
+                    events_data = []
+                else:
+                    events_data.reverse()
 
             events: list[Event] = []
             for event_data in events_data:
