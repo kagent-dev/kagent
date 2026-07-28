@@ -9,7 +9,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
-	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -240,22 +239,8 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 
 	client, err := a2aclient.NewFromEndpoints(
 		ctx,
-		// TODO(0.11.0): Prefer A2A 1.0 interfaces by default once managed runtimes are v1-capable.
-		// Keep legacy fallback during rollout so old agent pods continue to serve traffic.
-		filterInterfacesByVersion(card.SupportedInterfaces, a2atype.ProtocolVersion("0.3")),
+		card.SupportedInterfaces,
 		a2aclient.WithJSONRPCTransport(httpClient),
-		// TODO(0.11.0): Remove the compat transport after legacy runtimes are unsupported.
-		a2aclient.WithCompatTransport(
-			a2atype.ProtocolVersion("0.3"),
-			a2atype.TransportProtocolJSONRPC,
-			// This creates a legacy JSON-RPC transport that is used to forward traffic to agents that are still on the legacy A2A wire.
-			a2aclient.TransportFactoryFn(func(_ context.Context, _ *a2atype.AgentCard, iface *a2atype.AgentInterface) (a2aclient.Transport, error) {
-				return a2av0.NewJSONRPCTransport(a2av0.JSONRPCTransportConfig{
-					URL:    iface.URL,
-					Client: httpClient,
-				}), nil
-			}),
-		),
 		a2aclient.WithCallInterceptors(
 			NewUpstreamAuthInterceptor(a.authenticator, agentRef),
 		),
@@ -337,22 +322,4 @@ func cloneInterfacesWithURL(interfaces []*a2atype.AgentInterface, url string) []
 		result = append(result, &copied)
 	}
 	return result
-}
-
-// filterInterfacesByVersion filters the interfaces to only include the ones that match the given version.
-// Currently, this is used to select the A2A 0.3 interface for managed agents.
-func filterInterfacesByVersion(interfaces []*a2atype.AgentInterface, version a2atype.ProtocolVersion) []*a2atype.AgentInterface {
-	filtered := make([]*a2atype.AgentInterface, 0, len(interfaces))
-	for _, i := range interfaces {
-		if i == nil {
-			continue
-		}
-		if i.ProtocolVersion == version {
-			filtered = append(filtered, i)
-		}
-	}
-	if len(filtered) > 0 {
-		return filtered
-	}
-	return interfaces
 }

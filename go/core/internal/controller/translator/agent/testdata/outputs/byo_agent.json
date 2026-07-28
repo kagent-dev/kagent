@@ -15,11 +15,6 @@
     "supportedInterfaces": [
       {
         "protocolBinding": "JSONRPC",
-        "protocolVersion": "0.3",
-        "url": "http://byo-agent.test:8080"
-      },
-      {
-        "protocolBinding": "JSONRPC",
         "protocolVersion": "1.0",
         "url": "http://byo-agent.test:8080"
       }
@@ -57,7 +52,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"A BYO test agent\",\n  \"name\": \"byo_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://byo-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://byo-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://byo-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://byo-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"A BYO test agent\",\"name\":\"byo_agent\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":null,\"description\":\"A BYO test agent\",\"instruction\":\"\"}"
       }
     },
@@ -127,7 +122,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "14721439369706619567"
+              "kagent.dev/config-hash": "737181390563504529"
             },
             "labels": {
               "app": "kagent",

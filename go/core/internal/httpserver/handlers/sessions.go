@@ -14,7 +14,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -441,29 +440,14 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", err))
 		return
 	}
+	if wireVersion != utils.A2AWireVersionV1 {
+		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", nil))
+		return
+	}
 
 	log.Info("Successfully retrieved session tasks", "count", len(tasks))
-
-	// TODO(0.11.0): Remove legacy API conversion after legacy wire support is no longer supported.
-	switch wireVersion {
-	case utils.A2AWireVersionLegacy:
-		legacyTasks := make([]any, 0, len(tasks))
-		for i := range tasks {
-			legacyTask, convErr := trpcv0.ToLegacyTask(tasks[i])
-			if convErr != nil {
-				w.RespondWithError(errors.NewInternalServerError("Failed to convert task", convErr))
-				return
-			}
-			legacyTasks = append(legacyTasks, legacyTask)
-		}
-		data := api.NewResponse(legacyTasks, "Successfully retrieved session tasks", false)
-		RespondWithJSON(w, http.StatusOK, data)
-	case utils.A2AWireVersionV1:
-		data := api.NewResponse(tasks, "Successfully retrieved session tasks", false)
-		RespondWithJSON(w, http.StatusOK, data)
-	default:
-		w.RespondWithError(errors.NewBadRequestError("Unsupported A2A version", fmt.Errorf("unknown negotiated wire version %q", wireVersion)))
-	}
+	data := api.NewResponse(tasks, "Successfully retrieved session tasks", false)
+	RespondWithJSON(w, http.StatusOK, data)
 }
 
 func (h *SessionsHandler) HandleAddEventToSession(w ErrorResponseWriter, r *http.Request) {

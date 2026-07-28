@@ -9,7 +9,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
-	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/gorilla/mux"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -56,21 +55,13 @@ func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth
 	}
 }
 
-// newTaskQueryHandlers builds the request handler and the legacy (v0) JSON-RPC
-// handler for one agent. kagent persists tasks and is their source of truth,
-// so with a store ListTasks is served from it instead of proxying to the agent
-// runtime (whose legacy 0.3 transport returns ErrUnsupportedOperation for it);
-// every other method, GetTask included, still delegates to the passthrough
-// proxy. v0 has no native tasks/list, so the legacy handler is wrapped to
-// serve that method from the store too (lowercase TaskState). Without a store
-// both wires keep their native behavior, including v0's method-not-found for
-// tasks/list.
-func newTaskQueryHandlers(requestHandler a2asrv.RequestHandler, store TaskStore) (a2asrv.RequestHandler, http.Handler) {
+// newTaskQueryHandler wraps the passthrough handler so ListTasks is served from
+// kagent's task store, which is the source of truth for persisted tasks.
+func newTaskQueryHandler(requestHandler a2asrv.RequestHandler, store TaskStore) a2asrv.RequestHandler {
 	if store == nil {
-		return requestHandler, a2av0.NewJSONRPCHandler(requestHandler)
+		return requestHandler
 	}
-	taskHandler := newStoreTaskQueryHandler(requestHandler, store)
-	return taskHandler, newV0TasksListInterceptor(a2av0.NewJSONRPCHandler(taskHandler), taskHandler)
+	return newStoreTaskQueryHandler(requestHandler, store)
 }
 
 func (a *handlerMux) SetAgentHandler(
@@ -80,10 +71,9 @@ func (a *handlerMux) SetAgentHandler(
 	tracing middleware,
 ) error {
 	requestHandler := NewPassthroughRequestHandler(client, &card)
-
-	taskHandler, legacyJSONRPCHandler := newTaskQueryHandlers(requestHandler, a.taskStore)
-	v1JSONRPCHandler := a2asrv.NewJSONRPCHandler(taskHandler)
-	cardHandler := a2asrv.NewAgentCardHandler(a2av0.NewStaticAgentCardProducer(&card))
+	taskHandler := newTaskQueryHandler(requestHandler, a.taskStore)
+	jsonRPCHandler := a2asrv.NewJSONRPCHandler(taskHandler)
+	cardHandler := a2asrv.NewStaticAgentCardHandler(&card)
 	wellKnownPath := "/" + strings.TrimPrefix(a2asrv.WellKnownAgentCardPath, "/")
 
 	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,14 +86,11 @@ func (a *handlerMux) SetAgentHandler(
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		switch wireVersion {
-		case common.A2AWireVersionLegacy:
-			legacyJSONRPCHandler.ServeHTTP(w, r)
-		case common.A2AWireVersionV1:
-			v1JSONRPCHandler.ServeHTTP(w, r)
-		default:
-			http.Error(w, fmt.Sprintf("unknown negotiated A2A wire version %q", wireVersion), http.StatusBadRequest)
+		if wireVersion != common.A2AWireVersionV1 {
+			http.Error(w, "unsupported negotiated A2A wire version", http.StatusBadRequest)
+			return
 		}
+		jsonRPCHandler.ServeHTTP(w, r)
 	})
 	middlewares := []middleware{authimpl.NewA2AAuthenticator(a.authenticator)}
 	if tracing != nil {

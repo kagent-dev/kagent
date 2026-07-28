@@ -223,8 +223,7 @@ func setupAgentWithOptions(t *testing.T, cli client.Client, modelConfigName stri
 }
 
 // newA2AClient creates a v2 A2A client targeting baseURL directly via JSON-RPC.
-// The controller always serves both wire versions at the agent's path prefix; the
-// A2A-Version header (default: 1.0) tells the mux which handler to use.
+// go/core A2A endpoints are v1-only and require A2A-Version: 1.0.
 func newA2AClient(t *testing.T, baseURL string, httpClient *http.Client, headers map[string]string) *a2aclient.Client {
 	t.Helper()
 	if httpClient == nil {
@@ -233,10 +232,9 @@ func newA2AClient(t *testing.T, baseURL string, httpClient *http.Client, headers
 	if headers == nil {
 		headers = map[string]string{}
 	}
-	// TODO(0.11.0): Uncomment these lines to set v1 header after 0.11.0 to test v1 clients after migration
-	// if _, ok := headers["A2A-Version"]; !ok {
-	// 	headers["A2A-Version"] = string(a2atype.Version)
-	// }
+	if _, ok := headers[a2atype.SvcParamVersion]; !ok {
+		headers[a2atype.SvcParamVersion] = string(a2atype.Version)
+	}
 
 	// Use NewFromEndpoints with the explicit base URL rather than NewFromCard:
 	// the card's SupportedInterfaces contain the controller's internal cluster URL,
