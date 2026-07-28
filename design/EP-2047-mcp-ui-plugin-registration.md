@@ -74,6 +74,33 @@ Defined in `go/api/v1alpha2/remotemcpserver_types.go`; the CRD
   prefix. Only the plugins-related hunks of these shared files are included in this
   PR; the MCP-apps hunks belong to EP-2046.
 
+### UI sidebar section placement
+
+`spec.ui.section` controls **only** where a plugin link appears in the **left sidebar**
+(`AppSidebarNav.tsx`). It does not affect top-level routes, page headers, or any other chrome.
+
+The sidebar renders a fixed set of section headings (`NAV_SECTIONS` in
+`AppSidebarNav.tsx`):
+
+| Section | Built-in items (non-plugin) |
+|---------|----------------------------|
+| `OVERVIEW` | (empty today — reserved) |
+| `AGENTS` | My Agents |
+| `WORKFLOWS` | (empty today — reserved) |
+| `KNOWLEDGE` | (empty today — reserved) |
+| `EVALUATIONS` | (empty today — reserved) |
+| `RESOURCES` | Models, Tools, MCP Servers, Prompt Library, Plugins Catalog |
+| `ADMIN` | (empty today — reserved) |
+| `PLUGINS` | (empty today — reserved) |
+
+When a plugin's `section` matches one of these labels, its link is merged into that
+section's item list. The CRD default is `RESOURCES`, so new plugins appear alongside
+Models/Tools unless configured otherwise.
+
+Plugins whose `section` is **not** one of the built-in labels get their own sidebar
+group using the declared label (e.g. a plugin with `section: CUSTOM` renders under a
+`CUSTOM` heading). An empty/missing section falls back to the label `PLUGINS`.
+
 ### UI (`ui/src`)
 
 - **Navigation** — `components/sidebars/AppSidebar.tsx` + `AppSidebarNav.tsx` render
@@ -83,7 +110,8 @@ Defined in `go/api/v1alpha2/remotemcpserver_types.go`; the CRD
   `sidebar-status-context` / `namespace-context` providers. The root `layout.tsx` is
   refactored to a Server Component delegating to a `providers.tsx` client boundary.
 - **Plugin list** — `app/actions/plugins.ts` (`getPlugins()` → `GET /api/plugins`,
-  `checkPluginBackend()` health probe) and the BFF route `app/api/plugins/route.ts`.
+  `checkPluginBackend()` health probe). Callers use the server action directly (no
+  dedicated Next.js BFF route).
 - **Plugin frame** — `app/plugins/[name]/[[...path]]/page.tsx` renders
   `<iframe src="/_p/{name}{subPath}">`, sandboxed
   (`allow-scripts allow-same-origin allow-forms allow-popups`), speaking the
@@ -122,5 +150,11 @@ proxy is reached via `getBackendRoot()` (strips `/api`) so it stays at the root
 
 ## Open Questions
 
-- Should `section` support custom (non-enum) sidebar sections?
+- **Separate `UIPlugin` CRD vs `RemoteMCPServer.spec.ui`?** This EP keeps UI metadata
+  on the existing `RemoteMCPServer` because the web UI is an attribute of a server the
+  cluster already knows about (URL, auth headers, namespace). A dedicated `UIPlugin` CRD
+  would decouple UI registration from MCP server identity but adds another resource type
+  and controller surface. Left open for maintainer input.
+- Should `section` support custom (non-enum) sidebar sections beyond the fallback
+  grouping behavior described above?
 - Should plugin health/badges be server-pushed (SSE) rather than polled?
