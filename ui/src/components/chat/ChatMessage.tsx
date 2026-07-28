@@ -175,7 +175,13 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <KagentLogo className="w-4 h-4" />
         <div className="text-xs font-bold">{displayName}</div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
-      <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
+      {/*
+        `break-all` breaks a line inside a word even when the word would have
+        fit on the next line ("ModelConfig" renders as "M / odelConfig").
+        `overflow-wrap: anywhere` only breaks a word that cannot fit on a line
+        of its own, which is what long tool-call ids and URLs need.
+      */}
+      <TruncatableText content={String(content)} className="[overflow-wrap:anywhere] text-primary-foreground" />
       {source !== "user" && (
         <div className="flex mt-2 justify-end items-center gap-2">
           {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
