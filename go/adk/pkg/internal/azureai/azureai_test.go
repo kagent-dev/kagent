@@ -72,6 +72,10 @@ func TestNewOpenAIClientValidates(t *testing.T) {
 }
 
 func TestNewOpenAIClientAPIKey(t *testing.T) {
+	// A stray OPENAI_API_KEY must not leak to the Azure endpoint on the Api-Key
+	// path (openai-go would otherwise send it as Authorization: Bearer).
+	t.Setenv("OPENAI_API_KEY", "leak-me")
+
 	var gotPath, gotAPIVersion, gotAPIKey, gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path

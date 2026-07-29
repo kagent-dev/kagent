@@ -146,7 +146,15 @@ func NewOpenAIClient(cfg ClientConfig) (openai.Client, error) {
 		option.WithHTTPClient(httpClient),
 	}
 	if cfg.APIKey != "" {
-		opts = append(opts, option.WithHeader("Api-Key", cfg.APIKey))
+		// Azure authenticates via the Api-Key header. openai-go otherwise derives
+		// an Authorization: Bearer header from the OPENAI_API_KEY environment
+		// variable, which would leak that key to the Azure endpoint alongside the
+		// Api-Key; deleting Authorization suppresses that header so only the Api-Key
+		// header is sent.
+		opts = append(opts,
+			option.WithHeader("Api-Key", cfg.APIKey),
+			option.WithHeaderDel("Authorization"),
+		)
 	} else {
 		// Workload Identity auth. The openai-go SDK refuses to send a request
 		// without a non-empty API key, so we pass a placeholder that is never

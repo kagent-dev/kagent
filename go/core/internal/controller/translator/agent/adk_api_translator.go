@@ -950,9 +950,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			return nil, nil, nil, fmt.Errorf("foundry endpoint could not be resolved: set foundry.endpoint or a foundry.endpointFrom whose ConfigMap key exists")
 		}
 
-		// Implicit auth: mount the API key only when a secret is provided;
-		// otherwise the runtime uses DefaultAzureCredential (Workload Identity).
-		if model.Spec.APIKeySecret != "" {
+		// Implicit auth: mount the API key only when a secret is provided and
+		// passthrough is off; otherwise the runtime uses DefaultAzureCredential
+		// (Workload Identity) or the passed-through caller token.
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.FoundryAPIKey.Name(),
 				ValueFrom: &corev1.EnvVarSource{
@@ -993,6 +994,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			APIVersion: cfg.APIVersion,
 		}
 		populateTLSFields(&foundry.BaseModel, model.Spec.TLS)
+		foundry.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return foundry, modelDeploymentData, secretHashBytes, nil
 	default:

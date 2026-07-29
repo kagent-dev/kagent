@@ -97,6 +97,26 @@ func TestTranslateModelFoundryAPIKey(t *testing.T) {
 	assert.Equal(t, "2025-01-01", envVarValue(t, deploymentData.EnvVars, env.FoundryAPIVersion.Name()))
 }
 
+// TestTranslateModelFoundryPassthrough verifies the translator copies
+// apiKeyPassthrough onto the Foundry model so the runtime can forward the
+// caller's token rather than silently falling back to Workload Identity.
+func TestTranslateModelFoundryPassthrough(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := foundryModelConfig("foundry-passthrough")
+	modelConfig.Spec.APIKeyPassthrough = true
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig).Build()
+	tr := &adkApiTranslator{kube: kubeClient}
+
+	model, _, _, err := tr.translateModel(context.Background(), "default", "foundry-passthrough")
+	require.NoError(t, err)
+
+	foundryModel, ok := model.(*adk.Foundry)
+	require.True(t, ok)
+	assert.True(t, foundryModel.APIKeyPassthrough, "translator should copy apiKeyPassthrough to the Foundry model")
+}
+
 // TestTranslateModelFoundryEndpointFrom covers the ASO interop path: the
 // endpoint is resolved from a ConfigMap referenced by endpointFrom rather than
 // an inline value.

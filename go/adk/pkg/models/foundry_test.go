@@ -134,3 +134,67 @@ func TestFoundryWorkloadIdentityEagerProbeSucceeds(t *testing.T) {
 		t.Fatalf("expected an Azure Foundry model")
 	}
 }
+
+// TestFoundryPassthroughInjectsBearerToken verifies that with APIKeyPassthrough
+// enabled, the placeholder Api-Key is overwritten per request by the bearer token
+// carried in the context.
+func TestFoundryPassthroughInjectsBearerToken(t *testing.T) {
+	t.Setenv("FOUNDRY_API_KEY", "")
+
+	reqs := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs <- r.Header.Get("Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"chatcmpl-test","object":"chat.completion","created":0,"model":"gpt-4-1-nano","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	t.Cleanup(server.Close)
+
+	cfg := &FoundryConfig{
+		Model:      "gpt-4.1-nano",
+		Endpoint:   server.URL,
+		Deployment: "gpt-4-1-nano",
+		APIVersion: "2024-10-21",
+	}
+	cfg.APIKeyPassthrough = true
+
+	model, err := NewFoundryModelWithLogger(context.Background(), cfg, logr.Discard())
+	if err != nil {
+		t.Fatalf("NewFoundryModelWithLogger() error = %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), BearerTokenKey, "caller-token")
+	_, err = model.Client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+		Model:    shared.ChatModel("gpt-4-1-nano"),
+		Messages: []openai.ChatCompletionMessageParamUnion{openai.UserMessage("hello")},
+	}, openAIPassthroughOpts(ctx, model)...)
+	if err != nil {
+		t.Fatalf("chat completion error = %v", err)
+	}
+
+	if got := <-reqs; got != "caller-token" {
+		t.Fatalf("Api-Key = %q, want caller-token", got)
+	}
+}
+
+// TestFoundryPassthroughSkipsCredentialProbe verifies that enabling passthrough
+// bypasses the Workload Identity eager token probe: construction succeeds even
+// with a credential that can never acquire a token.
+func TestFoundryPassthroughSkipsCredentialProbe(t *testing.T) {
+	t.Setenv("FOUNDRY_API_KEY", "")
+
+	cfg := &FoundryConfig{
+		Model:      "gpt-4.1-nano",
+		Endpoint:   "https://example.cognitiveservices.azure.com/",
+		Deployment: "gpt-4-1-nano",
+		credential: erroringFoundryCredential{},
+	}
+	cfg.APIKeyPassthrough = true
+
+	model, err := NewFoundryModelWithLogger(context.Background(), cfg, logr.Discard())
+	if err != nil {
+		t.Fatalf("NewFoundryModelWithLogger() error = %v, want success (passthrough must not probe the credential)", err)
+	}
+	if model == nil || !model.IsAzure {
+		t.Fatalf("expected an Azure Foundry model")
+	}
+}

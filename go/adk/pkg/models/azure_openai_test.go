@@ -156,3 +156,27 @@ func TestAzureOpenAIPassthroughInjectsBearerToken(t *testing.T) {
 		t.Fatalf("Api-Key = %q, want caller-token", got)
 	}
 }
+
+// TestAzureOpenAIPassthroughSkipsCredentialProbe verifies that enabling
+// passthrough bypasses the Workload Identity eager token probe: construction
+// succeeds even with a credential that can never acquire a token.
+func TestAzureOpenAIPassthroughSkipsCredentialProbe(t *testing.T) {
+	t.Setenv("AZURE_OPENAI_API_KEY", "")
+
+	cfg := &AzureOpenAIConfig{
+		Model:      "gpt-4o",
+		Endpoint:   "https://example.openai.azure.com/",
+		Deployment: "gpt-4o",
+		APIVersion: "2024-06-01",
+		credential: erroringFoundryCredential{},
+	}
+	cfg.APIKeyPassthrough = true
+
+	model, err := NewAzureOpenAIModelWithLogger(context.Background(), cfg, logr.Discard())
+	if err != nil {
+		t.Fatalf("NewAzureOpenAIModelWithLogger() error = %v, want success (passthrough must not probe the credential)", err)
+	}
+	if model == nil || !model.IsAzure {
+		t.Fatalf("expected an Azure OpenAI model")
+	}
+}

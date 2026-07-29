@@ -42,10 +42,10 @@ type FoundryConfig struct {
 //   - https://learn.microsoft.com/en-us/azure/ai-foundry/model-inference/concepts/endpoints
 //   - https://learn.microsoft.com/en-us/azure/ai-foundry/foundry-models/concepts/models-sold-directly-by-azure
 //
-// Authentication is implicit: if FOUNDRY_API_KEY is set it is used as the
-// data-plane API key; otherwise the model authenticates with
-// DefaultAzureCredential, which resolves to Azure Workload Identity in-cluster
-// (or the az CLI in local development).
+// Authentication is implicit: the incoming bearer token when APIKeyPassthrough is
+// enabled; otherwise FOUNDRY_API_KEY when set; otherwise DefaultAzureCredential,
+// which resolves to Azure Workload Identity in-cluster (or the az CLI in local
+// development).
 func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logger logr.Logger) (*OpenAIModel, error) {
 	endpoint, deployment, apiVersion := azureai.ResolveFoundry(config.Endpoint, config.Deployment, config.APIVersion)
 	if endpoint == "" {
@@ -67,11 +67,17 @@ func NewFoundryModelWithLogger(ctx context.Context, config *FoundryConfig, logge
 		HTTPClient: httpClient,
 	}
 
-	// Implicit auth: the API key when provided, otherwise DefaultAzureCredential
+	// Implicit auth: the incoming bearer token when APIKeyPassthrough is enabled
+	// (a placeholder Api-Key is overwritten per request by openAIPassthroughOpts),
+	// otherwise the API key when provided, otherwise DefaultAzureCredential
 	// (Workload Identity in-cluster, az CLI in dev), eagerly probed so a
 	// misconfigured identity fails readiness at startup.
+	apiKey := os.Getenv(azureai.FoundryAPIKeyEnvVar)
+	if config.APIKeyPassthrough {
+		apiKey = "passthrough"
+	}
 	if err := azureai.ApplyImplicitAuth(ctx, &clientCfg, azureai.AuthOptions{
-		APIKey:     os.Getenv(azureai.FoundryAPIKeyEnvVar),
+		APIKey:     apiKey,
 		Credential: config.credential,
 		EagerProbe: true,
 	}); err != nil {
