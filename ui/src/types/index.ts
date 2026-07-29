@@ -419,6 +419,7 @@ export interface BYODeploymentSpec {
   volumeMounts?: unknown[];
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
+  deploymentAnnotations?: Record<string, string>;
   env?: EnvVar[];
   envFrom?: EnvFromSource[];
   imagePullPolicy?: string;
