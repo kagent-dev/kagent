@@ -319,6 +319,25 @@ type BedrockConfig struct {
 
 	// +optional
 	Guardrail *BedrockGuardrailConfig `json:"guardrail,omitempty"`
+
+	// ReadTimeout is the Bedrock HTTP client read timeout in seconds, applied by
+	// both the Python and Go ADK runtimes. Raise this for agents that make long
+	// Converse calls (large tool-augmented turns, extended reasoning). On the
+	// Python ADK it overrides botocore's ~60s read timeout, which otherwise
+	// aborts long completions with a ReadTimeoutError; on the Go ADK it bounds
+	// the whole Converse request (default 30m). When unset, each runtime's
+	// default is used.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ReadTimeout *int `json:"readTimeout,omitempty"`
+
+	// ConnectTimeout is the Bedrock HTTP client connection-establishment timeout
+	// in seconds, applied by both the Python and Go ADK runtimes. It bounds
+	// connection setup only, not the response read. When unset, each runtime's
+	// default is used (Python ADK: botocore; Go ADK: net dialer).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ConnectTimeout *int `json:"connectTimeout,omitempty"`
 }
 
 type BedrockGuardrailConfig struct {
