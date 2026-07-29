@@ -143,3 +143,43 @@ func TestDeploymentAnnotations_UnsetKeepsInheritedMetadata(t *testing.T) {
 	deployment := findDeployment(t, result)
 	assert.Equal(t, "from-agent", deployment.Annotations["inherited.example.com/keep"])
 }
+
+// TestObjectMeta_DoesNotMutateAgentAnnotations asserts that building the ServiceAccount
+// does not write serviceAccountConfig annotations back into the agent's own annotations.
+// The ServiceAccount extends the shared object metadata in place, so unless the inherited
+// map is cloned it is the very map owned by the agent object in the client cache, and the
+// extra keys leak onto every other object built from that metadata.
+func TestObjectMeta_DoesNotMutateAgentAnnotations(t *testing.T) {
+	agentAnnotations := map[string]string{"inherited.example.com/keep": "from-agent"}
+
+	result := translateAgentWithDeployment(t, agentAnnotations, v1alpha2.SharedDeploymentSpec{
+		ServiceAccountConfig: &v1alpha2.ServiceAccountConfig{
+			Annotations: map[string]string{"sa.example.com/role": "reader"},
+		},
+	})
+
+	var serviceAccount *corev1.ServiceAccount
+	for _, obj := range result.Manifest {
+		if sa, ok := obj.(*corev1.ServiceAccount); ok {
+			serviceAccount = sa
+			break
+		}
+	}
+	require.NotNil(t, serviceAccount, "ServiceAccount should be in manifest")
+
+	// The ServiceAccount carries both the inherited and the configured annotations.
+	assert.Equal(t, "from-agent", serviceAccount.Annotations["inherited.example.com/keep"])
+	assert.Equal(t, "reader", serviceAccount.Annotations["sa.example.com/role"])
+
+	// The agent's own annotations are untouched.
+	assert.Equal(t, map[string]string{"inherited.example.com/keep": "from-agent"}, agentAnnotations)
+
+	// ...and the ServiceAccount-only annotation reaches no other object.
+	for _, obj := range result.Manifest {
+		if _, ok := obj.(*corev1.ServiceAccount); ok {
+			continue
+		}
+		assert.NotContains(t, obj.GetAnnotations(), "sa.example.com/role",
+			"serviceAccountConfig annotations leaked onto %T %s", obj, obj.GetName())
+	}
+}

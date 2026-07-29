@@ -158,31 +158,31 @@ func (m manifestContext) podLabels() map[string]string {
 	return podLabels
 }
 
+// objectMeta returns the metadata shared by every object emitted for an agent. The
+// annotations inherited from the agent resource are cloned, so that builders which
+// extend them never mutate the agent object held by the client cache.
 func (m manifestContext) objectMeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Name:        m.agent.GetName(),
 		Namespace:   m.agent.GetNamespace(),
-		Annotations: m.agent.GetAnnotations(),
+		Annotations: maps.Clone(m.agent.GetAnnotations()),
 		Labels:      m.podLabels(),
 	}
 }
 
 // deploymentObjectMeta returns the object metadata for the agent Deployment. It extends
 // objectMeta with the user-supplied deploymentAnnotations, which take precedence over
-// annotations inherited from the agent resource metadata. The inherited map is cloned so
-// that the agent object held by the client cache is never mutated.
+// annotations inherited from the agent resource metadata.
 func (m manifestContext) deploymentObjectMeta() metav1.ObjectMeta {
 	meta := m.objectMeta()
 	if len(m.deployment.DeploymentAnnotations) == 0 {
 		return meta
 	}
 
-	annotations := maps.Clone(meta.Annotations)
-	if annotations == nil {
-		annotations = map[string]string{}
+	if meta.Annotations == nil {
+		meta.Annotations = map[string]string{}
 	}
-	maps.Copy(annotations, m.deployment.DeploymentAnnotations)
-	meta.Annotations = annotations
+	maps.Copy(meta.Annotations, m.deployment.DeploymentAnnotations)
 
 	return meta
 }
