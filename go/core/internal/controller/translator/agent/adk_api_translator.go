@@ -844,6 +844,8 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			AdditionalModelRequestFields: additionalFields,
 			PromptCaching:                model.Spec.Bedrock.PromptCaching,
 			CacheTTL:                     model.Spec.Bedrock.CacheTTL,
+			ReadTimeout:                  model.Spec.Bedrock.ReadTimeout,
+			ConnectTimeout:               model.Spec.Bedrock.ConnectTimeout,
 		}
 		if model.Spec.Bedrock.Guardrail != nil {
 			bedrock.Guardrail = &adk.BedrockGuardrail{
