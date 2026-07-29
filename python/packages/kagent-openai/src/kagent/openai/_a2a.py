@@ -12,7 +12,7 @@ import os
 from collections.abc import Callable
 
 import httpx
-from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
@@ -141,9 +141,10 @@ class KAgentApp:
 
         # Create request context builder and handler
         request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
-        request_handler = DefaultRequestHandler(
+        request_handler = DefaultRequestHandlerV2(
             agent_executor=agent_executor,
             task_store=kagent_task_store,
+            agent_card=self.agent_card,
             request_context_builder=request_context_builder,
         )
 
@@ -208,9 +209,10 @@ class KAgentApp:
 
         # Create request context builder and handler
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandler(
+        request_handler = DefaultRequestHandlerV2(
             agent_executor=agent_executor,
             task_store=task_store,
+            agent_card=self.agent_card,
             request_context_builder=request_context_builder,
         )
 
