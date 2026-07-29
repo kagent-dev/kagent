@@ -6,7 +6,7 @@ import (
 )
 
 // TestTerminateReturnsWhenOutNotDrained guards against a teardown deadlock:
-// when nobody drains c.out (cap 64), the stdout reader goroutine blocks
+// when nobody drains c.out, the stdout reader goroutine blocks
 // sending on the full channel and can never reach cmd.Wait()/close(done).
 // terminate() must still reap the child and return promptly instead of
 // blocking forever on <-c.done.
