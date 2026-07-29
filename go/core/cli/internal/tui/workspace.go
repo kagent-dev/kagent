@@ -471,7 +471,7 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 		m.details.WriteString("\nA2A error\n")
 		return nil
 	}
-	sendFn := func(ctx context.Context, req *a2atype.SendMessageRequest) (<-chan a2atype.Event, error) {
+	sendFn := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
 		return clia2a.StreamToChannel(ctx, client, req)
 	}
 	// Reset chat for new session
@@ -496,9 +496,6 @@ func (m *workspaceModel) fetchSessionHistoryCmd(sessionID string) tea.Cmd {
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, tasksURL, nil)
 		if err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
-		}
-		for k, v := range clia2a.V1RequestHeaders() {
-			req.Header.Set(k, v)
 		}
 		resp, err := http.DefaultClient.Do(req) //nolint:gosec
 		if err != nil {

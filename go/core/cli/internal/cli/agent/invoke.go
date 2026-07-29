@@ -133,12 +133,11 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 		defer cancel()
 
-		ch, err := clia2a.StreamToChannel(ctx, a2aClient, req)
-		if err != nil {
+		ch := clia2a.StreamToChannel(ctx, a2aClient, req)
+		if err := StreamA2AEvents(ch, cfg.Config.Verbose); err != nil {
 			fmt.Fprintf(os.Stderr, "Error invoking session: %v\n", err)
 			return
 		}
-		StreamA2AEvents(ch, cfg.Config.Verbose)
 	} else {
 		ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 		defer cancel()

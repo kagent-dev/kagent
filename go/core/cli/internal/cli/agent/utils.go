@@ -12,9 +12,9 @@ import (
 	"slices"
 	"time"
 
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/client"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	pygen "github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/adk/python"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/common"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
@@ -90,17 +90,23 @@ func (p *PortForward) Stop() {
 	// The kubectl process will terminate when the context is canceled
 }
 
-func StreamA2AEvents(ch <-chan a2atype.Event, verbose bool) {
+func StreamA2AEvents(ch <-chan clia2a.StreamResult, verbose bool) error {
 	_ = verbose
-	for event := range ch {
-		json, err := json.Marshal(event)
+	defer fmt.Fprintln(os.Stdout)
+
+	for result := range ch {
+		if result.Err != nil {
+			return result.Err
+		}
+
+		json, err := json.Marshal(result.Event)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
 			continue
 		}
 		fmt.Fprintf(os.Stdout, "%+v\n", string(json))
 	}
-	fmt.Fprintln(os.Stdout)
+	return nil
 }
 
 // ResolveProjectDir resolves the project directory to an absolute path

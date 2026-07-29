@@ -114,7 +114,7 @@ func RunCmd(ctx context.Context, cfg *RunCfg) error {
 		return fmt.Errorf("failed to create A2A client: %v", err)
 	}
 
-	sendFn := func(ctx context.Context, req *a2atype.SendMessageRequest) (<-chan a2atype.Event, error) {
+	sendFn := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
 		return clia2a.StreamToChannel(ctx, a2aClient, req)
 	}
 

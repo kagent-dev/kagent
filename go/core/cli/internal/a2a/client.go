@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"iter"
 	"maps"
 	"net/http"
 	"time"
@@ -54,30 +55,51 @@ func NewClient(ctx context.Context, baseURL string, opts ClientOptions) (*a2acli
 	)
 }
 
-// StreamToChannel adapts a streaming A2A response to a channel for TUI consumption.
-func StreamToChannel(ctx context.Context, client *a2aclient.Client, req *a2atype.SendMessageRequest) (<-chan a2atype.Event, error) {
-	ch := make(chan a2atype.Event)
+// StreamResult contains either an A2A event or the terminal stream error.
+type StreamResult struct {
+	Event a2atype.Event
+	Err   error
+}
+
+// StreamToChannel adapts a streaming A2A response to a channel for CLI and TUI consumption.
+func StreamToChannel(
+	ctx context.Context,
+	client *a2aclient.Client,
+	req *a2atype.SendMessageRequest,
+) <-chan StreamResult {
+	return streamToChannel(ctx, client.SendStreamingMessage(ctx, req))
+}
+
+func streamToChannel(
+	ctx context.Context,
+	stream iter.Seq2[a2atype.Event, error],
+) <-chan StreamResult {
+	ch := make(chan StreamResult, 1)
 	go func() {
 		defer close(ch)
-		for event, err := range client.SendStreamingMessage(ctx, req) {
+		for event, err := range stream {
+			if event == nil && err == nil {
+				continue
+			}
+
+			result := StreamResult{Event: event, Err: err}
+			select {
+			case ch <- result:
+			case <-ctx.Done():
+				// Preserve a terminal iterator error when a consumer is still
+				// waiting, including context cancellation and deadlines.
+				if err != nil {
+					select {
+					case ch <- result:
+					default:
+					}
+				}
+				return
+			}
 			if err != nil {
 				return
 			}
-			if event != nil {
-				select {
-				case ch <- event:
-				case <-ctx.Done():
-					return
-				}
-			}
 		}
 	}()
-	return ch, nil
-}
-
-// V1RequestHeaders returns HTTP headers that select official A2A v1 wire format.
-func V1RequestHeaders() map[string]string {
-	return map[string]string{
-		a2atype.SvcParamVersion: string(a2atype.Version),
-	}
+	return ch
 }

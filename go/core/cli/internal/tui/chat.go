@@ -14,12 +14,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/api/utils"
+	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/muesli/reflow/wordwrap"
 )
 
 // SendMessageFn abstracts the A2A client's SendStreamingMessage method for easier testing.
-type SendMessageFn func(ctx context.Context, req *a2atype.SendMessageRequest) (<-chan a2atype.Event, error)
+type SendMessageFn func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult
 
 // RunChat starts the TUI chat, blocking until the user exits.
 func RunChat(agentRef string, sessionID string, sendFn SendMessageFn, verbose bool) error {
@@ -27,10 +28,6 @@ func RunChat(agentRef string, sessionID string, sendFn SendMessageFn, verbose bo
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
-}
-
-type a2aEventMsg struct {
-	Event a2atype.Event
 }
 
 type streamDoneMsg struct{}
@@ -63,7 +60,7 @@ type chatModel struct {
 	spin spinner.Model
 
 	send      SendMessageFn
-	streamCh  <-chan a2atype.Event
+	streamCh  <-chan clia2a.StreamResult
 	cancel    context.CancelFunc
 	streaming bool
 
@@ -171,7 +168,14 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.input.Reset()
 			return m, m.submit(text)
 		}
-	case a2aEventMsg:
+	case clia2a.StreamResult:
+		if msg.Err != nil {
+			m.appendError(msg.Err)
+			m.streaming = false
+			m.working = false
+			m.updateStatus()
+			return m, nil
+		}
 		m.appendEvent(msg.Event)
 		return m, m.waitNext()
 	case streamDoneMsg:
@@ -227,14 +231,7 @@ func (m *chatModel) submit(text string) tea.Cmd {
 	msg.ContextID = m.sessionID
 	req := &a2atype.SendMessageRequest{Message: msg}
 
-	ch, err := m.send(ctx, req)
-	if err != nil {
-		m.appendError(err)
-		m.streaming = false
-		cancel()
-		return nil
-	}
-	m.streamCh = ch
+	m.streamCh = m.send(ctx, req)
 	return tea.Batch(m.waitNext(), m.tick())
 }
 
@@ -244,11 +241,11 @@ func (m *chatModel) waitNext() tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		ev, ok := <-ch
+		result, ok := <-ch
 		if !ok {
 			return streamDoneMsg{}
 		}
-		return a2aEventMsg{Event: ev}
+		return result
 	}
 }
 
