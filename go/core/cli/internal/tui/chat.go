@@ -411,16 +411,24 @@ func (m *chatModel) handleMessageParts(msg *a2atype.Message, shouldDisplay bool)
 		m.appendLine(display)
 	}
 
-	// Display text content (only on final or if explicitly requested)
-	if shouldDisplay {
-		text := strings.Join(textParts, "")
-		if strings.TrimSpace(text) != "" {
-			style := theme.UserStyle()
-			if msg.Role == a2atype.MessageRoleAgent {
-				style = theme.AgentStyle()
-			}
-			m.appendLine(style.Render(fmt.Sprintf("%s:", msg.Role)) + "\n" + text)
+	// Display text content (only on final or if explicitly requested).
+	if !shouldDisplay {
+		return
+	}
+	text := strings.Join(textParts, "")
+	if strings.TrimSpace(text) == "" {
+		return
+	}
+	switch msg.Role {
+	case a2atype.MessageRoleUser:
+		// Live send already echoed via appendUser; skip stream echoes.
+		// Session history loads with streaming=false, so those still render.
+		if m.streaming {
+			return
 		}
+		m.appendLine(theme.UserStyle().Render("You:") + " " + text)
+	default:
+		m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
 	}
 }
 
