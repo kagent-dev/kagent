@@ -1794,6 +1794,13 @@ func (in *SharedDeploymentSpec) DeepCopyInto(out *SharedDeploymentSpec) {
 			(*out)[key] = val
 		}
 	}
+	if in.DeploymentAnnotations != nil {
+		in, out := &in.DeploymentAnnotations, &out.DeploymentAnnotations
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.Env != nil {
 		in, out := &in.Env, &out.Env
 		*out = make([]v1.EnvVar, len(*in))
