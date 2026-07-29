@@ -167,12 +167,26 @@ def _get_srt_settings_args() -> list[str]:
     return ["--settings", settings_path_env]
 
 
+_COMMAND_TIMEOUT_ENV = "KAGENT_COMMAND_TIMEOUT"
+
+
 def _get_command_timeout_seconds(command: str) -> float:
-    """Determine appropriate timeout for a command."""
+    """Determine appropriate timeout for a command.
+
+    Respects the KAGENT_COMMAND_TIMEOUT environment variable (value in seconds)
+    which, when set to a positive number, overrides the built-in defaults.
+    """
+    override = os.environ.get(_COMMAND_TIMEOUT_ENV, "").strip()
+    if override:
+        try:
+            val = float(override)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
     if "python " in command or "python3 " in command:
-        return 60.0  # 1 minute for python scripts
-    else:
-        return 30.0  # 30 seconds for other commands
+        return 60.0
+    return 30.0
 
 
 async def execute_command(

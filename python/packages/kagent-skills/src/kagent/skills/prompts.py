@@ -111,6 +111,7 @@ For file operations:
 - Use read_file, write_file, and edit_file for interacting with the filesystem.
 
 Timeouts:
-- python scripts: 60s
-- other commands: 30s
+- python scripts: 60s (default)
+- other commands: 30s (default)
+- Override with KAGENT_COMMAND_TIMEOUT env var (value in seconds)
 """
