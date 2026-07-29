@@ -84,6 +84,94 @@ func TestResolveInlineDeployment_EnvFromPropagated(t *testing.T) {
 	}
 }
 
+func TestResolveByoDeployment_DeploymentAnnotationsPropagated(t *testing.T) {
+	podAnnotations := map[string]string{"pod-only": "pod-value"}
+	deploymentAnnotations := map[string]string{"deployment-only": "deployment-value"}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "my-image:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						Annotations:           podAnnotations,
+						DeploymentAnnotations: deploymentAnnotations,
+					},
+				},
+			},
+		},
+	}
+	dep, err := resolveByoDeployment(agent)
+	if err != nil {
+		t.Fatalf("resolveByoDeployment() error = %v", err)
+	}
+	if !reflect.DeepEqual(dep.DeploymentAnnotations, deploymentAnnotations) {
+		t.Errorf("DeploymentAnnotations = %v, want %v", dep.DeploymentAnnotations, deploymentAnnotations)
+	}
+	if !reflect.DeepEqual(dep.Annotations, podAnnotations) {
+		t.Errorf("Annotations = %v, want %v", dep.Annotations, podAnnotations)
+	}
+}
+
+func TestResolveInlineDeployment_DeploymentAnnotationsPropagated(t *testing.T) {
+	podAnnotations := map[string]string{"pod-only": "pod-value"}
+	deploymentAnnotations := map[string]string{"deployment-only": "deployment-value"}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						Annotations:           podAnnotations,
+						DeploymentAnnotations: deploymentAnnotations,
+					},
+				},
+			},
+		},
+	}
+	dep, err := resolveInlineDeployment(agent, &modelDeploymentData{})
+	if err != nil {
+		t.Fatalf("resolveInlineDeployment() error = %v", err)
+	}
+	if !reflect.DeepEqual(dep.DeploymentAnnotations, deploymentAnnotations) {
+		t.Errorf("DeploymentAnnotations = %v, want %v", dep.DeploymentAnnotations, deploymentAnnotations)
+	}
+	if !reflect.DeepEqual(dep.Annotations, podAnnotations) {
+		t.Errorf("Annotations = %v, want %v", dep.Annotations, podAnnotations)
+	}
+}
+
+// TestResolveByoDeployment_DeploymentAnnotationsCloned asserts the resolver copies
+// the spec map so later mutation of the resolved deployment cannot write back into
+// the agent object held by the client cache.
+func TestResolveByoDeployment_DeploymentAnnotationsCloned(t *testing.T) {
+	deploymentAnnotations := map[string]string{"key": "value"}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "my-image:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						DeploymentAnnotations: deploymentAnnotations,
+					},
+				},
+			},
+		},
+	}
+	dep, err := resolveByoDeployment(agent)
+	if err != nil {
+		t.Fatalf("resolveByoDeployment() error = %v", err)
+	}
+	dep.DeploymentAnnotations["key"] = "mutated"
+	if deploymentAnnotations["key"] != "value" {
+		t.Errorf("spec DeploymentAnnotations mutated to %q, want the resolver to clone the map", deploymentAnnotations["key"])
+	}
+}
+
 func TestValidateExtraContainers(t *testing.T) {
 	t.Parallel()
 
