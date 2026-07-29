@@ -48,7 +48,7 @@ class KAgentSessionService(BaseSessionService):
 
         # Make API call to create session
         # Pass user_id as a query param so the controller's auth middleware
-        # (UnsecureAuthenticator) reads it consistently — matching the user_id
+        # (UnsecureAuthenticator) reads it consistently, matching the user_id
         # used by get_session, list_sessions, delete_session, and append_event.
         # Without this, unsecure-mode requests fall back to "admin@kagent.dev"
         # while all lookups use the A2A-derived user_id, causing SessionNotFoundError.
@@ -78,22 +78,14 @@ class KAgentSessionService(BaseSessionService):
         config: Optional[GetSessionConfig] = None,
     ) -> Optional[Session]:
         try:
-            # ADK requires events to be chronological (especially for calculating deltas)
-            params: dict[str, str | int] = {"user_id": user_id, "order": "asc"}
-            if config:
-                if config.after_timestamp is not None:
-                    params["after"] = datetime.fromtimestamp(config.after_timestamp, tz=timezone.utc).isoformat()
-                if config.num_recent_events is not None:
-                    # Ascending order with a limit selects the oldest events, while ADK requests
-                    # the most recent events in chronological order. Fetch newest-first, then reverse below.
-                    # The API treats limit=0 as unlimited, so request one event and discard it below.
-                    params["order"] = "desc"
-                    params["limit"] = max(config.num_recent_events, 1)
-                else:
-                    params["limit"] = -1
-            else:
-                # return all
-                params["limit"] = -1
+            # ADK requires events to be chronological (especially for calculating deltas).
+            # Always fetch the full history: state is built by replaying every event's
+            # state_delta below, so limiting the fetch here would silently drop state set
+            # by events outside the window. num_recent_events is applied after, by
+            # trimming session.events once state is already correct.
+            params: dict[str, str | int] = {"user_id": user_id, "order": "asc", "limit": -1}
+            if config and config.after_timestamp is not None:
+                params["after"] = datetime.fromtimestamp(config.after_timestamp, tz=timezone.utc).isoformat()
 
             # Make API call to get session
             response: httpx.Response = await self.client.get(f"/api/sessions/{session_id}", params=params)
@@ -110,11 +102,6 @@ class KAgentSessionService(BaseSessionService):
             session_data = data["data"]["session"]
 
             events_data = data["data"]["events"]
-            if config and config.num_recent_events is not None:
-                if config.num_recent_events == 0:
-                    events_data = []
-                else:
-                    events_data.reverse()
 
             events: list[Event] = []
             for event_data in events_data:
@@ -131,6 +118,13 @@ class KAgentSessionService(BaseSessionService):
 
             for event in events:
                 await super().append_event(session, event)
+
+            if config and config.num_recent_events is not None:
+                # Trim only after every event has been replayed, so state is complete.
+                # num_recent_events == 0 means "no events", not "all events" ([-0:] would
+                # keep everything).
+                num_recent_events = config.num_recent_events
+                session.events = session.events[-num_recent_events:] if num_recent_events else []
 
             return session
         except httpx.HTTPStatusError as e:
