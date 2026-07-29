@@ -7,6 +7,7 @@ import (
 	"iter"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -120,5 +121,119 @@ func TestNoPreResponseFlushByDefault(t *testing.T) {
 	exported := runA2ARequest(t)
 	if len(exported) != 0 {
 		t.Errorf("spans exported at handler return without opt-in, got %v", exported)
+	}
+}
+
+func TestA2ARequestSizeLimit(t *testing.T) {
+	tests := []struct {
+		name          string
+		contentLength int64
+		wantStatus    int
+		wantBody      string
+	}{
+		{
+			name:          "declared content length",
+			contentLength: 6,
+			wantStatus:    http.StatusRequestEntityTooLarge,
+			wantBody:      "Payload too large",
+		},
+		{
+			name:          "unknown content length",
+			contentLength: -1,
+			wantStatus:    http.StatusOK,
+			wantBody:      "request body too large",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(a2aMaxContentLengthEnvVar, "5")
+			srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, logr.Discard(), ServerConfig{Port: "0"})
+			if err != nil {
+				t.Fatalf("NewA2AServer: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("123456"))
+			req.ContentLength = tt.contentLength
+			rec := httptest.NewRecorder()
+
+			srv.httpServer.Handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("unexpected status %d, want %d: %s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Errorf("response body %q does not contain %q", rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestA2ARequestSizeLimitDisabled(t *testing.T) {
+	t.Setenv(a2aMaxContentLengthEnvVar, "unlimited")
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, logr.Discard(), ServerConfig{Port: "0"})
+	if err != nil {
+		t.Fatalf("NewA2AServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("123456"))
+	rec := httptest.NewRecorder()
+
+	srv.httpServer.Handler.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusRequestEntityTooLarge {
+		t.Errorf("request size limit was not disabled: %s", rec.Body.String())
+	}
+}
+
+func TestRequestSizeLimitPreservesFlusher(t *testing.T) {
+	flusherAvailable := false
+	handler := withRequestSizeLimit(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, flusherAvailable = w.(http.Flusher)
+		w.WriteHeader(http.StatusNoContent)
+	}), 5)
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if !flusherAvailable {
+		t.Error("request size limit did not preserve http.Flusher")
+	}
+}
+
+func TestGetMaxContentLength(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     string
+		want      int64
+		unlimited bool
+	}{
+		{name: "positive integer", value: "1024", want: 1024},
+		{name: "whitespace", value: " 1024 ", want: 1024},
+		{name: "zero", value: "0", unlimited: true},
+		{name: "none", value: "none", unlimited: true},
+		{name: "unlimited", value: "unlimited", unlimited: true},
+		{name: "invalid", value: "invalid", want: defaultMaxContentLength},
+		{name: "negative", value: "-1", want: defaultMaxContentLength},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(a2aMaxContentLengthEnvVar, tt.value)
+			got := getMaxContentLength(logr.Discard())
+			if tt.unlimited {
+				if got != nil {
+					t.Errorf("expected unlimited request size, got %d", *got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("expected request size limit, got unlimited")
+			}
+			if *got != tt.want {
+				t.Errorf("unexpected request size limit %d, want %d", *got, tt.want)
+			}
+		})
 	}
 }

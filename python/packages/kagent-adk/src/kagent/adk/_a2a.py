@@ -6,7 +6,7 @@ from typing import Any, Callable, List, Optional
 
 import httpx
 from a2a.server.request_handlers import DefaultRequestHandlerV2
-from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
+from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
@@ -21,8 +21,10 @@ from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService, InMemorySessionService
 from google.genai import types
 from kagent.core.a2a import (
+    A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
+    get_a2a_max_content_length,
 )
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
@@ -176,12 +178,19 @@ class KAgentApp:
             lifespan_manager.add(token_service.lifespan())
 
         app = FastAPI(lifespan=lifespan_manager)
+        app.add_middleware(
+            A2ARequestSizeLimitMiddleware,
+            max_content_length=get_a2a_max_content_length(),
+        )
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-        app.router.routes.extend(create_agent_card_routes(self.agent_card))
-        app.router.routes.extend(create_jsonrpc_routes(request_handler, rpc_url="/"))
+        add_a2a_routes_to_fastapi(
+            app,
+            agent_card_routes=create_agent_card_routes(self.agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+        )
 
         return app
 

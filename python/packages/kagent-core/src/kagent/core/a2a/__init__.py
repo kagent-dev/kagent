@@ -28,6 +28,7 @@ from ._hitl_utils import (
     extract_hitl_info_from_task,
     extract_rejection_reasons_from_message,
 )
+from ._request_size import A2ARequestSizeLimitMiddleware
 from ._requests import KAgentRequestContextBuilder
 from ._task_result_aggregator import TaskResultAggregator
 from ._task_store import KAgentTaskStore
@@ -35,6 +36,7 @@ from ._time import now_timestamp
 
 __all__ = [
     "get_a2a_max_content_length",
+    "A2ARequestSizeLimitMiddleware",
     "get_request_user_id",
     "set_request_user_id",
     "KAgentRequestContextBuilder",

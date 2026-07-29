@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -17,6 +18,11 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+)
+
+const (
+	a2aMaxContentLengthEnvVar = "A2A_MAX_CONTENT_LENGTH"
+	defaultMaxContentLength   = int64(10 * 1024 * 1024)
 )
 
 // ServerConfig holds configuration for the A2A server.
@@ -38,6 +44,9 @@ type A2AServer struct {
 func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger logr.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
+	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
+		jsonrpcHandler = withRequestSizeLimit(jsonrpcHandler, *maxContentLength)
+	}
 
 	mux := http.NewServeMux()
 	RegisterHealthEndpoints(mux)
@@ -96,6 +105,43 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		logger: logger,
 		config: config,
 	}, nil
+}
+
+func getMaxContentLength(logger logr.Logger) *int64 {
+	value, ok := os.LookupEnv(a2aMaxContentLengthEnvVar)
+	if !ok {
+		maxContentLength := defaultMaxContentLength
+		return &maxContentLength
+	}
+
+	trimmedValue := strings.TrimSpace(value)
+	switch strings.ToLower(trimmedValue) {
+	case "0", "none", "unlimited":
+		return nil
+	}
+
+	maxContentLength, err := strconv.ParseInt(trimmedValue, 10, 64)
+	if err != nil || maxContentLength < 0 {
+		logger.Info(
+			"Invalid A2A request size limit, using default",
+			"environmentVariable", a2aMaxContentLengthEnvVar,
+			"value", value,
+			"default", defaultMaxContentLength,
+		)
+		maxContentLength = defaultMaxContentLength
+	}
+	return &maxContentLength
+}
+
+func withRequestSizeLimit(next http.Handler, maxContentLength int64) http.Handler {
+	sizeLimitedHandler := http.MaxBytesHandler(next, maxContentLength)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength > maxContentLength {
+			http.Error(w, "Payload too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		sizeLimitedHandler.ServeHTTP(w, r)
+	})
 }
 
 // Start initializes and starts the HTTP server.

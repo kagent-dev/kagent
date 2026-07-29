@@ -21,6 +21,7 @@ from a2a.client import Client as A2AClient
 from a2a.client import ClientCallContext, create_client
 from a2a.client import ClientConfig as A2AClientConfig
 from a2a.client.errors import A2AClientError
+from a2a.helpers import new_data_message, new_text_message
 from a2a.types import (
     AgentCard,
     Role,
@@ -32,16 +33,12 @@ from a2a.types import (
 from a2a.types import (
     Message as A2AMessage,
 )
-from a2a.types import (
-    Part as A2APart,
-)
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types as genai_types
-from google.protobuf.json_format import MessageToDict, ParseDict
-from google.protobuf.struct_pb2 import Value
+from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
@@ -280,9 +277,8 @@ class KAgentRemoteA2ATool(BaseTool):
         client = await self._ensure_client()
 
         request_text = args.get("request", "")
-        message = A2AMessage(
-            message_id=str(uuid.uuid4()),
-            parts=[A2APart(text=request_text)],
+        message = new_text_message(
+            request_text,
             role=Role.ROLE_USER,
             context_id=self._last_context_id,
         )
@@ -423,12 +419,11 @@ class KAgentRemoteA2ATool(BaseTool):
                 if reason:
                     decision_data["rejection_reason"] = reason
 
-        decision_message = A2AMessage(
-            message_id=str(uuid.uuid4()),
+        decision_message = new_data_message(
+            decision_data,
             task_id=task_id,
             context_id=context_id,
             role=Role.ROLE_USER,
-            parts=[A2APart(data=ParseDict(decision_data, Value()))],
         )
         send_request = SendMessageRequest(message=decision_message)
 

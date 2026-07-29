@@ -13,7 +13,7 @@ from collections.abc import Callable
 
 import httpx
 from a2a.server.request_handlers import DefaultRequestHandlerV2
-from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
+from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from agents import Agent, set_default_openai_api, set_default_openai_client, set_tracing_disabled
@@ -22,8 +22,10 @@ from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
+    A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
+    get_a2a_max_content_length,
 )
 from opentelemetry.instrumentation.openai_agents import OpenAIAgentsInstrumentor
 
@@ -153,6 +155,10 @@ class KAgentApp:
 
         # Create FastAPI app with lifespan
         app = FastAPI()
+        app.add_middleware(
+            A2ARequestSizeLimitMiddleware,
+            max_content_length=get_a2a_max_content_length(),
+        )
 
         if self.tracing:
             try:
@@ -179,8 +185,11 @@ class KAgentApp:
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
 
         # Add A2A routes
-        app.router.routes.extend(create_agent_card_routes(self.agent_card))
-        app.router.routes.extend(create_jsonrpc_routes(request_handler, rpc_url="/"))
+        add_a2a_routes_to_fastapi(
+            app,
+            agent_card_routes=create_agent_card_routes(self.agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+        )
 
         return app
 
@@ -221,14 +230,21 @@ class KAgentApp:
 
         # Create FastAPI app
         app = FastAPI()
+        app.add_middleware(
+            A2ARequestSizeLimitMiddleware,
+            max_content_length=get_a2a_max_content_length(),
+        )
 
         # Add health check endpoints
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
 
         # Add A2A routes
-        app.router.routes.extend(create_agent_card_routes(self.agent_card))
-        app.router.routes.extend(create_jsonrpc_routes(request_handler, rpc_url="/"))
+        add_a2a_routes_to_fastapi(
+            app,
+            agent_card_routes=create_agent_card_routes(self.agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+        )
 
         return app
 
