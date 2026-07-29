@@ -5,9 +5,9 @@ on:
   schedule:
   - cron: '0 0 * * 0' # Every Monday at midnight UTC
 
-  # Trigger the workflow on push to the main branch
+  # Trigger the workflow on push to main and release branches
   push:
-    branches: [ main ]
+    branches: [main, "release/**"]
     paths-ignore:
       - '**/*.md'
 
