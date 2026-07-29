@@ -189,6 +189,10 @@
                     "value": "http://kagent-controller.kagent:8083"
                   },
                   {
+                    "name": "KAGENT_GRPC_URL",
+                    "value": "kagent-controller.kagent:8084"
+                  },
+                  {
                     "name": "KAGENT_SRT_SETTINGS_PATH",
                     "value": "/config/srt-settings.json"
                   }

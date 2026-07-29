@@ -169,6 +169,25 @@ jobs:
       - name: Previous-release queries vs current schema
         run: make -C go check-query-contraction
 
+  proto-check:
+    name: Protobuf Contract Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go/go.mod
+          cache: true
+          cache-dependency-path: go/go.sum
+      - name: Lint and generate protobuf contracts
+        run: make proto-check
+      - name: Check protobuf compatibility
+        run: make proto-breaking
+
   upgrade-tests:
     needs:
       - setup

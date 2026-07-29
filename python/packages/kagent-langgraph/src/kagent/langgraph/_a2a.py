@@ -7,13 +7,12 @@ with A2A protocol support for LangGraph workflows.
 import faulthandler
 import logging
 
-import httpx
 from a2a.server.apps import A2AStarletteApplication
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
-from kagent.core import KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     KAgentTaskStore,
@@ -57,6 +56,7 @@ class KAgentApp:
         agent_card: AgentCard,
         config: KAgentConfig,
         executor_config: LangGraphAgentExecutorConfig | None = None,
+        controller_client: AsyncControllerClient | None = None,
         tracing: bool = True,
     ):
         """Initialize the KAgent application.
@@ -66,6 +66,7 @@ class KAgentApp:
             agent_card: Agent card configuration for A2A protocol
             config: KAgent configuration
             executor_config: Optional executor configuration
+            controller_client: Shared generated gRPC client for controller services
             tracing: Enable OpenTelemetry tracing/logging via kagent.core.tracing
 
         """
@@ -74,6 +75,7 @@ class KAgentApp:
         self.config = config
 
         self.executor_config = executor_config or LangGraphAgentExecutorConfig()
+        self._controller_client = controller_client
         self._enable_tracing = tracing
 
     def build(self) -> FastAPI:
@@ -82,8 +84,11 @@ class KAgentApp:
         Returns:
             Configured FastAPI application ready for deployment
         """
-        # Create HTTP client for KAgent API
-        http_client = httpx.AsyncClient(base_url=self.config.url)
+        controller_client = self._controller_client or AsyncControllerClient(
+            self.config.grpc_url,
+            agent_name=self.config.app_name,
+            token_provider=AsyncFileTokenProvider(),
+        )
 
         # Create agent executor
         agent_executor = LangGraphAgentExecutor(
@@ -93,7 +98,7 @@ class KAgentApp:
         )
 
         # Create task store
-        task_store = KAgentTaskStore(http_client)
+        task_store = KAgentTaskStore(controller_client)
 
         # Create request context builder
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
@@ -121,6 +126,7 @@ class KAgentApp:
             title=f"KAgent LangGraph: {self.config.app_name}",
             description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
+            lifespan=controller_client.lifespan(),
         )
 
         # Configure tracing/instrumentation if enabled

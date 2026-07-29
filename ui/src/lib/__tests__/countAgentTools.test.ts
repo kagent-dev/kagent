@@ -13,7 +13,7 @@ const base: AgentResponse = {
   accepted: true,
 };
 
-function toolMcp(names?: string[]): Tool {
+function toolMcp(names: string[] = []): Tool {
   return {
     type: "McpServer",
     mcpServer: { name: "srv", namespace: "ns", toolNames: names, kind: "ToolServer" },

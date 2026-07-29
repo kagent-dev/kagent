@@ -1,0 +1,21 @@
+version: v2
+clean: true
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: ../go/api/gen
+    opt:
+      - paths=source_relative
+  - remote: buf.build/grpc/go:v1.6.2
+    out: ../go/api/gen
+    opt:
+      - paths=source_relative
+  - remote: buf.build/bufbuild/es:v2.13.0
+    out: ../ui/src/generated
+    opt:
+      - target=ts
+  - remote: buf.build/protocolbuffers/python:v33.5
+    out: ../python/packages/kagent-proto/src
+  - remote: buf.build/protocolbuffers/pyi:v33.5
+    out: ../python/packages/kagent-proto/src
+  - remote: buf.build/grpc/python:v1.83.0
+    out: ../python/packages/kagent-proto/src

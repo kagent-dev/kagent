@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+service LangGraphService {
+  rpc PutCheckpoint(PutCheckpointRequest) returns (PutCheckpointResponse);
+  rpc ListCheckpoints(ListCheckpointsRequest) returns (ListCheckpointsResponse);
+  rpc PutWrites(PutWritesRequest) returns (PutWritesResponse);
+  rpc DeleteThread(DeleteThreadRequest) returns (DeleteThreadResponse);
+}
+
+message LangGraphCheckpoint {
+  string thread_id = 1;
+  string checkpoint_ns = 2;
+  string checkpoint_id = 3;
+  optional string parent_checkpoint_id = 4;
+  bytes checkpoint = 5;
+  bytes metadata = 6;
+  string type = 7;
+  int64 version = 8;
+}
+
+message LangGraphCheckpointWrite {
+  int64 idx = 1;
+  string channel = 2;
+  string type = 3;
+  bytes value = 4;
+  string task_id = 5;
+}
+
+message LangGraphCheckpointWrites {
+  string thread_id = 1;
+  string checkpoint_ns = 2;
+  string checkpoint_id = 3;
+  string task_id = 4;
+  repeated LangGraphCheckpointWrite writes = 5;
+}
+
+message LangGraphCheckpointTuple {
+  LangGraphCheckpoint checkpoint = 1;
+  LangGraphCheckpointWrites writes = 2;
+}
+
+message PutCheckpointRequest {
+  LangGraphCheckpoint checkpoint = 1;
+}
+
+message PutCheckpointResponse {}
+
+message ListCheckpointsRequest {
+  string thread_id = 1;
+  string checkpoint_ns = 2;
+  optional string checkpoint_id = 3;
+  optional int32 limit = 4;
+}
+
+message ListCheckpointsResponse {
+  repeated LangGraphCheckpointTuple checkpoints = 1;
+}
+
+message PutWritesRequest {
+  LangGraphCheckpointWrites writes = 1;
+}
+
+message PutWritesResponse {}
+
+message DeleteThreadRequest {
+  string thread_id = 1;
+}
+
+message DeleteThreadResponse {}

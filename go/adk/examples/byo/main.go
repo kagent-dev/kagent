@@ -10,8 +10,8 @@
 // The app builder automatically wires kagent infrastructure based on
 // environment variables:
 //
-//   - KAGENT_URL: when set, enables remote session and task persistence via
-//     the kagent controller API. Token auth is handled automatically.
+//   - KAGENT_GRPC_URL: when set, enables remote session and task persistence via
+//     the kagent controller gRPC API. Token auth is handled automatically.
 //   - KAGENT_NAMESPACE / KAGENT_NAME: used to derive the app name for session
 //     scoping. Falls back to the agent card name.
 //   - PORT: the port to listen on (default "8080").
@@ -30,7 +30,7 @@
 //
 // Run with kagent persistence:
 //
-//	KAGENT_URL=http://kagent-controller:8080 OPENAI_API_KEY=sk-... go run ./examples/byo/
+//	KAGENT_GRPC_URL=kagent-controller:8084 OPENAI_API_KEY=sk-... go run ./examples/byo/
 //
 // Test with curl:
 //

@@ -7,8 +7,9 @@
 // Prerequisites (mirror the existing e2e tests in invoke_api_test.go):
 //
 //   - A kind cluster with kagent installed.
-//   - `kubectl port-forward -n kagent deployments/kagent-controller 8083`
-//     (or KAGENT_URL set) so the tests can reach the HTTP API.
+//   - `kubectl port-forward -n kagent deployments/kagent-controller 8083 8084`
+//     (or KAGENT_URL and KAGENT_GRPC_URL set) so the tests can reach the
+//     protocol HTTP and application gRPC endpoints.
 //   - The cluster must be able to dial the test host on `host.docker.internal`
 //     (Mac) / `172.17.0.1` (Linux) — same indirection mockllm uses;
 //     buildK8sURL() in invoke_api_test.go does the translation.
@@ -16,14 +17,12 @@
 package e2e_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -35,12 +34,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/httpapi"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/structuredobject"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/mockmcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -221,46 +222,49 @@ func createRMS(t *testing.T, cli client.Client, spec v1alpha2.RemoteMCPServerSpe
 	return rms
 }
 
-// waitForAPIDiscoveredTools polls GET /api/toolservers until the named
+// waitForGRPCDiscoveredTools polls ToolService.ListToolServers until the named
 // RemoteMCPServer's DiscoveredTools list is non-empty, then returns the
-// tools. The CRD status field and this HTTP response come from
+// tools. The CRD status field and this RPC response come from
 // different write paths in the reconciler (the field is set by
-// setRemoteMCPServerStatusConditions, the API serves rows the
+// setRemoteMCPServerStatusConditions, the service returns rows the
 // reconciler persisted via RefreshToolsForServer), so a working CRD
-// status doesn't strictly imply the API has caught up — poll instead
+// status doesn't strictly imply the service has caught up — poll instead
 // of assuming.
-func waitForAPIDiscoveredTools(t *testing.T, namespace, name string) []*v1alpha2.MCPTool {
+func waitForGRPCDiscoveredTools(t *testing.T, namespace, name string) []*apiv1alpha1.DiscoveredTool {
 	t.Helper()
 	ref := namespace + "/" + name
-	var matched []*v1alpha2.MCPTool
+	toolClient := newE2EToolServiceClient(t)
+	var matched []*apiv1alpha1.DiscoveredTool
 
 	pollErr := wait.PollUntilContextTimeout(t.Context(), 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, kagentURL()+"/api/toolservers", nil)
-		if err != nil {
-			return false, err
-		}
-		resp, err := http.DefaultClient.Do(req)
+		response, err := toolClient.ListToolServers(ctx, &apiv1alpha1.ListToolServersRequest{})
 		if err != nil {
 			return false, nil
 		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return false, nil
-		}
-		var list httpapi.StandardResponse[[]httpapi.ToolServerResponse]
-		if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
-			return false, err
-		}
-		for _, ts := range list.Data {
-			if ts.Ref == ref && len(ts.DiscoveredTools) > 0 {
-				matched = ts.DiscoveredTools
+		for _, toolServer := range response.GetToolServers() {
+			if toolServer.GetRef() == ref && len(toolServer.GetDiscoveredTools()) > 0 {
+				matched = toolServer.GetDiscoveredTools()
 				return true, nil
 			}
 		}
 		return false, nil
 	})
-	require.NoError(t, pollErr, "timed out waiting for tools on /api/toolservers for %s", ref)
+	require.NoError(t, pollErr, "timed out waiting for tools from ToolService for %s", ref)
 	return matched
+}
+
+func newE2EToolServiceClient(t *testing.T) apiv1alpha1.ToolServiceClient {
+	t.Helper()
+	target := os.Getenv("KAGENT_GRPC_URL")
+	if target == "" {
+		target = "localhost:8084"
+	}
+	connection, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, connection.Close())
+	})
+	return apiv1alpha1.NewToolServiceClient(connection)
 }
 
 // generateSelfSignedCert mints an ECDSA self-signed certificate scoped
@@ -338,17 +342,17 @@ func TestE2E_RMS_PrivateCAUpstream(t *testing.T) {
 	}
 	assert.True(t, toolNames["add_numbers"], "expected add_numbers in Status.DiscoveredTools, got %v", toolNames)
 
-	// And on the kagent HTTP API (what the UI calls). The reconciler
+	// And on the kagent application API (what the UI calls). The reconciler
 	// persists the post-ListTools result to the DB at
 	// reconciler.go:RefreshToolsForServer, separate from the CRD status
 	// write — verifying both confirms the controller "shows" tools on
 	// every surface an operator might look at.
-	apiTools := waitForAPIDiscoveredTools(t, rms.Namespace, rms.Name)
+	apiTools := waitForGRPCDiscoveredTools(t, rms.Namespace, rms.Name)
 	apiNames := make(map[string]bool)
 	for _, tool := range apiTools {
 		apiNames[tool.Name] = true
 	}
-	assert.True(t, apiNames["add_numbers"], "expected add_numbers via /api/toolservers, got %v", apiNames)
+	assert.True(t, apiNames["add_numbers"], "expected add_numbers via ToolService, got %v", apiNames)
 
 	// Drive an agent invocation through the A2A endpoint. The mock LLM
 	// is preprogrammed to issue a tools/call to add_numbers; mockmcp
@@ -475,10 +479,10 @@ func TestE2E_RMS_SSE_TLS(t *testing.T) {
 	runSyncTest(t, a2aClient, "add 2 and 3", "5", nil)
 }
 
-// TestE2E_API_ToolServerCompanionSecrets posts a ToolServerCreateRequest
+// TestE2E_API_ToolServerCompanionSecrets sends a CreateToolServer RPC
 // with inline SecretMaterials and asserts the controller materializes
 // both the RMS and the companion Secret in a single round-trip — the
-// "one POST" UX equivalent of ModelConfig's existing inline-Secret
+// single-operation UX equivalent of ModelConfig's existing inline-Secret
 // support. Also exercises the OwnerReference: deleting the RMS should
 // cascade-delete the Secret via K8s GC.
 //
@@ -491,9 +495,8 @@ func TestE2E_API_ToolServerCompanionSecrets(t *testing.T) {
 	rmsName := fmt.Sprintf("e2e-rms-companion-%d", time.Now().UnixNano())
 	caSecretName := rmsName + "-ca"
 
-	body, err := json.Marshal(handlers.ToolServerCreateRequest{
-		Type: "RemoteMCPServer",
-		RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+	resource, err := structuredobject.FromGo(
+		&v1alpha2.RemoteMCPServer{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      rmsName,
 				Namespace: "kagent",
@@ -507,21 +510,21 @@ func TestE2E_API_ToolServerCompanionSecrets(t *testing.T) {
 				},
 			},
 		},
-		Secrets: []httpapi.SecretMaterial{
+		v1alpha2.GroupVersion.String(),
+		"RemoteMCPServer",
+		0,
+	)
+	require.NoError(t, err)
+
+	_, err = newE2EToolServiceClient(t).CreateToolServer(t.Context(), &apiv1alpha1.CreateToolServerRequest{
+		Type:     "RemoteMCPServer",
+		Ref:      &apiv1alpha1.ResourceReference{Namespace: "kagent", Name: rmsName},
+		Resource: resource,
+		Secrets: []*apiv1alpha1.SecretMaterial{
 			{Name: caSecretName, Key: "ca.crt", Value: "FAKE PEM CONTENT"},
 		},
 	})
 	require.NoError(t, err)
-
-	req, err := http.NewRequestWithContext(t.Context(), "POST",
-		kagentURL()+"/api/toolservers", bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusCreated, resp.StatusCode, "expected 201 Created on POST /api/toolservers")
 
 	// The RMS should exist in K8s.
 	rms := &v1alpha2.RemoteMCPServer{}

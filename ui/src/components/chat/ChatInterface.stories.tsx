@@ -1,19 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { mocked } from "storybook/test";
 import ChatInterface from "./ChatInterface";
 import { ChatAgentProvider } from "./ChatAgentContext";
-import { worker } from "@/mocks/browser";
 import type { AgentResponse } from "@/types";
+import { checkSessionExists, getSessionTasks } from "@/app/actions/sessions";
 import {
   createMockSession,
   createMockTask,
   createMockToolCallTask,
-  sessionExistsHandler,
-  sessionNotFoundHandler,
-  sessionTasksHandler,
-  emptySessionTasksHandler,
-  slowSessionExistsHandler,
-  slowSessionTasksHandler,
-} from "@/mocks/handlers";
+} from "@/mocks/fixtures";
 
 // ---------------------------------------------------------------------------
 // Shared mock data
@@ -128,16 +123,6 @@ const toolCallTask = createMockToolCallTask(
   "NAME            READY   STATUS    RESTARTS   AGE\nnginx-abc123    1/1     Running   0          2d\nnginx-def456    1/1     Running   0          2d",
 );
 
-const multiExchangeSession = createMockSession({
-  id: "session-456",
-  name: "Kubernetes Q&A",
-});
-
-const toolCallSession = createMockSession({
-  id: "session-789",
-  name: "Tool call demo",
-});
-
 // ---------------------------------------------------------------------------
 // Meta
 // ---------------------------------------------------------------------------
@@ -166,9 +151,10 @@ const meta = {
       </div>
     ),
   ],
-  /** Reset MSW handlers between stories to prevent leakage. */
+  /** Reset server-action mocks between stories to prevent leakage. */
   beforeEach: () => {
-    worker.resetHandlers();
+    mocked(checkSessionExists).mockReset();
+    mocked(getSessionTasks).mockReset();
   },
   tags: ["autodocs"],
 } satisfies Meta<typeof ChatInterface>;
@@ -183,7 +169,7 @@ type Story = StoryObj<typeof meta>;
 /**
  * A brand-new chat with no session yet.
  * Shows the "Start a conversation" welcome prompt.
- * No MSW handlers needed — no API calls are made.
+ * No action mocks are needed because no API calls are made.
  */
 export const NewChat: Story = {
   args: {
@@ -194,8 +180,7 @@ export const NewChat: Story = {
 
 /**
  * An existing session loaded via its `sessionId`.
- * MSW intercepts `checkSessionExists` and `getSessionTasks` to return
- * a single user→agent exchange.
+ * The session actions return a single user→agent exchange.
  */
 export const ExistingSessionWithMessages: Story = {
   args: {
@@ -204,10 +189,8 @@ export const ExistingSessionWithMessages: Story = {
     sessionId: "session-123",
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(mockSession),
-      sessionTasksHandler([singleExchangeTask]),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: [singleExchangeTask] });
   },
 };
 
@@ -228,10 +211,8 @@ export const LongConversation: Story = {
     },
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(multiExchangeSession),
-      sessionTasksHandler(multiExchangeTasks),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: multiExchangeTasks });
   },
 };
 
@@ -253,10 +234,8 @@ export const WithToolCalls: Story = {
     },
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(toolCallSession),
-      sessionTasksHandler([toolCallTask]),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: [toolCallTask] });
   },
 };
 
@@ -278,7 +257,7 @@ export const SessionNotFound: Story = {
     },
   },
   beforeEach: () => {
-    worker.use(sessionNotFoundHandler());
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session does not exist", data: false });
   },
 };
 
@@ -293,16 +272,13 @@ export const EmptySession: Story = {
     sessionId: "session-123",
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(mockSession),
-      emptySessionTasksHandler(),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: [] });
   },
 };
 
 /**
- * Simulates a slow backend — the loading spinner is visible while the
- * session and tasks endpoints respond after a 2 s delay.
+ * Simulates a slow backend so the loading spinner remains visible.
  */
 export const Loading: Story = {
   args: {
@@ -311,17 +287,15 @@ export const Loading: Story = {
     sessionId: "session-123",
   },
   beforeEach: () => {
-    worker.use(
-      slowSessionExistsHandler(mockSession, 2000),
-      slowSessionTasksHandler([singleExchangeTask], 2000),
-    );
+    mocked(checkSessionExists).mockImplementation(() => new Promise(() => {}));
+    mocked(getSessionTasks).mockImplementation(() => new Promise(() => {}));
   },
 };
 
 /**
  * Session is pre-loaded via the `selectedSession` prop, but the component
- * still calls `checkSessionExists` when `sessionId` is present, so MSW
- * handlers are required for both the session check and task history.
+ * still calls `checkSessionExists` when `sessionId` is present, so both
+ * session actions are mocked.
  */
 export const PreLoadedSession: Story = {
   args: {
@@ -331,9 +305,7 @@ export const PreLoadedSession: Story = {
     sessionId: "session-123",
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(mockSession),
-      sessionTasksHandler([singleExchangeTask]),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: [singleExchangeTask] });
   },
 };

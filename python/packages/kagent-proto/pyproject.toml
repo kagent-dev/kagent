@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kagent-proto"
+version = "0.1.0"
+description = "Generated protobuf and gRPC contracts for the kagent application API"
+requires-python = ">=3.11"
+dependencies = [
+  "grpcio>=1.83.0",
+  "protobuf>=6.33.5,<7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kagent"]

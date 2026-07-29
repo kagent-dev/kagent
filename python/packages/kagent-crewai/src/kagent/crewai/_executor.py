@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -8,7 +9,6 @@ try:
 except ImportError:
     from typing_extensions import override
 
-import httpx
 from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
@@ -24,6 +24,7 @@ from a2a.types import (
     TaskStatusUpdateEvent,
     TextPart,
 )
+from kagent.core import AsyncControllerClient
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -51,13 +52,13 @@ class CrewAIAgentExecutor(AgentExecutor):
         crew: Union[Crew, Flow],
         app_name: str,
         config: CrewAIAgentExecutorConfig | None = None,
-        http_client: httpx.AsyncClient,
+        controller_client: AsyncControllerClient,
     ):
         super().__init__()
         self._crew = crew
         self.app_name = app_name
         self._config = config or CrewAIAgentExecutorConfig()
-        self._http_client = http_client
+        self._controller_client = controller_client
 
     @override
     async def cancel(self, context: RequestContext, event_queue: EventQueue):
@@ -127,20 +128,23 @@ class CrewAIAgentExecutor(AgentExecutor):
 
                 if isinstance(self._crew, Flow):
                     flow_class = type(self._crew)
-                    persistence = KagentFlowPersistence(
-                        thread_id=session_id,
-                        user_id=user_id,
-                        base_url=str(self._http_client.base_url),
+                    persistence = await KagentFlowPersistence.create(
+                        session_id,
+                        user_id,
+                        self._controller_client,
                     )
-                    flow_instance = flow_class()
-                    flow_instance.persistence = persistence
+                    flow_instance = flow_class(persistence=persistence)
 
                     # setting "id" in flow input will enable reusing persisted flow state
                     # if no flow state is persisted or if persistence is not enabled, this works like a normal kickoff
                     inputs["id"] = session_id
 
                     # output_text will be None if the last method in the flow does not return anything but updates the state instead
-                    output_text = await flow_instance.kickoff_async(inputs=inputs)
+                    try:
+                        output_text = await flow_instance.kickoff_async(inputs=inputs)
+                        persistence.save_state(session_id, "kickoff", flow_instance.state)
+                    finally:
+                        await persistence.flush()
                     result_text = output_text or flow_instance.state.model_dump_json()
                 else:
                     if self._crew.memory:
@@ -148,7 +152,8 @@ class CrewAIAgentExecutor(AgentExecutor):
                             KagentMemoryStorage(
                                 thread_id=session_id,
                                 user_id=user_id,
-                                base_url=str(self._http_client.base_url),
+                                client=self._controller_client,
+                                loop=asyncio.get_running_loop(),
                             )
                         )
                     result = await self._crew.kickoff_async(inputs=inputs)

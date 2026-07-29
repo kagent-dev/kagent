@@ -1,25 +1,21 @@
-"""KAgent Remote Checkpointer for LangGraph.
-
-This module implements a remote checkpointer that calls the KAgent Go service
-for LangGraph checkpoint persistence via HTTP API.
-"""
+"""KAgent remote checkpointer for LangGraph."""
 
 import asyncio
-import base64
 import json
 import logging
 import random
-from collections.abc import AsyncIterator, Iterator, Sequence
-from typing import Any, cast
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
+from typing import Any, TypeVar, cast
 
 try:
     from typing import override  # Python 3.12+
 except ImportError:
     from typing_extensions import override
 
-import httpx
+import grpc
+from kagent.api.v1alpha1 import langgraph_pb2
+from kagent.core import AsyncControllerClient
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel
 
 from langgraph.checkpoint.base import (
     WRITES_IDX_MAP,
@@ -37,46 +33,14 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 logger = logging.getLogger(__name__)
 
-
-class KAgentCheckpointPayload(BaseModel):
-    thread_id: str
-    checkpoint_ns: str
-    checkpoint_id: str
-    parent_checkpoint_id: str | None = None
-    checkpoint: str  # Serialized as UTF-8 string, not bytes
-    metadata: str  # Serialized as UTF-8 string, not bytes
-    type_: str
-    version: int
-
-
-class KagentCheckpointWrite(BaseModel):
-    idx: int
-    channel: str
-    type_: str
-    value: str  # Serialized as UTF-8 string, not bytes
-
-
-class KAgentCheckpointWritePayload(BaseModel):
-    thread_id: str
-    checkpoint_ns: str
-    checkpoint_id: str
-    task_id: str
-    writes: list[KagentCheckpointWrite]
-
-
-class KAgentCheckpointTuple(BaseModel):
-    thread_id: str
-    checkpoint_ns: str
-    checkpoint_id: str
-    parent_checkpoint_id: str | None = None
-    checkpoint: str  # Serialized as UTF-8 string, not bytes
-    metadata: str  # Serialized as UTF-8 string, not bytes
-    type_: str
-    writes: KAgentCheckpointWritePayload | None = None
-
-
-class KAgentCheckpointTupleResponse(BaseModel):
-    data: list[KAgentCheckpointTuple] | None = None
+_TRANSIENT_STATUS_CODES = {
+    grpc.StatusCode.DEADLINE_EXCEEDED,
+    grpc.StatusCode.RESOURCE_EXHAUSTED,
+    grpc.StatusCode.UNAVAILABLE,
+}
+_RETRY_ATTEMPTS = 3
+_RETRY_DELAY_SECONDS = 0.5
+ResponseT = TypeVar("ResponseT")
 
 
 class KAgentCheckpointer(BaseCheckpointSaver[str]):
@@ -88,20 +52,52 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
 
     def __init__(
         self,
-        client: httpx.AsyncClient,
+        client: AsyncControllerClient,
         app_name: str,
         serde: SerializerProtocol | None = None,
     ):
         """Initialize the checkpointer.
 
         Args:
-            client: HTTP client configured with KAgent base URL
+            client: Shared generated gRPC client for the KAgent controller
             app_name: Application name (used for checkpoint namespace if not specified)
         """
         super().__init__(serde=serde)
         self.jsonplus_serde = JsonPlusSerializer()
         self.client = client
         self.app_name = app_name
+
+    async def _call_with_retry(
+        self,
+        rpc: Callable[..., Awaitable[ResponseT]],
+        request: Any,
+        *,
+        user_id: str,
+        operation: str,
+    ) -> ResponseT:
+        last_error: grpc.aio.AioRpcError | None = None
+        for attempt in range(_RETRY_ATTEMPTS):
+            try:
+                return await rpc(request, **await self.client.call_options(user_id))
+            except asyncio.CancelledError:
+                raise
+            except grpc.aio.AioRpcError as error:
+                if error.code() not in _TRANSIENT_STATUS_CODES:
+                    raise
+                last_error = error
+                logger.warning(
+                    "%s attempt %d/%d failed: %s",
+                    operation,
+                    attempt + 1,
+                    _RETRY_ATTEMPTS,
+                    error,
+                )
+                if attempt < _RETRY_ATTEMPTS - 1:
+                    await asyncio.sleep(_RETRY_DELAY_SECONDS)
+
+        assert last_error is not None
+        logger.error("All %s attempts failed", operation, exc_info=last_error)
+        raise last_error
 
     def _extract_config_values(self, config: RunnableConfig) -> tuple[str, str, str]:
         """Extract required values from config.
@@ -148,60 +144,28 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
         thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
 
         type_, serialized_checkpoint = self.serde.dumps_typed(checkpoint)
-        # Serialize metadata as JSON (simpler, no type needed)
         serialized_metadata = json.dumps(get_checkpoint_metadata(config, metadata)).encode()
-        # Prepare request data
-        request_data = KAgentCheckpointPayload(
+        checkpoint_message = langgraph_pb2.LangGraphCheckpoint(
             thread_id=thread_id,
             checkpoint_ns=checkpoint_ns,
             checkpoint_id=checkpoint["id"],
-            parent_checkpoint_id=config.get("configurable", {}).get("checkpoint_id"),
-            checkpoint=base64.b64encode(serialized_checkpoint).decode(
-                "ascii"
-            ),  # Base64 encode bytes to string for JSON serialization
-            metadata=base64.b64encode(serialized_metadata).decode(
-                "ascii"
-            ),  # Base64 encode bytes to string for JSON serialization
-            type_=type_,
+            checkpoint=serialized_checkpoint,
+            metadata=serialized_metadata,
+            type=type_,
             version=checkpoint["v"],
         )
+        parent_checkpoint_id = config.get("configurable", {}).get("checkpoint_id")
+        if parent_checkpoint_id is not None:
+            checkpoint_message.parent_checkpoint_id = parent_checkpoint_id
 
         # TODO: Deal with new_versions
-
-        # Call the Go service with retry for transient failures
-        last_err = None
-        for attempt in range(3):
-            try:
-                response = await self.client.post(
-                    "/api/langgraph/checkpoints",
-                    json=request_data.model_dump(),
-                    headers={"X-User-ID": user_id},
-                    timeout=10.0,
-                )
-                response.raise_for_status()
-                logger.debug(f"Stored checkpoint {checkpoint['id']} for thread {thread_id}")
-                last_err = None
-                break
-            except asyncio.CancelledError:
-                raise
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code < 500 and e.response.status_code != 429:
-                    raise  # Non-transient HTTP error, don't retry
-                last_err = e
-                logger.warning(f"Checkpoint write attempt {attempt + 1}/3 failed for thread {thread_id}: {e}")
-                if attempt < 2:
-                    await asyncio.sleep(0.5)
-            except (httpx.TransportError, OSError) as e:
-                last_err = e
-                logger.warning(f"Checkpoint write attempt {attempt + 1}/3 failed for thread {thread_id}: {e}")
-                if attempt < 2:
-                    await asyncio.sleep(0.5)
-        if last_err:
-            logger.error(
-                f"All checkpoint write attempts failed for thread {thread_id}: {last_err}",
-                exc_info=True,
-            )
-            raise last_err
+        await self._call_with_retry(
+            self.client.langgraph_service.PutCheckpoint,
+            langgraph_pb2.PutCheckpointRequest(checkpoint=checkpoint_message),
+            user_id=user_id,
+            operation=f"checkpoint write for thread {thread_id}",
+        )
+        logger.debug("Stored checkpoint %s for thread %s", checkpoint["id"], thread_id)
 
         return {
             "configurable": {
@@ -225,105 +189,68 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
         if not checkpoint_id:
             raise ValueError("checkpoint_id is required in config.configurable for writing checkpoint data")
 
-        writes_data = []
+        writes_data: list[langgraph_pb2.LangGraphCheckpointWrite] = []
         for idx, (channel, value) in enumerate(writes):
             type_, serialized_value = self.serde.dumps_typed(value)
             writes_data.append(
-                KagentCheckpointWrite(
+                langgraph_pb2.LangGraphCheckpointWrite(
                     idx=WRITES_IDX_MAP.get(channel, idx),
                     channel=channel,
-                    type_=type_,
-                    value=base64.b64encode(serialized_value).decode(
-                        "ascii"
-                    ),  # Base64 encode bytes to string for JSON serialization
+                    type=type_,
+                    value=serialized_value,
                 )
             )
 
-        request_data = KAgentCheckpointWritePayload(
-            thread_id=thread_id,
-            checkpoint_ns=checkpoint_ns,
-            checkpoint_id=checkpoint_id,
-            task_id=task_id,
-            writes=writes_data,
+        await self._call_with_retry(
+            self.client.langgraph_service.PutWrites,
+            langgraph_pb2.PutWritesRequest(
+                writes=langgraph_pb2.LangGraphCheckpointWrites(
+                    thread_id=thread_id,
+                    checkpoint_ns=checkpoint_ns,
+                    checkpoint_id=checkpoint_id,
+                    task_id=task_id,
+                    writes=writes_data,
+                )
+            ),
+            user_id=user_id,
+            operation=f"checkpoint writes for thread {thread_id} checkpoint {checkpoint_id}",
         )
-
-        last_err = None
-        for attempt in range(3):
-            try:
-                response = await self.client.post(
-                    "/api/langgraph/checkpoints/writes",
-                    json=request_data.model_dump(),
-                    headers={"X-User-ID": user_id},
-                    timeout=10.0,
-                )
-                response.raise_for_status()
-                logger.debug(f"Stored writes for checkpoint {checkpoint_id} for thread {thread_id}")
-                last_err = None
-                break
-            except asyncio.CancelledError:
-                raise
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code < 500 and e.response.status_code != 429:
-                    raise
-                last_err = e
-                logger.warning(
-                    f"Checkpoint writes attempt {attempt + 1}/3 failed for "
-                    f"thread {thread_id} checkpoint {checkpoint_id}: {e}"
-                )
-                if attempt < 2:
-                    await asyncio.sleep(0.5)
-            except (httpx.TransportError, OSError) as e:
-                last_err = e
-                logger.warning(
-                    f"Checkpoint writes attempt {attempt + 1}/3 failed for "
-                    f"thread {thread_id} checkpoint {checkpoint_id}: {e}"
-                )
-                if attempt < 2:
-                    await asyncio.sleep(0.5)
-        if last_err:
-            logger.error(
-                f"All checkpoint writes attempts failed for thread {thread_id} checkpoint {checkpoint_id}: {last_err}",
-                exc_info=True,
-            )
-            raise last_err
+        logger.debug("Stored writes for checkpoint %s for thread %s", checkpoint_id, thread_id)
 
     def _convert_to_checkpoint_tuple(
-        self, config: RunnableConfig, checkpoint_tuple: KAgentCheckpointTuple
+        self,
+        config: RunnableConfig,
+        checkpoint_tuple: langgraph_pb2.LangGraphCheckpointTuple,
     ) -> CheckpointTuple:
+        checkpoint = checkpoint_tuple.checkpoint
         return CheckpointTuple(
             config=config,
-            checkpoint=self.serde.loads_typed(
-                (checkpoint_tuple.type_, base64.b64decode(checkpoint_tuple.checkpoint.encode("ascii")))
-            ),
+            checkpoint=self.serde.loads_typed((checkpoint.type, checkpoint.checkpoint)),
             metadata=cast(
                 CheckpointMetadata,
-                json.loads(base64.b64decode(checkpoint_tuple.metadata.encode("ascii"))),
+                json.loads(checkpoint.metadata),
             ),
             parent_config=(
                 {
                     "configurable": {
-                        "thread_id": checkpoint_tuple.thread_id,
-                        "checkpoint_ns": checkpoint_tuple.checkpoint_ns,
-                        "checkpoint_id": checkpoint_tuple.parent_checkpoint_id,
+                        "thread_id": checkpoint.thread_id,
+                        "checkpoint_ns": checkpoint.checkpoint_ns,
+                        "checkpoint_id": checkpoint.parent_checkpoint_id,
                     }
                 }
-                if checkpoint_tuple.parent_checkpoint_id
+                if checkpoint.HasField("parent_checkpoint_id") and checkpoint.parent_checkpoint_id
                 else None
             ),
-            pending_writes=(
-                [
-                    PendingWrite(
-                        (
-                            checkpoint_tuple.writes.task_id,
-                            write.channel,
-                            self.serde.loads_typed((write.type_, base64.b64decode(write.value.encode("ascii")))),
-                        )
+            pending_writes=[
+                PendingWrite(
+                    (
+                        write.task_id or checkpoint_tuple.writes.task_id,
+                        write.channel,
+                        self.serde.loads_typed((write.type, write.value)),
                     )
-                    for write in checkpoint_tuple.writes.writes
-                ]
-            )
-            if checkpoint_tuple.writes
-            else None,
+                )
+                for write in checkpoint_tuple.writes.writes
+            ],
         )
 
     @override
@@ -338,33 +265,35 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
         """
         thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
 
-        params = {"thread_id": thread_id, "checkpoint_ns": checkpoint_ns, "limit": "1"}
-        if checkpoint_id := get_checkpoint_id(config):
-            params["checkpoint_id"] = checkpoint_id
-
-        response = await self.client.get(
-            "/api/langgraph/checkpoints",
-            params=params,
-            headers={"X-User-ID": user_id},
+        request = langgraph_pb2.ListCheckpointsRequest(
+            thread_id=thread_id,
+            checkpoint_ns=checkpoint_ns,
+            limit=1,
         )
-        if response.status_code == 404:
+        if checkpoint_id := get_checkpoint_id(config):
+            request.checkpoint_id = checkpoint_id
+
+        try:
+            response = await self.client.langgraph_service.ListCheckpoints(
+                request,
+                **await self.client.call_options(user_id),
+            )
+        except grpc.aio.AioRpcError as error:
+            if error.code() == grpc.StatusCode.NOT_FOUND:
+                return None
+            raise
+
+        if not response.checkpoints:
             return None
 
-        response.raise_for_status()
-
-        data = KAgentCheckpointTupleResponse.model_validate_json(response.text)
-
-        if not data.data:
-            return None
-
-        checkpoint_tuple = data.data[0]
+        checkpoint_tuple = response.checkpoints[0]
 
         if not checkpoint_id:
             config = {
                 "configurable": {
                     "thread_id": thread_id,
                     "checkpoint_ns": checkpoint_ns,
-                    "checkpoint_id": checkpoint_tuple.checkpoint_id,
+                    "checkpoint_id": checkpoint_tuple.checkpoint.checkpoint_id,
                 }
             }
 
@@ -395,21 +324,16 @@ class KAgentCheckpointer(BaseCheckpointSaver[str]):
 
         thread_id, user_id, checkpoint_ns = self._extract_config_values(config)
 
-        # Return all checkpoints if limit is not specified
-        limit = limit if limit else -1
-
-        response = await self.client.get(
-            "/api/langgraph/checkpoints",
-            params={"thread_id": thread_id, "checkpoint_ns": checkpoint_ns, "limit": str(limit)},
-            headers={"X-User-ID": user_id},
+        response = await self.client.langgraph_service.ListCheckpoints(
+            langgraph_pb2.ListCheckpointsRequest(
+                thread_id=thread_id,
+                checkpoint_ns=checkpoint_ns,
+                limit=limit if limit else -1,
+            ),
+            **await self.client.call_options(user_id),
         )
-        response.raise_for_status()
-
-        data = KAgentCheckpointTupleResponse.model_validate_json(response.text)
-
-        if data.data:
-            for checkpoint_tuple in data.data:
-                yield self._convert_to_checkpoint_tuple(config, checkpoint_tuple)
+        for checkpoint_tuple in response.checkpoints:
+            yield self._convert_to_checkpoint_tuple(config, checkpoint_tuple)
 
     def get_next_version(self, current: str | None, channel: None) -> str:
         """Generate the next version ID for a channel.

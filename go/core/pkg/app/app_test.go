@@ -412,6 +412,9 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"DEFAULT_MODEL_CONFIG_NAME":      "custom-model",
 		"DEFAULT_MODEL_CONFIG_NAMESPACE": "custom-ns",
 		"HTTP_SERVER_ADDRESS":            ":9000",
+		"GRPC_BIND_ADDRESS":              ":9001",
+		"GRPC_MAX_MESSAGE_BYTES":         "1048576",
+		"GRPC_REFLECTION":                "true",
 		"A2A_BASE_URL":                   "http://example.com:9000",
 		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
 		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
@@ -454,6 +457,15 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	}
 	if cfg.HttpServerAddr != ":9000" {
 		t.Errorf("HttpServerAddr = %v, want :9000", cfg.HttpServerAddr)
+	}
+	if cfg.GRPC.BindAddress != ":9001" {
+		t.Errorf("GRPC.BindAddress = %v, want :9001", cfg.GRPC.BindAddress)
+	}
+	if cfg.GRPC.MaxMessageBytes != 1048576 {
+		t.Errorf("GRPC.MaxMessageBytes = %v, want 1048576", cfg.GRPC.MaxMessageBytes)
+	}
+	if !cfg.GRPC.Reflection {
+		t.Error("GRPC.Reflection = false, want true")
 	}
 	if cfg.Proxy.URL != "http://proxy.kagent.svc.cluster.local:8080" {
 		t.Errorf("Proxy.URL = %v, want http://proxy.kagent.svc.cluster.local:8080", cfg.Proxy.URL)

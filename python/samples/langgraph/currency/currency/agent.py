@@ -1,7 +1,7 @@
 import logging
 
 import httpx
-from kagent.core import KAgentConfig
+from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig
 from kagent.langgraph import KAgentCheckpointer
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -10,9 +10,15 @@ from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
+kagent_config = KAgentConfig()
+controller_client = AsyncControllerClient(
+    kagent_config.grpc_url,
+    agent_name=kagent_config.app_name,
+    token_provider=AsyncFileTokenProvider(),
+)
 kagent_checkpointer = KAgentCheckpointer(
-    client=httpx.AsyncClient(base_url=KAgentConfig().url),
-    app_name=KAgentConfig().app_name,
+    client=controller_client,
+    app_name=kagent_config.app_name,
 )
 
 

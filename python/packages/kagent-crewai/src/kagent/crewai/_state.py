@@ -1,21 +1,19 @@
+import asyncio
 import logging
-from typing import Any, Dict, Optional, Union
+from copy import deepcopy
+from typing import Any, Union
 
-import httpx
-from pydantic import BaseModel, Field
+import grpc
+from kagent.api.v1alpha1 import crewai_pb2
+from kagent.core import AsyncControllerClient, decode_structured_object, encode_structured_object
+from pydantic import BaseModel
 
 from crewai.flow.persistence import FlowPersistence
 
+logger = logging.getLogger(__name__)
 
-class KagentFlowStatePayload(BaseModel):
-    thread_id: str
-    flow_uuid: str
-    method_name: str
-    state_data: Dict[str, Any]
-
-
-class KagentFlowStateResponse(BaseModel):
-    data: KagentFlowStatePayload
+_API_VERSION = "kagent.api/v1alpha1"
+_FLOW_STATE_DATA_KIND = "CrewAIFlowStateData"
 
 
 class KagentFlowPersistence(FlowPersistence):
@@ -24,47 +22,85 @@ class KagentFlowPersistence(FlowPersistence):
     It saves and loads the flow state to the Kagent backend.
     """
 
-    def __init__(self, thread_id: str, user_id: str, base_url: str):
+    def __init__(
+        self,
+        thread_id: str,
+        user_id: str,
+        client: AsyncControllerClient,
+        loaded_state: dict[str, Any] | None,
+    ):
         self.thread_id = thread_id
         self.user_id = user_id
-        self.base_url = base_url
+        self.client = client
+        self._loaded_state = loaded_state
+        self._loop = asyncio.get_running_loop()
+        self._pending_write: asyncio.Task[None] | None = None
+
+    @classmethod
+    async def create(
+        cls,
+        thread_id: str,
+        user_id: str,
+        client: AsyncControllerClient,
+    ) -> "KagentFlowPersistence":
+        loaded_state = None
+        try:
+            response = await client.crewai_service.GetFlowState(
+                crewai_pb2.GetFlowStateRequest(thread_id=thread_id),
+                **await client.call_options(user_id),
+            )
+            loaded_state = decode_structured_object(
+                response.state.state_data,
+                expected_kind=_FLOW_STATE_DATA_KIND,
+                max_bytes=client.max_message_bytes,
+            )
+        except grpc.aio.AioRpcError as error:
+            if error.code() != grpc.StatusCode.NOT_FOUND:
+                raise
+        return cls(thread_id, user_id, client, loaded_state)
 
     def init_db(self) -> None:
         """This is handled by the Kagent backend, so no action is needed here."""
         pass
 
-    def save_state(self, flow_uuid: str, method_name: str, state_data: Union[Dict[str, Any], BaseModel]) -> None:
+    def save_state(self, flow_uuid: str, method_name: str, state_data: Union[dict[str, Any], BaseModel]) -> None:
         """Saves the flow state to the Kagent backend."""
-        url = f"{self.base_url}/api/crewai/flows/state"
-        payload = KagentFlowStatePayload(
+        if asyncio.get_running_loop() is not self._loop:
+            raise RuntimeError("CrewAI flow persistence must run on the controller event loop")
+
+        serialized_state = state_data.model_dump(mode="json") if isinstance(state_data, BaseModel) else deepcopy(state_data)
+        self._loaded_state = serialized_state
+        request = crewai_pb2.StoreFlowStateRequest(
             thread_id=self.thread_id,
-            flow_uuid=flow_uuid,
             method_name=method_name,
-            state_data=state_data.model_dump() if isinstance(state_data, BaseModel) else state_data,
+            state_data=encode_structured_object(
+                serialized_state,
+                api_version=_API_VERSION,
+                kind=_FLOW_STATE_DATA_KIND,
+                max_bytes=self.client.max_message_bytes,
+            ),
         )
-        logging.info(f"Saving flow state to Kagent backend: {payload}")
+        previous_write = self._pending_write
 
-        try:
-            with httpx.Client() as client:
-                response = client.post(url, json=payload.model_dump(), headers={"X-User-ID": self.user_id})
-                response.raise_for_status()
-        except httpx.HTTPError as e:
-            logging.error(f"Error saving flow state to Kagent backend: {e}")
-            raise
+        async def store() -> None:
+            if previous_write is not None:
+                await previous_write
+            await self.client.crewai_service.StoreFlowState(
+                request,
+                **await self.client.call_options(self.user_id),
+            )
 
-    def load_state(self, flow_uuid: str) -> Optional[Dict[str, Any]]:
+        logger.info("Saving flow state to KAgent backend for thread %s", self.thread_id)
+        self._pending_write = self._loop.create_task(store())
+
+    def load_state(self, flow_uuid: str) -> dict[str, Any] | None:
         """Loads the flow state from the Kagent backend."""
-        url = f"{self.base_url}/api/crewai/flows/state"
-        params = {"thread_id": self.thread_id, "flow_uuid": flow_uuid}
-        logging.info(f"Loading flow state from Kagent backend with params: {params}")
+        return deepcopy(self._loaded_state)
 
-        try:
-            with httpx.Client() as client:
-                response = client.get(url, params=params, headers={"X-User-ID": self.user_id})
-            if response.status_code == 404:
-                return None
-            response.raise_for_status()
-            return KagentFlowStateResponse.model_validate_json(response.text).data.state_data
-        except httpx.HTTPError as e:
-            logging.error(f"Error loading flow state from Kagent backend: {e}")
-            return None
+    async def flush(self) -> None:
+        if self._pending_write is None:
+            return
+        pending_write = self._pending_write
+        await pending_write
+        if self._pending_write is pending_write:
+            self._pending_write = None

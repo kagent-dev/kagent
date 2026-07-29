@@ -26,6 +26,7 @@ def make_kagent_app(agent_config: AgentConfig | None = None) -> KAgentApp:
         root_agent_factory=lambda: None,
         agent_card=card,
         kagent_url="http://kagent-controller:8083",
+        kagent_grpc_url="kagent-controller:8084",
         app_name=APP_NAME,
         agent_config=agent_config,
     )

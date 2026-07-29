@@ -6,9 +6,11 @@ import logging
 import os
 from typing import Any, Dict
 
-import httpx
+import grpc
 from google.adk.tools import BaseTool, ToolContext
 from google.genai import types
+from kagent.api.v1alpha1 import sessions_pb2
+from kagent.core import AsyncControllerClient
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -40,7 +42,7 @@ class CreateShareLinkTool(BaseTool):
     The link allows any authenticated user to view (and optionally interact with) the session.
     """
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(self, client: AsyncControllerClient) -> None:
         super().__init__(
             name="create_share_link",
             description=(
@@ -75,22 +77,19 @@ class CreateShareLinkTool(BaseTool):
         app_name = tool_context.session.app_name
         read_only = bool(args.get("read_only", True))
         try:
-            response = await self._client.post(
-                f"/api/sessions/{session_id}/shares",
-                json={"read_only": read_only},
+            response = await self._client.session_service.CreateSessionShare(
+                sessions_pb2.CreateSessionShareRequest(session_id=session_id, read_only=read_only),
+                **await self._client.call_options(getattr(tool_context.session, "user_id", None)),
             )
-            if response.status_code == 201:
-                data = response.json().get("data", {})
-                token = data.get("token", "")
-                suffix = " (read-only)" if read_only else ""
-                return f"Share link created{suffix}: {_share_url(token, session_id, app_name)}"
-            return f"Failed to create share link: HTTP {response.status_code}: {response.text}"
-        except httpx.TimeoutException as e:
-            logger.error("Timeout creating share link: %s", e)
-            return "Error creating share link: request timed out"
-        except httpx.RequestError as e:
-            logger.error("Request error creating share link: %s", e)
-            return f"Error creating share link: {e}"
+            if not response.HasField("share"):
+                return "Failed to create share link: response did not include a share"
+            suffix = " (read-only)" if response.share.read_only else ""
+            return f"Share link created{suffix}: {_share_url(response.share.token, session_id, app_name)}"
+        except grpc.aio.AioRpcError as e:
+            logger.error("RPC error creating share link: %s", e)
+            if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+                return "Error creating share link: request timed out"
+            return f"Failed to create share link: {e.details() or e.code().name}"
         except Exception as e:
             logger.error("Error creating share link: %s", e)
             return f"Error creating share link: {e}"
@@ -99,7 +98,7 @@ class CreateShareLinkTool(BaseTool):
 class ListShareLinksTool(BaseTool):
     """List existing share links for the current session."""
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(self, client: AsyncControllerClient) -> None:
         super().__init__(
             name="list_share_links",
             description=(
@@ -122,25 +121,22 @@ class ListShareLinksTool(BaseTool):
         if not session_id or not session_id.strip():
             return "Error: session ID is empty — cannot list share links."
         try:
-            response = await self._client.get(
-                f"/api/sessions/{session_id}/shares",
+            response = await self._client.session_service.ListSessionShares(
+                sessions_pb2.ListSessionSharesRequest(session_id=session_id),
+                **await self._client.call_options(getattr(tool_context.session, "user_id", None)),
             )
-            if response.status_code == 200:
-                shares = response.json().get("data", [])
-                if not shares:
-                    return "No active share links for this session."
-                lines = [
-                    f"- token: {s.get('token', '<unknown>')}, created_at: {s.get('created_at', 'unknown')}"
-                    for s in shares
-                ]
-                return "Active share links:\n" + "\n".join(lines)
-            return f"Failed to list share links: HTTP {response.status_code}: {response.text}"
-        except httpx.TimeoutException as e:
-            logger.error("Timeout listing share links: %s", e)
-            return "Error listing share links: request timed out"
-        except httpx.RequestError as e:
-            logger.error("Request error listing share links: %s", e)
-            return f"Error listing share links: {e}"
+            if not response.shares:
+                return "No active share links for this session."
+            lines = [
+                f"- token: {share.token or '<unknown>'}, created_at: {_created_at(share)}"
+                for share in response.shares
+            ]
+            return "Active share links:\n" + "\n".join(lines)
+        except grpc.aio.AioRpcError as e:
+            logger.error("RPC error listing share links: %s", e)
+            if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+                return "Error listing share links: request timed out"
+            return f"Failed to list share links: {e.details() or e.code().name}"
         except Exception as e:
             logger.error("Error listing share links: %s", e)
             return f"Error listing share links: {e}"
@@ -149,7 +145,7 @@ class ListShareLinksTool(BaseTool):
 class DeleteShareLinkTool(BaseTool):
     """Delete a share link for the current session, revoking visitor access."""
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(self, client: AsyncControllerClient) -> None:
         super().__init__(
             name="delete_share_link",
             description=(
@@ -183,18 +179,22 @@ class DeleteShareLinkTool(BaseTool):
         if not token:
             return "Error: token is required."
         try:
-            response = await self._client.delete(
-                f"/api/sessions/{session_id}/shares/{token}",
+            await self._client.session_service.DeleteSessionShare(
+                sessions_pb2.DeleteSessionShareRequest(session_id=session_id, token=token),
+                **await self._client.call_options(getattr(tool_context.session, "user_id", None)),
             )
-            if response.status_code == 200:
-                return f"Share link {token!r} revoked successfully."
-            return f"Failed to delete share link: HTTP {response.status_code}: {response.text}"
-        except httpx.TimeoutException as e:
-            logger.error("Timeout deleting share link: %s", e)
-            return "Error deleting share link: request timed out"
-        except httpx.RequestError as e:
-            logger.error("Request error deleting share link: %s", e)
-            return f"Error deleting share link: {e}"
+            return f"Share link {token!r} revoked successfully."
+        except grpc.aio.AioRpcError as e:
+            logger.error("RPC error deleting share link: %s", e)
+            if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+                return "Error deleting share link: request timed out"
+            return f"Failed to delete share link: {e.details() or e.code().name}"
         except Exception as e:
             logger.error("Error deleting share link: %s", e)
             return f"Error deleting share link: {e}"
+
+
+def _created_at(share: sessions_pb2.SessionShare) -> str:
+    if not share.HasField("created_at"):
+        return "unknown"
+    return share.created_at.ToJsonString()

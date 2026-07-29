@@ -2,12 +2,11 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -23,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
 	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
@@ -495,19 +495,23 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 
 func (m *workspaceModel) fetchSessionHistoryCmd(sessionID string) tea.Cmd {
 	return func() tea.Msg {
-		tasksURL := fmt.Sprintf("%s/api/sessions/%s/tasks?user_id=%s", m.cfg.KAgentURL, sessionID, "admin@kagent.dev")
-		resp, err := http.Get(tasksURL) //nolint:gosec
+		response, err := m.client.Session.ListSessionRuns(context.Background(), sessionID)
 		if err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
 		}
-		defer resp.Body.Close()
-		var payload struct {
-			Data []*protocol.Task `json:"data"`
+		tasks, ok := response.Data.([]*a2a.Task)
+		if !ok {
+			return sessionHistoryLoadedMsg{items: nil, err: fmt.Errorf("unexpected session task response type %T", response.Data)}
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			return sessionHistoryLoadedMsg{items: nil, err: err}
+		items := make([]*protocol.Task, 0, len(tasks))
+		for index, task := range tasks {
+			item, err := trpcv0.ToLegacyTask(task)
+			if err != nil {
+				return sessionHistoryLoadedMsg{items: nil, err: fmt.Errorf("convert session task %d: %w", index, err)}
+			}
+			items = append(items, item)
 		}
-		return sessionHistoryLoadedMsg{items: payload.Data, err: nil}
+		return sessionHistoryLoadedMsg{items: items, err: nil}
 	}
 }
 

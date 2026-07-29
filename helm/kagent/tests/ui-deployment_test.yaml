@@ -76,6 +76,15 @@ tests:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8080
 
+  - it: should set the internal gRPC backend URL
+    template: ui-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BACKEND_GRPC_URL
+            value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8084"
+
   - it: should set global annotations on deployment
     template: ui-deployment.yaml
     set:

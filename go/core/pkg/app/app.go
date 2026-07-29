@@ -45,7 +45,19 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
+	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
+	crewaiservice "github.com/kagent-dev/kagent/go/core/internal/service/crewai"
+	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
+	langgraphservice "github.com/kagent-dev/kagent/go/core/internal/service/langgraph"
+	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
+	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
+	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
+	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
+	systemservice "github.com/kagent-dev/kagent/go/core/internal/service/system"
+	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
+	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -129,6 +141,13 @@ type Config struct {
 	HttpServerAddr     string
 	WatchNamespaces    string
 	A2ABaseUrl         string
+	GRPC               struct {
+		BindAddress     string
+		MaxMessageBytes int
+		Reflection      bool
+		TLSCertFile     string
+		TLSKeyFile      string
+	}
 
 	// MCPEgressPlaintext, when set, gates the egress URL rewrite: agent tool
 	// URLs and the controller's tool-discovery dial that point at a
@@ -178,6 +197,11 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.DefaultModelConfig.Name, "default-model-config-name", "default-model-config", "The name of the default model config.")
 	commandLine.StringVar(&cfg.DefaultModelConfig.Namespace, "default-model-config-namespace", kagentNamespace, "The namespace of the default model config.")
 	commandLine.StringVar(&cfg.HttpServerAddr, "http-server-address", ":8083", "The address the HTTP server binds to.")
+	commandLine.StringVar(&cfg.GRPC.BindAddress, "grpc-bind-address", grpcserver.DefaultBindAddress, "The address the gRPC server binds to.")
+	commandLine.IntVar(&cfg.GRPC.MaxMessageBytes, "grpc-max-message-bytes", grpcserver.DefaultMaxMessageSize, "Maximum gRPC request and response message size in bytes.")
+	commandLine.BoolVar(&cfg.GRPC.Reflection, "grpc-reflection", false, "Enable gRPC server reflection.")
+	commandLine.StringVar(&cfg.GRPC.TLSCertFile, "grpc-tls-cert-file", "", "Path to the optional gRPC server TLS certificate.")
+	commandLine.StringVar(&cfg.GRPC.TLSKeyFile, "grpc-tls-key-file", "", "Path to the optional gRPC server TLS private key.")
 	commandLine.StringVar(&cfg.A2ABaseUrl, "a2a-base-url", "http://127.0.0.1:8083", "The base URL of the A2A Server endpoint, as advertised to clients.")
 	commandLine.StringVar(&cfg.Database.Url, "postgres-database-url", "postgres://postgres:kagent@kagent-postgresql.kagent.svc.cluster.local:5432/postgres", "The URL of the PostgreSQL database.")
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
@@ -748,25 +772,70 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 			AtenetRouterURL: cfg.Substrate.AtenetRouterURL,
 		}
 	}
+	modelConfigService := modelservice.NewService(
+		mgr.GetClient(),
+		extensionCfg.Authorizer,
+		common.GetResourceNamespace(),
+		modelservice.WithProviderModelRefresher(rcnclr),
+	)
+	agentServiceOptions := []agentservice.ServiceOption{
+		agentservice.WithValidator(agentservice.NewManifestValidator(agentservice.ManifestValidatorConfig{
+			KubeClient:         mgr.GetClient(),
+			WatchedNamespaces:  watchNamespacesList,
+			DefaultModelConfig: cfg.DefaultModelConfig,
+			Plugins:            extensionCfg.AgentPlugins,
+			ProxyURL:           cfg.Proxy.URL,
+			SandboxBackend:     extensionCfg.SandboxBackend,
+			MCPEgressPlaintext: cfg.MCPEgressPlaintext,
+		})),
+	}
+	if agentHarnessSessionActorBackend != nil {
+		agentServiceOptions = append(agentServiceOptions, agentservice.WithActorLifecycle(agentHarnessSessionActorBackend))
+	}
+	agentService := agentservice.NewService(
+		mgr.GetClient(),
+		extensionCfg.Authorizer,
+		cfg.DefaultModelConfig.Namespace,
+		agentServiceOptions...,
+	)
+	toolService := toolservice.NewService(
+		mgr.GetClient(),
+		dbClient,
+		extensionCfg.Authorizer,
+		common.GetResourceNamespace(),
+		nil,
+	)
+	promptTemplateService := prompttemplateservice.NewService(mgr.GetClient(), extensionCfg.Authorizer)
+	var inventoryClient systemservice.ATEClient
+	if substrateAteClient != nil {
+		inventoryClient = substrateAteClient
+	}
+	systemService := systemservice.NewService(systemservice.WithInventory(
+		mgr.GetClient(),
+		watchNamespacesList,
+		extensionCfg.Authorizer,
+		inventoryClient,
+	))
+	crewAIService := crewaiservice.NewService(dbClient)
+	feedbackService := feedbackservice.NewService(dbClient)
+	langGraphService := langgraphservice.NewService(dbClient)
+	memoryService := memoryservice.NewService(dbClient)
+	sessionService := sessionservice.NewService(
+		dbClient,
+		sessionservice.WithSandboxLifecycle(mgr.GetClient(), substrateSandboxActorBackend),
+	)
+	taskService := taskservice.NewService(dbClient)
 
 	httpServer, err := httpserver.NewHTTPServer(httpserver.ServerConfig{
-		Router:                       router,
-		BindAddr:                     cfg.HttpServerAddr,
-		KubeClient:                   mgr.GetClient(),
-		A2AHandler:                   a2aHandler,
-		MCPHandler:                   mcpHandler,
-		WatchedNamespaces:            watchNamespacesList,
-		DbClient:                     dbClient,
-		Authorizer:                   extensionCfg.Authorizer,
-		Authenticator:                extensionCfg.Authenticator,
-		ProxyURL:                     cfg.Proxy.URL,
-		Reconciler:                   rcnclr,
-		SandboxBackend:               extensionCfg.SandboxBackend,
-		AgentHarnessGateway:          agentHarnessGateway,
-		SubstrateAteClient:           substrateAteClient,
-		MCPEgressPlaintext:           cfg.MCPEgressPlaintext,
-		SubstrateSandboxActorBackend: substrateSandboxActorBackend,
-		AgentHarnessSessionActor:     agentHarnessSessionActorBackend,
+		Router:                   router,
+		BindAddr:                 cfg.HttpServerAddr,
+		KubeClient:               mgr.GetClient(),
+		A2AHandler:               a2aHandler,
+		MCPHandler:               mcpHandler,
+		DbClient:                 dbClient,
+		Authenticator:            extensionCfg.Authenticator,
+		AgentHarnessGateway:      agentHarnessGateway,
+		AgentHarnessSessionActor: agentHarnessSessionActorBackend,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create HTTP server")
@@ -774,6 +843,36 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 	if err := mgr.Add(httpServer); err != nil {
 		setupLog.Error(err, "unable to set up HTTP server")
+		os.Exit(1)
+	}
+
+	grpcServer, err := grpcserver.New(grpcserver.Config{
+		BindAddress:           cfg.GRPC.BindAddress,
+		MaxMessageBytes:       cfg.GRPC.MaxMessageBytes,
+		Reflection:            cfg.GRPC.Reflection,
+		TLSCertFile:           cfg.GRPC.TLSCertFile,
+		TLSKeyFile:            cfg.GRPC.TLSKeyFile,
+		Authenticator:         extensionCfg.Authenticator,
+		ShareStore:            dbClient,
+		Registerer:            ctrlmetrics.Registry,
+		AgentService:          agentService,
+		CrewAIService:         crewAIService,
+		ModelService:          modelConfigService,
+		ToolService:           toolService,
+		PromptTemplateService: promptTemplateService,
+		SystemService:         systemService,
+		FeedbackService:       feedbackService,
+		LangGraphService:      langGraphService,
+		MemoryService:         memoryService,
+		SessionService:        sessionService,
+		TaskService:           taskService,
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to create gRPC server")
+		os.Exit(1)
+	}
+	if err := mgr.Add(grpcServer); err != nil {
+		setupLog.Error(err, "unable to set up gRPC server")
 		os.Exit(1)
 	}
 
