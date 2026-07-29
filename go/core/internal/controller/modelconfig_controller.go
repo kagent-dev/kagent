@@ -50,6 +50,7 @@ type ModelConfigController struct {
 // +kubebuilder:rbac:groups=kagent.dev,resources=modelconfigs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=modelconfigs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 
 func (r *ModelConfigController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = log.FromContext(ctx)
@@ -69,6 +70,27 @@ func (r *ModelConfigController) SetupWithManager(mgr ctrl.Manager) error {
 				requests := []reconcile.Request{}
 
 				for _, model := range r.findModelsUsingSecret(ctx, mgr.GetClient(), types.NamespacedName{
+					Name:      obj.GetName(),
+					Namespace: obj.GetNamespace(),
+				}) {
+					requests = append(requests, reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      model.ObjectMeta.Name,
+							Namespace: model.ObjectMeta.Namespace,
+						},
+					})
+				}
+
+				return requests
+			}),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
+		Watches(
+			&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+				requests := []reconcile.Request{}
+
+				for _, model := range r.findModelsUsingConfigMap(ctx, mgr.GetClient(), types.NamespacedName{
 					Name:      obj.GetName(),
 					Namespace: obj.GetNamespace(),
 				}) {
@@ -124,6 +146,45 @@ func modelReferencesSecret(model *v1alpha2.ModelConfig, secretObj types.Namespac
 
 	// check if secret is referenced as a TLS CA certificate
 	if model.Spec.TLS != nil && model.Spec.TLS.CACertSecretRef != "" && model.Spec.TLS.CACertSecretRef == secretObj.Name {
+		return true
+	}
+
+	return false
+}
+
+func (r *ModelConfigController) findModelsUsingConfigMap(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.ModelConfig {
+	var models []*v1alpha2.ModelConfig
+
+	var modelsList v1alpha2.ModelConfigList
+	if err := cl.List(
+		ctx,
+		&modelsList,
+	); err != nil {
+		modelConfigControllerLog.Error(err, "failed to list ModelConfigs in order to reconcile ConfigMap update")
+		return models
+	}
+
+	for i := range modelsList.Items {
+		model := &modelsList.Items[i]
+
+		if modelReferencesConfigMap(model, obj) {
+			models = append(models, model)
+		}
+	}
+
+	return models
+}
+
+func modelReferencesConfigMap(model *v1alpha2.ModelConfig, cmObj types.NamespacedName) bool {
+	// config maps must be in the same namespace as the model
+	if model.Namespace != cmObj.Namespace {
+		return false
+	}
+
+	// check if the config map is referenced as a Foundry endpoint source
+	if model.Spec.Foundry != nil &&
+		model.Spec.Foundry.EndpointFrom != nil &&
+		model.Spec.Foundry.EndpointFrom.Name == cmObj.Name {
 		return true
 	}
 
