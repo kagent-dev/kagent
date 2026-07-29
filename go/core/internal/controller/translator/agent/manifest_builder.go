@@ -167,6 +167,26 @@ func (m manifestContext) objectMeta() metav1.ObjectMeta {
 	}
 }
 
+// deploymentObjectMeta returns the object metadata for the agent Deployment. It extends
+// objectMeta with the user-supplied deploymentAnnotations, which take precedence over
+// annotations inherited from the agent resource metadata. The inherited map is cloned so
+// that the agent object held by the client cache is never mutated.
+func (m manifestContext) deploymentObjectMeta() metav1.ObjectMeta {
+	meta := m.objectMeta()
+	if len(m.deployment.DeploymentAnnotations) == 0 {
+		return meta
+	}
+
+	annotations := maps.Clone(meta.Annotations)
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	maps.Copy(annotations, m.deployment.DeploymentAnnotations)
+	meta.Annotations = annotations
+
+	return meta
+}
+
 func (a *adkApiTranslator) buildConfigSecret(
 	ctx context.Context,
 	manifestCtx manifestContext,
@@ -599,7 +619,7 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 	return []client.Object{
 		&appsv1.Deployment{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-			ObjectMeta: manifestCtx.objectMeta(),
+			ObjectMeta: manifestCtx.deploymentObjectMeta(),
 			Spec: appsv1.DeploymentSpec{
 				Replicas: manifestCtx.deployment.Replicas,
 				Strategy: appsv1.DeploymentStrategy{
