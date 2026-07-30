@@ -124,7 +124,7 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 	// Propagate-only mode: keep parity with Python by enabling plugin without STS exchange.
 	if stsWellKnownURI == "" {
 		log.Info("Enabling token propagation plugin without STS exchange")
-		return sts.NewTokenPropagationPlugin(nil, log), nil
+		return sts.NewTokenPropagationPlugin(nil, log, nil, nil), nil
 	}
 	defaultSTSConfig := sts.DefaultSTSConfig(stsWellKnownURI)
 
@@ -141,6 +141,23 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 		return nil, fmt.Errorf("failed to initialize STS integration: %w", err)
 	}
 
+	// RFC 8707 resource / RFC 8693 audience scope the exchanged token to a
+	// backend. Both are repeatable; empty values are omitted from the request.
+	resource := splitCSV(os.Getenv("KAGENT_STS_RESOURCE"))
+	audience := splitCSV(os.Getenv("KAGENT_STS_AUDIENCE"))
+
 	log.Info("Enabling STS token propagation plugin", "wellKnownURI", stsWellKnownURI)
-	return sts.NewTokenPropagationPlugin(integration, log), nil
+	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil
+}
+
+// splitCSV parses a comma-separated value into trimmed, non-empty entries,
+// returning nil when none are present so the exchange target stays unset.
+func splitCSV(v string) []string {
+	var out []string
+	for p := range strings.SplitSeq(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

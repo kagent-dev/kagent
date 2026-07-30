@@ -38,16 +38,22 @@ type TokenPropagationPlugin struct {
 	mu              sync.RWMutex
 	logger          logr.Logger
 	bufferSeconds   int64
+	resource        []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
+	audience        []string // RFC 8693 audiences sent on the STS exchange; empty omits them
 }
 
 // NewTokenPropagationPlugin creates a new token propagation plugin.
 // If integration is nil, the plugin will pass through tokens without exchange.
-func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger) *TokenPropagationPlugin {
+// resource and audience scope the exchanged token to a backend; empty values
+// are omitted from the request, leaving the exchange unscoped.
+func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, resource, audience []string) *TokenPropagationPlugin {
 	return &TokenPropagationPlugin{
 		integration:   integration,
 		tokenCache:    make(map[string]*TokenCacheEntry),
 		logger:        logger.WithName("sts-plugin"),
 		bufferSeconds: 5,
+		resource:      resource,
+		audience:      audience,
 	}
 }
 
@@ -179,10 +185,10 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			subjectToken,
 			TokenTypeJWT,
 			actorToken,
-			nil, // resource
-			nil, // audience
-			"",  // scope
-			"",  // requestedTokenType
+			p.resource,
+			p.audience,
+			"", // scope
+			"", // requestedTokenType
 		)
 		if err != nil {
 			p.logger.Error(err, "STS token exchange failed, tools may not authenticate", "sessionID", sessionID)
