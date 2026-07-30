@@ -204,7 +204,6 @@ type OpenAIConfig struct {
 	// responses posts to /v1/responses. Use responses for OpenAI-compatible
 	// gateways or models that require the Responses API.
 	// +optional
-	// +kubebuilder:validation:Enum=chatCompletions;responses
 	// +kubebuilder:default=chatCompletions
 	APIFormat *OpenAIAPIFormat `json:"apiFormat,omitempty"`
 

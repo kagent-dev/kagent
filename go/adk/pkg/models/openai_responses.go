@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
@@ -178,15 +179,11 @@ func genaiToolsToResponsesTools(tools []*genai.Tool) []responses.ToolUnionParam 
 			paramsMap := make(map[string]any)
 			if fd.ParametersJsonSchema != nil {
 				if m := parametersJsonSchemaToMap(fd.ParametersJsonSchema); m != nil {
-					for k, v := range m {
-						paramsMap[k] = v
-					}
+					maps.Copy(paramsMap, m)
 				}
 			} else if fd.Parameters != nil {
 				if m := genaiSchemaToMap(fd.Parameters); m != nil {
-					for k, v := range m {
-						paramsMap[k] = v
-					}
+					maps.Copy(paramsMap, m)
 				}
 			}
 			if _, ok := paramsMap["type"]; !ok {
@@ -238,7 +235,7 @@ func runResponsesStreaming(
 	toolCalls := make(map[string]*genai.Part) // call_id -> part
 	var toolCallOrder []string
 	var usage *genai.GenerateContentResponseUsageMetadata
-	var finishReason genai.FinishReason = genai.FinishReasonStop
+	var finishReason = genai.FinishReasonStop
 
 	for stream.Next() {
 		event := stream.Current()
