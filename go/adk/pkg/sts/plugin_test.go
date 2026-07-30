@@ -64,7 +64,7 @@ func (f fakeSession) LastUpdateTime() time.Time { return time.Time{} }
 
 func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	t.Parallel()
-	plugin := NewTokenPropagationPlugin(nil, logr.Discard())
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), nil, nil)
 	plugin.setCachedToken("sess-123", "token-abc", 0)
 
 	headers := plugin.HeaderProvider(fakeSessionContext{
@@ -125,7 +125,7 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 		t.Fatalf("NewSTSIntegration() error = %v", err)
 	}
 
-	plugin := NewTokenPropagationPlugin(integration, logr.Discard())
+	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), nil, nil)
 	for _, sessionID := range []string{"sess-one", "sess-two"} {
 		ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
 		if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{
@@ -141,6 +141,103 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 	}
 	if exchangeCount != 2 {
 		t.Fatalf("token exchange calls = %d, want 2", exchangeCount)
+	}
+}
+
+func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		resource     []string
+		audience     []string
+		wantResource string
+		wantAudience string
+	}{
+		{
+			name:         "configured target is sent",
+			resource:     []string{"https://mcp.example.com"},
+			audience:     []string{"mcp-backend"},
+			wantResource: "https://mcp.example.com",
+			wantAudience: "mcp-backend",
+		},
+		{
+			name:         "no target leaves resource and audience unset",
+			wantResource: "",
+			wantAudience: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			type exchangeForm struct {
+				resource string
+				audience string
+				err      error
+			}
+			// Buffered so the handler never blocks on send; the value is read
+			// back on the test goroutine to avoid a data race on the captured form.
+			gotForm := make(chan exchangeForm, 1)
+
+			var srv *httptest.Server
+			srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/.well-known/oauth-authorization-server" {
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"issuer":         srv.URL,
+						"token_endpoint": srv.URL + "/token",
+					})
+					return
+				}
+				if r.URL.Path != "/token" {
+					http.NotFound(w, r)
+					return
+				}
+				if err := r.ParseForm(); err != nil {
+					gotForm <- exchangeForm{err: err}
+				} else {
+					gotForm <- exchangeForm{resource: r.FormValue("resource"), audience: r.FormValue("audience")}
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"access_token":      "access-token",
+					"issued_token_type": string(TokenTypeJWT),
+				})
+			}))
+			defer srv.Close()
+
+			integration, err := NewSTSIntegration(
+				srv.URL+"/.well-known/oauth-authorization-server",
+				"", nil, nil, 5, true, false,
+			)
+			if err != nil {
+				t.Fatalf("NewSTSIntegration() error = %v", err)
+			}
+
+			plugin := NewTokenPropagationPlugin(integration, logr.Discard(), tt.resource, tt.audience)
+			ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
+			if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{
+				Context:   ctx,
+				sessionID: "sess-resource",
+			}); err != nil {
+				t.Fatalf("BeforeRunCallback() error = %v", err)
+			}
+
+			select {
+			case got := <-gotForm:
+				if got.err != nil {
+					t.Fatalf("ParseForm() error = %v", got.err)
+				}
+				if got.resource != tt.wantResource {
+					t.Fatalf("resource = %q, want %q", got.resource, tt.wantResource)
+				}
+				if got.audience != tt.wantAudience {
+					t.Fatalf("audience = %q, want %q", got.audience, tt.wantAudience)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for token exchange request")
+			}
+		})
 	}
 }
 
