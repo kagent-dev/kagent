@@ -23,9 +23,25 @@ logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLeve
 app = typer.Typer()
 
 
+def _split_csv(value: Optional[str]) -> Optional[list[str]]:
+    """Parse a comma-separated env value into trimmed, non-empty entries.
+
+    Returns None when none are present so the exchange target stays unset.
+    resource/audience are RFC 8707/8693 repeatable, so a list scopes the token
+    to multiple backends.
+    """
+    if not value:
+        return None
+    entries = [p.strip() for p in value.split(",")]
+    entries = [p for p in entries if p]
+    return entries or None
+
+
 kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 propagate_token = os.getenv("KAGENT_PROPAGATE_TOKEN", "").lower() == "true"
+token_resource = _split_csv(os.getenv("KAGENT_STS_RESOURCE"))
+token_audience = _split_csv(os.getenv("KAGENT_STS_AUDIENCE"))
 uvicorn_log_level = os.getenv("UVICORN_LOG_LEVEL", os.getenv("LOG_LEVEL", "info")).lower()
 
 
@@ -34,7 +50,7 @@ def create_sts_integration() -> Optional[ADKTokenPropagationPlugin]:
         sts_integration = None
         if sts_well_known_uri:
             sts_integration = ADKSTSIntegration(sts_well_known_uri)
-        return ADKTokenPropagationPlugin(sts_integration)
+        return ADKTokenPropagationPlugin(sts_integration, resource=token_resource, audience=token_audience)
 
 
 def maybe_add_skills(root_agent: BaseAgent):

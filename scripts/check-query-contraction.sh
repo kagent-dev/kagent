@@ -8,9 +8,9 @@
 # schema (the windowed-contraction invariant).
 #
 # It checks two targets, deduplicated:
-#   A) the latest released tag reachable from HEAD — the in-line previous release;
+#   A) the latest published tag reachable from HEAD — the in-line previous release;
 #      catches a contraction introduced during the current line's development.
-#   B) the previous stable line's latest patch (release/vX.Y.x tip, via
+#   B) the previous release line's latest published version (via
 #      prev-stable-version.sh) — the supported rollback-window floor.
 # Today these usually resolve to the same tag (one compile); they diverge once a
 # new minor releases or the stable line gets a backport patch.
@@ -41,7 +41,7 @@ targets=()
 if [ -n "${TARGET_VERSIONS:-}" ]; then
   read -ra targets <<<"${TARGET_VERSIONS}"
 else
-  a="$(git -C "$repo_root" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || true)"
+  a="$("$here/upgrade-from-version.sh" 2>/dev/null || true)"
   b="$("$here/prev-stable-version.sh" 2>/dev/null || true)"
   [ -n "${a}" ] && targets+=("${a}")
   [ -n "${b}" ] && targets+=("${b}")
