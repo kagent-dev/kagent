@@ -33,7 +33,7 @@ interface AgentListViewProps {
   onAgentsChanged?: () => Promise<void> | void;
 }
 
-type SortKey = "name" | "type" | "providerModel" | "toolCount" | "skillsCount" | "state";
+type SortKey = "name" | "namespace" | "type" | "providerModel" | "toolCount" | "skillsCount" | "state";
 type SortDir = "asc" | "desc";
 
 function countSkills(agent: Agent): number {
@@ -156,6 +156,10 @@ function sortAgents(items: AgentResponse[], key: SortKey, dir: SortDir): AgentRe
     switch (key) {
       case "name": {
         const s = (x: Agent) => x.metadata.name || "";
+        return compareStrings(s(a), s(b), dir);
+      }
+      case "namespace": {
+        const s = (x: Agent) => x.metadata.namespace || "";
         return compareStrings(s(a), s(b), dir);
       }
       case "type": {
@@ -318,6 +322,9 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
           ) : null}
         </div>
       </td>
+      <td className="px-3 py-3.5 align-middle text-sm text-muted-foreground [overflow-wrap:anywhere]" title="Namespace">
+        {namespace || "—"}
+      </td>
       <td className="px-3 py-3.5 align-middle text-sm text-foreground" title="Agent type">
         <RowTypeCell item={item} />
       </td>
@@ -435,6 +442,7 @@ export function AgentListView({ agentResponse, onAgentsChanged }: AgentListViewP
         <thead>
           <tr>
             <SortableTh col="name" label="Name" sort={sort} onSort={onSort} />
+            <SortableTh col="namespace" label="Namespace" sort={sort} onSort={onSort} />
             <SortableTh col="type" label="Type" sort={sort} onSort={onSort} />
             <SortableTh col="providerModel" label="Provider / Model" sort={sort} onSort={onSort} />
             <SortableTh col="toolCount" label="Tools" textAlign="right" sort={sort} onSort={onSort} />
