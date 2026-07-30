@@ -37,14 +37,14 @@ func CreateRunnerConfig(
 	memoryService *kagentmemory.KagentMemoryService,
 	kagentURL string,
 	httpClient *http.Client,
-) (runner.Config, map[string]string, error) {
+) (runner.Config, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	var extraTools []adktool.Tool
 	if memoryService != nil {
 		saveTool, err := kagentmemory.NewSaveMemoryTool(memoryService)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create save_memory tool: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create save_memory tool: %w", err)
 		}
 		extraTools = append(extraTools, saveTool)
 	}
@@ -52,15 +52,15 @@ func CreateRunnerConfig(
 	if agentConfig.ShareTools != nil && *agentConfig.ShareTools && kagentURL != "" && httpClient != nil {
 		createTool, err := tools.NewCreateShareLinkTool(httpClient, kagentURL, appName)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create create_share_link tool: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create create_share_link tool: %w", err)
 		}
 		listTool, err := tools.NewListShareLinksTool(httpClient, kagentURL, appName)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create list_share_links tool: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create list_share_links tool: %w", err)
 		}
 		deleteTool, err := tools.NewDeleteShareLinkTool(httpClient, kagentURL, appName)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create delete_share_link tool: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create delete_share_link tool: %w", err)
 		}
 		extraTools = append(extraTools, createTool, listTool, deleteTool)
 		log.Info("Share link tools enabled")
@@ -68,12 +68,12 @@ func CreateRunnerConfig(
 
 	stsPlugin, err := buildTokenPropagationPlugin(ctx, log)
 	if err != nil {
-		return runner.Config{}, nil, err
+		return runner.Config{}, err
 	}
 
-	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
+	adkAgent, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
 	if err != nil {
-		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
+		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)
 	}
 
 	adkSessionService := sessionService
@@ -94,7 +94,7 @@ func CreateRunnerConfig(
 	if stsPlugin != nil {
 		p, err := stsPlugin.ADKPlugin()
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create STS ADK plugin: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create STS ADK plugin: %w", err)
 		}
 		if p != nil {
 			adkPlugins = append(adkPlugins, p)
@@ -111,7 +111,7 @@ func CreateRunnerConfig(
 		},
 	}
 
-	return cfg, subagentSessionIDs, nil
+	return cfg, nil
 }
 
 func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.TokenPropagationPlugin, error) {

@@ -34,7 +34,7 @@ const (
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
 func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
-	a, _, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, nil, extraTools...)
+	a, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, nil, extraTools...)
 	return a, err
 }
 
@@ -43,11 +43,11 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 // outbound A2A events). Callers that only need the agent can use
 // CreateGoogleADKAgent.
 // Optional stsPlugin can be provided for token propagation to MCP tools.
-func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, map[string]string, error) {
+func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
-		return nil, nil, fmt.Errorf("agent config is required")
+		return nil, fmt.Errorf("agent config is required")
 	}
 
 	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) == "true"
@@ -58,21 +58,6 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, dynamicHeaderProvider)
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
 
-	// subagentSessionIDs is threaded through to the executor for stamping a
-	// pre-known session id onto outbound function_call events (see
-	// go/adk/pkg/a2a/executor.go and converter.go's stampSubagentSessionID).
-	// Remote agent tools no longer report a constructor-time session id
-	// (NewKAgentRemoteA2ATool returns only an error now) because a single
-	// pre-known id doesn't fit isolateSessions, where the real session is
-	// per invocation. So this map stays empty today; stampSubagentSessionID
-	// already no-ops on an empty map. The per-call session id is instead
-	// reported in each tool's own response as subagent_session_id, which the
-	// UI reads as the single source of truth (see remoteA2AResponse). We are
-	// leaving the executor plumbing in place rather than removing it, since
-	// something else may want to populate this map in the future and ripping
-	// it out is a separate, bigger cleanup than this fix.
-	subagentSessionIDs := make(map[string]string)
-
 	var remoteAgentTools []tool.Tool
 	for _, remoteAgent := range agentConfig.RemoteAgents {
 		if remoteAgent.Url == "" {
@@ -81,7 +66,7 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 		}
 		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
+			return nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}
 		remoteAgentTools = append(remoteAgentTools, remoteTool)
 		log.Info("Wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
@@ -89,16 +74,16 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 
 	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, log)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if agentConfig.Model == nil {
-		return nil, nil, fmt.Errorf("model configuration is required")
+		return nil, fmt.Errorf("model configuration is required")
 	}
 
 	llmModel, err := CreateLLM(ctx, agentConfig.Model, log)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create LLM: %w", err)
+		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
 
 	if agentName == "" {
@@ -163,14 +148,14 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 
 	llmAgent, err := llmagent.New(llmAgentConfig)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create LLM agent: %w", err)
+		return nil, fmt.Errorf("failed to create LLM agent: %w", err)
 	}
 
 	log.Info("Successfully created Google ADK LLM agent",
 		"toolsCount", len(llmAgentConfig.Tools),
 		"toolsetsCount", len(llmAgentConfig.Toolsets))
 
-	return llmAgent, subagentSessionIDs, nil
+	return llmAgent, nil
 }
 
 func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, log logr.Logger) ([]tool.Tool, error) {
