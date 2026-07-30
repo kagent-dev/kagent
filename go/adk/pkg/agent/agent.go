@@ -33,17 +33,9 @@ const (
 // CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
-func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
-	a, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, nil, extraTools...)
-	return a, err
-}
-
-// CreateGoogleADKAgentWithSubagentSessionIDs creates a Google ADK agent and a
-// map of remote-subagent tool name → A2A context session ID (for stamping
-// outbound A2A events). Callers that only need the agent can use
-// CreateGoogleADKAgent.
-// Optional stsPlugin can be provided for token propagation to MCP tools.
-func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
+// Optional stsPlugin can be provided for token propagation to MCP tools; pass
+// nil if token propagation is not needed.
+func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {

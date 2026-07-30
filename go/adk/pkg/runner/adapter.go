@@ -71,7 +71,7 @@ func CreateRunnerConfig(
 		return runner.Config{}, err
 	}
 
-	adkAgent, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
+	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
 	if err != nil {
 		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)
 	}
