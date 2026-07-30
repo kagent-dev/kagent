@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
-# prev-stable-version.sh — prints the latest released patch of the stable line
-# immediately BELOW the line currently being built: the highest
-# vMAJOR.MINOR.PATCH tag on the newest release/vMAJOR.MINOR.x branch whose
-# MAJOR.MINOR is strictly less than the current line. This is the rollback-window
-# floor a contraction must stay compatible with.
+# prev-stable-version.sh — prints the latest published version on the release
+# line immediately BELOW the line currently being built. A final release wins
+# over its prereleases; before a final exists, the latest prerelease is used.
 #
 # The current line comes from the base/target branch:
 #   - release/vX.Y.x  -> current line is X.Y, so this resolves to the newest
 #                        release line below X.Y (release/v0.9.x -> 0.8.x).
 #   - main (or any non-release branch) -> the unreleased next minor, which sorts
 #                        above every release line, so this resolves to the newest
-#                        release line overall (-> 0.9.x).
+#                        release line overall.
 # Source order for the current ref: CURRENT_REF override, GITHUB_BASE_REF (PR
 # target), GITHUB_REF_NAME (push), then the checked-out branch.
 #
-# Prints nothing and exits 0 when no stable line exists below the current one
-# (e.g. building the oldest release line), so the caller can skip that target.
+# Prints nothing and exits 0 when no published version exists below the current
+# line (e.g. building the oldest release line), so the caller can skip that target.
 # Uses `git ls-remote`, so it needs network to the remote but not the branch
 # checked out locally. Output has no leading 'v'. Override the remote with REMOTE.
 set -euo pipefail
@@ -50,17 +48,22 @@ for l in ${lines}; do
   fi
 done
 if [ -z "${prev_minor}" ]; then
-  # No stable line below the current one; let the caller skip that target.
+  # No release line below the current one; let the caller skip that target.
   exit 0
 fi
 
 esc="${prev_minor//./\\.}"
-latest="$(git ls-remote --tags "$remote" 2>/dev/null \
-  | grep -oE "refs/tags/v${esc}\.[0-9]+$" \
-  | sed 's#refs/tags/v##' | sort -V | tail -1)"
-if [ -z "${latest}" ]; then
-  echo "ERROR: no v${prev_minor}.PATCH release tags found on ${remote} (fetch tags?)" >&2
-  exit 1
-fi
+tags="$(git ls-remote --tags "$remote" 2>/dev/null)"
+versions="$(printf '%s\n' "$tags" \
+  | sed -nE "s#.*refs/tags/v(${esc}\.[0-9]+(-[0-9A-Za-z.-]+)?)\$#\1#p")"
+[ -n "${versions}" ] || exit 0
 
-echo "${latest}"
+# Choose the newest patch first, then prefer its final tag over prereleases.
+latest_patch="$(printf '%s\n' "$versions" \
+  | sed -nE "s#^${esc}\.([0-9]+)(-.*)?\$#\1#p" | sort -n | tail -1)"
+final="${prev_minor}.${latest_patch}"
+if printf '%s\n' "$versions" | grep -qx "$final"; then
+  echo "$final"
+else
+  printf '%s\n' "$versions" | grep -E "^${esc}\.${latest_patch}-" | sort -V | tail -1
+fi
