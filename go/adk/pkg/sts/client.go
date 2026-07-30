@@ -82,27 +82,14 @@ func (c *STSClient) buildFormData(req *TokenExchangeRequest) url.Values {
 		}
 	}
 
-	// Add optional parameters
-	if req.Resource != nil {
-		switch v := req.Resource.(type) {
-		case string:
-			data.Set("resource", v)
-		case []string:
-			for _, r := range v {
-				data.Add("resource", r)
-			}
-		}
+	// Add optional parameters. resource/audience are RFC 8707/8693 repeatable;
+	// an empty slice sends nothing.
+	for _, r := range req.Resource {
+		data.Add("resource", r)
 	}
 
-	if req.Audience != nil {
-		switch v := req.Audience.(type) {
-		case string:
-			data.Set("audience", v)
-		case []string:
-			for _, a := range v {
-				data.Add("audience", a)
-			}
-		}
+	for _, a := range req.Audience {
+		data.Add("audience", a)
 	}
 
 	if req.Scope != "" {
@@ -135,8 +122,8 @@ func (c *STSClient) ExchangeToken(
 	subjectTokenType TokenType,
 	actorToken string,
 	actorTokenType TokenType,
-	resource any,
-	audience any,
+	resource []string,
+	audience []string,
 	scope string,
 	requestedTokenType TokenType,
 	additionalParameters map[string]any,
@@ -217,8 +204,8 @@ func (c *STSClient) Impersonate(
 	ctx context.Context,
 	subjectToken string,
 	subjectTokenType TokenType,
-	resource any,
-	audience any,
+	resource []string,
+	audience []string,
 	scope string,
 	requestedTokenType TokenType,
 	additionalParameters map[string]any,
@@ -244,8 +231,8 @@ func (c *STSClient) Delegate(
 	subjectTokenType TokenType,
 	actorToken string,
 	actorTokenType TokenType,
-	resource any,
-	audience any,
+	resource []string,
+	audience []string,
 	scope string,
 	requestedTokenType TokenType,
 	additionalParameters map[string]any,

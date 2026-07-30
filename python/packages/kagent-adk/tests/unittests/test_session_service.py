@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from google.adk.events.event import Event, EventActions
+from google.adk.sessions.base_session_service import GetSessionConfig
 
 from kagent.adk._session_service import KAgentSessionService
 
@@ -74,7 +75,7 @@ async def test_create_session_passes_user_id_as_query_param():
     the controller's UnsecureAuthenticator resolves identity from the query param
     (or X-User-Id header), not the JSON body.  Without the query param the
     controller falls back to "admin@kagent.dev" for the session create, while
-    every subsequent GET uses the A2A-derived user_id — guaranteeing a 404.
+    every subsequent GET uses the A2A-derived user_id, guaranteeing a 404.
     Fixes: https://github.com/kagent-dev/kagent/issues/1882
     """
     mock_response = MagicMock(spec=httpx.Response)
@@ -115,6 +116,102 @@ async def test_get_session_returns_none_when_no_data(service):
 
 
 @pytest.mark.asyncio
+async def test_get_session_passes_after_timestamp_to_api(mock_client, session_response):
+    """Incremental session loads only request events newer than the configured timestamp."""
+    client = mock_client(session_response([]))
+    svc = KAgentSessionService(client)
+
+    await svc.get_session(
+        app_name="app",
+        user_id="u1",
+        session_id="s1",
+        config=GetSessionConfig(after_timestamp=1785148200.0, num_recent_events=25),
+    )
+
+    client.get.assert_awaited_once_with(
+        "/api/sessions/s1",
+        params={
+            "user_id": "u1",
+            "order": "asc",
+            "limit": -1,
+            "after": "2026-07-27T10:30:00+00:00",
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_session_passes_epoch_timestamp_to_api(mock_client, session_response):
+    """Unix epoch zero is a valid timestamp filter, not an absent value."""
+    client = mock_client(session_response([]))
+    svc = KAgentSessionService(client)
+
+    await svc.get_session(
+        app_name="app",
+        user_id="u1",
+        session_id="s1",
+        config=GetSessionConfig(after_timestamp=0.0),
+    )
+
+    client.get.assert_awaited_once_with(
+        "/api/sessions/s1",
+        params={
+            "user_id": "u1",
+            "order": "asc",
+            "after": "1970-01-01T00:00:00+00:00",
+            "limit": -1,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_session_with_zero_recent_events_returns_no_events(make_event, session_response, mock_client):
+    """ADK defines a zero recent-event limit as returning session metadata without history.
+
+    State still has to be complete: every event is replayed, only the events list is emptied.
+    """
+    client = mock_client(session_response([make_event("user", state_delta={"key": "value"})]))
+    svc = KAgentSessionService(client)
+
+    session = await svc.get_session(
+        app_name="app",
+        user_id="u1",
+        session_id="s1",
+        config=GetSessionConfig(num_recent_events=0),
+    )
+
+    assert session is not None
+    assert session.events == []
+    assert session.state.get("key") == "value", "state must survive even when no events are returned"
+    client.get.assert_awaited_once_with(
+        "/api/sessions/s1",
+        params={"user_id": "u1", "order": "asc", "limit": -1},
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_session_returns_recent_events_in_chronological_order(make_event, session_response, mock_client):
+    """The recent-events window keeps the oldest-first order the API already returns."""
+    older_event = make_event("older")
+    newer_event = make_event("newer")
+    client = mock_client(session_response([older_event, newer_event]))
+    svc = KAgentSessionService(client)
+
+    session = await svc.get_session(
+        app_name="app",
+        user_id="u1",
+        session_id="s1",
+        config=GetSessionConfig(num_recent_events=2),
+    )
+
+    assert session is not None
+    assert [event.id for event in session.events] == [older_event.id, newer_event.id]
+    client.get.assert_awaited_once_with(
+        "/api/sessions/s1",
+        params={"user_id": "u1", "order": "asc", "limit": -1},
+    )
+
+
+@pytest.mark.asyncio
 async def test_get_session_event_ids_preserved(make_event, session_response, service):
     """Event identity (id) is preserved after loading from the API."""
     events = [make_event("user"), make_event("assistant")]
@@ -138,7 +235,7 @@ async def test_get_session_events_not_duplicated(make_event, session_response, s
 
     assert session is not None
     assert len(session.events) == len(events), (
-        f"Expected {len(events)} events but got {len(session.events)} — possible event duplication in get_session"
+        f"Expected {len(events)} events but got {len(session.events)}, possible event duplication in get_session"
     )
 
 
@@ -178,8 +275,44 @@ async def test_get_session_state_delta_applied_once(make_event, session_response
     # so for an idempotent string the bug was silent; here we use a distinct value
     # and just verify the key is present with the correct value.)
     assert session.state.get("counter") == 7, (
-        f"Expected state['counter'] == 7, got {session.state.get('counter')} — "
+        f"Expected state['counter'] == 7, got {session.state.get('counter')}, "
         "state_delta may have been applied more than once"
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_session_state_kept_outside_recent_events_window(make_event, session_response):
+    """A state delta from an event outside the num_recent_events window must
+    still land in session.state, only session.events is trimmed to the window.
+
+    This is what makes the test fail against the old code, which asked the
+    server for only num_recent_events and so never saw the older state_delta.
+    """
+    all_events = [
+        make_event("assistant", state_delta={"old_key": "old_value"}),
+        make_event("user"),
+        make_event("assistant"),
+    ]
+
+    def get_side_effect(url, params=None):
+        assert params.get("limit") == -1, "get_session must always fetch full history to avoid losing state deltas"
+        mock_response = MagicMock(spec=httpx.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = session_response(all_events)
+        mock_response.raise_for_status = MagicMock()
+        return mock_response
+
+    client = MagicMock(spec=httpx.AsyncClient)
+    client.get = AsyncMock(side_effect=get_side_effect)
+
+    session = await KAgentSessionService(client).get_session(
+        app_name="app", user_id="u1", session_id="s1", config=GetSessionConfig(num_recent_events=2)
+    )
+
+    assert session is not None
+    assert len(session.events) == 2
+    assert session.state.get("old_key") == "old_value", (
+        "state from the first event must still apply even though only the last 2 events are kept in session.events"
     )
 
 

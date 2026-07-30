@@ -123,6 +123,12 @@ func (c *child) exitError() error {
 
 // terminate sends SIGTERM to the child's process group, waits up to grace,
 // then SIGKILLs. It blocks until the process has exited.
+//
+// While waiting it drains c.out: if no client is consuming the stream (e.g. a
+// stalled WebSocket peer), the stdout reader goroutine may be blocked sending
+// on the full channel and would otherwise never reach cmd.Wait()/close(done),
+// deadlocking this call even after the child has been killed. Dropping lines
+// here is fine — the child is being torn down and nobody is listening.
 func (c *child) terminate(grace time.Duration) {
 	if c.exited() {
 		return
@@ -130,12 +136,21 @@ func (c *child) terminate(grace time.Duration) {
 	pgid := -c.cmd.Process.Pid
 	_ = c.stdin.Close()
 	_ = syscall.Kill(pgid, syscall.SIGTERM)
-	select {
-	case <-c.done:
-		return
-	case <-time.After(grace):
-		log.Printf("acp-shim: child pid=%d did not exit within %s, sending SIGKILL", c.cmd.Process.Pid, grace)
-		_ = syscall.Kill(pgid, syscall.SIGKILL)
-		<-c.done
+	graceTimer := time.After(grace)
+	for {
+		select {
+		case <-c.done:
+			return
+		case _, ok := <-c.out:
+			if !ok {
+				// out is drained and closed; the reader goroutine closes
+				// done right after.
+				<-c.done
+				return
+			}
+		case <-graceTimer:
+			log.Printf("acp-shim: child pid=%d did not exit within %s, sending SIGKILL", c.cmd.Process.Pid, grace)
+			_ = syscall.Kill(pgid, syscall.SIGKILL)
+		}
 	}
 }

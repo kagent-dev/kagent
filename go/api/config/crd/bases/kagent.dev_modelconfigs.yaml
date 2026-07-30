@@ -503,6 +503,41 @@ spec:
                     - 5m
                     - 1h
                     type: string
+                  connectTimeout:
+                    description: |-
+                      ConnectTimeout is the Bedrock HTTP client connection-establishment timeout
+                      in seconds, applied by both the Python and Go ADK runtimes. It bounds
+                      connection setup only, not the response read. When unset, each runtime's
+                      default is used (Python ADK: botocore; Go ADK: net dialer).
+                    minimum: 1
+                    type: integer
+                  guardrail:
+                    properties:
+                      identifier:
+                        description: |-
+                          Identifier is the guardrail ID or full ARN. AWS accepts either a bare
+                          guardrail ID or an arn:aws:bedrock:...:guardrail/... ARN, so the value is
+                          only length-bounded here (AWS caps guardrailIdentifier at 2048 chars).
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      trace:
+                        default: disabled
+                        enum:
+                        - disabled
+                        - enabled
+                        - enabled_full
+                        type: string
+                      version:
+                        description: 'Version is the guardrail version: a numeric
+                          version (e.g. "1") or "DRAFT".'
+                        maxLength: 8
+                        minLength: 1
+                        type: string
+                    required:
+                    - identifier
+                    - version
+                    type: object
                   promptCaching:
                     default: false
                     description: |-
@@ -521,6 +556,17 @@ spec:
                       See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
                       for the current list of supported models and minimum prefix sizes.
                     type: boolean
+                  readTimeout:
+                    description: |-
+                      ReadTimeout is the Bedrock HTTP client read timeout in seconds, applied by
+                      both the Python and Go ADK runtimes. Raise this for agents that make long
+                      Converse calls (large tool-augmented turns, extended reasoning). On the
+                      Python ADK it overrides botocore's ~60s read timeout, which otherwise
+                      aborts long completions with a ReadTimeoutError; on the Go ADK it bounds
+                      the whole Converse request (default 30m). When unset, each runtime's
+                      default is used.
+                    minimum: 1
+                    type: integer
                   region:
                     description: AWS region where the Bedrock model is available (e.g.,
                       us-east-1, us-west-2)
@@ -534,6 +580,11 @@ spec:
                 type: object
               gemini:
                 description: Gemini-specific configuration
+                properties:
+                  maxOutputTokens:
+                    description: Maximum output tokens to generate for a single response
+                    minimum: 1
+                    type: integer
                 type: object
               geminiVertexAI:
                 description: Gemini Vertex AI-specific configuration
@@ -546,6 +597,7 @@ spec:
                     type: string
                   maxOutputTokens:
                     description: Maximum output tokens
+                    minimum: 1
                     type: integer
                   projectID:
                     description: The project ID
@@ -628,6 +680,7 @@ spec:
                     - low
                     - medium
                     - high
+                    - xhigh
                     type: string
                   seed:
                     description: Seed value

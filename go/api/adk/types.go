@@ -172,6 +172,7 @@ func (a *Anthropic) GetType() string {
 
 type GeminiVertexAI struct {
 	BaseModel
+	MaxOutputTokens *int `json:"max_output_tokens,omitempty"`
 }
 
 func (g *GeminiVertexAI) MarshalJSON() ([]byte, error) {
@@ -230,6 +231,7 @@ func (o *Ollama) GetType() string {
 
 type Gemini struct {
 	BaseModel
+	MaxOutputTokens *int `json:"max_output_tokens,omitempty"`
 }
 
 func (g *Gemini) MarshalJSON() ([]byte, error) {
@@ -263,7 +265,23 @@ type Bedrock struct {
 	// CacheTTL selects the cache retention window when PromptCaching is on:
 	// "5m" (default) or "1h". See the v1alpha2.BedrockConfig CRD doc for the
 	// cost/compatibility trade-offs of "1h".
-	CacheTTL string `json:"cache_ttl,omitempty"`
+	CacheTTL  string            `json:"cache_ttl,omitempty"`
+	Guardrail *BedrockGuardrail `json:"guardrail,omitempty"`
+	// ReadTimeout is the Bedrock HTTP client read timeout in seconds. Nil keeps
+	// each runtime's default. Python ADK: overrides botocore's ~60s read timeout,
+	// which otherwise aborts long completions with a ReadTimeoutError. Go ADK:
+	// bounds the whole Converse request (overall HTTP client timeout, default 30m).
+	ReadTimeout *int `json:"read_timeout,omitempty"`
+	// ConnectTimeout is the Bedrock HTTP client connection-establishment timeout
+	// in seconds. Nil keeps each runtime's default (Python ADK: botocore; Go ADK:
+	// net dialer). Bounds connection setup only, not the response read.
+	ConnectTimeout *int `json:"connect_timeout,omitempty"`
+}
+
+type BedrockGuardrail struct {
+	Identifier string `json:"identifier"`
+	Version    string `json:"version"`
+	Trace      string `json:"trace,omitempty"`
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {

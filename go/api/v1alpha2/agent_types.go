@@ -450,9 +450,20 @@ type SharedDeploymentSpec struct {
 	// Annotations are additional annotations added to the agent pods.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
+	// DeploymentAnnotations are additional annotations added to the agent Deployment
+	// object itself. Unlike Annotations, which apply to the agent pods, these apply to
+	// the Deployment metadata. Keys set here take precedence over annotations inherited
+	// from the agent resource metadata. This has no effect when the agent runs with the
+	// Sandbox workload mode, as no Deployment is created in that mode.
+	// +optional
+	DeploymentAnnotations map[string]string `json:"deploymentAnnotations,omitempty"`
 	// Env are additional environment variables set on the agent container.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// EnvFrom are sources (ConfigMaps/Secrets) used to populate environment variables
+	// on the agent container. Values defined in Env with a duplicate key take precedence.
+	// +optional
+	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
 	// +optional
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional

@@ -662,6 +662,10 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
 		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
+		if model.Spec.GeminiVertexAI.MaxOutputTokens > 0 {
+			gemini.MaxOutputTokens = &model.Spec.GeminiVertexAI.MaxOutputTokens
+		}
+
 		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil {
@@ -748,6 +752,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		if model.Spec.Gemini != nil && model.Spec.Gemini.MaxOutputTokens > 0 {
+			gemini.MaxOutputTokens = &model.Spec.Gemini.MaxOutputTokens
+		}
 		return gemini, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil {
@@ -834,6 +841,15 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			AdditionalModelRequestFields: additionalFields,
 			PromptCaching:                model.Spec.Bedrock.PromptCaching,
 			CacheTTL:                     model.Spec.Bedrock.CacheTTL,
+			ReadTimeout:                  model.Spec.Bedrock.ReadTimeout,
+			ConnectTimeout:               model.Spec.Bedrock.ConnectTimeout,
+		}
+		if model.Spec.Bedrock.Guardrail != nil {
+			bedrock.Guardrail = &adk.BedrockGuardrail{
+				Identifier: model.Spec.Bedrock.Guardrail.Identifier,
+				Version:    model.Spec.Bedrock.Guardrail.Version,
+				Trace:      model.Spec.Bedrock.Guardrail.Trace,
+			}
 		}
 
 		// Populate TLS fields in BaseModel
