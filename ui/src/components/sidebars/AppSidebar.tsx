@@ -22,7 +22,7 @@ export function AppSidebar() {
 
   return (
     <SidebarStatusProvider>
-      <Sidebar collapsible="icon" aria-label="Main navigation">
+      <Sidebar collapsible="icon" role="navigation" aria-label="Main navigation">
         <SidebarHeader>
           <div className="flex items-center gap-2 px-2 py-1">
             <div className="flex min-w-0 flex-col gap-0.5">
