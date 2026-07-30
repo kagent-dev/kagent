@@ -158,6 +158,8 @@ jobs:
           # Full history + tags so the previous release's queries can be read.
           fetch-depth: 0
           fetch-tags: true
+      - name: Version resolution
+        run: ./scripts/version-resolution_test.sh
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
@@ -176,11 +178,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # prev-stable: the previous minor line's latest patch — runs on every base
-        #   (on main it resolves to the newest release line, e.g. the 0.9.x tip).
-        # adjacent: the same-line previous patch — only meaningful on a release
-        #   branch (building a patch); skipped on main, which builds a new minor
-        #   with no same-line predecessor. See upgrade-test-setup resolve step.
+        # prev-stable: the previous minor line's latest published version,
+        #   including a prerelease before GA — runs on every base.
+        # adjacent: the same-line latest published version, including prereleases
+        #   — only meaningful on a release branch and skipped on main.
         upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
@@ -225,11 +226,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # prev-stable: the previous minor line's latest patch — runs on every base
-        #   (on main it resolves to the newest release line, e.g. the 0.9.x tip).
-        # adjacent: the same-line previous patch — only meaningful on a release
-        #   branch (building a patch); skipped on main, which builds a new minor
-        #   with no same-line predecessor. See upgrade-test-setup resolve step.
+        # prev-stable: the previous minor line's latest published version,
+        #   including a prerelease before GA — runs on every base.
+        # adjacent: the same-line latest published version, including prereleases
+        #   — only meaningful on a release branch and skipped on main.
         upgrade-from: [adjacent, prev-stable]
     steps:
       - name: Checkout repository
