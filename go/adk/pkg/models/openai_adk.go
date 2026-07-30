@@ -128,7 +128,6 @@ func (m *OpenAIModel) Name() string {
 // GenerateContent implements model.LLM. Uses only ADK/genai types.
 func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
-		messages, systemInstruction := genaiContentsToOpenAIMessages(req.Contents, req.Config)
 		modelName := req.Model
 		if modelName == "" {
 			modelName = m.Config.Model
@@ -138,6 +137,12 @@ func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 		}
 		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
+		if m.Config != nil && m.Config.APIFormat == OpenAIAPIFormatResponses {
+			generateContentResponses(ctx, m, req, modelName, stream, yield)
+			return
+		}
+
+		messages, systemInstruction := genaiContentsToOpenAIMessages(req.Contents, req.Config)
 		params := openai.ChatCompletionNewParams{
 			Model:    shared.ChatModel(modelName),
 			Messages: messages,

@@ -199,11 +199,29 @@ type OpenAIConfig struct {
 	// +optional
 	ReasoningEffort *OpenAIReasoningEffort `json:"reasoningEffort,omitempty"`
 
+	// APIFormat selects which OpenAI HTTP API the runtime uses for this model.
+	// chatCompletions (default) posts to /v1/chat/completions.
+	// responses posts to /v1/responses. Use responses for OpenAI-compatible
+	// gateways or models that require the Responses API.
+	// +optional
+	// +kubebuilder:validation:Enum=chatCompletions;responses
+	// +kubebuilder:default=chatCompletions
+	APIFormat *OpenAIAPIFormat `json:"apiFormat,omitempty"`
+
 	// TokenExchange configures dynamic bearer token acquisition via credential exchange.
 	// Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
 	// +optional
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
 }
+
+// OpenAIAPIFormat selects the OpenAI HTTP API shape used by the Go ADK runtime.
+// +kubebuilder:validation:Enum=chatCompletions;responses
+type OpenAIAPIFormat string
+
+const (
+	OpenAIAPIFormatChatCompletions OpenAIAPIFormat = "chatCompletions"
+	OpenAIAPIFormatResponses       OpenAIAPIFormat = "responses"
+)
 
 // OpenAIReasoningEffort represents how many reasoning tokens the model generates before producing a response.
 // Supported values vary by model. Set to "none" to disable reasoning; some models (e.g. gpt-5.6-terra)

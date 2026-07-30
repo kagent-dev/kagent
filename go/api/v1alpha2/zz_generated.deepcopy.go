@@ -1377,6 +1377,11 @@ func (in *OpenAIConfig) DeepCopyInto(out *OpenAIConfig) {
 		*out = new(OpenAIReasoningEffort)
 		**out = **in
 	}
+	if in.APIFormat != nil {
+		in, out := &in.APIFormat, &out.APIFormat
+		*out = new(OpenAIAPIFormat)
+		**out = **in
+	}
 	if in.TokenExchange != nil {
 		in, out := &in.TokenExchange, &out.TokenExchange
 		*out = new(TokenExchangeConfig)

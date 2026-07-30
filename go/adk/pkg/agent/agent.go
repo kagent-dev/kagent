@@ -233,6 +233,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Seed:                m.Seed,
 			Temperature:         m.Temperature,
 			TopP:                m.TopP,
+			APIFormat:           m.APIFormat,
 		}
 		return models.NewOpenAIModelWithLogger(cfg, log)
 
