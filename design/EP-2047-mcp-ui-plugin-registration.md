@@ -89,13 +89,13 @@ The sidebar renders a fixed set of section headings (`NAV_SECTIONS` in
 | `WORKFLOWS` | (empty today — reserved) |
 | `KNOWLEDGE` | (empty today — reserved) |
 | `EVALUATIONS` | (empty today — reserved) |
-| `RESOURCES` | Models, Tools, MCP Servers, Prompt Library, Plugins Catalog |
+| `RESOURCES` | Models, MCP & tools, Prompt Library, Plugins Catalog |
 | `ADMIN` | (empty today — reserved) |
 | `PLUGINS` | (empty today — reserved) |
 
 When a plugin's `section` matches one of these labels, its link is merged into that
 section's item list. The CRD default is `RESOURCES`, so new plugins appear alongside
-Models/Tools unless configured otherwise.
+Models/MCP & tools unless configured otherwise.
 
 Plugins whose `section` is **not** one of the built-in labels get their own sidebar
 group using the declared label (e.g. a plugin with `section: CUSTOM` renders under a

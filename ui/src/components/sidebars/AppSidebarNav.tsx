@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import {
   Bot,
   Brain,
-  Wrench,
   Server,
   Puzzle,
   ScrollText,
@@ -92,8 +91,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "RESOURCES",
     items: [
       { label: "Models", href: "/models", icon: Brain },
-      { label: "Tools", href: "/tools", icon: Wrench },
-      { label: "MCP Servers", href: "/servers", icon: Server },
+      { label: "MCP & tools", href: "/mcp", icon: Server },
       { label: "Prompt Library", href: "/prompts", icon: ScrollText },
       { label: "Plugins Catalog", href: "/plugins", icon: Puzzle },
     ],
