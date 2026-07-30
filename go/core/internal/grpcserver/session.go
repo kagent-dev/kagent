@@ -6,8 +6,8 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
-	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

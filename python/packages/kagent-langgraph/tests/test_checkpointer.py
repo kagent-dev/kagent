@@ -71,9 +71,7 @@ def _rpc_error(code: grpc.StatusCode, details: str = "rpc failed") -> grpc.aio.A
 class TestAputRetry:
     """Tests for aput retry logic."""
 
-    async def test_aput_sends_generated_request_and_raw_bytes(
-        self, client, mock_serde, config, checkpoint, metadata
-    ):
+    async def test_aput_sends_generated_request_and_raw_bytes(self, client, mock_serde, config, checkpoint, metadata):
         checkpointer = KAgentCheckpointer(client=client, app_name="test", serde=mock_serde)
 
         result = await checkpointer.aput(config, checkpoint, metadata, {})
@@ -93,9 +91,7 @@ class TestAputRetry:
         client.call_options.assert_awaited_once_with("admin@kagent.dev")
 
     @patch("asyncio.sleep", new_callable=AsyncMock)
-    async def test_aput_retries_transient_rpc_error(
-        self, mock_sleep, client, mock_serde, config, checkpoint, metadata
-    ):
+    async def test_aput_retries_transient_rpc_error(self, mock_sleep, client, mock_serde, config, checkpoint, metadata):
         client.langgraph_service.PutCheckpoint.side_effect = [
             _rpc_error(grpc.StatusCode.UNAVAILABLE),
             _rpc_error(grpc.StatusCode.DEADLINE_EXCEEDED),
@@ -123,9 +119,7 @@ class TestAputRetry:
         assert client.langgraph_service.PutCheckpoint.await_count == 3
         assert mock_sleep.await_count == 2
 
-    async def test_aput_does_not_retry_non_transient_status(
-        self, client, mock_serde, config, checkpoint, metadata
-    ):
+    async def test_aput_does_not_retry_non_transient_status(self, client, mock_serde, config, checkpoint, metadata):
         error = _rpc_error(grpc.StatusCode.INVALID_ARGUMENT)
         client.langgraph_service.PutCheckpoint.side_effect = error
         checkpointer = KAgentCheckpointer(client=client, app_name="test", serde=mock_serde)
@@ -294,9 +288,7 @@ class TestReads:
         )
         checkpointer = KAgentCheckpointer(client=client, app_name="test", serde=mock_serde)
 
-        result = await checkpointer.aget_tuple(
-            {"configurable": {"thread_id": "test-thread", "user_id": "user-1"}}
-        )
+        result = await checkpointer.aget_tuple({"configurable": {"thread_id": "test-thread", "user_id": "user-1"}})
 
         assert result is not None
         assert result.config["configurable"]["checkpoint_id"] == "latest"

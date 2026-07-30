@@ -65,8 +65,8 @@ func (s *testShareStore) RecordShareAccess(_ context.Context, userID string, sha
 
 func TestAuthenticationUnaryInterceptor(t *testing.T) {
 	policies := MethodPolicies{
-		readMethod:   AccessRead,
-		createMethod: AccessCreate,
+		readMethod:             AccessRead,
+		createMethod:           AccessCreate,
 		"/test.Service/Public": AccessPublic,
 	}
 	session := &testSession{principal: pkgauth.Principal{User: pkgauth.User{ID: "caller"}}}

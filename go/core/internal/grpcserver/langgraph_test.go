@@ -1,9 +1,10 @@
 package grpcserver
 
 import (
+	"cmp"
 	"context"
 	"net"
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/database"
@@ -68,7 +69,9 @@ func (s *generatedClientLangGraphStore) ListCheckpoints(
 				checkpointWrites = append(checkpointWrites, &copy)
 			}
 		}
-		sort.Slice(checkpointWrites, func(i, j int) bool { return checkpointWrites[i].WriteIdx < checkpointWrites[j].WriteIdx })
+		slices.SortFunc(checkpointWrites, func(a, b *database.LangGraphCheckpointWrite) int {
+			return cmp.Compare(a.WriteIdx, b.WriteIdx)
+		})
 		checkpointCopy := *checkpoint
 		result = append(result, &database.LangGraphCheckpointTuple{Checkpoint: &checkpointCopy, Writes: checkpointWrites})
 		if limit > 0 && len(result) == limit {

@@ -1,9 +1,10 @@
 package grpcserver
 
 import (
+	"cmp"
 	"context"
 	"net"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -77,7 +78,9 @@ func (s *generatedClientSessionTaskStore) ListSessions(_ context.Context, userID
 			result = append(result, *value)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	slices.SortFunc(result, func(a, b database.Session) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
 	return result, nil
 }
 

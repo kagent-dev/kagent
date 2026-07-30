@@ -44,4 +44,6 @@ def decode_structured_object(
 def _check_size(value: Mapping[str, Any], max_bytes: int) -> None:
     encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode()
     if max_bytes > 0 and len(encoded) > max_bytes:
-        raise ValueError(f"structured object exceeds configured size limit: got {len(encoded)} bytes, limit {max_bytes}")
+        raise ValueError(
+            f"structured object exceeds configured size limit: got {len(encoded)} bytes, limit {max_bytes}"
+        )

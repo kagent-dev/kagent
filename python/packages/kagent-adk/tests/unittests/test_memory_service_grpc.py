@@ -14,9 +14,7 @@ def client():
     value = MagicMock()
     value.call_options = AsyncMock(return_value={"metadata": (), "timeout": 30.0})
     value.memory_service = MagicMock()
-    value.memory_service.AddSession = AsyncMock(
-        return_value=memory_pb2.MemoryServiceAddSessionResponse(id="memory-1")
-    )
+    value.memory_service.AddSession = AsyncMock(return_value=memory_pb2.MemoryServiceAddSessionResponse(id="memory-1"))
     value.memory_service.AddSessionBatch = AsyncMock(
         return_value=memory_pb2.MemoryServiceAddSessionBatchResponse(count=2)
     )

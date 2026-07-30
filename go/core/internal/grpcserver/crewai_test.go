@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"slices"
 	"strings"
 	"testing"
 
@@ -81,8 +82,7 @@ func (s *generatedClientCrewAIStore) StoreCrewAIFlowState(_ context.Context, val
 }
 
 func (s *generatedClientCrewAIStore) GetCrewAIFlowState(_ context.Context, userID, threadID string) (*database.CrewAIFlowState, error) {
-	for index := len(s.states) - 1; index >= 0; index-- {
-		value := s.states[index]
+	for _, value := range slices.Backward(s.states) {
 		if value.UserID == userID && value.ThreadID == threadID {
 			copy := *value
 			return &copy, nil

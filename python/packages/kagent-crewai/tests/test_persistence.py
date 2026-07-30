@@ -73,11 +73,14 @@ async def test_memory_storage_marshals_worker_thread_calls_to_controller_loop(cl
 
     store_request = client.crewai_service.StoreMemory.await_args.args[0]
     assert store_request.thread_id == "thread-1"
-    assert decode_structured_object(
-        store_request.memory_data,
-        expected_kind="CrewAIMemoryData",
-        max_bytes=MAX_MESSAGE_BYTES,
-    ) == memory_data
+    assert (
+        decode_structured_object(
+            store_request.memory_data,
+            expected_kind="CrewAIMemoryData",
+            max_bytes=MAX_MESSAGE_BYTES,
+        )
+        == memory_data
+    )
     get_request = client.crewai_service.GetMemory.await_args.args[0]
     assert get_request.task_description == "grpc"
     assert get_request.limit == 3

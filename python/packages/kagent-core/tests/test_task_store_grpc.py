@@ -194,9 +194,7 @@ async def test_task_store_writes_canonical_go_a2a_task(task_service):
             "mediaType": "text/plain",
         },
     ]
-    assert payload["artifacts"][0]["parts"] == [
-        {"raw": "AQI=", "mediaType": "application/octet-stream"}
-    ]
+    assert payload["artifacts"][0]["parts"] == [{"raw": "AQI=", "mediaType": "application/octet-stream"}]
 
 
 @pytest.mark.asyncio

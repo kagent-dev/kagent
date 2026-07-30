@@ -20,24 +20,24 @@ import (
 
 const (
 	// API Path constants
-	APIPathHealth               = "/health"
-	APIPathA2A                  = "/api/a2a"
-	APIPathA2ASandboxes         = "/api/a2a-sandboxes"
-	APIPathMCP                  = "/mcp"
-	APIPathAgentHarnessACP      = "/api/agentharnesses/{namespace}/{name}/acp/"
+	APIPathHealth          = "/health"
+	APIPathA2A             = "/api/a2a"
+	APIPathA2ASandboxes    = "/api/a2a-sandboxes"
+	APIPathMCP             = "/mcp"
+	APIPathAgentHarnessACP = "/api/agentharnesses/{namespace}/{name}/acp/"
 )
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	Router                       *mux.Router
-	BindAddr                     string
-	KubeClient                   ctrl_client.Client
-	A2AHandler                   a2a.A2AHandlerMux
-	MCPHandler                   *mcp.MCPHandler
-	DbClient                     dbpkg.Client
-	Authenticator                auth.AuthProvider
-	AgentHarnessGateway          *handlers.AgentHarnessGatewayConfig
-	AgentHarnessSessionActor     *substrate.AgentHarnessSessionActorBackend
+	Router                   *mux.Router
+	BindAddr                 string
+	KubeClient               ctrl_client.Client
+	A2AHandler               a2a.A2AHandlerMux
+	MCPHandler               *mcp.MCPHandler
+	DbClient                 dbpkg.Client
+	Authenticator            auth.AuthProvider
+	AgentHarnessGateway      *handlers.AgentHarnessGatewayConfig
+	AgentHarnessSessionActor *substrate.AgentHarnessSessionActorBackend
 }
 
 // HTTPServer is the structure that manages the HTTP server

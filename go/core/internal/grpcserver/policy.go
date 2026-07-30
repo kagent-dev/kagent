@@ -1,7 +1,7 @@
 package grpcserver
 
 import (
-	"github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 )
 

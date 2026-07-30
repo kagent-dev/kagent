@@ -144,7 +144,7 @@ func (s *Service) GetCurrentUser(ctx context.Context) (map[string]any, error) {
 
 func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 	if s.kubeClient == nil {
-		return nil, serviceerrors.NewInternal("Failed to list namespaces", fmt.Errorf("Kubernetes client is not configured"))
+		return nil, serviceerrors.NewInternal("Failed to list namespaces", fmt.Errorf("kubernetes client is not configured"))
 	}
 	if len(s.observedNamespaces) == 0 {
 		namespaceList := &corev1.NamespaceList{}
@@ -206,7 +206,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 		return result, nil
 	}
 	if s.kubeClient == nil {
-		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", fmt.Errorf("Kubernetes client is not configured"))
+		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", fmt.Errorf("kubernetes client is not configured"))
 	}
 
 	namespaces := s.substrateNamespaces(requestedNamespace)

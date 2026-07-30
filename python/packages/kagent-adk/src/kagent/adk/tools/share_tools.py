@@ -128,8 +128,7 @@ class ListShareLinksTool(BaseTool):
             if not response.shares:
                 return "No active share links for this session."
             lines = [
-                f"- token: {share.token or '<unknown>'}, created_at: {_created_at(share)}"
-                for share in response.shares
+                f"- token: {share.token or '<unknown>'}, created_at: {_created_at(share)}" for share in response.shares
             ]
             return "Active share links:\n" + "\n".join(lines)
         except grpc.aio.AioRpcError as e:

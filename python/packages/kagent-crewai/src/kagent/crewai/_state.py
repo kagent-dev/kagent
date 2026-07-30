@@ -68,7 +68,9 @@ class KagentFlowPersistence(FlowPersistence):
         if asyncio.get_running_loop() is not self._loop:
             raise RuntimeError("CrewAI flow persistence must run on the controller event loop")
 
-        serialized_state = state_data.model_dump(mode="json") if isinstance(state_data, BaseModel) else deepcopy(state_data)
+        serialized_state = (
+            state_data.model_dump(mode="json") if isinstance(state_data, BaseModel) else deepcopy(state_data)
+        )
         self._loaded_state = serialized_state
         request = crewai_pb2.StoreFlowStateRequest(
             thread_id=self.thread_id,

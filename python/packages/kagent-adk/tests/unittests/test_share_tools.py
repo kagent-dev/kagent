@@ -38,9 +38,7 @@ def _mock_client() -> MagicMock:
     client.session_service = MagicMock()
     client.session_service.CreateSessionShare = AsyncMock()
     client.session_service.ListSessionShares = AsyncMock()
-    client.session_service.DeleteSessionShare = AsyncMock(
-        return_value=sessions_pb2.DeleteSessionShareResponse()
-    )
+    client.session_service.DeleteSessionShare = AsyncMock(return_value=sessions_pb2.DeleteSessionShareResponse())
     return client
 
 

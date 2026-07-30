@@ -15,16 +15,10 @@ def client():
     value.session_service = MagicMock()
     value.session_service.GetSession = AsyncMock()
     value.session_service.CreateSession = AsyncMock(
-        return_value=sessions_pb2.CreateSessionResponse(
-            session=sessions_pb2.Session(id="session-1", user_id="user-1")
-        )
+        return_value=sessions_pb2.CreateSessionResponse(session=sessions_pb2.Session(id="session-1", user_id="user-1"))
     )
-    value.session_service.AddSessionEvent = AsyncMock(
-        return_value=sessions_pb2.AddSessionEventResponse()
-    )
-    value.session_service.DeleteSession = AsyncMock(
-        return_value=sessions_pb2.DeleteSessionResponse()
-    )
+    value.session_service.AddSessionEvent = AsyncMock(return_value=sessions_pb2.AddSessionEventResponse())
+    value.session_service.DeleteSession = AsyncMock(return_value=sessions_pb2.DeleteSessionResponse())
     return value
 
 

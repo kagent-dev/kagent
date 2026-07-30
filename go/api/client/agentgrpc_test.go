@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -282,5 +283,5 @@ func assertRequestAgentDescription(t *testing.T, resource *apiv1alpha1.Structure
 }
 
 func grpcCodeName(err error) string {
-	return grpc.Code(err).String()
+	return status.Code(err).String()
 }

@@ -27,9 +27,7 @@ def make_event():
 def session_response():
     """Build a generated GetSession response with serialized ADK events."""
 
-    def _factory(
-        events: list[Event], session_id: str = "s1", user_id: str = "u1"
-    ) -> sessions_pb2.GetSessionResponse:
+    def _factory(events: list[Event], session_id: str = "s1", user_id: str = "u1") -> sessions_pb2.GetSessionResponse:
         return sessions_pb2.GetSessionResponse(
             session=sessions_pb2.Session(id=session_id, user_id=user_id),
             events=[sessions_pb2.SessionEvent(id=event.id, data=event.model_dump_json()) for event in events],
@@ -74,9 +72,7 @@ async def test_create_session_passes_explicit_user_metadata_and_fields(mock_clie
     authenticator's fallback user while later calls use the A2A-derived user.
     Regression test for https://github.com/kagent-dev/kagent/issues/1882.
     """
-    response = sessions_pb2.CreateSessionResponse(
-        session=sessions_pb2.Session(id="sess-1", user_id="A2A_USER_ctx123")
-    )
+    response = sessions_pb2.CreateSessionResponse(session=sessions_pb2.Session(id="sess-1", user_id="A2A_USER_ctx123"))
     client = mock_client(response)
 
     svc = KAgentSessionService(client)
