@@ -584,6 +584,30 @@ describe('file parts (uploads/artifacts)', () => {
     expect(fp.file.name).toBe('report.csv');
   });
 
+  test('extractMessagesFromTasks preserves user-uploaded file parts from task history on reload', () => {
+    const tasks: any = [
+      {
+        id: 'task1',
+        contextId: 'ctx',
+        history: [
+          {
+            kind: 'message',
+            messageId: 'm-user-file',
+            role: 'user',
+            parts: [
+              { kind: 'text', text: 'see attached' },
+              filePart,
+            ],
+          },
+        ],
+      },
+    ];
+    const out = extractMessagesFromTasks(tasks);
+    expect(out).toHaveLength(1);
+    expect(out[0].parts).toHaveLength(2);
+    expect(out[0].parts![1]).toEqual(filePart);
+  });
+
   test('extractMessagesFromTasks surfaces agent-produced file artifacts on reload', () => {
     const tasks: any = [
       {
