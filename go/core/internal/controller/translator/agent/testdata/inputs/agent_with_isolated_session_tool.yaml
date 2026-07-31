@@ -1,0 +1,49 @@
+operation: translateAgent
+targetObject: coordinator-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5  # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: nested-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: worker-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: A worker agent that can be called in parallel by the coordinator
+        systemMessage: You are a worker agent. Complete the assigned task and report back.
+        modelConfig: nested-model
+        tools: []
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: coordinator-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: A coordinator agent that fans out isolated parallel calls to a worker
+        systemMessage: You are a coordinating agent that delegates tasks to a worker agent, potentially in parallel.
+        modelConfig: nested-model
+        tools:
+          - type: Agent
+            agent:
+              name: worker-agent
+            isolateSessions: true
