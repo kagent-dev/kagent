@@ -125,6 +125,13 @@ func (m *OpenAIModel) Name() string {
 	return m.Config.Model
 }
 
+func (m *OpenAIModel) apiFormat() string {
+	if m.Config != nil && m.Config.APIFormat != "" {
+		return m.Config.APIFormat
+	}
+	return OpenAIAPIFormatChatCompletions
+}
+
 // GenerateContent implements model.LLM. Uses only ADK/genai types.
 func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
@@ -137,35 +144,46 @@ func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 		}
 		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
-		if m.Config != nil && m.Config.APIFormat == OpenAIAPIFormatResponses {
+		switch m.apiFormat() {
+		case OpenAIAPIFormatResponses:
 			generateContentResponses(ctx, m, req, modelName, stream, yield)
-			return
+		default:
+			generateContentChatCompletions(ctx, m, req, modelName, stream, yield)
 		}
+	}
+}
 
-		messages, systemInstruction := genaiContentsToOpenAIMessages(req.Contents, req.Config)
-		params := openai.ChatCompletionNewParams{
-			Model:    shared.ChatModel(modelName),
-			Messages: messages,
-		}
-		if systemInstruction != "" {
-			params.Messages = append([]openai.ChatCompletionMessageParamUnion{
-				openai.SystemMessage(systemInstruction),
-			}, params.Messages...)
-		}
-		applyOpenAIConfig(&params, m.Config)
+func generateContentChatCompletions(
+	ctx context.Context,
+	m *OpenAIModel,
+	req *model.LLMRequest,
+	modelName string,
+	stream bool,
+	yield func(*model.LLMResponse, error) bool,
+) {
+	messages, systemInstruction := genaiContentsToOpenAIMessages(req.Contents, req.Config)
+	params := openai.ChatCompletionNewParams{
+		Model:    shared.ChatModel(modelName),
+		Messages: messages,
+	}
+	if systemInstruction != "" {
+		params.Messages = append([]openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(systemInstruction),
+		}, params.Messages...)
+	}
+	applyOpenAIConfig(&params, m.Config)
 
-		if req.Config != nil && len(req.Config.Tools) > 0 {
-			params.Tools = genaiToolsToOpenAITools(req.Config.Tools)
-			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
-				OfAuto: openai.String("auto"),
-			}
+	if req.Config != nil && len(req.Config.Tools) > 0 {
+		params.Tools = genaiToolsToOpenAITools(req.Config.Tools)
+		params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
+			OfAuto: openai.String("auto"),
 		}
+	}
 
-		if stream {
-			runStreaming(ctx, m, params, yield)
-		} else {
-			runNonStreaming(ctx, m, params, yield)
-		}
+	if stream {
+		runStreaming(ctx, m, params, yield)
+	} else {
+		runNonStreaming(ctx, m, params, yield)
 	}
 }
 
