@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -26,6 +28,27 @@ type denyAuthorizer struct{}
 
 func (denyAuthorizer) Check(_ context.Context, _ pkgauth.Principal, _ pkgauth.Verb, _ pkgauth.Resource) error {
 	return errors.New("denied")
+}
+
+type modelUpdateConflictOnceClient struct {
+	ctrlclient.Client
+	conflicted bool
+}
+
+func (c *modelUpdateConflictOnceClient) Update(
+	ctx context.Context,
+	object ctrlclient.Object,
+	options ...ctrlclient.UpdateOption,
+) error {
+	if _, ok := object.(*v1alpha2.ModelConfig); ok && !c.conflicted {
+		c.conflicted = true
+		return apierrors.NewConflict(
+			schema.GroupResource{Group: v1alpha2.GroupVersion.Group, Resource: "modelconfigs"},
+			object.GetName(),
+			errors.New("simulated resource version conflict"),
+		)
+	}
+	return c.Client.Update(ctx, object, options...)
 }
 
 func TestServiceCRUDAndValidation(t *testing.T) {
@@ -185,6 +208,57 @@ func TestServiceCRUDAndValidation(t *testing.T) {
 		deleted := &corev1.Secret{}
 		err = kubeClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "ca-v1"}, deleted)
 		assert.Error(t, err)
+	})
+
+	t.Run("update retries model config conflict after writing api key secret", func(t *testing.T) {
+		config := &v1alpha2.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "cfg", Namespace: "default", UID: types.UID("cfg-uid")},
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:           "gpt-4",
+				Provider:        v1alpha2.ModelProviderOpenAI,
+				APIKeySecret:    "cfg",
+				APIKeySecretKey: "OPENAI_API_KEY",
+			},
+		}
+		secret := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "cfg",
+				Namespace: "default",
+				OwnerReferences: []metav1.OwnerReference{secretmaterial.OwnerReferenceFor(
+					config,
+					v1alpha2.GroupVersion.WithKind("ModelConfig"),
+				)},
+			},
+			Type: corev1.SecretTypeOpaque,
+			Data: map[string][]byte{"OPENAI_API_KEY": []byte("old-key")},
+		}
+		baseClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(config, secret).Build()
+		kubeClient := &modelUpdateConflictOnceClient{Client: baseClient}
+		service := model.NewService(kubeClient, &authimpl.NoopAuthorizer{}, "default")
+		ctx := pkgauth.AuthSessionTo(
+			context.Background(),
+			&authimpl.SimpleSession{P: pkgauth.Principal{User: pkgauth.User{ID: "test-user"}}},
+		)
+		rotatedKey := "rotated-key"
+
+		updated, err := service.Update(ctx, model.UpdateRequest{
+			Ref:    types.NamespacedName{Namespace: "default", Name: "cfg"},
+			APIKey: &rotatedKey,
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:           "gpt-4.1",
+				Provider:        v1alpha2.ModelProviderOpenAI,
+				APIKeySecret:    "cfg",
+				APIKeySecretKey: "OPENAI_API_KEY",
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, kubeClient.conflicted)
+		assert.Equal(t, "gpt-4.1", updated.Spec.Model)
+
+		storedSecret := &corev1.Secret{}
+		err = baseClient.Get(ctx, ctrlclient.ObjectKey{Namespace: "default", Name: "cfg"}, storedSecret)
+		require.NoError(t, err)
+		assert.Equal(t, rotatedKey, string(storedSecret.Data["OPENAI_API_KEY"]))
 	})
 
 	t.Run("get not found", func(t *testing.T) {

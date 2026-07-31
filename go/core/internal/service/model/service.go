@@ -8,6 +8,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -201,8 +202,18 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*v1alpha2.
 		return nil, err
 	}
 
-	modelConfig.Spec = spec
-	if err := s.kubeClient.Update(ctx, modelConfig); err != nil {
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1alpha2.ModelConfig{}
+		if err := s.kubeClient.Get(ctx, request.Ref, latest); err != nil {
+			return err
+		}
+		latest.Spec = spec
+		if err := s.kubeClient.Update(ctx, latest); err != nil {
+			return err
+		}
+		modelConfig = latest
+		return nil
+	}); err != nil {
 		return nil, serviceerrors.NewInternal("Failed to update ModelConfig", err)
 	}
 
