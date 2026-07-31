@@ -11,7 +11,6 @@ from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue_v2 import EventQueue
 from a2a.types import (
-    Artifact,
     Message,
     Part,
     Role,
@@ -22,16 +21,16 @@ from a2a.types import (
     TaskStatusUpdateEvent,
 )
 from google.adk.events import Event, EventActions
-from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
+from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, REQUEST_EUC_FUNCTION_CALL_NAME
 from google.adk.runners import Runner
 from google.adk.sessions import Session
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.adk.utils.context_utils import Aclosing
 from google.genai import types as genai_types
+from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
     KAGENT_HITL_DECISION_TYPE_APPROVE,
     KAGENT_HITL_DECISION_TYPE_BATCH,
-    TaskResultAggregator,
     extract_ask_user_answers_from_message,
     extract_batch_decisions_from_message,
     extract_decision_from_message,
@@ -50,6 +49,37 @@ from .converters.request_converter import convert_a2a_request_to_adk_run_args
 logger = logging.getLogger("kagent_adk." + __name__)
 
 
+def _is_long_running_function_call(part: Part) -> bool:
+    """True when a DataPart is a long-running function_call (HITL/auth)."""
+    if not part.HasField("data"):
+        return False
+    metadata = MessageToDict(part.metadata) if part.metadata else {}
+    return bool(metadata.get(get_kagent_metadata_key("is_long_running")))
+
+
+def _split_hitl_artifact_parts(
+    event: TaskArtifactUpdateEvent,
+    hitl_parts: list[Part],
+) -> TaskArtifactUpdateEvent | None:
+    """Move long-running function_call parts onto the HITL status; keep the rest.
+
+    Mirrors Go adka2a inputRequiredProcessor: confirmation/auth parts belong on
+    input-required/auth-required status, while ordinary text/tool output stays
+    on the artifact stream.
+    """
+    output_parts: list[Part] = []
+    for part in event.artifact.parts:
+        if _is_long_running_function_call(part):
+            hitl_parts.append(part)
+        else:
+            output_parts.append(part)
+    if not output_parts:
+        return None
+    del event.artifact.parts[:]
+    event.artifact.parts.extend(output_parts)
+    return event
+
+
 class A2aAgentExecutorConfig(BaseModel):
     """Configuration for the KAgent A2aAgentExecutor."""
 
@@ -63,7 +93,7 @@ class A2aAgentExecutor(AgentExecutor):
     - Per-request runner lifecycle (created fresh and closed after each request)
     - OpenTelemetry span attribute management
     - Enhanced error handling (Ollama-specific JSON parse errors, CancelledError)
-    - Partial event filtering to avoid duplicate aggregation during streaming
+    - A2A artifact streaming with kagent HITL status handling
     - Session naming from first message text
     - Request header forwarding to session state
     - Invocation ID tracking in final event metadata
@@ -544,7 +574,9 @@ class A2aAgentExecutor(AgentExecutor):
             if isinstance(tool, SubagentSessionProvider) and tool.subagent_session_id:
                 subagent_session_ids[tool.name] = tool.subagent_session_id
 
-        task_result_aggregator = TaskResultAggregator()
+        hitl_parts: list[Part] = []
+        terminal_status: TaskStatusUpdateEvent | None = None
+        agents_artifacts: dict[str, str] = {}
         async with Aclosing(runner.run_async(**run_args)) as agen:
             async for adk_event in agen:
                 # Capture the real invocation_id from the first ADK event that has one
@@ -559,21 +591,34 @@ class A2aAgentExecutor(AgentExecutor):
                 if getattr(adk_event, "usage_metadata", None) is not None:
                     last_usage_metadata = adk_event.usage_metadata
 
-                for a2a_event in convert_event_to_a2a_events(
+                a2a_events = convert_event_to_a2a_events(
                     adk_event,
                     invocation_context,
                     context.task_id,
                     context.context_id,
                     subagent_session_ids=subagent_session_ids or None,
-                ):
-                    # Only aggregate non-partial events to avoid duplicates from streaming chunks
-                    # Partial events are sent to frontend for display but not accumulated
-                    if not adk_event.partial:
-                        task_result_aggregator.process_event(a2a_event)
+                    agents_artifacts=agents_artifacts,
+                )
+
+                is_long_running = bool(getattr(adk_event, "long_running_tool_ids", None))
+                for a2a_event in a2a_events:
+                    if isinstance(a2a_event, TaskStatusUpdateEvent) and a2a_event.status.state in (
+                        TaskState.TASK_STATE_FAILED,
+                        TaskState.TASK_STATE_AUTH_REQUIRED,
+                        TaskState.TASK_STATE_INPUT_REQUIRED,
+                    ):
+                        terminal_status = a2a_event
+                    elif is_long_running and isinstance(a2a_event, TaskArtifactUpdateEvent):
+                        a2a_event = _split_hitl_artifact_parts(a2a_event, hitl_parts)
+                        if a2a_event is None:
+                            continue
                     await event_queue.enqueue_event(a2a_event)
 
+                if terminal_status is not None:
+                    break
+
                 # Break on confirmation events that use long running tools
-                if getattr(adk_event, "long_running_tool_ids", None):
+                if is_long_running:
                     break
 
         # Attach the last LLM usage to run_metadata so the A2A task_manager
@@ -581,45 +626,40 @@ class A2aAgentExecutor(AgentExecutor):
         if last_usage_metadata is not None:
             run_metadata[get_kagent_metadata_key("usage_metadata")] = serialize_metadata_value(last_usage_metadata)
 
-        # publish the task result event - this is final
-        if (
-            task_result_aggregator.task_state == TaskState.TASK_STATE_WORKING
-            and task_result_aggregator.task_status_message is not None
-            and task_result_aggregator.task_status_message.parts
-        ):
-            # if task is still working properly, publish the artifact update event as
-            # the final result according to a2a protocol.
+        if hitl_parts:
+            hitl_state = TaskState.TASK_STATE_INPUT_REQUIRED
+            for part in hitl_parts:
+                if not part.HasField("data"):
+                    continue
+                payload = MessageToDict(part.data)
+                if isinstance(payload, dict) and payload.get("name") == REQUEST_EUC_FUNCTION_CALL_NAME:
+                    hitl_state = TaskState.TASK_STATE_AUTH_REQUIRED
+                    break
             await event_queue.enqueue_event(
-                TaskArtifactUpdateEvent(
+                TaskStatusUpdateEvent(
                     task_id=context.task_id,
-                    last_chunk=True,
                     context_id=context.context_id,
-                    artifact=Artifact(
-                        artifact_id=str(uuid.uuid4()),
-                        parts=task_result_aggregator.task_status_message.parts,
+                    status=TaskStatus(
+                        state=hitl_state,
+                        timestamp=now_timestamp(),
+                        message=Message(
+                            message_id=str(uuid.uuid4()),
+                            role=Role.ROLE_AGENT,
+                            parts=hitl_parts,
+                            task_id=context.task_id,
+                            context_id=context.context_id,
+                        ),
                     ),
+                    metadata=run_metadata,
                 )
             )
-            # publish the final status update event
+        elif terminal_status is None:
             await event_queue.enqueue_event(
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
                         state=TaskState.TASK_STATE_COMPLETED,
                         timestamp=now_timestamp(),
-                    ),
-                    context_id=context.context_id,
-                    metadata=run_metadata,
-                )
-            )
-        else:
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=task_result_aggregator.task_state,
-                        timestamp=now_timestamp(),
-                        message=task_result_aggregator.task_status_message,
                     ),
                     context_id=context.context_id,
                     metadata=run_metadata,

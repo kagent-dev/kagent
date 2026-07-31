@@ -5,11 +5,19 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from a2a.server.events import Event as A2AEvent
-from a2a.types import Message, Role, Task, TaskState, TaskStatus, TaskStatusUpdateEvent
+from a2a.types import (
+    Artifact,
+    Message,
+    Role,
+    Task,
+    TaskArtifactUpdateEvent,
+    TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
+)
 from a2a.types import Part as A2APart
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
-from google.adk.flows.llm_flows.functions import REQUEST_EUC_FUNCTION_CALL_NAME
 from google.genai import types as genai_types
 from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
@@ -78,11 +86,7 @@ def _get_context_metadata(event: Event, invocation_context: InvocationContext) -
         raise ValueError("Invocation context cannot be None")
 
     try:
-        partial = getattr(event, "partial", False)
-        if not isinstance(partial, bool):
-            partial = False
         metadata: Dict[str, Any] = {
-            get_kagent_metadata_key("adk_partial"): partial,
             get_kagent_metadata_key("app_name"): invocation_context.app_name,
             get_kagent_metadata_key("user_id"): invocation_context.user_id,
             get_kagent_metadata_key("session_id"): invocation_context.session.id,
@@ -286,14 +290,15 @@ def _create_error_status_event(
     )
 
 
-def _create_status_update_event(
+def _create_artifact_update_event(
     message: Message,
     invocation_context: InvocationContext,
     event: Event,
     task_id: Optional[str] = None,
     context_id: Optional[str] = None,
-) -> TaskStatusUpdateEvent:
-    """Creates a TaskStatusUpdateEvent for running scenarios.
+    agents_artifacts: Optional[Dict[str, str]] = None,
+) -> Optional[TaskArtifactUpdateEvent]:
+    """Creates a TaskArtifactUpdateEvent for task output.
 
     Args:
       message: The A2A message to include.
@@ -304,43 +309,37 @@ def _create_status_update_event(
 
 
     Returns:
-      A TaskStatusUpdateEvent with RUNNING state.
+      A TaskArtifactUpdateEvent containing the converted output parts.
     """
-    status = TaskStatus(
-        state=TaskState.TASK_STATE_WORKING,
-        message=message,
-        timestamp=now_timestamp(),
-    )
+    metadata = _get_context_metadata(event, invocation_context)
+    partial = bool(getattr(event, "partial", False))
+    # Match Go adka2a.OutputArtifactPerEvent: reuse one artifact ID across
+    # partial deltas, append while partial, then replace+close on the final
+    # non-partial event (which may repeat the full text).
+    artifact_id = str(uuid.uuid4())
+    append = False
+    if agents_artifacts is not None:
+        agent_name = event.author or ""
+        active_artifact_id = agents_artifacts.get(agent_name)
+        if active_artifact_id:
+            artifact_id = active_artifact_id
+            append = partial
+        if partial:
+            agents_artifacts[agent_name] = artifact_id
+        elif active_artifact_id:
+            del agents_artifacts[agent_name]
 
-    has_auth_required = False
-    has_input_required = False
-    for part in message.parts:
-        if not part.HasField("data"):
-            continue
-        metadata = MessageToDict(part.metadata) if part.metadata else {}
-        if (
-            metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
-            != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-        ):
-            continue
-        if metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is not True:
-            continue
-        payload = MessageToDict(part.data)
-        if isinstance(payload, dict) and payload.get("name") == REQUEST_EUC_FUNCTION_CALL_NAME:
-            has_auth_required = True
-            break
-        has_input_required = True
-
-    if has_auth_required:
-        status.state = TaskState.TASK_STATE_AUTH_REQUIRED
-    elif has_input_required:
-        status.state = TaskState.TASK_STATE_INPUT_REQUIRED
-
-    return TaskStatusUpdateEvent(
+    return TaskArtifactUpdateEvent(
         task_id=task_id,
         context_id=context_id,
-        status=status,
-        metadata=_get_context_metadata(event, invocation_context),
+        append=append,
+        last_chunk=not partial,
+        artifact=Artifact(
+            artifact_id=artifact_id,
+            parts=list(message.parts),
+            metadata=metadata,
+        ),
+        metadata=metadata,
     )
 
 
@@ -350,6 +349,7 @@ def convert_event_to_a2a_events(
     task_id: Optional[str] = None,
     context_id: Optional[str] = None,
     subagent_session_ids: Optional[Dict[str, str]] = None,
+    agents_artifacts: Optional[Dict[str, str]] = None,
 ) -> List[A2AEvent]:
     """Converts a GenAI event to a list of A2A events.
 
@@ -360,6 +360,8 @@ def convert_event_to_a2a_events(
       context_id: Optional Context ID to use for generated events.
       subagent_session_ids: Optional mapping of tool name to pre-generated
         subagent session ID, threaded to ``convert_event_to_a2a_message``.
+      agents_artifacts: Mutable mapping used to reuse artifact IDs across
+        partial chunks from the same agent.
 
     Returns:
       A list of A2A events representing the converted ADK event.
@@ -379,6 +381,7 @@ def convert_event_to_a2a_events(
         if event.error_code and not _is_normal_completion(event.error_code):
             error_event = _create_error_status_event(event, invocation_context, task_id, context_id)
             a2a_events.append(error_event)
+            return a2a_events
 
         # Handle regular message content
         message = convert_event_to_a2a_message(
@@ -389,8 +392,16 @@ def convert_event_to_a2a_events(
             context_id=context_id,
         )
         if message:
-            running_event = _create_status_update_event(message, invocation_context, event, task_id, context_id)
-            a2a_events.append(running_event)
+            artifact_event = _create_artifact_update_event(
+                message,
+                invocation_context,
+                event,
+                task_id,
+                context_id,
+                agents_artifacts,
+            )
+            if artifact_event is not None:
+                a2a_events.append(artifact_event)
 
     except Exception as e:
         logger.error("Failed to convert event to A2A events: %s", e)

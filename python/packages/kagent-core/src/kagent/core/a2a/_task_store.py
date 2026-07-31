@@ -4,12 +4,10 @@ from datetime import timezone
 
 import httpx
 from a2a.server.tasks import TaskStore
-from a2a.types import ListTasksRequest, ListTasksResponse, Message, Task
+from a2a.types import ListTasksRequest, ListTasksResponse, Task
 from a2a.utils.constants import DEFAULT_LIST_TASKS_PAGE_SIZE
 from google.protobuf.json_format import MessageToDict, ParseDict
 from typing_extensions import override
-
-from kagent.core.a2a import read_metadata_value
 
 logger = logging.getLogger(__name__)
 
@@ -29,22 +27,9 @@ class KAgentTaskStore(TaskStore):
         # Event-based sync: track pending save operations
         self._save_events: dict[str, asyncio.Event] = {}
 
-    def _is_partial_event(self, item: Message) -> bool:
-        """Check if a history item is a partial ADK streaming event."""
-        metadata = MessageToDict(item.metadata) if item.metadata else {}
-        return read_metadata_value(metadata, "adk_partial") is True
-
-    def _clean_partial_events(self, history: list[Message]) -> list[Message]:
-        """Remove partial streaming events from history."""
-        return [item for item in history if not self._is_partial_event(item)]
-
     @override
     async def save(self, task: Task, context=None) -> None:
         """Save a task to KAgent.
-
-        Skips saving if the current event is a partial streaming chunk.
-        The adk_partial flag is set on event.metadata by AgentExecutor and
-        gets copied to task.metadata by TaskManager.
 
         Args:
             task: The task to save
@@ -53,13 +38,6 @@ class KAgentTaskStore(TaskStore):
         Raises:
             httpx.HTTPStatusError: If the API request fails
         """
-        # Clean any partial events from history before saving
-        history = list(task.history or [])
-        clean_history = self._clean_partial_events(history)
-        if len(clean_history) != len(history):
-            del task.history[:]
-            task.history.extend(clean_history)
-
         response = await self.client.post(
             "/api/tasks",
             json=MessageToDict(task),

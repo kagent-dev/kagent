@@ -30,7 +30,6 @@ from ._hitl_utils import (
 )
 from ._request_size import A2ARequestSizeLimitMiddleware
 from ._requests import KAgentRequestContextBuilder
-from ._task_result_aggregator import TaskResultAggregator
 from ._task_store import KAgentTaskStore
 from ._time import now_timestamp
 
@@ -51,7 +50,6 @@ __all__ = [
     "A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE",
     "A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT",
     "A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE",
-    "TaskResultAggregator",
     # HITL constants
     "KAGENT_HITL_DECISION_TYPE_KEY",
     "KAGENT_HITL_DECISION_TYPE_APPROVE",

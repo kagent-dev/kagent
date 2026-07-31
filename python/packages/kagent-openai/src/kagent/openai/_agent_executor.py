@@ -33,7 +33,7 @@ from a2a.types import (
 )
 from agents.agent import Agent
 from agents.run import Runner
-from kagent.core.a2a import TaskResultAggregator, get_kagent_metadata_key, now_timestamp
+from kagent.core.a2a import get_kagent_metadata_key, now_timestamp
 from pydantic import BaseModel
 
 from ._event_converter import convert_openai_event_to_a2a_events
@@ -101,8 +101,8 @@ class OpenAIAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Stream agent execution events and convert them to A2A events."""
-        task_result_aggregator = TaskResultAggregator()
         session_context = SessionContext(session_id=session.session_id)
+        emitted_text = False
 
         try:
             # Use run_streamed for streaming support
@@ -124,18 +124,12 @@ class OpenAIAgentExecutor(AgentExecutor):
                 )
 
                 for a2a_event in a2a_events:
-                    task_result_aggregator.process_event(a2a_event)
+                    if isinstance(a2a_event, TaskArtifactUpdateEvent):
+                        emitted_text = emitted_text or any(part.HasField("text") for part in a2a_event.artifact.parts)
                     await event_queue.enqueue_event(a2a_event)
 
-            # Handle final output
-            if hasattr(result, "final_output") and result.final_output:
-                final_message = Message(
-                    message_id=str(uuid.uuid4()),
-                    role=Role.ROLE_AGENT,
-                    parts=[Part(text=str(result.final_output))],
-                )
-
-                # Publish final artifact
+            # Some SDK runs expose a final output without a corresponding stream item.
+            if not emitted_text and hasattr(result, "final_output") and result.final_output:
                 await event_queue.enqueue_event(
                     TaskArtifactUpdateEvent(
                         task_id=context.task_id,
@@ -143,62 +137,21 @@ class OpenAIAgentExecutor(AgentExecutor):
                         context_id=context.context_id,
                         artifact=Artifact(
                             artifact_id=str(uuid.uuid4()),
-                            parts=final_message.parts,
+                            parts=[Part(text=str(result.final_output))],
                         ),
                     )
                 )
 
-                # Publish completion status
-                await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.TASK_STATE_COMPLETED,
-                            timestamp=now_timestamp(),
-                        ),
-                        context_id=context.context_id,
-                    )
+            await event_queue.enqueue_event(
+                TaskStatusUpdateEvent(
+                    task_id=context.task_id,
+                    status=TaskStatus(
+                        state=TaskState.TASK_STATE_COMPLETED,
+                        timestamp=now_timestamp(),
+                    ),
+                    context_id=context.context_id,
                 )
-            else:
-                # No output - publish based on aggregator state
-                if (
-                    task_result_aggregator.task_state == TaskState.TASK_STATE_WORKING
-                    and task_result_aggregator.task_status_message is not None
-                    and task_result_aggregator.task_status_message.parts
-                ):
-                    await event_queue.enqueue_event(
-                        TaskArtifactUpdateEvent(
-                            task_id=context.task_id,
-                            last_chunk=True,
-                            context_id=context.context_id,
-                            artifact=Artifact(
-                                artifact_id=str(uuid.uuid4()),
-                                parts=task_result_aggregator.task_status_message.parts,
-                            ),
-                        )
-                    )
-                    await event_queue.enqueue_event(
-                        TaskStatusUpdateEvent(
-                            task_id=context.task_id,
-                            status=TaskStatus(
-                                state=TaskState.TASK_STATE_COMPLETED,
-                                timestamp=now_timestamp(),
-                            ),
-                            context_id=context.context_id,
-                        )
-                    )
-                else:
-                    await event_queue.enqueue_event(
-                        TaskStatusUpdateEvent(
-                            task_id=context.task_id,
-                            status=TaskStatus(
-                                state=task_result_aggregator.task_state,
-                                timestamp=now_timestamp(),
-                                message=task_result_aggregator.task_status_message,
-                            ),
-                            context_id=context.context_id,
-                        )
-                    )
+            )
 
         except Exception as e:
             logger.error(f"Error during agent execution: {e}", exc_info=True)

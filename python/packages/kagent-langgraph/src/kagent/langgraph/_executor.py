@@ -19,12 +19,10 @@ from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
-    Artifact,
     Message,
     Part,
     Role,
     Task,
-    TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
@@ -37,7 +35,6 @@ from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_KEY,
     KAGENT_HITL_DECISION_TYPE_BATCH,
     KAGENT_HITL_DECISION_TYPE_REJECT,
-    TaskResultAggregator,
     extract_ask_user_answers_from_message,
     extract_batch_decisions_from_message,
     extract_decision_from_message,
@@ -136,8 +133,6 @@ class LangGraphAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Stream LangGraph events and convert them to A2A events."""
-        task_result_aggregator = TaskResultAggregator()
-
         # Track final state for interrupt detection
         final_state: dict[str, Any] | None = None
 
@@ -158,7 +153,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                 event, context.task_id, context.context_id, self.app_name, sent_message_ids
             )
             for a2a_event in a2a_events:
-                task_result_aggregator.process_event(a2a_event)
                 await event_queue.enqueue_event(a2a_event)
 
         # Check for interrupts after streaming completes
@@ -173,50 +167,16 @@ class LangGraphAgentExecutor(AgentExecutor):
             # Interrupt detected - input_required event already sent, so return early
             return
 
-        # Final artifacts are already sent through individual event processing
-
-        # publish the task result event - this is final
-        if (
-            task_result_aggregator.task_state == TaskState.TASK_STATE_WORKING
-            and task_result_aggregator.task_status_message is not None
-            and task_result_aggregator.task_status_message.parts
-        ):
-            # if task is still working properly, publish the artifact update event as
-            # the final result according to a2a protocol.
-            await event_queue.enqueue_event(
-                TaskArtifactUpdateEvent(
-                    task_id=context.task_id,
-                    last_chunk=True,
-                    context_id=context.context_id,
-                    artifact=Artifact(
-                        artifact_id=str(uuid.uuid4()),
-                        parts=task_result_aggregator.task_status_message.parts,
-                    ),
-                )
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                status=TaskStatus(
+                    state=TaskState.TASK_STATE_COMPLETED,
+                    timestamp=now_timestamp(),
+                ),
+                context_id=context.context_id,
             )
-            # public the final status update event
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=TaskState.TASK_STATE_COMPLETED,
-                        timestamp=now_timestamp(),
-                    ),
-                    context_id=context.context_id,
-                )
-            )
-        else:
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=task_result_aggregator.task_state,
-                        timestamp=now_timestamp(),
-                        message=task_result_aggregator.task_status_message,
-                    ),
-                    context_id=context.context_id,
-                )
-            )
+        )
 
     async def _handle_interrupt(
         self,
