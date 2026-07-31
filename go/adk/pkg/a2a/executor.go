@@ -326,6 +326,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 			if isEmptyDataPart(a2aPart) {
 				continue
 			}
+			a2aPart = preserveEmptyJSONArrays(a2aPart)
 			// Stamp kagent_subagent_session_id onto function_call DataParts.
 			if len(subagentSessionIDs) > 0 {
 				a2aPart = stampSubagentSessionID(a2aPart, subagentSessionIDs)

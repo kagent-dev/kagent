@@ -2,6 +2,7 @@ package a2a
 
 import (
 	"context"
+	"encoding/gob"
 	"encoding/json"
 	"maps"
 
@@ -10,6 +11,67 @@ import (
 	adksession "google.golang.org/adk/session"
 	"google.golang.org/genai"
 )
+
+// emptyJSONArray survives a2a-go's gob-based task deep copies while retaining
+// the original JSON representation. Gob decodes ordinary zero-length slices as
+// nil, which would otherwise change structured MCP output from [] to null.
+type emptyJSONArray struct{}
+
+func (emptyJSONArray) MarshalJSON() ([]byte, error) {
+	return []byte("[]"), nil
+}
+
+func init() {
+	gob.Register(emptyJSONArray{})
+}
+
+// preserveEmptyJSONArrays replaces only zero-length JSON arrays inside DataPart
+// data. It does not infer arrays from nil values or alter non-empty values.
+func preserveEmptyJSONArrays(part a2atype.Part) a2atype.Part {
+	switch p := part.(type) {
+	case *a2atype.DataPart:
+		cp := *p
+		cp.Data = preserveEmptyJSONArraysInMap(p.Data)
+		return &cp
+	case a2atype.DataPart:
+		p.Data = preserveEmptyJSONArraysInMap(p.Data)
+		return p
+	default:
+		return part
+	}
+}
+
+func preserveEmptyJSONArraysInMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	output := make(map[string]any, len(input))
+	for key, value := range input {
+		output[key] = preserveEmptyJSONArraysInValue(value)
+	}
+	return output
+}
+
+func preserveEmptyJSONArraysInValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return preserveEmptyJSONArraysInMap(typed)
+	case []any:
+		if typed == nil {
+			return typed
+		}
+		if len(typed) == 0 {
+			return emptyJSONArray{}
+		}
+		output := make([]any, len(typed))
+		for i, item := range typed {
+			output[i] = preserveEmptyJSONArraysInValue(item)
+		}
+		return output
+	default:
+		return value
+	}
+}
 
 // isEmptyDataPart returns true if the part is a DataPart with nil or empty Data.
 // The ADK processor emits such parts as cleanup signals for streaming partial
