@@ -265,6 +265,12 @@ controller:
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
 
+  # -- [Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity) rules for the controller pod.
+  affinity: {}
+
+  # -- [Topology spread constraints](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#pod-topology-spread-constraints) for the controller pod.
+  topologySpreadConstraints: []
+
   image:
     registry: ""
     repository: kagent-dev/kagent/controller
@@ -475,6 +481,12 @@ ui:
 
   # -- Node labels to match for `Pod` [scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/).
   nodeSelector: {}
+
+  # -- [Affinity](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity) rules for the UI pod.
+  affinity: {}
+
+  # -- [Topology spread constraints](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#pod-topology-spread-constraints) for the UI pod.
+  topologySpreadConstraints: []
   # -- Custom startup probe for the UI container.
   # Override to adjust thresholds, use exec-based probes, or change the health path.
   # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1

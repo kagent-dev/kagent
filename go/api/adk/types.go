@@ -90,6 +90,8 @@ type OpenAI struct {
 	Temperature         *float64 `json:"temperature,omitempty"`
 	Timeout             *int     `json:"timeout,omitempty"`
 	TopP                *float64 `json:"top_p,omitempty"`
+	// APIFormat selects chatCompletions (default) or responses.
+	APIFormat string `json:"api_format,omitempty"`
 
 	// TokenExchange configures dynamic bearer token acquisition
 	TokenExchange *TokenExchangeConfig `json:"token_exchange,omitempty"`
