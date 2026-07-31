@@ -114,44 +114,6 @@ func convertDataPartToGenAI(p *a2atype.DataPart, typeKey string) (*genai.Part, e
 	return adka2a.ToGenAIPart(p)
 }
 
-// stampSubagentSessionID adds kagent_subagent_session_id to function_call
-// DataParts when the tool name is present in subagentSessionIDs.
-// Part can be either a *a2atype.DataPart or a2atype.DataPart.
-func stampSubagentSessionID(part a2atype.Part, subagentSessionIDs map[string]string) a2atype.Part {
-	switch p := part.(type) {
-	case *a2atype.DataPart:
-		cp := *p
-		stampSubagentSessionIDOnDataPart(&cp, subagentSessionIDs)
-		return cp
-	case a2atype.DataPart:
-		cp := p
-		stampSubagentSessionIDOnDataPart(&cp, subagentSessionIDs)
-		return cp
-	default:
-		return part
-	}
-}
-
-func stampSubagentSessionIDOnDataPart(dp *a2atype.DataPart, subagentSessionIDs map[string]string) {
-	if dp == nil || len(subagentSessionIDs) == 0 {
-		return
-	}
-	if dp.Metadata == nil {
-		dp.Metadata = map[string]any{}
-	}
-	partType, _ := ReadMetadataValue(dp.Metadata, A2ADataPartMetadataTypeKey)
-	if partType != A2ADataPartMetadataTypeFunctionCall {
-		return
-	}
-	toolName, _ := dp.Data[PartKeyName].(string)
-	if toolName == "" {
-		return
-	}
-	if sessionID, ok := subagentSessionIDs[toolName]; ok && sessionID != "" {
-		dp.Metadata[GetKAgentMetadataKey("subagent_session_id")] = sessionID
-	}
-}
-
 // toA2AMetadataMap converts v to map[string]any via JSON so values placed in A2A
 func toA2AMetadataMap(v any) (map[string]any, error) {
 	if v == nil {
