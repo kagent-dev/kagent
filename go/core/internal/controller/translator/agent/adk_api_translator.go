@@ -523,6 +523,9 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 				effort := string(*model.Spec.OpenAI.ReasoningEffort)
 				openai.ReasoningEffort = &effort
 			}
+			if model.Spec.OpenAI.APIFormat != nil && *model.Spec.OpenAI.APIFormat != "" {
+				openai.APIFormat = string(*model.Spec.OpenAI.APIFormat)
+			}
 
 			if model.Spec.OpenAI.Organization != "" {
 				modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
