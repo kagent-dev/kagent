@@ -1072,6 +1072,16 @@ spec:
                         description: Cmd overrides the container entrypoint (the container's
                           command).
                         type: string
+                      deploymentAnnotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          DeploymentAnnotations are additional annotations added to the agent Deployment
+                          object itself. Unlike Annotations, which apply to the agent pods, these apply to
+                          the Deployment metadata. Keys set here take precedence over annotations inherited
+                          from the agent resource metadata. This has no effect when the agent runs with the
+                          Sandbox workload mode, as no Deployment is created in that mode.
+                        type: object
                       env:
                         description: Env are additional environment variables set
                           on the agent container.
@@ -6468,6 +6478,16 @@ spec:
                         description: Annotations are additional annotations added
                           to the agent pods.
                         type: object
+                      deploymentAnnotations:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          DeploymentAnnotations are additional annotations added to the agent Deployment
+                          object itself. Unlike Annotations, which apply to the agent pods, these apply to
+                          the Deployment metadata. Keys set here take precedence over annotations inherited
+                          from the agent resource metadata. This has no effect when the agent runs with the
+                          Sandbox workload mode, as no Deployment is created in that mode.
+                        type: object
                       env:
                         description: Env are additional environment variables set
                           on the agent container.
@@ -10981,6 +11001,26 @@ spec:
                               rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
                                 && has(self.valueFrom))
                           type: array
+                        isolateSessions:
+                          description: |-
+                            IsolateSessions controls per-call session isolation for Agent-type tools.
+                            Only valid when Type is Agent.
+
+                            When unset or false (default), every call this agent makes to the
+                            referenced sub-agent reuses the same A2A context_id, so all calls land
+                            in one shared sub-agent session (session continuity for stateful
+                            sub-agents).
+
+                            When true, each call mints a fresh context_id, so every invocation runs
+                            in its own isolated sub-agent session. This is required for parallel
+                            fan-out to a sub-agent: without it, N parallel calls in one turn
+                            collapse into a single shared sub-agent session instead of N
+                            independent ones.
+
+                            Cross-turn/conversation continuity for stateful sub-agents does not
+                            depend on this flag; it rides the x-kagent-root-context-id header,
+                            which stays stable regardless of IsolateSessions.
+                          type: boolean
                         mcpServer:
                           properties:
                             allowedHeaders:
@@ -11051,6 +11091,8 @@ spec:
                         rule: '!(has(self.agent) && self.type != ''Agent'')'
                       - message: type.agent must be specified for Agent filter.type
                         rule: '!(!has(self.agent) && self.type == ''Agent'')'
+                      - message: isolateSessions can only be set when type is Agent
+                        rule: '!(has(self.isolateSessions) && self.type != ''Agent'')'
                     maxItems: 20
                     type: array
                 type: object

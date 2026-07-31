@@ -531,10 +531,11 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 # mutate the cluster (upgrade then reverse-migrate it) and so cannot share the
 # e2e suite's cluster. The Go test performs the actual upgrade to the current
 # build by invoking `make helm-install-provider`. UPGRADE_FROM_VERSION defaults to
-# the latest release reachable from HEAD (scripts/upgrade-from-version.sh); CI runs
-# this against two targets via a matrix — that adjacent release and the previous
-# stable line's latest patch (scripts/prev-stable-version.sh) — and you can pin
-# either locally, e.g. `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
+# the latest version reachable from HEAD (scripts/upgrade-from-version.sh); CI runs
+# this against two targets via a matrix — that adjacent version and the previous
+# release line's latest published version (scripts/prev-stable-version.sh) — and
+# you can pin either locally, e.g.
+# `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
 # The previous install pins the bundled Postgres image to whatever the
 # upgrade-from release's own install target shipped (resolved inside
 # install-previous-release), so the baseline matches how that release actually
