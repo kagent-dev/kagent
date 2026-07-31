@@ -359,10 +359,11 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 				}
 
 				cfg.RemoteAgents = append(cfg.RemoteAgents, adk.RemoteAgentConfig{
-					Name:        utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
-					Url:         targetURL,
-					Headers:     headers,
-					Description: toolSpec.Description,
+					Name:            utils.ConvertToPythonIdentifier(utils.GetObjectRef(toolAgent)),
+					Url:             targetURL,
+					Headers:         headers,
+					Description:     toolSpec.Description,
+					IsolateSessions: tool.IsolateSessions != nil && *tool.IsolateSessions,
 				})
 			default:
 				return nil, nil, nil, fmt.Errorf("unknown agent type: %s", toolSpec.Type)

@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -131,6 +132,35 @@ func TestBuildHTTPClient_Timeout(t *testing.T) {
 	}
 	if client.Timeout != 42*time.Second {
 		t.Errorf("expected timeout 42s, got %v", client.Timeout)
+	}
+}
+
+// Should set a connect timeout on a cloned transport without mutating the
+// shared http.DefaultTransport.
+func TestBuildHTTPClient_ConnectTimeout(t *testing.T) {
+	def, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t.Fatalf("http.DefaultTransport is %T, want *http.Transport", http.DefaultTransport)
+	}
+	origDial := fmt.Sprintf("%p", def.DialContext)
+
+	seconds := 7
+	client, err := BuildHTTPClient(TransportConfig{ConnectTimeout: &seconds})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tr, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", client.Transport)
+	}
+	if tr == def {
+		t.Fatal("expected a cloned transport, got shared http.DefaultTransport")
+	}
+	if tr.DialContext == nil {
+		t.Fatal("expected DialContext to be set for connect timeout")
+	}
+	if newDial := fmt.Sprintf("%p", def.DialContext); newDial != origDial {
+		t.Error("http.DefaultTransport.DialContext was mutated by BuildHTTPClient")
 	}
 }
 

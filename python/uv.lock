@@ -27,10 +27,12 @@ members = [
 constraints = [
     { name = "aiohttp", specifier = ">=3.13.5" },
     { name = "cryptography", specifier = ">=48.0.0" },
+    { name = "httplib2", specifier = ">=0.32.0" },
     { name = "jaraco-context", specifier = ">=6.1.0" },
+    { name = "joserfc", specifier = ">=1.6.8" },
     { name = "mako", specifier = ">=1.3.12" },
     { name = "pyarrow", specifier = ">=23.0.1" },
-    { name = "pyasn1", specifier = ">=0.6.3" },
+    { name = "pyasn1", specifier = ">=0.6.4" },
     { name = "pyjwt", specifier = ">=2.13.0" },
     { name = "pyopenssl", specifier = ">=26.0.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
@@ -49,7 +51,7 @@ dev = [
 
 [[package]]
 name = "a2a-sdk"
-version = "0.3.23"
+version = "0.3.26"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-api-core" },
@@ -58,9 +60,9 @@ dependencies = [
     { name = "protobuf" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2d/6a/2fe24e0a85240a651006c12f79bdb37156adc760a96c44bc002ebda77916/a2a_sdk-0.3.23.tar.gz", hash = "sha256:7c46b8572c4633a2b41fced2833e11e62871e8539a5b3c782ba2ba1e33d213c2", size = 255265, upload-time = "2026-02-17T08:34:34.648Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/be/97/a6840e01795b182ce751ca165430d46459927cde9bfab838087cbb24aef7/a2a_sdk-0.3.26.tar.gz", hash = "sha256:44068e2d037afbb07ab899267439e9bc7eaa7ac2af94f1e8b239933c993ad52d", size = 274598, upload-time = "2026-04-09T15:21:13.902Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/20/77d119f19ab03449d3e6bc0b1f11296d593dae99775c1d891ab1e290e416/a2a_sdk-0.3.23-py3-none-any.whl", hash = "sha256:8c2f01dffbfdd3509eafc15c4684743e6ae75e69a5df5d6f87be214c948e7530", size = 145689, upload-time = "2026-02-17T08:34:33.263Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/d5/51f4ee1bf3b736add42a542d3c8a3fd3fa85f3d36c17972127defc46c26f/a2a_sdk-0.3.26-py3-none-any.whl", hash = "sha256:754e0573f6d33b225c1d8d51f640efa69cbbed7bdfb06ce9c3540ea9f58d4a91", size = 151016, upload-time = "2026-04-09T15:21:12.35Z" },
 ]
 
 [package.optional-dependencies]
@@ -289,7 +291,7 @@ wheels = [
 
 [[package]]
 name = "anthropic"
-version = "0.117.0"
+version = "0.120.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -301,9 +303,9 @@ dependencies = [
     { name = "sniffio" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/41/0d/8f71d535edb0d438f023bd825fb65f67c14fa88a2bd6b75f292a58a63de4/anthropic-0.117.0.tar.gz", hash = "sha256:98107f2b76439641e0ae2a1754087534b8f178dbab99d6eb1bc4b7bc8c744496", size = 989933, upload-time = "2026-07-16T19:36:13.07Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/92/5c/3331da4fc009d448008a50c78d86cc929e8c937cd1442245ce3f80561c4e/anthropic-0.120.0.tar.gz", hash = "sha256:6ba6007dc9b00365b20f6101a6618f5196ac1ceef81512e4b5cc0e7436d4975d", size = 1008042, upload-time = "2026-07-24T16:32:52.384Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/4c/917d21d6619a4475cdafc6d13a69fdb3b901ddac57e76caca5a25c117b6d/anthropic-0.117.0-py3-none-any.whl", hash = "sha256:451a0a6905f11dff7663d13e4ee5dbf909eb8942b1d049803c7b937a13ac47ec", size = 998327, upload-time = "2026-07-16T19:36:11.225Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/8a/8522bdf809e1f95f0d9c936540987a3f6afba01d2921a2bf488dedf836a8/anthropic-0.120.0-py3-none-any.whl", hash = "sha256:591bd531563ec7b63a1e138f5c11f14cb94edda99623b349c2ce2ece8e08b8a5", size = 1022602, upload-time = "2026-07-24T16:32:50.506Z" },
 ]
 
 [package.optional-dependencies]
@@ -867,7 +869,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3.0" },
     { name = "langgraph", specifier = ">=1.2.9" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.0" },
-    { name = "langsmith", extras = ["otel"], specifier = ">=0.10.6" },
+    { name = "langsmith", extras = ["otel"], specifier = ">=0.10.10" },
 ]
 
 [[package]]
@@ -1796,7 +1798,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=0.3.0" },
     { name = "langgraph", specifier = ">=1.2.9" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.0" },
-    { name = "langsmith", extras = ["otel"], specifier = ">=0.10.6" },
+    { name = "langsmith", extras = ["otel"], specifier = ">=0.10.10" },
 ]
 
 [[package]]
@@ -1814,14 +1816,14 @@ wheels = [
 
 [[package]]
 name = "httplib2"
-version = "0.22.0"
+version = "0.32.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyparsing" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3d/ad/2371116b22d616c194aa25ec410c9c6c37f23599dcd590502b74db197584/httplib2-0.22.0.tar.gz", hash = "sha256:d7a10bc5ef5ab08322488bde8c726eeee5c8618723fdb399597ec58f3d82df81", size = 351116, upload-time = "2023-03-21T22:29:37.214Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/84/f5/ccf58de92d61e3ad921119668f54ed36ca1d0cf5dcc5c1657dfb164fd78b/httplib2-0.32.0.tar.gz", hash = "sha256:48a0ef30a42db65d8f3399045e1d09ab0ba66e3b9efc360d07f80ea55d286025", size = 254283, upload-time = "2026-06-26T10:13:56.265Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/6c/d2fbdaaa5959339d53ba38e94c123e4e84b8fbc4b84beb0e70d7c1608486/httplib2-0.22.0-py3-none-any.whl", hash = "sha256:14ae0a53c1ba8f3d37e9e27cf37eabb0fb9980f435ba405d546948b009dd64dc", size = 96854, upload-time = "2023-03-21T22:29:35.683Z" },
+    { url = "https://files.pythonhosted.org/packages/33/a0/550eec327e5f5c7b732531c489f5307efec41f047b0d703bd4ca1e5ad2db/httplib2-0.32.0-py3-none-any.whl", hash = "sha256:dc6705cacdf3fb0a2aba7629fa33c90fd93e30035db0c157325826be177e4816", size = 93148, upload-time = "2026-06-26T10:13:54.985Z" },
 ]
 
 [[package]]
@@ -2051,14 +2053,14 @@ wheels = [
 
 [[package]]
 name = "joserfc"
-version = "1.6.4"
+version = "1.7.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/de/c6/de8fdbdfa75c8ca04fead38a82d573df8a82906e984c349d58665f459558/joserfc-1.6.4.tar.gz", hash = "sha256:34ce5f499bfcc5e9ad4cc75077f9278ab3227b71da9aaf28f9ab705f8a560d3c", size = 231866, upload-time = "2026-04-13T13:15:40.632Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/e0/27a6a081ae25420eda6768ceae05d7022a7f2447f420588843f2a44e4298/joserfc-1.7.4.tar.gz", hash = "sha256:b3bc561672ae541b17a9237053b48a03dacddd92d68047b3ecdfb4b5714a88ed", size = 234027, upload-time = "2026-07-19T15:43:02.739Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/f7/210b27752e972edb36d239315b08d3eb6b14824cc4a590da2337d195260b/joserfc-1.6.4-py3-none-any.whl", hash = "sha256:3e4a22b509b41908989237a045e25c8308d5fd47ab96bdae2dd8057c6451003a", size = 70464, upload-time = "2026-04-13T13:15:39.259Z" },
+    { url = "https://files.pythonhosted.org/packages/f9/bf/249dcd99b3376375910b7fa922383b57792975c8758f50d44612e749226c/joserfc-1.7.4-py3-none-any.whl", hash = "sha256:32d46c2cd5e3203c13e87a6c61333cab310b1ba80cd54b4c4f386a848a122463", size = 71000, upload-time = "2026-07-19T15:43:01.299Z" },
 ]
 
 [[package]]
@@ -2186,7 +2188,7 @@ requires-dist = [
     { name = "agentsts-adk", editable = "packages/agentsts-adk" },
     { name = "agentsts-core", editable = "packages/agentsts-core" },
     { name = "aiofiles", specifier = ">=24.1.0" },
-    { name = "anthropic", extras = ["vertex"], specifier = ">=0.117.0" },
+    { name = "anthropic", extras = ["vertex"], specifier = ">=0.120.0" },
     { name = "anyio", specifier = ">=4.14.2" },
     { name = "boto3", specifier = ">=1.28.57" },
     { name = "fastapi", specifier = ">=0.115.1" },
@@ -2236,7 +2238,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", extras = ["http-server"], specifier = ">=0.3.23" },
+    { name = "a2a-sdk", extras = ["http-server"], specifier = ">=0.3.26" },
     { name = "opentelemetry-api", specifier = ">=1.38.0,<1.39.0" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.38.0,<1.39.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.38.0,<1.39.0" },
@@ -2276,7 +2278,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", extras = ["http-server"], specifier = ">=0.3.23" },
+    { name = "a2a-sdk", extras = ["http-server"], specifier = ">=0.3.26" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "crewai", extras = ["tools"], specifier = ">=1.2.0" },
     { name = "fastapi", specifier = ">=0.100.0" },
@@ -2327,7 +2329,7 @@ requires-dist = [
     { name = "kagent-core", editable = "packages/kagent-core" },
     { name = "langchain-core", specifier = ">=0.3.0" },
     { name = "langgraph", specifier = ">=0.6.5" },
-    { name = "langsmith", extras = ["otel"], specifier = ">=0.10.6" },
+    { name = "langsmith", extras = ["otel"], specifier = ">=0.10.10" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
@@ -2627,7 +2629,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.10.6"
+version = "0.10.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2645,9 +2647,9 @@ dependencies = [
     { name = "xxhash" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/93/7e/05db6baaed1383386afd34e5d8fbf0b6cff1e87ed6b5c98d444511af6490/langsmith-0.10.6.tar.gz", hash = "sha256:6ec5b26bb57ee41363c07eb2884f24d69910b8d6bc26cae1f9e367af15259f1b", size = 4729044, upload-time = "2026-07-17T17:14:02.897Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/38/c709ff119172e490a8e8bccd10deeda8da239f15f11521009a58c7b904ac/langsmith-0.10.10.tar.gz", hash = "sha256:e0e175e9dd8de6d96dbb55244482e20590a2691ec7c5e087afc1f302e33d98fe", size = 4739726, upload-time = "2026-07-23T04:18:56.246Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/d5/2d8d84f5330aa773bae18644aaf7e3288b2f082e31640080784a7d908a24/langsmith-0.10.6-py3-none-any.whl", hash = "sha256:094285b755224f49fd396c3672b0f747294c7b8d9e8278a81d76b487b5cfdb56", size = 661257, upload-time = "2026-07-17T17:14:01.118Z" },
+    { url = "https://files.pythonhosted.org/packages/3e/ec/0b2348bea502e07cb3c2a6e5109423debd82aef9fcef6f807c159ceb5297/langsmith-0.10.10-py3-none-any.whl", hash = "sha256:eb5e9da635f5853fc657cddd1c27f40a8e8b2f00c38051555d608c8e57eb605d", size = 675232, upload-time = "2026-07-23T04:18:54.399Z" },
 ]
 
 [package.optional-dependencies]
@@ -3917,11 +3919,11 @@ wheels = [
 
 [[package]]
 name = "pyasn1"
-version = "0.6.3"
+version = "0.6.4"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5c/5f/6583902b6f79b399c9c40674ac384fd9cd77805f9e6205075f828ef11fb2/pyasn1-0.6.3.tar.gz", hash = "sha256:697a8ecd6d98891189184ca1fa05d1bb00e2f84b5977c481452050549c8a72cf", size = 148685, upload-time = "2026-03-17T01:06:53.382Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/9a/23310166d960def5897e91fe20e5b724601b02a22e84ba1f94232c0b7f67/pyasn1-0.6.4.tar.gz", hash = "sha256:9c447d8431c947fe4c8febc4ed9e760bc29011a5b01e5c74b67025bd9fb8ce81", size = 151262, upload-time = "2026-07-09T01:12:33.988Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/a0/7d793dce3fa811fe047d6ae2431c672364b462850c6235ae306c0efd025f/pyasn1-0.6.3-py3-none-any.whl", hash = "sha256:a80184d120f0864a52a073acc6fc642847d0be408e7c7252f31390c0f4eadcde", size = 83997, upload-time = "2026-03-17T01:06:52.036Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/3b/6163796d69c3977d1e4287bea4a6979161cbbdd170ebb430511e8e1999ce/pyasn1-0.6.4-py3-none-any.whl", hash = "sha256:deda9277cfd454080ec40b207fb6df82206a3a2688735233cdcd8d3d565f088b", size = 84410, upload-time = "2026-07-09T01:12:32.92Z" },
 ]
 
 [[package]]

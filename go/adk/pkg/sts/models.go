@@ -40,10 +40,10 @@ type TokenExchangeRequest struct {
 	ActorToken string `json:"actor_token,omitempty"`
 	// ActorTokenType is the type of the actor_token (required if ActorToken is set)
 	ActorTokenType TokenType `json:"actor_token_type,omitempty"`
-	// Resource is the logical name of the target service or resource (optional)
-	Resource any `json:"resource,omitempty"` // Can be string or []string
-	// Audience is the logical name of the target service or resource (optional)
-	Audience any `json:"audience,omitempty"` // Can be string or []string
+	// Resource holds RFC 8707 resource indicators; repeatable (optional)
+	Resource []string `json:"resource,omitempty"`
+	// Audience holds RFC 8693 audiences; repeatable (optional)
+	Audience []string `json:"audience,omitempty"`
 	// Scope is the scope of the requested token (optional)
 	Scope string `json:"scope,omitempty"`
 	// RequestedTokenType is the type of the requested token (optional)

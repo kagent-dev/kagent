@@ -58,6 +58,7 @@ type configHashInput struct {
 type podRuntimeInputs struct {
 	initContainers  []corev1.Container
 	envVars         []corev1.EnvVar
+	envFrom         []corev1.EnvFromSource
 	volumes         []corev1.Volume
 	volumeMounts    []corev1.VolumeMount
 	securityContext *corev1.SecurityContext
@@ -157,13 +158,33 @@ func (m manifestContext) podLabels() map[string]string {
 	return podLabels
 }
 
+// objectMeta returns the metadata shared by every object emitted for an agent. The
+// annotations inherited from the agent resource are cloned, so that builders which
+// extend them never mutate the agent object held by the client cache.
 func (m manifestContext) objectMeta() metav1.ObjectMeta {
 	return metav1.ObjectMeta{
 		Name:        m.agent.GetName(),
 		Namespace:   m.agent.GetNamespace(),
-		Annotations: m.agent.GetAnnotations(),
+		Annotations: maps.Clone(m.agent.GetAnnotations()),
 		Labels:      m.podLabels(),
 	}
+}
+
+// deploymentObjectMeta returns the object metadata for the agent Deployment. It extends
+// objectMeta with the user-supplied deploymentAnnotations, which take precedence over
+// annotations inherited from the agent resource metadata.
+func (m manifestContext) deploymentObjectMeta() metav1.ObjectMeta {
+	meta := m.objectMeta()
+	if len(m.deployment.DeploymentAnnotations) == 0 {
+		return meta
+	}
+
+	if meta.Annotations == nil {
+		meta.Annotations = map[string]string{}
+	}
+	maps.Copy(meta.Annotations, m.deployment.DeploymentAnnotations)
+
+	return meta
 }
 
 func (a *adkApiTranslator) buildConfigSecret(
@@ -327,6 +348,7 @@ func buildPodRuntime(
 	return &podRuntimeInputs{
 		initContainers:      initContainers,
 		envVars:             envVars,
+		envFrom:             manifestCtx.deployment.EnvFrom,
 		volumes:             volumes,
 		volumeMounts:        volumeMounts,
 		securityContext:     buildContainerSecurityContext(manifestCtx.deployment.SecurityContext, needCodeExecIsolation),
@@ -538,6 +560,7 @@ func buildPodTemplate(
 				Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
 				Resources:       dep.Resources,
 				Env:             runtimeInputs.envVars,
+				EnvFrom:         runtimeInputs.envFrom,
 				ReadinessProbe: &corev1.Probe{
 					ProbeHandler: corev1.ProbeHandler{
 						HTTPGet: &corev1.HTTPGetAction{
@@ -596,7 +619,7 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 	return []client.Object{
 		&appsv1.Deployment{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-			ObjectMeta: manifestCtx.objectMeta(),
+			ObjectMeta: manifestCtx.deploymentObjectMeta(),
 			Spec: appsv1.DeploymentSpec{
 				Replicas: manifestCtx.deployment.Replicas,
 				Strategy: appsv1.DeploymentStrategy{
