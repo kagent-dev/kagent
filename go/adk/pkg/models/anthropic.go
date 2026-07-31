@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -11,7 +12,15 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/vertex"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/go-logr/logr"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
+
+// vertexAIScope is the OAuth2 scope required for Vertex AI. This mirrors the
+// scope used internally by anthropic-sdk-go's vertex.WithGoogleAuth when no
+// scopes are supplied, so behavior stays consistent when we resolve
+// credentials ourselves via composeVertexHTTPClient.
+const vertexAIScope = "https://www.googleapis.com/auth/cloud-platform"
 
 // anthropicPassthroughOpts returns a per-request option that sets the Anthropic API key
 // from the bearer token in ctx when APIKeyPassthrough is enabled. The Anthropic SDK sends
@@ -88,25 +97,68 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 	}, nil
 }
 
+// composeVertexHTTPClient returns an *http.Client that layers OAuth2 token
+// injection on top of the caller-supplied base transport (custom TLS, custom
+// headers, connect timeout, etc.). It preserves base.Timeout so the request
+// timeout from TransportConfig is honored.
+//
+// The composed client is what makes it safe to hand a fully-customized
+// *http.Client to the Anthropic SDK for Vertex: without this, either the
+// Vertex option would wipe our custom transport stack, or a naive
+// WithHTTPClient would wipe the SDK's OAuth2-wrapped client.
+func composeVertexHTTPClient(base *http.Client, tokenSource oauth2.TokenSource) *http.Client {
+	baseTransport := base.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	return &http.Client{
+		Timeout: base.Timeout,
+		Transport: &oauth2.Transport{
+			Base:   baseTransport,
+			Source: tokenSource,
+		},
+	}
+}
+
 // NewAnthropicVertexAIModelWithLogger creates an Anthropic model that authenticates
 // via Google Cloud Vertex AI using Application Default Credentials (ADC).
 // This is used for the GeminiAnthropic / AnthropicVertexAI provider type.
+//
+// Composition contract:
+//   - vertex.WithCredentials is applied first so its base URL and its
+//     URL-rewrite/anthropic_version middleware are registered.
+//   - option.WithHTTPClient is applied last with a client we build ourselves
+//     from the user's TransportConfig, wrapped by an oauth2.Transport so the
+//     custom TLS / headers / timeout stack AND the Google OAuth2 token are
+//     both applied on the wire. Base URL and middleware are stored on
+//     separate fields on the SDK's request config and middleware is additive,
+//     so only the HTTP client field is overridden.
 func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicConfig, region, projectID string, logger logr.Logger) (*AnthropicModel, error) {
-	var opts []option.RequestOption
-
-	// Create HTTP client with timeout, custom headers, and TLS.
-	// Must come BEFORE vertex.WithGoogleAuth: WithHTTPClient options are
-	// applied in order and last one wins, so the Vertex auth client must
-	// be set last to avoid being overwritten.
+	// Build the caller's HTTP client (TLS, headers, timeout).
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err
 	}
-	opts = append(opts, option.WithHTTPClient(httpClient))
 
-	// Must be last: last WithHTTPClient wins, so Vertex auth must come after
-	// any custom HTTP client.
-	opts = append(opts, vertex.WithGoogleAuth(ctx, region, projectID))
+	// Resolve Google Application Default Credentials ourselves so we can
+	// wrap the token source into our transport stack. This mirrors what
+	// vertex.WithGoogleAuth does internally, but avoids its panic-on-error
+	// behavior and avoids the double credential lookup that would happen
+	// if we let WithGoogleAuth build its own HTTP client only to discard it.
+	creds, err := google.FindDefaultCredentials(ctx, vertexAIScope)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find Google default credentials for Vertex AI: %w", err)
+	}
+
+	composedClient := composeVertexHTTPClient(httpClient, creds.TokenSource)
+
+	opts := []option.RequestOption{
+		// Registers Vertex base URL + URL-rewrite middleware.
+		vertex.WithCredentials(ctx, region, projectID, creds),
+		// Overrides only the HTTP client field. Base URL and middleware
+		// registered above survive.
+		option.WithHTTPClient(composedClient),
+	}
 
 	client := anthropic.NewClient(opts...)
 	logger.Info("Initialized Anthropic Vertex AI model", "model", config.Model, "region", region, "project", projectID)
