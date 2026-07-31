@@ -200,59 +200,6 @@ func TestMessageToGenAIContent_NilMessage(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// stampSubagentSessionID
-// ---------------------------------------------------------------------------
-
-func TestStampSubagentSessionID_FunctionCallPart(t *testing.T) {
-	subagentIDs := map[string]string{"k8s_agent": "session-abc"}
-
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			PartKeyName: "k8s_agent",
-			PartKeyArgs: map[string]any{"request": "list pods"},
-		},
-		Metadata: map[string]any{
-			adka2a.ToA2AMetaKey("type"): A2ADataPartMetadataTypeFunctionCall,
-		},
-	}
-	updated := stampSubagentSessionID(dp, subagentIDs)
-	updatedDP, ok := updated.(a2atype.DataPart)
-	if !ok {
-		t.Fatalf("updated part type = %T, want a2atype.DataPart", updated)
-	}
-
-	sessionID, has := updatedDP.Metadata[GetKAgentMetadataKey("subagent_session_id")]
-	if !has {
-		t.Fatal("expected kagent_subagent_session_id in metadata, not found")
-	}
-	if sessionID != "session-abc" {
-		t.Errorf("session_id = %q, want session-abc", sessionID)
-	}
-}
-
-func TestStampSubagentSessionID_UnknownTool(t *testing.T) {
-	subagentIDs := map[string]string{"k8s_agent": "session-abc"}
-
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			PartKeyName: "unknown_tool",
-		},
-		Metadata: map[string]any{
-			adka2a.ToA2AMetaKey("type"): A2ADataPartMetadataTypeFunctionCall,
-		},
-	}
-	updated := stampSubagentSessionID(dp, subagentIDs)
-	updatedDP, ok := updated.(a2atype.DataPart)
-	if !ok {
-		t.Fatalf("updated part type = %T, want a2atype.DataPart", updated)
-	}
-
-	if _, ok := updatedDP.Metadata[GetKAgentMetadataKey("subagent_session_id")]; ok {
-		t.Error("expected no subagent_session_id for unknown tool")
-	}
-}
-
-// ---------------------------------------------------------------------------
 // toA2AMetadataMap
 // ---------------------------------------------------------------------------
 
