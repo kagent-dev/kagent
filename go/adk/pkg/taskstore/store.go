@@ -13,13 +13,9 @@ import (
 	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 )
 
-// Constants for partial-event metadata keys (inlined to avoid import cycle).
 const (
-	metadataKeyKagentPartial    = "kagent_partial"
-	metadataKeyKagentAdkPartial = "kagent_adk_partial"
-	metadataKeyAdkPartial       = "adk_partial"
-	headerContentType           = "Content-Type"
-	contentTypeJSON             = "application/json"
+	headerContentType = "Content-Type"
+	contentTypeJSON   = "application/json"
 )
 
 // KAgentTaskStore persists A2A tasks to KAgent via REST API and implements
@@ -48,64 +44,12 @@ type KAgentTaskResponse struct {
 	Message string        `json:"message,omitempty"`
 }
 
-// isPartialMeta checks if a metadata map has a partial flag set to true.
-// It checks the canonical kagent key (kagent_adk_partial) as well as legacy keys
-// (adk_partial, kagent_partial) so that events from any prefix are recognised.
-func isPartialMeta(meta map[string]any) bool {
-	if meta == nil {
-		return false
-	}
-	for _, key := range []string{metadataKeyKagentPartial, metadataKeyAdkPartial, metadataKeyKagentAdkPartial} {
-		if partial, ok := meta[key].(bool); ok && partial {
-			return true
-		}
-	}
-	return false
-}
-
-// cleanPartialEvents removes partial streaming events from history.
-func cleanPartialEvents(history []*a2atype.Message) []*a2atype.Message {
-	var cleaned []*a2atype.Message
-	for _, item := range history {
-		if item != nil && isPartialMeta(item.Metadata) {
-			continue
-		}
-		if item != nil && len(item.Parts) > 0 {
-			cleaned = append(cleaned, item)
-		}
-	}
-	return cleaned
-}
-
-// cleanPartialArtifacts removes partial streaming artifacts.
-func cleanPartialArtifacts(artifacts []*a2atype.Artifact) []*a2atype.Artifact {
-	var cleaned []*a2atype.Artifact
-	for _, a := range artifacts {
-		if a != nil && isPartialMeta(a.Metadata) {
-			continue
-		}
-		if a != nil && len(a.Parts) > 0 {
-			cleaned = append(cleaned, a)
-		}
-	}
-	return cleaned
-}
-
 func (s *KAgentTaskStore) saveTask(ctx context.Context, task *a2atype.Task) (a2ataskstore.TaskVersion, error) {
 	if task == nil {
 		return a2ataskstore.TaskVersionMissing, fmt.Errorf("task cannot be nil")
 	}
 
-	// Work on a shallow copy so the caller's task is not mutated.
-	taskCopy := *task
-	if taskCopy.History != nil {
-		taskCopy.History = cleanPartialEvents(taskCopy.History)
-	}
-	if taskCopy.Artifacts != nil {
-		taskCopy.Artifacts = cleanPartialArtifacts(taskCopy.Artifacts)
-	}
-
-	taskJSON, err := json.Marshal(&taskCopy)
+	taskJSON, err := json.Marshal(task)
 	if err != nil {
 		return a2ataskstore.TaskVersionMissing, fmt.Errorf("failed to marshal task: %w", err)
 	}

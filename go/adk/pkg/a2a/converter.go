@@ -2,8 +2,6 @@ package a2a
 
 import (
 	"context"
-	"encoding/json"
-	"maps"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"google.golang.org/adk/v2/server/adka2a/v2"
@@ -17,42 +15,6 @@ import (
 func isEmptyDataPart(part *a2atype.Part) bool {
 	dp := asDataPart(part)
 	return dp != nil && len(dp) == 0
-}
-
-// filterTextParts returns only TextParts from the given parts.
-func filterTextParts(parts a2atype.ContentParts) a2atype.ContentParts {
-	var out a2atype.ContentParts
-	for _, p := range parts {
-		if p != nil && p.Text() != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
-// messageToGenAIContent converts an A2A message to *genai.Content using kagent
-// a2aPartConverter logic: handle kagent_type and adk_type DataParts explicitly,
-// drop unrecognised DataParts (e.g. HITL decision parts).
-func messageToGenAIContent(ctx context.Context, msg *a2atype.Message) (*genai.Content, error) {
-	if msg == nil {
-		return nil, nil
-	}
-	parts := make([]*genai.Part, 0, len(msg.Parts))
-	for _, part := range msg.Parts {
-		genaiPart, err := a2aPartConverter(ctx, msg, part)
-		if err != nil {
-			return nil, err
-		}
-		if genaiPart == nil {
-			continue
-		}
-		parts = append(parts, genaiPart)
-	}
-	var role genai.Role = genai.RoleUser
-	if msg.Role == a2atype.MessageRoleAgent {
-		role = genai.RoleModel
-	}
-	return genai.NewContentFromParts(parts, role), nil
 }
 
 // a2aPartConverter converts inbound A2A parts to GenAI parts.
@@ -80,6 +42,19 @@ func a2aPartConverter(_ context.Context, _ a2atype.Event, part *a2atype.Part) (*
 	// DataPart with no recognised type metadata (e.g. {decision_type: "approve"}).
 	// Drop it — returning nil excludes it from the GenAI content, matching Python.
 	return nil, nil
+}
+
+// genAIPartConverter lets the upstream executor own artifact construction
+// while preserving kagent's part filtering and long-running-tool metadata.
+func genAIPartConverter(_ context.Context, event *adksession.Event, part *genai.Part) (*a2atype.Part, error) {
+	converted, err := adka2a.ToA2APart(part, event.LongRunningToolIDs)
+	if err != nil {
+		return nil, err
+	}
+	if isEmptyDataPart(converted) {
+		return nil, nil
+	}
+	return converted, nil
 }
 
 // convertDataPartToGenAI converts a DataPart with a type metadata key
@@ -112,47 +87,4 @@ func convertDataPartToGenAI(data map[string]any, metadata map[string]any, typeKe
 		}
 	}
 	return adka2a.ToGenAIPart(a2atype.NewDataPart(data))
-}
-
-// toA2AMetadataMap converts v to map[string]any via JSON so values placed in A2A
-func toA2AMetadataMap(v any) (map[string]any, error) {
-	if v == nil {
-		return nil, nil
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	var m map[string]any
-	if err := json.Unmarshal(b, &m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-// buildEventMeta merges the base metadata with per-event fields such as
-// invocation_id, author, branch, usage_metadata, etc.
-func buildEventMeta(baseMeta map[string]any, adkEvent *adksession.Event) map[string]any {
-	result := maps.Clone(baseMeta)
-	if adkEvent == nil {
-		return result
-	}
-	for k, v := range map[string]string{
-		"invocation_id": adkEvent.InvocationID,
-		"author":        adkEvent.Author,
-		"branch":        adkEvent.Branch,
-	} {
-		if v != "" {
-			result[adka2a.ToA2AMetaKey(k)] = v
-		}
-	}
-	if adkEvent.UsageMetadata != nil {
-		if um, err := toA2AMetadataMap(adkEvent.UsageMetadata); err == nil && um != nil {
-			result[adka2a.ToA2AMetaKey("usage_metadata")] = um
-		}
-	}
-	if adkEvent.ErrorCode != "" {
-		result[adka2a.ToA2AMetaKey("error_code")] = adkEvent.ErrorCode
-	}
-	return result
 }

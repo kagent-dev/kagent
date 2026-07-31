@@ -1,67 +1,152 @@
 package a2a
 
 import (
+	"context"
+	"iter"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/go-logr/logr"
 )
 
-// TestNewAgentMessage_StampsContextAndTaskID verifies agent messages carry the
-// request's context and task ids. A2A allows omitting them (the task is the
-// canonical carrier), but stamping them lets consumers that flatten task.history
-// key each message to its task without backfilling.
-func TestNewAgentMessage_StampsContextAndTaskID(t *testing.T) {
-	reqCtx := &a2asrv.ExecutorContext{
-		ContextID: "ctx-xyz",
-		TaskID:    a2atype.TaskID("task-xyz"),
-	}
+type recordingExecutor struct {
+	message       *a2atype.Message
+	cleanupCalled bool
+	events        []a2atype.Event
+}
 
-	msg := newAgentMessage(reqCtx, a2atype.NewTextPart("hello"))
-
-	if msg.ContextID != "ctx-xyz" {
-		t.Errorf("ContextID = %q, want %q", msg.ContextID, "ctx-xyz")
-	}
-	if msg.TaskID != a2atype.TaskID("task-xyz") {
-		t.Errorf("TaskID = %q, want %q", msg.TaskID, a2atype.TaskID("task-xyz"))
-	}
-	if msg.Role != a2atype.MessageRoleAgent {
-		t.Errorf("Role = %q, want %q", msg.Role, a2atype.MessageRoleAgent)
+func (e *recordingExecutor) Execute(_ context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		e.message = reqCtx.Message
+		if e.events != nil {
+			for _, event := range e.events {
+				if !yield(event, nil) {
+					return
+				}
+			}
+			return
+		}
+		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, nil), nil)
 	}
 }
 
-// TestNewAgentStatusEvent_MessageCarriesIDs verifies the per-event emission seam:
-// the working status event the executor writes (and that is persisted into
-// task.history) carries an agent message stamped with the request's context/task
-// ids. This is the property the send guard depends on — without it the persisted
-// message keys differently from its locally-streamed counterpart and falsely
-// blocks the next send. Mirrors the Python converter test.
-func TestNewAgentStatusEvent_MessageCarriesIDs(t *testing.T) {
+func (e *recordingExecutor) Cancel(_ context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
+	}
+}
+
+func (e *recordingExecutor) Cleanup(context.Context, *a2asrv.ExecutorContext, a2atype.SendMessageResult, error) {
+	e.cleanupCalled = true
+}
+
+func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
+	decision := a2atype.NewMessage(
+		a2atype.MessageRoleUser,
+		dataPart(map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove}, nil),
+	)
+	storedTask := &a2atype.Task{
+		ID:        "task-1",
+		ContextID: "ctx-1",
+		Status: a2atype.TaskStatus{
+			State: a2atype.TaskStateInputRequired,
+			Message: a2atype.NewMessage(
+				a2atype.MessageRoleAgent,
+				dataPart(
+					map[string]any{
+						"name": "adk_request_confirmation",
+						"id":   "confirm-1",
+						"args": map[string]any{
+							"originalFunctionCall": map[string]any{
+								"name": "delete_file",
+								"args": map[string]any{"path": "/tmp/x"},
+								"id":   "call-1",
+							},
+						},
+					},
+					map[string]any{
+						"kagent_type":            "function_call",
+						"kagent_is_long_running": true,
+					},
+				),
+			),
+		},
+		History: []*a2atype.Message{decision},
+	}
 	reqCtx := &a2asrv.ExecutorContext{
-		ContextID: "ctx-xyz",
-		TaskID:    a2atype.TaskID("task-xyz"),
+		TaskID:     "task-1",
+		ContextID:  "ctx-1",
+		Message:    decision,
+		StoredTask: storedTask,
 	}
-	meta := map[string]any{"k": "v"}
+	builtin := &recordingExecutor{}
+	executor := &KAgentExecutor{builtin: builtin, logger: logr.Discard()}
 
-	ev := newAgentStatusEvent(reqCtx, a2atype.ContentParts{a2atype.NewTextPart("hi")}, meta)
+	var events []a2atype.Event
+	for event, err := range executor.Execute(context.Background(), reqCtx) {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		events = append(events, event)
+	}
 
-	if ev.Status.State != a2atype.TaskStateWorking {
-		t.Errorf("State = %q, want %q", ev.Status.State, a2atype.TaskStateWorking)
+	if len(events) != 2 {
+		t.Fatalf("Execute() emitted %d events, want decision acknowledgement and delegated event", len(events))
 	}
-	if ev.Status.Message == nil {
-		t.Fatal("status message is nil")
+	decisionAck, ok := events[0].(*a2atype.TaskStatusUpdateEvent)
+	if !ok || decisionAck.Status.State != a2atype.TaskStateWorking || decisionAck.Status.Message != decision {
+		t.Fatalf("first event = %#v, want original decision acknowledgement", events[0])
 	}
-	if ev.Status.Message.ContextID != "ctx-xyz" {
-		t.Errorf("message ContextID = %q, want %q", ev.Status.Message.ContextID, "ctx-xyz")
+	working, ok := events[1].(*a2atype.TaskStatusUpdateEvent)
+	if !ok || working.Status.State != a2atype.TaskStateWorking || working.Status.Message != nil {
+		t.Fatalf("delegated event = %#v, want content-free working status", events[1])
 	}
-	if ev.Status.Message.TaskID != a2atype.TaskID("task-xyz") {
-		t.Errorf("message TaskID = %q, want %q", ev.Status.Message.TaskID, a2atype.TaskID("task-xyz"))
+	if len(storedTask.History) != 0 {
+		t.Fatalf("stored task history len = %d, want pre-appended decision removed", len(storedTask.History))
 	}
-	// The event itself also carries the ids (from reqCtx), matching the message.
-	if ev.ContextID != "ctx-xyz" {
-		t.Errorf("event ContextID = %q, want %q", ev.ContextID, "ctx-xyz")
+	if builtin.message == nil || len(builtin.message.Parts) != 1 {
+		t.Fatalf("delegated message = %#v, want one FunctionResponse", builtin.message)
 	}
-	if ev.TaskID != a2atype.TaskID("task-xyz") {
-		t.Errorf("event TaskID = %q, want %q", ev.TaskID, a2atype.TaskID("task-xyz"))
+	part := builtin.message.Parts[0]
+	if got, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataTypeKey); got != A2ADataPartMetadataTypeFunctionResponse {
+		t.Fatalf("delegated part type = %#v, want function_response", got)
+	}
+	if got := asDataPart(part)[PartKeyID]; got != "confirm-1" {
+		t.Fatalf("delegated FunctionResponse id = %#v, want confirm-1", got)
+	}
+}
+
+func TestKAgentExecutor_ForwardsCleanup(t *testing.T) {
+	builtin := &recordingExecutor{}
+	executor := &KAgentExecutor{builtin: builtin}
+	executor.Cleanup(context.Background(), &a2asrv.ExecutorContext{}, nil, nil)
+	if !builtin.cleanupCalled {
+		t.Fatal("Cleanup() was not forwarded to the upstream executor")
+	}
+}
+
+func TestKAgentExecutor_PreservesContentBearingLastChunk(t *testing.T) {
+	reqCtx := &a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "ctx-1"}
+	reqCtx.Message = a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi"))
+	final := a2atype.NewArtifactEvent(reqCtx, a2atype.NewTextPart("hello"))
+	final.LastChunk = true
+	builtin := &recordingExecutor{events: []a2atype.Event{final}}
+	executor := &KAgentExecutor{builtin: builtin, logger: logr.Discard()}
+
+	var got []a2atype.Event
+	for event, err := range executor.Execute(context.Background(), reqCtx) {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		got = append(got, event)
+	}
+
+	if len(got) != 1 || got[0] != final {
+		t.Fatalf("Execute() events = %#v, want the original final artifact only", got)
+	}
+	update, ok := got[0].(*a2atype.TaskArtifactUpdateEvent)
+	if !ok || !update.LastChunk || len(update.Artifact.Parts) != 1 || update.Artifact.Parts[0].Text() != "hello" {
+		t.Fatalf("final artifact = %#v, want content-bearing lastChunk event", got[0])
 	}
 }

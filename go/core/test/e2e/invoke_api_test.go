@@ -280,10 +280,9 @@ var defaultRetry = wait.Backoff{
 	Jitter:   0.2,
 }
 
-// runSyncTest runs a synchronous message test
-// useArtifacts: if true, check artifacts; if false or nil, check history;
+// runSyncTest runs a synchronous message test and validates task artifact output.
 // contextID: optional context ID to maintain conversation context
-func runSyncTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, expectedText string, useArtifacts *bool, contextID ...string) *a2atype.Task {
+func runSyncTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, expectedText string, contextID ...string) *a2atype.Task {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -313,25 +312,17 @@ func runSyncTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, expecte
 	taskResult, ok := result.(*a2atype.Task)
 	require.True(t, ok)
 
-	// Extract text based on useArtifacts flag
-	if useArtifacts != nil && *useArtifacts {
-		// Check artifacts (used by CrewAI flows)
-		text := extractTextFromArtifacts(taskResult)
-		require.Contains(t, text, expectedText)
-	} else {
-		// Check history (used by declarative agents) - default
-		text := a2a.ExtractText(taskResult.History[len(taskResult.History)-1])
-		jsn, err := json.Marshal(taskResult)
-		require.NoError(t, err)
-		require.Contains(t, text, expectedText, string(jsn))
-	}
+	text := extractTextFromArtifacts(taskResult)
+	jsn, err := json.Marshal(taskResult)
+	require.NoError(t, err)
+	require.Contains(t, text, expectedText, string(jsn))
 
 	return taskResult
 }
 
 // runStreamingTest runs a streaming message test
 // If contextID is provided, it will be included in the message to maintain conversation context
-// Checks the full JSON output to support both artifacts and history from different agent types
+// The last completed artifact contains the final agent output.
 func runStreamingTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, expectedText string, contextID ...string) {
 	msg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(userMessage))
 
@@ -352,7 +343,8 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, ex
 
 		t.Logf("%s trying to open stream", time.Now().Format(time.RFC3339))
 		stream := a2aClient.SendStreamingMessage(ctx, &a2atype.SendMessageRequest{Message: msg})
-		texts := make([]string, 0)
+		lastText = ""
+		foundFinalArtifact := false
 		eventCount := 0
 		for event, streamErr := range stream {
 			if streamErr != nil {
@@ -363,9 +355,14 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, ex
 			if event == nil {
 				continue
 			}
-			texts = append(texts, extractTextFromEvent(event))
+			if artifactUpdate, ok := event.(*a2atype.TaskArtifactUpdateEvent); ok && artifactUpdate.LastChunk && artifactUpdate.Artifact != nil {
+				lastText = a2a.ExtractText(&a2atype.Message{Parts: artifactUpdate.Artifact.Parts})
+				foundFinalArtifact = true
+			}
 		}
-		lastText = strings.Join(texts, "\n")
+		if !foundFinalArtifact {
+			return fmt.Errorf("streaming response contained no completed artifact (%d events)", eventCount)
+		}
 
 		if !strings.Contains(lastText, expectedText) {
 			t.Logf("%s stream completed but expected text %q not found in response (got %d events)", time.Now().Format(time.RFC3339), expectedText, eventCount)
@@ -376,26 +373,6 @@ func runStreamingTest(t *testing.T, a2aClient *a2aclient.Client, userMessage, ex
 		return nil
 	})
 	require.NoError(t, err, lastText)
-}
-
-func extractTextFromEvent(event a2atype.Event) string {
-	switch e := event.(type) {
-	case *a2atype.TaskStatusUpdateEvent:
-		return a2a.ExtractText(e.Status.Message)
-	case *a2atype.TaskArtifactUpdateEvent:
-		return a2a.ExtractText(&a2atype.Message{Parts: e.Artifact.Parts})
-	case *a2atype.Message:
-		return a2a.ExtractText(e)
-	case *a2atype.Task:
-		text := strings.Builder{}
-		if e.Status.Message != nil {
-			text.WriteString(a2a.ExtractText(e.Status.Message))
-		}
-		text.WriteString(extractTextFromArtifacts(e))
-		return text.String()
-	default:
-		return ""
-	}
 }
 
 func a2aURL(namespace, name string, sandbox bool) string {
@@ -609,7 +586,7 @@ func TestE2EInvokeInlineAgent(t *testing.T) {
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
+		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -706,7 +683,7 @@ func TestE2EInvokeExternalAgent(t *testing.T) {
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "What can you do?", "kebab", nil)
+		runSyncTest(t, a2aClient, "What can you do?", "kebab")
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -717,7 +694,7 @@ func TestE2EInvokeExternalAgent(t *testing.T) {
 		// Setup A2A client with authentication
 		authClient := newA2AClient(t, a2aURL, nil, map[string]string{"x-user-id": "user@example.com"})
 
-		runSyncTest(t, authClient, "What can you do?", "kebab for user@example.com", nil)
+		runSyncTest(t, authClient, "What can you do?", "kebab for user@example.com")
 	})
 }
 
@@ -754,7 +731,7 @@ func TestE2EInvokeDeclarativeAgentWithMcpServerTool(t *testing.T) {
 
 	// Run tests
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "add 3 and 5", "8", nil)
+		runSyncTest(t, a2aClient, "add 3 and 5", "8")
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -915,9 +892,8 @@ func TestE2EInvokeOpenAIAgent(t *testing.T) {
 	a2aURL := a2aUrl("kagent", "basic-openai-test-agent")
 	a2aClient := newA2AClient(t, a2aURL, nil, nil)
 
-	useArtifacts := true
 	t.Run("sync_invocation_calculator", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "What is 2+2?", "4", &useArtifacts)
+		runSyncTest(t, a2aClient, "What is 2+2?", "4")
 	})
 
 	t.Run("streaming_invocation_weather", func(t *testing.T) {
@@ -978,7 +954,7 @@ func TestE2EInvokeLangGraphAgent(t *testing.T) {
 	a2aClient := newA2AClient(t, a2aURL, nil, nil)
 
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "make me a kebab", "kebab is ready", nil)
+		runSyncTest(t, a2aClient, "make me a kebab", "kebab is ready")
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -1052,13 +1028,11 @@ func TestE2EInvokeCrewAIAgent(t *testing.T) {
 
 	t.Run("two_turn_conversation", func(t *testing.T) {
 		// First turn: Generate initial poem
-		// Use artifacts only (true) for CrewAI flows
-		useArtifacts := true
-		taskResult1 := runSyncTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.", &useArtifacts)
+		taskResult1 := runSyncTest(t, a2aClient, "Generate a poem about CrewAI", "CrewAI is awesome, it makes coding fun.")
 
 		// Second turn: Continue poem (tests persistence)
 		// Use the same ContextID to maintain conversation context
-		runSyncTest(t, a2aClient, "Continue the poem", "In harmony with the code, it flows so smooth.", &useArtifacts, taskResult1.ContextID)
+		runSyncTest(t, a2aClient, "Continue the poem", "In harmony with the code, it flows so smooth.", taskResult1.ContextID)
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -1144,7 +1118,7 @@ func runE2EInvokeSTSIntegration(t *testing.T, runtimeName string, runtimeOverrid
 	a2aClient := newA2AClient(t, a2aURL, httpClient, nil)
 
 	t.Run(runtimeName+"/sts_exchange_sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "add 3 and 5", "8", nil)
+		runSyncTest(t, a2aClient, "add 3 and 5", "8")
 
 		// verify our mock STS server received the token exchange request
 		stsRequests := stsServer.GetRequests()
@@ -1182,7 +1156,7 @@ func TestE2EInvokeSkillInAgent(t *testing.T) {
 	a2aClient := setupA2AClient(t, agent)
 
 	// Run tests
-	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
+	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner")
 }
 
 func TestE2ESkillImagePullSecrets(t *testing.T) {
@@ -1259,7 +1233,7 @@ func TestE2ESkillImagePullSecrets(t *testing.T) {
 
 	// Verify the agent works end-to-end with the skill
 	a2aClient := setupA2AClient(t, agent)
-	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner", nil)
+	runSyncTest(t, a2aClient, "make me a kebab", "Pick it up from around the corner")
 }
 
 func TestE2EDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T) {
@@ -1289,7 +1263,7 @@ func runDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T, runtimeName str
 		})
 
 		a2aClient := setupA2AClient(t, agent)
-		runSyncTest(t, a2aClient, "check the controller health with bash", "python and node are available; network denied", nil)
+		runSyncTest(t, a2aClient, "check the controller health with bash", "python and node are available; network denied")
 	})
 
 	t.Run(runtimeName+"/allowlist_enables_access", func(t *testing.T) {
@@ -1307,7 +1281,7 @@ func runDeclarativeAgentNetworkAllowlistWithSkills(t *testing.T, runtimeName str
 		})
 
 		a2aClient := setupA2AClient(t, agent)
-		runSyncTest(t, a2aClient, "check the controller health with bash", "python and node are available; controller health is ok", nil)
+		runSyncTest(t, a2aClient, "check the controller health with bash", "python and node are available; controller health is ok")
 	})
 }
 
@@ -1362,7 +1336,7 @@ func TestE2EInvokePassthroughAgent(t *testing.T) {
 	// Authorization header "Bearer passthrough-test-token-12345".
 	// If passthrough is broken, mockllm returns 404 and the test fails.
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "Hello from passthrough", "Token received successfully via passthrough", nil)
+		runSyncTest(t, a2aClient, "Hello from passthrough", "Token received successfully via passthrough")
 	})
 }
 
@@ -1382,7 +1356,7 @@ func TestE2EAgentDefaultRuntimeIsGo(t *testing.T) {
 	a2aClient := setupA2AClient(t, agent)
 
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "What is 2+2?", "4", nil)
+		runSyncTest(t, a2aClient, "What is 2+2?", "4")
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -1416,7 +1390,6 @@ func runMemoryAgentTest(t *testing.T, extraOpts AgentOptions) {
 		saveResult = runSyncTest(t, a2aClient,
 			"Remember that I prefer dark mode and Go over Python",
 			"saved your preferences to memory",
-			nil,
 		)
 	})
 
@@ -1424,7 +1397,6 @@ func runMemoryAgentTest(t *testing.T, extraOpts AgentOptions) {
 		runSyncTest(t, a2aClient,
 			"What are my preferences?",
 			"dark mode",
-			nil,
 			saveResult.ContextID,
 		)
 	})
@@ -1509,7 +1481,7 @@ You are {{.AgentName}}, operating in {{.AgentNamespace}}.
 	a2aClient := setupA2AClient(t, agent)
 
 	t.Run("sync_invocation", func(t *testing.T) {
-		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
+		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
 	})
 
 	t.Run("streaming_invocation", func(t *testing.T) {
@@ -1545,7 +1517,7 @@ You are {{.AgentName}}, operating in {{.AgentNamespace}}.
 		}
 
 		// Verify the agent still responds correctly
-		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane", nil)
+		runSyncTest(t, a2aClient, "List all nodes in the cluster", "kagent-control-plane")
 	})
 }
 
@@ -1568,7 +1540,7 @@ func TestE2EIAgentRunsCode(t *testing.T) {
 	a2aClient := setupA2AClient(t, agent)
 
 	// Run tests
-	runSyncTest(t, a2aClient, "write some code", "hello, world!", nil)
+	runSyncTest(t, a2aClient, "write some code", "hello, world!")
 }
 
 func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
