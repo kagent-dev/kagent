@@ -26,9 +26,11 @@ const (
 // the global tracer. The exporter type and endpoint are read from standard
 // OTEL environment variables (OTEL_EXPORTER_OTLP_PROTOCOL,
 // OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, OTEL_EXPORTER_OTLP_ENDPOINT, etc.).
-// The returned shutdown function must be called on process exit to flush
-// in-flight spans. If tracing is disabled a no-op is returned.
-func InitTracerProvider(ctx context.Context, serviceVersion string) (func(context.Context) error, error) {
+// The shared resource (built once via NewTelemetryResource) is passed in so
+// traces and logs report identical resource attributes. The returned shutdown
+// function must be called on process exit to flush in-flight spans. If tracing
+// is disabled a no-op is returned.
+func InitTracerProvider(ctx context.Context, res *resource.Resource) (func(context.Context) error, error) {
 	if !env.OtelTracingEnabled.Get() {
 		return func(context.Context) error { return nil }, nil
 	}
@@ -38,6 +40,26 @@ func InitTracerProvider(ctx context.Context, serviceVersion string) (func(contex
 		return nil, fmt.Errorf("create span exporter: %w", err)
 	}
 
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	return tp.Shutdown, nil
+}
+
+// NewTelemetryResource builds the OTel resource shared by the controller's
+// signal pipelines (traces and logs). Build it once and pass it into both
+// InitTracerProvider and InitLoggerProvider so a hostname-lookup failure
+// (which falls back to a random UUID) can't yield different
+// service.instance.id values across signals.
+func NewTelemetryResource(ctx context.Context, serviceVersion string) (*resource.Resource, error) {
 	instanceID, err := os.Hostname()
 	if err != nil || instanceID == "" {
 		instanceID = uuid.New().String()
@@ -67,17 +89,5 @@ func InitTracerProvider(ctx context.Context, serviceVersion string) (func(contex
 	if err != nil {
 		return nil, fmt.Errorf("create OTEL resource: %w", err)
 	}
-
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-	)
-
-	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
-
-	return tp.Shutdown, nil
+	return res, nil
 }
