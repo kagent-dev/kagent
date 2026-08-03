@@ -2,8 +2,8 @@ import React, { useMemo } from "react";
 import { type Message } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
-import { isAgentToolName, isDataPart } from "@/lib/utils";
-import { ADKMetadata, ProcessedToolCallData, getMetadataValue } from "@/lib/messageHandlers";
+import { isAgentToolName } from "@/lib/utils";
+import { ADKMetadata } from "@/lib/messageHandlers";
 import {
   isToolCallRequestMessage,
   isToolCallExecutionMessage,
@@ -113,29 +113,10 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
                 initialStatus = "pending_approval";
               }
             }
-            // Extract subagent_session_id from ProcessedToolCallData in metadata
-            const toolCallData = msgMetadata?.toolCallData as ProcessedToolCallData[] | undefined;
-            const matchingCallData = toolCallData?.find(tc => tc.id === request.id);
-
-            // For agent tools, resolve the subagent session ID.
-            let subagentSessionId: string | undefined = matchingCallData?.subagent_session_id;
-            if (!subagentSessionId && isAgentToolName(request.name)) {
-              const fcDataPart = message.parts?.find((p) =>
-                isDataPart(p) &&
-                p.metadata &&
-                getMetadataValue<string>(p.metadata as Record<string, unknown>, "type") === "function_call" &&
-                (p.content.value as Record<string, unknown> | undefined)?.id === request.id
-              );
-              subagentSessionId = fcDataPart?.metadata
-                ? getMetadataValue<string>(fcDataPart.metadata as Record<string, unknown>, "subagent_session_id")
-                : undefined;
-            }
-
             newToolCalls.set(request.id, {
               id: request.id,
               call: request,
               status: initialStatus,
-              subagentSessionId,
             });
           }
         }
@@ -157,9 +138,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
               is_error: result.is_error,
               rawResult: result.raw_result,
             };
-            if (result.subagent_session_id && !existingCall.subagentSessionId) {
-              // Only set from function_response if the 1st pass (function_call
-              // metadata) didn't already provide it.
+            if (result.subagent_session_id) {
               existingCall.subagentSessionId = result.subagent_session_id;
             }
             if (!isHitlTerminal(existingCall.status)) {

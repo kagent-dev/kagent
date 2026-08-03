@@ -21,6 +21,9 @@ interface ChatMessageProps {
     namespace: string;
     agentName: string;
   };
+  /** Derived from terminal task status + last text for that task */
+  showReplyActions?: boolean;
+  replyTokenStats?: TokenStats;
   onApprove?: (toolCallId: string) => void;
   onReject?: (toolCallId: string, reason?: string) => void;
   onAskUserSubmit?: (answers: Array<{ answer: string[] }>) => void;
@@ -29,7 +32,19 @@ interface ChatMessageProps {
   onMcpAppSendMessage?: (text: string) => Promise<void>;
 }
 
-export default function ChatMessage({ message, allMessages, agentContext, onApprove, onReject, onAskUserSubmit, pendingDecisions, getMcpAppForTool, onMcpAppSendMessage }: ChatMessageProps) {
+export default function ChatMessage({
+  message,
+  allMessages,
+  agentContext,
+  showReplyActions = false,
+  replyTokenStats,
+  onApprove,
+  onReject,
+  onAskUserSubmit,
+  pendingDecisions,
+  getMcpAppForTool,
+  onMcpAppSendMessage,
+}: ChatMessageProps) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [isPositiveFeedback, setIsPositiveFeedback] = useState(true);
 
@@ -38,7 +53,6 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
   const content = message.parts?.filter(isTextPart).map((part) => part.content.value).join("") || "";
 
   const source = isUserRole(message.role) ? "user" : "assistant";
-  const tokenStats = (message.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
   const messageId = message.messageId;
 
   // Extract agent name from metadata for display
@@ -177,9 +191,9 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         of its own, which is what long tool-call ids and URLs need.
       */}
       <TruncatableText content={String(content)} className="[overflow-wrap:anywhere] text-primary-foreground" />
-      {source !== "user" && (
+      {source !== "user" && showReplyActions && (
         <div className="flex mt-2 justify-end items-center gap-2">
-          {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
+          {replyTokenStats && <TokenStatsTooltip stats={replyTokenStats} />}
           {messageId !== undefined && (
             <>
               <button

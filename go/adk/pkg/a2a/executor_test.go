@@ -8,6 +8,11 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/runner"
+	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/genai"
 )
 
 type recordingExecutor struct {
@@ -148,5 +153,90 @@ func TestKAgentExecutor_PreservesContentBearingLastChunk(t *testing.T) {
 	update, ok := got[0].(*a2atype.TaskArtifactUpdateEvent)
 	if !ok || !update.LastChunk || len(update.Artifact.Parts) != 1 || update.Artifact.Parts[0].Text() != "hello" {
 		t.Fatalf("final artifact = %#v, want content-bearing lastChunk event", got[0])
+	}
+}
+
+func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
+	const (
+		appName   = "test-app"
+		contextID = "context-1"
+	)
+
+	agent, err := adkagent.New(adkagent.Config{
+		Name: "streaming-agent",
+		Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(yield func(*adksession.Event, error) bool) {
+				partial := &adksession.Event{
+					Author:       ic.Agent().Name(),
+					InvocationID: ic.InvocationID(),
+					Branch:       ic.Branch(),
+					LLMResponse: model.LLMResponse{
+						Content: genai.NewContentFromText("hel", genai.RoleModel),
+						Partial: true,
+					},
+				}
+				if !yield(partial, nil) {
+					return
+				}
+
+				final := &adksession.Event{
+					Author:       ic.Agent().Name(),
+					InvocationID: ic.InvocationID(),
+					Branch:       ic.Branch(),
+					LLMResponse: model.LLMResponse{
+						Content: genai.NewContentFromText("hello", genai.RoleModel),
+					},
+				}
+				yield(final, nil)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent.New() error = %v", err)
+	}
+
+	sessionService := adksession.InMemoryService()
+	executor := NewKAgentExecutor(KAgentExecutorConfig{
+		AppName:        appName,
+		SessionService: sessionService,
+		Logger:         logr.Discard(),
+		RunnerConfig: runner.Config{
+			AppName: appName,
+			Agent:   agent,
+		},
+	})
+	reqCtx := &a2asrv.ExecutorContext{
+		TaskID:    "task-1",
+		ContextID: contextID,
+		Message:   a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
+	}
+
+	var updates []*a2atype.TaskArtifactUpdateEvent
+	var completed *a2atype.TaskStatusUpdateEvent
+	for event, err := range executor.Execute(context.Background(), reqCtx) {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		switch event := event.(type) {
+		case *a2atype.TaskArtifactUpdateEvent:
+			updates = append(updates, event)
+		case *a2atype.TaskStatusUpdateEvent:
+			if event.Status.State == a2atype.TaskStateCompleted {
+				completed = event
+			}
+		}
+	}
+
+	if len(updates) != 2 {
+		t.Fatalf("artifact updates = %d, want 2", len(updates))
+	}
+	if updates[0].Append || updates[0].LastChunk || updates[0].Artifact.Parts[0].Text() != "hel" {
+		t.Fatalf("first artifact update = %#v, want opening partial artifact", updates[0])
+	}
+	if updates[1].Append || !updates[1].LastChunk || updates[1].Artifact.ID != updates[0].Artifact.ID || updates[1].Artifact.Parts[0].Text() != "hello" {
+		t.Fatalf("second artifact update = %#v, want content-bearing final replacement", updates[1])
+	}
+	if completed == nil || completed.Status.Message != nil {
+		t.Fatalf("completed status = %#v, want content-free completion", completed)
 	}
 }

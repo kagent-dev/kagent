@@ -44,6 +44,10 @@ type toolResult struct {
 	Response any    `json:"response"`
 }
 
+type artifactBuffer struct {
+	text string
+}
+
 type chatModel struct {
 	agentRef  string
 	sessionID string
@@ -63,6 +67,9 @@ type chatModel struct {
 	streamCh  <-chan clia2a.StreamResult
 	cancel    context.CancelFunc
 	streaming bool
+
+	artifacts     map[a2atype.ArtifactID]*artifactBuffer
+	artifactOrder []a2atype.ArtifactID
 
 	showInput bool
 }
@@ -94,6 +101,7 @@ func newChatModel(agentRef string, sessionID string, send SendMessageFn, verbose
 		send:      send,
 		history:   initial,
 		spin:      sp,
+		artifacts: make(map[a2atype.ArtifactID]*artifactBuffer),
 		showInput: true,
 	}
 }
@@ -170,6 +178,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case clia2a.StreamResult:
 		if msg.Err != nil {
+			m.flushPendingArtifacts()
 			m.appendError(msg.Err)
 			m.streaming = false
 			m.working = false
@@ -179,6 +188,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendEvent(msg.Event)
 		return m, m.waitNext()
 	case streamDoneMsg:
+		m.flushPendingArtifacts()
 		m.streaming = false
 		m.working = false
 		m.updateStatus()
@@ -258,6 +268,7 @@ func (m *chatModel) appendEvent(ev a2atype.Event) {
 	case *a2atype.TaskStatusUpdateEvent:
 		final := res.Status.State.Terminal()
 		if final {
+			m.flushPendingArtifacts()
 			m.working = false
 			m.updateStatus()
 		} else if res.Status.Timestamp != nil {
@@ -265,30 +276,103 @@ func (m *chatModel) appendEvent(ev a2atype.Event) {
 		} else {
 			m.setWorkingTime(time.Time{})
 		}
-		if res.Status.Message != nil {
-			m.handleMessageParts(res.Status.Message, final)
-		}
+		m.handleStatusMessage(res.Status.State, res.Status.Message)
 	case *a2atype.TaskArtifactUpdateEvent:
-		if res.LastChunk {
-			text := extractTextFromParts(res.Artifact.Parts)
-			if strings.TrimSpace(text) != "" {
-				m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + text)
-			}
-		}
+		m.handleArtifactUpdate(res)
 	case *a2atype.Message:
 		m.handleMessageParts(res, true)
 
 	case *a2atype.Task:
-		if len(res.History) > 0 {
-			last := res.History[len(res.History)-1]
-			m.handleMessageParts(last, true)
+		// A Task snapshot carries assembled output in artifacts. History is a
+		// collection of protocol Messages and must not be treated as task result.
+		for _, artifact := range res.Artifacts {
+			if artifact == nil {
+				continue
+			}
+			m.handleArtifactUpdate(&a2atype.TaskArtifactUpdateEvent{
+				TaskID:    res.ID,
+				ContextID: res.ContextID,
+				Artifact:  artifact,
+				LastChunk: true,
+			})
 		}
+		m.handleStatusMessage(res.Status.State, res.Status.Message)
 	default:
 		if m.verbose {
 			if b, err := json.Marshal(ev); err == nil {
 				m.appendLine(theme.AgentStyle().Render("Agent (raw):") + "\n" + string(b))
 			}
 		}
+	}
+}
+
+// handleStatusMessage processes control-plane status content only. Normal task
+// output is delivered exclusively through artifacts.
+func (m *chatModel) handleStatusMessage(state a2atype.TaskState, msg *a2atype.Message) {
+	if msg == nil {
+		return
+	}
+	switch state {
+	case a2atype.TaskStateInputRequired:
+		// Show tool/confirmation details but do not treat status text as output.
+		m.handleMessageParts(msg, false)
+	case a2atype.TaskStateAuthRequired, a2atype.TaskStateFailed:
+		m.handleMessageParts(msg, true)
+	}
+}
+
+// handleArtifactUpdate merges text according to the A2A artifact update
+// contract. Data parts are handled immediately so tool activity is visible
+// even when an artifact has not reached its last chunk.
+func (m *chatModel) handleArtifactUpdate(update *a2atype.TaskArtifactUpdateEvent) {
+	if update == nil || update.Artifact == nil {
+		return
+	}
+
+	// handleMessageParts always processes tool parts; false suppresses text
+	// because text is committed only after the artifact has been assembled.
+	msg := a2atype.NewMessage(a2atype.MessageRoleAgent, update.Artifact.Parts...)
+	m.handleMessageParts(msg, false)
+
+	text := extractTextFromParts(update.Artifact.Parts)
+	id := update.Artifact.ID
+	buffer, exists := m.artifacts[id]
+	if !exists {
+		buffer = &artifactBuffer{}
+		m.artifacts[id] = buffer
+		m.artifactOrder = append(m.artifactOrder, id)
+	}
+	if update.Append {
+		buffer.text += text
+	} else {
+		buffer.text = text
+	}
+
+	if update.LastChunk {
+		m.commitArtifact(id)
+	}
+}
+
+func (m *chatModel) commitArtifact(id a2atype.ArtifactID) {
+	buffer, ok := m.artifacts[id]
+	if !ok {
+		return
+	}
+	delete(m.artifacts, id)
+	for i, pendingID := range m.artifactOrder {
+		if pendingID == id {
+			m.artifactOrder = append(m.artifactOrder[:i], m.artifactOrder[i+1:]...)
+			break
+		}
+	}
+	if strings.TrimSpace(buffer.text) != "" {
+		m.appendLine(theme.AgentStyle().Render("Agent:") + "\n" + buffer.text)
+	}
+}
+
+func (m *chatModel) flushPendingArtifacts() {
+	for len(m.artifactOrder) > 0 {
+		m.commitArtifact(m.artifactOrder[0])
 	}
 }
 
@@ -447,6 +531,8 @@ func (m *chatModel) appendLine(s string) {
 // ResetTranscript clears the viewport with a new header/title.
 func (m *chatModel) ResetTranscript(title string) {
 	m.history = title
+	m.artifacts = make(map[a2atype.ArtifactID]*artifactBuffer)
+	m.artifactOrder = nil
 	m.vp.SetContent(m.history)
 	m.vp.GotoBottom()
 }
@@ -464,12 +550,6 @@ func extractTextFromParts(parts a2atype.ContentParts) string {
 		}
 		if text := p.Text(); text != "" {
 			b.WriteString(text)
-			continue
-		}
-		if data := p.Data(); data != nil {
-			if jp, err := json.Marshal(data); err == nil {
-				b.WriteString(string(jp))
-			}
 		}
 	}
 	return b.String()

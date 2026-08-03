@@ -30,7 +30,18 @@ import { getUiRuntimeConfig } from "@/app/actions/config";
 import { DEFAULT_STREAM_TIMEOUT_MS } from "@/lib/constants";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { createMessageHandlers, extractMessagesFromTasks, extractApprovalMessagesFromTasks, extractTokenStatsFromTasks, createMessage, ADKMetadata, ProcessedToolCallData } from "@/lib/messageHandlers";
+import {
+  createMessageHandlers,
+  extractMessagesFromTasks,
+  extractApprovalMessagesFromTasks,
+  extractTokenStatsFromTasks,
+  collectTerminalTaskIds,
+  collectTaskTokenStats,
+  isFinishedAssistantReply,
+  createMessage,
+  ADKMetadata,
+  ProcessedToolCallData,
+} from "@/lib/messageHandlers";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatRunInSandbox, useChatSubstrateSandbox, useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
@@ -64,6 +75,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [currentInputMessage, setCurrentInputMessage] = useState("");
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
+  const [statusMessage, setStatusMessage] = useState<string | undefined>(undefined);
 
   const [session, setSession] = useState<Session | null>(selectedSession || null);
   const [shareReadOnly, setShareReadOnly] = useState<boolean>(false);
@@ -78,6 +90,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const isCreatingSessionRef = useRef<boolean>(false);
   const [isFirstMessage, setIsFirstMessage] = useState<boolean>(!sessionId);
   const [sessionStats, setSessionStats] = useState<TokenStats>({ total: 0, prompt: 0, completion: 0 });
+  // Finished-reply chrome is derived from terminal task status, not message metadata.
+  const [terminalTaskIds, setTerminalTaskIds] = useState<Set<string>>(() => new Set());
+  const [taskTokenStats, setTaskTokenStats] = useState<Map<string, TokenStats>>(() => new Map());
   // Mutable ref so pendingTurnStats survives re-renders between A2A stream events
   const pendingTurnStatsRef = useRef<TokenStats | undefined>(undefined);
   const [pendingDecisions, setPendingDecisions] = useState<Record<string, ToolDecision>>({});
@@ -171,22 +186,42 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   // Shared call_id -> is_error lookup so each group summary is O(group size).
   const toolResultsByCallId = useMemo(() => buildToolCallResultsIndex(allMessages), [allMessages]);
 
+  const onTerminalTask = useCallback((taskId: string, tokenStats?: TokenStats) => {
+    setTerminalTaskIds(prev => {
+      if (prev.has(taskId)) return prev;
+      const next = new Set(prev);
+      next.add(taskId);
+      return next;
+    });
+    if (tokenStats) {
+      setTaskTokenStats(prev => {
+        const next = new Map(prev);
+        next.set(taskId, tokenStats);
+        return next;
+      });
+    }
+  }, []);
+
   const { handleMessageEvent } = useMemo(() => createMessageHandlers({
     setMessages: setStreamingMessages,
     setIsStreaming,
     setStreamingContent,
     setChatStatus,
+    setStatusMessage,
     setSessionStats,
     pendingTurnStats: pendingTurnStatsRef,
+    onTerminalTask,
     agentContext: {
       namespace: selectedNamespace,
       agentName: selectedAgentName
     }
-  }), [selectedNamespace, selectedAgentName]);
+  }), [selectedNamespace, selectedAgentName, onTerminalTask]);
 
   useEffect(() => {
     async function initializeChat() {
       setSessionStats({ total: 0, prompt: 0, completion: 0 });
+      setTerminalTaskIds(new Set());
+      setTaskTokenStats(new Map());
       setStreamingMessages([]);
       setPendingDecisions({});
       pendingDecisionsRef.current = {};
@@ -240,13 +275,19 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         if (!messagesResponse.data || messagesResponse?.data?.length === 0) {
           setStoredMessages([]);
           setSessionStats({ total: 0, prompt: 0, completion: 0 });
+          setTerminalTaskIds(new Set());
+          setTaskTokenStats(new Map());
         }
         else {
           const extractedMessages = extractMessagesFromTasks(messagesResponse.data);
           setSessionStats(extractTokenStatsFromTasks(messagesResponse.data));
+          setTerminalTaskIds(collectTerminalTaskIds(messagesResponse.data));
+          setTaskTokenStats(collectTaskTokenStats(messagesResponse.data));
 
-          // Resolved approvals are already inline in extractedMessages (with
-          // approved/rejected badges). Only pending approvals need appending.
+          // Artifact order drives the reloaded transcript. Resolved historical
+          // approvals are included only when extractMessagesFromTasks can
+          // anchor them to a matching artifact call/response; append the
+          // current pending interaction after the assembled output.
           const { messages: pendingApprovalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks(messagesResponse.data);
 
           setStoredMessages(
@@ -338,6 +379,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     setCurrentInputMessage("");
     setChatStatus("thinking");
+    setStatusMessage(undefined);
     setStoredMessages(prev => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
     setStreamingContent(""); // Reset streaming content for new message
@@ -555,6 +597,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             : extractedMessages
         );
         setSessionStats(extractTokenStatsFromTasks(latest.data));
+        setTerminalTaskIds(collectTerminalTaskIds(latest.data));
+        setTaskTokenStats(collectTaskTokenStats(latest.data));
         setStreamingMessages([]);
         if (hasPendingApproval) {
           setChatStatus("input_required");
@@ -1013,6 +1057,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       message={message}
       allMessages={allMessages}
       agentContext={agentContext}
+      showReplyActions={isFinishedAssistantReply(message, allMessages, terminalTaskIds)}
+      replyTokenStats={message.taskId ? taskTokenStats.get(message.taskId) : undefined}
       onApprove={shareReadOnly ? undefined : handleApprove}
       onReject={shareReadOnly ? undefined : handleReject}
       onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
@@ -1108,7 +1154,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         ) : (
           <>
             <div className="flex items-center justify-between mb-4">
-              <StatusDisplay chatStatus={chatStatus} />
+              <StatusDisplay chatStatus={chatStatus} statusMessage={statusMessage} />
               <div className="flex items-center gap-2">
                 {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
                 {(session?.id ?? sessionId) && !shareToken && <ShareButton sessionId={(session?.id ?? sessionId)!} namespace={selectedNamespace} agentName={selectedAgentName} />}
