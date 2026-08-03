@@ -8,7 +8,7 @@ import { checkSessionExists, createSession, getSessionTasks } from "@/app/action
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { toast } from "sonner";
 import ChatInterface from "@/components/chat/ChatInterface";
-import { createMockSession, createMockTask, createMockTextMessage } from "@/mocks/factories";
+import { createMockSession, createMockTask, createMockTextMessage, createTextPart } from "@/mocks/factories";
 import type { Session } from "@/types";
 
 jest.mock("@/app/actions/sessions", () => ({
@@ -88,10 +88,9 @@ const mockToastInfo = toast.info as jest.MockedFunction<typeof toast.info>;
 
 const staleToastMessage = "New messages loaded — please review before sending";
 
-// The send guard is server-authoritative: it compares the count of persisted
-// history messages across all tasks (the high-water mark) against the count this
-// tab last synced. These helpers build tasks whose `history.length` drives that
-// count — the message content is irrelevant to the guard.
+// The send guard is server-authoritative: it compares the persisted user-message
+// high-water mark against what this tab last synced. In A2A v1, assistant output
+// belongs in artifacts; history contains the user request that created the task.
 
 // The backend snapshot the mocked getSessionTasks currently returns. The stream
 // generators advance it to model a turn being persisted after it streams.
@@ -105,15 +104,46 @@ function textMessage(messageId: string, role: Role, text: string, contextId = "s
   });
 }
 
-/** A completed task whose history (a user + agent turn) contributes 2 to the mark. */
+/** A completed A2A v1 turn: user input in history and agent output in an artifact. */
 function completedTurnTask(taskId: string, prompt: string, answer: string, contextId = "session-1"): Task {
-  return createMockTask(taskId, contextId, [
+  const task = createMockTask(taskId, contextId, [
     textMessage(`${taskId}-user`, Role.ROLE_USER, prompt, contextId, taskId),
-    textMessage(`${taskId}-agent`, Role.ROLE_AGENT, answer, contextId, taskId),
   ]);
+  task.artifacts = [{
+    artifactId: `${taskId}-answer`,
+    name: "",
+    description: "",
+    parts: [createTextPart(answer)],
+    extensions: [],
+    metadata: undefined,
+  }];
+  return task;
 }
 
-function completedStatusEvent(text: string, contextId = "session-1", taskId = "task-streamed"): StreamResponse {
+function finalArtifactEvent(text: string, contextId = "session-1", taskId = "task-streamed"): StreamResponse {
+  return {
+    payload: {
+      $case: "artifactUpdate",
+      value: {
+        contextId,
+        taskId,
+        metadata: undefined,
+        artifact: {
+          artifactId: `${taskId}-answer`,
+          name: "",
+          description: "",
+          parts: [createTextPart(text)],
+          extensions: [],
+          metadata: undefined,
+        },
+        append: false,
+        lastChunk: true,
+      },
+    },
+  } as StreamResponse;
+}
+
+function completedStatusEvent(contextId = "session-1", taskId = "task-streamed"): StreamResponse {
   return {
     payload: {
       $case: "statusUpdate",
@@ -124,7 +154,7 @@ function completedStatusEvent(text: string, contextId = "session-1", taskId = "t
         status: {
           state: TaskState.TASK_STATE_COMPLETED,
           timestamp: new Date().toISOString(),
-          message: textMessage(`assistant-${taskId}`, Role.ROLE_AGENT, text, contextId, taskId),
+          message: undefined,
         },
       },
     },
@@ -185,8 +215,14 @@ describe("ChatInterface send guard (high-water mark)", () => {
     currentTasks = initialTasks();
     const afterFirstTurn = [...initialTasks(), completedTurnTask("task-streamed", "same tab question", "same tab answer")];
     mockSendMessageStream
-      .mockResolvedValueOnce(streamThenPersist([completedStatusEvent("same tab answer")], afterFirstTurn))
-      .mockResolvedValueOnce(streamThenPersist([completedStatusEvent("next answer", "session-1", "task-next")], afterFirstTurn));
+      .mockResolvedValueOnce(streamThenPersist([
+        finalArtifactEvent("same tab answer"),
+        completedStatusEvent(),
+      ], afterFirstTurn))
+      .mockResolvedValueOnce(streamThenPersist([
+        finalArtifactEvent("next answer", "session-1", "task-next"),
+        completedStatusEvent("session-1", "task-next"),
+      ], afterFirstTurn));
 
     renderExistingSession();
 
@@ -228,7 +264,10 @@ describe("ChatInterface send guard (high-water mark)", () => {
 
   it("proceeds after a block once the reload re-syncs the mark", async () => {
     currentTasks = initialTasks();
-    mockSendMessageStream.mockResolvedValueOnce(streamThenPersist([completedStatusEvent("ok")], currentTasks));
+    mockSendMessageStream.mockResolvedValueOnce(streamThenPersist([
+      finalArtifactEvent("ok"),
+      completedStatusEvent(),
+    ], currentTasks));
 
     renderExistingSession();
     expect(await screen.findByText("initial answer")).toBeInTheDocument();
