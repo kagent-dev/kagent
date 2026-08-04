@@ -100,6 +100,16 @@
   - get
   - list
   - watch
+# The `policy` group is not covered by the wildcard grants above. Required for the
+# owned-resource watch and owner index over agent PodDisruptionBudgets.
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - agents.x-k8s.io
   resources:

@@ -49,6 +49,7 @@ type resolvedDeployment struct {
 	ServiceAccountName    *string
 	ServiceAccountConfig  *v1alpha2.ServiceAccountConfig
 	ExtraContainers       []corev1.Container
+	PodDisruptionBudget   *v1alpha2.PodDisruptionBudgetSpec
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -267,6 +268,9 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		ServiceAccountName:    spec.ServiceAccountName,
 		ServiceAccountConfig:  spec.ServiceAccountConfig,
 		ExtraContainers:       slices.Clone(spec.ExtraContainers),
+		// Left nil when unset: a nil budget means "create no PodDisruptionBudget",
+		// which is what lets the reconciler prune one that was previously requested.
+		PodDisruptionBudget: spec.PodDisruptionBudget.DeepCopy(),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
@@ -353,6 +357,9 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		ServiceAccountName:    spec.ServiceAccountName,
 		ServiceAccountConfig:  spec.ServiceAccountConfig,
 		ExtraContainers:       slices.Clone(spec.ExtraContainers),
+		// Left nil when unset: a nil budget means "create no PodDisruptionBudget",
+		// which is what lets the reconciler prune one that was previously requested.
+		PodDisruptionBudget: spec.PodDisruptionBudget.DeepCopy(),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)

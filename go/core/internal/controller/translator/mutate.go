@@ -6,6 +6,7 @@ import (
 	"dario.cat/mergo"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -59,6 +60,11 @@ func MutateFuncFor(existing, desired client.Object) controllerutil.MutateFn {
 			wantDpl := desired.(*appsv1.Deployment)
 			return mutateDeployment(dpl, wantDpl)
 
+		case *policyv1.PodDisruptionBudget:
+			pdb := existing.(*policyv1.PodDisruptionBudget)
+			wantPdb := desired.(*policyv1.PodDisruptionBudget)
+			mutatePodDisruptionBudget(pdb, wantPdb)
+
 		default:
 			return mergeWithOverride(existing, desired)
 		}
@@ -87,6 +93,17 @@ func mutateServiceAccount(existing, desired *corev1.ServiceAccount) {
 func mutateService(existing, desired *corev1.Service) {
 	existing.Spec.Ports = desired.Spec.Ports
 	existing.Spec.Selector = desired.Spec.Selector
+}
+
+// mutatePodDisruptionBudget replaces the spec wholesale rather than merging it.
+//
+// minAvailable and maxUnavailable are mutually exclusive, so switching an agent from
+// one to the other has to clear the field it is moving away from. The default
+// mergeWithOverride path cannot do that: mergo only overwrites keys present in the
+// desired object and leaves the stale field populated, producing a spec the API server
+// rejects for setting both.
+func mutatePodDisruptionBudget(existing, desired *policyv1.PodDisruptionBudget) {
+	existing.Spec = desired.Spec
 }
 
 func mutateDeployment(existing, desired *appsv1.Deployment) error {

@@ -1,0 +1,38 @@
+operation: translateAgent
+targetObject: agent-with-pdb
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: openai-secret
+      namespace: test
+    data:
+      api-key: c2stdGVzdC1hcGkta2V5 # base64 encoded "sk-test-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: basic-model
+      namespace: test
+    spec:
+      provider: OpenAI
+      model: gpt-4o
+      apiKeySecret: openai-secret
+      apiKeySecretKey: api-key
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: agent-with-pdb
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: A declarative agent guarded by a PodDisruptionBudget.
+        systemMessage: You are a helpful assistant.
+        modelConfig: basic-model
+        deployment:
+          replicas: 3
+          podDisruptionBudget:
+            maxUnavailable: 1
+            unhealthyPodEvictionPolicy: AlwaysAllow
+        tools: []

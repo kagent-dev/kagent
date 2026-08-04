@@ -66,6 +66,18 @@
   - update
   - patch
   - delete
+# The `policy` group is not covered by the wildcard grants above. Required so the
+# controller can manage the PodDisruptionBudget an Agent requests via
+# spec.*.deployment.podDisruptionBudget.
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - update
+  - patch
+  - delete
 - apiGroups:
   - agents.x-k8s.io
   resources:

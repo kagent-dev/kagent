@@ -15,6 +15,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8s_runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -86,6 +87,8 @@ func setupK8sClient(t *testing.T, includeV1Alpha1 bool) client.Client {
 	err = corev1.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = appsv1.AddToScheme(scheme)
+	require.NoError(t, err)
+	err = policyv1.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	cli, err := client.New(cfg, client.Options{
@@ -169,6 +172,9 @@ type AgentOptions struct {
 	Runtime        *v1alpha2.DeclarativeRuntime
 	Memory         *v1alpha2.MemorySpec
 	PromptTemplate *v1alpha2.PromptTemplateSpec
+	Replicas       *int32
+	// PodDisruptionBudget requests a budget for the agent pods. Nil means no budget.
+	PodDisruptionBudget *v1alpha2.PodDisruptionBudgetSpec
 
 	IconURL          string
 	DocumentationURL string
@@ -525,6 +531,14 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 
 	if opts.PromptTemplate != nil {
 		agent.Spec.Declarative.PromptTemplate = opts.PromptTemplate
+	}
+
+	if opts.Replicas != nil {
+		agent.Spec.Declarative.Deployment.Replicas = opts.Replicas
+	}
+
+	if opts.PodDisruptionBudget != nil {
+		agent.Spec.Declarative.Deployment.PodDisruptionBudget = opts.PodDisruptionBudget
 	}
 
 	agent.Spec.IconURL = opts.IconURL
