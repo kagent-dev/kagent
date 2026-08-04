@@ -109,6 +109,30 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "gpt-35-turbo", FunctionCalling: true}, // Azure spelling (no dot)
 			{Name: "gpt-oss-120b", FunctionCalling: true},
 		},
+		v1alpha2.ModelProviderFoundry: {
+			// Azure AI Foundry serves many vendors' chat-completion models through
+			// its OpenAI-compatible data plane. These are common suggestions; the
+			// value is the model name, while the Foundry deployment name is set
+			// separately in the model config.
+			//
+			// Claude (Anthropic) models on Foundry are served via the Anthropic
+			// Messages API rather than this OpenAI-compatible surface, so they are
+			// intentionally omitted here; Claude-on-Foundry support is coming later.
+			{Name: "gpt-4.1", FunctionCalling: true},
+			{Name: "gpt-4.1-mini", FunctionCalling: true},
+			{Name: "gpt-4.1-nano", FunctionCalling: true},
+			{Name: "gpt-4o", FunctionCalling: true},
+			{Name: "gpt-4o-mini", FunctionCalling: true},
+			{Name: "o4-mini", FunctionCalling: true},
+			{Name: "Phi-4", FunctionCalling: true},
+			{Name: "Phi-4-mini-instruct", FunctionCalling: true},
+			{Name: "DeepSeek-V3.1", FunctionCalling: true},
+			{Name: "Llama-3.3-70B-Instruct", FunctionCalling: true},
+			{Name: "Meta-Llama-3.1-8B-Instruct", FunctionCalling: true},
+			{Name: "Mistral-large", FunctionCalling: true},
+			{Name: "cohere-command-a", FunctionCalling: true},
+			{Name: "grok-3", FunctionCalling: true},
+		},
 		v1alpha2.ModelProviderOllama: {
 			// FunctionCalling flags corrected: recent Ollama builds of these models
 			// support tool calling.

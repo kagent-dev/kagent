@@ -3,7 +3,7 @@
 import inspect
 import logging
 import time
-from typing import Awaitable, Callable, Dict, Optional, Union
+from typing import Awaitable, Callable, Dict, List, Optional, Union
 
 import jwt
 from agentsts.core import STSIntegrationBase, TokenType
@@ -105,14 +105,24 @@ class _TokenCacheEntry:
 class ADKTokenPropagationPlugin(BasePlugin):
     """Plugin for propagating STS tokens to ADK tools."""
 
-    def __init__(self, sts_integration: Optional[STSIntegrationBase] = None):
+    def __init__(
+        self,
+        sts_integration: Optional[STSIntegrationBase] = None,
+        resource: Optional[Union[str, List[str]]] = None,
+        audience: Optional[Union[str, List[str]]] = None,
+    ):
         """Initialize the token propagation plugin.
 
         Args:
             sts_integration: The ADK STS integration instance
+            resource: RFC 8707 resource indicator sent on the token exchange to
+                scope the issued token to a target backend. Omitted when None.
+            audience: RFC 8693 audience sent on the token exchange. Omitted when None.
         """
         super().__init__("ADKTokenPropagationPlugin")
         self.sts_integration = sts_integration
+        self.resource = resource
+        self.audience = audience
         self.token_cache: Dict[str, _TokenCacheEntry] = {}
         self.actor_token_cache: Optional[_TokenCacheEntry] = None
 
@@ -192,6 +202,8 @@ class ADKTokenPropagationPlugin(BasePlugin):
                     subject_token_type=TokenType.JWT,
                     actor_token=actor_token,
                     actor_token_type=TokenType.JWT if actor_token else None,
+                    resource=self.resource,
+                    audience=self.audience,
                 )
             except Exception as e:
                 logger.warning(f"STS token exchange failed: {e}")

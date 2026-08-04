@@ -214,6 +214,228 @@ func TestComputeStatusSecretHash_Deterministic(t *testing.T) {
 	}
 }
 
+// TestReconcileKagentModelConfig_FoundryEndpointFrom exercises the endpointFrom
+// path: the resolved ConfigMap value is folded into the status hash, and
+// resolution failures surface on the Accepted condition.
+func TestReconcileKagentModelConfig_FoundryEndpointFrom(t *testing.T) {
+	optional := true
+
+	foundryModelConfig := func() *v1alpha2.ModelConfig {
+		return &v1alpha2.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "foundry-model", Namespace: "default"},
+			Spec: v1alpha2.ModelConfigSpec{
+				Model:    "gpt-4.1-nano",
+				Provider: v1alpha2.ModelProviderFoundry,
+				Foundry: &v1alpha2.FoundryConfig{
+					Deployment: "gpt-4-1-nano",
+					APIVersion: "2024-10-21",
+					EndpointFrom: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+						Key:                  "endpoint",
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		mutateModel  func(*v1alpha2.ModelConfig)
+		configMap    *corev1.ConfigMap
+		wantAccepted metav1.ConditionStatus
+		wantHashSet  bool
+	}{
+		{
+			name: "resolved endpoint sets hash",
+			configMap: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+				Data:       map[string]string{"endpoint": "https://aso.cognitiveservices.azure.com/"},
+			},
+			wantAccepted: metav1.ConditionTrue,
+			wantHashSet:  true,
+		},
+		{
+			name:         "missing config map fails",
+			configMap:    nil,
+			wantAccepted: metav1.ConditionFalse,
+		},
+		{
+			name: "missing required key fails",
+			configMap: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+				Data:       map[string]string{"other": "value"},
+			},
+			wantAccepted: metav1.ConditionFalse,
+			// the config map identity is still folded in, so a hash is produced
+			wantHashSet: true,
+		},
+		{
+			name: "missing optional key is accepted",
+			mutateModel: func(mc *v1alpha2.ModelConfig) {
+				mc.Spec.Foundry.EndpointFrom.Optional = &optional
+			},
+			configMap: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+				Data:       map[string]string{"other": "value"},
+			},
+			wantAccepted: metav1.ConditionTrue,
+			wantHashSet:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, clientgoscheme.AddToScheme(scheme))
+			require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+			modelConfig := foundryModelConfig()
+			if tt.mutateModel != nil {
+				tt.mutateModel(modelConfig)
+			}
+
+			objs := []client.Object{modelConfig}
+			if tt.configMap != nil {
+				objs = append(objs, tt.configMap)
+			}
+
+			kube := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(modelConfig).
+				WithObjects(objs...).
+				Build()
+			reconciler := &kagentReconciler{kube: kube}
+
+			require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(),
+				reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "foundry-model"}}))
+
+			updated := &v1alpha2.ModelConfig{}
+			require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), updated))
+
+			accepted := meta.FindStatusCondition(updated.Status.Conditions, v1alpha2.ModelConfigConditionTypeAccepted)
+			require.NotNil(t, accepted)
+			assert.Equal(t, tt.wantAccepted, accepted.Status)
+
+			if tt.wantHashSet {
+				assert.NotEmpty(t, updated.Status.SecretHash)
+			}
+		})
+	}
+}
+
+// TestReconcileKagentModelConfig_EndpointFromHashChanges verifies that rewriting
+// the endpointFrom ConfigMap value changes the status hash, which is the signal
+// that rolls dependent agents onto the new endpoint.
+func TestReconcileKagentModelConfig_EndpointFromHashChanges(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-model", Namespace: "default"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4.1-nano",
+			Provider: v1alpha2.ModelProviderFoundry,
+			Foundry: &v1alpha2.FoundryConfig{
+				Deployment: "gpt-4-1-nano",
+				APIVersion: "2024-10-21",
+				EndpointFrom: &corev1.ConfigMapKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+					Key:                  "endpoint",
+				},
+			},
+		},
+	}
+	endpointCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+		Data:       map[string]string{"endpoint": "https://one.cognitiveservices.azure.com/"},
+	}
+
+	kube := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(modelConfig).
+		WithObjects(modelConfig, endpointCM).
+		Build()
+	reconciler := &kagentReconciler{kube: kube}
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "foundry-model"}}
+
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	first := &v1alpha2.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), first))
+	require.NotEmpty(t, first.Status.SecretHash)
+
+	// Re-reconciling without changing anything must keep the hash stable so
+	// agents don't roll on every reconcile loop.
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	stable := &v1alpha2.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), stable))
+	assert.Equal(t, first.Status.SecretHash, stable.Status.SecretHash,
+		"an unchanged endpointFrom value should keep the status hash stable")
+
+	// Rewrite the endpoint (as Azure Service Operator might) and re-reconcile.
+	endpointCM.Data["endpoint"] = "https://two.cognitiveservices.azure.com/"
+	require.NoError(t, kube.Update(context.Background(), endpointCM))
+
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	second := &v1alpha2.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), second))
+
+	assert.NotEqual(t, first.Status.SecretHash, second.Status.SecretHash,
+		"changing the endpointFrom value should change the status hash")
+}
+
+// TestReconcileKagentModelConfig_InlineEndpointIgnoresConfigMap verifies that a
+// Foundry ModelConfig using an inline endpoint does not fold any ConfigMap into
+// its status hash, so unrelated ConfigMap edits never roll its agents.
+func TestReconcileKagentModelConfig_InlineEndpointIgnoresConfigMap(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-model", Namespace: "default"},
+		Spec: v1alpha2.ModelConfigSpec{
+			Model:    "gpt-4.1-nano",
+			Provider: v1alpha2.ModelProviderFoundry,
+			Foundry: &v1alpha2.FoundryConfig{
+				Endpoint:   "https://inline.cognitiveservices.azure.com/",
+				Deployment: "gpt-4-1-nano",
+				APIVersion: "2024-10-21",
+			},
+		},
+	}
+	// An unrelated ConfigMap that the model does not reference.
+	unrelatedCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+		Data:       map[string]string{"endpoint": "https://one.cognitiveservices.azure.com/"},
+	}
+
+	kube := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(modelConfig).
+		WithObjects(modelConfig, unrelatedCM).
+		Build()
+	reconciler := &kagentReconciler{kube: kube}
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "foundry-model"}}
+
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	first := &v1alpha2.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), first))
+
+	// Editing the unrelated ConfigMap must not change this model's hash.
+	unrelatedCM.Data["endpoint"] = "https://two.cognitiveservices.azure.com/"
+	require.NoError(t, kube.Update(context.Background(), unrelatedCM))
+
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	second := &v1alpha2.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), second))
+
+	assert.Equal(t, first.Status.SecretHash, second.Status.SecretHash,
+		"an inline-endpoint model must not fold unrelated ConfigMaps into its hash")
+}
+
 func TestAgentIDConsistency(t *testing.T) {
 	req := reconcile.Request{
 		NamespacedName: types.NamespacedName{

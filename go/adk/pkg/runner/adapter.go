@@ -38,14 +38,14 @@ func CreateRunnerConfig(
 	memoryService *kagentmemory.KagentMemoryService,
 	kagentURL string,
 	httpClient *http.Client,
-) (runner.Config, map[string]string, error) {
+) (runner.Config, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	var extraTools []adktool.Tool
 	if memoryService != nil {
 		saveTool, err := kagentmemory.NewSaveMemoryTool(memoryService)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create save_memory tool: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create save_memory tool: %w", err)
 		}
 		extraTools = append(extraTools, saveTool)
 	}
@@ -53,15 +53,15 @@ func CreateRunnerConfig(
 	if agentConfig.ShareTools != nil && *agentConfig.ShareTools && kagentURL != "" && httpClient != nil {
 		createTool, err := tools.NewCreateShareLinkTool(httpClient, kagentURL, appName)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create create_share_link tool: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create create_share_link tool: %w", err)
 		}
 		listTool, err := tools.NewListShareLinksTool(httpClient, kagentURL, appName)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create list_share_links tool: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create list_share_links tool: %w", err)
 		}
 		deleteTool, err := tools.NewDeleteShareLinkTool(httpClient, kagentURL, appName)
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create delete_share_link tool: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create delete_share_link tool: %w", err)
 		}
 		extraTools = append(extraTools, createTool, listTool, deleteTool)
 		log.Info("Share link tools enabled")
@@ -69,12 +69,12 @@ func CreateRunnerConfig(
 
 	stsPlugin, err := buildTokenPropagationPlugin(ctx, log)
 	if err != nil {
-		return runner.Config{}, nil, err
+		return runner.Config{}, err
 	}
 
-	adkAgent, subagentSessionIDs, err := agent.CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
+	adkAgent, err := agent.CreateGoogleADKAgent(ctx, agentConfig, agentNameFromAppName(appName), stsPlugin, extraTools...)
 	if err != nil {
-		return runner.Config{}, nil, fmt.Errorf("failed to create agent: %w", err)
+		return runner.Config{}, fmt.Errorf("failed to create agent: %w", err)
 	}
 
 	adkSessionService := sessionService
@@ -95,7 +95,7 @@ func CreateRunnerConfig(
 	if stsPlugin != nil {
 		p, err := stsPlugin.ADKPlugin()
 		if err != nil {
-			return runner.Config{}, nil, fmt.Errorf("failed to create STS ADK plugin: %w", err)
+			return runner.Config{}, fmt.Errorf("failed to create STS ADK plugin: %w", err)
 		}
 		if p != nil {
 			adkPlugins = append(adkPlugins, p)
@@ -113,7 +113,7 @@ func CreateRunnerConfig(
 		},
 	}
 
-	return cfg, subagentSessionIDs, nil
+	return cfg, nil
 }
 
 func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.TokenPropagationPlugin, error) {
@@ -126,7 +126,7 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 	// Propagate-only mode: keep parity with Python by enabling plugin without STS exchange.
 	if stsWellKnownURI == "" {
 		log.Info("Enabling token propagation plugin without STS exchange")
-		return sts.NewTokenPropagationPlugin(nil, log), nil
+		return sts.NewTokenPropagationPlugin(nil, log, nil, nil), nil
 	}
 	defaultSTSConfig := sts.DefaultSTSConfig(stsWellKnownURI)
 
@@ -143,6 +143,23 @@ func buildTokenPropagationPlugin(ctx context.Context, log logr.Logger) (*sts.Tok
 		return nil, fmt.Errorf("failed to initialize STS integration: %w", err)
 	}
 
+	// RFC 8707 resource / RFC 8693 audience scope the exchanged token to a
+	// backend. Both are repeatable; empty values are omitted from the request.
+	resource := splitCSV(os.Getenv("KAGENT_STS_RESOURCE"))
+	audience := splitCSV(os.Getenv("KAGENT_STS_AUDIENCE"))
+
 	log.Info("Enabling STS token propagation plugin", "wellKnownURI", stsWellKnownURI)
-	return sts.NewTokenPropagationPlugin(integration, log), nil
+	return sts.NewTokenPropagationPlugin(integration, log, resource, audience), nil
+}
+
+// splitCSV parses a comma-separated value into trimmed, non-empty entries,
+// returning nil when none are present so the exchange target stays unset.
+func splitCSV(v string) []string {
+	var out []string
+	for p := range strings.SplitSeq(v, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

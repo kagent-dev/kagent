@@ -989,13 +989,29 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
             } else if (partType === "function_response") {
               // Skip internal HITL markers: the before_tool_callback stub and
-              // the ask_user first-invocation pending stub.
+              // the ask_user first-invocation pending stub. Exception: a
+              // "pending" response from an Agent-type tool carrying a
+              // subagent_session_id is a real HITL event surfaced from a
+              // sub-agent (it needs the user's approval before the sub-agent's
+              // tool call proceeds) and must not be skipped — without pre-
+              // stamped session ids (see remoteA2AResponse in
+              // remote_a2a_tool.go), this is the only place the UI learns the
+              // session id for that pending sub-agent, and skipping it here
+              // means the Activity panel never opens for the user to review
+              // what the sub-agent is about to do before approving it.
               const responseData = (data as { response?: Record<string, unknown> })?.response;
               const responseStatus = responseData?.status as string | undefined;
-              if (responseStatus === "confirmation_requested" || responseStatus === "pending") {
+              const toolData = data as unknown as ToolResponseData;
+              const isPendingAgentSession =
+                responseStatus === "pending" &&
+                isAgentToolName(toolData.name) &&
+                typeof responseData?.subagent_session_id === "string";
+              if (
+                (responseStatus === "confirmation_requested" || responseStatus === "pending") &&
+                !isPendingAgentSession
+              ) {
                 continue;
               }
-              const toolData = data as unknown as ToolResponseData;
               const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
               processFunctionResponsePart(toolData, statusUpdate.contextId, statusUpdate.taskId, source);
             }

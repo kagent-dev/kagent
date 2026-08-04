@@ -245,6 +245,57 @@ func TestMarshalJSON_TypeSpecificFields(t *testing.T) {
 			t.Errorf("region = %v, want %q", raw["region"], "us-east-1")
 		}
 	})
+
+	t.Run("Bedrock guardrail", func(t *testing.T) {
+		m := &Bedrock{
+			BaseModel: BaseModel{Model: "claude-v2"},
+			Region:    "eu-central-1",
+			Guardrail: &BedrockGuardrail{
+				Identifier: "gr-123",
+				Version:    "1",
+				Trace:      "enabled",
+			},
+		}
+		data, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("MarshalJSON() error = %v", err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		g, ok := raw["guardrail"].(map[string]any)
+		if !ok {
+			t.Fatalf("guardrail = %v, want object", raw["guardrail"])
+		}
+		if g["identifier"] != "gr-123" {
+			t.Errorf("guardrail.identifier = %v, want %q", g["identifier"], "gr-123")
+		}
+		if g["version"] != "1" {
+			t.Errorf("guardrail.version = %v, want %q", g["version"], "1")
+		}
+		if g["trace"] != "enabled" {
+			t.Errorf("guardrail.trace = %v, want %q", g["trace"], "enabled")
+		}
+	})
+
+	t.Run("Bedrock guardrail omitted when nil", func(t *testing.T) {
+		m := &Bedrock{
+			BaseModel: BaseModel{Model: "claude-v2"},
+			Region:    "us-east-1",
+		}
+		data, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("MarshalJSON() error = %v", err)
+		}
+		var raw map[string]any
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if _, present := raw["guardrail"]; present {
+			t.Errorf("guardrail key should be omitted when nil, got %v", raw["guardrail"])
+		}
+	})
 }
 
 func TestAgentConfig_UnmarshalJSON_Network(t *testing.T) {

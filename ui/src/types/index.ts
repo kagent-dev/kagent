@@ -77,6 +77,12 @@ export interface BedrockConfig {
   region: string;
 }
 
+export interface FoundryConfig {
+  endpoint?: string;
+  deployment: string;
+  apiVersion?: string;
+}
+
 export interface TLSConfig {
   disableVerify?: boolean;
   caCertSecretRef?: string;
@@ -101,6 +107,7 @@ export interface ModelConfigSpec {
   anthropicVertexAI?: AnthropicVertexAIConfig;
   bedrock?: BedrockConfig;
   sapAICore?: SAPAICoreConfigPayload;
+  foundry?: FoundryConfig;
 }
 
 export interface ModelConfig {
@@ -419,7 +426,9 @@ export interface BYODeploymentSpec {
   volumeMounts?: unknown[];
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
+  deploymentAnnotations?: Record<string, string>;
   env?: EnvVar[];
+  envFrom?: EnvFromSource[];
   imagePullPolicy?: string;
   serviceAccountName?: string;
 }
@@ -554,6 +563,16 @@ export interface EnvVar {
   name: string;
   value?: string;
   valueFrom?: EnvVarSource;
+}
+
+export interface LocalObjectReference {
+  name?: string;
+}
+
+export interface EnvFromSource {
+  prefix?: string;
+  configMapRef?: LocalObjectReference & { optional?: boolean };
+  secretRef?: LocalObjectReference & { optional?: boolean };
 }
 
 export interface ValueSource {

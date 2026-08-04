@@ -4,7 +4,7 @@ This is a currency LangGraph agent that demonstrates KAgent integration with ses
 
 ## Features
 
-- Currency conversion agent using Google Gemini
+- Currency conversion agent using OpenAI
 - LangGraph state management with KAgent checkpointer
 - A2A protocol compatibility
 - Session persistence via KAgent REST API
@@ -26,11 +26,11 @@ make basic-langchain-sample
 docker push localhost:5001/langgraph-currency:latest
 ```
 
-3. Create a secret with the Google API key:
+3. Create a secret with the OpenAI API key:
 
 ```bash
-kubectl create secret generic kagent-google -n kagent \
-  --from-literal=GOOGLE_API_KEY=$GOOGLE_API_KEY \
+kubectl create secret generic kagent-openai -n kagent \
+  --from-literal=OPENAI_API_KEY=$OPENAI_API_KEY \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
@@ -51,7 +51,7 @@ uv sync
 2. Set environment variables:
 
 ```bash
-export GOOGLE_API_KEY=your_api_key_here
+export OPENAI_API_KEY=your_api_key_here
 export KAGENT_URL=http://localhost:8083
 ```
 
@@ -82,7 +82,7 @@ The agent maintains conversation history across sessions using the KAgent REST A
 
 The agent can be configured via environment variables:
 
-- `GOOGLE_API_KEY`: Required for Gemini API access
+- `OPENAI_API_KEY`: Required for OpenAI API access
 - `KAGENT_URL`: Required. KAgent server URL; for local development, the controller commonly runs at `http://localhost:8083`
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)

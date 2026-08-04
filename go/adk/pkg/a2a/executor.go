@@ -30,24 +30,22 @@ const (
 
 // KAgentExecutorConfig holds the configuration for KAgentExecutor
 type KAgentExecutorConfig struct {
-	RunnerConfig       runner.Config
-	SubagentSessionIDs map[string]string
-	SessionService     adksession.Service
-	Stream             bool
-	AppName            string
-	SkillsDirectory    string
-	Logger             logr.Logger
+	RunnerConfig    runner.Config
+	SessionService  adksession.Service
+	Stream          bool
+	AppName         string
+	SkillsDirectory string
+	Logger          logr.Logger
 }
 
 // KAgentExecutor implements a2asrv.AgentExecutor
 type KAgentExecutor struct {
-	runnerConfig       runner.Config
-	subagentSessionIDs map[string]string
-	sessionService     adksession.Service
-	stream             bool
-	appName            string
-	skillsDirectory    string
-	logger             logr.Logger
+	runnerConfig    runner.Config
+	sessionService  adksession.Service
+	stream          bool
+	appName         string
+	skillsDirectory string
+	logger          logr.Logger
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
@@ -62,13 +60,12 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		skillsDir = defaultSkillsDirectory
 	}
 	return &KAgentExecutor{
-		runnerConfig:       cfg.RunnerConfig,
-		subagentSessionIDs: cfg.SubagentSessionIDs,
-		sessionService:     cfg.SessionService,
-		stream:             cfg.Stream,
-		appName:            cfg.AppName,
-		skillsDirectory:    skillsDir,
-		logger:             cfg.Logger.WithName("kagent-executor"),
+		runnerConfig:    cfg.RunnerConfig,
+		sessionService:  cfg.SessionService,
+		stream:          cfg.Stream,
+		appName:         cfg.AppName,
+		skillsDirectory: skillsDir,
+		logger:          cfg.Logger.WithName("kagent-executor"),
 	}
 }
 
@@ -225,9 +222,6 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		return fmt.Errorf("inbound message conversion failed: %w", err)
 	}
 
-	// 7. Use pre-built subagent session ID map (built by runner bundle).
-	subagentSessionIDs := e.subagentSessionIDs
-
 	// 8. Create runner.
 	r, err := runner.New(e.runnerConfig)
 	if err != nil {
@@ -343,10 +337,6 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 			}
 			if isEmptyDataPart(a2aPart) {
 				continue
-			}
-			// Stamp kagent_subagent_session_id onto function_call DataParts.
-			if len(subagentSessionIDs) > 0 {
-				a2aPart = stampSubagentSessionID(a2aPart, subagentSessionIDs)
 			}
 			a2aParts = append(a2aParts, a2aPart)
 		}

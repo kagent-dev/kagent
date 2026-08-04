@@ -89,6 +89,7 @@ func NewHandlers(
 		Model:                    NewModelHandler(base),
 		ModelProviderConfig:      NewModelProviderConfigHandler(base, rcnclr),
 		Sessions:                 NewSessionsHandler(base, substrateSandboxActorBackend),
+		SessionShares:            NewSessionSharesHandler(base),
 		Agents:                   NewAgentsHandler(base),
 		Tools:                    NewToolsHandler(base),
 		ToolServers:              NewToolServersHandler(base),
