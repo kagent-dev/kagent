@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from a2a.types import AgentCard, Message
 from google.protobuf.json_format import MessageToDict, ParseDict
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 HITL_EXTENSION_URI = "https://kagent.dev/extensions/hitl/v1"
 HITL_EXTENSION_HEADER = "A2A-Extensions"
@@ -27,6 +27,12 @@ class HitlTool(BaseModel):
     call_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     args: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("args", mode="before")
+    @classmethod
+    def normalize_nullable_args(cls, value: Any) -> Any:
+        """Treat a no-argument tool encoded as JSON null as an empty object."""
+        return {} if value is None else value
 
 
 class NestedHitlRequest(BaseModel):

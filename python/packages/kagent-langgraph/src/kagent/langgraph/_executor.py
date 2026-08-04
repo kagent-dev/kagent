@@ -222,9 +222,7 @@ class LangGraphAgentExecutor(AgentExecutor):
             tool_call_id = action["id"]
             confirmation_id = str(uuid.uuid4())
 
-            tools.append(
-                HitlTool(id=confirmation_id, call_id=tool_call_id, name=tool_name, args=tool_args)
-            )
+            tools.append(HitlTool(id=confirmation_id, call_id=tool_call_id, name=tool_name, args=tool_args))
 
         status_message = Message(
             message_id=str(uuid.uuid4()),
@@ -267,7 +265,10 @@ class LangGraphAgentExecutor(AgentExecutor):
             return False
 
         # Check if message contains a decision
-        return get_tool_approval_response(context.message) is not None or get_ask_user_response(context.message) is not None
+        return (
+            get_tool_approval_response(context.message) is not None
+            or get_ask_user_response(context.message) is not None
+        )
 
     async def _handle_resume(
         self,

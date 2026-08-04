@@ -13,7 +13,7 @@ This is a BaseToolset wrapper around KAgentRemoteA2ATool for runner cleanup purp
 
 import logging
 import uuid
-from typing import Any, Callable, Optional, Protocol, runtime_checkable
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -43,6 +43,7 @@ from kagent.core.a2a import (
     HITL_EXTENSION_HEADER,
     HITL_EXTENSION_URI,
     attach_hitl_extension,
+    read_metadata_value,
 )
 
 from ._hitl import build_remote_hitl_state, get_remote_hitl_state, remote_hitl_hint
@@ -102,21 +103,10 @@ def _extract_usage_from_task(task: Task) -> Optional[dict]:
     """Extract kagent_usage_metadata from a completed task."""
     if task.metadata:
         metadata = MessageToDict(task.metadata)
-        usage = metadata.get("kagent_usage_metadata")
+        usage = read_metadata_value(metadata, "usage_metadata")
         if usage and isinstance(usage, dict):
             return usage
     return None
-
-
-@runtime_checkable
-class SubagentSessionProvider(Protocol):
-    """Protocol for tools that delegate to a subagent and can expose
-    the subagent's session ID for live activity polling."""
-
-    name: str
-
-    @property
-    def subagent_session_id(self) -> str | None: ...
 
 
 class KAgentRemoteA2ATool(BaseTool):
@@ -139,11 +129,6 @@ class KAgentRemoteA2ATool(BaseTool):
         self._agent_card: Optional[AgentCard] = None
         # Pre-generate context_id for UI session polling
         self._last_context_id: str = str(uuid.uuid4())
-
-    @property
-    def subagent_session_id(self) -> str | None:
-        """The subagent's session ID (== context_id sent in the A2A message)."""
-        return self._last_context_id
 
     async def _ensure_client(self) -> A2AClient:
         """Lazily initialize the A2A client."""
@@ -479,11 +464,6 @@ class KAgentRemoteA2AToolset(BaseToolset):
     @property
     def name(self) -> str:
         return self._tool.name
-
-    @property
-    def subagent_session_id(self) -> str | None:
-        """The subagent's session ID (== context_id sent in the A2A message)."""
-        return self._tool.subagent_session_id
 
     async def get_tools(self, readonly_context: Optional[ReadonlyContext] = None) -> list[BaseTool]:
         return [self._tool]

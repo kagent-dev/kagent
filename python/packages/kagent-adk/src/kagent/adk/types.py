@@ -13,7 +13,7 @@ from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
-from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
+from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
@@ -540,13 +540,8 @@ class AgentConfig(BaseModel):
 
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
-        # before_model callbacks run in order. Strip synthetic HITL confirmation
-        # parts (when approval is in play), then compact MCP App tool results so
-        # the model treats a rendered widget as terminal instead of re-calling it.
-        before_model_callbacks = []
-        if tools_requiring_approval:
-            before_model_callbacks.append(strip_confirmation_parts_callback)
-        before_model_callbacks.append(make_mcp_app_model_result_callback(mcp_app_tool_names))
+        # ADK 2.x filters its synthetic confirmation events before model calls.
+        before_model_callbacks = [make_mcp_app_model_result_callback(mcp_app_tool_names)]
 
         # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(

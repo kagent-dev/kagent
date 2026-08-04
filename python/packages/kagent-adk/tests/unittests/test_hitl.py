@@ -1,45 +1,46 @@
-"""Tests for the HITL approval callback and agent executor's HITL handling logic."""
+"""Tests for ADK-native approval and current-task A2A HITL translation."""
 
-import json
-from unittest.mock import MagicMock
+from __future__ import annotations
 
 import pytest
-from a2a.types import Message, Part, Role
+from a2a.types import Message, Role, Task, TaskState, TaskStatus
+from google.adk.a2a.converters.part_converter import (
+    convert_a2a_part_to_genai_part,
+    convert_genai_part_to_a2a_part,
+)
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
-from google.adk.sessions import Session
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.genai import types as genai_types
-from google.protobuf.json_format import MessageToDict, ParseDict
-from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
+    AskUserRequest,
     AskUserResponse,
+    HitlTool,
+    NestedHitlRequest,
     ToolApproval,
+    ToolApprovalRequest,
     ToolApprovalResponse,
     attach_hitl_extension,
-    get_hitl_payload,
+    get_ask_user_request,
 )
 
-from kagent.adk._agent_executor import A2aAgentExecutor
 from kagent.adk._approval import make_approval_callback
-from kagent.adk._hitl import build_hitl_status_message
+from kagent.adk._hitl import (
+    RemoteHitlState,
+    build_hitl_status_message,
+    build_resume_hitl_message,
+)
 
 
 class MockState(dict):
-    """Dict subclass that mimics ToolContext.state behavior."""
-
     pass
 
 
 class MockEventActions:
-    """Mock EventActions for testing."""
-
     def __init__(self):
         self.requested_tool_confirmations: dict[str, ToolConfirmation] = {}
 
 
 class MockToolContext:
-    """Mock ToolContext for testing."""
-
     def __init__(self, tool_confirmation=None):
         self.state = MockState()
         self.function_call_id = "test_fc_id"
@@ -47,476 +48,254 @@ class MockToolContext:
         self.tool_confirmation = tool_confirmation
 
     def request_confirmation(self, *, hint=None, payload=None):
-        """Mimics ToolContext.request_confirmation()."""
         self._event_actions.requested_tool_confirmations[self.function_call_id] = ToolConfirmation(
-            hint=hint, payload=payload
+            hint=hint,
+            payload=payload,
         )
 
 
 class MockBaseTool:
-    """Mock BaseTool for testing."""
-
     def __init__(self, name: str):
         self.name = name
 
 
 class TestMakeApprovalCallback:
-    """Tests for make_approval_callback with ADK-native request_confirmation."""
-
     def test_allows_non_approval_tools(self):
-        """Tools not in the approval set proceed normally."""
         callback = make_approval_callback({"delete_file"})
-        tool = MockBaseTool("read_file")
         ctx = MockToolContext()
-        result = callback(tool, {"path": "/tmp"}, ctx)
-        assert result is None
-        # No confirmation requested
-        assert len(ctx._event_actions.requested_tool_confirmations) == 0
+        assert callback(MockBaseTool("read_file"), {"path": "/tmp"}, ctx) is None
+        assert not ctx._event_actions.requested_tool_confirmations
 
     def test_blocks_approval_tools_and_requests_confirmation(self):
-        """Tools in the approval set request confirmation and return a blocking dict."""
         callback = make_approval_callback({"delete_file"})
-        tool = MockBaseTool("delete_file")
         ctx = MockToolContext()
-        result = callback(tool, {"path": "/tmp"}, ctx)
-        assert result is not None
-        assert result["status"] == "confirmation_requested"
-        assert result["tool"] == "delete_file"
-        # Confirmation should be stored in event_actions
-        assert "test_fc_id" in ctx._event_actions.requested_tool_confirmations
+        result = callback(MockBaseTool("delete_file"), {"path": "/tmp"}, ctx)
+        assert result == {"status": "confirmation_requested", "tool": "delete_file"}
+        assert "delete_file" in ctx._event_actions.requested_tool_confirmations["test_fc_id"].hint
 
     def test_approved_confirmation_allows_execution(self):
-        """When tool_confirmation.confirmed is True, tool proceeds."""
         callback = make_approval_callback({"delete_file"})
-        tool = MockBaseTool("delete_file")
-        confirmation = ToolConfirmation(confirmed=True)
-        ctx = MockToolContext(tool_confirmation=confirmation)
-        result = callback(tool, {"path": "/tmp"}, ctx)
-        assert result is None  # Tool proceeds
+        ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=True))
+        assert callback(MockBaseTool("delete_file"), {}, ctx) is None
 
-    def test_rejected_confirmation_blocks_execution(self):
-        """When tool_confirmation.confirmed is False, tool returns rejection string."""
+    def test_rejected_confirmation_includes_reason(self):
         callback = make_approval_callback({"delete_file"})
-        tool = MockBaseTool("delete_file")
-        confirmation = ToolConfirmation(confirmed=False)
-        ctx = MockToolContext(tool_confirmation=confirmation)
-        result = callback(tool, {"path": "/tmp"}, ctx)
-        assert isinstance(result, str)
-        assert "rejected" in result
+        ctx = MockToolContext(
+            tool_confirmation=ToolConfirmation(
+                confirmed=False,
+                payload={"rejection_reason": "Dangerous path"},
+            )
+        )
+        assert callback(MockBaseTool("delete_file"), {}, ctx) == (
+            "Tool call was rejected by user. Reason: Dangerous path"
+        )
 
-    def test_multiple_tools_mixed(self):
-        """Only tools in the set request confirmation, others proceed."""
-        callback = make_approval_callback({"delete_file", "write_file"})
-
-        # read_file is not in the set
-        read_tool = MockBaseTool("read_file")
-        ctx = MockToolContext()
-        assert callback(read_tool, {}, ctx) is None
-
-        # delete_file is in the set — blocks
-        delete_tool = MockBaseTool("delete_file")
-        ctx2 = MockToolContext()
-        result = callback(delete_tool, {"path": "/tmp"}, ctx2)
-        assert result is not None
-        assert result["status"] == "confirmation_requested"
-
-    def test_empty_approval_set_allows_all(self):
-        """Empty approval set allows all tools."""
-        callback = make_approval_callback(set())
-        tool = MockBaseTool("delete_file")
-        ctx = MockToolContext()
-        result = callback(tool, {"path": "/tmp"}, ctx)
-        assert result is None
-
-    def test_hint_contains_tool_name(self):
-        """The confirmation hint mentions the tool name."""
+    def test_rejected_confirmation_without_reason(self):
         callback = make_approval_callback({"delete_file"})
-        tool = MockBaseTool("delete_file")
-        ctx = MockToolContext()
-        callback(tool, {"path": "/tmp"}, ctx)
-        confirmation = ctx._event_actions.requested_tool_confirmations["test_fc_id"]
-        assert "delete_file" in confirmation.hint
-
-    def test_non_approval_tool_with_confirmation_still_proceeds(self):
-        """If a non-approval tool somehow has tool_confirmation set, it still proceeds."""
-        callback = make_approval_callback({"delete_file"})
-        tool = MockBaseTool("read_file")  # Not in approval set
-        confirmation = ToolConfirmation(confirmed=True)
-        ctx = MockToolContext(tool_confirmation=confirmation)
-        result = callback(tool, {}, ctx)
-        assert result is None
+        ctx = MockToolContext(tool_confirmation=ToolConfirmation(confirmed=False))
+        assert callback(MockBaseTool("delete_file"), {}, ctx) == "Tool call was rejected by user."
 
 
-class MockFunctionResponse:
-    def __init__(self, name, id):
-        self.name = name
-        self.id = id
-
-
-class MockFunctionCall:
-    def __init__(self, name, id, args=None):
-        self.name = name
-        self.id = id
-        self.args = args or {}
-
-
-class MockEvent:
-    def __init__(self, function_calls=None, function_responses=None):
-        self._function_calls = function_calls or []
-        self._function_responses = function_responses or []
-
-    def get_function_calls(self):
-        return self._function_calls
-
-    def get_function_responses(self):
-        return self._function_responses
-
-
-def test_find_pending_confirmations_empty():
-    session = MagicMock(spec=Session)
-    session.events = []
-    pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {}
-
-
-def test_find_pending_confirmations_no_confirmations():
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[MockFunctionCall("other_function", "fc1")],
-            function_responses=[MockFunctionResponse("other_function", "fc1")],
-        )
-    ]
-    pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {}
-
-
-def test_find_pending_confirmations_with_pending():
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={"originalFunctionCall": {"id": "orig123"}},
-                )
-            ]
-        )
-    ]
-    pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {"fc1": None}
-
-
-def test_find_pending_confirmations_with_responded():
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={"originalFunctionCall": {"id": "orig123"}},
-                )
-            ]
-        ),
-        MockEvent(function_responses=[MockFunctionResponse(REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, "fc1")]),
-    ]
-    pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {}
-
-
-def test_find_pending_confirmations_missing_original_id():
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={},
-                )
-            ]
-        )
-    ]
-    pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {"fc1": None}
-
-
-def test_find_pending_confirmations_with_payload():
-    """Verify that the original toolConfirmation.payload is extracted."""
-    session = MagicMock(spec=Session)
-    original_payload = {"task_id": "t1", "context_id": "c1", "subagent_name": "sub"}
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={
-                        "originalFunctionCall": {"id": "orig123"},
-                        "toolConfirmation": {"hint": "approve?", "payload": original_payload},
-                    },
-                )
-            ]
-        )
-    ]
-    pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {"fc1": original_payload}
-
-
-def _make_simple_message(
-    approvals: list[ToolApproval] | None = None,
-    *,
-    ask_id: str | None = None,
-    answers: list[dict[str, list[str]]] | None = None,
-) -> Message:
-    """Create a minimal HITL extension response message for testing."""
-    message = Message(
-        role=Role.ROLE_USER,
-        message_id="test-msg",
-        task_id="test-task",
-        context_id="test-ctx",
+def _tool(identifier: str, name: str = "delete_file") -> HitlTool:
+    return HitlTool(
+        id=identifier,
+        call_id=f"call-{identifier}",
+        name=name,
+        args={"path": f"/{identifier}"} if name != "ask_user" else {"questions": [{"question": "Where?"}]},
     )
-    response = (
-        AskUserResponse(id=ask_id, answers=answers)
-        if ask_id
-        else ToolApprovalResponse(approvals=approvals or [ToolApproval(id="fc1", approved=True)])
+
+
+def _stored_task(request: ToolApprovalRequest | AskUserRequest, *, state=TaskState.TASK_STATE_INPUT_REQUIRED) -> Task:
+    message = Message(message_id="pause-message", role=Role.ROLE_AGENT, task_id="task-1", context_id="context-1")
+    attach_hitl_extension(message, request)
+    return Task(
+        id="task-1",
+        context_id="context-1",
+        status=TaskStatus(state=state, message=message),
     )
+
+
+def _incoming(response: ToolApprovalResponse | AskUserResponse) -> Message:
+    message = Message(message_id="response-message", role=Role.ROLE_USER, task_id="task-1", context_id="context-1")
     return attach_hitl_extension(message, response)
 
 
-def test_process_hitl_decision_no_pending():
-    executor = A2aAgentExecutor(runner=MagicMock())
-    session = MagicMock(spec=Session)
-    session.events = []
+def _confirmations(message: Message) -> dict[str, ToolConfirmation]:
+    result = {}
+    for part in message.parts:
+        genai_part = convert_a2a_part_to_genai_part(part)
+        assert genai_part is not None and not isinstance(genai_part, list)
+        response = genai_part.function_response
+        assert response is not None and response.id is not None
+        result[response.id] = ToolConfirmation.from_response_dict(response.response or {})
+    return result
 
-    parts = executor._process_hitl_response(session, _make_simple_message())
-    assert parts is None
 
-
-def test_process_hitl_decision_uniform_approve():
-    executor = A2aAgentExecutor(runner=MagicMock())
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={"originalFunctionCall": {"id": "orig123"}},
-                )
+def test_direct_tool_approvals_use_stored_task_not_session_history():
+    task = _stored_task(ToolApprovalRequest(tools=[_tool("confirm-1"), _tool("confirm-2", "restart")]))
+    incoming = _incoming(
+        ToolApprovalResponse(
+            approvals=[
+                ToolApproval(id="confirm-1", approved=True),
+                ToolApproval(id="confirm-2", approved=False, rejection_reason="not now"),
             ]
         )
-    ]
-
-    parts = executor._process_hitl_response(session, _make_simple_message())
-
-    assert parts is not None
-    assert len(parts) == 1
-    fr = parts[0].function_response
-    assert fr.name == REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
-    assert fr.id == "fc1"
-
-    resp = json.loads(fr.response["response"])
-    assert resp["confirmed"] is True
-
-
-def test_process_hitl_decision_uniform_reject():
-    executor = A2aAgentExecutor(runner=MagicMock())
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={"originalFunctionCall": {"id": "orig123"}},
-                )
-            ]
-        )
-    ]
-
-    parts = executor._process_hitl_response(session, _make_simple_message([ToolApproval(id="fc1", approved=False)]))
-
-    assert parts is not None
-    assert len(parts) == 1
-    fr = parts[0].function_response
-
-    resp = json.loads(fr.response["response"])
-    assert resp["confirmed"] is False
-
-
-def test_process_hitl_decision_batch():
-    executor = A2aAgentExecutor(runner=MagicMock())
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={"originalFunctionCall": {"id": "orig123"}},
-                ),
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc2",
-                    args={"originalFunctionCall": {"id": "orig456"}},
-                ),
-            ]
-        )
-    ]
-
-    message = _make_simple_message(
-        [
-            ToolApproval(id="fc1", approved=True),
-            ToolApproval(id="fc2", approved=False),
-        ]
     )
 
-    parts = executor._process_hitl_response(session, message)
+    confirmations = _confirmations(build_resume_hitl_message(task, incoming))
 
-    assert parts is not None
-    assert len(parts) == 2
-
-    parts_by_id = {p.function_response.id: p.function_response for p in parts}
-
-    fr1 = parts_by_id["fc1"]
-    resp1 = json.loads(fr1.response["response"])
-    assert resp1["confirmed"] is True
-
-    fr2 = parts_by_id["fc2"]
-    resp2 = json.loads(fr2.response["response"])
-    assert resp2["confirmed"] is False
+    assert confirmations["confirm-1"].confirmed is True
+    assert confirmations["confirm-1"].payload is None
+    assert confirmations["confirm-2"].confirmed is False
+    assert confirmations["confirm-2"].payload == {"rejection_reason": "not now"}
 
 
-def test_process_hitl_decision_uniform_reject_with_reason():
-    """Uniform reject with a rejection_reason populates ToolConfirmation.payload."""
-    executor = A2aAgentExecutor(runner=MagicMock())
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={"originalFunctionCall": {"id": "orig123"}},
-                )
-            ]
-        )
-    ]
-
-    message = _make_simple_message([ToolApproval(id="fc1", approved=False, rejection_reason="Too risky")])
-
-    parts = executor._process_hitl_response(session, message)
-
-    assert parts is not None
-    assert len(parts) == 1
-    fr = parts[0].function_response
-    resp = json.loads(fr.response["response"])
-    assert resp["confirmed"] is False
-    assert resp["payload"]["rejection_reason"] == "Too risky"
+@pytest.mark.parametrize(
+    ("approvals", "error"),
+    [
+        ([ToolApproval(id="confirm-1", approved=True)] * 2, "duplicate ids"),
+        ([ToolApproval(id="unknown", approved=True)], "missing id"),
+        (
+            [ToolApproval(id="confirm-1", approved=True), ToolApproval(id="unknown", approved=True)],
+            "unknown ids",
+        ),
+    ],
+)
+def test_direct_tool_approval_rejects_invalid_correlation(approvals, error):
+    task = _stored_task(ToolApprovalRequest(tools=[_tool("confirm-1")]))
+    with pytest.raises(ValueError, match=error):
+        build_resume_hitl_message(task, _incoming(ToolApprovalResponse(approvals=approvals)))
 
 
-def test_process_hitl_decision_batch_with_per_tool_reason():
-    """Batch reject with per-tool rejection reasons populates ToolConfirmation.payload for rejected tools."""
-    executor = A2aAgentExecutor(runner=MagicMock())
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={"originalFunctionCall": {"id": "orig123"}},
-                ),
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc2",
-                    args={"originalFunctionCall": {"id": "orig456"}},
-                ),
-            ]
-        )
-    ]
-
-    message = _make_simple_message(
-        [
-            ToolApproval(id="fc1", approved=True),
-            ToolApproval(id="fc2", approved=False, rejection_reason="Wrong environment"),
-        ]
+def test_direct_ask_user_response():
+    request = AskUserRequest(id="ask-confirm", questions=[{"question": "Which namespace?"}])
+    incoming = _incoming(
+        AskUserResponse(id="ask-confirm", answers=[{"answer": ["default"]}]),
     )
 
-    parts = executor._process_hitl_response(session, message)
+    confirmation = _confirmations(build_resume_hitl_message(_stored_task(request), incoming))["ask-confirm"]
 
-    assert parts is not None
-    assert len(parts) == 2
-
-    parts_by_id = {p.function_response.id: p.function_response for p in parts}
-
-    # Approved tool — no payload
-    fr1 = parts_by_id["fc1"]
-    resp1 = json.loads(fr1.response["response"])
-    assert resp1["confirmed"] is True
-    assert resp1.get("payload") is None
-
-    # Denied tool — reason in payload
-    fr2 = parts_by_id["fc2"]
-    resp2 = json.loads(fr2.response["response"])
-    assert resp2["confirmed"] is False
-    assert resp2["payload"]["rejection_reason"] == "Wrong environment"
+    assert confirmation.confirmed is True
+    assert confirmation.payload == {"answers": [{"answer": ["default"]}]}
 
 
-def test_approval_callback_rejection_with_reason():
-    """Rejected callback with a reason in payload returns a result containing that reason."""
-    callback = make_approval_callback({"delete_file"})
-    tool = MockBaseTool("delete_file")
-    confirmation = ToolConfirmation(confirmed=False, payload={"rejection_reason": "Dangerous path"})
-    ctx = MockToolContext(tool_confirmation=confirmation)
-    result = callback(tool, {"path": "/tmp"}, ctx)
-    assert result is not None
-    assert "Dangerous path" in result
-
-
-def test_approval_callback_rejection_without_reason():
-    """Rejected callback without a reason returns generic rejection message in result key."""
-    callback = make_approval_callback({"delete_file"})
-    tool = MockBaseTool("delete_file")
-    confirmation = ToolConfirmation(confirmed=False)
-    ctx = MockToolContext(tool_confirmation=confirmation)
-    result = callback(tool, {"path": "/tmp"}, ctx)
-    assert result is not None
-    assert result == "Tool call was rejected by user."
-
-
-# ---------------------------------------------------------------------------
-# Ask-user tests
-# ---------------------------------------------------------------------------
-
-
-def test_process_hitl_decision_ask_user_answers():
-    """Ask-user answers produce an approved ToolConfirmation with answers payload."""
-    executor = A2aAgentExecutor(runner=MagicMock())
-    session = MagicMock(spec=Session)
-    session.events = [
-        MockEvent(
-            function_calls=[
-                MockFunctionCall(
-                    REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
-                    "fc1",
-                    args={"originalFunctionCall": {"id": "ask123"}},
-                )
+def test_nested_tool_approvals_restore_remote_state():
+    parent = _tool("parent-confirm", "child_agent")
+    children = [_tool("child-confirm-1"), _tool("child-confirm-2", "restart")]
+    request = ToolApprovalRequest(
+        hint="Child needs approval",
+        tools=[parent],
+        nested=NestedHitlRequest(
+            subagent_name="child_agent",
+            task_id="child-task",
+            context_id="child-context",
+            tools=children,
+        ),
+    )
+    incoming = _incoming(
+        ToolApprovalResponse(
+            approvals=[
+                ToolApproval(id="child-confirm-1", approved=True),
+                ToolApproval(id="child-confirm-2", approved=False, rejection_reason="not now"),
             ]
         )
-    ]
+    )
 
-    answers = [{"answer": ["PostgreSQL"]}, {"answer": ["Auth", "Caching"]}]
-    message = _make_simple_message(ask_id="fc1", answers=answers)
+    confirmation = _confirmations(build_resume_hitl_message(_stored_task(request), incoming))["parent-confirm"]
+    remote_state = RemoteHitlState.model_validate(confirmation.payload)
 
-    parts = executor._process_hitl_response(session, message)
+    assert confirmation.confirmed is False
+    assert remote_state.task_id == "child-task"
+    assert remote_state.context_id == "child-context"
+    assert isinstance(remote_state.hitl_request, ToolApprovalRequest)
+    assert isinstance(remote_state.hitl_response, ToolApprovalResponse)
+    assert [item.id for item in remote_state.hitl_response.approvals] == ["child-confirm-1", "child-confirm-2"]
 
-    assert parts is not None
-    assert len(parts) == 1
-    fr = parts[0].function_response
-    resp = json.loads(fr.response["response"])
-    assert resp["confirmed"] is True
-    assert resp["payload"]["answers"] == answers
+
+def test_nested_ask_user_uses_child_response_and_parent_confirmation_ids():
+    child = _tool("child-confirm", "ask_user")
+    request = AskUserRequest(
+        id="parent-confirm",
+        questions=[{"question": "Which namespace?"}],
+        nested=NestedHitlRequest(
+            subagent_name="child_agent",
+            task_id="child-task",
+            context_id="child-context",
+            tools=[child],
+        ),
+    )
+    incoming = _incoming(
+        AskUserResponse(id="child-confirm", answers=[{"answer": ["default"]}]),
+    )
+
+    confirmation = _confirmations(build_resume_hitl_message(_stored_task(request), incoming))["parent-confirm"]
+    remote_state = RemoteHitlState.model_validate(confirmation.payload)
+
+    assert confirmation.confirmed is True
+    assert isinstance(remote_state.hitl_response, AskUserResponse)
+    assert remote_state.hitl_response.id == "child-confirm"
+
+
+def test_nested_ask_status_preserves_parent_confirmation_id():
+    child_request = AskUserRequest(id="child-confirm", questions=[{"question": "Which namespace?"}])
+    remote_state = RemoteHitlState(
+        task_id="child-task",
+        context_id="child-context",
+        subagent_name="child_agent",
+        hitl_request=child_request,
+    )
+    function_call = genai_types.Part(
+        function_call=genai_types.FunctionCall(
+            id="parent-confirm",
+            name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
+            args={
+                "originalFunctionCall": {
+                    "id": "parent-call",
+                    "name": "child_agent",
+                    "args": {"request": "help"},
+                },
+                "toolConfirmation": {
+                    "hint": "Child needs an answer",
+                    "payload": remote_state.model_dump(exclude_none=True),
+                },
+            },
+        )
+    )
+    converted = convert_genai_part_to_a2a_part(function_call)
+    assert converted is not None and not isinstance(converted, list)
+
+    status_message = build_hitl_status_message([converted], "task-1", "context-1", activated=True)
+    public_request = get_ask_user_request(status_message)
+
+    assert public_request is not None
+    assert public_request.id == "parent-confirm"
+    assert public_request.nested is not None
+    assert public_request.nested.tools[0].id == "child-confirm"
+
+
+def test_resume_rejects_non_input_required_task():
+    task = _stored_task(
+        ToolApprovalRequest(tools=[_tool("confirm-1")]),
+        state=TaskState.TASK_STATE_COMPLETED,
+    )
+    with pytest.raises(ValueError, match="input-required"):
+        build_resume_hitl_message(
+            task,
+            _incoming(ToolApprovalResponse(approvals=[ToolApproval(id="confirm-1", approved=True)])),
+        )
+
+
+def test_resume_rejects_input_required_task_without_public_hitl_request():
+    task = Task(
+        id="task-1",
+        context_id="context-1",
+        status=TaskStatus(
+            state=TaskState.TASK_STATE_INPUT_REQUIRED,
+            message=Message(message_id="pause", role=Role.ROLE_AGENT, parts=[]),
+        ),
+    )
+    with pytest.raises(ValueError, match="no HITL request"):
+        build_resume_hitl_message(
+            task,
+            _incoming(ToolApprovalResponse(approvals=[ToolApproval(id="confirm-1", approved=True)])),
+        )

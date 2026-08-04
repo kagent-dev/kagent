@@ -52,6 +52,24 @@ def test_tool_approval_request_has_per_tool_correlation() -> None:
     ]
 
 
+def test_hitl_tool_normalizes_null_args() -> None:
+    message = Message(
+        role=Role.ROLE_AGENT,
+        message_id="m",
+        extensions=[HITL_EXTENSION_URI],
+        metadata={
+            HITL_EXTENSION_URI: {
+                "type": "tool_approval_request",
+                "tools": [{"id": "confirmation-1", "call_id": "call-1", "name": "get_cluster", "args": None}],
+            }
+        },
+    )
+    request = get_tool_approval_request(message)
+
+    assert request is not None
+    assert request.tools[0].args == {}
+
+
 def test_parse_tool_approval_request() -> None:
     message = Message(role=Role.ROLE_AGENT, message_id="m", task_id="t", context_id="c")
     attach_hitl_extension(

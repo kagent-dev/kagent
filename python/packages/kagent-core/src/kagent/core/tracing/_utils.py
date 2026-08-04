@@ -7,7 +7,6 @@ from opentelemetry import _logs, trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
-from opentelemetry.sdk._events import EventLoggerProvider
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
@@ -82,13 +81,13 @@ def _resolve_otlp_timeout_seconds(signal: str) -> float:
     return timeout_millis / 1000.0
 
 
-def _instrument_anthropic(event_logger_provider=None):
+def _instrument_anthropic(logger_provider=None):
     """Instrument Anthropic SDK if available."""
     try:
         from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
 
-        if event_logger_provider:
-            AnthropicInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
+        if logger_provider:
+            AnthropicInstrumentor(use_legacy_attributes=False).instrument(logger_provider=logger_provider)
         else:
             AnthropicInstrumentor().instrument()
     except ImportError:
@@ -96,12 +95,15 @@ def _instrument_anthropic(event_logger_provider=None):
         pass
 
 
-def _instrument_google_generativeai():
+def _instrument_google_generativeai(logger_provider=None):
     """Instrument Google GenerativeAI SDK if available."""
     try:
         from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
 
-        GoogleGenerativeAiInstrumentor().instrument()
+        if logger_provider:
+            GoogleGenerativeAiInstrumentor(use_legacy_attributes=False).instrument(logger_provider=logger_provider)
+        else:
+            GoogleGenerativeAiInstrumentor().instrument()
     except ImportError:
         # Google GenerativeAI SDK is not installed; skipping instrumentation.
         pass
@@ -310,11 +312,10 @@ def configure(
         logging.info("Log provider configured with OTLP")
         # When logging is enabled, use new event-based approach (input/output as log events in Body)
         logging.info("OpenAI instrumentation configured with event logging capability")
-        # Create event logger provider using the configured logger provider
-        event_logger_provider = EventLoggerProvider(logger_provider)
         if instrument_openai_client:
-            OpenAIInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
-        _instrument_anthropic(event_logger_provider)
+            OpenAIInstrumentor(use_legacy_attributes=False).instrument(logger_provider=logger_provider)
+        _instrument_anthropic(logger_provider)
+        _instrument_google_generativeai(logger_provider)
     elif tracing_enabled:
         # Use legacy attributes (input/output as GenAI span attributes)
         logging.info("OpenAI instrumentation configured with legacy GenAI span attributes")
