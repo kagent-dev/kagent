@@ -33,21 +33,13 @@ const (
 // CreateGoogleADKAgent creates a Google ADK agent from AgentConfig.
 // agentName is used as the ADK agent identity (appears in event Author field).
 // extraTools are appended to the agent's tool list (e.g. save_memory).
-func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, extraTools ...tool.Tool) (agent.Agent, error) {
-	a, _, err := CreateGoogleADKAgentWithSubagentSessionIDs(ctx, agentConfig, agentName, nil, extraTools...)
-	return a, err
-}
-
-// CreateGoogleADKAgentWithSubagentSessionIDs creates a Google ADK agent and a
-// map of remote-subagent tool name → A2A context session ID (for stamping
-// outbound A2A events). Callers that only need the agent can use
-// CreateGoogleADKAgent.
-// Optional stsPlugin can be provided for token propagation to MCP tools.
-func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, map[string]string, error) {
+// Optional stsPlugin can be provided for token propagation to MCP tools; pass
+// nil if token propagation is not needed.
+func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, agentName string, stsPlugin *sts.TokenPropagationPlugin, extraTools ...tool.Tool) (agent.Agent, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	if agentConfig == nil {
-		return nil, nil, fmt.Errorf("agent config is required")
+		return nil, fmt.Errorf("agent config is required")
 	}
 
 	propagateToken := strings.ToLower(os.Getenv("KAGENT_PROPAGATE_TOKEN")) == "true"
@@ -57,7 +49,6 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 	}
 	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, dynamicHeaderProvider)
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
-	subagentSessionIDs := make(map[string]string)
 
 	var remoteAgentTools []tool.Tool
 	for _, remoteAgent := range agentConfig.RemoteAgents {
@@ -65,12 +56,9 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 			log.Info("Skipping remote agent with empty URL", "name", remoteAgent.Name)
 			continue
 		}
-		remoteTool, sessionID, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken)
+		remoteTool, err := tools.NewKAgentRemoteA2ATool(remoteAgent.Name, remoteAgent.Description, remoteAgent.Url, nil, remoteAgent.Headers, propagateToken, remoteAgent.IsolateSessions)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
-		}
-		if sessionID != "" {
-			subagentSessionIDs[remoteAgent.Name] = sessionID
+			return nil, fmt.Errorf("failed to create remote A2A tool for %s: %w", remoteAgent.Name, err)
 		}
 		remoteAgentTools = append(remoteAgentTools, remoteTool)
 		log.Info("Wired remote A2A agent tool", "name", remoteAgent.Name, "url", remoteAgent.Url)
@@ -78,16 +66,16 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 
 	localTools, err := buildAgentTools(agentConfig, remoteAgentTools, extraTools, log)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	if agentConfig.Model == nil {
-		return nil, nil, fmt.Errorf("model configuration is required")
+		return nil, fmt.Errorf("model configuration is required")
 	}
 
 	llmModel, err := CreateLLM(ctx, agentConfig.Model, log)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create LLM: %w", err)
+		return nil, fmt.Errorf("failed to create LLM: %w", err)
 	}
 
 	if agentName == "" {
@@ -153,14 +141,14 @@ func CreateGoogleADKAgentWithSubagentSessionIDs(ctx context.Context, agentConfig
 
 	llmAgent, err := llmagent.New(llmAgentConfig)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create LLM agent: %w", err)
+		return nil, fmt.Errorf("failed to create LLM agent: %w", err)
 	}
 
 	log.Info("Successfully created Google ADK LLM agent",
 		"toolsCount", len(llmAgentConfig.Tools),
 		"toolsetsCount", len(llmAgentConfig.Toolsets))
 
-	return llmAgent, subagentSessionIDs, nil
+	return llmAgent, nil
 }
 
 func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools []tool.Tool, log logr.Logger) ([]tool.Tool, error) {
@@ -233,6 +221,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Seed:                m.Seed,
 			Temperature:         m.Temperature,
 			TopP:                m.TopP,
+			APIFormat:           m.APIFormat,
 		}
 		return models.NewOpenAIModelWithLogger(cfg, log)
 

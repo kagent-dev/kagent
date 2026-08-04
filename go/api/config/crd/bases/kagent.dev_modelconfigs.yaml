@@ -696,6 +696,17 @@ spec:
               openAI:
                 description: OpenAI-specific configuration
                 properties:
+                  apiFormat:
+                    default: chatCompletions
+                    description: |-
+                      APIFormat selects which OpenAI HTTP API the runtime uses for this model.
+                      chatCompletions (default) posts to /v1/chat/completions.
+                      responses posts to /v1/responses. Use responses for OpenAI-compatible
+                      gateways or models that require the Responses API.
+                    enum:
+                    - chatCompletions
+                    - responses
+                    type: string
                   baseUrl:
                     description: Base URL for the OpenAI API (overrides default)
                     type: string

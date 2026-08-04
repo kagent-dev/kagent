@@ -1402,6 +1402,11 @@ func (in *OpenAIConfig) DeepCopyInto(out *OpenAIConfig) {
 		*out = new(OpenAIReasoningEffort)
 		**out = **in
 	}
+	if in.APIFormat != nil {
+		in, out := &in.APIFormat, &out.APIFormat
+		*out = new(OpenAIAPIFormat)
+		**out = **in
+	}
 	if in.TokenExchange != nil {
 		in, out := &in.TokenExchange, &out.TokenExchange
 		*out = new(TokenExchangeConfig)
@@ -2016,6 +2021,11 @@ func (in *Tool) DeepCopyInto(out *Tool) {
 	if in.Agent != nil {
 		in, out := &in.Agent, &out.Agent
 		*out = new(TypedReference)
+		**out = **in
+	}
+	if in.IsolateSessions != nil {
+		in, out := &in.IsolateSessions, &out.IsolateSessions
+		*out = new(bool)
 		**out = **in
 	}
 	if in.HeadersFrom != nil {

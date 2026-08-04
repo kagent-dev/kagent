@@ -11,6 +11,12 @@ import (
 	"github.com/openai/openai-go/v3/option"
 )
 
+// OpenAI API format values (ModelConfig openAI.apiFormat).
+const (
+	OpenAIAPIFormatChatCompletions = "chatCompletions"
+	OpenAIAPIFormatResponses       = "responses"
+)
+
 // OpenAIConfig holds OpenAI configuration
 type OpenAIConfig struct {
 	TransportConfig
@@ -25,6 +31,8 @@ type OpenAIConfig struct {
 	Seed                *int
 	Temperature         *float64
 	TopP                *float64
+	// APIFormat selects chatCompletions (default) or responses.
+	APIFormat string
 }
 
 // AzureOpenAIConfig holds Azure OpenAI configuration
