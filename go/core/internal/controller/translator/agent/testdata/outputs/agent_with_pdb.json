@@ -1,0 +1,337 @@
+{
+  "agentCard": {
+    "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "agent_with_pdb",
+    "skills": null,
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://agent-with-pdb.test:8080"
+      }
+    ],
+    "version": ""
+  },
+  "config": {
+    "description": "",
+    "instruction": "You are a helpful assistant.",
+    "model": {
+      "base_url": "",
+      "model": "gpt-4o",
+      "type": "openai"
+    },
+    "stream": false
+  },
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-pdb"
+        },
+        "name": "agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://agent-with-pdb.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"agent_with_pdb\",\"skills\":[],\"version\":\"\"}",
+        "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-pdb"
+        },
+        "name": "agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-pdb"
+        },
+        "name": "agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 3,
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "agent-with-pdb"
+          }
+        },
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "type": "RollingUpdate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "1310569260022792617"
+            },
+            "labels": {
+              "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "agent-with-pdb",
+              "app.kubernetes.io/part-of": "kagent",
+              "kagent": "agent-with-pdb"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "args": [
+                  "--host",
+                  "0.0.0.0",
+                  "--port",
+                  "8080",
+                  "--filepath",
+                  "/config"
+                ],
+                "env": [
+                  {
+                    "name": "OPENAI_API_KEY",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "key": "api-key",
+                        "name": "openai-secret"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "value": "agent-with-pdb"
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
+                  }
+                ],
+                "image": "ghcr.io/kagent-dev/kagent/app:dev",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/.well-known/agent-card.json",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "384Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/tokens",
+                    "name": "kagent-token"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "agent-with-pdb",
+            "volumes": [
+              {
+                "name": "config",
+                "secret": {
+                  "secretName": "agent-with-pdb"
+                }
+              },
+              {
+                "name": "kagent-token",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "kagent",
+                        "expirationSeconds": 3600,
+                        "path": "kagent-token"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-pdb"
+        },
+        "name": "agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "agent-with-pdb"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    },
+    {
+      "apiVersion": "policy/v1",
+      "kind": "PodDisruptionBudget",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "agent-with-pdb"
+        },
+        "name": "agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "maxUnavailable": 1,
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "agent-with-pdb"
+          }
+        },
+        "unhealthyPodEvictionPolicy": "AlwaysAllow"
+      },
+      "status": {
+        "currentHealthy": 0,
+        "desiredHealthy": 0,
+        "disruptionsAllowed": 0,
+        "expectedPods": 0
+      }
+    }
+  ]
+}

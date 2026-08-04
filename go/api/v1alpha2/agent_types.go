@@ -21,10 +21,12 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -492,6 +494,38 @@ type SharedDeploymentSpec struct {
 	// Useful for sidecars such as token proxies, log shippers, or security agents.
 	// +optional
 	ExtraContainers []corev1.Container `json:"extraContainers,omitempty"`
+	// PodDisruptionBudget requests a PodDisruptionBudget for the agent pods, limiting how
+	// many may be disrupted by voluntary evictions such as node drains. Omit the field to
+	// create no budget; removing it later deletes the budget. This has no effect when the
+	// agent runs with the Sandbox workload mode, as no Deployment is created in that mode.
+	// +optional
+	PodDisruptionBudget *PodDisruptionBudgetSpec `json:"podDisruptionBudget,omitempty"`
+}
+
+// PodDisruptionBudgetSpec configures the PodDisruptionBudget created for an agent's pods.
+// The selector is always derived from the agent, so only the disruption thresholds are
+// configurable here.
+//
+// Beware that a budget the Deployment can never satisfy blocks voluntary evictions
+// entirely, which makes node drains and cluster upgrades hang. In particular, avoid
+// setting minAvailable to the replica count.
+// +kubebuilder:validation:XValidation:message="exactly one of minAvailable or maxUnavailable must be set",rule="has(self.minAvailable) != has(self.maxUnavailable)"
+type PodDisruptionBudgetSpec struct {
+	// MinAvailable is the number or percentage of pods that must remain available.
+	// Mutually exclusive with MaxUnavailable.
+	// +optional
+	MinAvailable *intstr.IntOrString `json:"minAvailable,omitempty"`
+	// MaxUnavailable is the number or percentage of pods that may be unavailable.
+	// Mutually exclusive with MinAvailable.
+	// +optional
+	MaxUnavailable *intstr.IntOrString `json:"maxUnavailable,omitempty"`
+	// UnhealthyPodEvictionPolicy defines when unhealthy pods should be considered for
+	// eviction. AlwaysAllow permits evicting unhealthy pods even once the budget is
+	// exhausted, which stops a crash-looping pod from wedging a node drain.
+	// Defaults to the Kubernetes default of IfHealthyBudget. Requires Kubernetes >= 1.27.
+	// +optional
+	// +kubebuilder:validation:Enum=IfHealthyBudget;AlwaysAllow
+	UnhealthyPodEvictionPolicy *policyv1.UnhealthyPodEvictionPolicyType `json:"unhealthyPodEvictionPolicy,omitempty"`
 }
 
 type ServiceAccountConfig struct {

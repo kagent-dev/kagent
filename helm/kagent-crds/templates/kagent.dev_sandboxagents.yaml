@@ -2874,6 +2874,44 @@ spec:
                         description: NodeSelector restricts the nodes the agent pods
                           can be scheduled on.
                         type: object
+                      podDisruptionBudget:
+                        description: |-
+                          PodDisruptionBudget requests a PodDisruptionBudget for the agent pods, limiting how
+                          many may be disrupted by voluntary evictions such as node drains. Omit the field to
+                          create no budget; removing it later deletes the budget. This has no effect when the
+                          agent runs with the Sandbox workload mode, as no Deployment is created in that mode.
+                        properties:
+                          maxUnavailable:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: |-
+                              MaxUnavailable is the number or percentage of pods that may be unavailable.
+                              Mutually exclusive with MinAvailable.
+                            x-kubernetes-int-or-string: true
+                          minAvailable:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: |-
+                              MinAvailable is the number or percentage of pods that must remain available.
+                              Mutually exclusive with MaxUnavailable.
+                            x-kubernetes-int-or-string: true
+                          unhealthyPodEvictionPolicy:
+                            description: |-
+                              UnhealthyPodEvictionPolicy defines when unhealthy pods should be considered for
+                              eviction. AlwaysAllow permits evicting unhealthy pods even once the budget is
+                              exhausted, which stops a crash-looping pod from wedging a node drain.
+                              Defaults to the Kubernetes default of IfHealthyBudget. Requires Kubernetes >= 1.27.
+                            enum:
+                            - IfHealthyBudget
+                            - AlwaysAllow
+                            type: string
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of minAvailable or maxUnavailable must
+                            be set
+                          rule: has(self.minAvailable) != has(self.maxUnavailable)
                       podSecurityContext:
                         description: |-
                           PodSecurityContext holds pod-level security attributes and common container settings.
@@ -8452,6 +8490,44 @@ spec:
                         description: NodeSelector restricts the nodes the agent pods
                           can be scheduled on.
                         type: object
+                      podDisruptionBudget:
+                        description: |-
+                          PodDisruptionBudget requests a PodDisruptionBudget for the agent pods, limiting how
+                          many may be disrupted by voluntary evictions such as node drains. Omit the field to
+                          create no budget; removing it later deletes the budget. This has no effect when the
+                          agent runs with the Sandbox workload mode, as no Deployment is created in that mode.
+                        properties:
+                          maxUnavailable:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: |-
+                              MaxUnavailable is the number or percentage of pods that may be unavailable.
+                              Mutually exclusive with MinAvailable.
+                            x-kubernetes-int-or-string: true
+                          minAvailable:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: |-
+                              MinAvailable is the number or percentage of pods that must remain available.
+                              Mutually exclusive with MaxUnavailable.
+                            x-kubernetes-int-or-string: true
+                          unhealthyPodEvictionPolicy:
+                            description: |-
+                              UnhealthyPodEvictionPolicy defines when unhealthy pods should be considered for
+                              eviction. AlwaysAllow permits evicting unhealthy pods even once the budget is
+                              exhausted, which stops a crash-looping pod from wedging a node drain.
+                              Defaults to the Kubernetes default of IfHealthyBudget. Requires Kubernetes >= 1.27.
+                            enum:
+                            - IfHealthyBudget
+                            - AlwaysAllow
+                            type: string
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of minAvailable or maxUnavailable must
+                            be set
+                          rule: has(self.minAvailable) != has(self.maxUnavailable)
                       podSecurityContext:
                         description: |-
                           PodSecurityContext holds pod-level security attributes and common container settings.

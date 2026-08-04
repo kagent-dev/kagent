@@ -1,0 +1,315 @@
+{
+  "agentCard": {
+    "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
+      "streaming": true
+    },
+    "defaultInputModes": [
+      "text"
+    ],
+    "defaultOutputModes": [
+      "text"
+    ],
+    "description": "",
+    "name": "byo_agent_with_pdb",
+    "skills": null,
+    "supportedInterfaces": [
+      {
+        "protocolBinding": "JSONRPC",
+        "protocolVersion": "1.0",
+        "url": "http://byo-agent-with-pdb.test:8080"
+      }
+    ],
+    "version": ""
+  },
+  "config": {
+    "description": "",
+    "instruction": "",
+    "model": null
+  },
+  "manifest": [
+    {
+      "apiVersion": "v1",
+      "kind": "Secret",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "byo-agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "byo-agent-with-pdb"
+        },
+        "name": "byo-agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "byo-agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      },
+      "stringData": {
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://byo-agent-with-pdb.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"byo_agent_with_pdb\",\"skills\":[],\"version\":\"\"}",
+        "config.json": "{\"model\":null,\"description\":\"\",\"instruction\":\"\"}"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ServiceAccount",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "byo-agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "byo-agent-with-pdb"
+        },
+        "name": "byo-agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "byo-agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "byo-agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "byo-agent-with-pdb"
+        },
+        "name": "byo-agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "byo-agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "replicas": 4,
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "byo-agent-with-pdb"
+          }
+        },
+        "strategy": {
+          "rollingUpdate": {
+            "maxSurge": 1,
+            "maxUnavailable": 0
+          },
+          "type": "RollingUpdate"
+        },
+        "template": {
+          "metadata": {
+            "annotations": {
+              "kagent.dev/config-hash": "6978257647941340257"
+            },
+            "labels": {
+              "app": "kagent",
+              "app.kubernetes.io/managed-by": "kagent",
+              "app.kubernetes.io/name": "byo-agent-with-pdb",
+              "app.kubernetes.io/part-of": "kagent",
+              "kagent": "byo-agent-with-pdb"
+            }
+          },
+          "spec": {
+            "containers": [
+              {
+                "env": [
+                  {
+                    "name": "KAGENT_NAMESPACE",
+                    "valueFrom": {
+                      "fieldRef": {
+                        "fieldPath": "metadata.namespace"
+                      }
+                    }
+                  },
+                  {
+                    "name": "KAGENT_NAME",
+                    "value": "byo-agent-with-pdb"
+                  },
+                  {
+                    "name": "KAGENT_URL",
+                    "value": "http://kagent-controller.kagent:8083"
+                  }
+                ],
+                "image": "example.com/byo-agent:v1",
+                "imagePullPolicy": "IfNotPresent",
+                "name": "kagent",
+                "ports": [
+                  {
+                    "containerPort": 8080,
+                    "name": "http"
+                  }
+                ],
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/.well-known/agent-card.json",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 15,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 15
+                },
+                "resources": {
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1Gi"
+                  },
+                  "requests": {
+                    "cpu": "100m",
+                    "memory": "384Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "mountPath": "/config",
+                    "name": "config"
+                  },
+                  {
+                    "mountPath": "/var/run/secrets/tokens",
+                    "name": "kagent-token"
+                  }
+                ]
+              }
+            ],
+            "serviceAccountName": "byo-agent-with-pdb",
+            "volumes": [
+              {
+                "name": "config",
+                "secret": {
+                  "secretName": "byo-agent-with-pdb"
+                }
+              },
+              {
+                "name": "kagent-token",
+                "projected": {
+                  "sources": [
+                    {
+                      "serviceAccountToken": {
+                        "audience": "kagent",
+                        "expirationSeconds": 3600,
+                        "path": "kagent-token"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      },
+      "status": {}
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "byo-agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "byo-agent-with-pdb"
+        },
+        "name": "byo-agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "byo-agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "ports": [
+          {
+            "appProtocol": "kgateway.dev/a2a",
+            "name": "http",
+            "port": 8080,
+            "targetPort": 8080
+          }
+        ],
+        "selector": {
+          "app": "kagent",
+          "kagent": "byo-agent-with-pdb"
+        },
+        "type": "ClusterIP"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    },
+    {
+      "apiVersion": "policy/v1",
+      "kind": "PodDisruptionBudget",
+      "metadata": {
+        "labels": {
+          "app": "kagent",
+          "app.kubernetes.io/managed-by": "kagent",
+          "app.kubernetes.io/name": "byo-agent-with-pdb",
+          "app.kubernetes.io/part-of": "kagent",
+          "kagent": "byo-agent-with-pdb"
+        },
+        "name": "byo-agent-with-pdb",
+        "namespace": "test",
+        "ownerReferences": [
+          {
+            "apiVersion": "kagent.dev/v1alpha2",
+            "blockOwnerDeletion": true,
+            "controller": true,
+            "kind": "Agent",
+            "name": "byo-agent-with-pdb",
+            "uid": ""
+          }
+        ]
+      },
+      "spec": {
+        "minAvailable": "50%",
+        "selector": {
+          "matchLabels": {
+            "app": "kagent",
+            "kagent": "byo-agent-with-pdb"
+          }
+        }
+      },
+      "status": {
+        "currentHealthy": 0,
+        "desiredHealthy": 0,
+        "disruptionsAllowed": 0,
+        "expectedPods": 0
+      }
+    }
+  ]
+}

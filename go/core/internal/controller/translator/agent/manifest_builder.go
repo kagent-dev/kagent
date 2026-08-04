@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -602,7 +603,7 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 		svcPort.AppProtocol = &proto
 	}
 
-	return []client.Object{
+	objs := []client.Object{
 		&appsv1.Deployment{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 			ObjectMeta: manifestCtx.deploymentObjectMeta(),
@@ -628,7 +629,27 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 				Type:     corev1.ServiceTypeClusterIP,
 			},
 		},
-	}, nil
+	}
+
+	// Only emitted when the agent asks for one. A nil spec leaves the object out of
+	// the manifest, so any budget from a previous generation is pruned by the
+	// reconciler rather than orphaned.
+	if pdb := manifestCtx.deployment.PodDisruptionBudget; pdb != nil {
+		objs = append(objs, &policyv1.PodDisruptionBudget{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "policy/v1", Kind: "PodDisruptionBudget"},
+			ObjectMeta: manifestCtx.objectMeta(),
+			Spec: policyv1.PodDisruptionBudgetSpec{
+				// Same selector labels the Deployment matches on, so the budget cannot
+				// drift from the pods it is meant to protect.
+				Selector:                   &metav1.LabelSelector{MatchLabels: manifestCtx.selectorLabels},
+				MinAvailable:               pdb.MinAvailable,
+				MaxUnavailable:             pdb.MaxUnavailable,
+				UnhealthyPodEvictionPolicy: pdb.UnhealthyPodEvictionPolicy,
+			},
+		})
+	}
+
+	return objs, nil
 }
 
 func (a *adkApiTranslator) setManifestOwnerReferences(
