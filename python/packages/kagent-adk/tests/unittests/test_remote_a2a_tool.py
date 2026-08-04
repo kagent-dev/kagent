@@ -16,13 +16,13 @@ from a2a.types import (
 )
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.adk.tools.tool_context import ToolContext
-from google.protobuf.json_format import MessageToDict, ParseDict
-from google.protobuf.struct_pb2 import Value
+from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
-    KAGENT_HITL_DECISION_TYPE_APPROVE,
-    KAGENT_HITL_DECISION_TYPE_BATCH,
-    KAGENT_HITL_DECISION_TYPE_KEY,
-    KAGENT_HITL_DECISION_TYPE_REJECT,
+    HITL_EXTENSION_HEADER,
+    HitlTool,
+    ToolApprovalRequest,
+    attach_hitl_extension,
+    get_hitl_payload,
 )
 
 from kagent.adk._remote_a2a_tool import (
@@ -77,18 +77,26 @@ class MockToolContext:
 def _make_task(state: TaskState, text: str = "", hitl_data: list[dict] | None = None) -> Task:
     """Build a minimal Task with the given state and optional text/HITL data."""
     parts: list[A2APart] = []
-    if hitl_data:
-        for d in hitl_data:
-            parts.append(
-                A2APart(
-                    data=ParseDict(d, Value()),
-                    metadata={"adk_type": "function_call", "adk_is_long_running": True},
-                )
-            )
-    elif text:
+    if text:
         parts.append(A2APart(text=text))
 
     status_message = A2AMessage(role=Role.ROLE_AGENT, message_id="msg-1", parts=parts) if parts else None
+    if hitl_data:
+        tools = []
+        for data in hitl_data:
+            original = data["args"]["originalFunctionCall"]
+            tools.append(
+                HitlTool(
+                    id=data.get("id", ""),
+                    call_id=original["id"],
+                    name=original["name"],
+                    args=original.get("args", {}),
+                )
+            )
+        status_message = attach_hitl_extension(
+            A2AMessage(role=Role.ROLE_AGENT, message_id="msg-1"),
+            ToolApprovalRequest(tools=tools),
+        )
     return Task(
         id="task-1",
         context_id="ctx-1",
@@ -200,6 +208,7 @@ class TestCallContextHeaderPropagation:
         headers = tool._build_call_context(ctx.as_tool_context()).service_parameters or {}
         assert headers.get("authorization") == "Bearer test-jwt"
         assert headers.get("x-user-id") == "user1"
+        assert headers.get(HITL_EXTENSION_HEADER) == "https://kagent.dev/extensions/hitl/v1"
 
     async def test_no_extra_headers_without_header_provider(self):
         tool = _make_tool()
@@ -333,7 +342,7 @@ class TestHITLInputRequired:
         assert "delete_file" in conf.hint
 
     async def test_confirmation_payload(self):
-        """Payload contains task_id, context_id, subagent_name, and hitl_parts."""
+        """Payload retains the child task routing and validated public request."""
         tool = _make_tool()
         task = _make_hitl_task(tool_name="write_file", tool_call_id="c99")
         p, _ = _patch_client(tool, _async_yield((task, None)))
@@ -348,18 +357,29 @@ class TestHITLInputRequired:
         assert payload["task_id"] == "task-1"
         assert payload["context_id"] == "ctx-1"
         assert payload["subagent_name"] == "k8s_agent"
-        # hitl_parts should contain the serialized HITL info
-        hitl_parts = payload["hitl_parts"]
-        assert len(hitl_parts) == 1
-        assert hitl_parts[0]["originalFunctionCall"]["name"] == "write_file"
-        assert hitl_parts[0]["originalFunctionCall"]["id"] == "c99"
+        request = payload["hitl_request"]
+        assert request["type"] == "tool_approval_request"
+        assert request["tools"][0]["name"] == "write_file"
+        assert request["tools"][0]["call_id"] == "c99"
 
 
 # ---------------------------------------------------------------------------
 # HITL resume tests (Phase 2)
 # ---------------------------------------------------------------------------
 
-_RESUME_PAYLOAD = {"task_id": "task-1", "context_id": "ctx-1", "subagent_name": "k8s_agent"}
+_RESUME_PAYLOAD = {
+    "task_id": "task-1",
+    "context_id": "ctx-1",
+    "subagent_name": "k8s_agent",
+    "hitl_request": {
+        "type": "tool_approval_request",
+        "tools": [{"id": "conf_1", "call_id": "call_1", "name": "delete_file", "args": {}}],
+    },
+    "hitl_response": {
+        "type": "tool_approval_response",
+        "approvals": [{"id": "conf_1", "approved": True}],
+    },
+}
 
 
 class TestHITLResume:
@@ -398,55 +418,109 @@ class TestHITLResume:
             response_task=_make_task(TaskState.TASK_STATE_COMPLETED, text="approved"),
         )
         assert result["result"] == "approved"
-        data = MessageToDict(sent[0].message.parts[0].data)
-        assert data[KAGENT_HITL_DECISION_TYPE_KEY] == KAGENT_HITL_DECISION_TYPE_APPROVE
+        data = get_hitl_payload(sent[0].message)
+        assert data["approvals"] == [{"id": "conf_1", "approved": True}]
         # Verify task_id and context_id are routed correctly
         assert sent[0].message.task_id == "task-1"
         assert sent[0].message.context_id == "ctx-1"
 
     async def test_reject_sends_reject_decision(self):
         tool = _make_tool()
-        _, sent = await self._resume(tool, confirmed=False, payload=_RESUME_PAYLOAD)
-        data = MessageToDict(sent[0].message.parts[0].data)
-        assert data[KAGENT_HITL_DECISION_TYPE_KEY] == KAGENT_HITL_DECISION_TYPE_REJECT
+        payload = {
+            **_RESUME_PAYLOAD,
+            "hitl_response": {
+                "type": "tool_approval_response",
+                "approvals": [{"id": "conf_1", "approved": False}],
+            },
+        }
+        _, sent = await self._resume(tool, confirmed=False, payload=payload)
+        data = get_hitl_payload(sent[0].message)
+        assert data["approvals"] == [{"id": "conf_1", "approved": False}]
 
     async def test_reject_with_reason(self):
         tool = _make_tool()
-        payload = {**_RESUME_PAYLOAD, "rejection_reason": "Too risky"}
+        payload = {
+            **_RESUME_PAYLOAD,
+            "hitl_response": {
+                "type": "tool_approval_response",
+                "approvals": [{"id": "conf_1", "approved": False, "rejection_reason": "Too risky"}],
+            },
+        }
         _, sent = await self._resume(tool, confirmed=False, payload=payload)
-        data = MessageToDict(sent[0].message.parts[0].data)
-        assert data["rejection_reason"] == "Too risky"
+        data = get_hitl_payload(sent[0].message)
+        assert data["approvals"][0]["rejection_reason"] == "Too risky"
 
-    async def test_batch_decisions_forwarded(self):
+    async def test_multiple_approvals_forwarded(self):
         tool = _make_tool()
         payload = {
             **_RESUME_PAYLOAD,
-            "batch_decisions": {"call_1": "approve", "call_2": "reject"},
+            "hitl_request": {
+                "type": "tool_approval_request",
+                "tools": [
+                    *_RESUME_PAYLOAD["hitl_request"]["tools"],
+                    {"id": "conf_2", "call_id": "call_2", "name": "restart_pod", "args": {}},
+                ],
+            },
+            "hitl_response": {
+                "type": "tool_approval_response",
+                "approvals": [
+                    {"id": "conf_1", "approved": True},
+                    {"id": "conf_2", "approved": False},
+                ],
+            },
         }
         result, sent = await self._resume(tool, confirmed=True, payload=payload)
-        data = MessageToDict(sent[0].message.parts[0].data)
-        assert data[KAGENT_HITL_DECISION_TYPE_KEY] == KAGENT_HITL_DECISION_TYPE_BATCH
-        assert data["decisions"] == {"call_1": "approve", "call_2": "reject"}
+        data = get_hitl_payload(sent[0].message)
+        assert data["approvals"] == [
+            {"id": "conf_1", "approved": True},
+            {"id": "conf_2", "approved": False},
+        ]
 
-    async def test_batch_with_rejection_reasons(self):
+    async def test_multiple_approvals_with_rejection_reason(self):
         tool = _make_tool()
         payload = {
             **_RESUME_PAYLOAD,
-            "batch_decisions": {"call_1": "approve", "call_2": "reject"},
-            "rejection_reasons": {"call_2": "Too dangerous"},
+            "hitl_request": {
+                "type": "tool_approval_request",
+                "tools": [
+                    *_RESUME_PAYLOAD["hitl_request"]["tools"],
+                    {"id": "conf_2", "call_id": "call_2", "name": "restart_pod", "args": {}},
+                ],
+            },
+            "hitl_response": {
+                "type": "tool_approval_response",
+                "approvals": [
+                    {"id": "conf_1", "approved": True},
+                    {"id": "conf_2", "approved": False, "rejection_reason": "Too dangerous"},
+                ],
+            },
         }
         _, sent = await self._resume(tool, confirmed=True, payload=payload)
-        data = MessageToDict(sent[0].message.parts[0].data)
-        assert data["rejection_reasons"] == {"call_2": "Too dangerous"}
+        data = get_hitl_payload(sent[0].message)
+        assert data["approvals"][1] == {"id": "conf_2", "approved": False, "rejection_reason": "Too dangerous"}
 
     async def test_ask_user_answers_forwarded(self):
-        """ask_user answers are forwarded as approve with ask_user_answers payload."""
+        """ask_user answers are forwarded through the A2A extension."""
         tool = _make_tool()
-        payload = {**_RESUME_PAYLOAD, "answers": ["yes", "42"]}
+        answers = [{"answer": ["yes"]}, {"answer": ["42"]}]
+        payload = {
+            **_RESUME_PAYLOAD,
+            "hitl_request": {
+                "type": "ask_user_request",
+                "id": "conf_1",
+                "questions": [{"question": "Continue?"}, {"question": "Value?"}],
+            },
+            "hitl_response": {
+                "type": "ask_user_response",
+                "id": "conf_1",
+                "answers": answers,
+            },
+        }
         _, sent = await self._resume(tool, confirmed=True, payload=payload)
-        data = MessageToDict(sent[0].message.parts[0].data)
-        assert data[KAGENT_HITL_DECISION_TYPE_KEY] == KAGENT_HITL_DECISION_TYPE_APPROVE
-        assert data["ask_user_answers"] == ["yes", "42"]
+        data = get_hitl_payload(sent[0].message)
+        assert data["type"] == "ask_user_response"
+        assert data["id"] == "conf_1"
+        assert data["answers"] == answers
 
     async def test_missing_task_id_returns_error(self):
         """Resume without task_id in payload returns an error string."""

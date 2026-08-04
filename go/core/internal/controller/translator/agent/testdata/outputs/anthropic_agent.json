@@ -1,6 +1,12 @@
 {
   "agentCard": {
     "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
       "streaming": true
     },
     "defaultInputModes": [
@@ -60,7 +66,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://anthropic-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"anthropic_agent\",\"skills\":[],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://anthropic-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"anthropic_agent\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"anthropic\",\"model\":\"claude-3-sonnet-20240229\",\"max_tokens\":4096,\"temperature\":0.3,\"top_p\":0.9,\"top_k\":40},\"description\":\"\",\"instruction\":\"You are Claude, an AI assistant created by Anthropic.\",\"stream\":false}"
       }
     },
@@ -130,7 +136,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "16602546886914409461"
+              "kagent.dev/config-hash": "13361180446780979999"
             },
             "labels": {
               "app": "kagent",

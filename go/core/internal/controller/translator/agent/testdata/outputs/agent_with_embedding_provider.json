@@ -1,6 +1,12 @@
 {
   "agentCard": {
     "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
       "streaming": true
     },
     "defaultInputModes": [
@@ -63,7 +69,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://agent-cross-provider-memory.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"agent_cross_provider_memory\",\"skills\":[],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://agent-cross-provider-memory.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"agent_cross_provider_memory\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are an assistant.\",\"stream\":false,\"memory\":{\"embedding\":{\"provider\":\"gemini_vertex_ai\",\"model\":\"text-embedding-005\"}}}"
       }
     },
@@ -133,7 +139,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "12803895101000713676"
+              "kagent.dev/config-hash": "16974872571060197912"
             },
             "labels": {
               "app": "kagent",

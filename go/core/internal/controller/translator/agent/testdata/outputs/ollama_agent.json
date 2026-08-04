@@ -1,6 +1,12 @@
 {
   "agentCard": {
     "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
       "streaming": true
     },
     "defaultInputModes": [
@@ -64,7 +70,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://ollama-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"ollama_agent\",\"skills\":[],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://ollama-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"ollama_agent\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"ollama\",\"model\":\"llama3.2:latest\",\"headers\":{\"User-Agent\":\"kagent/1.0\"},\"options\":{\"num_ctx\":\"2048\",\"temperature\":\"0.8\",\"top_p\":\"0.9\"}},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running locally via Ollama.\",\"stream\":false}"
       }
     },
@@ -134,7 +140,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "6339361355710449301"
+              "kagent.dev/config-hash": "3085863512012208509"
             },
             "labels": {
               "app": "kagent",

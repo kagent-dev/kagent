@@ -1,6 +1,12 @@
 {
   "agentCard": {
     "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
       "streaming": true
     },
     "defaultInputModes": [
@@ -63,7 +69,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://a2a-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"a2a_agent\",\"skills\":[{\"description\":\"Summarizes text\",\"id\":\"summarize\",\"name\":\"Summarize\",\"tags\":null}],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://a2a-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"a2a_agent\",\"skills\":[{\"description\":\"Summarizes text\",\"id\":\"summarize\",\"name\":\"Summarize\",\"tags\":null}],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false}"
       }
     },
@@ -133,7 +139,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "5229829069588084672"
+              "kagent.dev/config-hash": "12118593791705648237"
             },
             "labels": {
               "app": "kagent",

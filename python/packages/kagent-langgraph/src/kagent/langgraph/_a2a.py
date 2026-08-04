@@ -19,6 +19,7 @@ from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
+    attach_hitl_agent_extension,
     get_a2a_max_content_length,
 )
 
@@ -79,6 +80,7 @@ class KAgentApp:
         self._enable_tracing = tracing
 
     def build(self) -> FastAPI:
+        attach_hitl_agent_extension(self.agent_card)
         """Build the FastAPI application with A2A integration.
 
         Returns:

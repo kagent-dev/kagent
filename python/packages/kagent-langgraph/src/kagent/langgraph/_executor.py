@@ -27,19 +27,14 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from google.protobuf.json_format import ParseDict
-from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
-    A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
-    A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    KAGENT_HITL_DECISION_TYPE_BATCH,
-    KAGENT_HITL_DECISION_TYPE_REJECT,
-    extract_ask_user_answers_from_message,
-    extract_batch_decisions_from_message,
-    extract_decision_from_message,
-    extract_rejection_reasons_from_message,
+    HitlTool,
+    ToolApprovalRequest,
+    attach_hitl_extension,
+    get_ask_user_response,
+    get_hitl_payload,
     get_kagent_metadata_key,
+    get_tool_approval_response,
     now_timestamp,
 )
 from kagent.core.tracing._span_processor import (
@@ -213,9 +208,7 @@ class LangGraphAgentExecutor(AgentExecutor):
             logger.warning("Interrupt has no action_requests, ignoring")
             return
 
-        # Build DataParts in the adk_request_confirmation wire format so the
-        # frontend renders tool-approval cards identically to the ADK executor.
-        parts: list[Part] = []
+        tools: list[HitlTool] = []
         for action in action_requests_raw:
             if not isinstance(action, Mapping):
                 logger.warning(
@@ -229,35 +222,22 @@ class LangGraphAgentExecutor(AgentExecutor):
             tool_call_id = action["id"]
             confirmation_id = str(uuid.uuid4())
 
-            parts.append(
-                Part(
-                    data=ParseDict(
-                        {
-                            "name": "adk_request_confirmation",
-                            "id": confirmation_id,
-                            "args": {
-                                "originalFunctionCall": {
-                                    "name": tool_name,
-                                    "args": tool_args,
-                                    "id": tool_call_id,
-                                },
-                                "toolConfirmation": {
-                                    "hint": f"Tool '{tool_name}' requires approval before execution.",
-                                    "confirmed": False,
-                                    "payload": None,
-                                },
-                            },
-                        },
-                        Value(),
-                    ),
-                    metadata={
-                        get_kagent_metadata_key(
-                            A2A_DATA_PART_METADATA_TYPE_KEY
-                        ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-                        get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY): True,
-                    },
-                )
+            tools.append(
+                HitlTool(id=confirmation_id, call_id=tool_call_id, name=tool_name, args=tool_args)
             )
+
+        status_message = Message(
+            message_id=str(uuid.uuid4()),
+            role=Role.ROLE_AGENT,
+            parts=[Part(text="Human approval is required before the agent can continue.")],
+        )
+        attach_hitl_extension(
+            status_message,
+            ToolApprovalRequest(
+                hint="Human approval is required before the agent can continue.",
+                tools=tools,
+            ),
+        )
 
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
@@ -265,11 +245,7 @@ class LangGraphAgentExecutor(AgentExecutor):
                 status=TaskStatus(
                     state=TaskState.TASK_STATE_INPUT_REQUIRED,
                     timestamp=now_timestamp(),
-                    message=Message(
-                        message_id=str(uuid.uuid4()),
-                        role=Role.ROLE_AGENT,
-                        parts=parts,
-                    ),
+                    message=status_message,
                 ),
                 context_id=context_id,
             )
@@ -291,8 +267,7 @@ class LangGraphAgentExecutor(AgentExecutor):
             return False
 
         # Check if message contains a decision
-        decision = extract_decision_from_message(context.message)
-        return decision is not None
+        return get_tool_approval_response(context.message) is not None or get_ask_user_response(context.message) is not None
 
     async def _handle_resume(
         self,
@@ -301,27 +276,11 @@ class LangGraphAgentExecutor(AgentExecutor):
     ) -> None:
         """Resume graph execution after interrupt with user decision.
 
-        Extracts the full HITL decision payload from the A2A message and
-        forwards it to the graph via ``Command(resume=...)``.  The resume
-        value includes:
-
-        - ``decision_type``: ``"approve"``, ``"reject"``, or ``"batch"``
-        - ``decisions``: per-tool decisions when ``decision_type`` is ``"batch"``
-        - ``rejection_reasons``: optional per-tool rejection reasons
-        - ``ask_user_answers``: optional answers when resuming an ``ask_user`` interrupt
-
-        The BYO graph's interrupt handler is responsible for reading and
-        acting on these fields.
+        Translates the framework-neutral response into the existing LangGraph
+        interrupt resume value expected by BYO graphs.
         """
-        # Extract decision from message using core utility
-        decision_type = extract_decision_from_message(context.message)
-
-        if not decision_type:
-            # Security: Default to reject if decision cannot be determined
-            logger.warning(
-                f"Could not determine decision from message for task {context.task_id}, defaulting to reject"
-            )
-            decision_type = KAGENT_HITL_DECISION_TYPE_REJECT
+        approval_response = get_tool_approval_response(context.message)
+        ask_response = get_ask_user_response(context.message)
 
         # Get thread_id from existing task metadata (critical for resume!)
         thread_id = None
@@ -334,28 +293,39 @@ class LangGraphAgentExecutor(AgentExecutor):
             # Fallback to computing from context (same as initial)
             thread_id = getattr(context, "session_id", None) or context.context_id
 
-        # Build the resume payload with all available HITL data.
-        # The graph receives this as the return value of interrupt().
-        resume_value: dict[str, Any] = {"decision_type": decision_type}
-
-        if decision_type == KAGENT_HITL_DECISION_TYPE_BATCH:
-            batch_decisions = extract_batch_decisions_from_message(context.message)
-            if batch_decisions:
-                resume_value["decisions"] = batch_decisions
-
-        rejection_reasons = extract_rejection_reasons_from_message(context.message)
-        if rejection_reasons:
-            resume_value["rejection_reasons"] = rejection_reasons
-
-        ask_user_answers = extract_ask_user_answers_from_message(context.message)
-        if ask_user_answers:
-            resume_value["ask_user_answers"] = ask_user_answers
+        if ask_response is not None:
+            resume_value: dict[str, Any] = {
+                "decision_type": "ask_user",
+                "ask_user_answers": ask_response.answers,
+            }
+        elif approval_response is not None:
+            request_payload = get_hitl_payload(context.current_task.status.message) if context.current_task else None
+            request_tools = request_payload.get("tools", []) if request_payload else []
+            call_ids_by_approval = {
+                str(tool.get("id")): str(tool.get("call_id")) for tool in request_tools if isinstance(tool, dict)
+            }
+            decisions: dict[str, str] = {}
+            rejection_reasons: dict[str, str] = {}
+            for approval in approval_response.approvals:
+                call_id = call_ids_by_approval.get(approval.id)
+                if not call_id:
+                    raise ValueError(f"Unknown tool approval response id: {approval.id}")
+                decisions[call_id] = "approve" if approval.approved else "reject"
+                if not approval.approved and approval.rejection_reason:
+                    rejection_reasons[call_id] = approval.rejection_reason
+            if len(decisions) != len(call_ids_by_approval):
+                raise ValueError("Tool approval response must resolve every pending tool")
+            resume_value = {"decision_type": "batch", "decisions": decisions}
+            if rejection_reasons:
+                resume_value["rejection_reasons"] = rejection_reasons
+        else:
+            raise ValueError("Message does not contain a HITL response")
 
         logger.info(
             "Resuming after interrupt - task_id=%s, thread_id=%s, decision=%s, has_batch=%s, has_reasons=%s, has_answers=%s",
             context.task_id,
             thread_id,
-            decision_type,
+            resume_value["decision_type"],
             "decisions" in resume_value,
             "rejection_reasons" in resume_value,
             "ask_user_answers" in resume_value,

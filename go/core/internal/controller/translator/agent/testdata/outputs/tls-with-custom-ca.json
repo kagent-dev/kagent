@@ -1,6 +1,12 @@
 {
   "agentCard": {
     "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
       "streaming": true
     },
     "defaultInputModes": [
@@ -62,7 +68,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://tls-agent-with-custom-ca.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"tls_agent_with_custom_ca\",\"skills\":[],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://tls-agent-with-custom-ca.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"tls_agent_with_custom_ca\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_insecure_skip_verify\":false,\"tls_ca_cert_path\":\"/etc/ssl/certs/custom/custom-ca-cert/ca.crt\",\"tls_disable_system_cas\":false,\"base_url\":\"https://internal-litellm.company.com\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant with custom CA support.\",\"stream\":false}"
       }
     },
@@ -132,7 +138,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "12574277931757565275"
+              "kagent.dev/config-hash": "2130108782402694010"
             },
             "labels": {
               "app": "kagent",

@@ -71,7 +71,7 @@ def make_approval_callback(
                 return None  # Approved — proceed with tool execution
             logger.debug("Tool %s rejected by user", tool_name)
             # Check for an optional rejection reason in the payload
-            # (the key "rejection_reason" is set by _agent_executor._process_hitl_decision)
+            # (the key "rejection_reason" is set by the executor's HITL response adapter)
             payload = tool_context.tool_confirmation.payload or {}
             reason = payload.get("rejection_reason", "") if isinstance(payload, dict) else ""
             # __build_response_event wraps it as {"result": "..."} that LLM adapters expect

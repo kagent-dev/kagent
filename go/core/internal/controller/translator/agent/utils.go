@@ -8,6 +8,8 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
+const hitlExtensionURI = "https://kagent.dev/extensions/hitl/v1"
+
 func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 	spec := agent.GetAgentSpec()
 	card := a2atype.AgentCard{
@@ -26,6 +28,7 @@ func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 		Capabilities: a2atype.AgentCapabilities{
 			Streaming:         true,
 			PushNotifications: false,
+			Extensions:        []a2atype.AgentExtension{{URI: hitlExtensionURI, Description: "Human in the loop for tool approval, batch decisions, ask user, and nested subagents", Required: false}},
 		},
 		// Can't be null for Python, so set to empty list.
 		Skills:             []a2atype.AgentSkill{},

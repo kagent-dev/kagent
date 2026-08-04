@@ -1,6 +1,12 @@
 {
   "agentCard": {
     "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
       "streaming": true
     },
     "defaultInputModes": [
@@ -62,7 +68,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://tls-agent-with-system-cas-disabled.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"tls_agent_with_system_cas_disabled\",\"skills\":[],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://tls-agent-with-system-cas-disabled.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"tls_agent_with_system_cas_disabled\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"tls_insecure_skip_verify\":false,\"tls_ca_cert_path\":\"/etc/ssl/certs/custom/corporate-ca-cert/ca.crt\",\"tls_disable_system_cas\":true,\"base_url\":\"https://corp-llm-gateway.internal\",\"max_tokens\":1024,\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant in a corporate environment.\",\"stream\":false}"
       }
     },
@@ -132,7 +138,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "5305256808653962058"
+              "kagent.dev/config-hash": "5729208321867037520"
             },
             "labels": {
               "app": "kagent",

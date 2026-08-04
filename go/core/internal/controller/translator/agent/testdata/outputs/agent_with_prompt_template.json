@@ -1,6 +1,12 @@
 {
   "agentCard": {
     "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
       "streaming": true
     },
     "defaultInputModes": [
@@ -70,7 +76,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://agent-with-prompt-template.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"A Kubernetes troubleshooting agent\",\"name\":\"agent_with_prompt_template\",\"skills\":[],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://agent-with-prompt-template.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"A Kubernetes troubleshooting agent\",\"name\":\"agent_with_prompt_template\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"A Kubernetes troubleshooting agent\",\"instruction\":\"## Preamble\\nYou are a helpful Kubernetes assistant.\\n\\n\\nYou are agent-with-prompt-template, operating in test.\\nYour purpose: A Kubernetes troubleshooting agent\\n\\nAvailable tools: k8s_get_resources, k8s_describe_resource, \\n\\n## Safety Guidelines\\nNever delete resources without explicit user confirmation.\\n\\n\",\"http_tools\":[{\"params\":{\"url\":\"http://localhost:8084/mcp\",\"headers\":{},\"timeout\":30},\"tools\":[\"k8s_get_resources\",\"k8s_describe_resource\"]}],\"stream\":false}"
       }
     },
@@ -140,7 +146,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "5152951223037486853"
+              "kagent.dev/config-hash": "2275137457294103033"
             },
             "labels": {
               "app": "kagent",

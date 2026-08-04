@@ -9,7 +9,6 @@ from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
-from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
@@ -24,6 +23,7 @@ from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
+    attach_hitl_agent_extension,
     get_a2a_max_content_length,
 )
 
@@ -87,6 +87,7 @@ class KAgentApp:
         self.agent_config = agent_config
 
     def build(self, local=False) -> FastAPI:
+        attach_hitl_agent_extension(self.agent_card)
         session_service = InMemorySessionService()
         token_service = None
         http_client: Optional[httpx.AsyncClient] = None
@@ -159,7 +160,6 @@ class KAgentApp:
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
             config=A2aAgentExecutorConfig(stream=self.stream),
-            task_store=task_store,
         )
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)

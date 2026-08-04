@@ -23,14 +23,6 @@ const (
 	PartKeyID       = "id"
 )
 
-// HITL batch/rejection/ask-user constants.
-const (
-	KAgentHitlDecisionTypeBatch   = "batch"
-	KAgentHitlDecisionsKey        = "decisions"
-	KAgentHitlRejectionReasonsKey = "rejection_reasons"
-	KAgentAskUserAnswersKey       = "ask_user_answers"
-)
-
 // ReadMetadataValue checks adk_<key> first, then kagent_<key>.
 // Returns the value and true if found, or (nil, false).
 func ReadMetadataValue(metadata map[string]any, key string) (any, bool) {

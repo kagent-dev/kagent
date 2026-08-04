@@ -3,25 +3,25 @@
 import json
 from unittest.mock import MagicMock
 
+import pytest
 from a2a.types import Message, Part, Role
 from google.adk.flows.llm_flows.functions import REQUEST_CONFIRMATION_FUNCTION_CALL_NAME
 from google.adk.sessions import Session
 from google.adk.tools.tool_confirmation import ToolConfirmation
 from google.genai import types as genai_types
-from google.protobuf.json_format import ParseDict
+from google.protobuf.json_format import MessageToDict, ParseDict
 from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
-    KAGENT_ASK_USER_ANSWERS_KEY,
-    KAGENT_HITL_DECISION_TYPE_APPROVE,
-    KAGENT_HITL_DECISION_TYPE_BATCH,
-    KAGENT_HITL_DECISION_TYPE_KEY,
-    KAGENT_HITL_DECISION_TYPE_REJECT,
-    KAGENT_HITL_DECISIONS_KEY,
-    KAGENT_HITL_REJECTION_REASONS_KEY,
+    AskUserResponse,
+    ToolApproval,
+    ToolApprovalResponse,
+    attach_hitl_extension,
+    get_hitl_payload,
 )
 
 from kagent.adk._agent_executor import A2aAgentExecutor
 from kagent.adk._approval import make_approval_callback
+from kagent.adk._hitl import build_hitl_status_message
 
 
 class MockState(dict):
@@ -205,7 +205,7 @@ def test_find_pending_confirmations_with_pending():
         )
     ]
     pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {"fc1": ("orig123", None)}
+    assert pending == {"fc1": None}
 
 
 def test_find_pending_confirmations_with_responded():
@@ -240,7 +240,7 @@ def test_find_pending_confirmations_missing_original_id():
         )
     ]
     pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {"fc1": (None, None)}
+    assert pending == {"fc1": None}
 
 
 def test_find_pending_confirmations_with_payload():
@@ -262,18 +262,28 @@ def test_find_pending_confirmations_with_payload():
         )
     ]
     pending = A2aAgentExecutor._find_pending_confirmations(session)
-    assert pending == {"fc1": ("orig123", original_payload)}
+    assert pending == {"fc1": original_payload}
 
 
-def _make_simple_message(parts=None) -> Message:
-    """Create a minimal real Message for testing."""
-    return Message(
+def _make_simple_message(
+    approvals: list[ToolApproval] | None = None,
+    *,
+    ask_id: str | None = None,
+    answers: list[dict[str, list[str]]] | None = None,
+) -> Message:
+    """Create a minimal HITL extension response message for testing."""
+    message = Message(
         role=Role.ROLE_USER,
         message_id="test-msg",
         task_id="test-task",
         context_id="test-ctx",
-        parts=parts or [],
     )
+    response = (
+        AskUserResponse(id=ask_id, answers=answers)
+        if ask_id
+        else ToolApprovalResponse(approvals=approvals or [ToolApproval(id="fc1", approved=True)])
+    )
+    return attach_hitl_extension(message, response)
 
 
 def test_process_hitl_decision_no_pending():
@@ -281,7 +291,7 @@ def test_process_hitl_decision_no_pending():
     session = MagicMock(spec=Session)
     session.events = []
 
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_APPROVE, _make_simple_message())
+    parts = executor._process_hitl_response(session, _make_simple_message())
     assert parts is None
 
 
@@ -300,7 +310,7 @@ def test_process_hitl_decision_uniform_approve():
         )
     ]
 
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_APPROVE, _make_simple_message())
+    parts = executor._process_hitl_response(session, _make_simple_message())
 
     assert parts is not None
     assert len(parts) == 1
@@ -327,7 +337,7 @@ def test_process_hitl_decision_uniform_reject():
         )
     ]
 
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_REJECT, _make_simple_message())
+    parts = executor._process_hitl_response(session, _make_simple_message([ToolApproval(id="fc1", approved=False)]))
 
     assert parts is not None
     assert len(parts) == 1
@@ -357,28 +367,14 @@ def test_process_hitl_decision_batch():
         )
     ]
 
-    message = Message(
-        role=Role.ROLE_USER,
-        message_id="msg1",
-        task_id="task1",
-        context_id="ctx1",
-        parts=[
-            Part(
-                data=ParseDict(
-                    {
-                        KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_BATCH,
-                        KAGENT_HITL_DECISIONS_KEY: {
-                            "orig123": KAGENT_HITL_DECISION_TYPE_APPROVE,
-                            "orig456": KAGENT_HITL_DECISION_TYPE_REJECT,
-                        },
-                    },
-                    Value(),
-                )
-            )
-        ],
+    message = _make_simple_message(
+        [
+            ToolApproval(id="fc1", approved=True),
+            ToolApproval(id="fc2", approved=False),
+        ]
     )
 
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_BATCH, message)
+    parts = executor._process_hitl_response(session, message)
 
     assert parts is not None
     assert len(parts) == 2
@@ -410,25 +406,9 @@ def test_process_hitl_decision_uniform_reject_with_reason():
         )
     ]
 
-    message = Message(
-        role=Role.ROLE_USER,
-        message_id="msg1",
-        task_id="task1",
-        context_id="ctx1",
-        parts=[
-            Part(
-                data=ParseDict(
-                    {
-                        KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_REJECT,
-                        "rejection_reason": "Too risky",
-                    },
-                    Value(),
-                )
-            )
-        ],
-    )
+    message = _make_simple_message([ToolApproval(id="fc1", approved=False, rejection_reason="Too risky")])
 
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_REJECT, message)
+    parts = executor._process_hitl_response(session, message)
 
     assert parts is not None
     assert len(parts) == 1
@@ -459,31 +439,14 @@ def test_process_hitl_decision_batch_with_per_tool_reason():
         )
     ]
 
-    message = Message(
-        role=Role.ROLE_USER,
-        message_id="msg1",
-        task_id="task1",
-        context_id="ctx1",
-        parts=[
-            Part(
-                data=ParseDict(
-                    {
-                        KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_BATCH,
-                        KAGENT_HITL_DECISIONS_KEY: {
-                            "orig123": KAGENT_HITL_DECISION_TYPE_APPROVE,
-                            "orig456": KAGENT_HITL_DECISION_TYPE_REJECT,
-                        },
-                        KAGENT_HITL_REJECTION_REASONS_KEY: {
-                            "orig456": "Wrong environment",
-                        },
-                    },
-                    Value(),
-                )
-            )
-        ],
+    message = _make_simple_message(
+        [
+            ToolApproval(id="fc1", approved=True),
+            ToolApproval(id="fc2", approved=False, rejection_reason="Wrong environment"),
+        ]
     )
 
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_BATCH, message)
+    parts = executor._process_hitl_response(session, message)
 
     assert parts is not None
     assert len(parts) == 2
@@ -547,25 +510,9 @@ def test_process_hitl_decision_ask_user_answers():
     ]
 
     answers = [{"answer": ["PostgreSQL"]}, {"answer": ["Auth", "Caching"]}]
-    message = Message(
-        role=Role.ROLE_USER,
-        message_id="msg1",
-        task_id="task1",
-        context_id="ctx1",
-        parts=[
-            Part(
-                data=ParseDict(
-                    {
-                        KAGENT_HITL_DECISION_TYPE_KEY: KAGENT_HITL_DECISION_TYPE_APPROVE,
-                        KAGENT_ASK_USER_ANSWERS_KEY: answers,
-                    },
-                    Value(),
-                )
-            )
-        ],
-    )
+    message = _make_simple_message(ask_id="fc1", answers=answers)
 
-    parts = executor._process_hitl_decision(session, KAGENT_HITL_DECISION_TYPE_APPROVE, message)
+    parts = executor._process_hitl_response(session, message)
 
     assert parts is not None
     assert len(parts) == 1

@@ -1,6 +1,12 @@
 {
   "agentCard": {
     "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
       "streaming": true
     },
     "defaultInputModes": [
@@ -57,7 +63,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://bedrock-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"bedrock_agent\",\"skills\":[],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://bedrock-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"bedrock_agent\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"bedrock\",\"model\":\"us.anthropic.claude-sonnet-4-20250514-v1:0\",\"region\":\"us-east-1\"},\"description\":\"\",\"instruction\":\"You are a helpful AI assistant running on AWS Bedrock.\",\"stream\":false}"
       }
     },
@@ -127,7 +133,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "4853539734720923156"
+              "kagent.dev/config-hash": "1296858448812174132"
             },
             "labels": {
               "app": "kagent",
