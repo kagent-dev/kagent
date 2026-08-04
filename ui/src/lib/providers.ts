@@ -1,6 +1,6 @@
 
-export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI" | "Bedrock" | "SAPAICore";
-export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI", "Bedrock", "SAPAICore"] as const;
+export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI" | "Bedrock" | "SAPAICore" | "Foundry";
+export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI", "Bedrock", "SAPAICore", "Foundry"] as const;
 export type ModelProviderKey = typeof modelProviders[number];
 
 
@@ -75,6 +75,13 @@ export const PROVIDERS_INFO: {
         apiKeyLink: "https://help.sap.com/docs/sap-ai-core",
         modelDocsLink: "https://help.sap.com/docs/sap-ai-core/sap-ai-core-service-guide/models-and-scenarios-in-generative-ai-hub",
         help: "Create a K8s Secret with client_id and client_secret from your SAP AI Core service key."
+    },
+    Foundry: {
+        name: "Azure AI Foundry",
+        type: "Foundry",
+        apiKeyLink: "https://ai.azure.com/",
+        modelDocsLink: "https://learn.microsoft.com/azure/ai-foundry/",
+        help: "Enter your Azure AI Foundry account endpoint and deployment name. The API key is optional — leave it blank to authenticate with Azure Workload Identity."
     },
 };
 
