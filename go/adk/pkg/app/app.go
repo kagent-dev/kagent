@@ -120,8 +120,11 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		log.Info("No KAgentURL configured, using in-memory session and no task persistence")
 	}
 
-	// Append the user-ID interceptor.
-	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(a2a.UserIDCallInterceptor()))
+	// Activate the optional HITL extension and resolve the authenticated user.
+	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
+		a2a.HITLActivationInterceptor(),
+		a2a.UserIDCallInterceptor(),
+	))
 
 	// Append any caller-supplied handler options.
 	handlerOpts = append(handlerOpts, cfg.HandlerOpts...)

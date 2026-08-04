@@ -47,35 +47,20 @@ func (e *recordingExecutor) Cleanup(context.Context, *a2asrv.ExecutorContext, a2
 }
 
 func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
-	decision := a2atype.NewMessage(
-		a2atype.MessageRoleUser,
-		dataPart(map[string]any{KAgentHitlDecisionTypeKey: KAgentHitlDecisionTypeApprove}, nil),
-	)
+	const appName = "test-app"
+	decision := hitlDecisionMessage(map[string]any{
+		"type":      HITLTypeToolApprovalResponse,
+		"approvals": []any{map[string]any{"id": "confirm-1", "approved": true}},
+	})
 	storedTask := &a2atype.Task{
 		ID:        "task-1",
 		ContextID: "ctx-1",
 		Status: a2atype.TaskStatus{
 			State: a2atype.TaskStateInputRequired,
-			Message: a2atype.NewMessage(
-				a2atype.MessageRoleAgent,
-				dataPart(
-					map[string]any{
-						"name": "adk_request_confirmation",
-						"id":   "confirm-1",
-						"args": map[string]any{
-							"originalFunctionCall": map[string]any{
-								"name": "delete_file",
-								"args": map[string]any{"path": "/tmp/x"},
-								"id":   "call-1",
-							},
-						},
-					},
-					map[string]any{
-						"kagent_type":            "function_call",
-						"kagent_is_long_running": true,
-					},
-				),
-			),
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), map[string]any{
+				"type":  HITLTypeToolApprovalRequest,
+				"tools": []any{map[string]any{"id": "confirm-1", "call_id": "call-1", "name": "delete_file", "args": map[string]any{"path": "/tmp/x"}}},
+			}),
 		},
 		History: []*a2atype.Message{decision},
 	}
@@ -86,10 +71,17 @@ func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
 		StoredTask: storedTask,
 	}
 	builtin := &recordingExecutor{}
-	executor := &KAgentExecutor{builtin: builtin, logger: logr.Discard()}
+	executor := &KAgentExecutor{builtin: builtin, appName: appName, logger: logr.Discard()}
+
+	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
+		a2atype.SvcParamExtensions: {HITLExtensionURI},
+	}))
+	if _, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
+		t.Fatalf("activate HITL: %v", err)
+	}
 
 	var events []a2atype.Event
-	for event, err := range executor.Execute(context.Background(), reqCtx) {
+	for event, err := range executor.Execute(ctx, reqCtx) {
 		if err != nil {
 			t.Fatalf("Execute() error = %v", err)
 		}
@@ -128,6 +120,44 @@ func TestKAgentExecutor_ForwardsCleanup(t *testing.T) {
 	executor.Cleanup(context.Background(), &a2asrv.ExecutorContext{}, nil, nil)
 	if !builtin.cleanupCalled {
 		t.Fatal("Cleanup() was not forwarded to the upstream executor")
+	}
+}
+
+func TestKAgentExecutor_TranslatesADKPauseAtA2ABoundary(t *testing.T) {
+	reqCtx := &a2asrv.ExecutorContext{
+		TaskID: "task-1", ContextID: "ctx-1",
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("delete it")),
+	}
+	internalMessage := a2atype.NewMessage(a2atype.MessageRoleAgent,
+		confirmationPart("confirm-1", "delete_file", "call-1", map[string]any{"path": "/tmp/x"}, nil))
+	builtin := &recordingExecutor{events: []a2atype.Event{
+		a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, internalMessage),
+	}}
+	executor := &KAgentExecutor{builtin: builtin, logger: logr.Discard()}
+
+	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
+		a2atype.SvcParamExtensions: {HITLExtensionURI},
+	}))
+	if _, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
+		t.Fatalf("activate HITL: %v", err)
+	}
+
+	var got *a2atype.TaskStatusUpdateEvent
+	for event, err := range executor.Execute(ctx, reqCtx) {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		got, _ = event.(*a2atype.TaskStatusUpdateEvent)
+	}
+	if got == nil || got.Status.State != a2atype.TaskStateInputRequired {
+		t.Fatalf("status update = %#v", got)
+	}
+	payload := GetHitlPayload(got.Status.Message)
+	if payload == nil || payload["type"] != HITLTypeToolApprovalRequest {
+		t.Fatalf("HITL payload = %#v", payload)
+	}
+	if len(got.Status.Message.Parts) != 1 || got.Status.Message.Parts[0].Text() == "" {
+		t.Fatalf("public pause leaked non-text parts: %#v", got.Status.Message.Parts)
 	}
 }
 
@@ -238,5 +268,97 @@ func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 	}
 	if completed == nil || completed.Status.Message != nil {
 		t.Fatalf("completed status = %#v, want content-free completion", completed)
+	}
+}
+
+func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
+	const (
+		appName   = "hitl-app"
+		contextID = "hitl-context"
+	)
+	invocations := 0
+	agent, err := adkagent.New(adkagent.Config{
+		Name: "hitl-agent",
+		Run: func(ic adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(yield func(*adksession.Event, error) bool) {
+				invocations++
+				if invocations == 1 {
+					call := genai.NewPartFromFunctionCall("adk_request_confirmation", map[string]any{
+						"originalFunctionCall": map[string]any{"name": "delete_file", "id": "tool-call", "args": map[string]any{"path": "/tmp/x"}},
+						"toolConfirmation":     map[string]any{"hint": "Delete /tmp/x?", "confirmed": false, "payload": nil},
+					})
+					call.FunctionCall.ID = "confirmation-call"
+					yield(&adksession.Event{
+						Author: ic.Agent().Name(), InvocationID: ic.InvocationID(), Branch: ic.Branch(),
+						LLMResponse:        model.LLMResponse{Content: &genai.Content{Role: genai.RoleModel, Parts: []*genai.Part{call}}},
+						LongRunningToolIDs: []string{"confirmation-call"},
+					}, nil)
+					return
+				}
+				yield(&adksession.Event{
+					Author: ic.Agent().Name(), InvocationID: ic.InvocationID(), Branch: ic.Branch(),
+					LLMResponse: model.LLMResponse{Content: genai.NewContentFromText("resumed", genai.RoleModel)},
+				}, nil)
+			}
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent.New() error = %v", err)
+	}
+	sessionService := adksession.InMemoryService()
+	executor := NewKAgentExecutor(KAgentExecutorConfig{
+		AppName: appName, SessionService: sessionService, Logger: logr.Discard(),
+		RunnerConfig: runner.Config{AppName: appName, Agent: agent},
+	})
+	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
+		a2atype.SvcParamExtensions: {HITLExtensionURI},
+	}))
+	if _, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
+		t.Fatalf("activate HITL: %v", err)
+	}
+
+	first := &a2asrv.ExecutorContext{
+		TaskID: "hitl-task", ContextID: contextID,
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("delete it")),
+	}
+	var pause *a2atype.TaskStatusUpdateEvent
+	for event, err := range executor.Execute(ctx, first) {
+		if err != nil {
+			t.Fatalf("pause Execute() error = %v", err)
+		}
+		if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && update.Status.State == a2atype.TaskStateInputRequired {
+			pause = update
+		}
+	}
+	if pause == nil || GetHitlPayload(pause.Status.Message) == nil {
+		t.Fatalf("pause = %#v, want extension input-required", pause)
+	}
+	pauseTools := anySlice(GetHitlPayload(pause.Status.Message)["tools"])
+	if len(pauseTools) != 1 || pauseTools[0].(map[string]any)["id"] != "confirmation-call" {
+		t.Fatalf("pause tools = %#v, want per-approval correlation", pauseTools)
+	}
+
+	decision := hitlDecisionMessage(map[string]any{
+		"type":      HITLTypeToolApprovalResponse,
+		"approvals": []any{map[string]any{"id": "confirmation-call", "approved": true}},
+	})
+	decision.TaskID, decision.ContextID = "hitl-task", contextID
+	stored := &a2atype.Task{
+		ID: "hitl-task", ContextID: contextID, Status: pause.Status, History: []*a2atype.Message{first.Message, decision},
+	}
+	resume := &a2asrv.ExecutorContext{
+		TaskID: "hitl-task", ContextID: contextID, Message: decision, StoredTask: stored,
+	}
+	var resumedText string
+	for event, err := range executor.Execute(ctx, resume) {
+		if err != nil {
+			t.Fatalf("resume Execute() error = %v", err)
+		}
+		if artifact, ok := event.(*a2atype.TaskArtifactUpdateEvent); ok && len(artifact.Artifact.Parts) > 0 {
+			resumedText = artifact.Artifact.Parts[0].Text()
+		}
+	}
+	if resumedText != "resumed" || invocations != 2 {
+		t.Fatalf("resumed text = %q, invocations = %d", resumedText, invocations)
 	}
 }

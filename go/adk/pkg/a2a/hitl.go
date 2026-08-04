@@ -1,36 +1,84 @@
 package a2a
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"maps"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 )
 
 const (
-	KAgentMetadataKeyPrefix = "kagent_"
-
-	KAgentHitlInterruptTypeToolApproval = "tool_approval"
-	KAgentHitlDecisionTypeKey           = "decision_type"
-	KAgentHitlDecisionTypeApprove       = "approve"
-	KAgentHitlDecisionTypeReject        = "reject"
+	// HITLExtensionURI is the versioned A2A Message extension used at the HITL edge.
+	HITLExtensionURI             = "https://kagent.dev/extensions/hitl/v1"
+	HITLTypeToolApprovalRequest  = "tool_approval_request"
+	HITLTypeAskUserRequest       = "ask_user_request"
+	HITLTypeToolApprovalResponse = "tool_approval_response"
+	HITLTypeAskUserResponse      = "ask_user_response"
+	KAgentMetadataKeyPrefix      = "kagent_"
 )
 
-// DecisionType represents a HITL decision.
-type DecisionType string
+var hitlAgentExtension = a2atype.AgentExtension{URI: HITLExtensionURI, Required: false}
 
-const (
-	DecisionApprove DecisionType = "approve"
-	DecisionReject  DecisionType = "reject"
-	DecisionBatch   DecisionType = "batch"
-)
+// HITLActivationInterceptor activates HITL when the client requested the exact
+// versioned extension URI. The A2A transports then echo activated URIs.
+func HITLActivationInterceptor() a2asrv.CallInterceptor {
+	return &hitlActivationInterceptor{}
+}
 
-// ToolApprovalRequest is kept for logging / HitlPartInfo compatibility.
-type ToolApprovalRequest struct {
-	Name string         `json:"name"`
-	Args map[string]any `json:"args"`
-	ID   string         `json:"id,omitempty"`
+type hitlActivationInterceptor struct {
+	a2asrv.PassthroughCallInterceptor
+}
+
+func (*hitlActivationInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, _ *a2asrv.Request) (context.Context, any, error) {
+	if callCtx != nil && callCtx.Extensions().Requested(&hitlAgentExtension) {
+		callCtx.Extensions().Activate(&hitlAgentExtension)
+	}
+	return ctx, nil, nil
+}
+
+// HitlActivated reports whether HITL was negotiated for this server call.
+func HitlActivated(ctx context.Context) bool {
+	extensions, ok := a2asrv.ExtensionsFrom(ctx)
+	return ok && extensions.Active(&hitlAgentExtension)
+}
+
+// GetHitlPayload returns a Message extension payload only when the Message
+// explicitly declares the exact HITL extension URI.
+func GetHitlPayload(message *a2atype.Message) map[string]any {
+	if message == nil || !containsString(message.Extensions, HITLExtensionURI) || message.Metadata == nil {
+		return nil
+	}
+	payload, _ := message.Metadata[HITLExtensionURI].(map[string]any)
+	return payload
+}
+
+// AttachHitlExtension attaches the A2A Protocol §4.6 Message extension payload.
+// https://a2a-protocol.org/latest/specification/#46-extensions
+func AttachHitlExtension(message *a2atype.Message, payload map[string]any) *a2atype.Message {
+	if message == nil {
+		return nil
+	}
+	if message.Metadata == nil {
+		message.Metadata = make(map[string]any)
+	}
+	message.Metadata[HITLExtensionURI] = payload
+	if !containsString(message.Extensions, HITLExtensionURI) {
+		message.Extensions = append(message.Extensions, HITLExtensionURI)
+	}
+	return message
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // OriginalFunctionCall is the original tool call inside an adk_request_confirmation event.
@@ -48,12 +96,6 @@ type HitlPartInfo struct {
 	OriginalFunctionCall OriginalFunctionCall `json:"originalFunctionCall"`
 }
 
-// PendingConfirmation holds info about an unresponded adk_request_confirmation.
-type PendingConfirmation struct {
-	OriginalID      string         // originalFunctionCall.id
-	OriginalPayload map[string]any // toolConfirmation.payload (may be nil)
-}
-
 // AskUserAnswer is one positional answer returned from the ask_user tool.
 type AskUserAnswer struct {
 	Answer []string `json:"answer"`
@@ -63,14 +105,13 @@ type AskUserAnswer struct {
 // It is used both for direct HITL metadata (rejection reasons, ask_user answers)
 // and for subagent resume state (task/context IDs, hitl_parts, batch decisions).
 type HitlConfirmationPayload struct {
-	TaskID           string                  `json:"task_id,omitempty"`
-	ContextID        string                  `json:"context_id,omitempty"`
-	SubagentName     string                  `json:"subagent_name,omitempty"`
-	HitlParts        []HitlPartInfo          `json:"hitl_parts,omitempty"`
-	BatchDecisions   map[string]DecisionType `json:"batch_decisions,omitempty"`
-	RejectionReasons map[string]string       `json:"rejection_reasons,omitempty"`
-	RejectionReason  string                  `json:"rejection_reason,omitempty"`
-	Answers          []AskUserAnswer         `json:"answers,omitempty"`
+	TaskID          string           `json:"task_id,omitempty"`
+	ContextID       string           `json:"context_id,omitempty"`
+	SubagentName    string           `json:"subagent_name,omitempty"`
+	HitlParts       []HitlPartInfo   `json:"hitl_parts,omitempty"`
+	Approvals       []ApprovalResult `json:"approvals,omitempty"`
+	RejectionReason string           `json:"rejection_reason,omitempty"`
+	Answers         []AskUserAnswer  `json:"answers,omitempty"`
 }
 
 // HasSubagentHitl reports whether the payload carries nested HITL state from a subagent.
@@ -106,19 +147,16 @@ func (p HitlConfirmationPayload) ToMap() map[string]any {
 		}
 		result["hitl_parts"] = hitlParts
 	}
-	if len(p.BatchDecisions) > 0 {
-		batch := make(map[string]any, len(p.BatchDecisions))
-		for id, decision := range p.BatchDecisions {
-			batch[id] = string(decision)
+	if len(p.Approvals) > 0 {
+		approvals := make([]map[string]any, 0, len(p.Approvals))
+		for _, approval := range p.Approvals {
+			item := map[string]any{"id": approval.ID, "approved": approval.Approved}
+			if approval.RejectionReason != "" {
+				item["rejection_reason"] = approval.RejectionReason
+			}
+			approvals = append(approvals, item)
 		}
-		result["batch_decisions"] = batch
-	}
-	if len(p.RejectionReasons) > 0 {
-		reasons := make(map[string]any, len(p.RejectionReasons))
-		for id, reason := range p.RejectionReasons {
-			reasons[id] = reason
-		}
-		result["rejection_reasons"] = reasons
+		result["approvals"] = approvals
 	}
 	if p.RejectionReason != "" {
 		result["rejection_reason"] = p.RejectionReason
@@ -148,8 +186,7 @@ func ParseHitlConfirmationPayload(raw map[string]any) HitlConfirmationPayload {
 	payload.ContextID, _ = raw["context_id"].(string)
 	payload.SubagentName, _ = raw["subagent_name"].(string)
 	payload.RejectionReason, _ = raw["rejection_reason"].(string)
-	payload.BatchDecisions = parseDecisionMap(raw["batch_decisions"])
-	payload.RejectionReasons = parseStringMap(raw["rejection_reasons"])
+	payload.Approvals = parseApprovalResultsValue(raw["approvals"])
 	payload.Answers = parseAskUserAnswersValue(raw["answers"])
 	payload.HitlParts = parseHitlPartsValue(raw["hitl_parts"])
 
@@ -173,82 +210,55 @@ func asDataPart(part *a2atype.Part) map[string]any {
 	return data
 }
 
-// ExtractDecisionFromMessage extracts a decision from an A2A message.
-// Only structured DataPart decisions are supported (no text keyword matching).
-func ExtractDecisionFromMessage(message *a2atype.Message) DecisionType {
-	if message == nil || len(message.Parts) == 0 {
-		return ""
-	}
-	for _, part := range message.Parts {
-		if dataPart := asDataPart(part); dataPart != nil {
-			if decision, ok := dataPart[KAgentHitlDecisionTypeKey].(string); ok {
-				switch decision {
-				case KAgentHitlDecisionTypeApprove:
-					return DecisionApprove
-				case KAgentHitlDecisionTypeReject:
-					return DecisionReject
-				case string(DecisionBatch):
-					return DecisionBatch
-				}
-			}
-		}
-	}
-	return ""
+// IsHITLResponse reports whether a Message carries a valid HITL response type.
+func IsHITLResponse(message *a2atype.Message) bool {
+	payload := GetHitlPayload(message)
+	return payload != nil && (payload["type"] == HITLTypeToolApprovalResponse || payload["type"] == HITLTypeAskUserResponse)
 }
 
-// ExtractBatchDecisionsFromMessage extracts per-tool decisions from a batch decision message.
-// Returns map[originalToolCallID]DecisionType.
-func ExtractBatchDecisionsFromMessage(message *a2atype.Message) map[string]DecisionType {
-	if message == nil {
-		return nil
-	}
-	for _, part := range message.Parts {
-		dp := asDataPart(part)
-		if dp == nil || dp[KAgentHitlDecisionTypeKey] != string(DecisionBatch) {
-			continue
-		}
-		return parseDecisionMap(dp[KAgentHitlDecisionsKey])
-	}
-	return nil
+// ApprovalResult is one independently resolved public tool approval.
+type ApprovalResult struct {
+	ID              string `json:"id"`
+	Approved        bool   `json:"approved"`
+	RejectionReason string `json:"rejection_reason,omitempty"`
 }
 
-// ExtractRejectionReasonsFromMessage extracts rejection reasons.
-// For uniform reject: returns {"*": reason}. For batch: returns {toolCallID: reason}.
-func ExtractRejectionReasonsFromMessage(message *a2atype.Message) map[string]string {
-	if message == nil {
-		return nil
+// ExtractApprovalResults extracts the flat approval list keyed by opaque ID.
+func ExtractApprovalResults(message *a2atype.Message) (map[string]ApprovalResult, error) {
+	payload := GetHitlPayload(message)
+	if payload == nil || payload["type"] != HITLTypeToolApprovalResponse {
+		return nil, fmt.Errorf("message does not contain a tool approval response")
 	}
-	for _, part := range message.Parts {
-		dp := asDataPart(part)
-		if dp == nil {
-			continue
+	results := make(map[string]ApprovalResult)
+	for _, raw := range anySlice(payload["approvals"]) {
+		approval, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("tool approval response contains an invalid approval")
 		}
-		decision, _ := dp[KAgentHitlDecisionTypeKey].(string)
-		if decision == string(DecisionBatch) {
-			return parseStringMap(dp[KAgentHitlRejectionReasonsKey])
-		} else if decision == KAgentHitlDecisionTypeReject {
-			if reason, _ := dp["rejection_reason"].(string); reason != "" {
-				return map[string]string{"*": reason}
-			}
+		id := stringValue(approval["id"])
+		approved, hasApproved := approval["approved"].(bool)
+		if id == "" || !hasApproved {
+			return nil, fmt.Errorf("tool approval response is missing id or approved")
 		}
+		if _, exists := results[id]; exists {
+			return nil, fmt.Errorf("tool approval response contains duplicate id %s", id)
+		}
+		results[id] = ApprovalResult{ID: id, Approved: approved, RejectionReason: stringValue(approval["rejection_reason"])}
 	}
-	return nil
+	if len(results) == 0 {
+		return nil, fmt.Errorf("tool approval response contains no approvals")
+	}
+	return results, nil
 }
 
-// ExtractAskUserAnswersFromMessage extracts ask-user answers from a decision message.
+// ExtractAskUserAnswersFromMessage extracts ask-user answers from a response message.
 func ExtractAskUserAnswersFromMessage(message *a2atype.Message) []map[string]any {
-	if message == nil {
+	payload := GetHitlPayload(message)
+	if payload == nil || payload["type"] != HITLTypeAskUserResponse {
 		return nil
 	}
-	for _, part := range message.Parts {
-		dp := asDataPart(part)
-		if dp == nil {
-			continue
-		}
-		answers := parseAskUserAnswersValue(dp[KAgentAskUserAnswersKey])
-		if len(answers) == 0 {
-			continue
-		}
+	answers := parseAskUserAnswersValue(payload["answers"])
+	if len(answers) > 0 {
 		result := make([]map[string]any, 0, len(answers))
 		for _, answer := range answers {
 			answerValues := make([]any, 0, len(answer.Answer))
@@ -305,160 +315,320 @@ func ExtractHitlInfoFromParts(parts a2atype.ContentParts) []HitlPartInfo {
 	return result
 }
 
-// BuildConfirmationPayload merges the original request_confirmation payload with extra data.
-func BuildConfirmationPayload(originalPayload, extra map[string]any) map[string]any {
-	if len(originalPayload) == 0 && len(extra) == 0 {
+// ExtractHitlInfoFromMessage translates the framework-neutral extension from
+// a child agent into the ADK-internal confirmation state used by remote tools.
+func ExtractHitlInfoFromMessage(message *a2atype.Message) []HitlPartInfo {
+	payload := GetHitlPayload(message)
+	if payload == nil {
 		return nil
 	}
-	merged := make(map[string]any)
-	maps.Copy(merged, originalPayload)
-	maps.Copy(merged, extra)
-	return merged
-}
+	var tools any
+	switch payload["type"] {
+	case HITLTypeToolApprovalRequest:
+		if nested, ok := payload["nested"].(map[string]any); ok {
+			tools = nested["tools"]
+		}
+		if tools == nil {
+			tools = payload["tools"]
+		}
+	case HITLTypeAskUserRequest:
+		if nested, ok := payload["nested"].(map[string]any); ok {
+			tools = nested["tools"]
+		}
+		if tools == nil {
+			tools = []any{map[string]any{
+				"id":      payload["id"],
+				"call_id": payload["id"],
+				"name":    "ask_user",
+				"args":    map[string]any{"questions": payload["questions"]},
+			}}
+		}
+	default:
+		return nil
+	}
 
-// ExtractPendingConfirmationsFromParts reconstructs pending confirmation state
-// from an input_required task status message.
-func ExtractPendingConfirmationsFromParts(parts a2atype.ContentParts) map[string]PendingConfirmation {
-	pending := make(map[string]PendingConfirmation)
-	for _, part := range parts {
-		dpData := asDataPart(part)
-		if dpData == nil || part.Metadata == nil {
+	var result []HitlPartInfo
+	for _, raw := range anySlice(tools) {
+		tool, ok := raw.(map[string]any)
+		if !ok {
 			continue
 		}
+		name, _ := tool["name"].(string)
+		if name == "" {
+			continue
+		}
+		callID, _ := tool["call_id"].(string)
+		approvalID, _ := tool["id"].(string)
+		args, _ := tool["args"].(map[string]any)
+		result = append(result, HitlPartInfo{
+			Name:                 toolconfirmation.FunctionCallName,
+			ID:                   approvalID,
+			OriginalFunctionCall: OriginalFunctionCall{Name: name, ID: callID, Args: args},
+		})
+	}
+	return result
+}
 
+// BuildHITLStatusMessage converts the upstream Go ADK input-required message
+// into the public A2A HITL extension. ADK confirmation parts never cross the
+// A2A boundary. Without activation, only a human-readable pause is exposed.
+func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.Message {
+	if message == nil {
+		return nil
+	}
+	type confirmationRequest struct {
+		info    HitlPartInfo
+		payload map[string]any
+	}
+	var requests []confirmationRequest
+	hint := "Human input is required before the agent can continue."
+	for _, part := range message.Parts {
+		data := asDataPart(part)
+		if data == nil || part.Metadata == nil {
+			continue
+		}
 		partType, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataTypeKey)
 		isLongRunning, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataIsLongRunningKey)
 		if partType != A2ADataPartMetadataTypeFunctionCall || isLongRunning != true {
 			continue
 		}
-
-		name, _ := dpData[PartKeyName].(string)
-		if name != toolconfirmation.FunctionCallName {
-			continue
+		request := confirmationRequest{info: HitlPartInfoFromDataPartData(data)}
+		args, _ := data[PartKeyArgs].(map[string]any)
+		if confirmation, ok := args["toolConfirmation"].(map[string]any); ok {
+			if value, _ := confirmation["hint"].(string); value != "" {
+				hint = value
+			}
+			request.payload, _ = confirmation["payload"].(map[string]any)
 		}
+		requests = append(requests, request)
+	}
+	if len(requests) == 0 {
+		return message
+	}
 
-		confirmationID, _ := dpData[PartKeyID].(string)
-		if confirmationID == "" {
-			continue
-		}
-
-		info := HitlPartInfoFromDataPartData(dpData)
-		var originalPayload map[string]any
-		if args, ok := dpData[PartKeyArgs].(map[string]any); ok {
-			if tc, ok := args["toolConfirmation"].(map[string]any); ok {
-				if payload, ok := tc["payload"].(map[string]any); ok {
-					originalPayload = payload
-				}
+	tools := make([]any, 0, len(requests))
+	var nested map[string]any
+	for _, request := range requests {
+		payload := ParseHitlConfirmationPayload(request.payload)
+		if payload.HasSubagentHitl() {
+			nestedTools := make([]any, 0, len(payload.HitlParts))
+			for _, child := range payload.HitlParts {
+				nestedTools = append(nestedTools, hitlToolMap(child.OriginalFunctionCall, child.ID))
+			}
+			nested = map[string]any{
+				"subagent_name": payload.SubagentName,
+				"task_id":       payload.TaskID,
+				"context_id":    payload.ContextID,
+				"tools":         nestedTools,
 			}
 		}
+		tools = append(tools, hitlToolMap(request.info.OriginalFunctionCall, request.info.ID))
+	}
 
-		pending[confirmationID] = PendingConfirmation{
-			OriginalID:      info.OriginalFunctionCall.ID,
-			OriginalPayload: originalPayload,
+	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(hint))
+	public.TaskID, public.ContextID = message.TaskID, message.ContextID
+	if !activated {
+		return public
+	}
+	var askUserArgs map[string]any
+	if len(requests) == 1 && requests[0].info.OriginalFunctionCall.Name == "ask_user" {
+		askUserArgs = requests[0].info.OriginalFunctionCall.Args
+	} else if nested != nil {
+		nestedTools := anySlice(nested["tools"])
+		if len(nestedTools) == 1 {
+			if tool, ok := nestedTools[0].(map[string]any); ok && tool["name"] == "ask_user" {
+				askUserArgs, _ = tool["args"].(map[string]any)
+			}
 		}
 	}
-	if len(pending) == 0 {
-		return nil
+	if askUserArgs != nil {
+		payload := map[string]any{
+			"type":      HITLTypeAskUserRequest,
+			"id":        requests[0].info.ID,
+			"questions": askUserArgs["questions"],
+		}
+		if nested != nil {
+			payload["nested"] = nested
+		}
+		return AttachHitlExtension(public, payload)
 	}
-	return pending
+	payload := map[string]any{
+		"type": HITLTypeToolApprovalRequest,
+		"hint": hint, "tools": tools,
+	}
+	if nested != nil {
+		payload["nested"] = nested
+	}
+	return AttachHitlExtension(public, payload)
 }
 
-// BuildResumeHITLMessage converts an inbound user HITL decision into the
+func hitlToolMap(call OriginalFunctionCall, approvalID string) map[string]any {
+	args := call.Args
+	if args == nil {
+		args = map[string]any{}
+	}
+	return map[string]any{"id": approvalID, "call_id": call.ID, "name": call.Name, "args": args}
+}
+
+// BuildResumeHITLMessage converts an inbound user HITL response into the
 // adk_request_confirmation FunctionResponse message expected by the Go ADK
-// executor for a stored input_required task.
-func BuildResumeHITLMessage(storedTask *a2atype.Task, incoming *a2atype.Message) *a2atype.Message {
-	decision := ExtractDecisionFromMessage(incoming)
-	if decision == "" {
-		return nil
+// executor. Correlation comes from the stored public A2A pause; upstream ADK
+// remains responsible for matching these responses to its session state.
+func BuildResumeHITLMessage(storedTask *a2atype.Task, incoming *a2atype.Message) (*a2atype.Message, error) {
+	if !IsHITLResponse(incoming) {
+		return nil, fmt.Errorf("message does not contain a HITL response")
 	}
-	if storedTask == nil || storedTask.Status.State != a2atype.TaskStateInputRequired || storedTask.Status.Message == nil {
-		return nil
+	if storedTask == nil || storedTask.Status.State != a2atype.TaskStateInputRequired {
+		return nil, fmt.Errorf("HITL decision requires a stored input-required task")
 	}
-
-	pending := ExtractPendingConfirmationsFromParts(storedTask.Status.Message.Parts)
-	if len(pending) == 0 {
-		return nil
+	request := GetHitlPayload(storedTask.Status.Message)
+	if request == nil {
+		return nil, fmt.Errorf("stored input-required task has no HITL request")
 	}
-
-	responseParts := ProcessHitlDecision(pending, decision, incoming)
+	responseParts, err := processStoredHITLRequest(request, incoming)
+	if err != nil {
+		return nil, err
+	}
 	if len(responseParts) == 0 {
-		return nil
+		return nil, fmt.Errorf("stored HITL request contains no approvals")
 	}
-
-	return a2atype.NewMessage(a2atype.MessageRoleUser, responseParts...)
+	return a2atype.NewMessage(a2atype.MessageRoleUser, responseParts...), nil
 }
 
-// ProcessHitlDecision processes a HITL decision and returns A2A DataParts
-// representing FunctionResponse(s) with ToolConfirmation payloads.
-func ProcessHitlDecision(
-	pending map[string]PendingConfirmation,
-	decision DecisionType,
-	message *a2atype.Message,
-) []*a2atype.Part {
-	if len(pending) == 0 {
+func processStoredHITLRequest(request map[string]any, message *a2atype.Message) ([]*a2atype.Part, error) {
+	if nested, ok := request["nested"].(map[string]any); ok {
+		return processNestedHITLRequest(request, nested, message)
+	}
+	if request["type"] == HITLTypeAskUserRequest {
+		response := GetHitlPayload(message)
+		if response == nil || response["type"] != HITLTypeAskUserResponse {
+			return nil, fmt.Errorf("ask_user request requires an ask_user response")
+		}
+		approvalID := stringValue(request["id"])
+		answers := parseAskUserAnswersValue(ExtractAskUserAnswersFromMessage(message))
+		if approvalID == "" || stringValue(response["id"]) != approvalID || len(answers) == 0 {
+			return nil, fmt.Errorf("ask_user decision is missing approval correlation or answers")
+		}
+		payload := HitlConfirmationPayload{Answers: answers}
+		return []*a2atype.Part{buildConfirmationResponsePart(approvalID, true, payload.ToMap())}, nil
+	}
+
+	tools := anySlice(request["tools"])
+	if len(tools) == 0 {
+		return nil, fmt.Errorf("tool approval request contains no tools")
+	}
+	approvals, err := ExtractApprovalResults(message)
+	if err != nil {
+		return nil, err
+	}
+	var parts []*a2atype.Part
+	for _, raw := range tools {
+		tool, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("tool approval request contains an invalid tool")
+		}
+		approvalID := stringValue(tool["id"])
+		if approvalID == "" {
+			return nil, fmt.Errorf("tool approval is missing id")
+		}
+		approval, exists := approvals[approvalID]
+		if !exists {
+			return nil, fmt.Errorf("tool approval response is missing id %s", approvalID)
+		}
+		payload := make(map[string]any)
+		if !approval.Approved && approval.RejectionReason != "" {
+			payload["rejection_reason"] = approval.RejectionReason
+		}
+		parts = append(parts, buildConfirmationResponsePart(approvalID, approval.Approved, nilIfEmpty(payload)))
+		delete(approvals, approvalID)
+	}
+	if len(approvals) > 0 {
+		return nil, fmt.Errorf("tool approval response contains unknown approval ids")
+	}
+	return parts, nil
+}
+
+func processNestedHITLRequest(request, nested map[string]any, message *a2atype.Message) ([]*a2atype.Part, error) {
+	outerTools := anySlice(request["tools"])
+	approvalID := stringValue(request["id"])
+	if len(outerTools) == 1 {
+		if outer, ok := outerTools[0].(map[string]any); ok {
+			approvalID = stringValue(outer["id"])
+		}
+	}
+	if approvalID == "" {
+		return nil, fmt.Errorf("nested HITL request is missing parent approval correlation")
+	}
+	payload := HitlConfirmationPayload{
+		TaskID:       stringValue(nested["task_id"]),
+		ContextID:    stringValue(nested["context_id"]),
+		SubagentName: stringValue(nested["subagent_name"]),
+	}
+	nestedTools := anySlice(nested["tools"])
+	for _, raw := range nestedTools {
+		tool, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("nested HITL request contains an invalid tool")
+		}
+		payload.HitlParts = append(payload.HitlParts, HitlPartInfo{
+			Name: toolconfirmation.FunctionCallName,
+			ID:   stringValue(tool["id"]),
+			OriginalFunctionCall: OriginalFunctionCall{
+				ID: stringValue(tool["call_id"]), Name: stringValue(tool["name"]), Args: cloneMap(tool["args"]),
+			},
+		})
+	}
+	if request["type"] == HITLTypeAskUserRequest {
+		response := GetHitlPayload(message)
+		if response == nil || response["type"] != HITLTypeAskUserResponse || len(payload.HitlParts) != 1 || stringValue(response["id"]) != payload.HitlParts[0].ID {
+			return nil, fmt.Errorf("nested ask_user response has invalid correlation")
+		}
+		payload.Answers = parseAskUserAnswersValue(ExtractAskUserAnswersFromMessage(message))
+		if len(payload.Answers) == 0 {
+			return nil, fmt.Errorf("nested ask_user decision contains no answers")
+		}
+		return []*a2atype.Part{buildConfirmationResponsePart(approvalID, true, payload.ToMap())}, nil
+	}
+
+	approvals, err := ExtractApprovalResults(message)
+	if err != nil {
+		return nil, err
+	}
+	confirmed := true
+	for _, tool := range payload.HitlParts {
+		approval, exists := approvals[tool.ID]
+		if !exists {
+			return nil, fmt.Errorf("nested tool approval response is missing id %s", tool.ID)
+		}
+		if !approval.Approved {
+			confirmed = false
+		}
+		payload.Approvals = append(payload.Approvals, approval)
+		delete(approvals, tool.ID)
+	}
+	if len(approvals) > 0 {
+		return nil, fmt.Errorf("nested tool approval response contains unknown approval ids")
+	}
+	return []*a2atype.Part{buildConfirmationResponsePart(approvalID, confirmed, payload.ToMap())}, nil
+}
+
+func stringValue(value any) string {
+	valueString, _ := value.(string)
+	return valueString
+}
+
+func cloneMap(value any) map[string]any {
+	raw, _ := value.(map[string]any)
+	result := make(map[string]any, len(raw))
+	maps.Copy(result, raw)
+	return result
+}
+
+func nilIfEmpty(value map[string]any) map[string]any {
+	if len(value) == 0 {
 		return nil
 	}
-
-	// Ask-user answers take priority.
-	if askUserAnswers := parseAskUserAnswersValue(extractMessageField(message, KAgentAskUserAnswersKey)); len(askUserAnswers) > 0 {
-		var parts []*a2atype.Part
-		for fcID, pc := range pending {
-			payload := ParseHitlConfirmationPayload(pc.OriginalPayload)
-			payload.Answers = askUserAnswers
-			parts = append(parts, buildConfirmationResponsePart(fcID, true, payload.ToMap()))
-		}
-		return parts
-	}
-
-	rejectionReasons := ExtractRejectionReasonsFromMessage(message)
-
-	if decision == DecisionBatch {
-		batchDecisions := ExtractBatchDecisionsFromMessage(message)
-		if batchDecisions == nil {
-			batchDecisions = map[string]DecisionType{}
-		}
-		var parts []*a2atype.Part
-		for fcID, pc := range pending {
-			payload := ParseHitlConfirmationPayload(pc.OriginalPayload)
-			var confirmed bool
-			if payload.HasSubagentHitl() {
-				allApproved := true
-				for _, d := range batchDecisions {
-					if d != DecisionApprove {
-						allApproved = false
-						break
-					}
-				}
-				confirmed = allApproved
-				payload.BatchDecisions = batchDecisions
-				payload.RejectionReasons = rejectionReasons
-			} else {
-				toolDecision, exists := batchDecisions[pc.OriginalID]
-				if !exists {
-					toolDecision = DecisionApprove
-				}
-				confirmed = toolDecision == DecisionApprove
-				payload.RejectionReason = ""
-				if !confirmed {
-					payload.RejectionReason = rejectionReasons[pc.OriginalID]
-				}
-			}
-			parts = append(parts, buildConfirmationResponsePart(fcID, confirmed, payload.ToMap()))
-		}
-		return parts
-	}
-
-	// Uniform approve/reject.
-	confirmed := decision == DecisionApprove
-	var parts []*a2atype.Part
-	for fcID, pc := range pending {
-		payload := ParseHitlConfirmationPayload(pc.OriginalPayload)
-		if !confirmed {
-			payload.RejectionReason = rejectionReasons["*"]
-		}
-		parts = append(parts, buildConfirmationResponsePart(fcID, confirmed, payload.ToMap()))
-	}
-	return parts
+	return value
 }
 
 // buildConfirmationResponsePart builds the A2A DataPart for a ToolConfirmation FunctionResponse.
@@ -479,96 +649,26 @@ func buildConfirmationResponsePart(fcID string, confirmed bool, payload map[stri
 	return p
 }
 
-func extractMessageField(message *a2atype.Message, key string) any {
-	if message == nil {
-		return nil
-	}
-	for _, part := range message.Parts {
-		dp := asDataPart(part)
-		if dp == nil {
-			continue
-		}
-		if value, ok := dp[key]; ok {
-			return value
-		}
-	}
-	return nil
-}
-
-func parseDecisionMap(raw any) map[string]DecisionType {
+func parseApprovalResultsValue(raw any) []ApprovalResult {
 	switch typed := raw.(type) {
-	case map[string]DecisionType:
+	case []ApprovalResult:
 		if len(typed) == 0 {
 			return nil
 		}
-		result := make(map[string]DecisionType, len(typed))
-		maps.Copy(result, typed)
-		return result
-	case map[string]string:
-		if len(typed) == 0 {
-			return nil
-		}
-		result := make(map[string]DecisionType, len(typed))
-		for id, decision := range typed {
-			switch DecisionType(decision) {
-			case DecisionApprove, DecisionReject:
-				result[id] = DecisionType(decision)
+		return append([]ApprovalResult(nil), typed...)
+	case []any:
+		result := make([]ApprovalResult, 0, len(typed))
+		for _, item := range typed {
+			value, ok := item.(map[string]any)
+			if !ok {
+				continue
 			}
-		}
-		if len(result) == 0 {
-			return nil
-		}
-		return result
-	case map[string]any:
-		if len(typed) == 0 {
-			return nil
-		}
-		result := make(map[string]DecisionType, len(typed))
-		for id, value := range typed {
-			decision, _ := value.(string)
-			switch DecisionType(decision) {
-			case DecisionApprove, DecisionReject:
-				result[id] = DecisionType(decision)
+			approved, hasApproved := value["approved"].(bool)
+			id := stringValue(value["id"])
+			if id == "" || !hasApproved {
+				continue
 			}
-		}
-		if len(result) == 0 {
-			return nil
-		}
-		return result
-	default:
-		return nil
-	}
-}
-
-func parseStringMap(raw any) map[string]string {
-	switch typed := raw.(type) {
-	case map[string]string:
-		if len(typed) == 0 {
-			return nil
-		}
-		result := make(map[string]string, len(typed))
-		for key, value := range typed {
-			if value != "" {
-				result[key] = value
-			}
-		}
-		if len(result) == 0 {
-			return nil
-		}
-		return result
-	case map[string]any:
-		if len(typed) == 0 {
-			return nil
-		}
-		result := make(map[string]string, len(typed))
-		for key, value := range typed {
-			str, _ := value.(string)
-			if str != "" {
-				result[key] = str
-			}
-		}
-		if len(result) == 0 {
-			return nil
+			result = append(result, ApprovalResult{ID: id, Approved: approved, RejectionReason: stringValue(value["rejection_reason"])})
 		}
 		return result
 	default:
@@ -622,6 +722,21 @@ func parseAnswerStrings(raw any) []string {
 			if s, ok := item.(string); ok {
 				result = append(result, s)
 			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func anySlice(raw any) []any {
+	switch typed := raw.(type) {
+	case []any:
+		return typed
+	case []map[string]any:
+		result := make([]any, len(typed))
+		for i := range typed {
+			result[i] = typed[i]
 		}
 		return result
 	default:

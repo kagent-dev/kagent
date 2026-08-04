@@ -171,7 +171,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			return
 		}
 
-		if ExtractDecisionFromMessage(reqCtx.Message) != "" {
+		hitlActivated := HitlActivated(ctx)
+		if hitlActivated && IsHITLResponse(reqCtx.Message) {
 			// a2a-go appends the inbound decision before invoking the executor. The
 			// original decision is re-emitted once for history/audit, while the
 			// transformed FunctionResponses are what ADK must consume.
@@ -180,14 +181,22 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			if !yield(decision, nil) {
 				return
 			}
-			// Transform the Kagent-specific decision message into a resume message for the upstream executor.
-			// The ADK HITL resume is handled upstream in the HandleInputRequired function.
-			if resumeMessage := BuildResumeHITLMessage(reqCtx.StoredTask, reqCtx.Message); resumeMessage != nil {
-				reqCtx.Message = resumeMessage
+			resumeMessage, err := BuildResumeHITLMessage(reqCtx.StoredTask, reqCtx.Message)
+			if err != nil {
+				yield(nil, err)
+				return
 			}
+			reqCtx.Message = resumeMessage
 		}
 
 		for event, err := range e.builtin.Execute(ctx, reqCtx) {
+			// If the event is a task status update event and the status is input required, build the HITL status message
+			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok &&
+				update.Status.State == a2atype.TaskStateInputRequired && update.Status.Message != nil {
+				update.Status.Message = BuildHITLStatusMessage(update.Status.Message, hitlActivated)
+				update.Status.Message.TaskID = update.TaskID
+				update.Status.Message.ContextID = update.ContextID
+			}
 			if !yield(event, err) {
 				return
 			}
@@ -293,7 +302,7 @@ func dropPreAppendedDecisionFromHistory(task *a2atype.Task, incoming *a2atype.Me
 	if last == nil || last.ID != incoming.ID {
 		return
 	}
-	if ExtractDecisionFromMessage(last) == "" {
+	if !IsHITLResponse(last) {
 		return
 	}
 	task.History = task.History[:len(task.History)-1]

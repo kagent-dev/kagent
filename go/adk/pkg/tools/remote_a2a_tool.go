@@ -11,6 +11,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
@@ -276,6 +277,7 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 			a2aclient.WithJSONRPCTransport(s.httpClient),
 		}
 		interceptors := []a2aclient.CallInterceptor{
+			a2aext.NewActivator(a2a.HITLExtensionURI),
 			&staticHeadersInterceptor{headers: map[string]string{"x-kagent-source": "agent"}},
 			&userIDForwardingInterceptor{},
 			&lineageHeadersInterceptor{},
@@ -360,12 +362,13 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 		TaskID:    a2atype.TaskID(taskID),
 		ContextID: contextID,
 		Role:      a2atype.MessageRoleUser,
-		Parts:     a2atype.ContentParts{a2atype.NewDataPart(decisionData)},
+		Parts:     a2atype.ContentParts{a2atype.NewTextPart("Human input supplied")},
 	}
+	a2a.AttachHitlExtension(message, decisionData)
 
-	decisionType, _ := decisionData[a2a.KAgentHitlDecisionTypeKey].(string)
-	slog.Info("Forwarding decision to subagent",
-		"decisionType", decisionType,
+	responseType, _ := decisionData["type"].(string)
+	slog.Info("Forwarding HITL response to subagent",
+		"responseType", responseType,
 		"subagent", subagentName,
 		"taskID", taskID,
 	)
@@ -456,7 +459,7 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 
 	var hitlParts []a2a.HitlPartInfo
 	if task.Status.Message != nil {
-		hitlParts = a2a.ExtractHitlInfoFromParts(task.Status.Message.Parts)
+		hitlParts = a2a.ExtractHitlInfoFromMessage(task.Status.Message)
 	}
 
 	var innerToolNames []string
@@ -495,48 +498,44 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 	}
 }
 
-// buildDecisionData constructs the decision DataPart.Data map to forward to the subagent.
+// buildDecisionData constructs the framework-neutral HITL extension payload
+// forwarded to the subagent.
 func buildDecisionData(confirmed bool, payload a2a.HitlConfirmationPayload) map[string]any {
-	switch {
-	case len(payload.BatchDecisions) > 0:
-		batchDecisions := make(map[string]any, len(payload.BatchDecisions))
-		for id, decision := range payload.BatchDecisions {
-			batchDecisions[id] = string(decision)
+	if len(payload.Answers) > 0 {
+		askID := ""
+		if len(payload.HitlParts) > 0 {
+			askID = payload.HitlParts[0].ID
 		}
-		data := map[string]any{
-			a2a.KAgentHitlDecisionTypeKey: a2a.KAgentHitlDecisionTypeBatch,
-			a2a.KAgentHitlDecisionsKey:    batchDecisions,
-		}
-		if len(payload.RejectionReasons) > 0 {
-			rejReasons := make(map[string]any, len(payload.RejectionReasons))
-			for id, reason := range payload.RejectionReasons {
-				rejReasons[id] = reason
-			}
-			data[a2a.KAgentHitlRejectionReasonsKey] = rejReasons
-		}
-		return data
-
-	case len(payload.Answers) > 0:
 		askUserAnswers := make([]map[string]any, 0, len(payload.Answers))
 		for _, answer := range payload.Answers {
 			askUserAnswers = append(askUserAnswers, map[string]any{"answer": answer.Answer})
 		}
 		return map[string]any{
-			a2a.KAgentHitlDecisionTypeKey: a2a.KAgentHitlDecisionTypeApprove,
-			a2a.KAgentAskUserAnswersKey:   askUserAnswers,
+			"type":    a2a.HITLTypeAskUserResponse,
+			"id":      askID,
+			"answers": askUserAnswers,
 		}
-
-	default:
-		decisionType := a2a.KAgentHitlDecisionTypeApprove
-		if !confirmed {
-			decisionType = a2a.KAgentHitlDecisionTypeReject
-		}
-		data := map[string]any{a2a.KAgentHitlDecisionTypeKey: decisionType}
-		if !confirmed && payload.RejectionReason != "" {
-			data["rejection_reason"] = payload.RejectionReason
-		}
-		return data
 	}
+
+	approvals := make([]any, 0, len(payload.HitlParts))
+	if len(payload.Approvals) > 0 {
+		for _, result := range payload.Approvals {
+			approval := map[string]any{"id": result.ID, "approved": result.Approved}
+			if result.RejectionReason != "" {
+				approval["rejection_reason"] = result.RejectionReason
+			}
+			approvals = append(approvals, approval)
+		}
+	} else {
+		for _, part := range payload.HitlParts {
+			approval := map[string]any{"id": part.ID, "approved": confirmed}
+			if !confirmed && payload.RejectionReason != "" {
+				approval["rejection_reason"] = payload.RejectionReason
+			}
+			approvals = append(approvals, approval)
+		}
+	}
+	return map[string]any{"type": a2a.HITLTypeToolApprovalResponse, "approvals": approvals}
 }
 
 // withOTelTransport returns a shallow copy of the client whose transport is

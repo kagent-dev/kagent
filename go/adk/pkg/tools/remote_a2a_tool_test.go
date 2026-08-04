@@ -7,6 +7,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 )
 
 // newReq returns an empty outbound client Request with initialized service params.
@@ -202,6 +203,32 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 		}
 		if resp.SubagentSessionID != contextID {
 			t.Errorf("SubagentSessionID = %q, want %q", resp.SubagentSessionID, contextID)
+		}
+	})
+}
+
+func TestBuildDecisionDataUsesHITLExtensionShape(t *testing.T) {
+	t.Run("ask user", func(t *testing.T) {
+		got := buildDecisionData(true, a2a.HitlConfirmationPayload{
+			Answers:   []a2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
+			HitlParts: []a2a.HitlPartInfo{{ID: "question-1"}},
+		})
+		if got["type"] != a2a.HITLTypeAskUserResponse || got["id"] != "question-1" {
+			t.Fatalf("decision payload = %#v", got)
+		}
+		if _, legacy := got["ask_user_answers"]; legacy {
+			t.Fatalf("decision payload contains legacy ask_user_answers: %#v", got)
+		}
+	})
+
+	t.Run("multiple approvals", func(t *testing.T) {
+		got := buildDecisionData(false, a2a.HitlConfirmationPayload{
+			HitlParts: []a2a.HitlPartInfo{{ID: "approval-1", OriginalFunctionCall: a2a.OriginalFunctionCall{ID: "call-1"}}},
+			Approvals: []a2a.ApprovalResult{{ID: "approval-1", Approved: false}},
+		})
+		approvals, _ := got["approvals"].([]any)
+		if got["type"] != a2a.HITLTypeToolApprovalResponse || len(approvals) != 1 || approvals[0].(map[string]any)["approved"] != false {
+			t.Fatalf("decision payload = %#v", got)
 		}
 	})
 }
