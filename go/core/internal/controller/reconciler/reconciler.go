@@ -475,6 +475,38 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 		}
 	}
 
+	// check for a Foundry endpoint sourced from a ConfigMap (endpointFrom).
+	// Fold the resolved value into the status hash so agents roll when Azure
+	// Service Operator (or anything else) rewrites the endpoint — ConfigMap
+	// edits don't bump the ModelConfig generation, so this hash is the only
+	// signal that reaches the agent Deployment. The ConfigMap is not a Secret,
+	// but computeStatusSecretHash only needs an identity plus key/value bytes,
+	// so we adapt it into the same secretRef shape.
+	if fc := modelConfig.Spec.Foundry; fc != nil && fc.EndpointFrom != nil {
+		ref := fc.EndpointFrom
+		cm := &corev1.ConfigMap{}
+		namespacedName := types.NamespacedName{Namespace: modelConfig.Namespace, Name: ref.Name}
+
+		if kubeErr := a.kube.Get(ctx, namespacedName, cm); kubeErr != nil {
+			err = multierror.Append(err, fmt.Errorf("failed to get Foundry endpoint config map %s: %w", ref.Name, kubeErr))
+		} else {
+			// Mirror resolveFoundryEndpoint's semantics: a missing key is only
+			// tolerated when the selector is explicitly optional, but the
+			// endpoint is still unresolved either way, so surface a clear
+			// Accepted=false rather than letting the agent crash at startup.
+			value, ok := cm.Data[ref.Key]
+			if !ok && (ref.Optional == nil || !*ref.Optional) {
+				err = multierror.Append(err, fmt.Errorf("the Foundry endpoint config map %s does not contain key %q", ref.Name, ref.Key))
+			}
+			secrets = append(secrets, secretRef{
+				NamespacedName: namespacedName,
+				Secret: &corev1.Secret{
+					Data: map[string][]byte{ref.Key: []byte(value)},
+				},
+			})
+		}
+	}
+
 	// compute the hash for the status
 	secretHash := computeStatusSecretHash(secrets)
 
