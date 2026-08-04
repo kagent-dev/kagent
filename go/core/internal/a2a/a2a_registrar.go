@@ -9,6 +9,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -242,6 +243,7 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 		card.SupportedInterfaces,
 		a2aclient.WithJSONRPCTransport(httpClient),
 		a2aclient.WithCallInterceptors(
+			a2aext.NewClientPropagator(nil),
 			NewUpstreamAuthInterceptor(a.authenticator, agentRef),
 		),
 	)

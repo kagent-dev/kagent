@@ -9,6 +9,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/gorilla/mux"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
@@ -64,15 +65,26 @@ func newTaskQueryHandler(requestHandler a2asrv.RequestHandler, store TaskStore) 
 	return newStoreTaskQueryHandler(requestHandler, store)
 }
 
+// newProxyRequestHandler preserves negotiated A2A extension headers and
+// extension metadata while forwarding a typed request through the controller.
+// The matching client propagator is installed when the upstream client is
+// constructed in A2ARegistrar.
+func newProxyRequestHandler(client *a2aclient.Client, card *a2atype.AgentCard, store TaskStore) a2asrv.RequestHandler {
+	delegate := newTaskQueryHandler(NewPassthroughRequestHandler(client, card), store)
+	return &a2asrv.InterceptedHandler{
+		Handler:      delegate,
+		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
+	}
+}
+
 func (a *handlerMux) SetAgentHandler(
 	agentRef string,
 	client *a2aclient.Client,
 	card a2atype.AgentCard,
 	tracing middleware,
 ) error {
-	requestHandler := NewPassthroughRequestHandler(client, &card)
-	taskHandler := newTaskQueryHandler(requestHandler, a.taskStore)
-	jsonRPCHandler := a2asrv.NewJSONRPCHandler(taskHandler)
+	requestHandler := newProxyRequestHandler(client, &card, a.taskStore)
+	jsonRPCHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	cardHandler := a2asrv.NewStaticAgentCardHandler(&card)
 	wellKnownPath := "/" + strings.TrimPrefix(a2asrv.WellKnownAgentCardPath, "/")
 
