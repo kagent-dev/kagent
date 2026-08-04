@@ -575,10 +575,11 @@ func buildPodTemplate(
 				SecurityContext: runtimeInputs.securityContext,
 				VolumeMounts:    runtimeInputs.volumeMounts,
 			}}, dep.ExtraContainers...),
-			Volumes:      runtimeInputs.volumes,
-			Tolerations:  dep.Tolerations,
-			Affinity:     dep.Affinity,
-			NodeSelector: dep.NodeSelector,
+			Volumes:                   runtimeInputs.volumes,
+			Tolerations:               dep.Tolerations,
+			Affinity:                  dep.Affinity,
+			NodeSelector:              dep.NodeSelector,
+			TopologySpreadConstraints: dep.TopologySpreadConstraints,
 		},
 	}
 }

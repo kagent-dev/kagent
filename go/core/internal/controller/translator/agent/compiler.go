@@ -219,10 +219,22 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 	return nil
 }
 
+// requireFoundryGoRuntime returns an error if a Foundry model is used with a
+// non-go declarative runtime. Foundry is only supported by the Go ADK runtime.
+func requireFoundryGoRuntime(agent v1alpha2.AgentObject, modelType string) error {
+	if modelType == adk.ModelTypeFoundry && v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) != v1alpha2.DeclarativeRuntime_Go {
+		return fmt.Errorf("the Foundry model provider requires declarative runtime %q", v1alpha2.DeclarativeRuntime_Go)
+	}
+	return nil
+}
+
 func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alpha2.AgentObject) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
 	spec := agent.GetAgentSpec()
 	model, mdd, secretHashBytes, err := a.translateModel(ctx, agent.GetNamespace(), spec.Declarative.ModelConfig)
 	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err := requireFoundryGoRuntime(agent, model.GetType()); err != nil {
 		return nil, nil, nil, err
 	}
 
@@ -276,6 +288,9 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 					if err != nil {
 						return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", summarizerModelName, err)
 					}
+					if err := requireFoundryGoRuntime(agent, summarizerModel.GetType()); err != nil {
+						return nil, nil, nil, err
+					}
 					compCfg.SummarizerModel = summarizerModel
 					mergeDeploymentData(mdd, summarizerMdd)
 					if len(summarizerSecretHash) > 0 {
@@ -301,6 +316,11 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		embCfg, embMdd, embHash, err := a.translateEmbeddingConfig(ctx, agent.GetNamespace(), spec.Declarative.Memory.ModelConfig)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
+		}
+		// The Foundry embedding provider is implemented only in the Go ADK, so a
+		// Foundry memory ModelConfig requires the Go declarative runtime.
+		if err := requireFoundryGoRuntime(agent, embCfg.Provider); err != nil {
+			return nil, nil, nil, err
 		}
 
 		cfg.Memory = &adk.MemoryConfig{
