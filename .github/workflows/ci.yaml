@@ -108,7 +108,9 @@ jobs:
           export KAGENT_LOCAL_HOST=$HOST_IP
 
           export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
+          export KAGENT_GRPC_URL="$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8084"
           echo "KAGENT_URL: $KAGENT_URL"
+          echo "KAGENT_GRPC_URL: $KAGENT_GRPC_URL"
           echo "KAGENT_LOCAL_HOST: $KAGENT_LOCAL_HOST"
 
           # no need to run e2e tests with race, as this will just apply to the test code.
@@ -132,6 +134,7 @@ jobs:
           HOST_IP=$(docker network inspect kind -f '{{range .IPAM.Config}}{{if .Gateway}}{{.Gateway}}{{"\n"}}{{end}}{{end}}' | grep -E '^[0-9]+\.' | head -1)
           export KAGENT_LOCAL_HOST=$HOST_IP
           export KAGENT_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
+          export KAGENT_GRPC_URL="$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8084"
 
           # Run critical tests with namespace-scoped RBAC to verify the controller didn't lose needed permissions
           cd go
