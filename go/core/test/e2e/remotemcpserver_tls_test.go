@@ -255,6 +255,13 @@ func waitForGRPCDiscoveredTools(t *testing.T, namespace, name string) []*apiv1al
 
 func newE2EToolServiceClient(t *testing.T) apiv1alpha1.ToolServiceClient {
 	t.Helper()
+	return apiv1alpha1.NewToolServiceClient(newE2EGRPCConn(t))
+}
+
+// newE2EGRPCConn dials the controller's application gRPC endpoint
+// (KAGENT_GRPC_URL, default localhost:8084).
+func newE2EGRPCConn(t *testing.T) *grpc.ClientConn {
+	t.Helper()
 	target := os.Getenv("KAGENT_GRPC_URL")
 	if target == "" {
 		target = "localhost:8084"
@@ -264,7 +271,7 @@ func newE2EToolServiceClient(t *testing.T) apiv1alpha1.ToolServiceClient {
 	t.Cleanup(func() {
 		require.NoError(t, connection.Close())
 	})
-	return apiv1alpha1.NewToolServiceClient(connection)
+	return connection
 }
 
 // generateSelfSignedCert mints an ECDSA self-signed certificate scoped
