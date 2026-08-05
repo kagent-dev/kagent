@@ -811,6 +811,119 @@ describe('subagent_session_id propagation', () => {
     }
   });
 
+  test('nested ask_user does not emit a synthetic AgentCall card (parent call stays in transcript)', () => {
+    const { emitted, handlers } = makeHandlers();
+
+    handlers.handleMessageEvent(statusUpdateEvent({
+      state: TaskState.TASK_STATE_INPUT_REQUIRED,
+      message: sdkMessage({
+        messageId: 'nested-ask',
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'ask_user_request',
+            id: 'adk-synthetic-would-have-been-this',
+            questions: [{ question: 'Which resource?' }],
+            nested: {
+              subagent_name: 'kagent__NS__test_hitl_python',
+              task_id: 'child-task',
+              context_id: 'child-session',
+              tools: [{ id: 'ask-1', call_id: 'ask-1', name: 'ask_user', args: { questions: [{ question: 'Which resource?' }] } }],
+            },
+          },
+        },
+      }),
+    }));
+
+    expect(emitted.map(message => {
+      const meta = message.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType;
+    })).toEqual(['ask_user']);
+    expect(emitted.some(message =>
+      (message.metadata as ADKMetadata)?.originalType === 'ToolCallRequestEvent',
+    )).toBe(false);
+  });
+
+  test('reloaded nested ask_user appends only the ask card beside the artifact parent call', () => {
+    const task = sdkTask([
+      sdkMessage({
+        messageId: 'u1',
+        role: Role.ROLE_USER,
+        parts: [createTextPart('ask the hitl agent')],
+      }),
+    ], {
+      status: {
+        state: TaskState.TASK_STATE_INPUT_REQUIRED,
+        timestamp: new Date().toISOString(),
+        message: sdkMessage({
+          messageId: 'status-ask',
+          extensions: [HITL_EXTENSION_URI],
+          metadata: {
+            [HITL_EXTENSION_URI]: {
+              type: 'ask_user_request',
+              id: 'adk-hitl-id',
+              questions: [{ question: 'Which resource?' }],
+              nested: {
+                subagent_name: 'kagent__NS__test_hitl_python',
+                task_id: 'child-task',
+                context_id: '019fd37c-e622-7d23-a4b6-b7598a2f39b8',
+                tools: [{
+                  id: 'ask-1',
+                  call_id: 'ask-1',
+                  name: 'ask_user',
+                  args: { questions: [{ question: 'Which resource?' }] },
+                }],
+              },
+            },
+          },
+        }),
+      },
+      artifacts: [
+        sdkArtifact('call', [createDataPart(
+          {
+            id: 'call_parent',
+            name: 'kagent__NS__test_hitl_python',
+            args: { request: 'Ask the user what resources they want to list' },
+          },
+          { adk_type: 'function_call' },
+        )]),
+        sdkArtifact('resp', [createDataPart(
+          {
+            id: 'call_parent',
+            name: 'kagent__NS__test_hitl_python',
+            response: {
+              status: 'pending',
+              subagent: 'kagent__NS__test_hitl_python',
+              subagent_session_id: '019fd37c-e622-7d23-a4b6-b7598a2f39b8',
+              waiting_for: 'subagent_approval',
+            },
+          },
+          { adk_type: 'function_response' },
+        )]),
+      ],
+    });
+
+    const artifactMessages = extractMessagesFromTasks([task]);
+    const { messages: approvalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks([task]);
+    const messages = [...artifactMessages, ...approvalMessages];
+
+    expect(hasPendingApproval).toBe(true);
+    const kinds = messages.map(m => {
+      const meta = m.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType ?? m.role;
+    });
+    expect(kinds).toEqual([
+      Role.ROLE_USER,
+      'ToolCallRequestEvent',
+      'ToolCallExecutionEvent',
+      'ask_user',
+    ]);
+    // One parent agent call — no synthetic Delegating duplicate.
+    expect(messages.filter(m =>
+      (m.metadata as ADKMetadata)?.originalType === 'ToolCallRequestEvent',
+    )).toHaveLength(1);
+  });
+
   test('artifact-update: agent function_response with subagent_session_id in response dict emits toolResultData with subagent_session_id', () => {
     const { emitted, handlers } = makeHandlers();
 

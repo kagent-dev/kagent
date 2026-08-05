@@ -95,6 +95,23 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
     );
   };
 
+  const setIsolateSessionsForAgentTool = (
+    parentToolIdentifier: string,
+    isolateSessions: boolean,
+  ) => {
+    setSelectedTools(
+      selectedTools.map((tool) => {
+        if (getToolIdentifier(tool) !== parentToolIdentifier || !isAgentTool(tool)) {
+          return tool;
+        }
+        return {
+          ...tool,
+          ...(isolateSessions ? { isolateSessions: true } : { isolateSessions: undefined }),
+        };
+      }),
+    );
+  };
+
   const handleRemoveTool = (parentToolIdentifier: string, mcpToolNameToRemove?: string) => {
     let updatedTools: Tool[];
 
@@ -218,11 +235,16 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
         } else {
           const displayName = getToolDisplayName(agentTool, currentAgentNamespace);
           const displayDescription = getToolDescription(agentTool, availableTools);
+          const isAgent = isAgentTool(agentTool);
+          const isolateFieldId = `isolate-sessions-${parentToolIdentifier}`.replace(
+            /[^a-zA-Z0-9_-]/g,
+            "_",
+          );
 
           let CurrentIcon: React.ElementType;
           let currentIconColor: string;
 
-          if (isAgentTool(agentTool)) {
+          if (isAgent) {
             CurrentIcon = KagentLogo;
             currentIconColor = "text-green-500";
           } else {
@@ -232,23 +254,53 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
 
           return [( // flatMap expects an array
             <Card key={parentToolIdentifier}>
-              <CardContent className="p-4">
-                <div className="flex min-w-0 w-full items-center justify-between gap-2">
-                  <div className="flex min-w-0 flex-1 items-center text-xs">
-                    <div className="inline-flex min-w-0 flex-1 space-x-2 items-start">
-                      <CurrentIcon className={`h-4 w-4 mt-0.5 shrink-0 ${currentIconColor}`} />
-                      <div className="inline-flex min-w-0 flex-1 flex-col space-y-1">
-                        <span className="truncate">{displayName}</span>
-                        <span className="text-muted-foreground line-clamp-2 break-words">{displayDescription}</span>
-                      </div>
-                    </div>
+              <CardContent className="space-y-1.5 p-3">
+                <div className="flex min-w-0 items-start gap-2">
+                  <CurrentIcon className={`mt-0.5 h-4 w-4 shrink-0 ${currentIconColor}`} />
+                  <div className="min-w-0 flex-1 text-xs">
+                    <p className="font-medium leading-tight" title={displayName}>
+                      <span className="line-clamp-2 break-words">{displayName}</span>
+                    </p>
+                    <p
+                      className="mt-0.5 text-muted-foreground line-clamp-1 break-words leading-snug"
+                      title={displayDescription}
+                    >
+                      {displayDescription}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button type="button" aria-label="Remove tool" variant="ghost" size="sm" onClick={() => handleRemoveTool(parentToolIdentifier)} disabled={isSubmitting}>
-                      <X className="h-4 w-4" aria-hidden />
-                    </Button>
-                  </div>
+                  <Button
+                    type="button"
+                    aria-label="Remove tool"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 shrink-0 p-0"
+                    onClick={() => handleRemoveTool(parentToolIdentifier)}
+                    disabled={isSubmitting}
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                  </Button>
                 </div>
+                {isAgent && (
+                  <div className="flex min-w-0 items-center gap-2 border-t border-border/60 pt-1.5">
+                    <Switch
+                      id={isolateFieldId}
+                      checked={!!agentTool.isolateSessions}
+                      disabled={isSubmitting}
+                      onCheckedChange={(checked) =>
+                        setIsolateSessionsForAgentTool(parentToolIdentifier, checked)
+                      }
+                    />
+                    <Label
+                      htmlFor={isolateFieldId}
+                      className="min-w-0 cursor-pointer text-xs font-normal leading-snug"
+                      title="Each call gets a fresh sub-agent session. Enable for parallel fan-out to the same agent."
+                    >
+                      <span className="line-clamp-2 sm:line-clamp-1">
+                        Isolate sessions (new session each call)
+                      </span>
+                    </Label>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )];

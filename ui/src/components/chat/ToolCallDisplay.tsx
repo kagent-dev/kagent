@@ -6,7 +6,6 @@ import { isAgentToolName } from "@/lib/utils";
 import {
   isToolCallRequestMessage,
   isToolCallExecutionMessage,
-  isToolCallSummaryMessage,
   extractToolCallRequests,
   extractToolCallResults,
 } from "@/lib/toolCallExtraction";
@@ -35,6 +34,12 @@ interface ToolCallState {
   status: ToolCallStatus;
   subagentSessionId?: string;
 }
+
+/** Remote-agent pause: function_response arrived but the child is still running/HITL. */
+const isPendingSubagentResult = (result: ToolCallState["result"]): boolean => {
+  const raw = result?.rawResult;
+  return !!raw && typeof raw === "object" && (raw as { status?: unknown }).status === "pending";
+};
 
 const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pendingDecisions, getMcpAppForTool, onMcpAppSendMessage }: ToolCallDisplayProps) => {
   const isRequestMessage = (message: Message) =>
@@ -145,29 +150,18 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
       }
     }
 
-    // Third pass: mark completed calls using summary messages
-    let summaryMessageEncountered = false;
-    for (const message of allMessages) {
-      if (isToolCallSummaryMessage(message)) {
-        summaryMessageEncountered = true;
-        break;
+    // Third pass: mark completed once a result exists. Remote-agent pauses
+    // (response status: pending) stay "executing" — the child is still running.
+    newToolCalls.forEach((call, id) => {
+      if (
+        call.status === "executing" &&
+        call.result &&
+        ownedCallIds.has(id) &&
+        !isPendingSubagentResult(call.result)
+      ) {
+        call.status = "completed";
       }
-    }
-
-    if (summaryMessageEncountered) {
-      newToolCalls.forEach((call, id) => {
-        if (call.status === "executing" && call.result && ownedCallIds.has(id)) {
-          call.status = "completed";
-        }
-      });
-    } else {
-      // For stored tasks without summary messages, auto-complete tool calls that have results
-      newToolCalls.forEach((call, id) => {
-        if (call.status === "executing" && call.result && ownedCallIds.has(id)) {
-          call.status = "completed";
-        }
-      });
-    }
+    });
 
     return newToolCalls;
   }, [allMessages, ownedCallIds]);

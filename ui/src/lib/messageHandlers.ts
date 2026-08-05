@@ -384,18 +384,22 @@ function buildNestedAgentCallMessage(payload: HitlRequestPayload, contextId: str
   const nested = payload.nested;
   if (!nested?.context_id || !nested.subagent_name) return undefined;
 
-  const parentTool = payload.type === "tool_approval_request"
-    ? payload.tools.find(tool => tool.name === nested.subagent_name) ??
-      payload.tools.find(tool => isAgentToolName(tool.name)) ??
-      payload.tools[0]
-    : undefined;
+  // Nested ask_user leaves the parent agent call in the transcript (its call id
+  // is not in relatedHitlCallIds). A synthetic card keyed by payload.id would
+  // render a second "Delegating" box beside the real Completed/pending one.
+  if (payload.type !== "tool_approval_request") return undefined;
+
+  const parentTool =
+    payload.tools.find(tool => tool.name === nested.subagent_name) ??
+    payload.tools.find(tool => isAgentToolName(tool.name)) ??
+    payload.tools[0];
   return createMessage("", "agent", {
     originalType: "ToolCallRequestEvent",
     contextId,
     taskId,
     additionalMetadata: {
       toolCallData: [{
-        id: parentTool?.call_id ?? (payload.type === "ask_user_request" ? payload.id : nested.context_id),
+        id: parentTool?.call_id ?? nested.context_id,
         name: parentTool?.name ?? nested.subagent_name,
         args: parentTool?.args ?? {},
         subagent_session_id: nested.context_id,

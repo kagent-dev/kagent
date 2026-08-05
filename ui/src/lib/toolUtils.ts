@@ -8,7 +8,9 @@ const DEFAULT_MCP_KIND = "MCPServer";
 const TOOL_SERVER_NAME = "kagent-tool-server";
 const MCP_SERVER_TYPE = "McpServer" as const;
 
-export const isAgentTool = (value: unknown): value is { type: "Agent"; agent: TypedLocalReference } => {
+export const isAgentTool = (
+  value: unknown,
+): value is Tool & { type: "Agent"; agent: TypedLocalReference } => {
   if (!value || typeof value !== "object") return false;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

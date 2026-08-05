@@ -255,6 +255,12 @@ export interface Tool {
   type: ToolProviderType;
   mcpServer?: McpServerTool;
   agent?: TypedLocalReference;
+  /**
+   * Agent tools only. When true, each call to the sub-agent gets a fresh
+   * A2A context_id (isolated session). Default/false reuses one session.
+   * Required for parallel fan-out to the same sub-agent.
+   */
+  isolateSessions?: boolean;
 }
 
 export interface TypedLocalReference {
