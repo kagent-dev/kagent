@@ -180,6 +180,9 @@ type AgentOptions struct {
 	DocumentationURL string
 	Version          string
 	Provider         *v1alpha2.AgentProvider
+
+	// TopologySpreadConstraints propagated to the Deployment pod template.
+	TopologySpreadConstraints []corev1.TopologySpreadConstraint
 }
 
 func pythonRuntime() *v1alpha2.DeclarativeRuntime {
@@ -545,6 +548,10 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 	agent.Spec.DocumentationURL = opts.DocumentationURL
 	agent.Spec.Version = opts.Version
 	agent.Spec.Provider = opts.Provider
+
+	if len(opts.TopologySpreadConstraints) > 0 {
+		agent.Spec.Declarative.Deployment.TopologySpreadConstraints = opts.TopologySpreadConstraints
+	}
 
 	return agent
 }
