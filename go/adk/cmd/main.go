@@ -186,7 +186,7 @@ func main() {
 		logger.Info("Memory service enabled", "appName", appName)
 	}
 
-	runnerConfig, subagentSessionIDs, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, kagentURL, httpClient)
+	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, kagentURL, httpClient)
 	if err != nil {
 		logger.Error(err, "Failed to create Google ADK Runner config")
 		os.Exit(1)
@@ -194,12 +194,11 @@ func main() {
 
 	stream := agentConfig.GetStream()
 	executor := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
-		RunnerConfig:       runnerConfig,
-		SubagentSessionIDs: subagentSessionIDs,
-		SessionService:     sessionService,
-		Stream:             stream,
-		AppName:            appName,
-		Logger:             logger,
+		RunnerConfig:   runnerConfig,
+		SessionService: sessionService,
+		Stream:         stream,
+		AppName:        appName,
+		Logger:         logger,
 	})
 
 	// Build the agent card.

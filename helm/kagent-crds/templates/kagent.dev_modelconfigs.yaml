@@ -503,6 +503,41 @@ spec:
                     - 5m
                     - 1h
                     type: string
+                  connectTimeout:
+                    description: |-
+                      ConnectTimeout is the Bedrock HTTP client connection-establishment timeout
+                      in seconds, applied by both the Python and Go ADK runtimes. It bounds
+                      connection setup only, not the response read. When unset, each runtime's
+                      default is used (Python ADK: botocore; Go ADK: net dialer).
+                    minimum: 1
+                    type: integer
+                  guardrail:
+                    properties:
+                      identifier:
+                        description: |-
+                          Identifier is the guardrail ID or full ARN. AWS accepts either a bare
+                          guardrail ID or an arn:aws:bedrock:...:guardrail/... ARN, so the value is
+                          only length-bounded here (AWS caps guardrailIdentifier at 2048 chars).
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      trace:
+                        default: disabled
+                        enum:
+                        - disabled
+                        - enabled
+                        - enabled_full
+                        type: string
+                      version:
+                        description: 'Version is the guardrail version: a numeric
+                          version (e.g. "1") or "DRAFT".'
+                        maxLength: 8
+                        minLength: 1
+                        type: string
+                    required:
+                    - identifier
+                    - version
+                    type: object
                   promptCaching:
                     default: false
                     description: |-
@@ -521,6 +556,17 @@ spec:
                       See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
                       for the current list of supported models and minimum prefix sizes.
                     type: boolean
+                  readTimeout:
+                    description: |-
+                      ReadTimeout is the Bedrock HTTP client read timeout in seconds, applied by
+                      both the Python and Go ADK runtimes. Raise this for agents that make long
+                      Converse calls (large tool-augmented turns, extended reasoning). On the
+                      Python ADK it overrides botocore's ~60s read timeout, which otherwise
+                      aborts long completions with a ReadTimeoutError; on the Go ADK it bounds
+                      the whole Converse request (default 30m). When unset, each runtime's
+                      default is used.
+                    minimum: 1
+                    type: integer
                   region:
                     description: AWS region where the Bedrock model is available (e.g.,
                       us-east-1, us-west-2)
@@ -532,6 +578,62 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              foundry:
+                description: Azure AI Foundry-specific configuration
+                properties:
+                  apiVersion:
+                    default: "2024-10-21"
+                    description: APIVersion is the Foundry OpenAI-compatible data-plane
+                      API version.
+                    type: string
+                  deployment:
+                    description: Deployment is the Foundry model deployment name.
+                    type: string
+                  endpoint:
+                    description: |-
+                      Endpoint is the Foundry or Azure AI Services account endpoint
+                      (e.g., https://my-account.cognitiveservices.azure.com/).
+                      Mutually exclusive with EndpointFrom.
+                    type: string
+                  endpointFrom:
+                    description: |-
+                      EndpointFrom resolves the Foundry endpoint from a ConfigMap key, such as
+                      one written by Azure Service Operator. Mutually exclusive with Endpoint.
+
+                      The selector's optional flag only controls how a missing key is handled: when
+                      set to true, the missing key is ignored while reading the ConfigMap, but a
+                      Foundry endpoint must always be supplied, so an unresolved endpointFrom still
+                      leaves the model unusable and the agent fails to start.
+                    properties:
+                      key:
+                        description: The key to select.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the ConfigMap or its key must
+                          be defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - deployment
+                type: object
+                x-kubernetes-validations:
+                - message: foundry.endpoint and foundry.endpointFrom are mutually
+                    exclusive
+                  rule: '!(has(self.endpoint) && size(self.endpoint) > 0 && has(self.endpointFrom))'
+                - message: foundry.endpoint or foundry.endpointFrom is required
+                  rule: (has(self.endpoint) && size(self.endpoint) > 0) || has(self.endpointFrom)
               gemini:
                 description: Gemini-specific configuration
                 properties:
@@ -594,6 +696,17 @@ spec:
               openAI:
                 description: OpenAI-specific configuration
                 properties:
+                  apiFormat:
+                    default: chatCompletions
+                    description: |-
+                      APIFormat selects which OpenAI HTTP API the runtime uses for this model.
+                      chatCompletions (default) posts to /v1/chat/completions.
+                      responses posts to /v1/responses. Use responses for OpenAI-compatible
+                      gateways or models that require the Responses API.
+                    enum:
+                    - chatCompletions
+                    - responses
+                    type: string
                   baseUrl:
                     description: Base URL for the OpenAI API (overrides default)
                     type: string
@@ -690,6 +803,7 @@ spec:
                 - AnthropicVertexAI
                 - Bedrock
                 - SAPAICore
+                - Foundry
                 type: string
               sapAICore:
                 description: SAP AI Core-specific configuration
@@ -785,6 +899,8 @@ spec:
               rule: '!(has(self.bedrock) && self.provider != ''Bedrock'')'
             - message: provider.sapAICore must be nil if the provider is not SAPAICore
               rule: '!(has(self.sapAICore) && self.provider != ''SAPAICore'')'
+            - message: provider.foundry must be nil if the provider is not Foundry
+              rule: '!(has(self.foundry) && self.provider != ''Foundry'')'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set (except

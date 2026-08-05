@@ -31,23 +31,25 @@ type resolvedDeployment struct {
 	ImagePullPolicy corev1.PullPolicy
 
 	// SharedDeploymentSpec merged
-	Replicas             *int32
-	ImagePullSecrets     []corev1.LocalObjectReference
-	Volumes              []corev1.Volume
-	VolumeMounts         []corev1.VolumeMount
-	Labels               map[string]string
-	Annotations          map[string]string
-	Env                  []corev1.EnvVar
-	EnvFrom              []corev1.EnvFromSource
-	Resources            corev1.ResourceRequirements
-	Tolerations          []corev1.Toleration
-	Affinity             *corev1.Affinity
-	NodeSelector         map[string]string
-	SecurityContext      *corev1.SecurityContext
-	PodSecurityContext   *corev1.PodSecurityContext
-	ServiceAccountName   *string
-	ServiceAccountConfig *v1alpha2.ServiceAccountConfig
-	ExtraContainers      []corev1.Container
+	Replicas                  *int32
+	ImagePullSecrets          []corev1.LocalObjectReference
+	Volumes                   []corev1.Volume
+	VolumeMounts              []corev1.VolumeMount
+	Labels                    map[string]string
+	Annotations               map[string]string
+	DeploymentAnnotations     map[string]string
+	Env                       []corev1.EnvVar
+	EnvFrom                   []corev1.EnvFromSource
+	Resources                 corev1.ResourceRequirements
+	Tolerations               []corev1.Toleration
+	Affinity                  *corev1.Affinity
+	NodeSelector              map[string]string
+	TopologySpreadConstraints []corev1.TopologySpreadConstraint
+	SecurityContext           *corev1.SecurityContext
+	PodSecurityContext        *corev1.PodSecurityContext
+	ServiceAccountName        *string
+	ServiceAccountConfig      *v1alpha2.ServiceAccountConfig
+	ExtraContainers           []corev1.Container
 }
 
 // getDefaultResources sets default resource requirements if not specified
@@ -244,27 +246,29 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 	}
 
 	dep := &resolvedDeployment{
-		Image:                image,
-		Args:                 args,
-		Port:                 port,
-		ImagePullPolicy:      imagePullPolicy,
-		Replicas:             spec.Replicas,
-		ImagePullSecrets:     slices.Clone(spec.ImagePullSecrets),
-		Volumes:              append(slices.Clone(spec.Volumes), mdd.Volumes...),
-		VolumeMounts:         append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
-		Labels:               getDefaultLabels(agent.GetName(), spec.Labels),
-		Annotations:          maps.Clone(spec.Annotations),
-		Env:                  append(slices.Clone(spec.Env), mdd.EnvVars...),
-		EnvFrom:              slices.Clone(spec.EnvFrom),
-		Resources:            getDefaultResources(spec.Resources), // Set default resources if not specified
-		Tolerations:          slices.Clone(spec.Tolerations),
-		Affinity:             spec.Affinity,
-		NodeSelector:         getDefaultNodeSelector(spec.NodeSelector),
-		SecurityContext:      spec.SecurityContext,
-		PodSecurityContext:   spec.PodSecurityContext,
-		ServiceAccountName:   spec.ServiceAccountName,
-		ServiceAccountConfig: spec.ServiceAccountConfig,
-		ExtraContainers:      slices.Clone(spec.ExtraContainers),
+		Image:                     image,
+		Args:                      args,
+		Port:                      port,
+		ImagePullPolicy:           imagePullPolicy,
+		Replicas:                  spec.Replicas,
+		ImagePullSecrets:          slices.Clone(spec.ImagePullSecrets),
+		Volumes:                   append(slices.Clone(spec.Volumes), mdd.Volumes...),
+		VolumeMounts:              append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
+		Labels:                    getDefaultLabels(agent.GetName(), spec.Labels),
+		Annotations:               maps.Clone(spec.Annotations),
+		DeploymentAnnotations:     maps.Clone(spec.DeploymentAnnotations),
+		Env:                       append(slices.Clone(spec.Env), mdd.EnvVars...),
+		EnvFrom:                   slices.Clone(spec.EnvFrom),
+		Resources:                 getDefaultResources(spec.Resources), // Set default resources if not specified
+		Tolerations:               slices.Clone(spec.Tolerations),
+		Affinity:                  spec.Affinity,
+		TopologySpreadConstraints: slices.Clone(spec.TopologySpreadConstraints),
+		NodeSelector:              getDefaultNodeSelector(spec.NodeSelector),
+		SecurityContext:           spec.SecurityContext,
+		PodSecurityContext:        spec.PodSecurityContext,
+		ServiceAccountName:        spec.ServiceAccountName,
+		ServiceAccountConfig:      spec.ServiceAccountConfig,
+		ExtraContainers:           slices.Clone(spec.ExtraContainers),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
@@ -327,29 +331,31 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 	}
 
 	dep := &resolvedDeployment{
-		Image:                image,
-		Cmd:                  cmd,
-		Args:                 args,
-		WorkingDir:           spec.WorkingDir,
-		Port:                 port,
-		ImagePullPolicy:      imagePullPolicy,
-		Replicas:             replicas,
-		ImagePullSecrets:     slices.Clone(spec.ImagePullSecrets),
-		Volumes:              slices.Clone(spec.Volumes),
-		VolumeMounts:         slices.Clone(spec.VolumeMounts),
-		Labels:               getDefaultLabels(agent.GetName(), spec.Labels),
-		Annotations:          maps.Clone(spec.Annotations),
-		Env:                  slices.Clone(spec.Env),
-		EnvFrom:              slices.Clone(spec.EnvFrom),
-		Resources:            getDefaultResources(spec.Resources), // Set default resources if not specified
-		Tolerations:          slices.Clone(spec.Tolerations),
-		Affinity:             spec.Affinity,
-		NodeSelector:         getDefaultNodeSelector(spec.NodeSelector),
-		SecurityContext:      spec.SecurityContext,
-		PodSecurityContext:   spec.PodSecurityContext,
-		ServiceAccountName:   spec.ServiceAccountName,
-		ServiceAccountConfig: spec.ServiceAccountConfig,
-		ExtraContainers:      slices.Clone(spec.ExtraContainers),
+		Image:                     image,
+		Cmd:                       cmd,
+		Args:                      args,
+		WorkingDir:                spec.WorkingDir,
+		Port:                      port,
+		ImagePullPolicy:           imagePullPolicy,
+		Replicas:                  replicas,
+		ImagePullSecrets:          slices.Clone(spec.ImagePullSecrets),
+		Volumes:                   slices.Clone(spec.Volumes),
+		VolumeMounts:              slices.Clone(spec.VolumeMounts),
+		Labels:                    getDefaultLabels(agent.GetName(), spec.Labels),
+		Annotations:               maps.Clone(spec.Annotations),
+		DeploymentAnnotations:     maps.Clone(spec.DeploymentAnnotations),
+		Env:                       slices.Clone(spec.Env),
+		EnvFrom:                   slices.Clone(spec.EnvFrom),
+		Resources:                 getDefaultResources(spec.Resources), // Set default resources if not specified
+		Tolerations:               slices.Clone(spec.Tolerations),
+		Affinity:                  spec.Affinity,
+		TopologySpreadConstraints: slices.Clone(spec.TopologySpreadConstraints),
+		NodeSelector:              getDefaultNodeSelector(spec.NodeSelector),
+		SecurityContext:           spec.SecurityContext,
+		PodSecurityContext:        spec.PodSecurityContext,
+		ServiceAccountName:        spec.ServiceAccountName,
+		ServiceAccountConfig:      spec.ServiceAccountConfig,
+		ExtraContainers:           slices.Clone(spec.ExtraContainers),
 	}
 
 	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)

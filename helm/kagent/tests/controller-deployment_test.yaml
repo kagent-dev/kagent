@@ -440,6 +440,63 @@ tests:
             effect: NoSchedule
             operator: Equal
 
+  - it: should set affinity
+    template: controller-deployment.yaml
+    set:
+      controller:
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: topology.kubernetes.io/zone
+                      operator: In
+                      values:
+                        - us-east-1a
+                        - us-east-1b
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key
+          value: topology.kubernetes.io/zone
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].operator
+          value: In
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].values
+          value:
+            - us-east-1a
+            - us-east-1b
+
+  - it: should set topologySpreadConstraints
+    template: controller-deployment.yaml
+    set:
+      controller:
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: kagent-controller
+    asserts:
+      - contains:
+          path: spec.template.spec.topologySpreadConstraints
+          content:
+            maxSkew: 1
+            topologyKey: topology.kubernetes.io/zone
+            whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: kagent-controller
+
+  - it: should not render affinity or topologySpreadConstraints by default
+    template: controller-deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.affinity
+      - notExists:
+          path: spec.template.spec.topologySpreadConstraints
+
   - it: should render extra volumes and mounts when provided
     template: controller-deployment.yaml
     set:

@@ -90,6 +90,8 @@ type OpenAI struct {
 	Temperature         *float64 `json:"temperature,omitempty"`
 	Timeout             *int     `json:"timeout,omitempty"`
 	TopP                *float64 `json:"top_p,omitempty"`
+	// APIFormat selects chatCompletions (default) or responses.
+	APIFormat string `json:"api_format,omitempty"`
 
 	// TokenExchange configures dynamic bearer token acquisition
 	TokenExchange *TokenExchangeConfig `json:"token_exchange,omitempty"`
@@ -105,6 +107,7 @@ const (
 	ModelTypeGemini          = "gemini"
 	ModelTypeBedrock         = "bedrock"
 	ModelTypeSAPAICore       = "sap_ai_core"
+	ModelTypeFoundry         = "foundry"
 )
 
 func (o *OpenAI) MarshalJSON() ([]byte, error) {
@@ -125,6 +128,9 @@ func (o *OpenAI) GetType() string {
 
 type AzureOpenAI struct {
 	BaseModel
+	Endpoint    string   `json:"endpoint,omitempty"`
+	Deployment  string   `json:"deployment,omitempty"`
+	APIVersion  string   `json:"api_version,omitempty"`
 	MaxTokens   *int     `json:"max_tokens,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
 	TopP        *float64 `json:"top_p,omitempty"`
@@ -265,7 +271,23 @@ type Bedrock struct {
 	// CacheTTL selects the cache retention window when PromptCaching is on:
 	// "5m" (default) or "1h". See the v1alpha2.BedrockConfig CRD doc for the
 	// cost/compatibility trade-offs of "1h".
-	CacheTTL string `json:"cache_ttl,omitempty"`
+	CacheTTL  string            `json:"cache_ttl,omitempty"`
+	Guardrail *BedrockGuardrail `json:"guardrail,omitempty"`
+	// ReadTimeout is the Bedrock HTTP client read timeout in seconds. Nil keeps
+	// each runtime's default. Python ADK: overrides botocore's ~60s read timeout,
+	// which otherwise aborts long completions with a ReadTimeoutError. Go ADK:
+	// bounds the whole Converse request (overall HTTP client timeout, default 30m).
+	ReadTimeout *int `json:"read_timeout,omitempty"`
+	// ConnectTimeout is the Bedrock HTTP client connection-establishment timeout
+	// in seconds. Nil keeps each runtime's default (Python ADK: botocore; Go ADK:
+	// net dialer). Bounds connection setup only, not the response read.
+	ConnectTimeout *int `json:"connect_timeout,omitempty"`
+}
+
+type BedrockGuardrail struct {
+	Identifier string `json:"identifier"`
+	Version    string `json:"version"`
+	Trace      string `json:"trace,omitempty"`
 }
 
 func (b *Bedrock) MarshalJSON() ([]byte, error) {
@@ -303,6 +325,30 @@ func (s *SAPAICore) MarshalJSON() ([]byte, error) {
 
 func (s *SAPAICore) GetType() string {
 	return ModelTypeSAPAICore
+}
+
+// Foundry is the Azure AI Foundry model type. Authentication is implicit: the
+// runtime uses FOUNDRY_API_KEY when set, otherwise DefaultAzureCredential.
+type Foundry struct {
+	BaseModel
+	Endpoint   string `json:"endpoint"`
+	Deployment string `json:"deployment"`
+	APIVersion string `json:"api_version"`
+}
+
+func (f *Foundry) MarshalJSON() ([]byte, error) {
+	type Alias Foundry
+	return json.Marshal(&struct {
+		Type string `json:"type"`
+		*Alias
+	}{
+		Type:  ModelTypeFoundry,
+		Alias: (*Alias)(f),
+	})
+}
+
+func (f *Foundry) GetType() string {
+	return ModelTypeFoundry
 }
 
 // GenericModel is a catch-all model type used by the Go ADK when the model
@@ -373,6 +419,12 @@ func ParseModel(bytes []byte) (Model, error) {
 			return nil, err
 		}
 		return &sapAICore, nil
+	case ModelTypeFoundry:
+		var foundry Foundry
+		if err := json.Unmarshal(bytes, &foundry); err != nil {
+			return nil, err
+		}
+		return &foundry, nil
 	}
 	return nil, fmt.Errorf("unknown model type: %s", model.Type)
 }
@@ -382,6 +434,12 @@ type RemoteAgentConfig struct {
 	Url         string            `json:"url"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	Description string            `json:"description,omitempty"`
+	// IsolateSessions requests a fresh A2A context_id (and therefore a fresh
+	// sub-agent session) on every call to this remote agent, instead of the
+	// default single shared session per tool lifetime. Honored by the Go
+	// declarative runtime (go/adk/pkg/tools/remote_a2a_tool.go); accepted by
+	// the Python config model for schema parity only (python/packages/kagent-adk).
+	IsolateSessions bool `json:"isolate_sessions,omitempty"`
 }
 
 // EmbeddingConfig is the embedding model config for memory tools.
@@ -390,20 +448,31 @@ type EmbeddingConfig struct {
 	Provider string `json:"provider"`
 	Model    string `json:"model"`
 	BaseUrl  string `json:"base_url,omitempty"`
+	// Endpoint, Deployment, and APIVersion are the Azure data-plane settings,
+	// populated for the providers that use the shared azureai client.
+	Endpoint   string `json:"endpoint,omitempty"`
+	Deployment string `json:"deployment,omitempty"`
+	APIVersion string `json:"api_version,omitempty"`
 }
 
 func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Type     string `json:"type"`
-		Provider string `json:"provider"`
-		Model    string `json:"model"`
-		BaseUrl  string `json:"base_url"`
+		Type       string `json:"type"`
+		Provider   string `json:"provider"`
+		Model      string `json:"model"`
+		BaseUrl    string `json:"base_url"`
+		Endpoint   string `json:"endpoint"`
+		Deployment string `json:"deployment"`
+		APIVersion string `json:"api_version"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
 	e.Model = tmp.Model
 	e.BaseUrl = tmp.BaseUrl
+	e.Endpoint = tmp.Endpoint
+	e.Deployment = tmp.Deployment
+	e.APIVersion = tmp.APIVersion
 	if tmp.Provider != "" {
 		e.Provider = tmp.Provider
 	} else {
@@ -425,6 +494,9 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		e.BaseUrl = v.BaseUrl
 	case *AzureOpenAI:
 		e.Model = v.Model
+		e.Endpoint = v.Endpoint
+		e.Deployment = v.Deployment
+		e.APIVersion = v.APIVersion
 	case *Anthropic:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
@@ -441,6 +513,11 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 	case *SAPAICore:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+	case *Foundry:
+		e.Model = v.Model
+		e.Endpoint = v.Endpoint
+		e.Deployment = v.Deployment
+		e.APIVersion = v.APIVersion
 	default:
 		e.Model = ""
 	}

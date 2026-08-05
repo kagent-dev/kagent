@@ -10,12 +10,8 @@ name: UI Playwright E2E
 on:
   push:
     branches: [main, "release/**"]
-    paths:
-      - "ui/**"
   pull_request:
     branches: [main, "release/**"]
-    paths:
-      - "ui/**"
   workflow_dispatch:
 
 env:
