@@ -1,7 +1,7 @@
 import { type Message } from "@a2a-js/sdk";
 import { TruncatableText } from "@/components/chat/TruncatableText";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
-import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
+import AskUserDisplay from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
 import { ThumbsUp, ThumbsDown } from "lucide-react";
 import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { convertToUserFriendlyName, isDataPart, isTextPart, isUserRole } from "@/lib/utils";
 import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
 import { ToolDecision } from "@/types";
+import { getHitlCard } from "@/lib/hitl";
 import type { ChatMcpAppTool } from "@/components/chat/ChatMcpAppsContext";
 
 interface ChatMessageProps {
@@ -91,6 +92,7 @@ export default function ChatMessage({
 
   const metadata = message.metadata as ADKMetadata;
   const originalType = metadata?.originalType;
+  const hitlCard = getHitlCard(message);
 
   // Check for tool call parts (works for both stored and streaming messages)
   const hasToolCallParts = message.parts?.some((part) => {
@@ -103,25 +105,20 @@ export default function ChatMessage({
   const isStreamingToolCall = originalType === "ToolCallRequestEvent" || originalType === "ToolCallExecutionEvent";
 
   // Ask-user requests get their own dedicated display component
-  if (originalType === "AskUserRequest") {
-    const askUserData = metadata?.askUserData as { id: string; questions: AskUserQuestion[] } | undefined;
-    const resolvedAnswers = metadata?.askUserAnswers as Array<{ answer: string[] }> | null | undefined;
-    const isResolved = !!metadata?.approvalDecision;
-    const questions: AskUserQuestion[] = askUserData?.questions ?? [];
-    const askUserSubagentName = metadata?.subagentName as string | undefined;
+  if (hitlCard?.kind === "ask_user") {
     return (
       <AskUserDisplay
-        questions={questions}
-        isResolved={isResolved}
-        resolvedAnswers={resolvedAnswers ?? null}
+        questions={hitlCard.request.questions}
+        isResolved={!!hitlCard.response}
+        resolvedAnswers={hitlCard.response?.answers ?? null}
         onSubmit={onAskUserSubmit}
-        subagentName={askUserSubagentName}
+        subagentName={hitlCard.subagentName}
       />
     );
   }
 
   // Tool approval requests get routed to ToolCallDisplay with approval callbacks
-  if (originalType === "ToolApprovalRequest") {
+  if (hitlCard?.kind === "tool_approval") {
     return <ToolCallDisplay
       currentMessage={message}
       allMessages={allMessages}

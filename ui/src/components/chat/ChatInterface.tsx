@@ -19,7 +19,7 @@ import { isAgentToolName, isUserRole } from "@/lib/utils";
 import ChatMinimap from "@/components/chat/ChatMinimap";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
-import { type HitlRequestPayload, type HitlResponsePayload, type TokenStats, type Session, type ChatStatus, type ToolDecision } from "@/types";
+import { type HitlResponsePayload, type TokenStats, type Session, type ChatStatus, type ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists, getSessionWithEvents } from "@/app/actions/sessions";
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
@@ -41,7 +41,14 @@ import {
   createMessage,
   ADKMetadata,
 } from "@/lib/messageHandlers";
-import { createHitlResponseMessage, responseMatchesRequest, visibleHitlTools } from "@/lib/hitl";
+import {
+  buildAskUserResponse,
+  buildToolApprovalResponse,
+  createHitlResponseMessage,
+  findPendingHitl,
+  responseMatchesRequest,
+  visibleHitlTools,
+} from "@/lib/hitl";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatRunInSandbox, useChatSubstrateSandbox, useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
@@ -778,23 +785,17 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     toast.error("Request cancelled");
   };
 
-  const getPendingHitlRequest = (): { request: HitlRequestPayload; taskId?: string } | undefined => {
-    for (const msg of [...storedMessages, ...streamingMessages]) {
-      const meta = msg.metadata as ADKMetadata | undefined;
-      if (meta?.approvalDecision || !meta?.hitlRequest) continue;
-      return { request: meta.hitlRequest, taskId: msg.taskId };
-    }
-    return undefined;
-  };
+  const getPendingHitlRequest = () => findPendingHitl([...storedMessages, ...streamingMessages]);
 
   const sendHitlResponse = async (
     response: HitlResponsePayload,
-    resolvedMetadata: Record<string, unknown>,
     displayText: string,
     taskId: string | undefined,
+    contextId: string | undefined,
     errorLabel: string,
   ) => {
     const currentSessionId = session?.id || sessionId;
+    const resumeContextId = contextId || currentSessionId;
 
     if (currentSessionId && taskId) {
       const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
@@ -812,17 +813,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     const stampResponse = (msgs: Message[]) => msgs.map(m => {
       const meta = m.metadata as ADKMetadata | undefined;
-      if (meta?.hitlRequest && !meta.approvalDecision && responseMatchesRequest(meta.hitlRequest, response)) {
-        return { ...m, metadata: { ...meta, ...resolvedMetadata } };
-      }
-      return m;
+      const card = meta?.hitlCard;
+      if (!card || card.response || !responseMatchesRequest(card.request, response)) return m;
+      return { ...m, metadata: { ...meta, hitlCard: { ...card, response } } };
     });
     setStreamingMessages(stampResponse);
     setStoredMessages(stampResponse);
 
     const a2aMessage = createHitlResponseMessage(
       response,
-      { messageId: uuidv4(), contextId: currentSessionId, taskId, text: displayText },
+      { messageId: uuidv4(), contextId: resumeContextId, taskId, text: displayText },
     );
 
     await streamA2AMessage(a2aMessage, {
@@ -847,26 +847,15 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   // UI shortcut only; the wire format is identical for every submission.
   const submitDecisions = async (decisions: Record<string, ToolDecision>) => {
     const values = Object.values(decisions);
-    const reasons = pendingRejectionReasonsRef.current;
-
     const pending = getPendingHitlRequest();
     if (!pending || pending.request.type !== "tool_approval_request") {
       throw new Error("Missing pending tool approval request");
     }
-    const tools = visibleHitlTools(pending.request);
-    const approvals = tools.map(tool => {
-      const approved = decisions[tool.call_id] === "approve";
-      return {
-        id: tool.id,
-        approved,
-        ...(!approved && reasons[tool.call_id] ? { rejection_reason: reasons[tool.call_id] } : {}),
-      };
-    });
     await sendHitlResponse(
-      { type: "tool_approval_response", approvals },
-      { approvalDecision: decisions },
+      buildToolApprovalResponse(pending.request, decisions, pendingRejectionReasonsRef.current),
       `${values.filter(v => v === "approve").length} approved, ${values.filter(v => v !== "approve").length} rejected`,
       pending.taskId,
+      pending.contextId,
       "Approval failed",
     );
   };
@@ -902,19 +891,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     recordDecision(toolCallId, "reject", reason);
   };
 
-  /**
-   * Handle ask_user answers submitted by the user.
-   */
   const handleAskUserSubmit = async (answers: Array<{ answer: string[] }>) => {
     const pending = getPendingHitlRequest();
     if (!pending || pending.request.type !== "ask_user_request") {
       throw new Error("Missing pending ask_user request");
     }
     await sendHitlResponse(
-      { type: "ask_user_response", id: pending.request.id, answers },
-      { approvalDecision: "approve", askUserAnswers: answers },
+      buildAskUserResponse(pending.request, answers),
       "Answered questions",
       pending.taskId,
+      pending.contextId,
       "Ask user response failed",
     );
   };

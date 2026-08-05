@@ -25,7 +25,7 @@ import type {
 } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 import {
-  decisionsByCallId,
+  buildHitlCard,
   getHitlPayload,
   isHitlRequest,
   isHitlResponse,
@@ -347,9 +347,8 @@ function isUserDecisionMessage(message: Message): boolean {
 }
 
 /**
- * Check tasks for pending ADK confirmation requests (task still in
- * input-required state) and create ToolApprovalRequest messages with
- * Approve/Reject buttons.
+ * Check tasks for pending HITL requests (task still in input-required state)
+ * and create typed hitlCard messages with Approve/Reject buttons.
  *
  * Historical status messages are intentionally not reconstructed here because
  * A2A task snapshots do not define their order relative to artifacts.
@@ -373,13 +372,11 @@ export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Mes
 
 function buildApprovalMessageFromPayload(payload: HitlRequestPayload, contextId: string | undefined, taskId: string | undefined, options: BuildApprovalMessageOptions = {}): Message {
   const { response, tokenStats } = options;
-  if (payload.type === "ask_user_request") {
-    const askResponse = response?.type === "ask_user_response" ? response : undefined;
-    return createMessage("", "agent", { originalType: "AskUserRequest", contextId, taskId, additionalMetadata: { hitlRequest: payload, askUserData: { id: payload.id, questions: payload.questions, subagentName: payload.nested?.subagent_name }, askUserAnswers: askResponse?.answers ?? null, approvalDecision: askResponse ? "approve" : undefined, ...(tokenStats && { tokenStats }) } });
-  }
-  const tools = visibleHitlTools(payload);
-  const approvalDecision = decisionsByCallId(payload, response);
-  return createMessage("", "agent", { originalType: "ToolApprovalRequest", contextId, taskId, additionalMetadata: { hitlRequest: payload, toolCallData: tools.map(tool => ({ id: tool.call_id, name: tool.name, args: tool.args })), ...(Object.keys(approvalDecision).length > 0 && { approvalDecision }), subagentName: payload.nested?.subagent_name, ...(tokenStats && { tokenStats }) } });
+  return createMessage("", "agent", {
+    contextId,
+    taskId,
+    additionalMetadata: { hitlCard: buildHitlCard(payload, response), ...(tokenStats && { tokenStats }) },
+  });
 }
 
 /** Build the parent AgentCall card whose activity panel opens the paused child session. */
@@ -505,9 +502,7 @@ export type OriginalMessageType =
   | "TextMessage"
   | "ToolCallRequestEvent"
   | "ToolCallExecutionEvent"
-  | "ToolCallSummaryMessage"
-  | "ToolApprovalRequest"
-  | "AskUserRequest";
+  | "ToolCallSummaryMessage";
 
 export interface ADKMetadata {
   kagent_app_name?: string;
@@ -522,7 +517,7 @@ export interface ADKMetadata {
   kagent_author?: string;
   kagent_invocation_id?: string;
   originalType?: OriginalMessageType;
-  hitlRequest?: HitlRequestPayload;
+  hitlCard?: import("@/lib/hitl").HitlCard;
   displaySource?: string;
   toolCallData?: ProcessedToolCallData[];
   toolResultData?: ProcessedToolResultData[];
@@ -894,7 +889,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         if (isUserRole(updated[i].role)) break;
         const iterMeta = updated[i].metadata as ADKMetadata | undefined;
         const type = iterMeta?.originalType;
-        if (type === "ToolApprovalRequest") break;
+        if (iterMeta?.hitlCard) break;
         // Stamp the nearest non-agent tool-call request; text gets stats on terminal status.
         if (type === "ToolCallRequestEvent") {
           if (iterMeta?.toolCallData?.some(tc => isAgentToolName(tc.name))) break;

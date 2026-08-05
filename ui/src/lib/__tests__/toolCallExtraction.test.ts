@@ -36,7 +36,7 @@ describe("message type predicates", () => {
 
   it("falls back to originalType for streaming messages", () => {
     expect(isToolCallRequestMessage(message({ metadata: { originalType: "ToolCallRequestEvent" } }))).toBe(true);
-    expect(isToolCallRequestMessage(message({ metadata: { originalType: "ToolApprovalRequest" } }))).toBe(true);
+    expect(isToolCallRequestMessage(message({ metadata: { originalType: "ToolApprovalRequest" } }))).toBe(false);
     expect(isToolCallExecutionMessage(message({ metadata: { originalType: "ToolCallExecutionEvent" } }))).toBe(true);
     expect(isToolCallSummaryMessage(message({ metadata: { originalType: "ToolCallSummaryMessage" } }))).toBe(true);
   });

@@ -7,6 +7,7 @@ import { cn, convertToUserFriendlyName, isDataPart, isUserRole } from "@/lib/uti
 import { extractToolCallRequests, extractToolCallResults } from "@/lib/toolCallExtraction";
 import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
 import { ToolDecision } from "@/types";
+import { getHitlCard, isHitlCardResolved } from "@/lib/hitl";
 
 /**
  * A render item produced by {@link groupToolCallMessages}: either a single
@@ -16,9 +17,6 @@ import { ToolDecision } from "@/types";
 export type ChatRenderItem =
   | { kind: "single"; message: Message; startIndex: number }
   | { kind: "group"; messages: Message[]; startIndex: number };
-
-/** Message types that always render standalone, even when tool-related. */
-const NEVER_GROUPED_TYPES = new Set(["AskUserRequest"]);
 
 /** Tool-related originalType values that carry no data parts (streaming format). */
 const STREAMING_TOOL_TYPES = new Set([
@@ -43,25 +41,18 @@ export interface GroupingOptions {
 }
 
 /**
- * True when every tool call in a ToolApprovalRequest message has been decided
- * — either persisted in the per-tool `metadata.approvalDecision` map or
- * recorded locally in `pendingDecisions`. Undecided
- * approvals must stay visible outside any collapsed group.
+ * True when every tool call on a tool_approval hitlCard has been decided —
+ * either via a persisted card.response or local pendingDecisions.
+ * Undecided approvals must stay visible outside any collapsed group.
  */
 const isApprovalResolved = (message: Message, pendingDecisions?: Record<string, ToolDecision>): boolean => {
-  const requests = extractToolCallRequests(message);
-  if (requests.length === 0) return false;
-
-  const rawDecision = (message.metadata as ADKMetadata)?.approvalDecision;
-  return requests.every(request => {
-    if (!request.id) return false;
-    if ((rawDecision as Record<string, ToolDecision> | undefined)?.[request.id]) return true;
-    return !!pendingDecisions?.[request.id];
-  });
+  const card = getHitlCard(message);
+  return card?.kind === "tool_approval" &&
+    (isHitlCardResolved(card) || card.calls.every(call => !!pendingDecisions?.[call.id]));
 };
 
 /**
- * Collect the call ids of every unresolved ToolApprovalRequest in the
+ * Collect the call ids of every unresolved tool_approval hitlCard in the
  * transcript. Compute once over the full message list (memoized in the
  * parent) and pass to {@link groupToolCallMessages} so that the request and
  * result messages tied to a pending approval stay visible outside groups.
@@ -72,11 +63,10 @@ export const collectPendingApprovalIds = (
 ): Set<string> => {
   const ids = new Set<string>();
   for (const message of messages) {
-    if ((message.metadata as ADKMetadata)?.originalType !== "ToolApprovalRequest") continue;
+    const card = getHitlCard(message);
+    if (card?.kind !== "tool_approval") continue;
     if (isApprovalResolved(message, pendingDecisions)) continue;
-    for (const request of extractToolCallRequests(message)) {
-      if (request.id) ids.add(request.id);
-    }
+    for (const call of card.calls) ids.add(call.id);
   }
   return ids;
 };
@@ -99,11 +89,12 @@ const classifyToolMessage = (message: Message, options?: GroupingOptions): ToolM
 
   const metadata = message.metadata as ADKMetadata;
   const originalType = metadata?.originalType;
-  if (originalType && NEVER_GROUPED_TYPES.has(originalType)) return "standalone";
+  const hitlCard = getHitlCard(message);
+  if (hitlCard?.kind === "ask_user") return "standalone";
 
   const isToolMessage =
     (originalType !== undefined && STREAMING_TOOL_TYPES.has(originalType)) ||
-    originalType === "ToolApprovalRequest" ||
+    hitlCard?.kind === "tool_approval" ||
     (message.parts?.some((part) => {
       if (!isDataPart(part) || !part.metadata) return false;
       const partType = getMetadataValue<string>(part.metadata as Record<string, unknown>, "type");
@@ -111,7 +102,7 @@ const classifyToolMessage = (message: Message, options?: GroupingOptions): ToolM
     }) ?? false);
   if (!isToolMessage) return "other";
 
-  if (originalType === "ToolApprovalRequest" && !isApprovalResolved(message, options?.pendingDecisions)) {
+  if (hitlCard?.kind === "tool_approval" && !isApprovalResolved(message, options?.pendingDecisions)) {
     return "standalone";
   }
 

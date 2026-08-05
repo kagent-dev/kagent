@@ -39,6 +39,21 @@ const isHitlTool = (value: unknown): value is HitlTool =>
   typeof value.name === "string" &&
   isRecord(value.args);
 
+export type HitlCard =
+  | {
+      kind: "ask_user";
+      request: AskUserRequestPayload;
+      response?: AskUserResponsePayload;
+      subagentName?: string;
+    }
+  | {
+      kind: "tool_approval";
+      request: ToolApprovalRequestPayload;
+      response?: ToolApprovalResponsePayload;
+      calls: Array<{ id: string; name: string; args: Record<string, unknown> }>;
+      subagentName?: string;
+    };
+
 const hasValidNestedTools = (value: unknown): boolean => {
   if (value == null) return true;
   return isRecord(value) && Array.isArray(value.tools) && value.tools.length > 0 && value.tools.every(isHitlTool);
@@ -96,6 +111,40 @@ export function visibleHitlTools(request: ToolApprovalRequestPayload): HitlTool[
   return request.nested?.tools ?? request.tools;
 }
 
+export function buildHitlCard(request: HitlRequestPayload, response?: HitlResponsePayload): HitlCard {
+  if (request.type === "ask_user_request") {
+    return {
+      kind: "ask_user",
+      request,
+      ...(response?.type === "ask_user_response" && { response }),
+      ...(request.nested?.subagent_name && { subagentName: request.nested.subagent_name }),
+    };
+  }
+  return {
+    kind: "tool_approval",
+    request,
+    ...(response?.type === "tool_approval_response" && { response }),
+    calls: visibleHitlTools(request).map(tool => ({ id: tool.call_id, name: tool.name, args: tool.args })),
+    ...(request.nested?.subagent_name && { subagentName: request.nested.subagent_name }),
+  };
+}
+
+export function getHitlCard(message: { metadata?: unknown }): HitlCard | undefined {
+  const card = (message.metadata as { hitlCard?: unknown } | undefined)?.hitlCard;
+  return isRecord(card) && (card.kind === "ask_user" || card.kind === "tool_approval") ? card as HitlCard : undefined;
+}
+
+export const isHitlCardResolved = (card: HitlCard): boolean => card.response !== undefined;
+
+/**
+ * Opaque id the client must return on ask_user_response.
+ * Nested pauses use the child id from nested.tools; direct pauses use request.id.
+ */
+export function askUserResponseId(request: AskUserRequestPayload): string {
+  const nestedAsk = request.nested?.tools?.find(tool => tool.name === "ask_user");
+  return nestedAsk?.id ?? request.nested?.tools?.[0]?.id ?? request.id;
+}
+
 /** All tool calls represented by a request, including a remote-agent parent call. */
 export function relatedHitlCallIds(request: HitlRequestPayload): Set<string> {
   const tools = request.type === "tool_approval_request" ? request.tools : [];
@@ -104,7 +153,7 @@ export function relatedHitlCallIds(request: HitlRequestPayload): Set<string> {
 
 export function responseMatchesRequest(request: HitlRequestPayload, response: HitlResponsePayload): boolean {
   if (request.type === "ask_user_request") {
-    return response.type === "ask_user_response" && response.id === request.id;
+    return response.type === "ask_user_response" && response.id === askUserResponseId(request);
   }
   if (response.type !== "tool_approval_response") return false;
   const expectedIds = new Set(visibleHitlTools(request).map(tool => tool.id));
@@ -112,6 +161,49 @@ export function responseMatchesRequest(request: HitlRequestPayload, response: Hi
   return response.approvals.length === expectedIds.size &&
     responseIds.size === expectedIds.size &&
     [...expectedIds].every(id => responseIds.has(id));
+}
+
+export type PendingHitl = {
+  request: HitlRequestPayload;
+  taskId?: string;
+  contextId?: string;
+};
+
+/** First unresolved HITL card in chat message metadata (live or reloaded). */
+export function findPendingHitl(
+  messages: Array<{ metadata?: unknown; taskId?: string; contextId?: string }>,
+): PendingHitl | undefined {
+  for (const msg of messages) {
+    const card = getHitlCard(msg);
+    if (!card || isHitlCardResolved(card)) continue;
+    return { request: card.request, taskId: msg.taskId, contextId: msg.contextId };
+  }
+  return undefined;
+}
+
+export function buildAskUserResponse(
+  request: AskUserRequestPayload,
+  answers: Array<{ answer: string[] }>,
+): AskUserResponsePayload {
+  return { type: "ask_user_response", id: askUserResponseId(request), answers };
+}
+
+export function buildToolApprovalResponse(
+  request: ToolApprovalRequestPayload,
+  decisions: Record<string, ToolDecision>,
+  reasons: Record<string, string> = {},
+): ToolApprovalResponsePayload {
+  return {
+    type: "tool_approval_response",
+    approvals: visibleHitlTools(request).map(tool => {
+      const approved = decisions[tool.call_id] === "approve";
+      return {
+        id: tool.id,
+        approved,
+        ...(!approved && reasons[tool.call_id] ? { rejection_reason: reasons[tool.call_id] } : {}),
+      };
+    }),
+  };
 }
 
 /** Convert resolved extension results to the call-id keyed state used by tool rendering. */

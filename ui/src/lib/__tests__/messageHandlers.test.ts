@@ -260,13 +260,16 @@ describe('messageHandlers helpers', () => {
     const { messages: approvalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks([task]);
     const messages = [...artifactMessages, ...approvalMessages];
 
-    const types = messages.map(m => (m.metadata as ADKMetadata)?.originalType ?? m.role);
-    expect(types).toEqual([
+    const kinds = messages.map(m => {
+      const meta = m.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType ?? m.role;
+    });
+    expect(kinds).toEqual([
       Role.ROLE_USER,
       'TextMessage',
       'ToolCallRequestEvent',
       'TextMessage',
-      'ToolApprovalRequest',
+      'tool_approval',
     ]);
     expect(messages[1].parts[0]?.content?.value).toBe('Fetching logs now.');
     expect(hasPendingApproval).toBe(true);
@@ -295,7 +298,11 @@ describe('messageHandlers helpers', () => {
 
     expect(hasPendingApproval).toBe(true);
     expect(messages).toHaveLength(1);
-    expect((messages[0].metadata as ADKMetadata).toolCallData?.[0].args).toEqual({});
+    const card = (messages[0].metadata as ADKMetadata).hitlCard;
+    expect(card?.kind).toBe('tool_approval');
+    if (card?.kind === 'tool_approval') {
+      expect(card.calls[0].args).toEqual({});
+    }
   });
 
   test('reloaded completed task anchors resolved HITL before its artifact response', () => {
@@ -340,14 +347,24 @@ describe('messageHandlers helpers', () => {
     });
 
     const messages = extractMessagesFromTasks([task]);
-    expect(messages.map(message => (message.metadata as ADKMetadata)?.originalType ?? message.role)).toEqual([
+    expect(messages.map(message => {
+      const meta = message.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType ?? message.role;
+    })).toEqual([
       Role.ROLE_USER,
       'TextMessage',
-      'ToolApprovalRequest',
+      'tool_approval',
       'ToolCallExecutionEvent',
       'TextMessage',
     ]);
-    expect((messages[2].metadata as ADKMetadata).approvalDecision).toEqual({ 'call-delete': 'approve' });
+    const card = (messages[2].metadata as ADKMetadata).hitlCard;
+    expect(card?.kind).toBe('tool_approval');
+    if (card?.kind === 'tool_approval') {
+      expect(card.response).toEqual({
+        type: 'tool_approval_response',
+        approvals: [{ id: 'confirm-1', approved: true }],
+      });
+    }
   });
 
   test('extractTokenStatsFromTasks uses last usage per task and falls back total', () => {
@@ -728,7 +745,7 @@ describe('createMessageHandlers test', () => {
     }));
 
     expect(capturedSessionTotal).toEqual({ total: 8, prompt: 5, completion: 3 });
-    const approvalMsg = emitted.find((message) => (message.metadata as ADKMetadata)?.originalType === 'ToolApprovalRequest');
+    const approvalMsg = emitted.find((message) => (message.metadata as ADKMetadata)?.hitlCard?.kind === 'tool_approval');
     expect(approvalMsg).toBeDefined();
     expect(emitted.some((message) => (message.metadata as ADKMetadata)?.originalType === 'ToolCallRequestEvent')).toBe(false);
   });
@@ -774,9 +791,12 @@ describe('subagent_session_id propagation', () => {
       }),
     }));
 
-    expect(emitted.map(message => (message.metadata as ADKMetadata)?.originalType)).toEqual([
+    expect(emitted.map(message => {
+      const meta = message.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType;
+    })).toEqual([
       'ToolCallRequestEvent',
-      'ToolApprovalRequest',
+      'tool_approval',
     ]);
     expect((emitted[0].metadata as ADKMetadata).toolCallData).toEqual([{
       id: 'parent-call',
@@ -784,7 +804,11 @@ describe('subagent_session_id propagation', () => {
       args: { request: 'delete pod' },
       subagent_session_id: 'child-session',
     }]);
-    expect((emitted[1].metadata as ADKMetadata).toolCallData?.[0]?.id).toBe('child-call');
+    const card = (emitted[1].metadata as ADKMetadata).hitlCard;
+    expect(card?.kind).toBe('tool_approval');
+    if (card?.kind === 'tool_approval') {
+      expect(card.calls[0]?.id).toBe('child-call');
+    }
   });
 
   test('artifact-update: agent function_response with subagent_session_id in response dict emits toolResultData with subagent_session_id', () => {

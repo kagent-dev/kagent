@@ -1,13 +1,17 @@
 import { describe, expect, test } from "@jest/globals";
 import { Role, type Message } from "@a2a-js/sdk";
 import {
+  askUserResponseId,
+  buildAskUserResponse,
+  buildHitlCard,
   createHitlResponseMessage,
+  findPendingHitl,
   getHitlPayload,
   relatedHitlCallIds,
   responseMatchesRequest,
   visibleHitlTools,
 } from "@/lib/hitl";
-import { HITL_EXTENSION_URI, type ToolApprovalRequestPayload } from "@/types";
+import { HITL_EXTENSION_URI, type AskUserRequestPayload, type ToolApprovalRequestPayload } from "@/types";
 
 const messageWithPayload = (payload: unknown): Message => ({
   messageId: "message-1",
@@ -81,5 +85,50 @@ describe("A2A HITL extension helpers", () => {
       id: "question-1",
       answers: [{ answer: ["prod"] }],
     });
+  });
+
+  test("buildHitlCard is the only UI HITL display model", () => {
+    const request: ToolApprovalRequestPayload = {
+      type: "tool_approval_request",
+      tools: [{ id: "approval-1", call_id: "call-1", name: "delete", args: {} }],
+    };
+    const card = buildHitlCard(request);
+    expect(card).toEqual({
+      kind: "tool_approval",
+      request,
+      calls: [{ id: "call-1", name: "delete", args: {} }],
+    });
+    expect(findPendingHitl([{ metadata: { hitlCard: card }, taskId: "task-1" }])).toEqual({
+      request,
+      taskId: "task-1",
+      contextId: undefined,
+    });
+    expect(findPendingHitl([{
+      metadata: { hitlCard: buildHitlCard(request, { type: "tool_approval_response", approvals: [{ id: "approval-1", approved: true }] }) },
+    }])).toBeUndefined();
+  });
+
+  test("nested ask_user responses use the child correlation id", () => {
+    const request: AskUserRequestPayload = {
+      type: "ask_user_request",
+      id: "parent-confirm",
+      questions: [{ question: "Which namespace?" }],
+      nested: {
+        subagent_name: "child_agent",
+        task_id: "child-task",
+        context_id: "child-context",
+        tools: [{ id: "child-confirm", call_id: "child-confirm", name: "ask_user", args: { questions: [] } }],
+      },
+    };
+
+    expect(askUserResponseId(request)).toBe("child-confirm");
+    const response = buildAskUserResponse(request, [{ answer: ["default"] }]);
+    expect(response.id).toBe("child-confirm");
+    expect(responseMatchesRequest(request, response)).toBe(true);
+    expect(responseMatchesRequest(request, {
+      type: "ask_user_response",
+      id: "parent-confirm",
+      answers: [{ answer: ["default"] }],
+    })).toBe(false);
   });
 });

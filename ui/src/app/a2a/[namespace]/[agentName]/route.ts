@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getBackendUrl } from '@/lib/utils';
 import { getAuthHeadersFromRequest, CORS_ALLOW_HEADERS } from '@/lib/auth';
 import { A2A_PROTOCOL_VERSION, A2A_VERSION_HEADER } from '@a2a-js/sdk';
-import { HITL_EXTENSION_URI } from '@/types';
 
 export async function POST(
   request: NextRequest,
@@ -29,7 +28,9 @@ export async function POST(
         'Connection': 'keep-alive',
         'User-Agent': 'kagent-ui',
         [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
-        'A2A-Extensions': request.headers.get('A2A-Extensions') || HITL_EXTENSION_URI,
+        ...(request.headers.has('A2A-Extensions') && {
+          'A2A-Extensions': request.headers.get('A2A-Extensions')!,
+        }),
       },
       body: JSON.stringify(a2aRequest),
     });

@@ -1,5 +1,6 @@
 import { type Message } from "@a2a-js/sdk";
 import { ADKMetadata, ProcessedToolCallData, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
+import { getHitlCard } from "@/lib/hitl";
 import { isAgentToolName, isDataPart, isTextPart } from "@/lib/utils";
 
 // Helper functions to work with A2A SDK Messages carrying tool call data.
@@ -16,7 +17,7 @@ export const isToolCallRequestMessage = (message: Message): boolean => {
   // Fallback to streaming format check
   if (!hasDataParts) {
     const metadata = message.metadata as ADKMetadata;
-    return metadata?.originalType === "ToolCallRequestEvent" || metadata?.originalType === "ToolApprovalRequest";
+    return metadata?.originalType === "ToolCallRequestEvent";
   }
 
   return hasDataParts;
@@ -43,6 +44,8 @@ export const isToolCallSummaryMessage = (message: Message): boolean => {
 };
 
 export const extractToolCallRequests = (message: Message): ProcessedToolCallData[] => {
+  const hitlCard = getHitlCard(message);
+  if (hitlCard?.kind === "tool_approval") return hitlCard.calls;
   if (!isToolCallRequestMessage(message)) return [];
 
   // Check for stored task format first (data parts)

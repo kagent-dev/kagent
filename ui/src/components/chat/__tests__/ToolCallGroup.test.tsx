@@ -2,8 +2,10 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Role, type Message } from "@a2a-js/sdk";
 import ToolCallGroup, { groupToolCallMessages, isGroupableToolMessage, buildToolCallResultsIndex, collectPendingApprovalIds } from "@/components/chat/ToolCallGroup";
+import { buildHitlCard } from "@/lib/hitl";
 import { isAgentToolName } from "@/lib/utils";
 import { createDataPart, createMockMessage, createTextPart } from "@/mocks/factories";
+import type { ToolApprovalResponsePayload } from "@/types";
 
 const baseMessage = (overrides: Partial<Message> & Pick<Message, "messageId" | "role">): Message =>
   createMockMessage({
@@ -33,12 +35,20 @@ const responseMessage = (id: string, name: string, isError = false): Message =>
     parts: [createDataPart({ id, name, response: { result: isError ? "boom" : "ok", isError } }, { adk_type: "function_response" })],
   });
 
-const approvalMessage = (id: string, approvalDecision?: unknown): Message =>
+const approvalMessage = (id: string, response?: ToolApprovalResponsePayload): Message =>
   baseMessage({
     messageId: `approval-${id}`,
     role: Role.ROLE_AGENT,
-    metadata: { originalType: "ToolApprovalRequest", ...(approvalDecision !== undefined ? { approvalDecision } : {}) },
-    parts: [createDataPart({ id, name: "dangerous_tool", args: {} }, { adk_type: "function_call" })],
+    metadata: {
+      hitlCard: buildHitlCard(
+        {
+          type: "tool_approval_request",
+          tools: [{ id: `confirm-${id}`, call_id: id, name: "dangerous_tool", args: {} }],
+        },
+        response,
+      ),
+    },
+    parts: [],
   });
 
 describe("isGroupableToolMessage", () => {
@@ -58,7 +68,13 @@ describe("isGroupableToolMessage", () => {
       isGroupableToolMessage(baseMessage({
         messageId: "ask-1",
         role: Role.ROLE_AGENT,
-        metadata: { originalType: "AskUserRequest" },
+        metadata: {
+          hitlCard: buildHitlCard({
+            type: "ask_user_request",
+            id: "q1",
+            questions: [{ question: "Which?" }],
+          }),
+        },
         parts: [],
       })),
     ).toBe(false);
@@ -84,12 +100,16 @@ describe("isGroupableToolMessage", () => {
   });
 
   it("groups approval messages once decided", () => {
-    // Persisted per-tool decision
-    expect(isGroupableToolMessage(approvalMessage("c1", { c1: "reject" }))).toBe(true);
+    const rejected: ToolApprovalResponsePayload = {
+      type: "tool_approval_response",
+      approvals: [{ id: "confirm-c1", approved: false }],
+    };
+    // Persisted card response
+    expect(isGroupableToolMessage(approvalMessage("c1", rejected))).toBe(true);
     // Local optimistic decision
     expect(isGroupableToolMessage(approvalMessage("c1"), { pendingDecisions: { c1: "approve" } })).toBe(true);
-    // Map decision for a different call id does not count
-    expect(isGroupableToolMessage(approvalMessage("c1", { other: "approve" }))).toBe(false);
+    // Decision for a different call id does not count
+    expect(isGroupableToolMessage(approvalMessage("c1"), { pendingDecisions: { other: "approve" } })).toBe(false);
   });
 });
 
@@ -213,7 +233,10 @@ describe("groupToolCallMessages", () => {
       responseMessage("c1", "k8s_get_events"),
       responseMessage("c2", "k8s_get_pod_logs"),
       responseMessage("c3", "show-weather-dashboard"),
-      approvalMessage("c4", { c4: "approve" }),
+      approvalMessage("c4", {
+        type: "tool_approval_response",
+        approvals: [{ id: "confirm-c4", approved: true }],
+      }),
       responseMessage("c4", "datetime_get_current_time"),
       requestMessage("c5", "k8s_get_pod_logs"),
       responseMessage("c5", "k8s_get_pod_logs"),
