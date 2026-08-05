@@ -207,28 +207,50 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 	})
 }
 
-func TestBuildDecisionDataUsesHITLExtensionShape(t *testing.T) {
-	t.Run("ask user", func(t *testing.T) {
-		got := buildDecisionData(true, a2a.HitlConfirmationPayload{
-			Answers:   []a2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
-			HitlParts: []a2a.HitlPartInfo{{ID: "question-1"}},
-		})
-		if got["type"] != a2a.HITLTypeAskUserResponse || got["id"] != "question-1" {
-			t.Fatalf("decision payload = %#v", got)
-		}
-		if _, legacy := got["ask_user_answers"]; legacy {
-			t.Fatalf("decision payload contains legacy ask_user_answers: %#v", got)
-		}
-	})
+func TestHandleInputRequiredStoresPublicRemoteHitlState(t *testing.T) {
+	s := &remoteA2AState{name: "worker"}
+	task := &a2atype.Task{
+		ID:        "child-task",
+		ContextID: "child-context",
+		Status: a2atype.TaskStatus{
+			State: a2atype.TaskStateInputRequired,
+			Message: a2a.AttachHitlExtension(
+				a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")),
+				&a2a.ToolApprovalRequest{
+					Type: a2a.HITLTypeToolApprovalRequest,
+					Tools: []a2a.HitlTool{{
+						ID: "child-confirm", CallID: "child-call", Name: "delete_pod", Args: map[string]any{},
+					}},
+				},
+			),
+		},
+	}
 
-	t.Run("multiple approvals", func(t *testing.T) {
-		got := buildDecisionData(false, a2a.HitlConfirmationPayload{
-			HitlParts: []a2a.HitlPartInfo{{ID: "approval-1", OriginalFunctionCall: a2a.OriginalFunctionCall{ID: "call-1"}}},
-			Approvals: []a2a.ApprovalResult{{ID: "approval-1", Approved: false}},
-		})
-		approvals, _ := got["approvals"].([]any)
-		if got["type"] != a2a.HITLTypeToolApprovalResponse || len(approvals) != 1 || approvals[0].(map[string]any)["approved"] != false {
-			t.Fatalf("decision payload = %#v", got)
-		}
-	})
+	// RequestConfirmation is not available without a real agent context; verify
+	// the state we would store matches the public extension shape.
+	state := a2a.BuildRemoteHitlState(task, s.name)
+	if state == nil || state.ToolApprovalRequest == nil {
+		t.Fatalf("state = %#v", state)
+	}
+	if _, legacy := state.ToMap()["hitl_parts"]; legacy {
+		t.Fatalf("remote state still uses legacy hitl_parts: %#v", state.ToMap())
+	}
+}
+
+func TestHandleInputRequiredWithoutHITLExtensionFails(t *testing.T) {
+	s := &remoteA2AState{name: "worker"}
+	task := &a2atype.Task{
+		Status: a2atype.TaskStatus{
+			State:   a2atype.TaskStateInputRequired,
+			Message: a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Input required")),
+		},
+	}
+
+	response := s.handleInputRequired(nil, task, "child-context")
+	if response.Status != "failed" || response.Error != "Remote agent 'worker' requested input without a valid HITL extension." {
+		t.Fatalf("response = %#v", response)
+	}
+	if response.SubagentSessionID != "child-context" {
+		t.Fatalf("SubagentSessionID = %q, want %q", response.SubagentSessionID, "child-context")
+	}
 }

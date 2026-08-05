@@ -48,18 +48,21 @@ func (e *recordingExecutor) Cleanup(context.Context, *a2asrv.ExecutorContext, a2
 
 func TestKAgentExecutor_TransformsHITLDecisionBeforeDelegating(t *testing.T) {
 	const appName = "test-app"
-	decision := hitlDecisionMessage(map[string]any{
-		"type":      HITLTypeToolApprovalResponse,
-		"approvals": []any{map[string]any{"id": "confirm-1", "approved": true}},
+	decision := hitlDecisionMessage(&ToolApprovalResponse{
+		Type:      HITLTypeToolApprovalResponse,
+		Approvals: []ToolApproval{{ID: "confirm-1", Approved: true}},
 	})
 	storedTask := &a2atype.Task{
 		ID:        "task-1",
 		ContextID: "ctx-1",
 		Status: a2atype.TaskStatus{
 			State: a2atype.TaskStateInputRequired,
-			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), map[string]any{
-				"type":  HITLTypeToolApprovalRequest,
-				"tools": []any{map[string]any{"id": "confirm-1", "call_id": "call-1", "name": "delete_file", "args": map[string]any{"path": "/tmp/x"}}},
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &ToolApprovalRequest{
+				Type: HITLTypeToolApprovalRequest,
+				Tools: []HitlTool{{
+					ID: "confirm-1", CallID: "call-1", Name: "delete_file",
+					Args: map[string]any{"path": "/tmp/x"},
+				}},
 			}),
 		},
 		History: []*a2atype.Message{decision},
@@ -152,9 +155,9 @@ func TestKAgentExecutor_TranslatesADKPauseAtA2ABoundary(t *testing.T) {
 	if got == nil || got.Status.State != a2atype.TaskStateInputRequired {
 		t.Fatalf("status update = %#v", got)
 	}
-	payload := GetHitlPayload(got.Status.Message)
-	if payload == nil || payload["type"] != HITLTypeToolApprovalRequest {
-		t.Fatalf("HITL payload = %#v", payload)
+	payload := GetToolApprovalRequest(got.Status.Message)
+	if payload == nil {
+		t.Fatalf("HITL payload missing on status message")
 	}
 	if len(got.Status.Message.Parts) != 1 || got.Status.Message.Parts[0].Text() == "" {
 		t.Fatalf("public pause leaked non-text parts: %#v", got.Status.Message.Parts)
@@ -330,17 +333,17 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 			pause = update
 		}
 	}
-	if pause == nil || GetHitlPayload(pause.Status.Message) == nil {
+	req := GetToolApprovalRequest(pause.Status.Message)
+	if pause == nil || req == nil {
 		t.Fatalf("pause = %#v, want extension input-required", pause)
 	}
-	pauseTools := anySlice(GetHitlPayload(pause.Status.Message)["tools"])
-	if len(pauseTools) != 1 || pauseTools[0].(map[string]any)["id"] != "confirmation-call" {
-		t.Fatalf("pause tools = %#v, want per-approval correlation", pauseTools)
+	if len(req.Tools) != 1 || req.Tools[0].ID != "confirmation-call" {
+		t.Fatalf("pause tools = %#v, want per-approval correlation", req.Tools)
 	}
 
-	decision := hitlDecisionMessage(map[string]any{
-		"type":      HITLTypeToolApprovalResponse,
-		"approvals": []any{map[string]any{"id": "confirmation-call", "approved": true}},
+	decision := hitlDecisionMessage(&ToolApprovalResponse{
+		Type:      HITLTypeToolApprovalResponse,
+		Approvals: []ToolApproval{{ID: "confirmation-call", Approved: true}},
 	})
 	decision.TaskID, decision.ContextID = "hitl-task", contextID
 	stored := &a2atype.Task{

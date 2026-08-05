@@ -341,21 +341,23 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText strin
 func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, error) {
 	confirmation := ctx.ToolConfirmation()
 	payload, _ := confirmation.Payload.(map[string]any)
-	hitlPayload := a2a.ParseHitlConfirmationPayload(payload)
+	remoteState := a2a.ParseRemoteHitlState(payload)
+	if remoteState == nil {
+		slog.Error("Resume for remote agent without valid remote HITL state", "tool", s.name)
+		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing task context.", s.name)}, nil
+	}
+	if !remoteState.HasResponse() {
+		slog.Error("Resume for remote agent without a HITL response",
+			"tool", remoteState.SubagentName, "taskID", remoteState.TaskID)
+		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing HITL response.", remoteState.SubagentName)}, nil
+	}
 
-	taskID := hitlPayload.TaskID
-	contextID := hitlPayload.ContextID
-	subagentName := hitlPayload.SubagentName
+	subagentName := remoteState.SubagentName
 	if subagentName == "" {
 		subagentName = s.name
 	}
-
-	if taskID == "" {
-		slog.Error("Resume for remote agent but no task_id in confirmation payload", "tool", s.name)
-		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing task context.", subagentName)}, nil
-	}
-
-	decisionData := buildDecisionData(confirmation.Confirmed, hitlPayload)
+	taskID := remoteState.TaskID
+	contextID := remoteState.ContextID
 
 	message := &a2atype.Message{
 		ID:        a2atype.NewMessageID(),
@@ -364,11 +366,10 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 		Role:      a2atype.MessageRoleUser,
 		Parts:     a2atype.ContentParts{a2atype.NewTextPart("Human input supplied")},
 	}
-	a2a.AttachHitlExtension(message, decisionData)
+	a2a.AttachHitlExtension(message, remoteState.ResponsePayload())
 
-	responseType, _ := decisionData["type"].(string)
 	slog.Info("Forwarding HITL response to subagent",
-		"responseType", responseType,
+		"responseType", remoteState.ResponseType(),
 		"subagent", subagentName,
 		"taskID", taskID,
 	)
@@ -457,37 +458,21 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 		}
 	}
 
-	var hitlParts []a2a.HitlPartInfo
-	if task.Status.Message != nil {
-		hitlParts = a2a.ExtractHitlInfoFromMessage(task.Status.Message)
-	}
-
-	var innerToolNames []string
-	for _, hp := range hitlParts {
-		if hp.OriginalFunctionCall.Name != "" {
-			innerToolNames = append(innerToolNames, hp.OriginalFunctionCall.Name)
+	state := a2a.BuildRemoteHitlState(task, s.name)
+	if state == nil {
+		slog.Error("Subagent returned input_required without a valid HITL extension", "tool", s.name)
+		return remoteA2AResponse{
+			Error:             fmt.Sprintf("Remote agent '%s' requested input without a valid HITL extension.", s.name),
+			Status:            "failed",
+			SubagentSessionID: contextID,
 		}
 	}
 
-	var hint string
-	if len(innerToolNames) > 0 {
-		hint = fmt.Sprintf("Remote agent '%s' requires approval for tool(s): %s",
-			s.name, strings.Join(innerToolNames, ", "))
-	} else {
-		hint = fmt.Sprintf("Remote agent '%s' requires human input before continuing.", s.name)
-	}
-
-	confirmPayload := a2a.HitlConfirmationPayload{
-		TaskID:       string(task.ID),
-		ContextID:    task.ContextID,
-		SubagentName: s.name,
-		HitlParts:    hitlParts,
-	}
-
+	hint := a2a.RemoteHitlHint(state)
 	slog.Info("Subagent returned input_required, requesting confirmation from parent",
 		"tool", s.name, "taskID", task.ID)
 
-	if err := ctx.RequestConfirmation(hint, confirmPayload.ToMap()); err != nil {
+	if err := ctx.RequestConfirmation(hint, state.ToMap()); err != nil {
 		slog.Error("Failed to request confirmation", "tool", s.name, "error", err)
 	}
 	return remoteA2AResponse{
@@ -496,46 +481,6 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 		Subagent:          s.name,
 		SubagentSessionID: contextID,
 	}
-}
-
-// buildDecisionData constructs the framework-neutral HITL extension payload
-// forwarded to the subagent.
-func buildDecisionData(confirmed bool, payload a2a.HitlConfirmationPayload) map[string]any {
-	if len(payload.Answers) > 0 {
-		askID := ""
-		if len(payload.HitlParts) > 0 {
-			askID = payload.HitlParts[0].ID
-		}
-		askUserAnswers := make([]map[string]any, 0, len(payload.Answers))
-		for _, answer := range payload.Answers {
-			askUserAnswers = append(askUserAnswers, map[string]any{"answer": answer.Answer})
-		}
-		return map[string]any{
-			"type":    a2a.HITLTypeAskUserResponse,
-			"id":      askID,
-			"answers": askUserAnswers,
-		}
-	}
-
-	approvals := make([]any, 0, len(payload.HitlParts))
-	if len(payload.Approvals) > 0 {
-		for _, result := range payload.Approvals {
-			approval := map[string]any{"id": result.ID, "approved": result.Approved}
-			if result.RejectionReason != "" {
-				approval["rejection_reason"] = result.RejectionReason
-			}
-			approvals = append(approvals, approval)
-		}
-	} else {
-		for _, part := range payload.HitlParts {
-			approval := map[string]any{"id": part.ID, "approved": confirmed}
-			if !confirmed && payload.RejectionReason != "" {
-				approval["rejection_reason"] = payload.RejectionReason
-			}
-			approvals = append(approvals, approval)
-		}
-	}
-	return map[string]any{"type": a2a.HITLTypeToolApprovalResponse, "approvals": approvals}
 }
 
 // withOTelTransport returns a shallow copy of the client whose transport is

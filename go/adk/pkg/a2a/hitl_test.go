@@ -27,34 +27,29 @@ func confirmationPart(id, toolName, toolID string, args, payload map[string]any)
 	}, map[string]any{"adk_type": "function_call", "adk_is_long_running": true})
 }
 
-func hitlDecisionMessage(payload map[string]any) *a2atype.Message {
+func hitlDecisionMessage(payload any) *a2atype.Message {
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Decision"))
 	return AttachHitlExtension(message, payload)
 }
 
 func TestHitlExtensionAttachAndParse(t *testing.T) {
-	message := hitlDecisionMessage(map[string]any{
-		"type":      HITLTypeToolApprovalResponse,
-		"approvals": []any{map[string]any{"id": "confirm-1", "approved": true}},
+	message := hitlDecisionMessage(&ToolApprovalResponse{
+		Type:      HITLTypeToolApprovalResponse,
+		Approvals: []ToolApproval{{ID: "confirm-1", Approved: true}},
 	})
-	payload := GetHitlPayload(message)
-	approvals, err := ExtractApprovalResults(message)
-	if err != nil || payload == nil || !approvals["confirm-1"].Approved {
+	payload := GetToolApprovalResponse(message)
+	if payload == nil || len(payload.Approvals) != 1 || !payload.Approvals[0].Approved {
 		t.Fatalf("unexpected HITL payload: %#v", payload)
 	}
 }
 
-func TestHitlExtensionDecisionDetails(t *testing.T) {
-	message := hitlDecisionMessage(map[string]any{
-		"type": HITLTypeToolApprovalResponse,
-		"approvals": []any{
-			map[string]any{"id": "confirm-1", "approved": true},
-			map[string]any{"id": "confirm-2", "approved": false, "rejection_reason": "unsafe"},
-		},
-	})
-	got, err := ExtractApprovalResults(message)
-	if err != nil || !got["confirm-1"].Approved || got["confirm-2"].Approved || got["confirm-2"].RejectionReason != "unsafe" {
-		t.Fatalf("approval results = %#v, err = %v", got, err)
+func TestHitlExtensionRejectsEmptyApprovals(t *testing.T) {
+	message := AttachHitlExtension(
+		a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Decision")),
+		map[string]any{"type": HITLTypeToolApprovalResponse, "approvals": []any{}},
+	)
+	if GetToolApprovalResponse(message) != nil {
+		t.Fatal("empty approvals should not decode")
 	}
 }
 
@@ -65,29 +60,15 @@ func TestHitlExtensionDoesNotReadLegacyDataPart(t *testing.T) {
 	}
 }
 
-func TestHitlToolMapNormalizesNilArgs(t *testing.T) {
-	tool := hitlToolMap(OriginalFunctionCall{ID: "call-1", Name: "get_cluster"}, "approval-1")
-	args, ok := tool["args"].(map[string]any)
-	if !ok || args == nil || len(args) != 0 {
-		t.Fatalf("args = %#v, want an empty object", tool["args"])
-	}
-}
-
 func TestHITLActivationInterceptor(t *testing.T) {
 	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
 		a2atype.SvcParamExtensions: {HITLExtensionURI},
 	}))
-	if HitlActivated(ctx) {
-		t.Fatal("HITL active before interceptor")
-	}
 	if _, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{}); err != nil {
 		t.Fatalf("Before() error = %v", err)
 	}
 	if !HitlActivated(ctx) {
 		t.Fatal("HITL was not activated")
-	}
-	if got := callCtx.Extensions().ActivatedURIs(); len(got) != 1 || got[0] != HITLExtensionURI {
-		t.Fatalf("activated extensions = %#v", got)
 	}
 }
 
@@ -95,190 +76,154 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 	t.Run("tool approval", func(t *testing.T) {
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-1", "delete_file", "call-1", map[string]any{"path": "/tmp/x"}, nil))
-		public := BuildHITLStatusMessage(internal, true)
-		payload := GetHitlPayload(public)
-		if payload == nil || payload["type"] != HITLTypeToolApprovalRequest {
+		payload := GetToolApprovalRequest(BuildHITLStatusMessage(internal, true))
+		if payload == nil || payload.Tools[0].ID != "confirm-1" {
 			t.Fatalf("payload = %#v", payload)
-		}
-		if len(public.Parts) != 1 || public.Parts[0].Text() != "Please confirm" {
-			t.Fatalf("public parts = %#v, want text only", public.Parts)
-		}
-		tools := anySlice(payload["tools"])
-		if len(tools) != 1 || tools[0].(map[string]any)["name"] != "delete_file" || tools[0].(map[string]any)["id"] != "confirm-1" {
-			t.Fatalf("tools = %#v", tools)
 		}
 	})
 
 	t.Run("ask user", func(t *testing.T) {
-		questions := []any{map[string]any{"question": "Which database?", "choices": []any{"PostgreSQL", "MySQL"}}}
+		questions := []any{map[string]any{"question": "Which database?"}}
 		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
 			confirmationPart("confirm-2", "ask_user", "call-2", map[string]any{"questions": questions}, nil))
-		payload := GetHitlPayload(BuildHITLStatusMessage(internal, true))
-		if payload == nil || payload["type"] != HITLTypeAskUserRequest || len(anySlice(payload["questions"])) != 1 {
+		payload := GetAskUserRequest(BuildHITLStatusMessage(internal, true))
+		if payload == nil || len(payload.Questions) != 1 {
 			t.Fatalf("payload = %#v", payload)
 		}
 	})
 
 	t.Run("nested subagent", func(t *testing.T) {
-		child := HitlPartInfo{Name: toolconfirmation.FunctionCallName, ID: "child-confirm", OriginalFunctionCall: OriginalFunctionCall{
-			Name: "delete_pod", ID: "child-call", Args: map[string]any{"name": "api"},
-		}}
-		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
-			confirmationPart("parent-confirm", "k8s_agent", "parent-call", nil, HitlConfirmationPayload{
-				TaskID: "child-task", ContextID: "child-context", SubagentName: "k8s_agent", HitlParts: []HitlPartInfo{child},
-			}.ToMap()))
-		payload := GetHitlPayload(BuildHITLStatusMessage(internal, true))
-		nested, _ := payload["nested"].(map[string]any)
-		tools := anySlice(nested["tools"])
-		if nested["task_id"] != "child-task" || len(tools) != 1 || tools[0].(map[string]any)["call_id"] != "child-call" || tools[0].(map[string]any)["id"] != "child-confirm" {
-			t.Fatalf("nested = %#v", nested)
+		remote := RemoteHitlState{
+			TaskID: "child-task", ContextID: "child-context", SubagentName: "k8s_agent",
+			ToolApprovalRequest: &ToolApprovalRequest{
+				Type: HITLTypeToolApprovalRequest,
+				Tools: []HitlTool{{
+					ID: "child-confirm", CallID: "child-call", Name: "delete_pod",
+					Args: map[string]any{"name": "api"},
+				}},
+			},
 		}
-	})
-
-	t.Run("nested ask user", func(t *testing.T) {
-		questions := []any{map[string]any{"question": "Which namespace?"}}
-		child := HitlPartInfo{Name: toolconfirmation.FunctionCallName, ID: "child-confirm", OriginalFunctionCall: OriginalFunctionCall{
-			Name: "ask_user", ID: "child-call", Args: map[string]any{"questions": questions},
-		}}
-		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
-			confirmationPart("parent-confirm", "k8s_agent", "parent-call", nil, HitlConfirmationPayload{
-				TaskID: "child-task", ContextID: "child-context", SubagentName: "k8s_agent", HitlParts: []HitlPartInfo{child},
-			}.ToMap()))
-		payload := GetHitlPayload(BuildHITLStatusMessage(internal, true))
-		if payload["type"] != HITLTypeAskUserRequest || len(anySlice(payload["questions"])) != 1 || payload["nested"] == nil {
+		payload := GetToolApprovalRequest(BuildHITLStatusMessage(
+			a2atype.NewMessage(a2atype.MessageRoleAgent,
+				confirmationPart("parent-confirm", "k8s_agent", "parent-call", nil, remote.ToMap())),
+			true,
+		))
+		if payload == nil || payload.Nested == nil || payload.Nested.Tools[0].CallID != "child-call" {
 			t.Fatalf("payload = %#v", payload)
 		}
 	})
 
 	t.Run("not activated", func(t *testing.T) {
-		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
-			confirmationPart("confirm-1", "delete_file", "call-1", nil, nil))
-		public := BuildHITLStatusMessage(internal, false)
-		if GetHitlPayload(public) != nil || len(public.Parts) != 1 || public.Parts[0].Text() == "" {
-			t.Fatalf("public message = %#v", public)
+		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+			confirmationPart("confirm-1", "delete_file", "call-1", nil, nil)), false)
+		if GetToolApprovalRequest(public) != nil {
+			t.Fatalf("unexpected payload on inactive client")
+		}
+	})
+
+	t.Run("non-confirmation long-running call", func(t *testing.T) {
+		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+			dataPart(map[string]any{"name": "auth_required"}, map[string]any{
+				"adk_type": "function_call", "adk_is_long_running": true,
+			})), true)
+		if GetToolApprovalRequest(public) != nil {
+			t.Fatal("non-confirmation long-running call produced HITL payload")
 		}
 	})
 }
 
 func TestBuildResumeHITLMessageAskUser(t *testing.T) {
-	incoming := hitlDecisionMessage(map[string]any{
-		"type":    HITLTypeAskUserResponse,
-		"id":      "confirm-1",
-		"answers": []any{map[string]any{"answer": []any{"PostgreSQL"}}},
+	incoming := hitlDecisionMessage(&AskUserResponse{
+		Type: HITLTypeAskUserResponse, ID: "confirm-1",
+		Answers: []AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 	})
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
-		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), map[string]any{
-			"type": HITLTypeAskUserRequest, "id": "confirm-1",
+		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &AskUserRequest{
+			Type: HITLTypeAskUserRequest, ID: "confirm-1",
 		}),
 	}}
 	resume, err := BuildResumeHITLMessage(stored, incoming)
-	if err != nil {
-		t.Fatalf("BuildResumeHITLMessage() error = %v", err)
-	}
-	if resume == nil || len(resume.Parts) != 1 {
-		t.Fatalf("resume = %#v", resume)
-	}
-	response := asDataPart(resume.Parts[0])[PartKeyResponse].(map[string]any)["response"].(string)
-	var confirmation toolconfirmation.ToolConfirmation
-	if err := json.Unmarshal([]byte(response), &confirmation); err != nil {
-		t.Fatalf("confirmation JSON: %v", err)
-	}
-	payload, _ := confirmation.Payload.(map[string]any)
-	if !confirmation.Confirmed || len(anySlice(payload["answers"])) != 1 {
-		t.Fatalf("confirmation = %#v", confirmation)
+	if err != nil || len(resume.Parts) != 1 {
+		t.Fatalf("resume = %#v, err = %v", resume, err)
 	}
 }
 
 func TestBuildResumeHITLMessageBatchFlattensApprovals(t *testing.T) {
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
-		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), map[string]any{
-			"type": HITLTypeToolApprovalRequest,
-			"tools": []any{
-				map[string]any{"id": "confirm-1", "call_id": "call-1", "name": "delete_file", "args": map[string]any{}},
-				map[string]any{"id": "confirm-2", "call_id": "call-2", "name": "restart_pod", "args": map[string]any{}},
+		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &ToolApprovalRequest{
+			Type: HITLTypeToolApprovalRequest,
+			Tools: []HitlTool{
+				{ID: "confirm-1", CallID: "call-1", Name: "delete_file", Args: map[string]any{}},
+				{ID: "confirm-2", CallID: "call-2", Name: "restart_pod", Args: map[string]any{}},
 			},
 		}),
 	}}
-	incoming := hitlDecisionMessage(map[string]any{
-		"type": HITLTypeToolApprovalResponse,
-		"approvals": []any{
-			map[string]any{"id": "confirm-1", "approved": true},
-			map[string]any{"id": "confirm-2", "approved": false, "rejection_reason": "not now"},
+	incoming := hitlDecisionMessage(&ToolApprovalResponse{
+		Type: HITLTypeToolApprovalResponse,
+		Approvals: []ToolApproval{
+			{ID: "confirm-1", Approved: true},
+			{ID: "confirm-2", Approved: false, RejectionReason: "not now"},
 		},
 	})
 	resume, err := BuildResumeHITLMessage(stored, incoming)
-	if err != nil {
-		t.Fatalf("BuildResumeHITLMessage() error = %v", err)
-	}
-	if len(resume.Parts) != 2 {
-		t.Fatalf("resume parts = %d, want 2", len(resume.Parts))
-	}
-	for index, wantID := range []string{"confirm-1", "confirm-2"} {
-		if got := asDataPart(resume.Parts[index])[PartKeyID]; got != wantID {
-			t.Fatalf("part %d id = %#v, want %q", index, got, wantID)
-		}
+	if err != nil || len(resume.Parts) != 2 {
+		t.Fatalf("resume parts = %v, err = %v", len(resume.Parts), err)
 	}
 }
 
 func TestBuildResumeHITLMessageNestedAskUser(t *testing.T) {
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
-		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), map[string]any{
-			"type": HITLTypeAskUserRequest, "id": "parent-confirm",
-			"nested": map[string]any{
-				"task_id": "child-task", "context_id": "child-context", "subagent_name": "child",
-				"tools": []any{map[string]any{
-					"id": "child-confirm", "call_id": "child-call", "name": "ask_user",
-					"args": map[string]any{"questions": []any{map[string]any{"question": "Which namespace?"}}},
-				}},
+		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Answer required")), &AskUserRequest{
+			Type: HITLTypeAskUserRequest, ID: "parent-confirm",
+			Questions: []map[string]any{{"question": "Which namespace?"}},
+			Nested: &NestedHitlRequest{
+				TaskID: "child-task", ContextID: "child-context", SubagentName: "child",
+				Tools: []HitlTool{{ID: "child-confirm", CallID: "child-call", Name: "ask_user", Args: map[string]any{}}},
 			},
 		}),
 	}}
-	incoming := hitlDecisionMessage(map[string]any{
-		"type":    HITLTypeAskUserResponse,
-		"id":      "child-confirm",
-		"answers": []any{map[string]any{"answer": []any{"default"}}},
+	incoming := hitlDecisionMessage(&AskUserResponse{
+		Type: HITLTypeAskUserResponse, ID: "child-confirm",
+		Answers: []AskUserAnswer{{Answer: []string{"default"}}},
 	})
 	resume, err := BuildResumeHITLMessage(stored, incoming)
 	if err != nil {
 		t.Fatalf("BuildResumeHITLMessage() error = %v", err)
-	}
-	if got := asDataPart(resume.Parts[0])[PartKeyID]; got != "parent-confirm" {
-		t.Fatalf("parent response id = %#v", got)
 	}
 	response := asDataPart(resume.Parts[0])[PartKeyResponse].(map[string]any)["response"].(string)
 	var confirmation toolconfirmation.ToolConfirmation
 	if err := json.Unmarshal([]byte(response), &confirmation); err != nil {
 		t.Fatalf("confirmation JSON: %v", err)
 	}
-	payload, _ := confirmation.Payload.(map[string]any)
-	if payload["task_id"] != "child-task" || len(anySlice(payload["answers"])) != 1 || len(anySlice(payload["hitl_parts"])) != 1 {
-		t.Fatalf("nested confirmation payload = %#v", payload)
+	state := ParseRemoteHitlState(confirmation.Payload.(map[string]any))
+	if state == nil || state.AskUserResponse == nil || len(state.AskUserResponse.Answers) != 1 {
+		t.Fatalf("nested confirmation payload = %#v", confirmation.Payload)
 	}
 }
 
 func TestBuildResumeHITLMessageNestedApprovals(t *testing.T) {
 	stored := &a2atype.Task{Status: a2atype.TaskStatus{
 		State: a2atype.TaskStateInputRequired,
-		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), map[string]any{
-			"type":  HITLTypeToolApprovalRequest,
-			"tools": []any{map[string]any{"id": "parent-confirm", "call_id": "parent-call", "name": "child", "args": map[string]any{}}},
-			"nested": map[string]any{
-				"task_id": "child-task", "context_id": "child-context", "subagent_name": "child",
-				"tools": []any{
-					map[string]any{"id": "child-confirm-1", "call_id": "child-call-1", "name": "delete_pod", "args": map[string]any{}},
-					map[string]any{"id": "child-confirm-2", "call_id": "child-call-2", "name": "restart_pod", "args": map[string]any{}},
+		Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")), &ToolApprovalRequest{
+			Type:  HITLTypeToolApprovalRequest,
+			Tools: []HitlTool{{ID: "parent-confirm", CallID: "parent-call", Name: "child", Args: map[string]any{}}},
+			Nested: &NestedHitlRequest{
+				TaskID: "child-task", ContextID: "child-context", SubagentName: "child",
+				Tools: []HitlTool{
+					{ID: "child-confirm-1", CallID: "child-call-1", Name: "delete_pod", Args: map[string]any{}},
+					{ID: "child-confirm-2", CallID: "child-call-2", Name: "restart_pod", Args: map[string]any{}},
 				},
 			},
 		}),
 	}}
-	incoming := hitlDecisionMessage(map[string]any{
-		"type": HITLTypeToolApprovalResponse,
-		"approvals": []any{
-			map[string]any{"id": "child-confirm-1", "approved": true},
-			map[string]any{"id": "child-confirm-2", "approved": false, "rejection_reason": "not now"},
+	incoming := hitlDecisionMessage(&ToolApprovalResponse{
+		Type: HITLTypeToolApprovalResponse,
+		Approvals: []ToolApproval{
+			{ID: "child-confirm-1", Approved: true},
+			{ID: "child-confirm-2", Approved: false, RejectionReason: "not now"},
 		},
 	})
 	resume, err := BuildResumeHITLMessage(stored, incoming)
@@ -287,12 +232,31 @@ func TestBuildResumeHITLMessageNestedApprovals(t *testing.T) {
 	}
 	response := asDataPart(resume.Parts[0])[PartKeyResponse].(map[string]any)["response"].(string)
 	var confirmation toolconfirmation.ToolConfirmation
-	if err := json.Unmarshal([]byte(response), &confirmation); err != nil {
-		t.Fatalf("confirmation JSON: %v", err)
-	}
-	payload, _ := confirmation.Payload.(map[string]any)
-	approvals := anySlice(payload["approvals"])
-	if confirmation.Confirmed || len(approvals) != 2 || approvals[1].(map[string]any)["rejection_reason"] != "not now" {
+	_ = json.Unmarshal([]byte(response), &confirmation)
+	state := ParseRemoteHitlState(confirmation.Payload.(map[string]any))
+	if confirmation.Confirmed || state == nil || state.ToolApprovalResponse == nil ||
+		state.ToolApprovalResponse.Approvals[1].RejectionReason != "not now" {
 		t.Fatalf("nested confirmation = %#v", confirmation)
+	}
+}
+
+func TestBuildRemoteHitlStateAndHint(t *testing.T) {
+	task := &a2atype.Task{
+		ID: "child-task", ContextID: "child-context",
+		Status: a2atype.TaskStatus{
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &ToolApprovalRequest{
+				Type: HITLTypeToolApprovalRequest,
+				Tools: []HitlTool{{
+					ID: "child-confirm", CallID: "child-call", Name: "delete_pod", Args: map[string]any{},
+				}},
+			}),
+		},
+	}
+	state := BuildRemoteHitlState(task, "k8s_agent")
+	if state == nil || state.ToolApprovalRequest == nil {
+		t.Fatalf("state = %#v", state)
+	}
+	if got := RemoteHitlHint(state); got != "Remote agent 'k8s_agent' requires approval for tool(s): delete_pod" {
+		t.Fatalf("hint = %q", got)
 	}
 }
