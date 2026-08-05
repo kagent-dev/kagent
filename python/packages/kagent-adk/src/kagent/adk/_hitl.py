@@ -1,4 +1,9 @@
-"""Google ADK adapters for the framework-neutral A2A HITL extension."""
+"""Google ADK adapters for the framework-neutral A2A HITL extension.
+
+Emit:  ADK confirmation parts → public Message extension (build_hitl_status_message)
+Resume: public response + stored request → ADK FunctionResponse parts (build_resume_hitl_message)
+Remote: store/forward public payloads via RemoteHitlState (not ADK-shaped parts).
+"""
 
 from __future__ import annotations
 
@@ -31,7 +36,11 @@ HitlResponse = Annotated[ToolApprovalResponse | AskUserResponse, Field(discrimin
 
 
 class RemoteHitlState(BaseModel):
-    """State retained by an ADK remote tool while its child task is paused."""
+    """ToolConfirmation payload for a parent remote-A2A tool while its child is paused.
+
+    hitl_request / hitl_response are public extension payloads so resume can
+    forward them to the child unchanged (mirrors Go a2a.RemoteHitlState).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -53,7 +62,7 @@ def extract_hitl_request_from_task(task: Task) -> ToolApprovalRequest | AskUserR
 
 
 def build_remote_hitl_state(task: Task, subagent_name: str) -> RemoteHitlState | None:
-    """Capture a child task's public request as ADK confirmation payload state."""
+    """Capture a child task's public request as confirmation payload state."""
     request = extract_hitl_request_from_task(task)
     if request is None:
         return None
@@ -76,7 +85,7 @@ def get_remote_hitl_state(payload: dict[str, Any] | None) -> RemoteHitlState | N
 
 
 def visible_tools(request: ToolApprovalRequest | AskUserRequest) -> list[HitlTool]:
-    """Return the tool operations a human acts on for a public HITL request."""
+    """Tools the human should decide on: nested.tools when nested, else top-level."""
     if request.nested is not None:
         return request.nested.tools
     if isinstance(request, ToolApprovalRequest):
@@ -100,6 +109,7 @@ def remote_hitl_hint(state: RemoteHitlState) -> str:
 
 
 def _tool_from_confirmation_data(data: dict[str, Any]) -> HitlTool:
+    """Parse one ADK adk_request_confirmation DataPart into a public HitlTool."""
     original = data.get("args", {}).get("originalFunctionCall", {})
     return HitlTool(
         id=str(data.get("id") or ""),
@@ -110,7 +120,11 @@ def _tool_from_confirmation_data(data: dict[str, Any]) -> HitlTool:
 
 
 def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, activated: bool) -> Message:
-    """Translate ADK confirmation parts into a public A2A HITL request."""
+    """Emit path: ADK confirmation DataParts → public HITL Message extension.
+
+    Nested remote pauses surface as request.nested built from RemoteHitlState in
+    the confirmation payload. Without activation, only human-readable text is returned.
+    """
     message = Message(message_id=str(uuid.uuid4()), role=Role.ROLE_AGENT, task_id=task_id, context_id=context_id)
     default_hint = "Human input is required before the agent can continue."
     if not activated:
@@ -150,9 +164,7 @@ def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, 
 
     if remote_state is not None and isinstance(remote_state.hitl_request, AskUserRequest):
         request: ToolApprovalRequest | AskUserRequest = AskUserRequest(
-            # The top-level ID correlates the response to the parent's
-            # adk_request_confirmation call. The child correlation remains in
-            # nested.tools and is the ID returned by the UI.
+            # Top-level id = parent adk_request_confirmation; client returns nested.tools[0].id.
             id=tools[0].id,
             questions=remote_state.hitl_request.questions,
             nested=nested,
@@ -171,7 +183,7 @@ def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, 
 
 
 def _confirmation_response_part(call_id: str, confirmation: ToolConfirmation) -> Part:
-    """Build an upstream-compatible A2A function-response part."""
+    """Build one ADK-shaped FunctionResponse part; call_id must match the paused confirmation."""
     genai_part = genai_types.Part(
         function_response=genai_types.FunctionResponse(
             name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME,
@@ -196,6 +208,16 @@ def _build_nested_resume(
     request: ToolApprovalRequest | AskUserRequest,
     incoming: Message,
 ) -> list[Part]:
+    """Resume a parent that paused because a child A2A task needs input.
+
+    Two opaque IDs:
+      - Parent confirmation id (request.tools[0].id / request.id): ADK FunctionResponse
+        id so the parent's remote tool can resume.
+      - Child ids (nested.tools[*].id): what the client returns; validated here and
+        packed into hitl_response for the remote tool to forward to the child.
+
+    Returns one confirmation part whose payload is a filled RemoteHitlState.
+    """
     nested = request.nested
     if nested is None:
         raise ValueError("Nested HITL request is missing nested state")
@@ -203,6 +225,7 @@ def _build_nested_resume(
         raise ValueError("Nested HITL request is missing subagent task correlation")
 
     if isinstance(request, AskUserRequest):
+        # Client must echo nested.tools[0].id, not the parent request.id.
         if len(nested.tools) != 1 or nested.tools[0].name != "ask_user":
             raise ValueError("Nested ask_user request must contain exactly one ask_user tool")
         response = get_ask_user_response(incoming)
@@ -219,6 +242,7 @@ def _build_nested_resume(
         outer_confirmation_id = request.id
         confirmed = True
     else:
+        # Client returns nested.tools IDs; parent remote-tool entry is not in the response.
         if len(request.tools) != 1:
             raise ValueError("Nested HITL request must contain exactly one parent tool")
         response = get_tool_approval_response(incoming)
@@ -253,11 +277,10 @@ def _build_nested_resume(
 
 
 def build_resume_hitl_message(stored_task: Task, incoming: Message) -> Message:
-    """Translate a public HITL response using the stored A2A current task.
+    """Resume path: client HITL response + stored input-required request → ADK parts.
 
-    Upstream ADK remains responsible for validating the reconstructed
-    confirmation against its session history. Kagent only restores the ADK
-    function-response wire shape from the public extension stored on the task.
+    Validates IDs against the stored public request. Upstream ADK matches the
+    resulting FunctionResponse parts to its session confirmation state.
     """
     if stored_task.status.state != TaskState.TASK_STATE_INPUT_REQUIRED:
         raise ValueError("HITL decision requires a stored input-required task")

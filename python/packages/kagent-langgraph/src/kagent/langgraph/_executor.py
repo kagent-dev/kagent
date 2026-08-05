@@ -31,10 +31,13 @@ from kagent.core.a2a import (
     HitlTool,
     ToolApprovalRequest,
     attach_hitl_extension,
+    get_ask_user_request,
     get_ask_user_response,
     get_hitl_payload,
     get_kagent_metadata_key,
+    get_tool_approval_request,
     get_tool_approval_response,
+    hitl_activated,
     now_timestamp,
 )
 from kagent.core.tracing._span_processor import (
@@ -153,11 +156,13 @@ class LangGraphAgentExecutor(AgentExecutor):
         # Check for interrupts after streaming completes
         if final_state and final_state.get("__interrupt__"):
             interrupt_data = final_state["__interrupt__"]
+            headers = _call_state(context).get("headers")
             await self._handle_interrupt(
                 interrupt_data=interrupt_data,
                 task_id=context.task_id,
                 context_id=context.context_id,
                 event_queue=event_queue,
+                hitl_enabled=hitl_activated(headers if isinstance(headers, Mapping) else {}),
             )
             # Interrupt detected - input_required event already sent, so return early
             return
@@ -179,6 +184,7 @@ class LangGraphAgentExecutor(AgentExecutor):
         task_id: str,
         context_id: str,
         event_queue: EventQueue,
+        hitl_enabled: bool,
     ) -> None:
         """Handle interrupt from LangGraph and convert to A2A input_required event.
 
@@ -227,15 +233,18 @@ class LangGraphAgentExecutor(AgentExecutor):
         status_message = Message(
             message_id=str(uuid.uuid4()),
             role=Role.ROLE_AGENT,
+            task_id=task_id,
+            context_id=context_id,
             parts=[Part(text="Human approval is required before the agent can continue.")],
         )
-        attach_hitl_extension(
-            status_message,
-            ToolApprovalRequest(
-                hint="Human approval is required before the agent can continue.",
-                tools=tools,
-            ),
-        )
+        if hitl_enabled:
+            attach_hitl_extension(
+                status_message,
+                ToolApprovalRequest(
+                    hint="Human approval is required before the agent can continue.",
+                    tools=tools,
+                ),
+            )
 
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
@@ -264,11 +273,8 @@ class LangGraphAgentExecutor(AgentExecutor):
         if context.current_task.status.state != TaskState.TASK_STATE_INPUT_REQUIRED:
             return False
 
-        # Check if message contains a decision
-        return (
-            get_tool_approval_response(context.message) is not None
-            or get_ask_user_response(context.message) is not None
-        )
+        # Route even malformed or wrong-type HITL responses through validation.
+        return get_hitl_payload(context.message) is not None
 
     async def _handle_resume(
         self,
@@ -282,6 +288,36 @@ class LangGraphAgentExecutor(AgentExecutor):
         """
         approval_response = get_tool_approval_response(context.message)
         ask_response = get_ask_user_response(context.message)
+        stored_message = context.current_task.status.message if context.current_task else None
+        tool_request = get_tool_approval_request(stored_message)
+        ask_request = get_ask_user_request(stored_message)
+
+        if tool_request is not None:
+            if approval_response is None:
+                raise ValueError("Tool approval request requires a tool approval response")
+            request_ids = [tool.id for tool in tool_request.tools]
+            if len(set(request_ids)) != len(request_ids):
+                raise ValueError("Stored tool approval request contains duplicate ids")
+            approvals_by_id = {approval.id: approval for approval in approval_response.approvals}
+            if len(approvals_by_id) != len(approval_response.approvals):
+                raise ValueError("Tool approval response contains duplicate ids")
+            missing_ids = set(request_ids) - approvals_by_id.keys()
+            if missing_ids:
+                raise ValueError(f"Tool approval response is missing ids: {', '.join(sorted(missing_ids))}")
+            unknown_ids = approvals_by_id.keys() - set(request_ids)
+            if unknown_ids:
+                raise ValueError(f"Tool approval response contains unknown ids: {', '.join(sorted(unknown_ids))}")
+        elif ask_request is not None:
+            if ask_response is None:
+                raise ValueError("ask_user request requires an ask_user response")
+            if ask_response.id != ask_request.id:
+                raise ValueError("ask_user response has invalid correlation")
+            if not ask_response.answers:
+                raise ValueError("ask_user response contains no answers")
+            if len(ask_response.answers) != len(ask_request.questions):
+                raise ValueError("ask_user response must answer every question")
+        else:
+            raise ValueError("Stored input-required task has no HITL request")
 
         # Get thread_id from existing task metadata (critical for resume!)
         thread_id = None
@@ -294,33 +330,22 @@ class LangGraphAgentExecutor(AgentExecutor):
             # Fallback to computing from context (same as initial)
             thread_id = getattr(context, "session_id", None) or context.context_id
 
-        if ask_response is not None:
+        if ask_request is not None:
             resume_value: dict[str, Any] = {
                 "decision_type": "ask_user",
                 "ask_user_answers": ask_response.answers,
             }
-        elif approval_response is not None:
-            request_payload = get_hitl_payload(context.current_task.status.message) if context.current_task else None
-            request_tools = request_payload.get("tools", []) if request_payload else []
-            call_ids_by_approval = {
-                str(tool.get("id")): str(tool.get("call_id")) for tool in request_tools if isinstance(tool, dict)
-            }
+        else:
             decisions: dict[str, str] = {}
             rejection_reasons: dict[str, str] = {}
             for approval in approval_response.approvals:
-                call_id = call_ids_by_approval.get(approval.id)
-                if not call_id:
-                    raise ValueError(f"Unknown tool approval response id: {approval.id}")
+                call_id = next(tool.call_id for tool in tool_request.tools if tool.id == approval.id)
                 decisions[call_id] = "approve" if approval.approved else "reject"
                 if not approval.approved and approval.rejection_reason:
                     rejection_reasons[call_id] = approval.rejection_reason
-            if len(decisions) != len(call_ids_by_approval):
-                raise ValueError("Tool approval response must resolve every pending tool")
             resume_value = {"decision_type": "batch", "decisions": decisions}
             if rejection_reasons:
                 resume_value["rejection_reasons"] = rejection_reasons
-        else:
-            raise ValueError("Message does not contain a HITL response")
 
         logger.info(
             "Resuming after interrupt - task_id=%s, thread_id=%s, decision=%s, has_batch=%s, has_reasons=%s, has_answers=%s",
@@ -534,6 +559,11 @@ def _get_user_id(request: RequestContext) -> str:
 
     # Get user from context id
     return f"A2A_USER_{request.context_id}"
+
+
+def _call_state(context: RequestContext) -> dict[str, Any]:
+    state = getattr(context.call_context, "state", None)
+    return state if isinstance(state, dict) else {}
 
 
 def _convert_a2a_request_to_span_attributes(

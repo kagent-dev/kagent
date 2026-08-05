@@ -22,6 +22,8 @@ HITL_TYPE_ASK_USER_RESPONSE = "ask_user_response"
 
 
 class HitlTool(BaseModel):
+    """One resumable tool op in a public HITL request. id is opaque; call_id is for UI/audit."""
+
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1)
     call_id: str = Field(min_length=1)
@@ -36,6 +38,8 @@ class HitlTool(BaseModel):
 
 
 class NestedHitlRequest(BaseModel):
+    """Child-task pause details. Client decides on tools; adapters use task_id to resume the child."""
+
     model_config = ConfigDict(extra="forbid")
     subagent_name: str | None = None
     task_id: str | None = None
@@ -44,6 +48,8 @@ class NestedHitlRequest(BaseModel):
 
 
 class ToolApprovalRequest(BaseModel):
+    """Server → client: one or more tools need approve/reject. nested means a remote child paused."""
+
     model_config = ConfigDict(extra="forbid")
     type: Literal["tool_approval_request"] = HITL_TYPE_TOOL_APPROVAL_REQUEST
     hint: str | None = None
@@ -52,6 +58,8 @@ class ToolApprovalRequest(BaseModel):
 
 
 class AskUserRequest(BaseModel):
+    """Server → client: ask_user questions. When nested, client returns nested.tools[0].id."""
+
     model_config = ConfigDict(extra="forbid")
     type: Literal["ask_user_request"] = HITL_TYPE_ASK_USER_REQUEST
     id: str = Field(min_length=1)
@@ -60,6 +68,8 @@ class AskUserRequest(BaseModel):
 
 
 class ToolApproval(BaseModel):
+    """One decision keyed by the opaque approval id from the request."""
+
     model_config = ConfigDict(extra="forbid")
     id: str = Field(min_length=1)
     approved: bool
@@ -67,12 +77,16 @@ class ToolApproval(BaseModel):
 
 
 class ToolApprovalResponse(BaseModel):
+    """Client → server: one result per visible tool id (nested.tools when nested)."""
+
     model_config = ConfigDict(extra="forbid")
     type: Literal["tool_approval_response"] = HITL_TYPE_TOOL_APPROVAL_RESPONSE
     approvals: list[ToolApproval] = Field(min_length=1)
 
 
 class AskUserResponse(BaseModel):
+    """Client → server: answers for an ask_user_request; id must match the correlation id."""
+
     model_config = ConfigDict(extra="forbid")
     type: Literal["ask_user_response"] = HITL_TYPE_ASK_USER_RESPONSE
     id: str = Field(min_length=1)
@@ -124,6 +138,7 @@ def get_ask_user_response(message: Message | None) -> AskUserResponse | None:
 
 
 def hitl_activated(headers: Mapping[str, Any] | None) -> bool:
+    """True when the client opted in with the exact hitl/v1 URI in A2A-Extensions."""
     if not headers:
         return False
     value = next((v for k, v in headers.items() if k.lower() == HITL_EXTENSION_HEADER.lower()), "")
@@ -132,7 +147,7 @@ def hitl_activated(headers: Mapping[str, Any] | None) -> bool:
 
 
 def get_hitl_payload(message: Message | None) -> dict[str, Any] | None:
-    """Get the HITL payload from an A2A Message."""
+    """Read HITL metadata only when the Message also declares the extension URI."""
     if message is None or HITL_EXTENSION_URI not in message.extensions:
         return None
     metadata = MessageToDict(message.metadata) if message.HasField("metadata") else {}
@@ -141,7 +156,7 @@ def get_hitl_payload(message: Message | None) -> dict[str, Any] | None:
 
 
 def attach_hitl_extension(message: Message, payload: dict[str, Any] | BaseModel) -> Message:
-    """Attach a HITL extension to an A2A Message."""
+    """Set both extensions[] and metadata[uri] — clients must require both."""
     data = payload.model_dump(exclude_none=True) if isinstance(payload, BaseModel) else payload
     metadata = MessageToDict(message.metadata) if message.HasField("metadata") else {}
     metadata[HITL_EXTENSION_URI] = data
@@ -152,7 +167,7 @@ def attach_hitl_extension(message: Message, payload: dict[str, Any] | BaseModel)
 
 
 def hitl_agent_extension() -> dict[str, Any]:
-    """Get the HITL agent extension."""
+    """AgentCard capabilities.extensions entry for optional hitl/v1."""
     return {
         "uri": HITL_EXTENSION_URI,
         "description": "Human in the loop for tool approval, ask user, and nested subagents",
