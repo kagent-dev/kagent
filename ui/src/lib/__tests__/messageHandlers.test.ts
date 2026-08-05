@@ -16,7 +16,7 @@ import {
   createMessageHandlers,
 } from '@/lib/messageHandlers';
 import { createDataPart, createMockMessage, createTextPart } from '@/mocks/factories';
-import type { TokenStats } from '@/types';
+import { HITL_EXTENSION_URI, type TokenStats } from '@/types';
 
 type MessageUpdate = Message[] | ((messages: Message[]) => Message[]);
 type StringUpdate = string | ((value: string) => string);
@@ -227,24 +227,24 @@ describe('messageHandlers helpers', () => {
   });
 
   test('reloaded input-required task renders user input, artifacts, then the current approval', () => {
-    const confirmation = createDataPart(
-      {
-        id: 'confirm-1',
-        name: 'adk_request_confirmation',
-        args: {
-          originalFunctionCall: { id: 'call-logs', name: 'k8s_get_pod_logs', args: { pod: 'x' } },
-          toolConfirmation: { confirmed: false },
-        },
-      },
-      { adk_type: 'function_call', adk_is_long_running: true },
-    );
     const task = sdkTask([
       sdkMessage({ messageId: 'u1', role: Role.ROLE_USER, parts: [createTextPart('logs')] }),
     ], {
       status: {
         state: TaskState.TASK_STATE_INPUT_REQUIRED,
         timestamp: new Date().toISOString(),
-        message: sdkMessage({ messageId: 'c1', role: Role.ROLE_AGENT, parts: [confirmation] }),
+        message: sdkMessage({
+          messageId: 'c1',
+          role: Role.ROLE_AGENT,
+          parts: [createTextPart('Approval required')],
+          extensions: [HITL_EXTENSION_URI],
+          metadata: {
+            [HITL_EXTENSION_URI]: {
+              type: 'tool_approval_request',
+              tools: [{ id: 'confirm-1', call_id: 'call-logs', name: 'k8s_get_pod_logs', args: { pod: 'x' } }],
+            },
+          },
+        }),
       },
       artifacts: [
         sdkArtifact('mixed', [
@@ -273,25 +273,57 @@ describe('messageHandlers helpers', () => {
     expect(collectTaskTokenStats([task]).get('task')).toEqual({ total: 24, prompt: 20, completion: 4 });
   });
 
-  test('reloaded completed task anchors resolved HITL before its artifact response', () => {
-    const confirmation = createDataPart(
-      {
-        id: 'confirm-1',
-        name: 'adk_request_confirmation',
-        args: {
-          originalFunctionCall: { id: 'call-delete', name: 'delete_pod', args: { pod: 'x' } },
-          toolConfirmation: { confirmed: false },
-        },
+  test('reloaded input-required task renders approval for a no-argument tool', () => {
+    const task = sdkTask([], {
+      status: {
+        state: TaskState.TASK_STATE_INPUT_REQUIRED,
+        timestamp: new Date().toISOString(),
+        message: sdkMessage({
+          messageId: 'approval-message',
+          extensions: [HITL_EXTENSION_URI],
+          metadata: {
+            [HITL_EXTENSION_URI]: {
+              type: 'tool_approval_request',
+              tools: [{ id: 'approval-1', call_id: 'call-1', name: 'k8s_get_cluster_configuration', args: null }],
+            },
+          },
+        }),
       },
-      { adk_type: 'function_call', adk_is_long_running: true },
-    );
+    });
+
+    const { messages, hasPendingApproval } = extractApprovalMessagesFromTasks([task]);
+
+    expect(hasPendingApproval).toBe(true);
+    expect(messages).toHaveLength(1);
+    expect((messages[0].metadata as ADKMetadata).toolCallData?.[0].args).toEqual({});
+  });
+
+  test('reloaded completed task anchors resolved HITL before its artifact response', () => {
     const task = sdkTask([
       sdkMessage({ messageId: 'u1', role: Role.ROLE_USER, parts: [createTextPart('delete pod x')] }),
-      sdkMessage({ messageId: 'c1', role: Role.ROLE_AGENT, parts: [confirmation] }),
+      sdkMessage({
+        messageId: 'c1',
+        role: Role.ROLE_AGENT,
+        parts: [createTextPart('Approval required')],
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'tool_approval_request',
+            tools: [{ id: 'confirm-1', call_id: 'call-delete', name: 'delete_pod', args: { pod: 'x' } }],
+          },
+        },
+      }),
       sdkMessage({
         messageId: 'd1',
         role: Role.ROLE_USER,
-        parts: [createDataPart({ decision_type: 'approve' })],
+        parts: [createTextPart('Approved')],
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'tool_approval_response',
+            approvals: [{ id: 'confirm-1', approved: true }],
+          },
+        },
       }),
     ], {
       status: { state: TaskState.TASK_STATE_COMPLETED, timestamp: new Date().toISOString(), message: undefined },
@@ -315,7 +347,7 @@ describe('messageHandlers helpers', () => {
       'ToolCallExecutionEvent',
       'TextMessage',
     ]);
-    expect((messages[2].metadata as ADKMetadata).approvalDecision).toBe('approve');
+    expect((messages[2].metadata as ADKMetadata).approvalDecision).toEqual({ 'call-delete': 'approve' });
   });
 
   test('extractTokenStatsFromTasks uses last usage per task and falls back total', () => {
@@ -671,25 +703,34 @@ describe('createMessageHandlers test', () => {
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      lastChunk: true,
+      parts: [createDataPart(
+        { id: 'call_1', name: 'my_tool', args: { x: 1 } },
+        { kagent_type: 'function_call' },
+      )],
+    }));
+
     handlers.handleMessageEvent(statusUpdateEvent({
       state: TaskState.TASK_STATE_INPUT_REQUIRED,
       metadata: { kagent_usage_metadata: { totalTokenCount: 8, promptTokenCount: 5, candidatesTokenCount: 3 } },
       message: sdkMessage({
         messageId: 'hitl-msg',
-        parts: [createDataPart(
-          {
-            name: 'adk_request_confirmation',
-            id: 'confirm_1',
-            args: { originalFunctionCall: { name: 'my_tool', args: { x: 1 }, id: 'call_1' } },
+        parts: [createTextPart('Approval required')],
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'tool_approval_request',
+            tools: [{ id: 'confirm_1', call_id: 'call_1', name: 'my_tool', args: { x: 1 } }],
           },
-          { kagent_type: 'function_call', kagent_is_long_running: true },
-        )],
+        },
       }),
     }));
 
     expect(capturedSessionTotal).toEqual({ total: 8, prompt: 5, completion: 3 });
     const approvalMsg = emitted.find((message) => (message.metadata as ADKMetadata)?.originalType === 'ToolApprovalRequest');
     expect(approvalMsg).toBeDefined();
+    expect(emitted.some((message) => (message.metadata as ADKMetadata)?.originalType === 'ToolCallRequestEvent')).toBe(false);
   });
 });
 
@@ -709,6 +750,42 @@ describe('subagent_session_id propagation', () => {
     });
     return { emitted, handlers };
   }
+
+  test('nested HITL extension emits an AgentCall card linked to the paused child session', () => {
+    const { emitted, handlers } = makeHandlers();
+
+    handlers.handleMessageEvent(statusUpdateEvent({
+      state: TaskState.TASK_STATE_INPUT_REQUIRED,
+      message: sdkMessage({
+        messageId: 'nested-hitl',
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'tool_approval_request',
+            tools: [{ id: 'parent-confirm', call_id: 'parent-call', name: 'kagent__NS__child_agent', args: { request: 'delete pod' } }],
+            nested: {
+              subagent_name: 'kagent__NS__child_agent',
+              task_id: 'child-task',
+              context_id: 'child-session',
+              tools: [{ id: 'child-confirm', call_id: 'child-call', name: 'delete_pod', args: { name: 'old' } }],
+            },
+          },
+        },
+      }),
+    }));
+
+    expect(emitted.map(message => (message.metadata as ADKMetadata)?.originalType)).toEqual([
+      'ToolCallRequestEvent',
+      'ToolApprovalRequest',
+    ]);
+    expect((emitted[0].metadata as ADKMetadata).toolCallData).toEqual([{
+      id: 'parent-call',
+      name: 'kagent__NS__child_agent',
+      args: { request: 'delete pod' },
+      subagent_session_id: 'child-session',
+    }]);
+    expect((emitted[1].metadata as ADKMetadata).toolCallData?.[0]?.id).toBe('child-call');
+  });
 
   test('artifact-update: agent function_response with subagent_session_id in response dict emits toolResultData with subagent_session_id', () => {
     const { emitted, handlers } = makeHandlers();

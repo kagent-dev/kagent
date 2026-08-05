@@ -44,8 +44,8 @@ export interface GroupingOptions {
 
 /**
  * True when every tool call in a ToolApprovalRequest message has been decided
- * — either persisted in `metadata.approvalDecision` (uniform string or
- * per-tool map) or recorded locally in `pendingDecisions`. Undecided
+ * — either persisted in the per-tool `metadata.approvalDecision` map or
+ * recorded locally in `pendingDecisions`. Undecided
  * approvals must stay visible outside any collapsed group.
  */
 const isApprovalResolved = (message: Message, pendingDecisions?: Record<string, ToolDecision>): boolean => {
@@ -55,11 +55,7 @@ const isApprovalResolved = (message: Message, pendingDecisions?: Record<string, 
   const rawDecision = (message.metadata as ADKMetadata)?.approvalDecision;
   return requests.every(request => {
     if (!request.id) return false;
-    if (typeof rawDecision === "object" && rawDecision !== null) {
-      if ((rawDecision as Record<string, ToolDecision>)[request.id]) return true;
-    } else if (rawDecision) {
-      return true;
-    }
+    if ((rawDecision as Record<string, ToolDecision> | undefined)?.[request.id]) return true;
     return !!pendingDecisions?.[request.id];
   });
 };
@@ -120,10 +116,15 @@ const classifyToolMessage = (message: Message, options?: GroupingOptions): ToolM
   }
 
   const { isStandaloneToolName, pendingApprovalIds } = options ?? {};
-  if (isStandaloneToolName || pendingApprovalIds?.size) {
-    const requests = extractToolCallRequests(message);
-    const results = extractToolCallResults(message);
+  const requests = extractToolCallRequests(message);
+  const results = extractToolCallResults(message);
 
+  // A nested HITL pause supplies the child session on its synthetic parent
+  // request, which must remain visible as an AgentCall activity card even
+  // when a framework does not encode the agent namespace in the tool name.
+  if (requests.some(request => request.subagent_session_id)) return "standalone";
+
+  if (isStandaloneToolName || pendingApprovalIds?.size) {
     // MCP app calls render interactive UI — always standalone.
     if (isStandaloneToolName) {
       const hasStandaloneCall =

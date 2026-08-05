@@ -64,10 +64,27 @@ describe("isGroupableToolMessage", () => {
     ).toBe(false);
   });
 
+  it("never groups a nested HITL parent call carrying its child session", () => {
+    const message = baseMessage({
+      messageId: "nested-parent",
+      role: Role.ROLE_AGENT,
+      metadata: {
+        originalType: "ToolCallRequestEvent",
+        toolCallData: [{
+          id: "parent-call",
+          name: "child-agent",
+          args: {},
+          subagent_session_id: "child-session",
+        }],
+      },
+      parts: [],
+    });
+
+    expect(isGroupableToolMessage(message)).toBe(false);
+  });
+
   it("groups approval messages once decided", () => {
-    // Persisted decision (uniform string)
-    expect(isGroupableToolMessage(approvalMessage("c1", "approve"))).toBe(true);
-    // Persisted decision (per-tool map)
+    // Persisted per-tool decision
     expect(isGroupableToolMessage(approvalMessage("c1", { c1: "reject" }))).toBe(true);
     // Local optimistic decision
     expect(isGroupableToolMessage(approvalMessage("c1"), { pendingDecisions: { c1: "approve" } })).toBe(true);
@@ -196,7 +213,7 @@ describe("groupToolCallMessages", () => {
       responseMessage("c1", "k8s_get_events"),
       responseMessage("c2", "k8s_get_pod_logs"),
       responseMessage("c3", "show-weather-dashboard"),
-      approvalMessage("c4", "approve"),
+      approvalMessage("c4", { c4: "approve" }),
       responseMessage("c4", "datetime_get_current_time"),
       requestMessage("c5", "k8s_get_pod_logs"),
       responseMessage("c5", "k8s_get_pod_logs"),

@@ -1,6 +1,5 @@
 import { type Message } from "@a2a-js/sdk";
-import { ADKMetadata, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
-import type { FunctionCall } from "@/types";
+import { ADKMetadata, ProcessedToolCallData, ProcessedToolResultData, ToolResponseData, normalizeToolResultToText, getMetadataValue } from "@/lib/messageHandlers";
 import { isAgentToolName, isDataPart, isTextPart } from "@/lib/utils";
 
 // Helper functions to work with A2A SDK Messages carrying tool call data.
@@ -43,20 +42,19 @@ export const isToolCallSummaryMessage = (message: Message): boolean => {
   return metadata?.originalType === "ToolCallSummaryMessage";
 };
 
-export const extractToolCallRequests = (message: Message): FunctionCall[] => {
+export const extractToolCallRequests = (message: Message): ProcessedToolCallData[] => {
   if (!isToolCallRequestMessage(message)) return [];
 
   // Check for stored task format first (data parts)
-  const functionCalls: FunctionCall[] = [];
+  const functionCalls: ProcessedToolCallData[] = [];
 
   for (const part of message.parts ?? []) {
     if (!isDataPart(part) || !part.metadata) continue;
     if (getMetadataValue<string>(part.metadata as Record<string, unknown>, "type") !== "function_call") continue;
 
-    const data = part.content.value as FunctionCall;
-    // Skip ADK internal function calls (confirmation/auth) and ask_user (has its own display)
+    const data = part.content.value as ProcessedToolCallData;
+    // Authentication and ask_user have dedicated displays.
     if (
-      data.name === "adk_request_confirmation" ||
       data.name === "adk_request_credential" ||
       data.name === "ask_user"
     ) {
@@ -83,7 +81,6 @@ export const extractToolCallRequests = (message: Message): FunctionCall[] => {
     const toolCallData = metadata?.toolCallData || JSON.parse(content || "[]");
     return Array.isArray(toolCallData)
       ? toolCallData.filter(tc =>
-          tc.name !== "adk_request_confirmation" &&
           tc.name !== "adk_request_credential" &&
           tc.name !== "ask_user"
         )

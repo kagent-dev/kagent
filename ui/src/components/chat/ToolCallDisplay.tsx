@@ -97,14 +97,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
             let initialStatus: ToolCallStatus = "requested";
             if (msgMetadata?.originalType === "ToolApprovalRequest") {
               const rawDecision = msgMetadata?.approvalDecision;
-              // approvalDecision is either a uniform ToolDecision string
-              // or a per-tool map (Record<string, ToolDecision>) for batch.
-              let decision: ToolDecision | undefined;
-              if (typeof rawDecision === "object" && rawDecision !== null) {
-                decision = (rawDecision as Record<string, ToolDecision>)[request.id];
-              } else {
-                decision = rawDecision as ToolDecision | undefined;
-              }
+              const decision = (rawDecision as Record<string, ToolDecision> | undefined)?.[request.id];
               if (decision === "approve") {
                 initialStatus = "approved";
               } else if (decision === "reject") {
@@ -117,6 +110,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
               id: request.id,
               call: request,
               status: initialStatus,
+              subagentSessionId: request.subagent_session_id,
             });
           }
         }
@@ -201,7 +195,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
         const msgMeta = currentMessage.metadata as ADKMetadata;
         const isApprovalRequest = msgMeta?.originalType === "ToolApprovalRequest";
         const subagentName = isApprovalRequest ? (msgMeta?.subagentName as string | undefined) : undefined;
-        return (!isApprovalRequest && isAgentToolName(toolCall.call.name)) ? (
+        return (!isApprovalRequest && (isAgentToolName(toolCall.call.name) || !!toolCall.subagentSessionId)) ? (
           <AgentCallDisplay
             key={toolCall.id}
             call={toolCall.call}

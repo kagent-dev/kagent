@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getBackendUrl } from '@/lib/utils';
 import { getAuthHeadersFromRequest, CORS_ALLOW_HEADERS } from '@/lib/auth';
 import { A2A_PROTOCOL_VERSION, A2A_VERSION_HEADER } from '@a2a-js/sdk';
+import { HITL_EXTENSION_URI } from '@/types';
 
 export async function POST(
   request: NextRequest,
@@ -28,6 +29,7 @@ export async function POST(
         'Connection': 'keep-alive',
         'User-Agent': 'kagent-ui',
         [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
+        'A2A-Extensions': request.headers.get('A2A-Extensions') || HITL_EXTENSION_URI,
       },
       body: JSON.stringify(a2aRequest),
     });
@@ -55,6 +57,8 @@ export async function POST(
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': CORS_ALLOW_HEADERS,
     });
+    const activatedExtensions = backendResponse.headers.get('A2A-Extensions');
+    if (activatedExtensions) responseHeaders.set('A2A-Extensions', activatedExtensions);
 
     const KEEP_ALIVE_INTERVAL_MS = 30000; // 30 seconds
     const stream = new ReadableStream({

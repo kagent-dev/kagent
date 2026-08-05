@@ -19,7 +19,7 @@ import { isAgentToolName, isUserRole } from "@/lib/utils";
 import ChatMinimap from "@/components/chat/ChatMinimap";
 import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
-import type { TokenStats, Session, ChatStatus, ToolDecision } from "@/types";
+import { type HitlRequestPayload, type HitlResponsePayload, type TokenStats, type Session, type ChatStatus, type ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
 import { createSession, getSessionTasks, checkSessionExists, getSessionWithEvents } from "@/app/actions/sessions";
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
@@ -40,14 +40,14 @@ import {
   isFinishedAssistantReply,
   createMessage,
   ADKMetadata,
-  ProcessedToolCallData,
 } from "@/lib/messageHandlers";
+import { createHitlResponseMessage, responseMatchesRequest, visibleHitlTools } from "@/lib/hitl";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatRunInSandbox, useChatSubstrateSandbox, useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
-import { Role, taskStateFromJSON, type Message, type StreamResponse, type Task } from "@a2a-js/sdk";
+import { taskStateFromJSON, type Message, type StreamResponse, type Task } from "@a2a-js/sdk";
 import { useChatMcpApps } from "@/components/chat/ChatMcpAppsContext";
 import {
   checkAndSyncChatSession,
@@ -610,8 +610,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   };
 
   /**
-   * Shared streaming helper used by both handleSendMessage and
-   * sendApprovalDecision.  Handles the abort controller, timeout, event loop,
+   * Shared streaming helper used by both handleSendMessage and HITL responses.
+   * Handles the abort controller, timeout, event loop,
    * and base cleanup.
    */
   const streamA2AMessage = async (
@@ -778,40 +778,27 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     toast.error("Request cancelled");
   };
 
-  // Collect all pending tool call IDs from ToolApprovalRequest messages
-  const getPendingApprovalToolIds = (): { toolIds: string[]; taskId: string | undefined } => {
-    const toolIds: string[] = [];
-    let taskId: string | undefined;
-    const allCurrentMessages = [...storedMessages, ...streamingMessages];
-    for (const msg of allCurrentMessages) {
+  const getPendingHitlRequest = (): { request: HitlRequestPayload; taskId?: string } | undefined => {
+    for (const msg of [...storedMessages, ...streamingMessages]) {
       const meta = msg.metadata as ADKMetadata | undefined;
-      if (meta?.originalType !== "ToolApprovalRequest") continue;
-      // Skip approval messages that already have a decision (from previous cycles)
-      if (meta?.approvalDecision) continue;
-      if (!taskId) taskId = msg.taskId;
-      const toolCallData = meta.toolCallData as ProcessedToolCallData[] | undefined;
-      if (toolCallData) {
-        for (const tc of toolCallData) {
-          if (tc.id) toolIds.push(tc.id);
-        }
-      }
+      if (meta?.approvalDecision || !meta?.hitlRequest) continue;
+      return { request: meta.hitlRequest, taskId: msg.taskId };
     }
-    return { toolIds, taskId };
+    return undefined;
   };
 
-  const sendApprovalDecision = async (
-    decisionData: Record<string, unknown>,
+  const sendHitlResponse = async (
+    response: HitlResponsePayload,
+    resolvedMetadata: Record<string, unknown>,
     displayText: string,
+    taskId: string | undefined,
+    errorLabel: string,
   ) => {
     const currentSessionId = session?.id || sessionId;
 
-    // Find the taskId first so the guard can verify the task is still input-required.
-    const { taskId: approvalTaskId } = getPendingApprovalToolIds();
-
-    // Cross-tab guard: another tab may have already submitted this approval.
-    if (currentSessionId && approvalTaskId) {
+    if (currentSessionId && taskId) {
       const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
-        expectedTaskId: approvalTaskId,
+        expectedTaskId: taskId,
         messages: {
           inFlight: "Another tab already responded — reconnecting to live updates",
           staleOrChanged: "Session state changed — please review",
@@ -823,57 +810,23 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     setChatStatus("thinking");
     setStreamingContent("");
 
-    // Stamp approvalDecision on the current pending approval messages so they
-    // are excluded from getPendingApprovalToolIds on future HITL cycles.
-    // approvalDecision is either a uniform ToolDecision or a per-tool map
-    // (Record<string, ToolDecision>) for batch decisions.
-    const stampDecision = (msgs: Message[]) => msgs.map(m => {
-      const meta = m.metadata as Record<string, unknown> | undefined;
-      if (meta?.originalType === "ToolApprovalRequest" && !meta.approvalDecision) {
-        const dt = decisionData.decision_type as string;
-        if (dt === "batch") {
-          // Store the per-tool decisions map so ToolCallDisplay can resolve
-          // each inner tool independently.
-          const decisions = decisionData.decisions as Record<string, ToolDecision>;
-          return { ...m, metadata: { ...meta, approvalDecision: decisions } };
-        } else {
-          return { ...m, metadata: { ...meta, approvalDecision: dt as ToolDecision } };
-        }
+    const stampResponse = (msgs: Message[]) => msgs.map(m => {
+      const meta = m.metadata as ADKMetadata | undefined;
+      if (meta?.hitlRequest && !meta.approvalDecision && responseMatchesRequest(meta.hitlRequest, response)) {
+        return { ...m, metadata: { ...meta, ...resolvedMetadata } };
       }
       return m;
     });
-    setStreamingMessages(stampDecision);
-    setStoredMessages(stampDecision);
+    setStreamingMessages(stampResponse);
+    setStoredMessages(stampResponse);
 
-    const messageId = uuidv4();
-    const a2aMessage: Message = {
-      messageId,
-      role: Role.ROLE_USER,
-      parts: [
-        {
-          content: { $case: "data", value: decisionData },
-          metadata: undefined,
-          filename: "",
-          mediaType: "application/json",
-        },
-        {
-          content: { $case: "text", value: displayText },
-          metadata: undefined,
-          filename: "",
-          mediaType: "text/plain",
-        },
-      ],
-      contextId: currentSessionId ?? "",
-      taskId: approvalTaskId ?? "",
-      metadata: {
-        timestamp: Date.now(),
-      },
-      extensions: [],
-      referenceTaskIds: [],
-    };
+    const a2aMessage = createHitlResponseMessage(
+      response,
+      { messageId: uuidv4(), contextId: currentSessionId, taskId, text: displayText },
+    );
 
     await streamA2AMessage(a2aMessage, {
-      errorLabel: "Approval failed",
+      errorLabel,
       sessionIdForWait: currentSessionId,
       onFinally: () => {
         // Ensure chat state resets after approval stream ends
@@ -890,48 +843,32 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     });
   };
 
-  // Submit all collected decisions to the backend. Called when every pending
-  // tool has a decision recorded in `pendingDecisions`, or immediately for
-  // "approve all" / uniform decisions.
+  // Submit one explicit response for every pending tool. "Approve all" is a
+  // UI shortcut only; the wire format is identical for every submission.
   const submitDecisions = async (decisions: Record<string, ToolDecision>) => {
     const values = Object.values(decisions);
-    const allApprove = values.every(v => v === "approve");
-    const allReject = values.every(v => v !== "approve");
     const reasons = pendingRejectionReasonsRef.current;
 
-    if (allApprove) {
-      // Uniform approve — no need for batch
-      await sendApprovalDecision(
-        { decision_type: "approve" },
-        "Approved",
-      );
-    } else if (allReject && Object.values(reasons).length === 0) {
-      // Uniform reject without reason, otherwise fall through to batch
-      await sendApprovalDecision(
-        { decision_type: "reject" },
-        "Rejected",
-      );
-    } else {
-      // Mixed decisions — use batch mode with per-tool decisions.
-      // For subagent HITL the keys are inner subagent tool IDs; the backend
-      // detects this via hitl_parts in the pending confirmation payload and
-      // forwards the batch to the subagent.
-      const decisionData: Record<string, unknown> = { decision_type: "batch", decisions };
-      // Include per-tool rejection reasons for denied tools (if any)
-      const rejectedReasons: Record<string, string> = {};
-      for (const [toolId, decision] of Object.entries(decisions)) {
-        if (decision === "reject" && reasons[toolId]) {
-          rejectedReasons[toolId] = reasons[toolId];
-        }
-      }
-      if (Object.keys(rejectedReasons).length > 0) {
-        decisionData.rejection_reasons = rejectedReasons;
-      }
-      await sendApprovalDecision(
-        decisionData,
-        `Batch decision: ${values.filter(v => v === "approve").length} approved, ${values.filter(v => v !== "approve").length} rejected`,
-      );
+    const pending = getPendingHitlRequest();
+    if (!pending || pending.request.type !== "tool_approval_request") {
+      throw new Error("Missing pending tool approval request");
     }
+    const tools = visibleHitlTools(pending.request);
+    const approvals = tools.map(tool => {
+      const approved = decisions[tool.call_id] === "approve";
+      return {
+        id: tool.id,
+        approved,
+        ...(!approved && reasons[tool.call_id] ? { rejection_reason: reasons[tool.call_id] } : {}),
+      };
+    });
+    await sendHitlResponse(
+      { type: "tool_approval_response", approvals },
+      { approvalDecision: decisions },
+      `${values.filter(v => v === "approve").length} approved, ${values.filter(v => v !== "approve").length} rejected`,
+      pending.taskId,
+      "Approval failed",
+    );
   };
 
   const recordDecision = (toolCallId: string, decision: ToolDecision, reason?: string) => {
@@ -946,10 +883,13 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     // Check if all pending tools now have a decision
-    const { toolIds } = getPendingApprovalToolIds();
-    if (toolIds.length > 0 && toolIds.every(id => id in updated)) {
-      submitDecisions(updated).catch(err => toast.error(`Decision failed: ${err instanceof Error ? err.message : "Unknown error"}`));
-    } else if (toolIds.length === 0) {
+    const pending = getPendingHitlRequest();
+    if (!pending || pending.request.type !== "tool_approval_request") {
+      toast.error("Pending tool approval request is no longer available");
+      return;
+    }
+    const toolIds = visibleHitlTools(pending.request).map(tool => tool.call_id);
+    if (toolIds.every(id => id in updated)) {
       submitDecisions(updated).catch(err => toast.error(`Decision failed: ${err instanceof Error ? err.message : "Unknown error"}`));
     }
   };
@@ -963,83 +903,20 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   };
 
   /**
-   * Handle ask_user answers submitted by the user. Sends an "approve" decision
-   * with the answers payload attached, routed to the pending ask_user task.
+   * Handle ask_user answers submitted by the user.
    */
   const handleAskUserSubmit = async (answers: Array<{ answer: string[] }>) => {
-    const currentSessionId = session?.id || sessionId;
-
-    // Find the taskId from the pending AskUserRequest message
-    let askUserTaskId: string | undefined;
-    const allCurrentMessages = [...storedMessages, ...streamingMessages];
-    for (const msg of allCurrentMessages) {
-      const meta = msg.metadata as ADKMetadata | undefined;
-      if (meta?.originalType === "AskUserRequest" && !meta?.approvalDecision) {
-        askUserTaskId = msg.taskId;
-        break;
-      }
+    const pending = getPendingHitlRequest();
+    if (!pending || pending.request.type !== "ask_user_request") {
+      throw new Error("Missing pending ask_user request");
     }
-
-    // Cross-tab guard: another tab may have already answered this question.
-    if (currentSessionId && askUserTaskId) {
-      const guardResult = await checkAndSyncSessionBeforeAction(currentSessionId, {
-        expectedTaskId: askUserTaskId,
-        messages: {
-          inFlight: "Another tab already responded — reconnecting to live updates",
-          staleOrChanged: "Session state changed — please review",
-        },
-      });
-      if (guardResult === "blocked") return;
-    }
-
-    setChatStatus("thinking");
-    setStreamingContent("");
-
-    // Stamp the ask-user message as resolved so we don't show the form again
-    const stampAskUser = (msgs: Message[]) => msgs.map(m => {
-      const meta = m.metadata as Record<string, unknown> | undefined;
-      if (meta?.originalType === "AskUserRequest" && !meta.approvalDecision) {
-        return { ...m, metadata: { ...meta, approvalDecision: "approve", askUserAnswers: answers } };
-      }
-      return m;
-    });
-    setStreamingMessages(stampAskUser);
-    setStoredMessages(stampAskUser);
-
-    const messageId = uuidv4();
-    const a2aMessage: Message = {
-      messageId,
-      role: Role.ROLE_USER,
-      parts: [
-        {
-          content: { $case: "data", value: { decision_type: "approve", ask_user_answers: answers } },
-          metadata: undefined,
-          filename: "",
-          mediaType: "application/json",
-        },
-        {
-          content: { $case: "text", value: "Answered questions" },
-          metadata: undefined,
-          filename: "",
-          mediaType: "text/plain",
-        },
-      ],
-      contextId: currentSessionId ?? "",
-      taskId: askUserTaskId ?? "",
-      metadata: { timestamp: Date.now() },
-      extensions: [],
-      referenceTaskIds: [],
-    };
-
-    await streamA2AMessage(a2aMessage, {
-      errorLabel: "Ask user response failed",
-      sessionIdForWait: currentSessionId,
-      onFinally: () => {
-        setIsStreaming(false);
-        setStreamingContent("");
-        setChatStatus(prev => prev === "thinking" ? "ready" : prev);
-      },
-    });
+    await sendHitlResponse(
+      { type: "ask_user_response", id: pending.request.id, answers },
+      { approvalDecision: "approve", askUserAnswers: answers },
+      "Answered questions",
+      pending.taskId,
+      "Ask user response failed",
+    );
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

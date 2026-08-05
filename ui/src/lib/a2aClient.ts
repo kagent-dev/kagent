@@ -14,6 +14,7 @@ import type {
   SubscribeToTaskRequest as A2ASubscribeToTaskRequest,
 } from '@a2a-js/sdk';
 import { formatA2AClientError } from './a2aErrors';
+import { HITL_EXTENSION_URI } from '@/types';
 
 export const A2A_JSONRPC_METHODS = {
   sendStreamingMessage: "SendStreamingMessage",
@@ -75,6 +76,7 @@ export class KagentA2AClient {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream',
       [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
+      'A2A-Extensions': HITL_EXTENSION_URI,
     };
     if (shareToken) headers['X-Share-Token'] = shareToken;
 
@@ -126,6 +128,7 @@ export class KagentA2AClient {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream',
       [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
+      'A2A-Extensions': HITL_EXTENSION_URI,
     };
     if (shareToken) headers['X-Share-Token'] = shareToken;
 

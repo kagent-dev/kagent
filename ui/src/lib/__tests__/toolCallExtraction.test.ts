@@ -58,13 +58,12 @@ describe("extractToolCallRequests", () => {
     ]);
   });
 
-  it("filters ADK-internal calls and ask_user", () => {
+  it("filters authentication and ask_user calls with dedicated displays", () => {
     const msg = message({
       parts: [
-        requestPart("c1", "adk_request_confirmation"),
-        requestPart("c2", "adk_request_credential"),
-        requestPart("c3", "ask_user"),
-        requestPart("c4", "real_tool"),
+        requestPart("c1", "adk_request_credential"),
+        requestPart("c2", "ask_user"),
+        requestPart("c3", "real_tool"),
       ],
     });
     expect(extractToolCallRequests(msg).map(c => c.name)).toEqual(["real_tool"]);
