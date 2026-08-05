@@ -3,7 +3,7 @@
     "capabilities": {
       "extensions": [
         {
-          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "description": "Human in the loop for tool approval, ask user, and nested subagents",
           "uri": "https://kagent.dev/extensions/hitl/v1"
         }
       ],
@@ -70,7 +70,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://coordinator-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"coordinator_agent\",\"skills\":[],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://coordinator-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"coordinator_agent\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that delegates tasks to a worker agent, potentially in parallel.\",\"remote_agents\":[{\"name\":\"test__NS__worker_agent\",\"url\":\"http://worker-agent.test:8080\",\"isolate_sessions\":true}],\"stream\":false}"
       }
     },
@@ -140,7 +140,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "394504566616198015"
+              "kagent.dev/config-hash": "11556478968558643747"
             },
             "labels": {
               "app": "kagent",

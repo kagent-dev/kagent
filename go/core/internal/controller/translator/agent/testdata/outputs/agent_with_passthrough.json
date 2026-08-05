@@ -3,7 +3,7 @@
     "capabilities": {
       "extensions": [
         {
-          "description": "Human in the loop for tool approval, batch decisions, ask user, and nested subagents",
+          "description": "Human in the loop for tool approval, ask user, and nested subagents",
           "uri": "https://kagent.dev/extensions/hitl/v1"
         }
       ],
@@ -65,7 +65,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://passthrough-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, batch decisions, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"passthrough_agent\",\"skills\":[],\"version\":\"\"}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://passthrough-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"passthrough_agent\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"api_key_passthrough\":true,\"base_url\":\"\",\"temperature\":0.7},\"description\":\"\",\"instruction\":\"You are a helpful assistant.\",\"stream\":false}"
       }
     },
@@ -135,7 +135,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "6282790447833677659"
+              "kagent.dev/config-hash": "4661621653504073864"
             },
             "labels": {
               "app": "kagent",

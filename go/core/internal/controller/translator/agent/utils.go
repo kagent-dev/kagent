@@ -28,7 +28,11 @@ func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
 		Capabilities: a2atype.AgentCapabilities{
 			Streaming:         true,
 			PushNotifications: false,
-			Extensions:        []a2atype.AgentExtension{{URI: hitlExtensionURI, Description: "Human in the loop for tool approval, batch decisions, ask user, and nested subagents", Required: false}},
+			Extensions: []a2atype.AgentExtension{{
+				URI:         hitlExtensionURI,
+				Description: "Human in the loop for tool approval, ask user, and nested subagents",
+				Required:    false,
+			}},
 		},
 		// Can't be null for Python, so set to empty list.
 		Skills:             []a2atype.AgentSkill{},
