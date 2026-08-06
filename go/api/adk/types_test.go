@@ -608,7 +608,6 @@ func TestAgentConfig_Roundtrip(t *testing.T) {
 		Description: "test",
 		Instruction: "be helpful",
 		Stream:      new(true),
-		ExecuteCode: new(true),
 		HttpTools: []HttpMcpServerConfig{
 			{
 				Params: StreamableHTTPConnectionParams{Url: "http://localhost:8080"},
@@ -653,9 +652,6 @@ func TestAgentConfig_Roundtrip(t *testing.T) {
 	}
 	if (parsed.Stream == nil) != (original.Stream == nil) || (parsed.Stream != nil && *parsed.Stream != *original.Stream) {
 		t.Errorf("Stream = %v, want %v", parsed.Stream, original.Stream)
-	}
-	if (parsed.ExecuteCode == nil) != (original.ExecuteCode == nil) || (parsed.ExecuteCode != nil && *parsed.ExecuteCode != *original.ExecuteCode) {
-		t.Errorf("ExecuteCode = %v, want %v", parsed.ExecuteCode, original.ExecuteCode)
 	}
 
 	// Verify HttpTools roundtrip

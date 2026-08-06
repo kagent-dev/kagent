@@ -95,7 +95,7 @@ func (a *adkApiTranslator) BuildManifest(
 		outputs.Manifest = append(outputs.Manifest, sa)
 	}
 
-	podRuntime, err := buildPodRuntime(manifestCtx, inputs.Config, inputs.Sandbox, configSecret.volumes, configSecret.mounts)
+	podRuntime, err := buildPodRuntime(manifestCtx, inputs.Sandbox, configSecret.volumes, configSecret.mounts)
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +302,6 @@ func buildServiceAccount(manifestCtx manifestContext) *corev1.ServiceAccount {
 
 func buildPodRuntime(
 	manifestCtx manifestContext,
-	cfg *adk.AgentConfig,
 	sandboxCfg *v1alpha2.SandboxConfig,
 	secretVolumes []corev1.Volume,
 	secretMounts []corev1.VolumeMount,
@@ -314,7 +313,7 @@ func buildPodRuntime(
 	volumeMounts := append([]corev1.VolumeMount{}, secretMounts...)
 	volumeMounts = append(volumeMounts, manifestCtx.deployment.VolumeMounts...)
 
-	needCodeExecIsolation := cfg != nil && cfg.GetExecuteCode()
+	needCodeExecIsolation := false
 	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
 	if err != nil {
 		return nil, err
@@ -352,12 +351,7 @@ func needsSRTSettings(agent v1alpha2.AgentObject, sandboxCfg *v1alpha2.SandboxCo
 	if spec.Type == v1alpha2.AgentType_BYO {
 		return sandboxCfg != nil
 	}
-	if spec.Skills != nil {
-		return true
-	}
-	return spec.Declarative != nil &&
-		spec.Declarative.ExecuteCodeBlocks != nil &&
-		*spec.Declarative.ExecuteCodeBlocks
+	return spec.Skills != nil
 }
 
 func buildSRTSettingsJSON(sandboxCfg *v1alpha2.SandboxConfig) ([]byte, error) {

@@ -2,8 +2,8 @@
 # socat, ripgrep) and a bash tool venv for agents that execute code / run shell tools. Unlike
 # python/Dockerfile (distroless slim), this image needs a shell and package tooling, so it is
 # built on a digest-pinnable debian-slim base rather than distroless. The controller selects
-# this image (PythonADKFullImageDigest) for declarative agents that need SRT (skills,
-# executeCodeBlocks) and for sandboxed BYO agents.
+# this image (PythonADKFullImageDigest) for declarative agents that need SRT (skills)
+# and for sandboxed BYO agents.
 
 ### STAGE 1: uv binary
 ARG UV_VERSION=0.11.15

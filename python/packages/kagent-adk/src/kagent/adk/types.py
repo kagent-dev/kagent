@@ -24,7 +24,6 @@ from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.models._ssl import create_ssl_context
-from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
 
 logger = logging.getLogger(__name__)
@@ -395,7 +394,6 @@ class AgentConfig(BaseModel):
     http_tools: list[HttpMcpServerConfig] | None = None  # Streamable HTTP MCP tools
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
-    execute_code: bool | None = None
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
     network: NetworkConfig | None = None
@@ -532,7 +530,6 @@ class AgentConfig(BaseModel):
                     )
                 )
 
-        code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)
 
         # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
@@ -550,7 +547,6 @@ class AgentConfig(BaseModel):
             description=self.description,
             static_instruction=self.instruction,
             tools=tools,
-            code_executor=code_executor,
             before_tool_callback=before_tool_callback,
             before_model_callback=before_model_callbacks,
         )
