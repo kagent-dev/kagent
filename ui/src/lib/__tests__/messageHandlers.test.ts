@@ -499,62 +499,6 @@ describe('createMessageHandlers test', () => {
     expect(emitted[0].parts[0]?.content?.value).toBe('result: {"rows":2}');
   });
 
-  test('artifact-update drops a model-internal thoughtSignature data part', () => {
-    const emitted: Message[] = [];
-    const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
-        emitted.length = 0;
-        emitted.push(...next);
-      },
-      setIsStreaming: () => {},
-      setStreamingContent: () => {},
-      agentContext: { namespace: 'kagent', agentName: 'testagent' },
-    });
-
-    // Gemini returns the answer text and its encrypted reasoning handle as two
-    // parts. The signature part is unlabeled, so it used to fall through to the
-    // JSON.stringify fallback and get concatenated onto the answer.
-    handlers.handleMessageEvent(artifactUpdateEvent({
-      lastChunk: true,
-      parts: [
-        createTextPart('Cilium is on v1.19.5.'),
-        createDataPart({ thoughtSignature: 'EjQKMgERTTIPW1Dx9s3NlDDSMzmWhbt5' }),
-      ],
-    }));
-
-    // TextMessage + the summary that lastChunk always appends
-    expect(emitted.length).toBe(2);
-    expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
-    expect((emitted[0].parts[0] as any).content.value).toBe('Cilium is on v1.19.5.');
-  });
-
-  test('artifact-update keeps unlabeled data parts that are not model-internal', () => {
-    const emitted: Message[] = [];
-    const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
-        emitted.length = 0;
-        emitted.push(...next);
-      },
-      setIsStreaming: () => {},
-      setStreamingContent: () => {},
-      agentContext: { namespace: 'kagent', agentName: 'testagent' },
-    });
-
-    handlers.handleMessageEvent(artifactUpdateEvent({
-      lastChunk: true,
-      parts: [
-        createTextPart('result: '),
-        createDataPart({ rows: 2 }),
-      ],
-    }));
-
-    expect(emitted.length).toBe(2);
-    expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
-    expect((emitted[0].parts[0] as any).content.value).toBe('result: {"rows":2}');
-  });
-
   test('content-bearing lastChunk replaces partials and commits the final artifact text', () => {
     const emitted: Message[] = [];
     let streamingContent = '';
