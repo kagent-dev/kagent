@@ -13,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	adkartifact "google.golang.org/adk/v2/artifact"
 	adkmemory "google.golang.org/adk/v2/memory"
 	adkplugin "google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
@@ -102,10 +103,11 @@ func CreateRunnerConfig(
 	}
 
 	cfg := runner.Config{
-		AppName:        appName,
-		Agent:          adkAgent,
-		SessionService: adkSessionService,
-		MemoryService:  runnerMemory,
+		AppName:         appName,
+		Agent:           adkAgent,
+		SessionService:  adkSessionService,
+		MemoryService:   runnerMemory,
+		ArtifactService: adkartifact.InMemoryService(),
 		PluginConfig: runner.PluginConfig{
 			Plugins: adkPlugins,
 		},

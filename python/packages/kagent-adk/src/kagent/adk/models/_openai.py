@@ -32,6 +32,7 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
 
+from ._file_extract import inline_file_to_text
 from ._ssl import KAgentTLSMixin
 from ._token_source import GDCHTokenSource
 
@@ -152,14 +153,20 @@ def _convert_content_to_openai_messages(
                 function_calls.append(part.function_call)
             elif part.function_response:
                 function_responses.append(part.function_response)
-            elif part.inline_data and part.inline_data.mime_type and part.inline_data.mime_type.startswith("image"):
-                if part.inline_data.data:
+            elif part.inline_data and part.inline_data.data:
+                if part.inline_data.mime_type and part.inline_data.mime_type.startswith("image"):
                     image_data = base64.b64encode(part.inline_data.data).decode()
                     image_part: ChatCompletionContentPartImageParam = {
                         "type": "image_url",
                         "image_url": {"url": f"data:{part.inline_data.mime_type};base64,{image_data}"},
                     }
                     image_parts.append(image_part)
+                else:
+                    # Non-image files (PDF, Office docs, text) are extracted to
+                    # text so the model can read them instead of dropping them.
+                    file_text = inline_file_to_text(part.inline_data)
+                    if file_text:
+                        text_parts.append(file_text)
 
         # Function responses are now handled together with function calls
         # This ensures proper pairing and prevents orphaned tool messages
