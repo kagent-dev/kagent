@@ -165,7 +165,6 @@ type AgentOptions struct {
 	Env            []corev1.EnvVar
 	Skills         *v1alpha2.SkillForAgent
 	Sandbox        *v1alpha2.SandboxConfig
-	ExecuteCode    *bool
 	Runtime        *v1alpha2.DeclarativeRuntime
 	Memory         *v1alpha2.MemorySpec
 	PromptTemplate *v1alpha2.PromptTemplateSpec
@@ -182,6 +181,46 @@ type AgentOptions struct {
 func pythonRuntime() *v1alpha2.DeclarativeRuntime {
 	r := v1alpha2.DeclarativeRuntime_Python
 	return &r
+}
+
+// HITL extension URI — keep in sync with go/adk/pkg/a2a.HITLExtensionURI.
+// go/core must not import go/adk.
+const hitlExtensionURI = "https://kagent.dev/extensions/hitl/v1"
+
+func hitlAskUserRequestID(msg *a2atype.Message) (string, bool) {
+	if msg == nil || msg.Metadata == nil {
+		return "", false
+	}
+	raw, _ := msg.Metadata[hitlExtensionURI].(map[string]any)
+	if raw == nil || raw["type"] != "ask_user_request" {
+		return "", false
+	}
+	id, _ := raw["id"].(string)
+	return id, id != ""
+}
+
+func attachHitlAskUserResponse(msg *a2atype.Message, id, answer string) *a2atype.Message {
+	if msg.Metadata == nil {
+		msg.Metadata = map[string]any{}
+	}
+	msg.Metadata[hitlExtensionURI] = map[string]any{
+		"type": "ask_user_response",
+		"id":   id,
+		"answers": []map[string]any{
+			{"answer": []string{answer}},
+		},
+	}
+	hasExt := false
+	for _, ext := range msg.Extensions {
+		if ext == hitlExtensionURI {
+			hasExt = true
+			break
+		}
+	}
+	if !hasExt {
+		msg.Extensions = append(msg.Extensions, hitlExtensionURI)
+	}
+	return msg
 }
 
 func requireAgentRuntime(t *testing.T, cli client.Client, agent *v1alpha2.Agent, want v1alpha2.DeclarativeRuntime) {
@@ -464,10 +503,9 @@ func generateAgent(modelConfigName string, tools []*v1alpha2.Tool, opts AgentOpt
 		Spec: v1alpha2.AgentSpec{
 			Type: v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
-				ModelConfig:       modelConfigName,
-				SystemMessage:     systemMessage,
-				Tools:             tools,
-				ExecuteCodeBlocks: opts.ExecuteCode,
+				ModelConfig:   modelConfigName,
+				SystemMessage: systemMessage,
+				Tools:         tools,
 				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
 					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
 						ImagePullPolicy: corev1.PullAlways,
@@ -1521,26 +1559,65 @@ You are {{.AgentName}}, operating in {{.AgentNamespace}}.
 	})
 }
 
-func TestE2EIAgentRunsCode(t *testing.T) {
-	// Setup mock server
-	baseURL, stopServer := setupMockServer(t, "mocks/run_code.json")
+// TestE2EGoADKHITLAskUser exercises Go ADK ask_user pause/resume over the
+// public A2A HITL extension (input-required → ask_user_response → completed).
+func TestE2EGoADKHITLAskUser(t *testing.T) {
+	baseURL, stopServer := setupMockServer(t, "mocks/invoke_golang_hitl_ask_user.json")
 	defer stopServer()
 
-	// Setup Kubernetes client
 	cli := setupK8sClient(t, false)
-
-	// Setup specific resources
 	modelCfg := setupModelConfig(t, cli, baseURL)
 	agent := setupAgentWithOptions(t, cli, modelCfg.Name, nil, AgentOptions{
-		ExecuteCode: new(true),
-		Runtime:     pythonRuntime(),
+		Name: "hitl-ask-user",
+	})
+	requireAgentRuntime(t, cli, agent, v1alpha2.DeclarativeRuntime_Go)
+
+	a2aClient := newA2AClient(t, a2aURL(agent.Namespace, agent.Name, false), nil, map[string]string{
+		a2atype.SvcParamExtensions: hitlExtensionURI,
 	})
 
-	// Setup A2A client
-	a2aClient := setupA2AClient(t, agent)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// Run tests
-	runSyncTest(t, a2aClient, "write some code", "hello, world!")
+	pauseMsg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Which database should we use for storage?"))
+	var pauseResult a2atype.SendMessageResult
+	err := retry.OnError(defaultRetry, func(err error) bool { return err != nil }, func() error {
+		cctx, ccancel := context.WithTimeout(ctx, 10*time.Second)
+		defer ccancel()
+		var sendErr error
+		pauseResult, sendErr = a2aClient.SendMessage(cctx, &a2atype.SendMessageRequest{Message: pauseMsg})
+		return sendErr
+	})
+	require.NoError(t, err)
+
+	paused, ok := pauseResult.(*a2atype.Task)
+	require.True(t, ok)
+	require.Equal(t, a2atype.TaskStateInputRequired, paused.Status.State)
+	askID, ok := hitlAskUserRequestID(paused.Status.Message)
+	require.True(t, ok, "expected ask_user_request on input-required status message: %+v", paused.Status.Message)
+
+	resumeMsg := attachHitlAskUserResponse(
+		a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Decision")),
+		askID,
+		"PostgreSQL",
+	)
+	resumeMsg.TaskID = paused.ID
+	resumeMsg.ContextID = paused.ContextID
+
+	var resumeResult a2atype.SendMessageResult
+	err = retry.OnError(defaultRetry, func(err error) bool { return err != nil }, func() error {
+		cctx, ccancel := context.WithTimeout(ctx, 10*time.Second)
+		defer ccancel()
+		var sendErr error
+		resumeResult, sendErr = a2aClient.SendMessage(cctx, &a2atype.SendMessageRequest{Message: resumeMsg})
+		return sendErr
+	})
+	require.NoError(t, err)
+
+	completed, ok := resumeResult.(*a2atype.Task)
+	require.True(t, ok)
+	require.Equal(t, a2atype.TaskStateCompleted, completed.Status.State)
+	require.Contains(t, extractTextFromArtifacts(completed), "PostgreSQL")
 }
 
 func cleanup(t *testing.T, cli client.Client, obj ...client.Object) {
