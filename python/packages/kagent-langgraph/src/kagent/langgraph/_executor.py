@@ -27,6 +27,7 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
+from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
     HitlTool,
     ToolApprovalRequest,
@@ -39,6 +40,8 @@ from kagent.core.a2a import (
     get_tool_approval_response,
     hitl_activated,
     now_timestamp,
+    require_ask_user_response,
+    require_tool_approval_response,
 )
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
@@ -188,12 +191,10 @@ class LangGraphAgentExecutor(AgentExecutor):
     ) -> None:
         """Handle interrupt from LangGraph and convert to A2A input_required event.
 
-        The BYO graph is expected to call ``interrupt()`` with a dict containing
-        ``action_requests`` -- a list of tool calls that need approval.
-
-        This method converts them into ``DataPart`` objects with the same
-        ``adk_request_confirmation`` shape the ADK executor emits, so the
-        frontend can render them identically.
+        BYO graphs call ``interrupt()`` with ``action_requests``: tool calls that
+        need approval. ``action_requests[].id`` is the HITL correlation id (and
+        usually the tool call id); the same id comes back in the resume value's
+        ``tool_approval_response.approvals[].id``.
         """
         if not interrupt_data:
             logger.warning("Empty interrupt data received")
@@ -225,10 +226,11 @@ class LangGraphAgentExecutor(AgentExecutor):
                 continue
             tool_name = action["name"]
             tool_args = action["args"]
-            tool_call_id = action["id"]
-            confirmation_id = str(uuid.uuid4())
-
-            tools.append(HitlTool(id=confirmation_id, call_id=tool_call_id, name=tool_name, args=tool_args))
+            # id is the opaque HITL correlation id; call_id is the tool call id.
+            # Graphs typically set both to the LangChain tool call id.
+            correlation_id = action["id"]
+            call_id = action.get("call_id") or correlation_id
+            tools.append(HitlTool(id=correlation_id, call_id=call_id, name=tool_name, args=tool_args))
 
         status_message = Message(
             message_id=str(uuid.uuid4()),
@@ -281,11 +283,7 @@ class LangGraphAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
-        """Resume graph execution after interrupt with user decision.
-
-        Translates the framework-neutral response into the existing LangGraph
-        interrupt resume value expected by BYO graphs.
-        """
+        """Resume graph execution after interrupt with the hitl/v1 response payload."""
         approval_response = get_tool_approval_response(context.message)
         ask_response = get_ask_user_response(context.message)
         stored_message = context.current_task.status.message if context.current_task else None
@@ -293,68 +291,24 @@ class LangGraphAgentExecutor(AgentExecutor):
         ask_request = get_ask_user_request(stored_message)
 
         if tool_request is not None:
-            if approval_response is None:
-                raise ValueError("Tool approval request requires a tool approval response")
-            request_ids = [tool.id for tool in tool_request.tools]
-            if len(set(request_ids)) != len(request_ids):
-                raise ValueError("Stored tool approval request contains duplicate ids")
-            approvals_by_id = {approval.id: approval for approval in approval_response.approvals}
-            if len(approvals_by_id) != len(approval_response.approvals):
-                raise ValueError("Tool approval response contains duplicate ids")
-            missing_ids = set(request_ids) - approvals_by_id.keys()
-            if missing_ids:
-                raise ValueError(f"Tool approval response is missing ids: {', '.join(sorted(missing_ids))}")
-            unknown_ids = approvals_by_id.keys() - set(request_ids)
-            if unknown_ids:
-                raise ValueError(f"Tool approval response contains unknown ids: {', '.join(sorted(unknown_ids))}")
+            resume_value = require_tool_approval_response(tool_request, approval_response).model_dump(exclude_none=True)
         elif ask_request is not None:
-            if ask_response is None:
-                raise ValueError("ask_user request requires an ask_user response")
-            if ask_response.id != ask_request.id:
-                raise ValueError("ask_user response has invalid correlation")
-            if not ask_response.answers:
-                raise ValueError("ask_user response contains no answers")
-            if len(ask_response.answers) != len(ask_request.questions):
-                raise ValueError("ask_user response must answer every question")
+            resume_value = require_ask_user_response(ask_request, ask_response).model_dump(exclude_none=True)
         else:
             raise ValueError("Stored input-required task has no HITL request")
 
-        # Get thread_id from existing task metadata (critical for resume!)
-        thread_id = None
-        if context.current_task and context.current_task.metadata:
-            thread_id = context.current_task.metadata.get(
-                get_kagent_metadata_key("thread_id")
-            ) or context.current_task.metadata.get("thread_id")
-
+        # Task.metadata is a protobuf Struct, not a dict.
+        task_metadata = _task_metadata(context.current_task)
+        thread_id = task_metadata.get(get_kagent_metadata_key("thread_id")) or task_metadata.get("thread_id")
         if not thread_id:
             # Fallback to computing from context (same as initial)
             thread_id = getattr(context, "session_id", None) or context.context_id
 
-        if ask_request is not None:
-            resume_value: dict[str, Any] = {
-                "decision_type": "ask_user",
-                "ask_user_answers": ask_response.answers,
-            }
-        else:
-            decisions: dict[str, str] = {}
-            rejection_reasons: dict[str, str] = {}
-            for approval in approval_response.approvals:
-                call_id = next(tool.call_id for tool in tool_request.tools if tool.id == approval.id)
-                decisions[call_id] = "approve" if approval.approved else "reject"
-                if not approval.approved and approval.rejection_reason:
-                    rejection_reasons[call_id] = approval.rejection_reason
-            resume_value = {"decision_type": "batch", "decisions": decisions}
-            if rejection_reasons:
-                resume_value["rejection_reasons"] = rejection_reasons
-
         logger.info(
-            "Resuming after interrupt - task_id=%s, thread_id=%s, decision=%s, has_batch=%s, has_reasons=%s, has_answers=%s",
+            "Resuming after interrupt - task_id=%s, thread_id=%s, type=%s",
             context.task_id,
             thread_id,
-            resume_value["decision_type"],
-            "decisions" in resume_value,
-            "rejection_reasons" in resume_value,
-            "ask_user_answers" in resume_value,
+            resume_value.get("type"),
         )
 
         resume_input = Command(resume=resume_value)
@@ -564,6 +518,13 @@ def _get_user_id(request: RequestContext) -> str:
 def _call_state(context: RequestContext) -> dict[str, Any]:
     state = getattr(context.call_context, "state", None)
     return state if isinstance(state, dict) else {}
+
+
+def _task_metadata(task: Task | None) -> dict[str, Any]:
+    """Return task metadata as a plain dict (A2A Task.metadata is a Struct)."""
+    if task is None or not task.HasField("metadata"):
+        return {}
+    return MessageToDict(task.metadata)
 
 
 def _convert_a2a_request_to_span_attributes(

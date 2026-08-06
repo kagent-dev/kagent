@@ -137,6 +137,53 @@ def get_ask_user_response(message: Message | None) -> AskUserResponse | None:
         return None
 
 
+def require_tool_approval_response(
+    request: ToolApprovalRequest,
+    response: ToolApprovalResponse | None,
+) -> ToolApprovalResponse:
+    """Ensure every request tool id appears exactly once in the response.
+
+    Cross-object check that compares the response to the *stored* request
+    from an earlier message. Omission must never silently mean approval, so
+    missing/duplicate/unknown ids are hard failures rather than best-effort
+    matching. Call this once at each resume boundar.
+    """
+    if response is None:
+        raise ValueError("Tool approval request requires a tool approval response")
+    request_ids = [tool.id for tool in request.tools]
+    if len(set(request_ids)) != len(request_ids):
+        raise ValueError("Stored tool approval request contains duplicate ids")
+    approvals = {approval.id: approval for approval in response.approvals}
+    if len(approvals) != len(response.approvals):
+        raise ValueError("Tool approval response contains duplicate ids")
+    missing = set(request_ids) - approvals.keys()
+    if missing:
+        raise ValueError(f"Tool approval response is missing ids: {', '.join(sorted(missing))}")
+    unknown = approvals.keys() - set(request_ids)
+    if unknown:
+        raise ValueError(f"Tool approval response contains unknown ids: {', '.join(sorted(unknown))}")
+    return response
+
+
+def require_ask_user_response(
+    request: AskUserRequest,
+    response: AskUserResponse | None,
+) -> AskUserResponse:
+    """Ensure ask_user response correlates and answers every question.
+
+    Same rationale as require_tool_approval_response: validates the response
+    against the stored request's id and question count, which only exist
+    outside the response payload, so it can't live on the response model.
+    """
+    if response is None or response.id != request.id:
+        raise ValueError("ask_user response has invalid correlation")
+    if not response.answers:
+        raise ValueError("ask_user response contains no answers")
+    if len(response.answers) != len(request.questions):
+        raise ValueError("ask_user response must answer every question")
+    return response
+
+
 def hitl_activated(headers: Mapping[str, Any] | None) -> bool:
     """True when the client opted in with the exact hitl/v1 URI in A2A-Extensions."""
     if not headers:
@@ -166,18 +213,20 @@ def attach_hitl_extension(message: Message, payload: dict[str, Any] | BaseModel)
     return message
 
 
-def hitl_agent_extension() -> dict[str, Any]:
-    """AgentCard capabilities.extensions entry for optional hitl/v1."""
-    return {
-        "uri": HITL_EXTENSION_URI,
-        "description": "Human in the loop for tool approval, ask user, and nested subagents",
-        "required": False,
-    }
-
-
 def attach_hitl_agent_extension(card: AgentCard) -> AgentCard:
-    """Declare the optional extension on a protobuf AgentCard without replacing others."""
+    """
+    Declare the optional extension on a protobuf AgentCard without replacing others.
+    This is used by BYO agents to declare the extension on agent cards defined by users.
+    For declarative agents, the controller generates the agent card with the extension already attached.
+    """
     if any(extension.uri == HITL_EXTENSION_URI for extension in card.capabilities.extensions):
         return card
-    ParseDict(hitl_agent_extension(), card.capabilities.extensions.add())
+    ParseDict(
+        {
+            "uri": HITL_EXTENSION_URI,
+            "description": "Human in the loop for tool approval, ask user, and nested subagents",
+            "required": False,
+        },
+        card.capabilities.extensions.add(),
+    )
     return card

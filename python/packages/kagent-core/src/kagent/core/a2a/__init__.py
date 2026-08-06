@@ -33,7 +33,8 @@ from ._hitl import (
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
-    hitl_agent_extension,
+    require_ask_user_response,
+    require_tool_approval_response,
 )
 from ._request_size import A2ARequestSizeLimitMiddleware
 from ._requests import KAgentRequestContextBuilder
@@ -77,7 +78,8 @@ __all__ = [
     "get_ask_user_request",
     "get_tool_approval_response",
     "get_ask_user_response",
+    "require_tool_approval_response",
+    "require_ask_user_response",
     "attach_hitl_extension",
-    "hitl_agent_extension",
     "attach_hitl_agent_extension",
 ]

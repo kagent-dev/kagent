@@ -28,6 +28,8 @@ from kagent.core.a2a import (
     get_ask_user_response,
     get_tool_approval_request,
     get_tool_approval_response,
+    require_ask_user_response,
+    require_tool_approval_response,
 )
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -197,13 +199,6 @@ def _confirmation_response_part(call_id: str, confirmation: ToolConfirmation) ->
     return converted
 
 
-def _approval_map(response: ToolApprovalResponse) -> dict[str, Any]:
-    approvals = {approval.id: approval for approval in response.approvals}
-    if len(approvals) != len(response.approvals):
-        raise ValueError("Tool approval response contains duplicate ids")
-    return approvals
-
-
 def _build_nested_resume(
     request: ToolApprovalRequest | AskUserRequest,
     incoming: Message,
@@ -246,18 +241,10 @@ def _build_nested_resume(
         if len(request.tools) != 1:
             raise ValueError("Nested HITL request must contain exactly one parent tool")
         response = get_tool_approval_response(incoming)
-        if response is None:
-            raise ValueError("Nested tool approval request requires a tool approval response")
-        approvals = _approval_map(response)
-        nested_approvals = []
-        for tool in nested.tools:
-            approval = approvals.pop(tool.id, None)
-            if approval is None:
-                raise ValueError(f"Nested tool approval response is missing id: {tool.id}")
-            nested_approvals.append(approval)
-        if approvals:
-            raise ValueError(f"Nested tool approval response contains unknown ids: {', '.join(sorted(approvals))}")
         child_request = ToolApprovalRequest(hint=request.hint, tools=nested.tools)
+        require_tool_approval_response(child_request, response)
+        approvals_by_id = {approval.id: approval for approval in response.approvals}
+        nested_approvals = [approvals_by_id[tool.id] for tool in nested.tools]
         child_response = ToolApprovalResponse(approvals=nested_approvals)
         outer_confirmation_id = request.tools[0].id
         confirmed = all(approval.approved for approval in nested_approvals)
@@ -295,11 +282,7 @@ def build_resume_hitl_message(stored_task: Task, incoming: Message) -> Message:
     if request.nested is not None:
         parts = _build_nested_resume(request, incoming)
     elif isinstance(request, AskUserRequest):
-        response = get_ask_user_response(incoming)
-        if response is None or response.id != request.id:
-            raise ValueError("ask_user response has invalid correlation")
-        if not response.answers:
-            raise ValueError("ask_user response contains no answers")
+        response = require_ask_user_response(request, get_ask_user_response(incoming))
         parts = [
             _confirmation_response_part(
                 request.id,
@@ -307,15 +290,11 @@ def build_resume_hitl_message(stored_task: Task, incoming: Message) -> Message:
             )
         ]
     else:
-        response = get_tool_approval_response(incoming)
-        if response is None:
-            raise ValueError("Tool approval request requires a tool approval response")
-        approvals = _approval_map(response)
+        response = require_tool_approval_response(request, get_tool_approval_response(incoming))
+        approvals_by_id = {approval.id: approval for approval in response.approvals}
         parts = []
         for tool in request.tools:
-            approval = approvals.pop(tool.id, None)
-            if approval is None:
-                raise ValueError(f"Tool approval response is missing id: {tool.id}")
+            approval = approvals_by_id[tool.id]
             payload = None
             if not approval.approved and approval.rejection_reason:
                 payload = {"rejection_reason": approval.rejection_reason}
@@ -325,8 +304,6 @@ def build_resume_hitl_message(stored_task: Task, incoming: Message) -> Message:
                     ToolConfirmation(confirmed=approval.approved, payload=payload),
                 )
             )
-        if approvals:
-            raise ValueError(f"Tool approval response contains unknown ids: {', '.join(sorted(approvals))}")
 
     return Message(
         message_id=str(uuid.uuid4()),
