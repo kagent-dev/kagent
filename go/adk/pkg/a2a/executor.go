@@ -164,8 +164,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		}
 
 		// Run our own session management before upstream executor runs its prepareSession function.
-		// This ensure that we create a session that contains metadata like x-kagent-source,
-		// and the upstream executor will find this session already exist and skip creation.
+		// This ensures that we create a session that contains metadata like x-kagent-source,
+		// and the upstream executor will find this session already exists and skip creation.
 		if err := e.ensureSession(ctx, reqCtx.Message, userID, sessionID); err != nil {
 			yield(nil, err)
 			return

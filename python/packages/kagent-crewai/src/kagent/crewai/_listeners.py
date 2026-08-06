@@ -154,9 +154,13 @@ class A2ACrewAIListener(BaseEventListener):
         return call_id
 
     def _end_tool_call(self, event: ToolUsageFinishedEvent) -> str:
-        stack = self._tool_call_ids.get(self._tool_key(event))
+        key = self._tool_key(event)
+        stack = self._tool_call_ids.get(key)
         if stack:
-            return stack.pop(0)
+            call_id = stack.pop(0)
+            if not stack:
+                del self._tool_call_ids[key]
+            return call_id
         return str(uuid.uuid4())
 
     def setup_listeners(self, crewai_event_bus):
