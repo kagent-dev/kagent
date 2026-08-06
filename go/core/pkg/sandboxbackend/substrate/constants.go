@@ -21,9 +21,12 @@ const (
 
 // AcpSandboxOpenClawImageDigest and AcpSandboxHermesImageDigest are the
 // link-time-injected image digests (sha256:...) for the acp-sandbox workload
-// images, set via -X ...substrate.AcpSandbox*ImageDigest=... They are empty in
-// source and in unit tests, in which case resolution returns an error rather
-// than an unpinned ref.
+// images, set via -X ...substrate.AcpSandbox*ImageDigest=... They can be
+// overridden at runtime via --acp-sandbox-openclaw-image-digest /
+// --acp-sandbox-hermes-image-digest (env ACP_SANDBOX_OPENCLAW_IMAGE_DIGEST /
+// ACP_SANDBOX_HERMES_IMAGE_DIGEST) for private/mirrored registries that
+// re-assign manifest digests. They are empty in source and in unit tests, in
+// which case resolution returns an error rather than an unpinned ref.
 var (
 	AcpSandboxOpenClawImageDigest string
 	AcpSandboxHermesImageDigest   string
@@ -56,16 +59,17 @@ func acpSandboxHermesImage(cfg acpSandboxImageConfig) (string, error) {
 
 // resolve composes the digest-pinned ref registry/repo/name@sha256:... for an
 // acp-sandbox target. Substrate admission requires a digest, so a missing
-// link-time digest is a hard error: the controller must be rebuilt after
-// pushing the acp-sandbox images, or the harness/cluster must specify an
-// explicit digest-pinned workload image. A missing registry or repository is
-// likewise an error, since both are required to form a resolvable ref.
+// digest is a hard error: the controller must be rebuilt after pushing the
+// acp-sandbox images, the digest must be overridden via --<name>-image-digest,
+// or the harness/cluster must specify an explicit digest-pinned workload
+// image. A missing registry or repository is likewise an error, since both
+// are required to form a resolvable ref.
 func (cfg acpSandboxImageConfig) resolve(name, digest string) (string, error) {
 	digest = strings.TrimSpace(digest)
 	if digest == "" {
 		return "", fmt.Errorf(
-			"acp-sandbox %s image digest is not set at link time; rebuild the controller after pushing the acp-sandbox images (or set a digest-pinned Substrate.WorkloadImage)",
-			name,
+			"acp-sandbox %s image digest is not set; rebuild the controller after pushing the acp-sandbox images, or override it via --%s-image-digest (or set a digest-pinned Substrate.WorkloadImage)",
+			name, name,
 		)
 	}
 	if !strings.HasPrefix(digest, "sha256:") {

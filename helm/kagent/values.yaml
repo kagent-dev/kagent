@@ -210,6 +210,15 @@ controller:
     pullPolicy: ""
     # -- Image pull secret name set on agent pods created by the controller
     pullSecret: ""
+    # -- Manifest digest (sha256:...) override for the Python agent runtime
+    # image used by sandbox agents (regular agents reference the image by tag).
+    # Defaults to the digest baked into the controller binary at build time;
+    # set this when serving the images from a private/mirrored registry that
+    # re-assigns manifest digests.
+    digest: ""
+    # -- Manifest digest (sha256:...) override for the full-variant Python
+    # agent runtime image used by sandbox agents. See `digest` above.
+    fullDigest: ""
   # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
   skillsInitImage:
     registry: ""
@@ -222,6 +231,26 @@ controller:
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
     pullPolicy: ""
+    # -- Manifest digest (sha256:...) override for the Go agent runtime image
+    # used by sandbox agents (regular agents reference the image by tag).
+    # Defaults to the digest baked into the controller binary at build time;
+    # set this when serving the images from a private/mirrored registry that
+    # re-assigns manifest digests.
+    digest: ""
+    # -- Manifest digest (sha256:...) override for the full-variant Go agent
+    # runtime image used by sandbox agents. See `digest` above.
+    fullDigest: ""
+  # -- Digest overrides for the Substrate acp-sandbox workload images. Their
+  # registry/repository derive from agentImage (registry + repository parent
+  # path), and Substrate admission requires digest-pinned refs, so the digests
+  # default to the ones baked into the controller binary at build time. Set
+  # these when serving the images from a private/mirrored registry that
+  # re-assigns manifest digests.
+  acpSandboxImages:
+    # -- Manifest digest (sha256:...) override for the acp-sandbox-openclaw image.
+    openclawDigest: ""
+    # -- Manifest digest (sha256:...) override for the acp-sandbox-hermes image.
+    hermesDigest: ""
   # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
   # internally. These values have no effect and will be removed in a future release.
   streaming: null

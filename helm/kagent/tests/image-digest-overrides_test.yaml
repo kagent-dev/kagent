@@ -1,0 +1,72 @@
+suite: test runtime image digest overrides in the controller ConfigMap
+templates:
+  - controller-configmap.yaml
+tests:
+  - it: should not emit digest overrides by default
+    asserts:
+      - notExists:
+          path: data.APP_IMAGE_DIGEST
+      - notExists:
+          path: data.APP_FULL_IMAGE_DIGEST
+      - notExists:
+          path: data.GOLANG_ADK_IMAGE_DIGEST
+      - notExists:
+          path: data.GOLANG_ADK_FULL_IMAGE_DIGEST
+      - notExists:
+          path: data.ACP_SANDBOX_OPENCLAW_IMAGE_DIGEST
+      - notExists:
+          path: data.ACP_SANDBOX_HERMES_IMAGE_DIGEST
+
+  - it: should emit Python runtime digest overrides when set
+    set:
+      controller:
+        agentImage:
+          digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+          fullDigest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+    asserts:
+      - equal:
+          path: data.APP_IMAGE_DIGEST
+          value: sha256:1111111111111111111111111111111111111111111111111111111111111111
+      - equal:
+          path: data.APP_FULL_IMAGE_DIGEST
+          value: sha256:2222222222222222222222222222222222222222222222222222222222222222
+
+  - it: should emit Go runtime digest overrides when set
+    set:
+      controller:
+        goAgentImage:
+          digest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+          fullDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+    asserts:
+      - equal:
+          path: data.GOLANG_ADK_IMAGE_DIGEST
+          value: sha256:3333333333333333333333333333333333333333333333333333333333333333
+      - equal:
+          path: data.GOLANG_ADK_FULL_IMAGE_DIGEST
+          value: sha256:4444444444444444444444444444444444444444444444444444444444444444
+
+  - it: should emit acp-sandbox digest overrides when set
+    set:
+      controller:
+        acpSandboxImages:
+          openclawDigest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+          hermesDigest: sha256:6666666666666666666666666666666666666666666666666666666666666666
+    asserts:
+      - equal:
+          path: data.ACP_SANDBOX_OPENCLAW_IMAGE_DIGEST
+          value: sha256:5555555555555555555555555555555555555555555555555555555555555555
+      - equal:
+          path: data.ACP_SANDBOX_HERMES_IMAGE_DIGEST
+          value: sha256:6666666666666666666666666666666666666666666666666666666666666666
+
+  - it: should allow setting only one acp-sandbox digest
+    set:
+      controller:
+        acpSandboxImages:
+          openclawDigest: sha256:7777777777777777777777777777777777777777777777777777777777777777
+    asserts:
+      - equal:
+          path: data.ACP_SANDBOX_OPENCLAW_IMAGE_DIGEST
+          value: sha256:7777777777777777777777777777777777777777777777777777777777777777
+      - notExists:
+          path: data.ACP_SANDBOX_HERMES_IMAGE_DIGEST
