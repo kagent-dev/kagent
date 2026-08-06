@@ -620,6 +620,23 @@ export function extractFileParts(parts: Part[] | undefined): FilePart[] {
   return parts.filter(isFilePart);
 }
 
+// Keys that belong to the model protocol rather than to the answer. Gemini
+// attaches an encrypted `thoughtSignature` to the parts it returns; it is meant
+// to be round-tripped into the next request, never rendered.
+const MODEL_INTERNAL_DATA_KEYS = new Set(["thoughtSignature", "thought_signature"]);
+
+// A data part that carries nothing but model-internal keys is not content.
+// It reaches the UI unlabeled (no kagent_type metadata), so without this check
+// it falls through to the JSON.stringify fallback and lands in the visible
+// answer text.
+function isModelInternalDataPart(data: unknown): boolean {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return false;
+  }
+  const keys = Object.keys(data as Record<string, unknown>);
+  return keys.length > 0 && keys.every(key => MODEL_INTERNAL_DATA_KEYS.has(key));
+}
+
 function  getSourceFromMetadata(metadata: ADKMetadata | undefined, fallback: string = "assistant"): string {
   const appName = getMetadataValue<string>(metadata as Record<string, unknown>, "app_name");
   if (appName) {
@@ -721,6 +738,9 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       if (isTextPart(part)) {
         return part.text || "";
       } else if (isDataPart(part)) {
+        if (isModelInternalDataPart(part.data)) {
+          return "";
+        }
         try {
           return JSON.stringify(part.data || "");
         } catch {
@@ -1104,6 +1124,12 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
 
         // Skip empty data parts (e.g. the lastChunk sentinel emitted by the Go ADK executor).
         if (!data || (typeof data === "object" && Object.keys(data).length === 0)) {
+          continue;
+        }
+
+        // Skip model-internal parts (e.g. Gemini's thoughtSignature), which are
+        // protocol state rather than content.
+        if (isModelInternalDataPart(data)) {
           continue;
         }
 

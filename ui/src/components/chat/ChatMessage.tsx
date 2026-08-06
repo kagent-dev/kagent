@@ -178,7 +178,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <KagentLogo className="w-4 h-4" />
         <div className="text-xs font-bold">{displayName}</div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
-      {content && <TruncatableText content={String(content)} className="break-all text-primary-foreground" />}
+      {content && <TruncatableText content={String(content)} className="[overflow-wrap:anywhere] text-primary-foreground" />}
       {fileParts.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-1">
           {fileParts.map((part, idx) => (

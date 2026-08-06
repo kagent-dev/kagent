@@ -31,7 +31,7 @@ func TestCreateRunnerConfig_WiresArtifactService(t *testing.T) {
 				Instruction: "you are helpful",
 			}
 
-			cfg, _, err := CreateRunnerConfig(ctx, agentConfig, nil, tt.appName, nil, "", nil)
+			cfg, err := CreateRunnerConfig(ctx, agentConfig, nil, tt.appName, nil, "", nil)
 			if err != nil {
 				t.Fatalf("CreateRunnerConfig() error = %v", err)
 			}
