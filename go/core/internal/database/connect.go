@@ -16,9 +16,16 @@ import (
 // PostgresConfig holds the connection parameters for a Postgres database.
 // URL must be a resolved connection string — use ResolveURL to resolve from
 // a file path before constructing this config.
+//
+// Pool fields are optional: nil leaves the corresponding pgxpool.Config value
+// from ParseConfig unchanged (pgx library defaults).
 type PostgresConfig struct {
-	URL           string
-	VectorEnabled bool
+	URL             string
+	VectorEnabled   bool
+	MaxConns        *int32
+	MinConns        *int32
+	MaxConnIdleTime *time.Duration
+	MaxConnLifetime  *time.Duration
 }
 
 const (
@@ -30,21 +37,38 @@ const (
 // Connect opens a Postgres connection pool using cfg and retries Ping with
 // exponential backoff until the connection succeeds or defaultMaxTimeout elapses.
 func Connect(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool, error) {
-	return retryDBConnection(ctx, cfg.URL, cfg.VectorEnabled)
+	return retryDBConnection(ctx, cfg)
+}
+
+// applyPoolConfig copies non-nil pool settings from cfg onto config.
+func applyPoolConfig(config *pgxpool.Config, cfg *PostgresConfig) {
+	if cfg.MaxConns != nil {
+		config.MaxConns = *cfg.MaxConns
+	}
+	if cfg.MinConns != nil {
+		config.MinConns = *cfg.MinConns
+	}
+	if cfg.MaxConnIdleTime != nil {
+		config.MaxConnIdleTime = *cfg.MaxConnIdleTime
+	}
+	if cfg.MaxConnLifetime != nil {
+		config.MaxConnLifetime = *cfg.MaxConnLifetime
+	}
 }
 
 // retryDBConnection opens a pgxpool connection, registering pgvector types when
 // vectorEnabled is true, and retries Ping with exponential backoff until the
 // connection succeeds or defaultMaxTimeout elapses.
-func retryDBConnection(ctx context.Context, url string, vectorEnabled bool) (*pgxpool.Pool, error) {
+func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultMaxTimeout)
 	defer cancel()
 
-	config, err := pgxpool.ParseConfig(url)
+	config, err := pgxpool.ParseConfig(cfg.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse database URL: %w", err)
 	}
-	if vectorEnabled {
+	applyPoolConfig(config, cfg)
+	if cfg.VectorEnabled {
 		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 			return pgvectorpgx.RegisterTypes(ctx, conn)
 		}

@@ -596,6 +596,42 @@ tests:
           path: data.DATABASE_VECTOR_ENABLED
           value: "true"
 
+  - it: should not set DB pool env vars by default
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.DB_MAX_CONNS
+      - notExists:
+          path: data.DB_MIN_CONNS
+      - notExists:
+          path: data.DB_MAX_CONN_IDLE_TIME
+      - notExists:
+          path: data.DB_MAX_CONN_LIFETIME
+
+  - it: should set DB pool env vars when pool is configured
+    template: controller-configmap.yaml
+    set:
+      database:
+        postgres:
+          pool:
+            maxConns: 4
+            minConns: 0
+            maxConnIdleTime: 1m
+            maxConnLifetime: 10m
+    asserts:
+      - equal:
+          path: data.DB_MAX_CONNS
+          value: "4"
+      - equal:
+          path: data.DB_MIN_CONNS
+          value: "0"
+      - equal:
+          path: data.DB_MAX_CONN_IDLE_TIME
+          value: "1m"
+      - equal:
+          path: data.DB_MAX_CONN_LIFETIME
+          value: "10m"
+
   - it: should not set POSTGRES_DATABASE_URL in configmap
     template: controller-configmap.yaml
     asserts:
