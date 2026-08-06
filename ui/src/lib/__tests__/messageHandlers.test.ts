@@ -372,21 +372,18 @@ describe('createMessageHandlers test', () => {
     // Gemini returns the answer text and its encrypted reasoning handle as two
     // parts. The signature part is unlabeled, so it used to fall through to the
     // JSON.stringify fallback and get concatenated onto the answer.
-    const artifactEvent: any = {
-      kind: 'artifact-update', contextId: 'ctx', taskId: 'task', lastChunk: true,
-      artifact: {
-        parts: [
-          { kind: 'text', text: 'Cilium is on v1.19.5.' },
-          { kind: 'data', data: { thoughtSignature: 'EjQKMgERTTIPW1Dx9s3NlDDSMzmWhbt5' } },
-        ]
-      }
-    };
-    handlers.handleMessageEvent(artifactEvent);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      lastChunk: true,
+      parts: [
+        createTextPart('Cilium is on v1.19.5.'),
+        createDataPart({ thoughtSignature: 'EjQKMgERTTIPW1Dx9s3NlDDSMzmWhbt5' }),
+      ],
+    }));
 
     // TextMessage + the summary that lastChunk always appends
     expect(emitted.length).toBe(2);
     expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
-    expect((emitted[0].parts[0] as any).text).toBe('Cilium is on v1.19.5.');
+    expect((emitted[0].parts[0] as any).content.value).toBe('Cilium is on v1.19.5.');
   });
 
   test('artifact-update keeps unlabeled data parts that are not model-internal', () => {
@@ -402,20 +399,17 @@ describe('createMessageHandlers test', () => {
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
-    const artifactEvent: any = {
-      kind: 'artifact-update', contextId: 'ctx', taskId: 'task', lastChunk: true,
-      artifact: {
-        parts: [
-          { kind: 'text', text: 'result: ' },
-          { kind: 'data', data: { rows: 2 } },
-        ]
-      }
-    };
-    handlers.handleMessageEvent(artifactEvent);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      lastChunk: true,
+      parts: [
+        createTextPart('result: '),
+        createDataPart({ rows: 2 }),
+      ],
+    }));
 
     expect(emitted.length).toBe(2);
     expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
-    expect((emitted[0].parts[0] as any).text).toBe('result: {"rows":2}');
+    expect((emitted[0].parts[0] as any).content.value).toBe('result: {"rows":2}');
   });
 
   test('Go ADK streaming flow: partial chunks stream, non-partial artifact emits message, empty sentinel ignored', () => {
