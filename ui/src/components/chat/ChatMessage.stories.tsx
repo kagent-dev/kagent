@@ -210,16 +210,14 @@ export const AgentMessageWithTable: Story = {
 export const MessageWithUnbreakableTokens: Story = {
   args: {
     message: createMessage({
-      role: "agent",
+      role: Role.ROLE_AGENT,
       parts: [
-        {
-          kind: "text",
-          text: `The kagent controller reconciles ModelConfig resources and propagates configuration to the agent deployment automatically.
+        createTextPart(`The kagent controller reconciles ModelConfig resources and propagates configuration to the agent deployment automatically.
 
 Tool call id: \`call_9f2a__thought__QmFzZTY0RW5jb2RlZFRob3VnaHRTaWduYXR1cmVCbG9iQmFzZTY0RW5jb2RlZFRob3VnaHRTaWduYXR1cmU\`
 
 See https://github.com/kagent-dev/kagent/blob/main/ui/src/components/chat/ChatMessage.tsx for the renderer.`,
-        },
+        ),
       ],
     }),
     allMessages: [],
