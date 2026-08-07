@@ -1501,17 +1501,40 @@ func ociSkillName(imageRef string) string {
 	return path.Base(ref)
 }
 
+// s3SkillName returns the directory name for an S3 skill ref.
+// If Name is set, it is used. Otherwise the last path segment of the URI is
+// used, with archive extensions (.zip / .tgz / .tar.gz) stripped.
+func s3SkillName(ref v1alpha2.S3SkillRef) string {
+	if n := strings.TrimSpace(ref.Name); n != "" {
+		return n
+	}
+	u := strings.TrimSuffix(strings.TrimSpace(ref.URI), "/")
+	base := path.Base(u)
+	lower := strings.ToLower(base)
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz"):
+		return base[:len(base)-len(".tar.gz")]
+	case strings.HasSuffix(lower, ".tgz"):
+		return base[:len(base)-len(".tgz")]
+	case strings.HasSuffix(lower, ".zip"):
+		return base[:len(base)-len(".zip")]
+	default:
+		return base
+	}
+}
+
 // prepareSkillsInitConfig converts CRD values into the JSON config consumed by
 // the skills-init binary. It validates subPaths and detects duplicate skill
-// directory names. User-controlled strings (URL, ref, name, OCI image) flow
-// through this struct as data only — the binary passes them to git/library
-// calls as argv vectors, never as shell input.
+// directory names. User-controlled strings (URL, ref, name, OCI image, S3 URI)
+// flow through this struct as data only — the binary passes them to
+// git/library/SDK calls as argv/API inputs, never as shell input.
 func prepareSkillsInitConfig(
 	gitRefs []v1alpha2.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
 	ociRefs []string,
 	insecureOCI bool,
 	imagePullSecrets []string,
+	s3Refs []v1alpha2.S3SkillRef,
 ) (skillsinit.Config, error) {
 	cfg := skillsinit.Config{
 		InsecureOCI:      insecureOCI,
@@ -1583,6 +1606,23 @@ func prepareSkillsInitConfig(
 		})
 	}
 
+	for _, ref := range s3Refs {
+		name := s3SkillName(ref)
+		if err := validateSkillName(name); err != nil {
+			return skillsinit.Config{}, fmt.Errorf("s3 skill %q: %w", ref.URI, err)
+		}
+		if seen[name] {
+			return skillsinit.Config{}, fmt.Errorf("duplicate skill directory name %q", name)
+		}
+		seen[name] = true
+
+		cfg.S3Refs = append(cfg.S3Refs, skillsinit.S3Ref{
+			URI:    ref.URI,
+			Dest:   skillsinit.SkillsDir + "/" + name,
+			Region: ref.Region,
+		})
+	}
+
 	slices.SortFunc(cfg.SSHHosts, func(a, b skillsinit.SSHHost) int {
 		if cmp := strings.Compare(a.Host, b.Host); cmp != 0 {
 			return cmp
@@ -1634,13 +1674,14 @@ func buildSkillsInitContainer(
 	envVars []corev1.EnvVar,
 	resources corev1.ResourceRequirements,
 	imagePullSecrets []corev1.LocalObjectReference,
+	s3Refs []v1alpha2.S3SkillRef,
 ) (containers []corev1.Container, volumes []corev1.Volume, configMap *corev1.ConfigMap, err error) {
 	pullSecretNames := make([]string, len(imagePullSecrets))
 	for i, s := range imagePullSecrets {
 		pullSecretNames[i] = s.Name
 	}
 
-	cfg, err := prepareSkillsInitConfig(gitRefs, authSecretRef, ociRefs, insecureOCI, pullSecretNames)
+	cfg, err := prepareSkillsInitConfig(gitRefs, authSecretRef, ociRefs, insecureOCI, pullSecretNames, s3Refs)
 	if err != nil {
 		return nil, nil, nil, err
 	}
