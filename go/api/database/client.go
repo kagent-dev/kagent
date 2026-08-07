@@ -10,6 +10,10 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
+// ErrSessionIDInUse means the requested session id is already active on a
+// different session (possibly owned by another user).
+var ErrSessionIDInUse = errors.New("session id already in use")
+
 // ErrTaskOwnedByAnotherUser means a task with this id already belongs to a
 // different user.
 var ErrTaskOwnedByAnotherUser = errors.New("task id owned by another user")

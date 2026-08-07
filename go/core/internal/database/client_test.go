@@ -240,6 +240,24 @@ func TestStoreSessionIdempotence(t *testing.T) {
 	require.Error(t, err, "another user's session must not be readable")
 }
 
+func TestStoreSessionRejectsIDUsedByAnotherUser(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	agentID := "agent-1"
+	first := &dbpkg.Session{ID: "shared-id", UserID: "user-a", AgentID: &agentID}
+	require.NoError(t, client.StoreSession(ctx, first), "first user should get the id")
+
+	second := &dbpkg.Session{ID: "shared-id", UserID: "user-b", AgentID: &agentID}
+	err := client.StoreSession(ctx, second)
+	require.ErrorIs(t, err, dbpkg.ErrSessionIDInUse, "a second user must not claim an id already active for another user")
+
+	// Once the first user's session is gone, the id is free again.
+	require.NoError(t, client.DeleteSession(ctx, "shared-id", "user-a"))
+	require.NoError(t, client.StoreSession(ctx, second), "id should be reusable after the original session is deleted")
+}
+
 func TestListSessionsOrdersByRecentActivity(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
@@ -429,9 +447,13 @@ func TestNullOwnedTaskAccess(t *testing.T) {
 	err = client.StoreTask(ctx, &a2a.Task{ID: "t-legacy", ContextID: "s-mine"}, "bob")
 	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "the claim must stick")
 
-	// A session id used by two users is ambiguous: the NULL-owned task stays
-	// hidden from both, and neither can claim it.
+	// A session id used by two users across its history is ambiguous: the
+	// NULL-owned task stays hidden from both, and neither can claim it. Two
+	// live sessions can no longer share an id (session_id_active_unique), so
+	// the ambiguity is built from alice's session having existed and been
+	// deleted before bob's session took over the same id.
 	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-shared", UserID: "alice"}))
+	require.NoError(t, client.DeleteSession(ctx, "s-shared", "alice"))
 	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-shared", UserID: "bob"}))
 	seedNullTask("t-ambiguous", "s-shared")
 
@@ -477,39 +499,34 @@ func TestNullOwnedTaskAgainstLaterSessionIsInaccessible(t *testing.T) {
 	require.ErrorIs(t, err, dbpkg.ErrTaskOwnedByAnotherUser, "bob must not be able to delete the orphaned task")
 }
 
-// TestListTasksForSessionIsScopedToOwner: session ids are not globally unique
-// (session's key is (id, user_id)), so listing tasks by session id alone
-// would leak one user's tasks to another user holding the same session id.
+// TestListTasksForSessionIsScopedToOwner: a session id is only unique among
+// live sessions (session_id_active_unique), so it can still be reused by a
+// different user once the original owner's session is deleted. Listing tasks
+// by session id alone must not resurface the previous owner's (now
+// cascade-deleted) tasks to whoever reuses the id, and writing the new
+// owner's task must not touch a stale row from the old owner.
 func TestListTasksForSessionIsScopedToOwner(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
 	ctx := context.Background()
 
-	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-shared", UserID: "alice"}))
-	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-shared", UserID: "bob"}))
-	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-alice", ContextID: "s-shared"}, "alice"))
-	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-bob", ContextID: "s-shared"}, "bob"))
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-reused", UserID: "alice"}))
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-alice", ContextID: "s-reused"}, "alice"))
+	require.NoError(t, client.DeleteSession(ctx, "s-reused", "alice"),
+		"deleting alice's session cascades to t-alice")
 
-	bobBefore, err := client.GetSession(ctx, "s-shared", "bob")
-	require.NoError(t, err)
-	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-reused", UserID: "bob"}))
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-bob", ContextID: "s-reused"}, "bob"))
 
-	tasks, err := client.ListTasksForSession(ctx, "s-shared", "alice")
+	tasks, err := client.ListTasksForSession(ctx, "s-reused", "bob")
 	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-	assert.Equal(t, a2a.TaskID("t-alice"), tasks[0].ID)
-
-	tasks, err = client.ListTasksForSession(ctx, "s-shared", "bob")
-	require.NoError(t, err)
-	require.Len(t, tasks, 1)
+	require.Len(t, tasks, 1, "alice's cascade-deleted task must not resurface for bob")
 	assert.Equal(t, a2a.TaskID("t-bob"), tasks[0].ID)
 
-	// Storing alice's task must not touch bob's same-id session.
-	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-alice", ContextID: "s-shared"}, "alice"))
-	bobAfter, err := client.GetSession(ctx, "s-shared", "bob")
+	// alice's session is gone; she gets nothing back for the id she used to own.
+	tasks, err = client.ListTasksForSession(ctx, "s-reused", "alice")
 	require.NoError(t, err)
-	assert.Equal(t, bobBefore.UpdatedAt, bobAfter.UpdatedAt,
-		"another user's task write must not advance this session's updated_at")
+	assert.Empty(t, tasks)
 }
 
 // TestStoreAgentIdempotence verifies that calling StoreAgent multiple times

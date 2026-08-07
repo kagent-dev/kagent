@@ -57,6 +57,15 @@ func (q *Queries) DeleteSessionShare(ctx context.Context, arg DeleteSessionShare
 	return err
 }
 
+const deleteSessionSharesBySession = `-- name: DeleteSessionSharesBySession :exec
+DELETE FROM session_share WHERE session_id = $1
+`
+
+func (q *Queries) DeleteSessionSharesBySession(ctx context.Context, sessionID string) error {
+	_, err := q.db.Exec(ctx, deleteSessionSharesBySession, sessionID)
+	return err
+}
+
 const getSessionShareByToken = `-- name: GetSessionShareByToken :one
 SELECT id, token, session_id, user_id, read_only, created_at FROM session_share
 WHERE token = $1
