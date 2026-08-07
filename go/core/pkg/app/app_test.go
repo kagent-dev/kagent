@@ -264,6 +264,21 @@ func TestDatabaseUrlFileFlag(t *testing.T) {
 	assert.Equal(t, "/etc/credentials/db-url", cfg.Database.UrlFile)
 }
 
+func TestSessionRetentionDaysFlag(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	cfg := Config{}
+	cfg.SetFlags(fs)
+
+	f := fs.Lookup("session-retention-days")
+	assert.NotNil(t, f, "session-retention-days flag should be registered")
+	assert.Equal(t, "0", f.DefValue, "default should be 0 (disabled)")
+
+	t.Setenv("SESSION_RETENTION_DAYS", "30")
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+	assert.Equal(t, 30, cfg.Database.SessionRetentionDays)
+}
+
 func TestSubstrateAteAPITokenFileFlag(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	cfg := Config{}
