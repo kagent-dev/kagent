@@ -950,9 +950,9 @@ func TestPruneExpiredSessions(t *testing.T) {
 		softSessID = "soft-deleted-session"
 	)
 
-	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: oldSessID, UserID: userID, Name: strPtr("old")}))
-	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: liveSessID, UserID: userID, Name: strPtr("live")}))
-	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: softSessID, UserID: userID, Name: strPtr("soft")}))
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: oldSessID, UserID: userID, Name: new("old")}))
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: liveSessID, UserID: userID, Name: new("live")}))
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: softSessID, UserID: userID, Name: new("soft")}))
 
 	require.NoError(t, client.StoreEvents(ctx, &dbpkg.Event{
 		ID: "ev-old", UserID: userID, SessionID: oldSessID, Data: `{"role":"user"}`,
@@ -1034,8 +1034,6 @@ func TestPruneExpiredSessions(t *testing.T) {
 	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM crewai_flow_state WHERE thread_id = $1`, oldSessID))
 	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM session_share WHERE session_id = $1`, oldSessID))
 }
-
-func strPtr(s string) *string { return &s }
 
 // TestSearchAgentMemoryConcurrentAccessCount verifies concurrent searches over
 // overlapping rows do not deadlock when incrementing access_count and still
