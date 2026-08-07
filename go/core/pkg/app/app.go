@@ -780,7 +780,8 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	// DB TTL cleanup (memory + sessions) runs only on the leader to avoid duplicate deletes.
-	if err := mgr.Add(httpserver.NewDbCleanupRunnable(dbClient, 1*time.Minute, cfg.Database.SessionRetentionDays)); err != nil {
+	// Currently configured to run every 24 hours.
+	if err := mgr.Add(httpserver.NewDbCleanupRunnable(dbClient, 24*time.Hour, cfg.Database.SessionRetentionDays)); err != nil {
 		setupLog.Error(err, "unable to set up DB cleanup runnable")
 		os.Exit(1)
 	}
