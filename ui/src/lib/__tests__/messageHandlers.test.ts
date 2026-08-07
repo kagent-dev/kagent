@@ -520,59 +520,6 @@ describe('createMessageHandlers test', () => {
     expect(emitted[0].parts[0]?.content?.value).toBe('Cilium is on v1.19.5.');
   });
 
-  test('artifact-update keeps unlabeled data parts that are not model-internal', () => {
-    const emitted: Message[] = [];
-    const handlers = createMessageHandlers({
-      setMessages: (updater: MessageUpdate) => {
-        const next = applyMessageUpdate(updater, emitted);
-        emitted.length = 0;
-        emitted.push(...next);
-      },
-      setIsStreaming: () => {},
-      setStreamingContent: () => {},
-      agentContext: { namespace: 'kagent', agentName: 'testagent' },
-    });
-
-    handlers.handleMessageEvent(artifactUpdateEvent({
-      parts: [
-        createTextPart('result: '),
-        createDataPart({ rows: 2 }),
-      ],
-    }));
-
-    expect(emitted).toHaveLength(1);
-    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('TextMessage');
-    expect(emitted[0].parts[0]?.content?.value).toBe('result: {"rows":2}');
-  });
-
-  test('artifact-update drops a model-internal thoughtSignature data part', () => {
-    const emitted: Message[] = [];
-    const handlers = createMessageHandlers({
-      setMessages: (updater: MessageUpdate) => {
-        const next = applyMessageUpdate(updater, emitted);
-        emitted.length = 0;
-        emitted.push(...next);
-      },
-      setIsStreaming: () => {},
-      setStreamingContent: () => {},
-      agentContext: { namespace: 'kagent', agentName: 'testagent' },
-    });
-
-    // Gemini returns the answer text and its encrypted reasoning handle as two
-    // parts. The signature part is unlabeled, so it used to fall through to the
-    // JSON.stringify fallback and get concatenated onto the answer.
-    handlers.handleMessageEvent(artifactUpdateEvent({
-      lastChunk: true,
-      parts: [
-        createTextPart('Cilium is on v1.19.5.'),
-        createDataPart({ thoughtSignature: 'EjQKMgERTTIPW1Dx9s3NlDDSMzmWhbt5' }),
-      ],
-    }));
-
-    expect(emitted).toHaveLength(1);
-    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('TextMessage');
-    expect(emitted[0].parts[0]?.content?.value).toBe('Cilium is on v1.19.5.');
-  });
 
   test('artifact-update keeps unlabeled data parts that are not model-internal', () => {
     const emitted: Message[] = [];

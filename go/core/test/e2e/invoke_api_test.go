@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -210,14 +211,7 @@ func attachHitlAskUserResponse(msg *a2atype.Message, id, answer string) *a2atype
 			{"answer": []string{answer}},
 		},
 	}
-	hasExt := false
-	for _, ext := range msg.Extensions {
-		if ext == hitlExtensionURI {
-			hasExt = true
-			break
-		}
-	}
-	if !hasExt {
+	if !slices.Contains(msg.Extensions, hitlExtensionURI) {
 		msg.Extensions = append(msg.Extensions, hitlExtensionURI)
 	}
 	return msg
