@@ -70,7 +70,8 @@ RUN --mount=type=cache,target=/root/.npm \
 
 ENV PATH="/opt/sandbox-runtime/node_modules/.bin:$PATH"
 
-USER python
+# Numeric USER so kubelet can verify runAsNonRoot without an explicit runAsUser.
+USER 1001:1001
 WORKDIR /.kagent
 
 ### STAGE 3: final (install project)

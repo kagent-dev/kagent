@@ -195,9 +195,11 @@ func TestSecurityContext_OnlyPodSecurityContext(t *testing.T) {
 	assert.Equal(t, int64(2000), *podSecurityContext.RunAsUser)
 	assert.Equal(t, int64(2000), *podSecurityContext.RunAsGroup)
 
-	// Container security context should be nil if not specified
+	// Container security context defaults to the restricted-PSS profile when
+	// not specified; the pod-level settings are preserved alongside.
 	containerSecurityContext := podTemplate.Spec.Containers[0].SecurityContext
-	assert.Nil(t, containerSecurityContext, "Container securityContext should be nil when not specified")
+	require.NotNil(t, containerSecurityContext)
+	assertRestrictedSecurityContext(t, containerSecurityContext)
 }
 
 func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
@@ -278,7 +280,11 @@ func TestSecurityContext_OnlyContainerSecurityContext(t *testing.T) {
 // TestSecurityContext_SkillsDefaultPrivilegedSandbox verifies that when skills are
 // configured and the user has NOT set any securityContext (i.e., no PSS restriction),
 // the controller sets Privileged=true so that srt/bubblewrap can fully sandbox the BashTool.
-func TestSecurityContext_SkillsDefaultPrivilegedSandbox(t *testing.T) {
+// TestSecurityContext_SkillsDefaultNotPrivileged verifies that skills alone do
+// not trigger Privileged=true: skills loading needs no elevated privileges, and
+// only an explicit executeCodeBlocks opt-in requests the srt sandbox. Without a
+// user-provided securityContext the containers get the restricted-PSS defaults.
+func TestSecurityContext_SkillsDefaultNotPrivileged(t *testing.T) {
 	ctx := context.Background()
 
 	agent := &v1alpha2.Agent{
@@ -339,11 +345,120 @@ func TestSecurityContext_SkillsDefaultPrivilegedSandbox(t *testing.T) {
 	podTemplate := &deployment.Spec.Template
 
 	containerSecurityContext := podTemplate.Spec.Containers[0].SecurityContext
-	require.NotNil(t, containerSecurityContext, "SecurityContext should be created for sandbox")
-	// Without an explicit AllowPrivilegeEscalation=false constraint, skills trigger Privileged=true
-	// so that srt/bubblewrap can use kernel namespaces for full BashTool sandboxing.
-	require.NotNil(t, containerSecurityContext.Privileged, "Privileged should be set when no securityContext restriction")
-	assert.True(t, *containerSecurityContext.Privileged, "Privileged should be true for skills without PSS restrictions")
+	require.NotNil(t, containerSecurityContext)
+	assert.Nil(t, containerSecurityContext.Privileged, "skills alone must not trigger Privileged")
+	assertRestrictedSecurityContext(t, containerSecurityContext)
+
+	require.NotEmpty(t, podTemplate.Spec.InitContainers, "skills agent must have the skills-init container")
+	initSecurityContext := podTemplate.Spec.InitContainers[0].SecurityContext
+	require.NotNil(t, initSecurityContext, "skills-init must get the restricted defaults too")
+	assert.Nil(t, initSecurityContext.Privileged)
+	assertRestrictedSecurityContext(t, initSecurityContext)
+}
+
+func assertRestrictedSecurityContext(t *testing.T, securityContext *corev1.SecurityContext) {
+	t.Helper()
+	require.NotNil(t, securityContext.AllowPrivilegeEscalation)
+	assert.False(t, *securityContext.AllowPrivilegeEscalation)
+	require.NotNil(t, securityContext.RunAsNonRoot)
+	assert.True(t, *securityContext.RunAsNonRoot)
+	require.NotNil(t, securityContext.Capabilities)
+	assert.Equal(t, []corev1.Capability{"ALL"}, securityContext.Capabilities.Drop)
+	require.NotNil(t, securityContext.SeccompProfile)
+	assert.Equal(t, corev1.SeccompProfileTypeRuntimeDefault, securityContext.SeccompProfile.Type)
+}
+
+// TestSecurityContext_ExecuteCodeBlocksKeepsPrivileged verifies that the
+// explicit executeCodeBlocks opt-in still requests the privileged srt sandbox
+// when the user did not restrict the securityContext.
+func TestSecurityContext_ExecuteCodeBlocksKeepsPrivileged(t *testing.T) {
+	ctx := context.Background()
+
+	executeCode := true
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage:     "Test agent",
+				ModelConfig:       "test-model",
+				ExecuteCodeBlocks: &executeCode,
+			},
+		},
+	}
+
+	deployment := translateToDeployment(ctx, t, agent)
+	containerSecurityContext := deployment.Spec.Template.Spec.Containers[0].SecurityContext
+	require.NotNil(t, containerSecurityContext)
+	require.NotNil(t, containerSecurityContext.Privileged)
+	assert.True(t, *containerSecurityContext.Privileged, "executeCodeBlocks is the explicit sandbox opt-in")
+}
+
+// TestSecurityContext_DefaultIsRestricted verifies that a plain agent (no
+// skills, no code execution, no user securityContext) renders restricted-PSS
+// compliant container security contexts.
+func TestSecurityContext_DefaultIsRestricted(t *testing.T) {
+	ctx := context.Background()
+
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-agent",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				SystemMessage: "Test agent",
+				ModelConfig:   "test-model",
+			},
+		},
+	}
+
+	deployment := translateToDeployment(ctx, t, agent)
+	containerSecurityContext := deployment.Spec.Template.Spec.Containers[0].SecurityContext
+	require.NotNil(t, containerSecurityContext, "default securityContext must be rendered")
+	assert.Nil(t, containerSecurityContext.Privileged)
+	assertRestrictedSecurityContext(t, containerSecurityContext)
+}
+
+func translateToDeployment(ctx context.Context, t *testing.T, agent *v1alpha2.Agent) *appsv1.Deployment {
+	t.Helper()
+
+	modelConfig := &v1alpha2.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-model",
+			Namespace: "test",
+		},
+		Spec: v1alpha2.ModelConfigSpec{
+			Provider: "OpenAI",
+			Model:    "gpt-4o",
+		},
+	}
+
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha2.AddToScheme(scheme))
+
+	kubeClient := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(agent, modelConfig).
+		Build()
+
+	translatorInstance := translator.NewAdkApiTranslator(kubeClient,
+		types.NamespacedName{Namespace: "test", Name: "test-model"}, nil, "", nil)
+
+	result, err := translator.TranslateAgent(ctx, translatorInstance, agent)
+	require.NoError(t, err)
+
+	for _, obj := range result.Manifest {
+		if dep, ok := obj.(*appsv1.Deployment); ok {
+			return dep
+		}
+	}
+	t.Fatal("no Deployment in translated manifest")
+	return nil
 }
 
 // TestSecurityContext_SkillsPSSRestricted verifies that when a user explicitly sets
