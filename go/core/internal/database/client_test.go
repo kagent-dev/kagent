@@ -240,6 +240,100 @@ func TestStoreSessionIdempotence(t *testing.T) {
 	require.Error(t, err, "another user's session must not be readable")
 }
 
+// TestSessionRecreateAfterDelete verifies that a session id can be reused
+// after DeleteSession: the upsert resurrects the soft-deleted row and the
+// recreated session starts empty (no events, tasks, or shares from the
+// previous incarnation).
+func TestSessionRecreateAfterDelete(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	const sessionID = "s-reborn"
+	const userID = "alice"
+
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: sessionID, UserID: userID}))
+	require.NoError(t, client.StoreEvents(ctx,
+		&dbpkg.Event{ID: "e-old-1", SessionID: sessionID, UserID: userID, Data: "{}"},
+		&dbpkg.Event{ID: "e-old-2", SessionID: sessionID, UserID: userID, Data: "{}"},
+	))
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "t-old", ContextID: sessionID}, userID))
+	_, err := client.CreateSessionShare(ctx, &dbpkg.SessionShare{Token: "share-old", SessionID: sessionID, UserID: userID})
+	require.NoError(t, err)
+
+	// An unrelated user's session under the same id must survive alice's
+	// delete/recreate cycle untouched.
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: sessionID, UserID: "bob"}))
+	require.NoError(t, client.StoreEvents(ctx,
+		&dbpkg.Event{ID: "e-bob", SessionID: sessionID, UserID: "bob", Data: "{}"},
+	))
+
+	require.NoError(t, client.DeleteSession(ctx, sessionID, userID))
+	_, err = client.GetSession(ctx, sessionID, userID)
+	require.Error(t, err, "deleted session must not be readable")
+
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: sessionID, UserID: userID}),
+		"recreating a deleted session id must succeed")
+
+	recreated, err := client.GetSession(ctx, sessionID, userID)
+	require.NoError(t, err, "recreated session must be readable")
+	require.Equal(t, sessionID, recreated.ID)
+
+	events, err := client.ListEventsForSession(ctx, sessionID, userID, dbpkg.QueryOptions{})
+	require.NoError(t, err)
+	require.Empty(t, events, "recreated session must not inherit the previous incarnation's events")
+
+	tasks, err := client.ListTasksForSession(ctx, sessionID, userID)
+	require.NoError(t, err)
+	require.Empty(t, tasks, "recreated session must not inherit the previous incarnation's tasks")
+
+	shares, err := client.ListSessionSharesBySession(ctx, sessionID)
+	require.NoError(t, err)
+	require.Empty(t, shares, "recreated session must not inherit the previous incarnation's shares")
+
+	// The recreated session behaves like a fresh one.
+	require.NoError(t, client.StoreEvents(ctx,
+		&dbpkg.Event{ID: "e-new", SessionID: sessionID, UserID: userID, Data: "{}"},
+	))
+	events, err = client.ListEventsForSession(ctx, sessionID, userID, dbpkg.QueryOptions{})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+
+	// bob's same-id session kept its events.
+	bobEvents, err := client.ListEventsForSession(ctx, sessionID, "bob", dbpkg.QueryOptions{})
+	require.NoError(t, err)
+	require.Len(t, bobEvents, 1, "another user's same-id session must be untouched")
+}
+
+// TestUpsertLiveSessionKeepsHistory verifies that upserting a session that was
+// never deleted does not purge its events or reset its creation time.
+func TestUpsertLiveSessionKeepsHistory(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	const sessionID = "s-live"
+	const userID = "alice"
+
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: sessionID, UserID: userID}))
+	require.NoError(t, client.StoreEvents(ctx,
+		&dbpkg.Event{ID: "e-live", SessionID: sessionID, UserID: userID, Data: "{}"},
+	))
+	created, err := client.GetSession(ctx, sessionID, userID)
+	require.NoError(t, err)
+
+	name := "renamed"
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: sessionID, UserID: userID, Name: &name}))
+
+	got, err := client.GetSession(ctx, sessionID, userID)
+	require.NoError(t, err)
+	require.Equal(t, created.CreatedAt, got.CreatedAt, "upserting a live session must not reset created_at")
+
+	events, err := client.ListEventsForSession(ctx, sessionID, userID, dbpkg.QueryOptions{})
+	require.NoError(t, err)
+	require.Len(t, events, 1, "upserting a live session must not purge events")
+}
+
 func TestListSessionsOrdersByRecentActivity(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)

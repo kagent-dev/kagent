@@ -86,6 +86,12 @@ type Querier interface {
 	UpsertCrewAIFlowState(ctx context.Context, arg UpsertCrewAIFlowStateParams) error
 	UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error
 	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
+	// UpsertSession resurrects a soft-deleted (id, user_id) as a fresh incarnation:
+	// deleted_at is cleared, created_at restarts, and the previous incarnation's
+	// events, owned tasks, and shares are purged so the recreated session starts
+	// empty. NULL-owned tasks are left alone: the created_at bump already hides
+	// them from this session (see the ownership bound in tasks.sql), and they may
+	// still resolve to another user's same-id session.
 	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
 	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error
 	// UpsertTask returns the upserted id, or no rows when the write was rejected:
