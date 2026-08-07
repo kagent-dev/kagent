@@ -171,6 +171,15 @@ documented contract (see go/core/pkg/app/app.go).
 {{- end -}}
 
 {{/*
+Name of the controller metrics Service port, derived from the scheme the
+controller serves. Shared by the metrics Service and the ServiceMonitor
+endpoint so the two can never drift apart.
+*/}}
+{{- define "kagent.controller.metricsPortName" -}}
+{{- ternary "https" "http-metrics" .Values.controller.metrics.secureServing -}}
+{{- end -}}
+
+{{/*
 PostgreSQL service name for the bundled postgres instance
 */}}
 {{- define "kagent.postgresqlServiceName" -}}
