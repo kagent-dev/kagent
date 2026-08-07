@@ -44,3 +44,64 @@ ON CONFLICT (id, user_id) DO UPDATE SET
 -- name: SoftDeleteSession :exec
 UPDATE session SET deleted_at = NOW()
 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL;
+
+-- DeleteExpiredSessionsBatch hard-deletes up to batch_size idle sessions whose
+-- updated_at is older than retention_days, plus cascaded conversation state.
+-- name: DeleteExpiredSessionsBatch :one
+WITH expired AS (
+    SELECT id, user_id
+    FROM session
+    WHERE updated_at < NOW() - make_interval(days => sqlc.arg(retention_days)::int)
+    ORDER BY updated_at ASC
+    LIMIT sqlc.arg(batch_size)
+),
+del_shares AS (
+    DELETE FROM session_share ss
+    USING expired e
+    WHERE ss.session_id = e.id AND ss.user_id = e.user_id
+),
+del_events AS (
+    DELETE FROM event ev
+    USING expired e
+    WHERE ev.session_id = e.id AND ev.user_id = e.user_id
+),
+del_push AS (
+    DELETE FROM push_notification pn
+    USING task t, expired e
+    WHERE pn.task_id = t.id
+      AND t.session_id = e.id
+      AND COALESCE(t.user_id, e.user_id) = e.user_id
+),
+del_tasks AS (
+    DELETE FROM task t
+    USING expired e
+    WHERE t.session_id = e.id
+      AND COALESCE(t.user_id, e.user_id) = e.user_id
+),
+del_cp_writes AS (
+    DELETE FROM lg_checkpoint_write w
+    USING expired e
+    WHERE w.user_id = e.user_id AND w.thread_id = e.id
+),
+del_cps AS (
+    DELETE FROM lg_checkpoint c
+    USING expired e
+    WHERE c.user_id = e.user_id AND c.thread_id = e.id
+),
+del_crewai_mem AS (
+    DELETE FROM crewai_agent_memory m
+    USING expired e
+    WHERE m.user_id = e.user_id AND m.thread_id = e.id
+),
+del_crewai_flow AS (
+    DELETE FROM crewai_flow_state f
+    USING expired e
+    WHERE f.user_id = e.user_id AND f.thread_id = e.id
+),
+del_sessions AS (
+    DELETE FROM session s
+    USING expired e
+    WHERE s.id = e.id AND s.user_id = e.user_id
+    RETURNING s.id
+)
+SELECT COUNT(*)::bigint AS deleted FROM del_sessions;

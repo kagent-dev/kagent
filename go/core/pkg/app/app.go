@@ -137,14 +137,15 @@ type Config struct {
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
 	Database           struct {
-		Url             string
-		UrlFile         string
-		VectorEnabled   bool
-		SkipMigrations  bool
-		MaxConns        int           // 0 = unset (pgx default)
-		MinConns        int           // -1 = unset (pgx default); 0 is a valid value
-		MaxConnIdleTime time.Duration // 0 = unset (pgx default)
-		MaxConnLifetime time.Duration // 0 = unset (pgx default)
+		Url                  string
+		UrlFile              string
+		VectorEnabled        bool
+		SkipMigrations       bool
+		MaxConns             int           // 0 = unset (pgx default)
+		MinConns             int           // -1 = unset (pgx default); 0 is a valid value
+		MaxConnIdleTime      time.Duration // 0 = unset (pgx default)
+		MaxConnLifetime      time.Duration // 0 = unset (pgx default)
+		SessionRetentionDays int           // 0 = disabled; sliding idle TTL on session.updated_at
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
@@ -191,6 +192,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.IntVar(&cfg.Database.MinConns, "db-min-conns", -1, "Minimum number of connections in the Postgres pool. -1 leaves the pgx default.")
 	commandLine.DurationVar(&cfg.Database.MaxConnIdleTime, "db-max-conn-idle-time", 0, "Maximum idle time before a Postgres pool connection is closed. 0 leaves the pgx default (30m).")
 	commandLine.DurationVar(&cfg.Database.MaxConnLifetime, "db-max-conn-lifetime", 0, "Maximum lifetime of a Postgres pool connection. 0 leaves the pgx default (1h).")
+	commandLine.IntVar(&cfg.Database.SessionRetentionDays, "session-retention-days", 0, "Hard-delete idle sessions and cascaded conversation state (events, tasks, checkpoints, shares) when session.updated_at is older than this many days. 0 disables (default). Retention is a sliding window: activity refreshes updated_at.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -808,9 +810,9 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	// Memory TTL cleanup runs only on the leader to avoid duplicate deletes.
-	if err := mgr.Add(httpserver.NewMemoryCleanupRunnable(dbClient, 0)); err != nil {
-		setupLog.Error(err, "unable to set up memory cleanup runnable")
+	// DB TTL cleanup (memory + sessions) runs only on the leader to avoid duplicate deletes.
+	if err := mgr.Add(httpserver.NewDbCleanupRunnable(dbClient, 1*time.Minute, cfg.Database.SessionRetentionDays)); err != nil {
+		setupLog.Error(err, "unable to set up DB cleanup runnable")
 		os.Exit(1)
 	}
 

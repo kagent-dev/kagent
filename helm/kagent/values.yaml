@@ -95,6 +95,10 @@ database:
       minConns: null
       maxConnIdleTime: ""
       maxConnLifetime: ""
+    # -- Hard-delete idle sessions (and cascaded events/tasks/checkpoints/shares) after N days
+    # of no activity. Uses session.updated_at as a sliding idle clock (writes refresh it).
+    # 0 disables cleanup (default, existing installs unchanged).
+    sessionRetentionDays: 0
     # -- Bundled PostgreSQL instance — for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:
