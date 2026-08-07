@@ -277,6 +277,13 @@ func toLegacyPart(part *a2av1.Part) (trpc.Part, error) {
 	}, nil
 }
 
+// LegacyTaskStateString returns the persisted state string a legacy (pre-v1)
+// task row carries for the given v1 state, e.g. "working" for TaskStateWorking.
+// A v1 row persists string(state) instead (e.g. "TASK_STATE_WORKING").
+func LegacyTaskStateString(state a2av1.TaskState) string {
+	return string(toLegacyTaskState(state))
+}
+
 func toLegacyTaskState(state a2av1.TaskState) trpc.TaskState {
 	switch state {
 	case a2av1.TaskStateSubmitted:

@@ -7,7 +7,60 @@ package dbgen
 
 import (
 	"context"
+	"time"
 )
+
+const countUserTasks = `-- name: CountUserTasks :one
+SELECT COUNT(*)
+FROM task
+JOIN session ON session.id = task.session_id
+WHERE session.user_id = $1
+  AND task.deleted_at IS NULL
+  AND session.deleted_at IS NULL
+  AND (task.user_id = $1 OR (task.user_id IS NULL AND $1 = (
+      SELECT MIN(s.user_id) FROM session s
+      WHERE s.id = task.session_id AND s.created_at <= task.created_at
+      HAVING COUNT(DISTINCT s.user_id) = 1)))
+  AND ($2::text IS NULL OR task.session_id = $2)
+  AND (
+    $3::text IS NULL
+    OR (task.data::jsonb -> 'status' ->> 'state') IN ($3, $4)
+  )
+  AND (
+    $5::timestamptz IS NULL
+    OR (
+      CASE
+        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$'
+        THEN (task.data::jsonb -> 'status' ->> 'timestamp')::timestamptz
+      END
+    ) > $5
+  )
+`
+
+type CountUserTasksParams struct {
+	UserID       string
+	SessionID    *string
+	StatusV1     *string
+	StatusLegacy *string
+	StatusAfter  *time.Time
+}
+
+// The full filtered count for ListUserTasks, independent of LIMIT/OFFSET. Used
+// to recover total when a requested page lands past the end of the set (an empty
+// page carries no COUNT(*) OVER()). The WHERE clause is identical to
+// ListUserTasks and must stay in sync with it.
+func (q *Queries) CountUserTasks(ctx context.Context, arg CountUserTasksParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countUserTasks,
+		arg.UserID,
+		arg.SessionID,
+		arg.StatusV1,
+		arg.StatusLegacy,
+		arg.StatusAfter,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
 
 const getTask = `-- name: GetTask :one
 
@@ -98,6 +151,115 @@ func (q *Queries) ListTasksForSession(ctx context.Context, arg ListTasksForSessi
 			&i.SessionID,
 			&i.ProtocolVersion,
 			&i.UserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUserTasks = `-- name: ListUserTasks :many
+SELECT task.id, task.created_at, task.updated_at, task.deleted_at, task.data, task.session_id, task.protocol_version, task.user_id, COUNT(*) OVER() AS total
+FROM task
+JOIN session ON session.id = task.session_id
+WHERE session.user_id = $1
+  AND task.deleted_at IS NULL
+  AND session.deleted_at IS NULL
+  AND (task.user_id = $1 OR (task.user_id IS NULL AND $1 = (
+      SELECT MIN(s.user_id) FROM session s
+      WHERE s.id = task.session_id AND s.created_at <= task.created_at
+      HAVING COUNT(DISTINCT s.user_id) = 1)))
+  AND ($2::text IS NULL OR task.session_id = $2)
+  AND (
+    $3::text IS NULL
+    OR (task.data::jsonb -> 'status' ->> 'state') IN ($3, $4)
+  )
+  AND (
+    $5::timestamptz IS NULL
+    OR (
+      CASE
+        WHEN (task.data::jsonb -> 'status' ->> 'timestamp') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?(Z|[+-][0-9]{2}:?[0-9]{2})$'
+        THEN (task.data::jsonb -> 'status' ->> 'timestamp')::timestamptz
+      END
+    ) > $5
+  )
+ORDER BY task.id
+LIMIT $7::int OFFSET $6::int
+`
+
+type ListUserTasksParams struct {
+	UserID       string
+	SessionID    *string
+	StatusV1     *string
+	StatusLegacy *string
+	StatusAfter  *time.Time
+	PageOffset   int32
+	PageLimit    int32
+}
+
+type ListUserTasksRow struct {
+	ID              string
+	CreatedAt       *time.Time
+	UpdatedAt       *time.Time
+	DeletedAt       *time.Time
+	Data            string
+	SessionID       *string
+	ProtocolVersion *string
+	UserID          *string
+	Total           int64
+}
+
+// Lists a user's tasks across every session they own (or a single session when
+// session_id is set), filtering, ordering, and paginating server-side. total is
+// the COUNT(*) OVER() of the full filtered set, before LIMIT/OFFSET.
+//
+// A row must clear both gates: the session belongs to the caller, and the task
+// itself does under the ownership rule at the top of this file. The task gate is
+// what keeps a foreign task parked in the caller's session out of the result.
+//
+// status_state matches task.data's persisted state string. Rows exist in two
+// shapes: v1 (protocol_version = 'v1', state e.g. 'TASK_STATE_WORKING') and
+// legacy (protocol_version NULL, state e.g. 'working'); the caller passes both
+// spellings in status_v1/status_legacy so either row shape matches. The two
+// vocabularies never overlap, so matching against both is unambiguous.
+// data is always a JSON object (json.Marshal output), so ::jsonb never errors;
+// the timestamp cast is guarded by a CASE (ordered evaluation) against a
+// present-but-malformed value.
+//
+// COUNT(*) OVER() rides on the returned rows, so a page past the end of the set
+// carries no total; callers recover it with CountUserTasks, whose WHERE clause
+// must stay identical to this one.
+func (q *Queries) ListUserTasks(ctx context.Context, arg ListUserTasksParams) ([]ListUserTasksRow, error) {
+	rows, err := q.db.Query(ctx, listUserTasks,
+		arg.UserID,
+		arg.SessionID,
+		arg.StatusV1,
+		arg.StatusLegacy,
+		arg.StatusAfter,
+		arg.PageOffset,
+		arg.PageLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUserTasksRow
+	for rows.Next() {
+		var i ListUserTasksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.Data,
+			&i.SessionID,
+			&i.ProtocolVersion,
+			&i.UserID,
+			&i.Total,
 		); err != nil {
 			return nil, err
 		}
