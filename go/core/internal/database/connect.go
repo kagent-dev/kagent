@@ -40,8 +40,9 @@ func Connect(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool, error) {
 	return retryDBConnection(ctx, cfg)
 }
 
-// applyPoolConfig copies non-nil pool settings from cfg onto config.
-func applyPoolConfig(config *pgxpool.Config, cfg *PostgresConfig) {
+// applyPoolConfig copies non-nil pool settings from cfg onto config and
+// validates the resulting pool bounds.
+func applyPoolConfig(config *pgxpool.Config, cfg *PostgresConfig) error {
 	if cfg.MaxConns != nil {
 		config.MaxConns = *cfg.MaxConns
 	}
@@ -54,6 +55,13 @@ func applyPoolConfig(config *pgxpool.Config, cfg *PostgresConfig) {
 	if cfg.MaxConnLifetime != nil {
 		config.MaxConnLifetime = *cfg.MaxConnLifetime
 	}
+	if config.MaxConns < 1 {
+		return fmt.Errorf("db maxConns must be >= 1, got %d", config.MaxConns)
+	}
+	if config.MinConns > config.MaxConns {
+		return fmt.Errorf("db minConns (%d) cannot be greater than maxConns (%d)", config.MinConns, config.MaxConns)
+	}
+	return nil
 }
 
 // retryDBConnection opens a pgxpool connection, registering pgvector types when
@@ -67,7 +75,9 @@ func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool,
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse database URL: %w", err)
 	}
-	applyPoolConfig(config, cfg)
+	if err := applyPoolConfig(config, cfg); err != nil {
+		return nil, err
+	}
 	if cfg.VectorEnabled {
 		config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 			return pgvectorpgx.RegisterTypes(ctx, conn)

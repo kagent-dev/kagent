@@ -188,7 +188,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
 	commandLine.BoolVar(&cfg.Database.SkipMigrations, "skip-migrations", false, "Do not run database migrations at startup; instead verify the database is already migrated and fail if it is not. Migrations must be applied out-of-band (e.g. from a pipeline or pre-upgrade hook). Settable via the SKIP_MIGRATIONS env var.")
 	commandLine.IntVar(&cfg.Database.MaxConns, "db-max-conns", 0, "Maximum number of connections in the Postgres pool. 0 leaves the pgx default.")
-	commandLine.IntVar(&cfg.Database.MinConns, "db-min-conns", -1, "Minimum number of connections in the Postgres pool. -1 leaves the pgx default; 0 is valid (recommended for serverless).")
+	commandLine.IntVar(&cfg.Database.MinConns, "db-min-conns", -1, "Minimum number of connections in the Postgres pool. -1 leaves the pgx default.")
 	commandLine.DurationVar(&cfg.Database.MaxConnIdleTime, "db-max-conn-idle-time", 0, "Maximum idle time before a Postgres pool connection is closed. 0 leaves the pgx default (30m).")
 	commandLine.DurationVar(&cfg.Database.MaxConnLifetime, "db-max-conn-lifetime", 0, "Maximum lifetime of a Postgres pool connection. 0 leaves the pgx default (1h).")
 
