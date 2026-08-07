@@ -1,6 +1,6 @@
 import { describe, expect, it, jest, beforeEach, afterEach } from '@jest/globals';
-import { 
-  isMcpTool, 
+import {
+  isMcpTool,
   isAgentTool,
   groupMcpToolsByServer,
   getToolIdentifier,
@@ -16,6 +16,7 @@ import {
   getDiscoveredToolDescription,
   getDiscoveredToolCategory,
   getDiscoveredToolIdentifier,
+  buildMCPServerArgs,
 } from '../toolUtils';
 import { k8sRefUtils } from '../k8sUtils';
 import { Tool, ToolsResponse, DiscoveredTool } from "@/types";
@@ -1025,6 +1026,49 @@ describe('Tool Utility Functions', () => {
       expect(getToolIdentifier(malformedMcpTool)).toMatch(/^unknown-tool-[a-z0-9]+$/);
       expect(getToolDisplayName(malformedMcpTool, "default")).toBe("Unknown Tool");
       expect(getToolDescription(malformedMcpTool, [])).toBe("No description available");
+    });
+  });
+
+  describe('buildMCPServerArgs', () => {
+    it('should place the package before additional arguments', () => {
+      const args = buildMCPServerArgs(
+        "-y",
+        "@modelcontextprotocol/server-map",
+        ["--stdio"],
+      );
+      expect(args).toEqual([
+        "-y",
+        "@modelcontextprotocol/server-map",
+        "--stdio",
+      ]);
+    });
+
+    it('should include only non-empty arguments', () => {
+      const args = buildMCPServerArgs(
+        "",
+        "@acme/mcp-tool",
+        ["", "--verbose", ""],
+      );
+      expect(args).toEqual(["@acme/mcp-tool", "--verbose"]);
+    });
+
+    it('should split the command prefix on whitespace', () => {
+      const args = buildMCPServerArgs(
+        "--cache --quiet",
+        "@acme/mcp-tool",
+        ["--help"],
+      );
+      expect(args).toEqual([
+        "--cache",
+        "--quiet",
+        "@acme/mcp-tool",
+        "--help",
+      ]);
+    });
+
+    it('should handle empty prefix and no additional arguments', () => {
+      const args = buildMCPServerArgs("", "@acme/mcp-tool", [""]);
+      expect(args).toEqual(["@acme/mcp-tool"]);
     });
   });
 });
