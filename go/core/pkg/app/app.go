@@ -136,7 +136,7 @@ type Config struct {
 	// http://host:<port-or-443> so traffic egresses in plaintext to a proxy
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
-	Database struct {
+	Database           struct {
 		Url             string
 		UrlFile         string
 		VectorEnabled   bool
@@ -144,7 +144,7 @@ type Config struct {
 		MaxConns        int           // 0 = unset (pgx default)
 		MinConns        int           // -1 = unset (pgx default); 0 is a valid value
 		MaxConnIdleTime time.Duration // 0 = unset (pgx default)
-		MaxConnLifetime  time.Duration // 0 = unset (pgx default)
+		MaxConnLifetime time.Duration // 0 = unset (pgx default)
 	}
 	Substrate struct {
 		AteAPIEndpoint             string

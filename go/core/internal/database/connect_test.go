@@ -45,7 +45,7 @@ func TestApplyPoolConfig(t *testing.T) {
 			MaxConns:        &maxConns,
 			MinConns:        &minConns,
 			MaxConnIdleTime: &idle,
-			MaxConnLifetime:  &lifetime,
+			MaxConnLifetime: &lifetime,
 		})
 		assert.Equal(t, int32(8), config.MaxConns)
 		assert.Equal(t, int32(0), config.MinConns)

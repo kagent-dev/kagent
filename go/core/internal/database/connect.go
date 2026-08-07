@@ -25,7 +25,7 @@ type PostgresConfig struct {
 	MaxConns        *int32
 	MinConns        *int32
 	MaxConnIdleTime *time.Duration
-	MaxConnLifetime  *time.Duration
+	MaxConnLifetime *time.Duration
 }
 
 const (
