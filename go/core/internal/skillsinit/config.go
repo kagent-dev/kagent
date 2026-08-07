@@ -50,6 +50,16 @@ type Config struct {
 	// under DockerSecretsDir. The binary merges them into a single config.json
 	// that go-containerregistry consults during OCI pulls.
 	ImagePullSecrets []string `json:"imagePullSecrets,omitempty"`
+
+	// S3Refs is the list of S3 prefixes or archives to fetch.
+	S3Refs []S3Ref `json:"s3Refs,omitempty"`
+}
+
+// S3Ref describes a single S3 fetch into Dest.
+type S3Ref struct {
+	URI    string `json:"uri"`
+	Dest   string `json:"dest"`
+	Region string `json:"region,omitempty"`
 }
 
 // GitRef describes a single git clone operation.
