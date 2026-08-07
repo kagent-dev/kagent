@@ -137,10 +137,11 @@ type Config struct {
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
 	Database           struct {
-		Url            string
-		UrlFile        string
-		VectorEnabled  bool
-		SkipMigrations bool
+		Url                  string
+		UrlFile              string
+		VectorEnabled        bool
+		SkipMigrations       bool
+		SessionRetentionDays int // 0 = disabled; sliding idle TTL on session.updated_at
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
@@ -183,6 +184,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
 	commandLine.BoolVar(&cfg.Database.SkipMigrations, "skip-migrations", false, "Do not run database migrations at startup; instead verify the database is already migrated and fail if it is not. Migrations must be applied out-of-band (e.g. from a pipeline or pre-upgrade hook). Settable via the SKIP_MIGRATIONS env var.")
+	commandLine.IntVar(&cfg.Database.SessionRetentionDays, "session-retention-days", 0, "Hard-delete idle sessions and cascaded conversation state (events, tasks, checkpoints, shares) when session.updated_at is older than this many days. 0 disables (default). Retention is a sliding window: activity refreshes updated_at.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -777,9 +779,10 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	// Memory TTL cleanup runs only on the leader to avoid duplicate deletes.
-	if err := mgr.Add(httpserver.NewMemoryCleanupRunnable(dbClient, 0)); err != nil {
-		setupLog.Error(err, "unable to set up memory cleanup runnable")
+	// DB TTL cleanup (memory + sessions) runs only on the leader to avoid duplicate deletes.
+	// Currently configured to run every 24 hours.
+	if err := mgr.Add(httpserver.NewDbCleanupRunnable(dbClient, 24*time.Hour, cfg.Database.SessionRetentionDays)); err != nil {
+		setupLog.Error(err, "unable to set up DB cleanup runnable")
 		os.Exit(1)
 	}
 
