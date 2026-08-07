@@ -6,6 +6,7 @@ suite: test agent nodeSelector configuration
 # spec.declarative.deployment.nodeSelector only when the subchart's
 # .Values.nodeSelector is set.
 templates:
+  - charts/agent-builder/templates/agent.yaml
   - charts/argo-rollouts-agent/templates/agent.yaml
   - charts/cilium-debug-agent/templates/agent.yaml
   - charts/cilium-manager-agent/templates/agent.yaml
@@ -17,6 +18,27 @@ templates:
   - charts/observability-agent/templates/agent.yaml
   - charts/promql-agent/templates/agent.yaml
 tests:
+  # =============================================================================
+  # agent-builder
+  # =============================================================================
+  - it: should not set nodeSelector by default for agent-builder
+    template: charts/agent-builder/templates/agent.yaml
+    set:
+      agent-builder.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.nodeSelector
+  - it: should set nodeSelector when provided for agent-builder
+    template: charts/agent-builder/templates/agent.yaml
+    set:
+      agent-builder.enabled: true
+      agent-builder.nodeSelector:
+        disktype: ssd
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.nodeSelector.disktype
+          value: ssd
+
   # =============================================================================
   # argo-rollouts-agent
   # =============================================================================
