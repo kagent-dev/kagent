@@ -142,7 +142,7 @@ func fetchS3Prefix(ctx context.Context, client s3API, bucket, prefix, dest strin
 			return fmt.Errorf("list s3://%s/%s: %w", bucket, prefix, err)
 		}
 		for _, obj := range out.Contents {
-			// Skip emtpy folder markers
+			// Skip empty folder markers
 			if obj.Key == nil || strings.HasSuffix(*obj.Key, "/") {
 				continue
 			}

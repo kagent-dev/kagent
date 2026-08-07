@@ -90,9 +90,9 @@ func Test_extractZip_rejectsPathTraversal(t *testing.T) {
 func Test_fetchS3_prefix(t *testing.T) {
 	client := &fakeS3{
 		objects: map[string][]byte{
-			"team/kebab/SKILL.md":           []byte("# kebab"),
-			"team/kebab/scripts/make.py":    []byte("print(1)"),
-			"team/kebab-other/SKILL.md":     []byte("nope"),
+			"team/kebab/SKILL.md":        []byte("# kebab"),
+			"team/kebab/scripts/make.py": []byte("print(1)"),
+			"team/kebab-other/SKILL.md":  []byte("nope"),
 		},
 	}
 	dst := t.TempDir()
