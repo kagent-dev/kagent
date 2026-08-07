@@ -18,7 +18,18 @@ import (
 //
 // SubPath, if set, rewrites the destination so the final layout matches the
 // requested in-repo subdirectory.
+//
+// ref.Dest is removed before cloning: a prior failed attempt (e.g. killed
+// between the clone/checkout and applySubPath's final rename) can leave a
+// non-empty dest behind, which would otherwise make every subsequent retry
+// fail git's own "already exists and is not an empty directory" pre-flight
+// check forever, even though the container is expected to retry from
+// scratch on failure.
 func CloneGit(ref GitRef) error {
+	if err := os.RemoveAll(ref.Dest); err != nil {
+		return fmt.Errorf("clean stale dest %q: %w", ref.Dest, err)
+	}
+
 	if ref.Full {
 		if err := runGit("clone", "--", ref.URL, ref.Dest); err != nil {
 			return err
