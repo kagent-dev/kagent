@@ -55,6 +55,30 @@ data:
   OTEL_EXPORTER_OTLP_LOGS_TIMEOUT: {{ .Values.otel.logging.exporter.otlp.timeout | quote }}
   {{- end }}
   {{- end }}
+  {{- if .Values.otel.tracing.exporter.otlp.headers }}
+  {{- $traceHeaders := list }}
+  {{- range $k := keys .Values.otel.tracing.exporter.otlp.headers | sortAlpha }}
+  {{- $traceHeaders = append $traceHeaders (printf "%s=%s" $k (index $.Values.otel.tracing.exporter.otlp.headers $k | toString)) }}
+  {{- end }}
+  OTEL_EXPORTER_OTLP_TRACES_HEADERS: {{ join "," $traceHeaders | quote }}
+  {{- end }}
+  {{- if .Values.otel.logging.exporter.otlp.headers }}
+  {{- $logHeaders := list }}
+  {{- range $k := keys .Values.otel.logging.exporter.otlp.headers | sortAlpha }}
+  {{- $logHeaders = append $logHeaders (printf "%s=%s" $k (index $.Values.otel.logging.exporter.otlp.headers $k | toString)) }}
+  {{- end }}
+  OTEL_EXPORTER_OTLP_LOGS_HEADERS: {{ join "," $logHeaders | quote }}
+  {{- end }}
+  {{- if .Values.otel.serviceName }}
+  OTEL_SERVICE_NAME: {{ .Values.otel.serviceName | quote }}
+  {{- end }}
+  {{- if .Values.otel.resourceAttributes }}
+  {{- $resourceAttrs := list }}
+  {{- range $k := keys .Values.otel.resourceAttributes | sortAlpha }}
+  {{- $resourceAttrs = append $resourceAttrs (printf "%s=%s" $k (index $.Values.otel.resourceAttributes $k | toString)) }}
+  {{- end }}
+  OTEL_RESOURCE_ATTRIBUTES: {{ join "," $resourceAttrs | quote }}
+  {{- end }}
   {{- if .Values.proxy.url }}
   PROXY_URL: {{ .Values.proxy.url | quote }}
   {{- end }}

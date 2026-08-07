@@ -166,6 +166,63 @@ tests:
           path: data.A2A_BASE_URL
           value: "https://kagent.example.com"
 
+  - it: should not set optional OTEL env vars by default
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.OTEL_SERVICE_NAME
+      - notExists:
+          path: data.OTEL_RESOURCE_ATTRIBUTES
+      - notExists:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_HEADERS
+      - notExists:
+          path: data.OTEL_EXPORTER_OTLP_LOGS_HEADERS
+
+  - it: should set OTEL_SERVICE_NAME when configured
+    template: controller-configmap.yaml
+    set:
+      otel:
+        serviceName: "kagent-controller-prod"
+    asserts:
+      - equal:
+          path: data.OTEL_SERVICE_NAME
+          value: "kagent-controller-prod"
+
+  - it: should render OTEL_RESOURCE_ATTRIBUTES as sorted key=value pairs
+    template: controller-configmap.yaml
+    set:
+      otel:
+        resourceAttributes:
+          service.namespace: kagent
+          deployment.environment: production
+    asserts:
+      - equal:
+          path: data.OTEL_RESOURCE_ATTRIBUTES
+          value: "deployment.environment=production,service.namespace=kagent"
+
+  - it: should render OTLP traces and logs headers as sorted key=value pairs
+    template: controller-configmap.yaml
+    set:
+      otel:
+        tracing:
+          exporter:
+            otlp:
+              headers:
+                x-honeycomb-team: trace-key
+                x-honeycomb-dataset: kagent
+        logging:
+          exporter:
+            otlp:
+              headers:
+                authorization: "Basic bG9ncw=="
+    asserts:
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_TRACES_HEADERS
+          value: "x-honeycomb-dataset=kagent,x-honeycomb-team=trace-key"
+      - equal:
+          path: data.OTEL_EXPORTER_OTLP_LOGS_HEADERS
+          value: "authorization=Basic bG9ncw=="
+
   - it: should set PROXY_URL when set
     template: controller-configmap.yaml
     set:
