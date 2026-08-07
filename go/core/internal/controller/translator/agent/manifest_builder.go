@@ -106,7 +106,7 @@ func (a *adkApiTranslator) BuildManifest(
 	if podRuntime.skillsInitConfigMap != nil {
 		outputs.Manifest = append(outputs.Manifest, podRuntime.skillsInitConfigMap)
 		// Folded into the same rollout-trigger hash as the rest of the pod
-		// config — the PodSpec only names the ConfigMap, so Kubernetes
+		// config, since the PodSpec only names the ConfigMap, so Kubernetes
 		// wouldn't otherwise restart the pod when its rendered config changes.
 		skillsInitCfg = []byte(podRuntime.skillsInitConfigMap.Data[skillsinit.ConfigMapKey])
 	}
@@ -342,8 +342,7 @@ func buildPodRuntime(
 		})
 	}
 
-	envVars := append([]corev1.EnvVar{}, manifestCtx.deployment.Env...)
-	envVars = append(envVars, sharedEnv...)
+	envVars := mergeEnv(manifestCtx.deployment.Env, sharedEnv)
 
 	return &podRuntimeInputs{
 		initContainers:      initContainers,
@@ -354,6 +353,23 @@ func buildPodRuntime(
 		securityContext:     buildContainerSecurityContext(manifestCtx.deployment.SecurityContext, needCodeExecIsolation),
 		skillsInitConfigMap: skillsInitCM,
 	}, nil
+}
+
+// mergeEnv appends shared entries whose name is not already set in userEnv,
+// so a user-supplied env var always wins over a controller-injected one with
+// the same name instead of being silently overwritten by append order.
+func mergeEnv(userEnv, sharedEnv []corev1.EnvVar) []corev1.EnvVar {
+	set := make(map[string]bool, len(userEnv))
+	for _, e := range userEnv {
+		set[e.Name] = true
+	}
+	merged := append([]corev1.EnvVar{}, userEnv...)
+	for _, e := range sharedEnv {
+		if !set[e.Name] {
+			merged = append(merged, e)
+		}
+	}
+	return merged
 }
 
 func needsSRTSettings(agent v1alpha2.AgentObject, sandboxCfg *v1alpha2.SandboxConfig) bool {
