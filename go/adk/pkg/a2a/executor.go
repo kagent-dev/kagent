@@ -264,7 +264,11 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 		lastNonPartialParts a2atype.ContentParts
 		hitlParts           a2atype.ContentParts
 		runErr              error
+		usage               turnUsage
 	)
+	// Resumed tasks (HITL cycles, follow-up messages) carry the previously
+	// persisted total; seed it so kagent_usage_total stays a task-lifetime sum.
+	usage.seedFromTask(reqCtx.StoredTask)
 
 	for adkEvent, adkErr := range r.Run(ctx, userID, sessionID, content, runConfig) {
 		if adkErr != nil {
@@ -281,6 +285,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 			invocationSpan.SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", invocationID))
 		}
 
+		// Aggregate token usage for the terminal status update.
+		usage.add(adkEvent)
+
 		// Build per-event metadata (inherits baseMeta + adds invocation_id, usage etc.).
 		eventMeta := buildEventMeta(baseMeta, adkEvent)
 
@@ -293,6 +300,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 					a2atype.TextPart{Text: fmt.Sprintf("LLM error: %s %s", adkEvent.ErrorCode, adkEvent.ErrorMessage)})
 				failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
 				failed.Final = true
+				usage.stamp(eventMeta)
 				failed.Metadata = eventMeta
 				return queue.Write(ctx, failed)
 			}
@@ -305,6 +313,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 				a2atype.TextPart{Text: fmt.Sprintf("LLM error: %s %s", adkEvent.ErrorCode, adkEvent.ErrorMessage)})
 			failed := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, errMsg)
 			failed.Final = true
+			usage.stamp(eventMeta)
 			failed.Metadata = eventMeta
 			return queue.Write(ctx, failed)
 		}
@@ -373,6 +382,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 	if invocationID != "" {
 		finalMeta[adka2a.ToA2AMetaKey("invocation_id")] = invocationID
 	}
+	usage.stamp(finalMeta)
 
 	if runErr != nil {
 		errMsg := newAgentMessage(reqCtx, a2atype.TextPart{Text: runErr.Error()})
