@@ -309,6 +309,42 @@ controller:
     service:
       type: ClusterIP
       port: 8443
+    # -- Prometheus Operator `ServiceMonitor` for the metrics `Service`.
+    # Requires `controller.metrics.enabled` and the
+    # `monitoring.coreos.com/v1` CRDs. Rendering the `ServiceMonitor` does
+    # not by itself authorize the scrape: with `secureServing` enabled,
+    # `<fullname>-metrics-reader` still has to be bound to the Prometheus
+    # ServiceAccount.
+    # @default -- disabled
+    serviceMonitor:
+      enabled: false
+      # -- Namespace to create the `ServiceMonitor` in. The scrape target
+      # stays the release namespace either way.
+      # @default -- the release namespace
+      namespace: ""
+      # -- Extra labels for the `ServiceMonitor` (merged with the chart
+      # labels). Set whatever label your Prometheus
+      # `serviceMonitorSelector` matches on.
+      labels: {}
+      # -- Annotations for the `ServiceMonitor`.
+      annotations: {}
+      # -- Scrape interval. Prometheus' global default when empty.
+      interval: ""
+      # -- Scrape timeout. Prometheus' global default when empty.
+      scrapeTimeout: ""
+      # -- Keep the scraped labels when they collide with server-side ones.
+      honorLabels: false
+      # -- `relabelings` applied to the scrape targets.
+      relabelings: []
+      # -- `metricRelabelings` applied to the scraped samples.
+      metricRelabelings: []
+      # -- Token presented to the authenticated metrics endpoint. Only used
+      # when `secureServing` is enabled; set to `""` to omit it.
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      # -- `tlsConfig` for the scrape. Only used when `secureServing` is
+      # enabled, where the controller serves a self-signed certificate.
+      # @default -- insecureSkipVerify: true
+      tlsConfig: {}
   # -- Native gRPC application API settings. This port is internal unless a
   # separate TLS-capable GRPCRoute or ingress is configured.
   grpc:
