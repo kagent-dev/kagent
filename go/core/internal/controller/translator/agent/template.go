@@ -77,7 +77,7 @@ func buildTemplateContext(agent v1alpha2.AgentObject, cfg *adk.AgentConfig) Prom
 		tplCtx.ToolNames = append(tplCtx.ToolNames, t.Tools...)
 	}
 
-	// Collect skill names using the shared OCI/Git name helpers.
+	// Collect skill names using the shared OCI/Git/S3 name helpers.
 	if spec.Skills != nil {
 		for _, ref := range spec.Skills.Refs {
 			if name := ociSkillName(ref); name != "" {
@@ -86,6 +86,11 @@ func buildTemplateContext(agent v1alpha2.AgentObject, cfg *adk.AgentConfig) Prom
 		}
 		for _, gitRef := range spec.Skills.GitRefs {
 			if name := gitSkillName(gitRef); name != "" {
+				tplCtx.SkillNames = append(tplCtx.SkillNames, name)
+			}
+		}
+		for _, s3Ref := range spec.Skills.S3Refs {
+			if name := s3SkillName(s3Ref); name != "" {
 				tplCtx.SkillNames = append(tplCtx.SkillNames, name)
 			}
 		}
