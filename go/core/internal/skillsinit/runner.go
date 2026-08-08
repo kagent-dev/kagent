@@ -1,6 +1,7 @@
 package skillsinit
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,9 +10,9 @@ import (
 )
 
 // Run executes the full skills-init sequence: docker config merge → git auth
-// setup → git clones → OCI pulls. It returns the first error encountered;
-// successful operations before the failure are left in place on disk (the
-// container restarts and re-runs from scratch).
+// setup → git clones → OCI pulls → S3 fetches. It returns the first error
+// encountered; successful operations before the failure are left in place on
+// disk (the container restarts and re-runs from scratch).
 //
 // homeDir is the binary's $HOME — exposed for tests. In production callers
 // should pass os.UserHomeDir() or "/root".
@@ -42,6 +43,13 @@ func Run(cfg Config, homeDir string) error {
 		log.Printf("exporting OCI image %s into %s", ref.Image, ref.Dest)
 		if err := FetchOCI(ref, cfg.InsecureOCI); err != nil {
 			return fmt.Errorf("oci %s: %w", ref.Image, err)
+		}
+	}
+
+	for _, ref := range cfg.S3Refs {
+		log.Printf("fetching S3 %s into %s", ref.URI, ref.Dest)
+		if err := FetchS3(context.Background(), ref); err != nil {
+			return fmt.Errorf("s3 %s: %w", ref.URI, err)
 		}
 	}
 
