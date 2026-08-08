@@ -425,6 +425,33 @@ func TestExecuteCommand_RequiresMountedSRTSettings(t *testing.T) {
 	}
 }
 
+func TestCommandTimeout(t *testing.T) {
+	tests := []struct {
+		name    string
+		envVal  string
+		command string
+		want    time.Duration
+	}{
+		{name: "default for generic command", envVal: "", command: "ls -la", want: 30 * time.Second},
+		{name: "default for python command", envVal: "", command: "python script.py", want: 60 * time.Second},
+		{name: "env override applies to generic", envVal: "300", command: "ls -la", want: 300 * time.Second},
+		{name: "env override applies to python too", envVal: "300", command: "python script.py", want: 300 * time.Second},
+		{name: "invalid env value falls back", envVal: "notanumber", command: "ls -la", want: 30 * time.Second},
+		{name: "zero env value falls back", envVal: "0", command: "ls -la", want: 30 * time.Second},
+		{name: "negative env value falls back", envVal: "-5", command: "ls -la", want: 30 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(commandTimeoutEnv, tt.envVal)
+			got := commandTimeout(tt.command)
+			if got != tt.want {
+				t.Errorf("commandTimeout(%q) with env=%q = %v, want %v", tt.command, tt.envVal, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExecuteCommand_Timeout(t *testing.T) {
 	// Skip this test if running in CI or if test timeout is too short
 	// This test requires at least 35 seconds to run properly

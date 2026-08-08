@@ -8,9 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
+
+const commandTimeoutEnv = "KAGENT_COMMAND_TIMEOUT"
 
 const srtSettingsPathEnv = "KAGENT_SRT_SETTINGS_PATH"
 
@@ -124,12 +127,21 @@ func NewCommandExecutorFromEnv() (*CommandExecutor, error) {
 	return &CommandExecutor{srtArgs: srtArgs}, nil
 }
 
+func commandTimeout(command string) time.Duration {
+	if v := strings.TrimSpace(os.Getenv(commandTimeoutEnv)); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	if strings.Contains(command, "python") {
+		return 60 * time.Second
+	}
+	return 30 * time.Second
+}
+
 // ExecuteCommand executes a shell command.
 func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, workingDir string) (string, error) {
-	timeout := 30 * time.Second
-	if strings.Contains(command, "python") {
-		timeout = 60 * time.Second
-	}
+	timeout := commandTimeout(command)
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
