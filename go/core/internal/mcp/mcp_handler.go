@@ -11,10 +11,13 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -37,17 +40,20 @@ type ListAgentsOutput struct {
 
 type AgentSummary struct {
 	Ref         string `json:"ref"`
+	GroupKind   string `json:"groupKind"`
 	Description string `json:"description,omitempty"`
 }
 
 type InvokeAgentInput struct {
 	Agent     string `json:"agent" jsonschema:"Agent reference in format namespace/name. To find a list of available sources, use the 'agents' resource."`
+	GroupKind string `json:"groupKind,omitempty" jsonschema:"Optional Kubernetes GroupKind from list_agents, such as Agent.kagent.dev or SandboxAgent.kagent.dev. Defaults to Agent.kagent.dev."`
 	Task      string `json:"task" jsonschema:"Task to run"`
 	ContextID string `json:"context_id,omitempty" jsonschema:"Optional A2A context ID to continue a conversation"`
 }
 
 type InvokeAgentOutput struct {
 	Agent     string `json:"agent"`
+	GroupKind string `json:"groupKind,omitempty"`
 	Text      string `json:"text"`
 	ContextID string `json:"context_id,omitempty"`
 }
@@ -129,33 +135,72 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 	return handler, nil
 }
 
-// listReadyAgents returns agents that are accepted and deployment-ready.
+// listReadyAgents returns agents that are accepted and workload-ready.
 func (h *MCPHandler) listReadyAgents(ctx context.Context) ([]AgentSummary, error) {
 	agentList := &v1alpha2.AgentList{}
 	if err := h.kubeClient.List(ctx, agentList); err != nil {
 		return nil, err
 	}
-	agents := make([]AgentSummary, 0, len(agentList.Items))
-	for _, agent := range agentList.Items {
-		deploymentReady := false
-		accepted := false
-		for _, condition := range agent.Status.Conditions {
-			if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
-				deploymentReady = true
-			}
-			if condition.Type == "Accepted" && condition.Status == "True" {
-				accepted = true
-			}
-		}
-		if !accepted || !deploymentReady {
-			continue
-		}
-		agents = append(agents, AgentSummary{
-			Ref:         agent.Namespace + "/" + agent.Name,
-			Description: agent.Spec.Description,
-		})
+	sandboxAgentList := &v1alpha2.SandboxAgentList{}
+	if err := h.kubeClient.List(ctx, sandboxAgentList); err != nil {
+		return nil, err
+	}
+
+	agents := make([]AgentSummary, 0, len(agentList.Items)+len(sandboxAgentList.Items))
+	for i := range agentList.Items {
+		agents = appendReadyAgentSummary(agents, &agentList.Items[i])
+	}
+	for i := range sandboxAgentList.Items {
+		agents = appendReadyAgentSummary(agents, &sandboxAgentList.Items[i])
 	}
 	return agents, nil
+}
+
+func appendReadyAgentSummary(agents []AgentSummary, agent v1alpha2.AgentObject) []AgentSummary {
+	if !isReadyForMCP(agent) {
+		return agents
+	}
+	spec := agent.GetAgentSpec()
+	description := ""
+	if spec != nil {
+		description = spec.Description
+	}
+	return append(agents, AgentSummary{
+		Ref:         agent.GetNamespace() + "/" + agent.GetName(),
+		GroupKind:   groupKindForAgent(agent),
+		Description: description,
+	})
+}
+
+func groupKindForAgent(agent v1alpha2.AgentObject) string {
+	switch agent.(type) {
+	case *v1alpha2.SandboxAgent:
+		return schema.GroupKind{Group: "kagent.dev", Kind: "SandboxAgent"}.String()
+	default:
+		return schema.GroupKind{Group: "kagent.dev", Kind: "Agent"}.String()
+	}
+}
+
+func isReadyForMCP(agent v1alpha2.AgentObject) bool {
+	status := agent.GetAgentStatus()
+	if status == nil {
+		return false
+	}
+
+	workloadReady := false
+	accepted := false
+	for _, condition := range status.Conditions {
+		if condition.Type == v1alpha2.AgentConditionTypeReady && condition.Status == metav1.ConditionTrue {
+			switch condition.Reason {
+			case reconciler.AgentReadyReasonDeploymentReady, reconciler.AgentReadyReasonWorkloadReady:
+				workloadReady = true
+			}
+		}
+		if condition.Type == v1alpha2.AgentConditionTypeAccepted && condition.Status == metav1.ConditionTrue {
+			accepted = true
+		}
+	}
+	return accepted && workloadReady
 }
 
 // handleListAgents handles the list_agents MCP tool
@@ -185,6 +230,11 @@ func (h *MCPHandler) handleListAgents(ctx context.Context, req *mcpsdk.CallToolR
 				fallbackText.WriteByte('\n')
 			}
 			fallbackText.WriteString(agent.Ref)
+			if agent.GroupKind != "" {
+				fallbackText.WriteString(" (")
+				fallbackText.WriteString(agent.GroupKind)
+				fallbackText.WriteString(")")
+			}
 			if agent.Description != "" {
 				fallbackText.WriteString(" - ")
 				fallbackText.WriteString(agent.Description)
@@ -245,6 +295,10 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 	}
 	agentNS, agentName := parts[0], parts[1]
 	agentRef := agentNS + "/" + agentName
+	groupKind := input.GroupKind
+	if groupKind == "" {
+		groupKind = schema.GroupKind{Group: "kagent.dev", Kind: "Agent"}.String()
+	}
 
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(input.Task))
 	if input.ContextID != "" {
@@ -252,9 +306,9 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 		log.V(1).Info("Using context_id from client request", "context_id", input.ContextID)
 	}
 
-	result, err := h.agentClients.SendMessage(ctx, agentNS, agentName, &a2atype.SendMessageRequest{Message: message})
+	result, err := h.agentClients.SendMessage(ctx, groupKind, agentNS, agentName, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
-		log.Error(err, "Failed to send A2A message", "agent", agentRef)
+		log.Error(err, "Failed to send A2A message", "agent", agentRef, "groupKind", groupKind)
 		return &mcpsdk.CallToolResult{
 			Content: []mcpsdk.Content{
 				&mcpsdk.TextContent{Text: fmt.Sprintf("Failed to send A2A message: %v", err)},
@@ -292,12 +346,13 @@ func (h *MCPHandler) handleInvokeAgent(ctx context.Context, req *mcpsdk.CallTool
 		responseText = string(raw)
 	}
 
-	log.Info("Invoked agent", "agent", agentRef, "hasContextID", newContextID != "")
+	log.Info("Invoked agent", "agent", agentRef, "groupKind", groupKind, "hasContextID", newContextID != "")
 
 	// Return context_id in response so client can store it for stateless operation
 	output := InvokeAgentOutput{
-		Agent: agentRef,
-		Text:  responseText,
+		Agent:     agentRef,
+		GroupKind: groupKind,
+		Text:      responseText,
 	}
 	if newContextID != "" {
 		output.ContextID = newContextID
