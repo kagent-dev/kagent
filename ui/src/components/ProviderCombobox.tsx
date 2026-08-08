@@ -13,6 +13,7 @@ import { Azure } from './icons/Azure';
 import { Gemini } from './icons/Gemini';
 import { Bedrock } from './icons/Bedrock';
 import { SAPAICore } from './icons/SAPAICore';
+import { Mistral } from './icons/Mistral';
 
 const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?: string }>> = {
   'OpenAI': OpenAI,
@@ -25,6 +26,7 @@ const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?:
   'Bedrock': Bedrock,
   'SAPAICore': SAPAICore,
   'Foundry': Azure,
+  'Mistral': Mistral,
 };
 
 function getProviderIcon(providerType: string | undefined): React.ReactNode | null {

@@ -83,6 +83,8 @@ func genAIProviderName(p v1alpha2.ModelProvider) attribute.KeyValue {
 		return semconv.GenAIProviderNameAWSBedrock
 	case v1alpha2.ModelProviderOllama:
 		return semconv.GenAIProviderNameKey.String("ollama")
+	case v1alpha2.ModelProviderMistral:
+		return semconv.GenAIProviderNameKey.String("mistral_ai")
 	default:
 		return semconv.GenAIProviderNameKey.String("kagent")
 	}

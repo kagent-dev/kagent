@@ -20,6 +20,7 @@ from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
 from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
+from kagent.adk.models._mistral import KAgentMistralLlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import OpenAI as OpenAINative
@@ -352,7 +353,18 @@ class SAPAICore(BaseLLM):
     type: Literal["sap_ai_core"]
 
 
-ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock, SAPAICore]
+class Mistral(BaseLLM):
+    base_url: str | None = None
+    max_tokens: int | None = Field(default=None, ge=1)
+    temperature: float | None = None
+    top_p: float | None = None
+    timeout: int | None = Field(default=None, ge=1)
+    type: Literal["mistral"]
+
+
+ModelUnion = Union[
+    OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock, SAPAICore, Mistral
+]
 
 
 class ContextCompressionSettings(BaseModel):
@@ -733,6 +745,18 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             base_url=base_url,
             resource_group=model_config.resource_group,
             auth_url=model_config.auth_url,
+            **_transport_kwargs(model_config),
+        )
+    if model_config.type == "mistral":
+        return KAgentMistralLlm(
+            type="mistral",
+            model=model_config.model,
+            base_url=base_url,
+            default_headers=extra_headers,
+            max_tokens=model_config.max_tokens,
+            temperature=model_config.temperature,
+            top_p=model_config.top_p,
+            timeout=model_config.timeout,
             **_transport_kwargs(model_config),
         )
     raise ValueError(f"Invalid model type: {model_config.type}")

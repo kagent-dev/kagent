@@ -171,6 +171,23 @@ var (
 	)
 )
 
+// Mistral
+var (
+	MistralAPIKey = RegisterStringVar(
+		"MISTRAL_API_KEY",
+		"",
+		"API key for Mistral AI.",
+		ComponentAgentRuntime,
+	)
+
+	MistralAPIBase = RegisterStringVar(
+		"MISTRAL_API_BASE",
+		"",
+		"Custom base URL for the Mistral AI API (defaults to https://api.mistral.ai/v1).",
+		ComponentAgentRuntime,
+	)
+)
+
 // Foundry
 var (
 	FoundryAPIKey = RegisterStringVar(

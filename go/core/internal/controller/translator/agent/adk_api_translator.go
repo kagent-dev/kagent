@@ -596,6 +596,48 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			}
 		}
 		return anthropic, modelDeploymentData, secretHashBytes, nil
+	case v1alpha2.ModelProviderMistral:
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.MistralAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
+					},
+				},
+			})
+		}
+		mistral := &adk.Mistral{
+			BaseModel: adk.BaseModel{
+				Model:   model.Spec.Model,
+				Headers: model.Spec.DefaultHeaders,
+			},
+		}
+		populateTLSFields(&mistral.BaseModel, model.Spec.TLS)
+		mistral.APIKeyPassthrough = model.Spec.APIKeyPassthrough
+
+		if model.Spec.Mistral != nil {
+			spec := model.Spec.Mistral
+			if spec.BaseURL != nil {
+				mistral.BaseUrl = *spec.BaseURL
+			}
+			if spec.Temperature != nil {
+				mistral.Temperature = utils.ParseStringToFloat64(*spec.Temperature)
+			}
+			if spec.TopP != nil {
+				mistral.TopP = utils.ParseStringToFloat64(*spec.TopP)
+			}
+			if spec.MaxTokens != nil && *spec.MaxTokens > 0 {
+				mistral.MaxTokens = spec.MaxTokens
+			}
+			if spec.Timeout != nil && *spec.Timeout > 0 {
+				mistral.Timeout = spec.Timeout
+			}
+		}
+		return mistral, modelDeploymentData, secretHashBytes, nil
 	case v1alpha2.ModelProviderAzureOpenAI:
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
