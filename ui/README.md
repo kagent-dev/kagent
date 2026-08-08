@@ -1,4 +1,4 @@
-# kagents ui
+# kagent ui
 
 
 ```bash
