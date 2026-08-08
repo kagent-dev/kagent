@@ -1,0 +1,18 @@
+operation: translateAgent
+targetObject: byo-agent-with-pdb
+namespace: test
+objects:
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: byo-agent-with-pdb
+      namespace: test
+    spec:
+      type: BYO
+      byo:
+        deployment:
+          image: example.com/byo-agent:v1
+          replicas: 4
+          # Percentage thresholds exercise the string arm of IntOrString.
+          podDisruptionBudget:
+            minAvailable: 50%
