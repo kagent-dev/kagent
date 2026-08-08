@@ -1,5 +1,5 @@
 from .bash_tool import BashTool
-from .file_tools import EditFileTool, ReadFileTool, WriteFileTool
+from .file_tools import EditFileTool, GrepFileTool, ListFilesTool, ReadFileTool, WriteFileTool
 from .share_tools import CreateShareLinkTool, DeleteShareLinkTool, ListShareLinksTool
 from .skill_tool import SkillsTool
 from .skills_plugin import add_skills_tool_to_agent
@@ -12,6 +12,8 @@ __all__ = [
     "EditFileTool",
     "ReadFileTool",
     "WriteFileTool",
+    "ListFilesTool",
+    "GrepFileTool",
     "add_skills_tool_to_agent",
     "CreateShareLinkTool",
     "ListShareLinksTool",
