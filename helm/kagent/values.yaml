@@ -88,6 +88,13 @@ database:
     # The controller instead verifies the database is already migrated and fails if it is not.
     # Migrations must be applied out-of-band (e.g. from a CI/CD pipeline) before install/upgrade.
     skipMigrations: false
+    # -- Optional pgxpool settings. Leave unset/null to keep pgx library defaults
+    # (MaxConns≈max(4,NumCPU), MinConns=0, MaxConnIdleTime=30m, MaxConnLifetime=1h).
+    pool:
+      maxConns: null
+      minConns: null
+      maxConnIdleTime: ""
+      maxConnLifetime: ""
     # -- Bundled PostgreSQL instance — for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:
