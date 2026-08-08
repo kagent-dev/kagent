@@ -1,5 +1,6 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Role, TaskState } from "@a2a-js/sdk";
 import { extractMessagesFromTasks } from "@/lib/messageHandlers";
 
 import {
@@ -831,8 +832,7 @@ describe("gRPC client", () => {
         value: {
           id: "task-1",
           contextId: "session-1",
-          kind: "task",
-          status: { state: "working" },
+          status: { state: "TASK_STATE_WORKING" },
         },
       }],
     });
@@ -879,11 +879,10 @@ describe("gRPC client", () => {
       }],
       read_only: true,
     });
-    await expect(gateway.listTasks("session-1", "share-token")).resolves.toEqual([{
+    await expect(gateway.listTasks("session-1", "share-token")).resolves.toMatchObject([{
       id: "task-1",
       contextId: "session-1",
-      kind: "task",
-      status: { state: "working" },
+      status: { state: TaskState.TASK_STATE_WORKING },
     }]);
     await expect(gateway.createSessionShare("session-1")).resolves.toEqual({
       token: "new-token",
@@ -914,12 +913,10 @@ describe("gRPC client", () => {
             messageId: "user-message",
             parts: [{ text: "hello" }],
             role: "ROLE_USER",
-          }, {
-            contextId: "session-1",
-            messageId: "agent-message",
+          }],
+          artifacts: [{
+            artifactId: "agent-answer",
             parts: [{ text: "Hello!" }],
-            role: "ROLE_AGENT",
-            taskId: "task-1",
           }],
         },
       }],
@@ -933,22 +930,18 @@ describe("gRPC client", () => {
     const tasks = await gateway.listTasks("session-1");
 
     expect(tasks).toEqual([expect.objectContaining({
-      kind: "task",
-      status: expect.objectContaining({ state: "completed" }),
+      status: expect.objectContaining({ state: TaskState.TASK_STATE_COMPLETED }),
     })]);
-    expect(extractMessagesFromTasks(tasks)).toEqual([
-      expect.objectContaining({
-        kind: "message",
+    expect(extractMessagesFromTasks(tasks)).toMatchObject([
+      {
         messageId: "user-message",
-        role: "user",
-        parts: [{ kind: "text", text: "hello" }],
-      }),
-      expect.objectContaining({
-        kind: "message",
-        messageId: "agent-message",
-        role: "agent",
-        parts: [{ kind: "text", text: "Hello!" }],
-      }),
+        role: Role.ROLE_USER,
+        parts: [{ content: { $case: "text", value: "hello" } }],
+      },
+      {
+        role: Role.ROLE_AGENT,
+        parts: [{ content: { $case: "text", value: "Hello!" } }],
+      },
     ]);
   });
 
@@ -1004,36 +997,38 @@ describe("gRPC client", () => {
       {},
     );
 
-    await expect(gateway.listTasks("session-1")).resolves.toEqual([{
+    await expect(gateway.listTasks("session-1")).resolves.toMatchObject([{
       id: "task-1",
       contextId: "session-1",
-      kind: "task",
       metadata: { source: "task" },
       status: {
-        state: "input-required",
+        state: TaskState.TASK_STATE_INPUT_REQUIRED,
         message: {
-          kind: "message",
           messageId: "status-message",
-          role: "agent",
-          parts: [{ kind: "data", data: { pending: true }, metadata: { source: "status" } }],
+          role: Role.ROLE_AGENT,
+          parts: [{
+            content: { $case: "data", value: { pending: true } },
+            metadata: { source: "status" },
+          }],
         },
       },
       history: [{
-        kind: "message",
         messageId: "rich-message",
-        role: "user",
+        role: Role.ROLE_USER,
         referenceTaskIds: ["task-0"],
         parts: [
-          { kind: "text", text: "hello", metadata: { source: "text" } },
-          { kind: "data", data: { answer: 42 }, metadata: { source: "data" } },
+          { content: { $case: "text", value: "hello" }, metadata: { source: "text" } },
+          { content: { $case: "data", value: { answer: 42 } }, metadata: { source: "data" } },
           {
-            kind: "file",
-            file: { uri: "https://example.com/doc.md", name: "doc.md", mimeType: "text/markdown" },
+            content: { $case: "url", value: "https://example.com/doc.md" },
+            filename: "doc.md",
+            mediaType: "text/markdown",
             metadata: { source: "url" },
           },
           {
-            kind: "file",
-            file: { bytes: "UkFXX0JZVEVT", name: "blob.bin", mimeType: "application/octet-stream" },
+            content: { $case: "raw", value: Buffer.from("RAW_BYTES") },
+            filename: "blob.bin",
+            mediaType: "application/octet-stream",
             metadata: { source: "raw" },
           },
         ],
@@ -1041,12 +1036,12 @@ describe("gRPC client", () => {
       artifacts: [{
         artifactId: "artifact-1",
         name: "result",
-        parts: [{ kind: "text", text: "artifact text" }],
+        parts: [{ content: { $case: "text", value: "artifact text" } }],
       }],
     }]);
   });
 
-  it("rejects ambiguous canonical Go A2A task content", async () => {
+  it("uses protobuf oneof precedence for ambiguous canonical task content", async () => {
     const listTasks = jest.fn().mockResolvedValue({
       tasks: [{
         value: {
@@ -1067,9 +1062,9 @@ describe("gRPC client", () => {
       {},
     );
 
-    await expect(gateway.listTasks("session-1")).rejects.toThrow(
-      "Task content part must have exactly one content field; received 2",
-    );
+    const tasks = await gateway.listTasks("session-1");
+
+    expect(tasks[0].history[0].parts[0].content).toEqual({ $case: "text", value: "hello" });
   });
 
   it("maps Memory summaries and rejects unsafe access counts", async () => {

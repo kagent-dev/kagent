@@ -23,6 +23,7 @@ from google.genai import types
 from pydantic import Field
 
 from ._ssl import KAgentTLSMixin
+from ._utils import function_declaration_schema
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
@@ -223,13 +224,7 @@ def _convert_tools_to_converse(
     converse_tools = []
     for tool in tools:
         for func_decl in tool.function_declarations or []:
-            properties = {}
-            required = []
-            if func_decl.parameters:
-                for prop_name, prop_schema in (func_decl.parameters.properties or {}).items():
-                    raw = prop_schema.model_dump(exclude_none=True, by_alias=True, mode="json")
-                    properties[prop_name] = _normalize_schema(raw)
-                required = func_decl.parameters.required or []
+            schema = _normalize_schema(function_declaration_schema(func_decl))
 
             sanitized_name = _sanitize_tool_name(func_decl.name or "", name_map, counter)
             converse_tools.append(
@@ -237,13 +232,7 @@ def _convert_tools_to_converse(
                     "toolSpec": {
                         "name": sanitized_name,
                         "description": func_decl.description or "",
-                        "inputSchema": {
-                            "json": {
-                                "type": "object",
-                                "properties": properties,
-                                "required": required,
-                            }
-                        },
+                        "inputSchema": {"json": schema},
                     }
                 }
             )

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Message } from "@a2a-js/sdk";
+import { Role, type Message } from "@a2a-js/sdk";
+import { createDataPart, createMockMessage } from "@/mocks/factories";
 import ToolCallGroup, { buildToolCallResultsIndex } from "./ToolCallGroup";
 import ToolCallDisplay from "./ToolCallDisplay";
 
@@ -21,31 +22,23 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const requestMessage = (id: string, name: string, args: Record<string, unknown>): Message => ({
-  kind: "message",
-  messageId: `req-${id}`,
-  role: "agent",
-  parts: [
-    {
-      kind: "data",
-      data: { id, name, args },
-      metadata: { adk_type: "function_call" },
-    },
-  ],
-});
+const requestMessage = (id: string, name: string, args: Record<string, unknown>): Message =>
+  createMockMessage({
+    messageId: `req-${id}`,
+    role: Role.ROLE_AGENT,
+    parts: [createDataPart({ id, name, args }, { adk_type: "function_call" })],
+    contextId: "ctx-1",
+    taskId: "task-1",
+  });
 
-const responseMessage = (id: string, name: string, result: string, isError = false): Message => ({
-  kind: "message",
-  messageId: `res-${id}`,
-  role: "agent",
-  parts: [
-    {
-      kind: "data",
-      data: { id, name, response: { result, isError } },
-      metadata: { adk_type: "function_response" },
-    },
-  ],
-});
+const responseMessage = (id: string, name: string, result: string, isError = false): Message =>
+  createMockMessage({
+    messageId: `res-${id}`,
+    role: Role.ROLE_AGENT,
+    parts: [createDataPart({ id, name, response: { result, isError } }, { adk_type: "function_response" })],
+    contextId: "ctx-1",
+    taskId: "task-1",
+  });
 
 const buildTranscript = (calls: Array<{ id: string; name: string; args: Record<string, unknown>; result?: string; isError?: boolean }>) => {
   const messages: Message[] = [];

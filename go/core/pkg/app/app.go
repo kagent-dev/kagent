@@ -48,9 +48,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
-	crewaiservice "github.com/kagent-dev/kagent/go/core/internal/service/crewai"
 	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
-	langgraphservice "github.com/kagent-dev/kagent/go/core/internal/service/langgraph"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
@@ -816,9 +814,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		extensionCfg.Authorizer,
 		inventoryClient,
 	))
-	crewAIService := crewaiservice.NewService(dbClient)
 	feedbackService := feedbackservice.NewService(dbClient)
-	langGraphService := langgraphservice.NewService(dbClient)
 	memoryService := memoryservice.NewService(dbClient)
 	sessionService := sessionservice.NewService(
 		dbClient,
@@ -856,13 +852,11 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		ShareStore:            dbClient,
 		Registerer:            ctrlmetrics.Registry,
 		AgentService:          agentService,
-		CrewAIService:         crewAIService,
 		ModelService:          modelConfigService,
 		ToolService:           toolService,
 		PromptTemplateService: promptTemplateService,
 		SystemService:         systemService,
 		FeedbackService:       feedbackService,
-		LangGraphService:      langGraphService,
 		MemoryService:         memoryService,
 		SessionService:        sessionService,
 		TaskService:           taskService,

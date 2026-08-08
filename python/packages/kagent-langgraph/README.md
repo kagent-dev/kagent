@@ -1,12 +1,10 @@
 # KAgent LangGraph Integration
 
-This package provides LangGraph integration for KAgent with A2A (Agent-to-Agent) server support. It implements a custom checkpointer that persists LangGraph state through the KAgent generated gRPC API, enabling distributed agent execution with session persistence.
+This package provides LangGraph integration for KAgent with A2A (Agent-to-Agent) server support.
 
 ## Features
 
-- **Custom Checkpointer**: Persists LangGraph checkpoints through generated gRPC clients
 - **A2A Server Integration**: Compatible with KAgent's Agent-to-Agent protocol
-- **Session Management**: Automatic session creation and state persistence
 - **Event Streaming**: Real-time streaming of graph execution events
 - **FastAPI Integration**: Ready-to-deploy web server for agent execution
 
@@ -14,7 +12,10 @@ This package provides LangGraph integration for KAgent with A2A (Agent-to-Agent)
 
 ```python
 from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig
-from kagent.langgraph import KAgentApp, KAgentCheckpointer
+from kagent.langgraph import KAgentApp
+import os
+import sqlite3
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph
 from langchain_core.messages import BaseMessage
 from typing import TypedDict, Annotated, Sequence
@@ -32,12 +33,11 @@ controller_client = AsyncControllerClient(
 # Define and compile your graph
 builder = StateGraph(State)
 # Add nodes and edges...
-graph = builder.compile(
-    checkpointer=KAgentCheckpointer(
-        client=controller_client,
-        app_name=config.app_name,
-    )
-)
+checkpointer = SqliteSaver(sqlite3.connect(
+    os.getenv("KAGENT_CHECKPOINT_DB", "/tmp/langgraph-checkpoints.sqlite"),
+    check_same_thread=False,
+))
+graph = builder.compile(checkpointer=checkpointer)
 
 # Create KAgent app
 app = KAgentApp(
@@ -62,10 +62,9 @@ fastapi_app = app.build()
 
 The package mirrors the structure of `kagent-adk` but uses LangGraph instead of Google's ADK:
 
-- **KAgentCheckpointer**: Custom checkpointer that stores graph state in KAgent sessions
 - **LangGraphAgentExecutor**: Executes LangGraph workflows within A2A protocol
 - **KAgentApp**: FastAPI application builder with A2A integration
-- **Session Management**: Automatic task and checkpoint persistence through one shared authenticated gRPC channel
+- **Task Management**: Automatic A2A task persistence through one shared authenticated gRPC channel
 
 ## Configuration
 

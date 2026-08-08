@@ -4,6 +4,7 @@ from unittest import mock
 from unittest.mock import MagicMock
 
 import pytest
+from google.genai import types
 
 from kagent.adk.models._bedrock import (
     KAgentBedrockLlm,
@@ -114,6 +115,21 @@ class TestConvertToolsToConverse:
         result = _convert_tools_to_converse([t1, t2], name_map, counter)
         names = [r["toolSpec"]["name"] for r in result]
         assert names == ["server_alpha", "server_beta"]
+
+    def test_adk2_json_schema_is_preserved(self):
+        schema = {
+            "type": "object",
+            "properties": {"namespace": {"type": "string", "enum": ["default", "kube-system"]}},
+            "required": ["namespace"],
+            "additionalProperties": False,
+        }
+        tool = types.Tool(
+            function_declarations=[types.FunctionDeclaration(name="list_pods", parameters_json_schema=schema)]
+        )
+
+        result = _convert_tools_to_converse([tool], {}, [0])
+
+        assert result[0]["toolSpec"]["inputSchema"]["json"] == schema
 
 
 class TestConvertContentWithNameMap:

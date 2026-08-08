@@ -247,13 +247,6 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
 
-	// Allow code execution for python code blocks with this agent.
-	// If true, the agent will automatically execute python code blocks in the LLM responses.
-	// Code will be executed in a sandboxed environment.
-	// +optional
-	// due to a bug in adk (https://github.com/google/adk-python/issues/3921 ), this field is ignored for now.
-	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
-
 	// Memory configuration for the agent.
 	// +optional
 	Memory *MemorySpec `json:"memory,omitempty"`
@@ -473,6 +466,10 @@ type SharedDeploymentSpec struct {
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// TopologySpreadConstraints describes how a group of pods ought to spread across topology
+	// domains. All topologySpreadConstraints are ANDed.
+	// +optional
+	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
 	// NodeSelector restricts the nodes the agent pods can be scheduled on.
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`

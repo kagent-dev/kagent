@@ -4,7 +4,7 @@ from a2a.auth.user import User
 from a2a.server.agent_execution import RequestContext, SimpleRequestContextBuilder
 from a2a.server.context import ServerCallContext
 from a2a.server.tasks import TaskStore
-from a2a.types import MessageSendParams, Task
+from a2a.types import SendMessageRequest, Task
 
 from ._context import set_request_user_id
 
@@ -37,11 +37,11 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
 
     async def build(
         self,
-        params: MessageSendParams | None = None,
+        context: ServerCallContext,
+        params: SendMessageRequest | None = None,
         task_id: str | None = None,
         context_id: str | None = None,
         task: Task | None = None,
-        context: ServerCallContext | None = None,
     ) -> RequestContext:
         if context:
             headers = context.state.get("headers", {})
@@ -55,5 +55,11 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
             source = headers.get("x-kagent-source", None)
             if source:
                 context.state["kagent_source"] = source
-        request_context = await super().build(params, task_id, context_id, task, context)
+        request_context = await super().build(
+            context=context,
+            params=params,
+            task_id=task_id,
+            context_id=context_id,
+            task=task,
+        )
         return request_context

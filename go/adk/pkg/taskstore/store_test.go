@@ -5,8 +5,8 @@ import (
 	"net"
 	"testing"
 
-	legacya2a "github.com/a2aproject/a2a-go/a2a"
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -73,29 +73,29 @@ func TestSaveUsesCanonicalTaskGRPCAndCleansPartialValues(t *testing.T) {
 		return &apiv1alpha1.CreateTaskResponse{Task: request.GetTask()}, nil
 	}})
 
-	completeMessage := legacya2a.NewMessage(legacya2a.MessageRoleUser, legacya2a.TextPart{Text: "keep"})
+	completeMessage := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("keep"))
 	completeMessage.ID = "complete-message"
-	partialMessage := legacya2a.NewMessage(legacya2a.MessageRoleAgent, legacya2a.TextPart{Text: "drop"})
+	partialMessage := a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("drop"))
 	partialMessage.Metadata = map[string]any{metadataKeyKagentAdkPartial: true}
-	task := &legacya2a.Task{
-		ID:        legacya2a.TaskID("task-1"),
+	task := &a2a.Task{
+		ID:        a2a.TaskID("task-1"),
 		ContextID: "session-1",
-		Status:    legacya2a.TaskStatus{State: legacya2a.TaskStateWorking},
-		History:   []*legacya2a.Message{completeMessage, partialMessage, {}},
-		Artifacts: []*legacya2a.Artifact{
-			{ID: legacya2a.ArtifactID("complete-artifact"), Parts: legacya2a.ContentParts{legacya2a.TextPart{Text: "keep"}}},
-			{ID: legacya2a.ArtifactID("partial-artifact"), Parts: legacya2a.ContentParts{legacya2a.TextPart{Text: "drop"}}, Metadata: map[string]any{metadataKeyAdkPartial: true}},
+		Status:    a2a.TaskStatus{State: a2a.TaskStateWorking},
+		History:   []*a2a.Message{completeMessage, partialMessage, nil},
+		Artifacts: []*a2a.Artifact{
+			{ID: a2a.ArtifactID("complete-artifact"), Parts: a2a.ContentParts{a2a.NewTextPart("keep")}},
+			{ID: a2a.ArtifactID("partial-artifact"), Parts: a2a.ContentParts{a2a.NewTextPart("drop")}, Metadata: map[string]any{metadataKeyAdkPartial: true}},
 		},
 	}
 
-	version, err := service.Save(auth.WithUserID(t.Context(), "task-user"), task, nil, nil, legacya2a.TaskVersionMissing)
+	version, err := service.Create(auth.WithUserID(t.Context(), "task-user"), task)
 	require.NoError(t, err)
-	assert.Equal(t, legacya2a.TaskVersion(1), version)
+	assert.Equal(t, a2ataskstore.TaskVersionMissing, version)
 	assert.Len(t, task.History, 3)
 	assert.Len(t, task.Artifacts, 2)
 }
 
-func TestGetDecodesCanonicalTaskForLegacyStore(t *testing.T) {
+func TestGetDecodesCanonicalTask(t *testing.T) {
 	canonical := &a2a.Task{
 		ID:        a2a.TaskID("task-2"),
 		ContextID: "session-2",
@@ -111,13 +111,13 @@ func TestGetDecodesCanonicalTaskForLegacyStore(t *testing.T) {
 		return &apiv1alpha1.GetTaskResponse{Task: encoded}, nil
 	}})
 
-	task, version, err := service.Get(t.Context(), legacya2a.TaskID("task-2"))
+	stored, err := service.Get(t.Context(), a2a.TaskID("task-2"))
 	require.NoError(t, err)
-	assert.Equal(t, legacya2a.TaskVersion(1), version)
-	assert.Equal(t, legacya2a.TaskID("task-2"), task.ID)
-	assert.Equal(t, legacya2a.TaskStateCompleted, task.Status.State)
-	require.Len(t, task.History, 1)
-	assert.Equal(t, "done", task.History[0].Parts[0].(legacya2a.TextPart).Text)
+	assert.Equal(t, a2ataskstore.TaskVersionMissing, stored.Version)
+	assert.Equal(t, a2a.TaskID("task-2"), stored.Task.ID)
+	assert.Equal(t, a2a.TaskStateCompleted, stored.Task.Status.State)
+	require.Len(t, stored.Task.History, 1)
+	assert.Equal(t, "done", stored.Task.History[0].Parts[0].Text())
 }
 
 func TestGetMapsNotFound(t *testing.T) {
@@ -125,14 +125,13 @@ func TestGetMapsNotFound(t *testing.T) {
 		return nil, status.Error(codes.NotFound, "missing")
 	}})
 
-	task, version, err := service.Get(t.Context(), legacya2a.TaskID("missing"))
-	require.ErrorIs(t, err, legacya2a.ErrTaskNotFound)
-	assert.Nil(t, task)
-	assert.Equal(t, legacya2a.TaskVersionMissing, version)
+	stored, err := service.Get(t.Context(), a2a.TaskID("missing"))
+	require.ErrorIs(t, err, a2a.ErrTaskNotFound)
+	assert.Nil(t, stored)
 }
 
 func TestSaveRejectsNilTask(t *testing.T) {
 	service := &KAgentTaskStore{}
-	_, err := service.Save(t.Context(), nil, nil, nil, legacya2a.TaskVersionMissing)
+	_, err := service.Create(t.Context(), nil)
 	require.EqualError(t, err, "task cannot be nil")
 }

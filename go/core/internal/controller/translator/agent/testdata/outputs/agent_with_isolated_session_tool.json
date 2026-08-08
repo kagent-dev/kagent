@@ -1,6 +1,12 @@
 {
   "agentCard": {
     "capabilities": {
+      "extensions": [
+        {
+          "description": "Human in the loop for tool approval, ask user, and nested subagents",
+          "uri": "https://kagent.dev/extensions/hitl/v1"
+        }
+      ],
       "streaming": true
     },
     "defaultInputModes": [
@@ -13,11 +19,6 @@
     "name": "coordinator_agent",
     "skills": null,
     "supportedInterfaces": [
-      {
-        "protocolBinding": "JSONRPC",
-        "protocolVersion": "0.3",
-        "url": "http://coordinator-agent.test:8080"
-      },
       {
         "protocolBinding": "JSONRPC",
         "protocolVersion": "1.0",
@@ -69,7 +70,7 @@
         ]
       },
       "stringData": {
-        "agent-card.json": "{\n  \"defaultInputModes\": [\n    \"text\"\n  ],\n  \"defaultOutputModes\": [\n    \"text\"\n  ],\n  \"description\": \"\",\n  \"name\": \"coordinator_agent\",\n  \"version\": \"\",\n  \"skills\": [],\n  \"capabilities\": {\n    \"streaming\": true\n  },\n  \"supportedInterfaces\": [\n    {\n      \"url\": \"http://coordinator-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"0.3\"\n    },\n    {\n      \"url\": \"http://coordinator-agent.test:8080\",\n      \"protocolBinding\": \"JSONRPC\",\n      \"protocolVersion\": \"1.0\"\n    }\n  ],\n  \"url\": \"http://coordinator-agent.test:8080\",\n  \"protocolVersion\": \"0.3\",\n  \"preferredTransport\": \"JSONRPC\"\n}",
+        "agent-card.json": "{\"supportedInterfaces\":[{\"url\":\"http://coordinator-agent.test:8080\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"extensions\":[{\"description\":\"Human in the loop for tool approval, ask user, and nested subagents\",\"uri\":\"https://kagent.dev/extensions/hitl/v1\"}],\"streaming\":true},\"defaultInputModes\":[\"text\"],\"defaultOutputModes\":[\"text\"],\"description\":\"\",\"name\":\"coordinator_agent\",\"skills\":[],\"version\":\"\"}",
         "config.json": "{\"model\":{\"type\":\"openai\",\"model\":\"gpt-4o\",\"base_url\":\"\"},\"description\":\"\",\"instruction\":\"You are a coordinating agent that delegates tasks to a worker agent, potentially in parallel.\",\"remote_agents\":[{\"name\":\"test__NS__worker_agent\",\"url\":\"http://worker-agent.test:8080\",\"isolate_sessions\":true}],\"stream\":false}"
       }
     },
@@ -139,7 +140,7 @@
         "template": {
           "metadata": {
             "annotations": {
-              "kagent.dev/config-hash": "12596745338766631722"
+              "kagent.dev/config-hash": "11556478968558643747"
             },
             "labels": {
               "app": "kagent",

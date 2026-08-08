@@ -11,7 +11,6 @@ def _agent_card() -> dict:
     return {
         "name": "test-agent",
         "description": "Test agent",
-        "url": "http://localhost:8080",
         "version": "0.1.0",
         "capabilities": {"streaming": True},
         "defaultInputModes": ["text"],

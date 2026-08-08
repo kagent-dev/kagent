@@ -8,7 +8,6 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Mapping
-from datetime import UTC, datetime
 from typing import Any
 
 try:
@@ -20,29 +19,29 @@ from a2a.server.agent_execution import AgentExecutor
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
-    Artifact,
-    DataPart,
     Message,
     Part,
     Role,
-    TaskArtifactUpdateEvent,
+    Task,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
+from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
-    A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
-    A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-    A2A_DATA_PART_METADATA_TYPE_KEY,
-    KAGENT_HITL_DECISION_TYPE_BATCH,
-    KAGENT_HITL_DECISION_TYPE_REJECT,
-    TaskResultAggregator,
-    extract_ask_user_answers_from_message,
-    extract_batch_decisions_from_message,
-    extract_decision_from_message,
-    extract_rejection_reasons_from_message,
+    HitlTool,
+    ToolApprovalRequest,
+    attach_hitl_extension,
+    get_ask_user_request,
+    get_ask_user_response,
+    get_hitl_payload,
     get_kagent_metadata_key,
+    get_tool_approval_request,
+    get_tool_approval_response,
+    hitl_activated,
+    now_timestamp,
+    require_ask_user_response,
+    require_tool_approval_response,
 )
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
@@ -135,8 +134,6 @@ class LangGraphAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         """Stream LangGraph events and convert them to A2A events."""
-        task_result_aggregator = TaskResultAggregator()
-
         # Track final state for interrupt detection
         final_state: dict[str, Any] | None = None
 
@@ -157,67 +154,32 @@ class LangGraphAgentExecutor(AgentExecutor):
                 event, context.task_id, context.context_id, self.app_name, sent_message_ids
             )
             for a2a_event in a2a_events:
-                task_result_aggregator.process_event(a2a_event)
                 await event_queue.enqueue_event(a2a_event)
 
         # Check for interrupts after streaming completes
         if final_state and final_state.get("__interrupt__"):
             interrupt_data = final_state["__interrupt__"]
+            headers = _call_state(context).get("headers")
             await self._handle_interrupt(
                 interrupt_data=interrupt_data,
                 task_id=context.task_id,
                 context_id=context.context_id,
                 event_queue=event_queue,
+                hitl_enabled=hitl_activated(headers if isinstance(headers, Mapping) else {}),
             )
             # Interrupt detected - input_required event already sent, so return early
             return
 
-        # Final artifacts are already sent through individual event processing
-
-        # publish the task result event - this is final
-        if (
-            task_result_aggregator.task_state == TaskState.working
-            and task_result_aggregator.task_status_message is not None
-            and task_result_aggregator.task_status_message.parts
-        ):
-            # if task is still working properly, publish the artifact update event as
-            # the final result according to a2a protocol.
-            await event_queue.enqueue_event(
-                TaskArtifactUpdateEvent(
-                    task_id=context.task_id,
-                    last_chunk=True,
-                    context_id=context.context_id,
-                    artifact=Artifact(
-                        artifact_id=str(uuid.uuid4()),
-                        parts=task_result_aggregator.task_status_message.parts,
-                    ),
-                )
+        await event_queue.enqueue_event(
+            TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                status=TaskStatus(
+                    state=TaskState.TASK_STATE_COMPLETED,
+                    timestamp=now_timestamp(),
+                ),
+                context_id=context.context_id,
             )
-            # public the final status update event
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=TaskState.completed,
-                        timestamp=datetime.now(UTC).isoformat(),
-                    ),
-                    context_id=context.context_id,
-                    final=True,
-                )
-            )
-        else:
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    status=TaskStatus(
-                        state=task_result_aggregator.task_state,
-                        timestamp=datetime.now(UTC).isoformat(),
-                        message=task_result_aggregator.task_status_message,
-                    ),
-                    context_id=context.context_id,
-                    final=True,
-                )
-            )
+        )
 
     async def _handle_interrupt(
         self,
@@ -225,15 +187,14 @@ class LangGraphAgentExecutor(AgentExecutor):
         task_id: str,
         context_id: str,
         event_queue: EventQueue,
+        hitl_enabled: bool,
     ) -> None:
         """Handle interrupt from LangGraph and convert to A2A input_required event.
 
-        The BYO graph is expected to call ``interrupt()`` with a dict containing
-        ``action_requests`` -- a list of tool calls that need approval.
-
-        This method converts them into ``DataPart`` objects with the same
-        ``adk_request_confirmation`` shape the ADK executor emits, so the
-        frontend can render them identically.
+        BYO graphs call ``interrupt()`` with ``action_requests``: tool calls that
+        need approval. ``action_requests[].id`` is the HITL correlation id (and
+        usually the tool call id); the same id comes back in the resume value's
+        ``tool_approval_response.approvals[].id``.
         """
         if not interrupt_data:
             logger.warning("Empty interrupt data received")
@@ -254,9 +215,7 @@ class LangGraphAgentExecutor(AgentExecutor):
             logger.warning("Interrupt has no action_requests, ignoring")
             return
 
-        # Build DataParts in the adk_request_confirmation wire format so the
-        # frontend renders tool-approval cards identically to the ADK executor.
-        parts: list[Part] = []
+        tools: list[HitlTool] = []
         for action in action_requests_raw:
             if not isinstance(action, Mapping):
                 logger.warning(
@@ -267,52 +226,37 @@ class LangGraphAgentExecutor(AgentExecutor):
                 continue
             tool_name = action["name"]
             tool_args = action["args"]
-            tool_call_id = action["id"]
-            confirmation_id = str(uuid.uuid4())
+            # id is the opaque HITL correlation id; call_id is the tool call id.
+            # Graphs typically set both to the LangChain tool call id.
+            correlation_id = action["id"]
+            call_id = action.get("call_id") or correlation_id
+            tools.append(HitlTool(id=correlation_id, call_id=call_id, name=tool_name, args=tool_args))
 
-            parts.append(
-                Part(
-                    DataPart(
-                        data={
-                            "name": "adk_request_confirmation",
-                            "id": confirmation_id,
-                            "args": {
-                                "originalFunctionCall": {
-                                    "name": tool_name,
-                                    "args": tool_args,
-                                    "id": tool_call_id,
-                                },
-                                "toolConfirmation": {
-                                    "hint": f"Tool '{tool_name}' requires approval before execution.",
-                                    "confirmed": False,
-                                    "payload": None,
-                                },
-                            },
-                        },
-                        metadata={
-                            get_kagent_metadata_key(
-                                A2A_DATA_PART_METADATA_TYPE_KEY
-                            ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-                            get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY): True,
-                        },
-                    )
-                )
+        status_message = Message(
+            message_id=str(uuid.uuid4()),
+            role=Role.ROLE_AGENT,
+            task_id=task_id,
+            context_id=context_id,
+            parts=[Part(text="Human approval is required before the agent can continue.")],
+        )
+        if hitl_enabled:
+            attach_hitl_extension(
+                status_message,
+                ToolApprovalRequest(
+                    hint="Human approval is required before the agent can continue.",
+                    tools=tools,
+                ),
             )
 
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
                 task_id=task_id,
                 status=TaskStatus(
-                    state=TaskState.input_required,
-                    timestamp=datetime.now(UTC).isoformat(),
-                    message=Message(
-                        message_id=str(uuid.uuid4()),
-                        role=Role.agent,
-                        parts=parts,
-                    ),
+                    state=TaskState.TASK_STATE_INPUT_REQUIRED,
+                    timestamp=now_timestamp(),
+                    message=status_message,
                 ),
                 context_id=context_id,
-                final=False,
             )
         )
 
@@ -328,76 +272,43 @@ class LangGraphAgentExecutor(AgentExecutor):
         if not context.current_task:
             return False
 
-        if context.current_task.status.state != TaskState.input_required:
+        if context.current_task.status.state != TaskState.TASK_STATE_INPUT_REQUIRED:
             return False
 
-        # Check if message contains a decision
-        decision = extract_decision_from_message(context.message)
-        return decision is not None
+        # Route even malformed or wrong-type HITL responses through validation.
+        return get_hitl_payload(context.message) is not None
 
     async def _handle_resume(
         self,
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
-        """Resume graph execution after interrupt with user decision.
+        """Resume graph execution after interrupt with the hitl/v1 response payload."""
+        approval_response = get_tool_approval_response(context.message)
+        ask_response = get_ask_user_response(context.message)
+        stored_message = context.current_task.status.message if context.current_task else None
+        tool_request = get_tool_approval_request(stored_message)
+        ask_request = get_ask_user_request(stored_message)
 
-        Extracts the full HITL decision payload from the A2A message and
-        forwards it to the graph via ``Command(resume=...)``.  The resume
-        value includes:
+        if tool_request is not None:
+            resume_value = require_tool_approval_response(tool_request, approval_response).model_dump(exclude_none=True)
+        elif ask_request is not None:
+            resume_value = require_ask_user_response(ask_request, ask_response).model_dump(exclude_none=True)
+        else:
+            raise ValueError("Stored input-required task has no HITL request")
 
-        - ``decision_type``: ``"approve"``, ``"reject"``, or ``"batch"``
-        - ``decisions``: per-tool decisions when ``decision_type`` is ``"batch"``
-        - ``rejection_reasons``: optional per-tool rejection reasons
-        - ``ask_user_answers``: optional answers when resuming an ``ask_user`` interrupt
-
-        The BYO graph's interrupt handler is responsible for reading and
-        acting on these fields.
-        """
-        # Extract decision from message using core utility
-        decision_type = extract_decision_from_message(context.message)
-
-        if not decision_type:
-            # Security: Default to reject if decision cannot be determined
-            logger.warning(
-                f"Could not determine decision from message for task {context.task_id}, defaulting to reject"
-            )
-            decision_type = KAGENT_HITL_DECISION_TYPE_REJECT
-
-        # Get thread_id from existing task metadata (critical for resume!)
-        thread_id = None
-        if context.current_task and context.current_task.metadata:
-            thread_id = context.current_task.metadata.get("thread_id")
-
+        # Task.metadata is a protobuf Struct, not a dict.
+        task_metadata = _task_metadata(context.current_task)
+        thread_id = task_metadata.get(get_kagent_metadata_key("thread_id")) or task_metadata.get("thread_id")
         if not thread_id:
             # Fallback to computing from context (same as initial)
             thread_id = getattr(context, "session_id", None) or context.context_id
 
-        # Build the resume payload with all available HITL data.
-        # The graph receives this as the return value of interrupt().
-        resume_value: dict[str, Any] = {"decision_type": decision_type}
-
-        if decision_type == KAGENT_HITL_DECISION_TYPE_BATCH:
-            batch_decisions = extract_batch_decisions_from_message(context.message)
-            if batch_decisions:
-                resume_value["decisions"] = batch_decisions
-
-        rejection_reasons = extract_rejection_reasons_from_message(context.message)
-        if rejection_reasons:
-            resume_value["rejection_reasons"] = rejection_reasons
-
-        ask_user_answers = extract_ask_user_answers_from_message(context.message)
-        if ask_user_answers:
-            resume_value["ask_user_answers"] = ask_user_answers
-
         logger.info(
-            "Resuming after interrupt - task_id=%s, thread_id=%s, decision=%s, has_batch=%s, has_reasons=%s, has_answers=%s",
+            "Resuming after interrupt - task_id=%s, thread_id=%s, type=%s",
             context.task_id,
             thread_id,
-            decision_type,
-            "decisions" in resume_value,
-            "rejection_reasons" in resume_value,
-            "ask_user_answers" in resume_value,
+            resume_value.get("type"),
         )
 
         resume_input = Command(resume=resume_value)
@@ -435,11 +346,10 @@ class LangGraphAgentExecutor(AgentExecutor):
             TaskStatusUpdateEvent(
                 task_id=context.task_id,
                 status=TaskStatus(
-                    state=TaskState.working,
-                    timestamp=datetime.now(UTC).isoformat(),
+                    state=TaskState.TASK_STATE_WORKING,
+                    timestamp=now_timestamp(),
                 ),
                 context_id=context.context_id,
-                final=False,
             )
         )
 
@@ -461,16 +371,15 @@ class LangGraphAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.failed,
-                        timestamp=datetime.now(UTC).isoformat(),
+                        state=TaskState.TASK_STATE_FAILED,
+                        timestamp=now_timestamp(),
                         message=Message(
                             message_id=str(uuid.uuid4()),
-                            role=Role.agent,
-                            parts=[Part(TextPart(text=f"Resume failed: {str(e)}"))],
+                            role=Role.ROLE_AGENT,
+                            parts=[Part(text=f"Resume failed: {str(e)}")],
                         ),
                     ),
                     context_id=context.context_id,
-                    final=True,
                 )
             )
 
@@ -497,18 +406,17 @@ class LangGraphAgentExecutor(AgentExecutor):
                 await self._handle_resume(context, event_queue)
                 return
 
-            # Send task submitted event for new tasks
+            # For new tasks, the first event must be a Task (not TaskStatusUpdateEvent).
             if not context.current_task:
                 await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.submitted,
-                            message=context.message,
-                            timestamp=datetime.now(UTC).isoformat(),
-                        ),
+                    Task(
+                        id=context.task_id,
                         context_id=context.context_id,
-                        final=False,
+                        status=TaskStatus(
+                            state=TaskState.TASK_STATE_SUBMITTED,
+                            message=context.message,
+                            timestamp=now_timestamp(),
+                        ),
                     )
                 )
 
@@ -520,15 +428,14 @@ class LangGraphAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
-                        timestamp=datetime.now(UTC).isoformat(),
+                        state=TaskState.TASK_STATE_WORKING,
+                        timestamp=now_timestamp(),
                     ),
                     context_id=context.context_id,
-                    final=False,
                     metadata={
-                        "app_name": self.app_name,
-                        "session_id": getattr(context, "session_id", context.context_id),
-                        "thread_id": thread_id,  # Store for resume!
+                        get_kagent_metadata_key("app_name"): self.app_name,
+                        get_kagent_metadata_key("session_id"): getattr(context, "session_id", context.context_id),
+                        get_kagent_metadata_key("thread_id"): thread_id,
                     },
                 )
             )
@@ -554,16 +461,15 @@ class LangGraphAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.failed,
-                            timestamp=datetime.now(UTC).isoformat(),
+                            state=TaskState.TASK_STATE_FAILED,
+                            timestamp=now_timestamp(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text="Execution timed out"))],
+                                role=Role.ROLE_AGENT,
+                                parts=[Part(text="Execution timed out")],
                             ),
                         ),
                         context_id=context.context_id,
-                        final=True,
                     )
                 )
             except Exception as e:
@@ -577,12 +483,12 @@ class LangGraphAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.failed,
-                            timestamp=datetime.now(UTC).isoformat(),
+                            state=TaskState.TASK_STATE_FAILED,
+                            timestamp=now_timestamp(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=user_message))],
+                                role=Role.ROLE_AGENT,
+                                parts=[Part(text=user_message)],
                                 metadata={
                                     get_kagent_metadata_key("error_type"): error_meta["error_type"],
                                     get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
@@ -590,7 +496,6 @@ class LangGraphAgentExecutor(AgentExecutor):
                             ),
                         ),
                         context_id=context.context_id,
-                        final=True,
                         metadata={
                             get_kagent_metadata_key("error_type"): error_meta["error_type"],
                             get_kagent_metadata_key("error_detail"): error_meta["error_detail"],
@@ -608,6 +513,18 @@ def _get_user_id(request: RequestContext) -> str:
 
     # Get user from context id
     return f"A2A_USER_{request.context_id}"
+
+
+def _call_state(context: RequestContext) -> dict[str, Any]:
+    state = getattr(context.call_context, "state", None)
+    return state if isinstance(state, dict) else {}
+
+
+def _task_metadata(task: Task | None) -> dict[str, Any]:
+    """Return task metadata as a plain dict (A2A Task.metadata is a Struct)."""
+    if task is None or not task.HasField("metadata"):
+        return {}
+    return MessageToDict(task.metadata)
 
 
 def _convert_a2a_request_to_span_attributes(

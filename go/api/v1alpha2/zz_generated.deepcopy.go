@@ -879,11 +879,6 @@ func (in *DeclarativeAgentSpec) DeepCopyInto(out *DeclarativeAgentSpec) {
 		*out = new(DeclarativeDeploymentSpec)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.ExecuteCodeBlocks != nil {
-		in, out := &in.ExecuteCodeBlocks, &out.ExecuteCodeBlocks
-		*out = new(bool)
-		**out = **in
-	}
 	if in.Memory != nil {
 		in, out := &in.Memory, &out.Memory
 		*out = new(MemorySpec)
@@ -1861,6 +1856,13 @@ func (in *SharedDeploymentSpec) DeepCopyInto(out *SharedDeploymentSpec) {
 		in, out := &in.Affinity, &out.Affinity
 		*out = new(v1.Affinity)
 		(*in).DeepCopyInto(*out)
+	}
+	if in.TopologySpreadConstraints != nil {
+		in, out := &in.TopologySpreadConstraints, &out.TopologySpreadConstraints
+		*out = make([]v1.TopologySpreadConstraint, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 	if in.NodeSelector != nil {
 		in, out := &in.NodeSelector, &out.NodeSelector

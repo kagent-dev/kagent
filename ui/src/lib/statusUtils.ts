@@ -1,29 +1,29 @@
 import type { ChatStatus } from "@/types";
-import { TaskState } from "@a2a-js/sdk";
+import { TaskState, taskStateFromJSON } from "@a2a-js/sdk";
 
 export interface StatusInfo {
   text: string;
   placeholder: string;
 }
 
-// Map A2A TaskState to our ChatStatus for UI purposes
-export const mapA2AStateToStatus = (state: TaskState): ChatStatus => {
-  switch (state) {
-    case "submitted":
+// Map A2A TaskState to ChatStatus (SDK enum or proto JSON name via taskStateFromJSON).
+export const mapA2AStateToStatus = (state: TaskState | string | undefined): ChatStatus => {
+  switch (taskStateFromJSON(state)) {
+    case TaskState.TASK_STATE_SUBMITTED:
       return "submitted";
-    case "working":
+    case TaskState.TASK_STATE_WORKING:
       return "working";
-    case "input-required":
+    case TaskState.TASK_STATE_INPUT_REQUIRED:
       return "input_required";
-    case "completed":
+    case TaskState.TASK_STATE_COMPLETED:
       return "ready";
-    case "canceled":
-    case "failed": 
-    case "rejected":
+    case TaskState.TASK_STATE_CANCELED:
+    case TaskState.TASK_STATE_FAILED:
+    case TaskState.TASK_STATE_REJECTED:
       return "error";
-    case "auth-required":
+    case TaskState.TASK_STATE_AUTH_REQUIRED:
       return "auth_required";
-    case "unknown":
+    case TaskState.TASK_STATE_UNSPECIFIED:
     default:
       return "thinking";
   }

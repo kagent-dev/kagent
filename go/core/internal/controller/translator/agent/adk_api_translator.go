@@ -121,8 +121,7 @@ var DefaultImageConfig = ImageConfig{
 // can be overridden at runtime via the --app[-full]-image-digest / --golang-adk[-full]-image-digest
 // flags (for mirrored registries that re-assign digests). They are only consulted for sandbox
 // agents — Substrate requires digest-pinned refs — while regular agents reference images by tag.
-// The "full" variants bundle the sandbox runtime (code execution / bash tools); the slim
-// variants do not.
+// The "full" variants bundle the sandbox runtime (bash tools); the slim variants do not.
 var PythonADKImageDigest string
 var PythonADKFullImageDigest string
 var GoADKImageDigest string

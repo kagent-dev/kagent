@@ -11,9 +11,7 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
-	crewaiservice "github.com/kagent-dev/kagent/go/core/internal/service/crewai"
 	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
-	langgraphservice "github.com/kagent-dev/kagent/go/core/internal/service/langgraph"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
 	modelservice "github.com/kagent-dev/kagent/go/core/internal/service/model"
 	prompttemplateservice "github.com/kagent-dev/kagent/go/core/internal/service/prompttemplate"
@@ -48,13 +46,11 @@ type Config struct {
 	ShareStore            ShareStore
 	Registerer            prometheus.Registerer
 	AgentService          *agentservice.Service
-	CrewAIService         *crewaiservice.Service
 	ModelService          *modelservice.Service
 	ToolService           *toolservice.Service
 	PromptTemplateService *prompttemplateservice.Service
 	SystemService         *systemservice.Service
 	FeedbackService       *feedbackservice.Service
-	LangGraphService      *langgraphservice.Service
 	MemoryService         *memoryservice.Service
 	SessionService        *sessionservice.Service
 	TaskService           *taskservice.Service
@@ -122,9 +118,6 @@ func New(config Config) (*Server, error) {
 	if config.AgentService != nil {
 		apiv1alpha1.RegisterAgentServiceServer(grpcServer, newAgentServer(config.AgentService, config.MaxMessageBytes))
 	}
-	if config.CrewAIService != nil {
-		apiv1alpha1.RegisterCrewAIServiceServer(grpcServer, newCrewAIServer(config.CrewAIService, config.MaxMessageBytes))
-	}
 	if config.ModelService != nil {
 		apiv1alpha1.RegisterModelServiceServer(grpcServer, newModelServer(config.ModelService, config.MaxMessageBytes))
 	}
@@ -136,9 +129,6 @@ func New(config Config) (*Server, error) {
 	}
 	if config.FeedbackService != nil {
 		apiv1alpha1.RegisterFeedbackServiceServer(grpcServer, newFeedbackServer(config.FeedbackService))
-	}
-	if config.LangGraphService != nil {
-		apiv1alpha1.RegisterLangGraphServiceServer(grpcServer, newLangGraphServer(config.LangGraphService))
 	}
 	if config.MemoryService != nil {
 		apiv1alpha1.RegisterMemoryServiceServer(grpcServer, newMemoryServer(config.MemoryService))

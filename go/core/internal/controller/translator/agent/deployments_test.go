@@ -172,6 +172,109 @@ func TestResolveByoDeployment_DeploymentAnnotationsCloned(t *testing.T) {
 	}
 }
 
+func TestResolveByoDeployment_TopologySpreadConstraintsPropagated(t *testing.T) {
+	tsc := []corev1.TopologySpreadConstraint{
+		{
+			MaxSkew:           1,
+			TopologyKey:       "kubernetes.io/hostname",
+			WhenUnsatisfiable: corev1.DoNotSchedule,
+			LabelSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "test"},
+			},
+		},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "my-image:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						TopologySpreadConstraints: tsc,
+					},
+				},
+			},
+		},
+	}
+	dep, err := resolveByoDeployment(agent)
+	if err != nil {
+		t.Fatalf("resolveByoDeployment() error = %v", err)
+	}
+	if !reflect.DeepEqual(dep.TopologySpreadConstraints, tsc) {
+		t.Errorf("TopologySpreadConstraints = %v, want %v", dep.TopologySpreadConstraints, tsc)
+	}
+}
+
+func TestResolveInlineDeployment_TopologySpreadConstraintsPropagated(t *testing.T) {
+	tsc := []corev1.TopologySpreadConstraint{
+		{
+			MaxSkew:           1,
+			TopologyKey:       "topology.kubernetes.io/zone",
+			WhenUnsatisfiable: corev1.ScheduleAnyway,
+			LabelSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "test"},
+			},
+		},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Deployment: &v1alpha2.DeclarativeDeploymentSpec{
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						TopologySpreadConstraints: tsc,
+					},
+				},
+			},
+		},
+	}
+	dep, err := resolveInlineDeployment(agent, &modelDeploymentData{})
+	if err != nil {
+		t.Fatalf("resolveInlineDeployment() error = %v", err)
+	}
+	if !reflect.DeepEqual(dep.TopologySpreadConstraints, tsc) {
+		t.Errorf("TopologySpreadConstraints = %v, want %v", dep.TopologySpreadConstraints, tsc)
+	}
+}
+
+// TestResolveByoDeployment_TopologySpreadConstraintsCloned asserts the resolver
+// copies the spec slice so later mutation of the resolved deployment cannot write
+// back into the agent object held by the client cache.
+func TestResolveByoDeployment_TopologySpreadConstraintsCloned(t *testing.T) {
+	tsc := []corev1.TopologySpreadConstraint{
+		{
+			MaxSkew:           1,
+			TopologyKey:       "kubernetes.io/hostname",
+			WhenUnsatisfiable: corev1.DoNotSchedule,
+			LabelSelector:     &metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}},
+		},
+	}
+	agent := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{
+					Image: "my-image:latest",
+					SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
+						TopologySpreadConstraints: tsc,
+					},
+				},
+			},
+		},
+	}
+	dep, err := resolveByoDeployment(agent)
+	if err != nil {
+		t.Fatalf("resolveByoDeployment() error = %v", err)
+	}
+	dep.TopologySpreadConstraints[0].MaxSkew = 99
+	if tsc[0].MaxSkew != 1 {
+		t.Errorf("spec TopologySpreadConstraints mutated to %d, want the resolver to clone the slice", tsc[0].MaxSkew)
+	}
+}
+
 func TestValidateExtraContainers(t *testing.T) {
 	t.Parallel()
 

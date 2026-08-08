@@ -1,17 +1,16 @@
 import React, { useMemo } from "react";
-import { Message } from "@a2a-js/sdk";
+import { type Message } from "@a2a-js/sdk";
 import ToolDisplay, { ToolCallStatus } from "@/components/ToolDisplay";
 import AgentCallDisplay, { AgentCallStatus } from "@/components/chat/AgentCallDisplay";
 import { isAgentToolName } from "@/lib/utils";
-import { ADKMetadata, ProcessedToolCallData, getMetadataValue } from "@/lib/messageHandlers";
 import {
   isToolCallRequestMessage,
   isToolCallExecutionMessage,
-  isToolCallSummaryMessage,
   extractToolCallRequests,
   extractToolCallResults,
 } from "@/lib/toolCallExtraction";
 import { FunctionCall, ToolDecision, TokenStats } from "@/types";
+import { decisionsByCallId, getHitlCard } from "@/lib/hitl";
 import type { ChatMcpAppTool } from "@/components/chat/ChatMcpAppsContext";
 
 interface ToolCallDisplayProps {
@@ -36,12 +35,21 @@ interface ToolCallState {
   subagentSessionId?: string;
 }
 
+/** Remote-agent pause: function_response arrived but the child is still running/HITL. */
+const isPendingSubagentResult = (result: ToolCallState["result"]): boolean => {
+  const raw = result?.rawResult;
+  return !!raw && typeof raw === "object" && (raw as { status?: unknown }).status === "pending";
+};
+
 const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pendingDecisions, getMcpAppForTool, onMcpAppSendMessage }: ToolCallDisplayProps) => {
+  const isRequestMessage = (message: Message) =>
+    isToolCallRequestMessage(message) || getHitlCard(message)?.kind === "tool_approval";
+
   // Determine which tool call IDs this component instance "owns" by finding,
   // for each ID introduced by currentMessage, whether currentMessage is the
   // FIRST message in allMessages that introduces that ID.
   const ownedCallIds = useMemo(() => {
-    if (!isToolCallRequestMessage(currentMessage)) {
+    if (!isRequestMessage(currentMessage)) {
       return new Set<string>();
     }
 
@@ -63,7 +71,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
     // This avoids a full O(N) scan per component render by aborting early.
     for (let i = currentIndex - 1; i >= 0; i--) {
       const msg = allMessages[i];
-      if (!isToolCallRequestMessage(msg)) continue;
+      if (!isRequestMessage(msg)) continue;
 
       const prevRequests = extractToolCallRequests(msg);
       for (const pr of prevRequests) {
@@ -87,24 +95,16 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
 
     // First pass: collect all tool call requests that this component owns
     for (const message of allMessages) {
-      if (isToolCallRequestMessage(message)) {
+      if (isRequestMessage(message)) {
         const requests = extractToolCallRequests(message);
         for (const request of requests) {
           if (request.id && ownedCallIds.has(request.id)) {
             // For approval requests, set status based on whether a decision
             // was already made (resolved on reload) or is still pending.
-            const msgMetadata = message.metadata as ADKMetadata;
             let initialStatus: ToolCallStatus = "requested";
-            if (msgMetadata?.originalType === "ToolApprovalRequest") {
-              const rawDecision = msgMetadata?.approvalDecision;
-              // approvalDecision is either a uniform ToolDecision string
-              // or a per-tool map (Record<string, ToolDecision>) for batch.
-              let decision: ToolDecision | undefined;
-              if (typeof rawDecision === "object" && rawDecision !== null) {
-                decision = (rawDecision as Record<string, ToolDecision>)[request.id];
-              } else {
-                decision = rawDecision as ToolDecision | undefined;
-              }
+            const hitlCard = getHitlCard(message);
+            if (hitlCard?.kind === "tool_approval") {
+              const decision = decisionsByCallId(hitlCard.request, hitlCard.response)[request.id];
               if (decision === "approve") {
                 initialStatus = "approved";
               } else if (decision === "reject") {
@@ -113,28 +113,11 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
                 initialStatus = "pending_approval";
               }
             }
-            // Extract subagent_session_id from ProcessedToolCallData in metadata
-            const toolCallData = msgMetadata?.toolCallData as ProcessedToolCallData[] | undefined;
-            const matchingCallData = toolCallData?.find(tc => tc.id === request.id);
-
-            // For agent tools, resolve the subagent session ID.
-            let subagentSessionId: string | undefined = matchingCallData?.subagent_session_id;
-            if (!subagentSessionId && isAgentToolName(request.name)) {
-              const fcDataPart = message.parts?.find(p =>
-                p.kind === "data" && p.metadata &&
-                getMetadataValue<string>(p.metadata as Record<string, unknown>, "type") === "function_call" &&
-                (p.data as Record<string, unknown>)?.id === request.id
-              );
-              subagentSessionId = fcDataPart?.metadata
-                ? getMetadataValue<string>(fcDataPart.metadata as Record<string, unknown>, "subagent_session_id")
-                : undefined;
-            }
-
             newToolCalls.set(request.id, {
               id: request.id,
               call: request,
               status: initialStatus,
-              subagentSessionId,
+              subagentSessionId: request.subagent_session_id,
             });
           }
         }
@@ -156,9 +139,7 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
               is_error: result.is_error,
               rawResult: result.raw_result,
             };
-            if (result.subagent_session_id && !existingCall.subagentSessionId) {
-              // Only set from function_response if the 1st pass (function_call
-              // metadata) didn't already provide it.
+            if (result.subagent_session_id) {
               existingCall.subagentSessionId = result.subagent_session_id;
             }
             if (!isHitlTerminal(existingCall.status)) {
@@ -169,29 +150,18 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
       }
     }
 
-    // Third pass: mark completed calls using summary messages
-    let summaryMessageEncountered = false;
-    for (const message of allMessages) {
-      if (isToolCallSummaryMessage(message)) {
-        summaryMessageEncountered = true;
-        break;
+    // Third pass: mark completed once a result exists. Remote-agent pauses
+    // (response status: pending) stay "executing" — the child is still running.
+    newToolCalls.forEach((call, id) => {
+      if (
+        call.status === "executing" &&
+        call.result &&
+        ownedCallIds.has(id) &&
+        !isPendingSubagentResult(call.result)
+      ) {
+        call.status = "completed";
       }
-    }
-
-    if (summaryMessageEncountered) {
-      newToolCalls.forEach((call, id) => {
-        if (call.status === "executing" && call.result && ownedCallIds.has(id)) {
-          call.status = "completed";
-        }
-      });
-    } else {
-      // For stored tasks without summary messages, auto-complete tool calls that have results
-      newToolCalls.forEach((call, id) => {
-        if (call.status === "executing" && call.result && ownedCallIds.has(id)) {
-          call.status = "completed";
-        }
-      });
-    }
+    });
 
     return newToolCalls;
   }, [allMessages, ownedCallIds]);
@@ -218,10 +188,10 @@ const ToolCallDisplay = ({ currentMessage, allMessages, onApprove, onReject, pen
         // For approval requests, always use ToolDisplay (which has approve/reject buttons),
         // even when the tool name contains __NS__ (agent name pattern).
         // AgentCallDisplay has no concept of pending_approval and won't show buttons.
-        const msgMeta = currentMessage.metadata as ADKMetadata;
-        const isApprovalRequest = msgMeta?.originalType === "ToolApprovalRequest";
-        const subagentName = isApprovalRequest ? (msgMeta?.subagentName as string | undefined) : undefined;
-        return (!isApprovalRequest && isAgentToolName(toolCall.call.name)) ? (
+        const hitlCard = getHitlCard(currentMessage);
+        const isApprovalRequest = hitlCard?.kind === "tool_approval";
+        const subagentName = isApprovalRequest ? hitlCard.subagentName : undefined;
+        return (!isApprovalRequest && (isAgentToolName(toolCall.call.name) || !!toolCall.subagentSessionId)) ? (
           <AgentCallDisplay
             key={toolCall.id}
             call={toolCall.call}

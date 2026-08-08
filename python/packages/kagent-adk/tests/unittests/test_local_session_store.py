@@ -1,7 +1,8 @@
 """Tests for durable-dir session storage: AgentConfig.session_db_url selects the local
 DatabaseSessionService instead of the HTTP KAgentSessionService."""
 
-from a2a.types import AgentCapabilities, AgentCard
+from a2a.types import AgentCard
+from google.protobuf.json_format import ParseDict
 
 import kagent.adk._a2a as _a2a
 from kagent.adk import KAgentApp
@@ -11,15 +12,18 @@ APP_NAME = "test-app"
 
 
 def make_kagent_app(agent_config: AgentConfig | None = None) -> KAgentApp:
-    card = AgentCard(
-        name=APP_NAME,
-        description="test agent",
-        url="http://localhost:8080",
-        version="0.0.1",
-        capabilities=AgentCapabilities(),
-        default_input_modes=["text"],
-        default_output_modes=["text"],
-        skills=[],
+    card = ParseDict(
+        {
+            "name": APP_NAME,
+            "description": "test agent",
+            "version": "0.0.1",
+            "supportedInterfaces": [{"url": "http://localhost:8080", "protocolBinding": "JSONRPC"}],
+            "capabilities": {},
+            "defaultInputModes": ["text/plain"],
+            "defaultOutputModes": ["text/plain"],
+            "skills": [],
+        },
+        AgentCard(),
     )
     # root_agent_factory is only invoked per-request by the executor, never during build.
     return KAgentApp(

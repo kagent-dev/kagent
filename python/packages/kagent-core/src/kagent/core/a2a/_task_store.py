@@ -1,280 +1,52 @@
 import asyncio
-from typing import Any
+import logging
+from datetime import timezone
 
 import grpc
 from a2a.server.tasks import TaskStore
-from a2a.types import Artifact, Message, Task
+from a2a.types import ListTasksRequest, ListTasksResponse, Task
+from a2a.utils.constants import DEFAULT_LIST_TASKS_PAGE_SIZE
+from google.protobuf.json_format import MessageToDict, ParseDict
 from kagent.api.v1alpha1 import sessions_pb2
 from typing_extensions import override
-
-from kagent.core.a2a import read_metadata_value
 
 from .._grpc import AsyncControllerClient
 from .._structured_object import decode_structured_object, encode_structured_object
 
+logger = logging.getLogger(__name__)
+
 _A2A_API_VERSION = "lf.a2a.v1"
 _A2A_TASK_KIND = "Task"
-_GO_TASK_STATES = {
-    "TASK_STATE_UNSPECIFIED": "unknown",
-    "TASK_STATE_UNKNOWN": "unknown",
-    "TASK_STATE_SUBMITTED": "submitted",
-    "TASK_STATE_WORKING": "working",
-    "TASK_STATE_INPUT_REQUIRED": "input-required",
-    "TASK_STATE_COMPLETED": "completed",
-    "TASK_STATE_CANCELED": "canceled",
-    "TASK_STATE_CANCELLED": "canceled",
-    "TASK_STATE_FAILED": "failed",
-    "TASK_STATE_REJECTED": "rejected",
-    "TASK_STATE_AUTH_REQUIRED": "auth-required",
-}
-_SDK_TASK_STATES = set(_GO_TASK_STATES.values())
-_SDK_TO_GO_TASK_STATES = {
-    "unknown": "TASK_STATE_UNSPECIFIED",
-    "submitted": "TASK_STATE_SUBMITTED",
-    "working": "TASK_STATE_WORKING",
-    "input-required": "TASK_STATE_INPUT_REQUIRED",
-    "completed": "TASK_STATE_COMPLETED",
-    "canceled": "TASK_STATE_CANCELED",
-    "failed": "TASK_STATE_FAILED",
-    "rejected": "TASK_STATE_REJECTED",
-    "auth-required": "TASK_STATE_AUTH_REQUIRED",
-}
-
-
-def _task_to_controller_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    normalized = {key: value for key, value in payload.items() if key != "kind"}
-    status = _required_dict(payload.get("status"), "Task status")
-    normalized["status"] = _status_to_controller_payload(status)
-
-    if "history" in payload:
-        history = payload["history"]
-        if not isinstance(history, list):
-            raise ValueError("Task history must be an array")
-        normalized["history"] = [_message_to_controller_payload(message) for message in history]
-
-    if "artifacts" in payload:
-        artifacts = payload["artifacts"]
-        if not isinstance(artifacts, list):
-            raise ValueError("Task artifacts must be an array")
-        normalized["artifacts"] = [_artifact_to_controller_payload(artifact) for artifact in artifacts]
-
-    return normalized
-
-
-def _status_to_controller_payload(value: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(value)
-    state = value.get("state")
-    if not isinstance(state, str) or state not in _SDK_TO_GO_TASK_STATES:
-        raise ValueError(f"Unsupported A2A task state: {state}")
-    normalized["state"] = _SDK_TO_GO_TASK_STATES[state]
-    if "message" in value:
-        normalized["message"] = _message_to_controller_payload(value["message"])
-    return normalized
-
-
-def _message_to_controller_payload(value: Any) -> dict[str, Any]:
-    message = _required_dict(value, "Task message")
-    parts = message.get("parts")
-    if not isinstance(parts, list):
-        raise ValueError("Task message parts must be an array")
-
-    normalized = {key: item for key, item in message.items() if key != "kind"}
-    normalized["parts"] = [_part_to_controller_payload(part) for part in parts]
-    role = message.get("role")
-    if role == "user":
-        normalized["role"] = "ROLE_USER"
-    elif role == "agent":
-        normalized["role"] = "ROLE_AGENT"
-    else:
-        raise ValueError(f"Unsupported A2A message role: {role}")
-    return normalized
-
-
-def _artifact_to_controller_payload(value: Any) -> dict[str, Any]:
-    artifact = _required_dict(value, "Task artifact")
-    parts = artifact.get("parts")
-    if not isinstance(parts, list):
-        raise ValueError("Task artifact parts must be an array")
-    normalized = dict(artifact)
-    normalized["parts"] = [_part_to_controller_payload(part) for part in parts]
-    return normalized
-
-
-def _part_to_controller_payload(value: Any) -> dict[str, Any]:
-    part = _required_dict(value, "Task content part")
-    kind = part.get("kind")
-    if kind == "text":
-        normalized = {"text": part.get("text")}
-    elif kind == "data":
-        normalized = {"data": part.get("data")}
-    elif kind == "file":
-        file = _required_dict(part.get("file"), "Task file part")
-        has_uri = "uri" in file
-        has_bytes = "bytes" in file
-        if has_uri == has_bytes:
-            raise ValueError("Task file part must have exactly one of uri or bytes")
-        normalized = {"url" if has_uri else "raw": file["uri" if has_uri else "bytes"]}
-        if name := file.get("name"):
-            normalized["filename"] = name
-        if mime_type := file.get("mimeType"):
-            normalized["mediaType"] = mime_type
-    else:
-        raise ValueError(f"Unsupported A2A part kind: {kind}")
-
-    if isinstance(part.get("metadata"), dict):
-        normalized["metadata"] = part["metadata"]
-    return normalized
-
-
-def _task_from_controller_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(payload)
-    status = _required_dict(payload.get("status"), "Task status")
-    normalized["kind"] = "task"
-    normalized["status"] = _status_from_controller_payload(status)
-
-    if "history" in payload:
-        history = payload["history"]
-        if not isinstance(history, list):
-            raise ValueError("Task history must be an array")
-        normalized["history"] = [_message_from_controller_payload(message) for message in history]
-
-    if "artifacts" in payload:
-        artifacts = payload["artifacts"]
-        if not isinstance(artifacts, list):
-            raise ValueError("Task artifacts must be an array")
-        normalized["artifacts"] = [_artifact_from_controller_payload(artifact) for artifact in artifacts]
-
-    return normalized
-
-
-def _status_from_controller_payload(value: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(value)
-    state = value.get("state")
-    if state in (None, ""):
-        normalized["state"] = "unknown"
-    elif isinstance(state, str) and state in _GO_TASK_STATES:
-        normalized["state"] = _GO_TASK_STATES[state]
-    elif isinstance(state, str) and state in _SDK_TASK_STATES:
-        normalized["state"] = state
-    else:
-        raise ValueError(f"Unsupported A2A task state: {state}")
-
-    if "message" in value:
-        normalized["message"] = _message_from_controller_payload(value["message"])
-    return normalized
-
-
-def _message_from_controller_payload(value: Any) -> dict[str, Any]:
-    message = _required_dict(value, "Task message")
-    parts = message.get("parts")
-    if not isinstance(parts, list):
-        raise ValueError("Task message parts must be an array")
-
-    normalized = dict(message)
-    normalized["kind"] = "message"
-    normalized["parts"] = [_part_from_controller_payload(part) for part in parts]
-    role = message.get("role")
-    if role in ("ROLE_USER", "user"):
-        normalized["role"] = "user"
-    elif role in ("ROLE_AGENT", "agent"):
-        normalized["role"] = "agent"
-    else:
-        raise ValueError(f"Unsupported A2A message role: {role}")
-    return normalized
-
-
-def _artifact_from_controller_payload(value: Any) -> dict[str, Any]:
-    artifact = _required_dict(value, "Task artifact")
-    parts = artifact.get("parts")
-    if not isinstance(parts, list):
-        raise ValueError("Task artifact parts must be an array")
-    normalized = dict(artifact)
-    normalized["parts"] = [_part_from_controller_payload(part) for part in parts]
-    return normalized
-
-
-def _part_from_controller_payload(value: Any) -> dict[str, Any]:
-    part = _required_dict(value, "Task content part")
-    if part.get("kind") in {"text", "data", "file"}:
-        return part
-
-    content_fields = [field for field in ("text", "data", "url", "raw") if field in part]
-    if len(content_fields) != 1:
-        raise ValueError(f"Task content part must have exactly one content field; received {len(content_fields)}")
-
-    content_field = content_fields[0]
-    normalized: dict[str, Any]
-    if content_field == "text":
-        normalized = {"kind": "text", "text": part["text"]}
-    elif content_field == "data":
-        normalized = {"kind": "data", "data": part["data"]}
-    else:
-        file: dict[str, Any] = {}
-        if filename := part.get("filename"):
-            file["name"] = filename
-        if media_type := part.get("mediaType"):
-            file["mimeType"] = media_type
-        if content_field == "url":
-            file["uri"] = part["url"]
-        else:
-            file["bytes"] = part["raw"]
-        normalized = {"kind": "file", "file": file}
-
-    if isinstance(part.get("metadata"), dict):
-        normalized["metadata"] = part["metadata"]
-    return normalized
-
-
-def _required_dict(value: Any, description: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{description} must be an object")
-    return value
 
 
 class KAgentTaskStore(TaskStore):
-    """A task store that persists canonical A2A tasks via controller gRPC."""
+    """
+    A task store that persists A2A tasks to KAgent via gRPC.
+    """
 
     def __init__(self, client: AsyncControllerClient):
+        """Initialize the task store.
+
+        Args:
+            client: gRPC client configured with the KAgent controller address
+        """
         self.client = client
         # Event-based sync: track pending save operations
         self._save_events: dict[str, asyncio.Event] = {}
-
-    def _is_partial_event(self, item: Message) -> bool:
-        """Check if a history item is a partial ADK streaming event."""
-        metadata = item.metadata or {}
-        return read_metadata_value(metadata, "partial") is True
-
-    def _clean_partial_events(self, history: list[Message]) -> list[Message]:
-        """Remove partial streaming events from history."""
-        return [item for item in history if item.parts and not self._is_partial_event(item)]
-
-    def _clean_partial_artifacts(self, artifacts: list[Artifact]) -> list[Artifact]:
-        """Remove partial streaming artifacts."""
-        return [artifact for artifact in artifacts if artifact.parts and not self._is_partial_event(artifact)]
 
     @override
     async def save(self, task: Task, context=None) -> None:
         """Save a task to KAgent.
 
-        Skips saving if the current event is a partial streaming chunk.
-        The adk_partial flag is set on event.metadata by AgentExecutor and
-        gets copied to task.metadata by TaskManager.
-
         Args:
             task: The task to save
             context: Server call context (unused, for a2a-sdk 0.3+ compatibility)
 
+        Raises:
+            httpx.HTTPStatusError: If the API request fails
         """
-        persistent_task = task.model_copy(
-            update={
-                "history": self._clean_partial_events(task.history or []),
-                "artifacts": self._clean_partial_artifacts(task.artifacts or []),
-            }
-        )
-
-        payload = persistent_task.model_dump(mode="json", by_alias=True, exclude_none=True)
         encoded = encode_structured_object(
-            _task_to_controller_payload(payload),
+            MessageToDict(task),
             api_version=_A2A_API_VERSION,
             kind=_A2A_TASK_KIND,
             max_bytes=self.client.max_message_bytes,
@@ -299,6 +71,8 @@ class KAgentTaskStore(TaskStore):
         Returns:
             The task if found, None otherwise
 
+        Raises:
+            httpx.HTTPStatusError: If the API request fails (except 404)
         """
         try:
             response = await self.client.task_service.GetTask(
@@ -309,12 +83,67 @@ class KAgentTaskStore(TaskStore):
             if error.code() == grpc.StatusCode.NOT_FOUND:
                 return None
             raise
-        payload = decode_structured_object(
+        data = decode_structured_object(
             response.task,
             expected_kind=_A2A_TASK_KIND,
             max_bytes=self.client.max_message_bytes,
         )
-        return Task.model_validate(_task_from_controller_payload(payload))
+        return ParseDict(data, Task())
+
+    @override
+    async def list(self, params: ListTasksRequest, context=None) -> ListTasksResponse:
+        """List tasks for a context (session) from KAgent."""
+        page_size = params.page_size or DEFAULT_LIST_TASKS_PAGE_SIZE
+        if not params.context_id:
+            return ListTasksResponse(tasks=[], page_size=page_size, total_size=0)
+
+        tasks: list[Task] = []
+        response = await self.client.task_service.ListTasks(
+            sessions_pb2.ListTasksRequest(session_id=params.context_id),
+            **await self.client.call_options(),
+        )
+        for item in response.tasks:
+            try:
+                data = decode_structured_object(
+                    item,
+                    expected_kind=_A2A_TASK_KIND,
+                    max_bytes=self.client.max_message_bytes,
+                )
+                tasks.append(ParseDict(data, Task()))
+            except Exception as err:
+                logger.warning("Failed to parse task from list response: %s", err)
+
+        if params.status:
+            tasks = [task for task in tasks if task.status and task.status.state == params.status]
+
+        if params.HasField("status_timestamp_after"):
+            after = params.status_timestamp_after.ToDatetime().astimezone(timezone.utc)
+            filtered: list[Task] = []
+            for task in tasks:
+                if not task.status or not task.status.HasField("timestamp"):
+                    continue
+                task_ts = task.status.timestamp.ToDatetime().astimezone(timezone.utc)
+                if task_ts >= after:
+                    filtered.append(task)
+            tasks = filtered
+
+        start = 0
+        if params.page_token:
+            try:
+                start = max(0, int(params.page_token))
+            except ValueError:
+                start = 0
+        if start >= len(tasks):
+            return ListTasksResponse(tasks=[], page_size=page_size, total_size=len(tasks))
+
+        end = min(start + page_size, len(tasks))
+        next_page_token = str(end) if end < len(tasks) else ""
+        return ListTasksResponse(
+            tasks=tasks[start:end],
+            page_size=page_size,
+            total_size=len(tasks),
+            next_page_token=next_page_token,
+        )
 
     @override
     async def delete(self, task_id: str, context=None) -> None:
@@ -324,6 +153,8 @@ class KAgentTaskStore(TaskStore):
             task_id: The ID of the task to delete
             context: Server call context (unused, for a2a-sdk 0.3+ compatibility)
 
+        Raises:
+            httpx.HTTPStatusError: If the API request fails
         """
         await self.client.task_service.DeleteTask(
             sessions_pb2.DeleteTaskRequest(task_id=task_id),

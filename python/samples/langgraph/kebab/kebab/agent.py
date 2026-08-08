@@ -1,22 +1,16 @@
 """LangGraph kebab sample."""
 
-from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig
-from kagent.langgraph import KAgentCheckpointer
+import os
+import sqlite3
+
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 
-kagent_config = KAgentConfig()
-controller_client = AsyncControllerClient(
-    kagent_config.grpc_url,
-    agent_name=kagent_config.app_name,
-    token_provider=AsyncFileTokenProvider(),
+checkpointer = SqliteSaver(
+    sqlite3.connect(os.getenv("KAGENT_CHECKPOINT_DB", "/tmp/kebab-checkpoints.sqlite"), check_same_thread=False)
 )
-kagent_checkpointer = KAgentCheckpointer(
-    client=controller_client,
-    app_name=kagent_config.app_name,
-)
-
 
 @tool
 def make_kebab(style: str = "mixed") -> str:
@@ -31,6 +25,6 @@ SYSTEM_INSTRUCTION = (
 graph = create_react_agent(
     model=ChatOpenAI(model="gpt-4o-mini"),
     tools=[make_kebab],
-    checkpointer=kagent_checkpointer,
+    checkpointer=checkpointer,
     prompt=SYSTEM_INSTRUCTION,
 )

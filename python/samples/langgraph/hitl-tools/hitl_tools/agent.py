@@ -14,14 +14,15 @@ Command(resume=...) and the graph reads it to proceed or skip.
 """
 
 import logging
+import os
+import sqlite3
 from datetime import datetime
 from typing import Annotated, Any
 
-from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig
-from kagent.langgraph import KAgentCheckpointer
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
@@ -29,15 +30,8 @@ from typing_extensions import TypedDict
 
 logger = logging.getLogger(__name__)
 
-kagent_config = KAgentConfig()
-controller_client = AsyncControllerClient(
-    kagent_config.grpc_url,
-    agent_name=kagent_config.app_name,
-    token_provider=AsyncFileTokenProvider(),
-)
-kagent_checkpointer = KAgentCheckpointer(
-    client=controller_client,
-    app_name=kagent_config.app_name,
+checkpointer = SqliteSaver(
+    sqlite3.connect(os.getenv("KAGENT_CHECKPOINT_DB", "/tmp/hitl-checkpoints.sqlite"), check_same_thread=False)
 )
 
 # -- Tools -------------------------------------------------------------------
@@ -54,7 +48,7 @@ def get_time() -> str:
 
 @tool
 def delete_file(path: str) -> str:
-    """Delete a file at the given path. This is a dangerous operation that requires human approval.
+    """Delete a file at the given path.
 
     Args:
         path: The file path to delete.
@@ -108,8 +102,8 @@ async def run_tools(state: AgentState) -> dict[str, Any]:
 
         if tool_name in TOOLS_REQUIRING_APPROVAL:
             # Pause execution and ask the user for approval.
-            # The executor reads "action_requests" from the interrupt value
-            # and emits an adk_request_confirmation DataPart to the frontend.
+            # The executor reads "action_requests" and emits an A2A hitl/v1
+            # tool_approval_request on the input-required status message.
             decision = interrupt(
                 {
                     "action_requests": [
@@ -122,17 +116,16 @@ async def run_tools(state: AgentState) -> dict[str, Any]:
                 }
             )
 
-            # The executor resumes with a dict like:
-            #   {"decision_type": "approve"}
-            #   {"decision_type": "reject", "rejection_reasons": {"*": "Too risky"}}
-            decision_type = decision.get("decision_type", "reject") if isinstance(decision, dict) else "reject"
-
-            if decision_type != "approve":
-                reason = ""
-                if isinstance(decision, dict):
-                    reasons = decision.get("rejection_reasons", {})
-                    reason = reasons.get("*", "") if isinstance(reasons, dict) else ""
+            # Executor resumes with the hitl/v1 tool_approval_response payload.
+            approval = None
+            if isinstance(decision, dict) and decision.get("type") == "tool_approval_response":
+                approval = next(
+                    (a for a in decision.get("approvals", []) if a.get("id") == tool_call_id),
+                    None,
+                )
+            if not approval or not approval.get("approved"):
                 rejection_msg = "Tool call was rejected by user."
+                reason = (approval or {}).get("rejection_reason") or ""
                 if reason:
                     rejection_msg += f" Reason: {reason}"
                 results.append(
@@ -179,4 +172,4 @@ builder.add_edge(START, "agent")
 builder.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
 builder.add_edge("tools", "agent")
 
-graph = builder.compile(checkpointer=kagent_checkpointer)
+graph = builder.compile(checkpointer=checkpointer)

@@ -2,23 +2,23 @@ package app
 
 import (
 	"context"
+	"iter"
 	"testing"
 	"time"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2asrv"
-	"github.com/a2aproject/a2a-go/a2asrv/eventqueue"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 )
 
 // fakeExecutor implements a2asrv.AgentExecutor for testing.
 type fakeExecutor struct{}
 
-func (f *fakeExecutor) Execute(_ context.Context, _ *a2asrv.RequestContext, _ eventqueue.Queue) error {
-	return nil
+func (f *fakeExecutor) Execute(_ context.Context, _ *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {}
 }
 
-func (f *fakeExecutor) Cancel(_ context.Context, _ *a2asrv.RequestContext, _ eventqueue.Queue) error {
-	return nil
+func (f *fakeExecutor) Cancel(_ context.Context, _ *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {}
 }
 
 var _ a2asrv.AgentExecutor = (*fakeExecutor)(nil)

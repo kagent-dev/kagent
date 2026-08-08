@@ -248,7 +248,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		Description: spec.Description,
 		Instruction: rawSystemMessage,
 		Model:       model,
-		ExecuteCode: spec.Declarative.ExecuteCodeBlocks,
 		Stream:      new(spec.Declarative.Stream),
 	}
 

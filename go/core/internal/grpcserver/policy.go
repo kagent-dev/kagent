@@ -19,21 +19,12 @@ type MethodPolicies map[string]AccessMode
 
 func DefaultMethodPolicies() MethodPolicies {
 	return MethodPolicies{
-		apiv1alpha1.CrewAIService_StoreMemory_FullMethodName:                    AccessCreate,
-		apiv1alpha1.CrewAIService_GetMemory_FullMethodName:                      AccessRead,
-		apiv1alpha1.CrewAIService_ResetMemory_FullMethodName:                    AccessDelete,
-		apiv1alpha1.CrewAIService_StoreFlowState_FullMethodName:                 AccessCreate,
-		apiv1alpha1.CrewAIService_GetFlowState_FullMethodName:                   AccessRead,
 		apiv1alpha1.SystemService_GetVersion_FullMethodName:                     AccessPublic,
 		apiv1alpha1.SystemService_GetCurrentUser_FullMethodName:                 AccessRead,
 		apiv1alpha1.SystemService_ListNamespaces_FullMethodName:                 AccessRead,
 		apiv1alpha1.SystemService_GetSubstrateStatus_FullMethodName:             AccessRead,
 		apiv1alpha1.FeedbackService_CreateFeedback_FullMethodName:               AccessCreate,
 		apiv1alpha1.FeedbackService_ListFeedback_FullMethodName:                 AccessRead,
-		apiv1alpha1.LangGraphService_PutCheckpoint_FullMethodName:               AccessCreate,
-		apiv1alpha1.LangGraphService_ListCheckpoints_FullMethodName:             AccessRead,
-		apiv1alpha1.LangGraphService_PutWrites_FullMethodName:                   AccessCreate,
-		apiv1alpha1.LangGraphService_DeleteThread_FullMethodName:                AccessDelete,
 		apiv1alpha1.MemoryService_AddSession_FullMethodName:                     AccessCreate,
 		apiv1alpha1.MemoryService_AddSessionBatch_FullMethodName:                AccessCreate,
 		apiv1alpha1.MemoryService_Search_FullMethodName:                         AccessRead,

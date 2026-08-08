@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import grpc
-from kagent.api.v1alpha1 import crewai_pb2_grpc, langgraph_pb2_grpc, memory_pb2_grpc, sessions_pb2_grpc
+from kagent.api.v1alpha1 import memory_pb2_grpc, sessions_pb2_grpc
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 DEFAULT_MAX_MESSAGE_BYTES = 16 << 20
@@ -60,8 +60,6 @@ class AsyncControllerClient:
         self._session_service: sessions_pb2_grpc.SessionServiceStub | None = None
         self._task_service: sessions_pb2_grpc.TaskServiceStub | None = None
         self._memory_service: memory_pb2_grpc.MemoryServiceStub | None = None
-        self._langgraph_service: langgraph_pb2_grpc.LangGraphServiceStub | None = None
-        self._crewai_service: crewai_pb2_grpc.CrewAIServiceStub | None = None
 
     @property
     def channel(self) -> grpc.aio.Channel:
@@ -95,18 +93,6 @@ class AsyncControllerClient:
         if self._memory_service is None:
             self._memory_service = memory_pb2_grpc.MemoryServiceStub(self.channel)
         return self._memory_service
-
-    @property
-    def langgraph_service(self) -> langgraph_pb2_grpc.LangGraphServiceStub:
-        if self._langgraph_service is None:
-            self._langgraph_service = langgraph_pb2_grpc.LangGraphServiceStub(self.channel)
-        return self._langgraph_service
-
-    @property
-    def crewai_service(self) -> crewai_pb2_grpc.CrewAIServiceStub:
-        if self._crewai_service is None:
-            self._crewai_service = crewai_pb2_grpc.CrewAIServiceStub(self.channel)
-        return self._crewai_service
 
     async def call_options(self, user_id: str | None = None) -> dict[str, Any]:
         metadata: list[tuple[str, str]] = []

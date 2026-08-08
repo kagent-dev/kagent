@@ -23,8 +23,9 @@ The UI fetches data server-side (Next.js server actions), and the chat stream
 A lightweight proxy (`mocks/server.mjs`) sits at that address and:
 
 - forwards every `/api/**` request to the real kagent backend (`KAGENT_BACKEND_URL`);
-- intercepts `/a2a/**` and `/a2a-sandboxes/**`, answering with a canned SSE reply,
-  so the suite never needs a live LLM.
+- intercepts `/a2a/**` and `/a2a-sandboxes/**`, answering with a canned A2A v1 SSE
+  reply (`statusUpdate` / `ROLE_AGENT` / `TASK_STATE_COMPLETED`), so the suite
+  never needs a live LLM.
 
 ```
 Browser ─▶ next dev :8001 ─┬─ /api/* (server actions) ─┐

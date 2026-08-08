@@ -1,7 +1,5 @@
-import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Union
 
 try:
@@ -14,17 +12,17 @@ from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.types import (
     Artifact,
-    DataPart,
     Message,
     Part,
     Role,
+    Task,
     TaskArtifactUpdateEvent,
     TaskState,
     TaskStatus,
     TaskStatusUpdateEvent,
-    TextPart,
 )
-from kagent.core import AsyncControllerClient
+from google.protobuf.json_format import MessageToDict
+from kagent.core.a2a import get_kagent_metadata_key, now_timestamp
 from kagent.core.tracing._span_processor import (
     clear_kagent_span_attributes,
     set_kagent_span_attributes,
@@ -32,11 +30,8 @@ from kagent.core.tracing._span_processor import (
 from pydantic import BaseModel
 
 from crewai import Crew, Flow
-from crewai.memory import LongTermMemory
 
 from ._listeners import A2ACrewAIListener
-from ._memory import KagentMemoryStorage
-from ._state import KagentFlowPersistence
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +47,11 @@ class CrewAIAgentExecutor(AgentExecutor):
         crew: Union[Crew, Flow],
         app_name: str,
         config: CrewAIAgentExecutorConfig | None = None,
-        controller_client: AsyncControllerClient,
     ):
         super().__init__()
         self._crew = crew
         self.app_name = app_name
         self._config = config or CrewAIAgentExecutorConfig()
-        self._controller_client = controller_client
 
     @override
     async def cancel(self, context: RequestContext, event_queue: EventQueue):
@@ -81,15 +74,14 @@ class CrewAIAgentExecutor(AgentExecutor):
         try:
             if not context.current_task:
                 await event_queue.enqueue_event(
-                    TaskStatusUpdateEvent(
-                        task_id=context.task_id,
-                        status=TaskStatus(
-                            state=TaskState.submitted,
-                            message=context.message,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
-                        ),
+                    Task(
+                        id=context.task_id,
                         context_id=context.context_id,
-                        final=False,
+                        status=TaskStatus(
+                            state=TaskState.TASK_STATE_SUBMITTED,
+                            message=context.message,
+                            timestamp=now_timestamp(),
+                        ),
                     )
                 )
 
@@ -97,14 +89,13 @@ class CrewAIAgentExecutor(AgentExecutor):
                 TaskStatusUpdateEvent(
                     task_id=context.task_id,
                     status=TaskStatus(
-                        state=TaskState.working,
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        state=TaskState.TASK_STATE_WORKING,
+                        timestamp=now_timestamp(),
                     ),
                     context_id=context.context_id,
-                    final=False,
                     metadata={
-                        "app_name": self.app_name,
-                        "session_id": context.context_id,
+                        get_kagent_metadata_key("app_name"): self.app_name,
+                        get_kagent_metadata_key("session_id"): context.context_id,
                     },
                 )
             )
@@ -116,46 +107,23 @@ class CrewAIAgentExecutor(AgentExecutor):
                 inputs = None
                 if context.message and context.message.parts:
                     for part in context.message.parts:
-                        if isinstance(part.root, DataPart):
-                            inputs = part.root.data
+                        if part.HasField("data"):
+                            data_payload = MessageToDict(part.data)
+                            if isinstance(data_payload, dict):
+                                inputs = data_payload
                             break
                 if inputs is None:
                     user_input = context.get_user_input()
                     inputs = {"input": user_input} if user_input else {}
 
-                session_id = getattr(context, "session_id", context.context_id)
-                user_id = getattr(context, "user_id", "admin@kagent.dev")
-
                 if isinstance(self._crew, Flow):
                     flow_class = type(self._crew)
-                    persistence = await KagentFlowPersistence.create(
-                        session_id,
-                        user_id,
-                        self._controller_client,
-                    )
-                    flow_instance = flow_class(persistence=persistence)
-
-                    # setting "id" in flow input will enable reusing persisted flow state
-                    # if no flow state is persisted or if persistence is not enabled, this works like a normal kickoff
-                    inputs["id"] = session_id
+                    flow_instance = flow_class()
 
                     # output_text will be None if the last method in the flow does not return anything but updates the state instead
-                    try:
-                        output_text = await flow_instance.kickoff_async(inputs=inputs)
-                        persistence.save_state(session_id, "kickoff", flow_instance.state)
-                    finally:
-                        await persistence.flush()
+                    output_text = await flow_instance.kickoff_async(inputs=inputs)
                     result_text = output_text or flow_instance.state.model_dump_json()
                 else:
-                    if self._crew.memory:
-                        self._crew.long_term_memory = LongTermMemory(
-                            KagentMemoryStorage(
-                                thread_id=session_id,
-                                user_id=user_id,
-                                client=self._controller_client,
-                                loop=asyncio.get_running_loop(),
-                            )
-                        )
                     result = await self._crew.kickoff_async(inputs=inputs)
                     result_text = str(result.raw or "No response was generated.")
 
@@ -166,7 +134,7 @@ class CrewAIAgentExecutor(AgentExecutor):
                         context_id=context.context_id,
                         artifact=Artifact(
                             artifact_id=str(uuid.uuid4()),
-                            parts=[Part(TextPart(text=result_text))],
+                            parts=[Part(text=result_text)],
                         ),
                     )
                 )
@@ -174,11 +142,10 @@ class CrewAIAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.completed,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            state=TaskState.TASK_STATE_COMPLETED,
+                            timestamp=now_timestamp(),
                         ),
                         context_id=context.context_id,
-                        final=True,
                     )
                 )
 
@@ -188,16 +155,15 @@ class CrewAIAgentExecutor(AgentExecutor):
                     TaskStatusUpdateEvent(
                         task_id=context.task_id,
                         status=TaskStatus(
-                            state=TaskState.failed,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            state=TaskState.TASK_STATE_FAILED,
+                            timestamp=now_timestamp(),
                             message=Message(
                                 message_id=str(uuid.uuid4()),
-                                role=Role.agent,
-                                parts=[Part(TextPart(text=str(e)))],
+                                role=Role.ROLE_AGENT,
+                                parts=[Part(text=str(e))],
                             ),
                         ),
                         context_id=context.context_id,
-                        final=True,
                     )
                 )
         finally:

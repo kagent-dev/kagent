@@ -153,7 +153,6 @@ func TestE2EMemoryWithGoADKFoundryAgent(t *testing.T) {
 		saveResult = runSyncTest(t, a2aClient,
 			"Remember that I prefer dark mode and Go over Python",
 			"saved your preferences to memory",
-			nil,
 		)
 	})
 
@@ -161,7 +160,6 @@ func TestE2EMemoryWithGoADKFoundryAgent(t *testing.T) {
 		runSyncTest(t, a2aClient,
 			"What are my preferences?",
 			"dark mode",
-			nil,
 			saveResult.ContextID,
 		)
 	})

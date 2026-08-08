@@ -402,7 +402,6 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 				Description: "Test agent with all fields",
 				Instruction: "You are a helpful test assistant",
 				Stream:      new(true),
-				ExecuteCode: new(false), // Deprecated, not implemented in Go
 				Memory: &adk.MemoryConfig{
 					TTLDays: 15,
 					Embedding: &adk.EmbeddingConfig{

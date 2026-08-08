@@ -1,14 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { Role } from "@a2a-js/sdk";
 import { mocked } from "storybook/test";
 import ChatInterface from "./ChatInterface";
 import { ChatAgentProvider } from "./ChatAgentContext";
-import type { AgentResponse } from "@/types";
 import { checkSessionExists, getSessionTasks } from "@/app/actions/sessions";
+import type { AgentResponse } from "@/types";
 import {
+  createMockTextMessage,
   createMockSession,
   createMockTask,
   createMockToolCallTask,
-} from "@/mocks/fixtures";
+} from "@/mocks/factories";
 
 // ---------------------------------------------------------------------------
 // Shared mock data
@@ -31,35 +33,26 @@ const mockAgent: AgentResponse = {
 };
 
 const singleExchangeTask = createMockTask("task-1", "session-123", [
-  {
-    role: "user",
-    text: "Hello, can you help me with Kubernetes?",
-  },
-  {
-    role: "agent",
-    text: "Of course! I'd be happy to help you with Kubernetes. What would you like to know? I can assist with deployments, services, pods, configmaps, secrets, and much more.",
-  },
+  createMockTextMessage("task-1-user", Role.ROLE_USER, "Hello, can you help me with Kubernetes?"),
+  createMockTextMessage(
+    "task-1-agent",
+    Role.ROLE_AGENT,
+    "Of course! I'd be happy to help you with Kubernetes. What would you like to know? I can assist with deployments, services, pods, configmaps, secrets, and much more.",
+  ),
 ]);
 
 const multiExchangeTasks = [
   createMockTask("task-1", "session-456", [
-    {
-      role: "user",
-      text: "What is a Kubernetes Pod?",
-    },
-    {
-      role: "agent",
-      text: "A **Pod** is the smallest deployable unit in Kubernetes. It represents a single instance of a running process in your cluster.\n\nKey characteristics:\n- A Pod can contain one or more containers\n- Containers in a Pod share the same network namespace (IP address and port space)\n- They can communicate via `localhost`\n- Pods are ephemeral — they are not designed to run forever",
-    },
+    createMockTextMessage("task-1-user", Role.ROLE_USER, "What is a Kubernetes Pod?"),
+    createMockTextMessage(
+      "task-1-agent",
+      Role.ROLE_AGENT,
+      "A **Pod** is the smallest deployable unit in Kubernetes. It represents a single instance of a running process in your cluster.\n\nKey characteristics:\n- A Pod can contain one or more containers\n- Containers in a Pod share the same network namespace (IP address and port space)\n- They can communicate via `localhost`\n- Pods are ephemeral — they are not designed to run forever",
+    ),
   ]),
   createMockTask("task-2", "session-456", [
-    {
-      role: "user",
-      text: "How do I create a deployment?",
-    },
-    {
-      role: "agent",
-      text: `Here's how to create a Kubernetes Deployment:
+    createMockTextMessage("task-2-user", Role.ROLE_USER, "How do I create a deployment?"),
+    createMockTextMessage("task-2-agent", Role.ROLE_AGENT, `Here's how to create a Kubernetes Deployment:
 
 \`\`\`yaml
 apiVersion: apps/v1
@@ -92,16 +85,11 @@ kubectl apply -f deployment.yaml
 \`\`\`
 
 This creates a Deployment that maintains 3 replicas of your application.`,
-    },
+    ),
   ]),
   createMockTask("task-3", "session-456", [
-    {
-      role: "user",
-      text: "Can you explain Services?",
-    },
-    {
-      role: "agent",
-      text: `A **Service** is an abstraction that defines a logical set of Pods and a policy to access them.
+    createMockTextMessage("task-3-user", Role.ROLE_USER, "Can you explain Services?"),
+    createMockTextMessage("task-3-agent", Role.ROLE_AGENT, `A **Service** is an abstraction that defines a logical set of Pods and a policy to access them.
 
 | Type | Description |
 |------|-------------|
@@ -111,7 +99,7 @@ This creates a Deployment that maintains 3 replicas of your application.`,
 | ExternalName | Maps to a DNS name |
 
 Services use **label selectors** to find their target Pods and automatically load-balance traffic across them.`,
-    },
+    ),
   ]),
 ];
 
@@ -278,7 +266,8 @@ export const EmptySession: Story = {
 };
 
 /**
- * Simulates a slow backend so the loading spinner remains visible.
+ * Simulates a slow backend — the loading spinner is visible while the
+ * session and tasks endpoints respond after a 2 s delay.
  */
 export const Loading: Story = {
   args: {
@@ -287,15 +276,18 @@ export const Loading: Story = {
     sessionId: "session-123",
   },
   beforeEach: () => {
-    mocked(checkSessionExists).mockImplementation(() => new Promise(() => {}));
-    mocked(getSessionTasks).mockImplementation(() => new Promise(() => {}));
+    mocked(checkSessionExists).mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve({ message: "Session exists", data: true }), 2000);
+    }));
+    mocked(getSessionTasks).mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve({ message: "Tasks fetched", data: [singleExchangeTask] }), 2000);
+    }));
   },
 };
 
 /**
  * Session is pre-loaded via the `selectedSession` prop, but the component
- * still calls `checkSessionExists` when `sessionId` is present, so both
- * session actions are mocked.
+ * still calls `checkSessionExists` when `sessionId` is present.
  */
 export const PreLoadedSession: Story = {
   args: {
