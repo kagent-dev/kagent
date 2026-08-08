@@ -90,10 +90,6 @@ database:
     skipMigrations: false
     # -- Optional pgxpool settings. Leave unset/null to keep pgx library defaults
     # (MaxConns≈max(4,NumCPU), MinConns=0, MaxConnIdleTime=30m, MaxConnLifetime=1h).
-    # For Aurora Serverless / scale-to-zero, recommended:
-    #   minConns: 0
-    #   maxConnIdleTime: 1m
-    #   maxConns: 4
     pool:
       maxConns: null
       minConns: null
