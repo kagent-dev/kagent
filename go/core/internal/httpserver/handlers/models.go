@@ -194,6 +194,18 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			// Amazon Nova
 			{Name: "us.amazon.nova-2-lite-v1:0", FunctionCalling: false},
 		},
+		v1alpha2.ModelProviderMistral: {
+			{Name: "mistral-large-latest", FunctionCalling: true},
+			{Name: "mistral-medium-latest", FunctionCalling: true},
+			{Name: "mistral-small-latest", FunctionCalling: true},
+			{Name: "magistral-medium-latest", FunctionCalling: true},
+			{Name: "magistral-small-latest", FunctionCalling: true},
+			{Name: "codestral-latest", FunctionCalling: true},
+			{Name: "ministral-8b-latest", FunctionCalling: true},
+			{Name: "ministral-3b-latest", FunctionCalling: true},
+			{Name: "pixtral-large-latest", FunctionCalling: true},
+			{Name: "open-mistral-nemo", FunctionCalling: true},
+		},
 		v1alpha2.ModelProviderSAPAICore: {
 			// Anthropic (via SAP Generative AI Hub proxy naming)
 			{Name: "anthropic--claude-4.7-opus", FunctionCalling: true},

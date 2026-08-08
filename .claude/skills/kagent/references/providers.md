@@ -13,6 +13,7 @@ kagent supports multiple LLM providers. Configure them via Helm values or the da
 | Google Vertex AI (Gemini) | `geminiVertexAI` | (service account — `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`) |
 | Anthropic via Vertex AI | `anthropicVertexAI` | (service account — `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`) |
 | Amazon Bedrock | `bedrock` | (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`) |
+| Mistral AI | `mistral` | `MISTRAL_API_KEY` (optional `MISTRAL_API_BASE` for custom endpoint) |
 | Ollama | `ollama` | (none — local, uses `OLLAMA_API_BASE` for endpoint) |
 | BYO OpenAI-compatible | custom | varies |
 
@@ -77,6 +78,45 @@ helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
 ```
 
 Ollama must be accessible from within the cluster.
+
+### Mistral AI
+
+Mistral speaks the OpenAI-compatible wire protocol (POST `/chat/completions` with a Bearer token). The runtime defaults to `https://api.mistral.ai/v1` and honors the same parameters (`temperature`, `top_p`, `max_tokens`, `timeout`).
+
+```bash
+export MISTRAL_API_KEY="..."
+helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+  --namespace kagent \
+  --set providers.default=mistral \
+  --set providers.mistral.apiKey=$MISTRAL_API_KEY
+```
+
+CLI install:
+```bash
+export KAGENT_DEFAULT_MODEL_PROVIDER=mistral
+export MISTRAL_API_KEY="..."
+kagent install --profile demo
+```
+
+ModelConfig example:
+```yaml
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: mistral-large
+  namespace: kagent
+spec:
+  provider: Mistral
+  model: mistral-large-latest
+  apiKeySecret: kagent-mistral
+  apiKeySecretKey: MISTRAL_API_KEY
+  mistral:
+    temperature: "0.3"
+    maxTokens: 4096
+    # baseUrl: https://api.mistral.ai/v1   # optional, defaults to Mistral cloud
+```
+
+Available models: `mistral-large-latest`, `mistral-medium-latest`, `mistral-small-latest`, `magistral-medium-latest`, `magistral-small-latest`, `codestral-latest`, `ministral-8b-latest`, `ministral-3b-latest`, `pixtral-large-latest`, `open-mistral-nemo`. Set `MISTRAL_API_BASE` to point at a self-hosted or regional Mistral endpoint.
 
 ## ModelConfig CRD
 
