@@ -49,6 +49,7 @@ When interacting with the agent, you do not need to provide any input because th
 
    ```bash
    export KAGENT_URL=http://localhost:8083
+   export KAGENT_GRPC_URL=localhost:8084
    export OPENAI_API_KEY="..."
    ```
 
@@ -73,5 +74,6 @@ The agent can be configured via environment variables:
 
 - `GEMINI_API_KEY`: Required for LLM access
 - `KAGENT_URL`: Required. KAgent server URL (for local development, you can set it to `http://localhost:8083`)
+- `KAGENT_GRPC_URL`: Required. KAgent controller gRPC target (for local development, `localhost:8084`)
 - `PORT`: Server port (default: 8080)
 - `HOST`: Server host (default: 0.0.0.0)

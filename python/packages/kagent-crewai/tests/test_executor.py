@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 
-import httpx
 import pytest
 from a2a.server.agent_execution.context import RequestContext
 from a2a.types import Message, Part, Role, SendMessageRequest, TaskArtifactUpdateEvent
@@ -40,7 +39,6 @@ async def _run(crew: MagicMock, context: RequestContext) -> list:
     executor = CrewAIAgentExecutor(
         crew=crew,
         app_name="test",
-        http_client=httpx.AsyncClient(),
     )
     event_queue = _RecordingEventQueue()
     await executor.execute(context, event_queue)

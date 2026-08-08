@@ -2,10 +2,10 @@ package session
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/glebarez/sqlite"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/session/database"
 )
@@ -19,16 +19,16 @@ type LocalSessionService struct {
 
 // NewService builds the session service a runtime should use: dbURL (AgentConfig.session_db_url,
 // set by the controller for durable-dir sandbox agents) selects the actor-local sqlite store;
-// otherwise kagentURL selects the controller HTTP session service; otherwise nil (caller decides;
+// otherwise controllerClient selects the controller gRPC session service; otherwise nil (caller decides;
 // typically in-memory sessions). BYO agents building their own executor should use this to
 // populate KAgentExecutorConfig.SessionService so they honor the same contract as the
 // declarative runtime.
-func NewService(dbURL, kagentURL string, httpClient *http.Client) (adksession.Service, error) {
+func NewService(dbURL string, controllerClient *controllerclient.Client) (adksession.Service, error) {
 	if dbURL != "" {
 		return NewLocalSessionService(dbURL)
 	}
-	if kagentURL != "" {
-		return NewKAgentSessionService(kagentURL, httpClient), nil
+	if controllerClient != nil {
+		return NewKAgentSessionService(controllerClient), nil
 	}
 	return nil, nil
 }

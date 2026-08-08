@@ -2,9 +2,7 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 
@@ -492,23 +490,15 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 
 func (m *workspaceModel) fetchSessionHistoryCmd(sessionID string) tea.Cmd {
 	return func() tea.Msg {
-		tasksURL := fmt.Sprintf("%s/api/sessions/%s/tasks?user_id=%s", m.cfg.KAgentURL, sessionID, "admin@kagent.dev")
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, tasksURL, nil)
+		response, err := m.client.Session.ListSessionRuns(context.Background(), sessionID)
 		if err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
 		}
-		resp, err := http.DefaultClient.Do(req) //nolint:gosec
-		if err != nil {
-			return sessionHistoryLoadedMsg{items: nil, err: err}
+		tasks, ok := response.Data.([]*a2atype.Task)
+		if !ok {
+			return sessionHistoryLoadedMsg{items: nil, err: fmt.Errorf("unexpected session task response type %T", response.Data)}
 		}
-		defer resp.Body.Close()
-		var payload struct {
-			Data []*a2atype.Task `json:"data"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			return sessionHistoryLoadedMsg{items: nil, err: err}
-		}
-		return sessionHistoryLoadedMsg{items: payload.Data, err: nil}
+		return sessionHistoryLoadedMsg{items: tasks, err: nil}
 	}
 }
 

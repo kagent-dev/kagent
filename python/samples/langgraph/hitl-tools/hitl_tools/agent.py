@@ -14,15 +14,15 @@ Command(resume=...) and the graph reads it to proceed or skip.
 """
 
 import logging
+import os
+import sqlite3
 from datetime import datetime
 from typing import Annotated, Any
 
-import httpx
-from kagent.core import KAgentConfig
-from kagent.langgraph import KAgentCheckpointer
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
@@ -30,9 +30,8 @@ from typing_extensions import TypedDict
 
 logger = logging.getLogger(__name__)
 
-kagent_checkpointer = KAgentCheckpointer(
-    client=httpx.AsyncClient(base_url=KAgentConfig().url),
-    app_name=KAgentConfig().app_name,
+checkpointer = SqliteSaver(
+    sqlite3.connect(os.getenv("KAGENT_CHECKPOINT_DB", "/tmp/hitl-checkpoints.sqlite"), check_same_thread=False)
 )
 
 # -- Tools -------------------------------------------------------------------
@@ -173,4 +172,4 @@ builder.add_edge(START, "agent")
 builder.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
 builder.add_edge("tools", "agent")
 
-graph = builder.compile(checkpointer=kagent_checkpointer)
+graph = builder.compile(checkpointer=checkpointer)

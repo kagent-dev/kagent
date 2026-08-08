@@ -8,77 +8,36 @@ import (
 
 	"github.com/gorilla/mux"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
-	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
-	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
-	common "github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
 	// API Path constants
-	APIPathHealth               = "/health"
-	APIPathVersion              = "/version"
-	APIPathMe                   = "/api/me"
-	APIPathModelConfig          = "/api/modelconfigs"
-	APIPathRuns                 = "/api/runs"
-	APIPathSessions             = "/api/sessions"
-	APIPathTasks                = "/api/tasks"
-	APIPathTools                = "/api/tools"
-	APIPathToolServers          = "/api/toolservers"
-	APIPathMCPApps              = "/api/mcp-apps"
-	APIPathToolServerTypes      = "/api/toolservertypes"
-	APIPathAgents               = "/api/agents"
-	APIPathSandboxAgents        = "/api/sandboxagents"
-	APIPathAgentHarnesses       = "/api/agentharnesses"
-	APIPathModelProviderConfigs = "/api/modelproviderconfigs"
-	APIPathModels               = "/api/models"
-	APIPathMemories             = "/api/memories"
-	APIPathNamespaces           = "/api/namespaces"
-	APIPathPromptTemplates      = "/api/prompttemplates"
-	APIPathA2A                  = "/api/a2a"
-	APIPathA2ASandboxes         = "/api/a2a-sandboxes"
-	APIPathMCP                  = "/mcp"
-	APIPathFeedback             = "/api/feedback"
-	APIPathLangGraph            = "/api/langgraph"
-	APIPathCrewAI               = "/api/crewai"
-	APIPathAgentHarnessHarness  = "/api/agentharnesses/{namespace}/{name}/"
-	APIPathSubstrateStatus      = "/api/substrate/status"
+	APIPathHealth          = "/health"
+	APIPathA2A             = "/api/a2a"
+	APIPathA2ASandboxes    = "/api/a2a-sandboxes"
+	APIPathMCP             = "/mcp"
+	APIPathAgentHarnessACP = "/api/agentharnesses/{namespace}/{name}/acp/"
 )
-
-var defaultModelConfig = types.NamespacedName{
-	Name:      "default-model-config",
-	Namespace: common.GetResourceNamespace(),
-}
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	Router                       *mux.Router
-	BindAddr                     string
-	KubeClient                   ctrl_client.Client
-	A2AHandler                   a2a.A2AHandlerMux
-	MCPHandler                   *mcp.MCPHandler
-	WatchedNamespaces            []string
-	DbClient                     dbpkg.Client
-	Authenticator                auth.AuthProvider
-	Authorizer                   auth.Authorizer
-	ProxyURL                     string
-	Reconciler                   reconciler.KagentReconciler
-	SandboxBackend               sandboxbackend.Backend
-	AgentHarnessGateway          *handlers.AgentHarnessGatewayConfig
-	SubstrateAteClient           *substrate.Client
-	MCPEgressPlaintext           bool
-	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
-	AgentHarnessSessionActor     *substrate.AgentHarnessSessionActorBackend
+	Router                   *mux.Router
+	BindAddr                 string
+	KubeClient               ctrl_client.Client
+	A2AHandler               a2a.A2AHandlerMux
+	MCPHandler               *mcp.MCPHandler
+	DbClient                 dbpkg.Client
+	Authenticator            auth.AuthProvider
+	AgentHarnessGateway      *handlers.AgentHarnessGatewayConfig
+	AgentHarnessSessionActor *substrate.AgentHarnessSessionActorBackend
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -99,17 +58,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 		router: config.Router,
 		handlers: handlers.NewHandlers(
 			config.KubeClient,
-			defaultModelConfig,
-			config.DbClient,
-			config.WatchedNamespaces,
-			config.Authorizer,
-			config.ProxyURL,
-			config.Reconciler,
-			config.SandboxBackend,
 			config.AgentHarnessGateway,
-			config.SubstrateAteClient,
-			config.MCPEgressPlaintext,
-			config.SubstrateSandboxActorBackend,
 			config.AgentHarnessSessionActor,
 		),
 		authenticator: config.Authenticator,
@@ -217,132 +166,8 @@ func (s *HTTPServer) setupRoutes() {
 	// Health check endpoint
 	s.router.HandleFunc(APIPathHealth, adaptHealthHandler(s.handlers.Health.HandleHealth)).Methods(http.MethodGet)
 
-	// Version
-	s.router.HandleFunc(APIPathVersion, adaptHandler(func(erw handlers.ErrorResponseWriter, r *http.Request) {
-		versionResponse := api.VersionResponse{
-			KAgentVersion: version.Version,
-			GitCommit:     version.GitCommit,
-			BuildDate:     version.BuildDate,
-		}
-		handlers.RespondWithJSON(erw, http.StatusOK, versionResponse)
-	})).Methods(http.MethodGet)
-
-	// Current user
-	s.router.HandleFunc(APIPathMe, adaptHandler(func(erw handlers.ErrorResponseWriter, r *http.Request) {
-		s.handlers.CurrentUser.HandleGetCurrentUser(erw, r)
-	})).Methods(http.MethodGet)
-
-	// Model configs
-	s.router.HandleFunc(APIPathModelConfig, adaptHandler(s.handlers.ModelConfig.HandleListModelConfigs)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathModelConfig+"/{namespace}/{name}", adaptHandler(s.handlers.ModelConfig.HandleGetModelConfig)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathModelConfig, adaptHandler(s.handlers.ModelConfig.HandleCreateModelConfig)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathModelConfig+"/{namespace}/{name}", adaptHandler(s.handlers.ModelConfig.HandleDeleteModelConfig)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathModelConfig+"/{namespace}/{name}", adaptHandler(s.handlers.ModelConfig.HandleUpdateModelConfig)).Methods(http.MethodPut)
-
-	// Sessions - using database handlers
-	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleListSessions)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSessions, adaptHandler(s.handlers.Sessions.HandleCreateSession)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathSessions+"/agent/{namespace}/{name}", adaptHandler(s.handlers.Sessions.HandleGetSessionsForAgent)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleGetSession)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/tasks", adaptHandler(s.handlers.Sessions.HandleListTasksForSession)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleDeleteSession)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}", adaptHandler(s.handlers.Sessions.HandleUpdateSession)).Methods(http.MethodPut, http.MethodPatch)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/events", adaptHandler(s.handlers.Sessions.HandleAddEventToSession)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleCreateSessionShare)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares", adaptHandler(s.handlers.SessionShares.HandleListSessionShares)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSessions+"/{session_id}/shares/{token}", adaptHandler(s.handlers.SessionShares.HandleDeleteSessionShare)).Methods(http.MethodDelete)
-
-	// Tasks
-	s.router.HandleFunc(APIPathTasks+"/{task_id}", adaptHandler(s.handlers.Tasks.HandleGetTask)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathTasks, adaptHandler(s.handlers.Tasks.HandleCreateTask)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathTasks+"/{task_id}", adaptHandler(s.handlers.Tasks.HandleDeleteTask)).Methods(http.MethodDelete)
-
-	// Tools - using database handlers
-	s.router.HandleFunc(APIPathTools, adaptHandler(s.handlers.Tools.HandleListTools)).Methods(http.MethodGet)
-
-	// Tool Servers
-	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleListToolServers)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathToolServers, adaptHandler(s.handlers.ToolServers.HandleCreateToolServer)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathToolServers+"/{namespace}/{name}", adaptHandler(s.handlers.ToolServers.HandleDeleteToolServer)).Methods(http.MethodDelete)
-
-	// MCP Apps
-	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/tools", adaptHandler(s.handlers.MCPApps.HandleListTools)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/tools/{toolName}/call", adaptHandler(s.handlers.MCPApps.HandleCallTool)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathMCPApps+"/{namespace}/{name}/resources", adaptHandler(s.handlers.MCPApps.HandleReadResource)).Methods(http.MethodGet)
-
-	// Tool Server Types
-	s.router.HandleFunc(APIPathToolServerTypes, adaptHandler(s.handlers.ToolServerTypes.HandleListToolServerTypes)).Methods(http.MethodGet)
-
-	// Agents - using database handlers
-	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleListAgents)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleCreateAgent)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleUpdateAgent)).Methods(http.MethodPut)
-	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
-
-	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathAgentHarnesses, adaptHandler(s.handlers.Agents.HandleCreateAgentHarness)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgentHarness)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgentHarness)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetSandboxAgent)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleUpdateSandboxAgent)).Methods(http.MethodPut)
-	s.router.HandleFunc(APIPathSandboxAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteSandboxAgent)).Methods(http.MethodDelete)
-
-	// Model Provider Configs
-	s.router.HandleFunc(APIPathModelProviderConfigs+"/models", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedModelProviders)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathModelProviderConfigs+"/memories", adaptHandler(s.handlers.ModelProviderConfig.HandleListSupportedMemoryProviders)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathModelProviderConfigs+"/configured", adaptHandler(s.handlers.ModelProviderConfig.HandleListConfiguredProviders)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathModelProviderConfigs+"/configured/{name}/models", adaptHandler(s.handlers.ModelProviderConfig.HandleGetProviderModels)).Methods(http.MethodGet)
-
-	// Models
-	s.router.HandleFunc(APIPathModels, adaptHandler(s.handlers.Model.HandleListSupportedModels)).Methods(http.MethodGet)
-
-	// Memories
-	s.router.HandleFunc(APIPathMemories+"/sessions", adaptHandler(s.handlers.Memory.AddSession)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathMemories+"/sessions/batch", adaptHandler(s.handlers.Memory.AddSessionBatch)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathMemories+"/search", adaptHandler(s.handlers.Memory.Search)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.List)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathMemories, adaptHandler(s.handlers.Memory.Delete)).Methods(http.MethodDelete)
-
-	// Namespaces
-	s.router.HandleFunc(APIPathNamespaces, adaptHandler(s.handlers.Namespaces.HandleListNamespaces)).Methods(http.MethodGet)
-
-	// Agent Substrate inventory (WorkerPools, ActorTemplates, ate-api actors/workers)
-	s.router.HandleFunc(APIPathSubstrateStatus, adaptHandler(s.handlers.Substrate.HandleGetSubstrateStatus)).Methods(http.MethodGet)
-
-	// Prompt template libraries (ConfigMaps)
-	s.router.HandleFunc(APIPathPromptTemplates, adaptHandler(s.handlers.PromptTemplates.HandleListPromptTemplates)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathPromptTemplates, adaptHandler(s.handlers.PromptTemplates.HandleCreatePromptTemplate)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathPromptTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.PromptTemplates.HandleGetPromptTemplate)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathPromptTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.PromptTemplates.HandleUpdatePromptTemplate)).Methods(http.MethodPut)
-	s.router.HandleFunc(APIPathPromptTemplates+"/{namespace}/{name}", adaptHandler(s.handlers.PromptTemplates.HandleDeletePromptTemplate)).Methods(http.MethodDelete)
-
-	// Feedback - using database handlers
-	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleCreateFeedback)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathFeedback, adaptHandler(s.handlers.Feedback.HandleListFeedback)).Methods(http.MethodGet)
-
-	// LangGraph Checkpoints
-	s.router.HandleFunc(APIPathLangGraph+"/checkpoints", adaptHandler(s.handlers.Checkpoints.HandlePutCheckpoint)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathLangGraph+"/checkpoints", adaptHandler(s.handlers.Checkpoints.HandleListCheckpoints)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/writes", adaptHandler(s.handlers.Checkpoints.HandlePutWrites)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathLangGraph+"/checkpoints/{thread_id}", adaptHandler(s.handlers.Checkpoints.HandleDeleteThread)).Methods(http.MethodDelete)
-
-	// CrewAI
-	s.router.HandleFunc(APIPathCrewAI+"/memory", adaptHandler(s.handlers.CrewAI.HandleStoreMemory)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathCrewAI+"/memory", adaptHandler(s.handlers.CrewAI.HandleGetMemory)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathCrewAI+"/memory", adaptHandler(s.handlers.CrewAI.HandleResetMemory)).Methods(http.MethodDelete)
-	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleStoreFlowState)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathCrewAI+"/flows/state", adaptHandler(s.handlers.CrewAI.HandleGetFlowState)).Methods(http.MethodGet)
-
-	// Substrate harness per-session actor lifecycle (provision on New Chat,
-	// suspend from the chat UI). Registered before the /acp gateway catch-all so
-	// these specific paths win over the PathPrefix match.
-	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions/{session_id}/ensure", adaptHandler(s.handlers.HandleEnsureAgentHarnessSessionActor)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions/{session_id}/suspend", adaptHandler(s.handlers.HandleSuspendAgentHarnessSessionActor)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}/sessions/{session_id}/status", adaptHandler(s.handlers.HandleGetAgentHarnessSessionActor)).Methods(http.MethodGet)
-
 	// Substrate harness /acp WebSocket proxy via atenet-router.
-	s.router.PathPrefix(APIPathAgentHarnessHarness).Handler(
+	s.router.PathPrefix(APIPathAgentHarnessACP).Handler(
 		adaptHandler(s.handlers.HandleAgentHarnessGateway),
 	)
 

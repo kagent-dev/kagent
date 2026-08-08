@@ -270,6 +270,7 @@ describe("Agent form serialization", () => {
       namespace: "team-a",
       description: "BYO sandbox agent",
       type: "BYO",
+      tools: [],
       byoImage: "example.com/agent:v1",
       byoCmd: "/agent",
       substrateWorkerPoolRefName: "pool-a",

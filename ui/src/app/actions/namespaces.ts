@@ -1,6 +1,7 @@
 'use server'
 
-import { fetchApi, createErrorResponse } from './utils';
+import { getSystemGrpcGateway } from '@/lib/grpc/client';
+import { createErrorResponse } from './utils';
 import { BaseResponse } from '@/types';
 
 // TODO(infocus7): move to datamodel or another type file
@@ -15,15 +16,12 @@ export interface NamespaceResponse {
  */
 export async function listNamespaces(): Promise<BaseResponse<NamespaceResponse[]>> {
   try {
-    const response = await fetchApi<BaseResponse<NamespaceResponse[]>>('/namespaces');
-    
-    if (!response) {
-      throw new Error("Failed to get namespaces");
-    }
+    const gateway = await getSystemGrpcGateway();
+    const namespaces = await gateway.listNamespaces();
 
     return {
       message: "Namespaces fetched successfully",
-      data: response.data,
+      data: namespaces,
     };
   } catch (error) {
     return createErrorResponse<NamespaceResponse[]>(error, "Error getting namespaces");

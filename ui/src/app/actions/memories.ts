@@ -1,18 +1,16 @@
 "use server";
 
 import { AgentMemory } from "@/types";
-import { fetchApi } from "./utils";
+import { getMemoryGrpcGateway } from "@/lib/grpc/client";
+
+const DEFAULT_USER_ID = "admin@kagent.dev";
 
 export async function clearAgentMemory(agentName: string, namespace?: string, userId?: string) {
   try {
     const fullName = namespace ? `${namespace}__NS__${agentName}` : agentName;
-    const params = new URLSearchParams({ agent_name: fullName });
-    if (userId) params.set("user_id", userId);
-    const data = await fetchApi<unknown>(
-      `/memories?${params.toString()}`,
-      { method: "DELETE" },
-    );
-    return { data, error: null };
+    const gateway = await getMemoryGrpcGateway();
+    await gateway.clearAgentMemory(fullName, userId ?? DEFAULT_USER_ID);
+    return { data: { status: "deleted" }, error: null };
   } catch (error) {
     return { data: null, error };
   }
@@ -21,12 +19,8 @@ export async function clearAgentMemory(agentName: string, namespace?: string, us
 export async function listAgentMemories(agentName: string, namespace?: string, userId?: string) {
   try {
     const fullName = namespace ? `${namespace}__NS__${agentName}` : agentName;
-    const params = new URLSearchParams({ agent_name: fullName });
-    if (userId) params.set("user_id", userId);
-    const data = await fetchApi<AgentMemory[]>(
-      `/memories?${params.toString()}`,
-      { method: "GET" },
-    );
+    const gateway = await getMemoryGrpcGateway();
+    const data: AgentMemory[] = await gateway.listAgentMemories(fullName, userId ?? DEFAULT_USER_ID);
     return { data, error: null };
   } catch (error) {
     return { data: null, error };

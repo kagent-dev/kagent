@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	v1alpha2 "github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
@@ -33,15 +34,28 @@ func NewModelClient(client *BaseClient) Model {
 
 // ListSupportedModels lists all supported models
 func (c *modelClient) ListSupportedModels(ctx context.Context) (*api.StandardResponse[ProviderModels], error) {
-	resp, err := c.client.Get(ctx, "/api/models", "")
+	client, err := c.client.modelServiceClient()
+	if err != nil {
+		return nil, err
+	}
+	callContext, cancel := c.client.grpcCallContext(ctx)
+	defer cancel()
+	response, err := client.ListSupportedModels(callContext, &apiv1alpha1.ListSupportedModelsRequest{})
 	if err != nil {
 		return nil, err
 	}
 
-	var models api.StandardResponse[ProviderModels]
-	if err := DecodeResponse(resp, &models); err != nil {
-		return nil, err
+	models := make(ProviderModels, len(response.GetProviders()))
+	for _, provider := range response.GetProviders() {
+		providerModels := make([]ModelInfo, 0, len(provider.GetModels()))
+		for _, model := range provider.GetModels() {
+			providerModels = append(providerModels, ModelInfo{
+				Name:            model.GetName(),
+				FunctionCalling: model.GetFunctionCalling(),
+			})
+		}
+		models[v1alpha2.ModelProvider(provider.GetProvider())] = providerModels
 	}
-
-	return &models, nil
+	result := api.NewResponse(models, "Successfully listed supported models", false)
+	return &result, nil
 }

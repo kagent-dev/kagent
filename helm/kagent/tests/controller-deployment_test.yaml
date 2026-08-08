@@ -76,6 +76,31 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8083
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].name
+          value: grpc
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].containerPort
+          value: 8084
+
+  - it: should configure the gRPC server
+    template: controller-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRPC_BIND_ADDRESS
+            value: ":8084"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRPC_MAX_MESSAGE_BYTES
+            value: "16777216"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRPC_REFLECTION
+            value: "false"
 
   - it: should set global annotations on deployment
     template: controller-deployment.yaml
@@ -748,7 +773,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.template.spec.containers[0].ports
-          count: 1
+          count: 2
       - notContains:
           path: spec.template.spec.containers[0].ports
           content:

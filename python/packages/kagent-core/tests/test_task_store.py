@@ -1,51 +1,65 @@
-import httpx
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from a2a.types import ListTasksRequest, Task, TaskState, TaskStatus
 from google.protobuf.json_format import MessageToDict
 from google.protobuf.timestamp_pb2 import Timestamp
+from kagent.api.v1alpha1 import sessions_pb2
 
+from kagent.core._structured_object import encode_structured_object
 from kagent.core.a2a import KAgentTaskStore
+
+
+def _client(*tasks: Task) -> MagicMock:
+    client = MagicMock()
+    client.max_message_bytes = 16 << 20
+    client.call_options = AsyncMock(return_value={})
+    client.task_service.ListTasks = AsyncMock(
+        return_value=sessions_pb2.ListTasksResponse(
+            tasks=[
+                encode_structured_object(
+                    MessageToDict(task),
+                    api_version="lf.a2a.v1",
+                    kind="Task",
+                    max_bytes=client.max_message_bytes,
+                )
+                for task in tasks
+            ]
+        )
+    )
+    return client
 
 
 @pytest.mark.asyncio
 async def test_list_requires_context_id():
-    client = httpx.AsyncClient(base_url="http://kagent.local")
+    client = _client()
     store = KAgentTaskStore(client)
 
-    resp = await store.list(ListTasksRequest())
-    assert len(resp.tasks) == 0
-    assert resp.total_size == 0
+    response = await store.list(ListTasksRequest())
 
-    await client.aclose()
+    assert len(response.tasks) == 0
+    assert response.total_size == 0
+    client.task_service.ListTasks.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_list_filters_status_and_supports_paging():
-    ts = Timestamp()
-    ts.GetCurrentTime()
+    timestamp = Timestamp()
+    timestamp.GetCurrentTime()
     task_working = Task(
         id="t-working",
         context_id="ctx-1",
-        status=TaskStatus(state=TaskState.TASK_STATE_WORKING, timestamp=ts),
+        status=TaskStatus(state=TaskState.TASK_STATE_WORKING, timestamp=timestamp),
     )
     task_done = Task(
         id="t-done",
         context_id="ctx-1",
-        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED, timestamp=ts),
+        status=TaskStatus(state=TaskState.TASK_STATE_COMPLETED, timestamp=timestamp),
     )
-    payload = {
-        "data": [MessageToDict(task_working), MessageToDict(task_done)],
-    }
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/sessions/ctx-1/tasks"
-        return httpx.Response(200, json=payload)
-
-    transport = httpx.MockTransport(handler)
-    client = httpx.AsyncClient(base_url="http://kagent.local", transport=transport)
+    client = _client(task_working, task_done)
     store = KAgentTaskStore(client)
 
-    resp = await store.list(
+    response = await store.list(
         ListTasksRequest(
             context_id="ctx-1",
             status=TaskState.TASK_STATE_WORKING,
@@ -53,9 +67,8 @@ async def test_list_filters_status_and_supports_paging():
         )
     )
 
-    assert resp.total_size == 1
-    assert resp.page_size == 1
-    assert len(resp.tasks) == 1
-    assert resp.tasks[0].id == "t-working"
-
-    await client.aclose()
+    assert response.total_size == 1
+    assert response.page_size == 1
+    assert len(response.tasks) == 1
+    assert response.tasks[0].id == "t-working"
+    client.task_service.ListTasks.assert_awaited_once()

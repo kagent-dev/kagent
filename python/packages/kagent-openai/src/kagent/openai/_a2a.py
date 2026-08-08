@@ -11,7 +11,6 @@ import logging
 import os
 from collections.abc import Callable
 
-import httpx
 from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
@@ -20,7 +19,7 @@ from agents import Agent, set_default_openai_api, set_default_openai_client, set
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
@@ -54,8 +53,6 @@ def thread_dump(request: Request) -> PlainTextResponse:
         return PlainTextResponse(tmp.read())
 
 
-# Environment variables
-kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 
 
@@ -137,7 +134,7 @@ class KAgentApp:
 
         This creates an application that:
         - Uses KAgentSessionFactory for session management
-        - Connects to KAgent backend via REST API
+        - Connects to the KAgent backend via generated gRPC clients
         - Implements A2A protocol handlers
         - Includes health check endpoints
 
@@ -146,14 +143,15 @@ class KAgentApp:
         """
         _configure_openai_client()
 
-        # Create HTTP client with KAgent backend
-        http_client = httpx.AsyncClient(
-            base_url=kagent_url_override or self.config.url,
+        controller_client = AsyncControllerClient(
+            self.config.grpc_url,
+            agent_name=self.config.app_name,
+            token_provider=AsyncFileTokenProvider(),
         )
 
         # Create session factory
         session_factory = KAgentSessionFactory(
-            client=http_client,
+            client=controller_client,
             app_name=self.config.app_name,
         )
 
@@ -166,7 +164,7 @@ class KAgentApp:
         )
 
         # Create KAgent task store
-        kagent_task_store = KAgentTaskStore(http_client)
+        kagent_task_store = KAgentTaskStore(controller_client)
 
         # Create request context builder and handler
         request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
@@ -181,7 +179,7 @@ class KAgentApp:
         faulthandler.enable()
 
         # Create FastAPI app with lifespan
-        app = FastAPI()
+        app = FastAPI(lifespan=controller_client.lifespan())
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
             max_content_length=get_a2a_max_content_length(),

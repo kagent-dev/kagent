@@ -9,6 +9,7 @@ HELM_REPO ?= oci://ghcr.io/kagent-dev
 HELM_DIST_FOLDER ?= dist
 
 BUILD_DATE := $(shell date -u '+%Y-%m-%d')
+LOCAL_BUILD_ID ?= $(shell date -u '+%Y%m%d%H%M%S')
 GIT_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
 VERSION ?= $(shell git describe --tags --always 2>/dev/null | grep v || echo "v0.0.0-$(GIT_COMMIT)")
 
@@ -99,6 +100,8 @@ LDFLAGS := -X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSI
 TOOLS_UV_VERSION ?= 0.10.4
 TOOLS_NODE_VERSION ?= 24
 TOOLS_PYTHON_VERSION ?= 3.13
+BUF_VERSION ?= v1.72.0
+BUF := go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
@@ -137,6 +140,35 @@ print-tools-versions: ## Print tools versions
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
+
+##@ Protobuf
+
+.PHONY: proto-generate
+proto-generate: ## Generate Go, TypeScript, and Python protobuf clients and servers
+	cd proto && $(BUF) generate
+
+.PHONY: proto-lint
+proto-lint: ## Lint repository-owned protobuf schemas
+	cd proto && $(BUF) lint
+
+.PHONY: proto-breaking
+proto-breaking: ## Check protobuf compatibility against the target branch (default: main)
+	@if git cat-file -e "$(PROTO_BREAKING_BRANCH):proto/buf.yaml" 2>/dev/null; then \
+		$(BUF) breaking proto --against ".git#branch=$(PROTO_BREAKING_BRANCH),subdir=proto"; \
+	else \
+		echo "No protobuf module on $(PROTO_BREAKING_BRANCH); skipping first-release breaking check"; \
+	fi
+
+PROTO_BREAKING_BRANCH ?= main
+PROTO_GENERATED_PATHS := go/api/gen ui/src/generated python/packages/kagent-proto/src/kagent
+
+.PHONY: proto-check
+proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail when committed output drifts
+	@if test -n "$$(git status --porcelain -- $(PROTO_GENERATED_PATHS))"; then \
+		echo "Generated protobuf files are out of date:"; \
+		git status --short -- $(PROTO_GENERATED_PATHS); \
+		exit 1; \
+	fi
 
 ##@ Git
 
@@ -207,7 +239,7 @@ endif
 .PHONY: build-all
 build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/null for CI validation)
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
-build-all: buildx-create
+build-all: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile.full ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
@@ -238,10 +270,12 @@ endif
 
 .PHONY: build-cli
 build-cli: ## Build the kagent CLI (cross-compiled via go sub-make)
+build-cli: proto-generate
 	make -C go build
 
 .PHONY: build-cli-local
 build-cli-local: ## Build the kagent CLI binary for the local machine
+build-cli-local: proto-generate
 	make -C go clean
 	make -C go core/bin/kagent-local
 
@@ -268,7 +302,7 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 
 .PHONY: build-controller
 build-controller: ## Build and push the controller image (embeds agent runtime + acp-sandbox digests via scripts/controller-digest-ldflags.sh)
-build-controller: buildx-create controller-manifests build-app build-app-full build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
+build-controller: proto-generate buildx-create controller-manifests build-app build-app-full build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
 	@set -e; \
 	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
 		APP_IMG=$(APP_IMG) \
@@ -286,13 +320,13 @@ build-controller: buildx-create controller-manifests build-app build-app-full bu
 
 .PHONY: build-ui
 build-ui: ## Build and push the UI image
-build-ui: buildx-create
+build-ui: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 	$(DOCKER_PUSH) $(UI_IMG)
 
 .PHONY: build-kagent-adk
 build-kagent-adk: ## Build and push the Python kagent ADK image
-build-kagent-adk: buildx-create
+build-kagent-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
@@ -304,7 +338,7 @@ build-app: buildx-create build-kagent-adk
 
 .PHONY: build-kagent-adk-full
 build-kagent-adk-full: ## Build and push the full Python kagent ADK image (includes sandbox runtime)
-build-kagent-adk-full: buildx-create
+build-kagent-adk-full: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_FULL_IMG) -f python/Dockerfile.full ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_FULL_IMG)
 
@@ -316,13 +350,13 @@ build-app-full: buildx-create build-kagent-adk-full
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
-build-golang-adk: buildx-create
+build-golang-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
 
 .PHONY: build-golang-adk-full
 build-golang-adk-full: ## Build and push the Go ADK full image (with extra tooling)
-build-golang-adk-full: buildx-create
+build-golang-adk-full: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_FULL_IMG)
 
@@ -397,8 +431,8 @@ push-test-skill: buildx-create ## Build and push E2E test skill images to the lo
 .PHONY: create-kind-cluster
 
 create-kind-cluster: ## Create a local kind cluster with MetalLB
-	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-kind.sh
-	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-metallb.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) KIND_IMAGE_VERSION=$(KIND_IMAGE_VERSION) bash ./scripts/kind/setup-kind.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) bash ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
 use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
@@ -508,10 +542,12 @@ helm-install-provider: helm-version check-api-key
 		--set database.postgres.bundled.image.name=pgvector \
 		--set database.postgres.bundled.image.tag=pg18-trixie \
 		--set database.postgres.vectorEnabled=true \
-		$(KAGENT_HELM_EXTRA_ARGS)
+		$(KAGENT_HELM_EXTRA_ARGS) \
+		$(KAGENT_HELM_REDEPLOY_ARGS)
 
 .PHONY: helm-install
 helm-install: ## Build all images then install kagent onto the kind cluster
+helm-install: KAGENT_HELM_REDEPLOY_ARGS = --set-string 'controller.podAnnotations.kagent\.dev/local-build-id=$(LOCAL_BUILD_ID)' --set-string 'ui.podAnnotations.kagent\.dev/local-build-id=$(LOCAL_BUILD_ID)'
 helm-install: build
 helm-install: helm-install-provider
 

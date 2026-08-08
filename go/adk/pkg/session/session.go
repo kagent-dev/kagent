@@ -1,21 +1,22 @@
 package session
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
+	"math"
 	"slices"
-	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	adksession "google.golang.org/adk/v2/session"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -26,17 +27,12 @@ const (
 var ErrSessionNotFound = errors.New("session not found")
 
 type KAgentSessionService struct {
-	BaseURL string
-	Client  *http.Client
+	client *controllerclient.Client
 }
 
 // NewKAgentSessionService creates a new KAgentSessionService.
-// If client is nil, http.DefaultClient is used.
-func NewKAgentSessionService(baseURL string, client *http.Client) *KAgentSessionService {
-	if client == nil {
-		client = http.DefaultClient
-	}
-	return &KAgentSessionService{BaseURL: baseURL, Client: client}
+func NewKAgentSessionService(client *controllerclient.Client) *KAgentSessionService {
+	return &KAgentSessionService{client: client}
 }
 
 // Create implements adksession.Service.
@@ -49,59 +45,40 @@ func (s *KAgentSessionService) Create(ctx context.Context, req *adksession.Creat
 		state = make(map[string]any)
 	}
 
-	reqData := map[string]any{
-		"user_id":   req.UserID,
-		"agent_ref": req.AppName,
+	request := &apiv1alpha1.CreateSessionRequest{
+		AgentRef: req.AppName,
 	}
 	if req.SessionID != "" {
-		reqData["id"] = req.SessionID
+		request.Id = new(req.SessionID)
 	}
 	if name, ok := state["session_name"].(string); ok && name != "" {
-		reqData["name"] = name
+		request.Name = new(name)
 	}
-	// Propagate session source (e.g. "agent")
 	if source, ok := state["source"].(string); ok && source != "" {
-		reqData["source"] = source
+		value, err := sessionSourceToProto(source)
+		if err != nil {
+			return nil, err
+		}
+		request.Source = &value
 	}
 
-	body, err := json.Marshal(reqData)
+	callContext, cancel := s.client.CallContext(ctx, req.UserID)
+	defer cancel()
+	response, err := s.client.SessionService().CreateSession(callContext, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal create session request: %w", err)
+		return nil, fmt.Errorf("create session: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", s.BaseURL+"/api/sessions", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to build create session request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-User-ID", req.UserID)
-
-	resp, err := s.Client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute create session request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("create session: status %d - %s", resp.StatusCode, string(b))
+	result := response.GetSession()
+	if result == nil {
+		return nil, fmt.Errorf("create session: response session is missing")
 	}
 
-	var result struct {
-		Data struct {
-			ID     string `json:"id"`
-			UserID string `json:"user_id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode create session response: %w", err)
-	}
-
-	log.V(1).Info("Session created", "sessionID", result.Data.ID)
+	log.V(1).Info("Session created", "sessionID", result.GetId())
 	return &adksession.CreateResponse{
 		Session: &localSession{
 			appName:   req.AppName,
-			userID:    result.Data.UserID,
-			sessionID: result.Data.ID,
+			userID:    result.GetUserId(),
+			sessionID: result.GetId(),
 			state:     state,
 		},
 	}, nil
@@ -115,65 +92,46 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 	log := logr.FromContextOrDiscard(ctx)
 	log.V(1).Info("Getting session", "appName", req.AppName, "userID", req.UserID, "sessionID", req.SessionID)
 
-	query := url.Values{
-		"user_id": {req.UserID},
-		"limit":   {"-1"},
-		"order":   {"asc"},
+	request := &apiv1alpha1.GetSessionRequest{
+		SessionId: req.SessionID,
+		Order:     apiv1alpha1.EventOrder_EVENT_ORDER_ASCENDING,
 	}
 	if !req.After.IsZero() {
-		query.Set("after", req.After.UTC().Format(time.RFC3339Nano))
+		request.After = timestamppb.New(req.After)
 	}
 	if req.NumRecentEvents > 0 {
-		query.Set("limit", strconv.Itoa(req.NumRecentEvents))
-		query.Set("order", "desc")
+		if req.NumRecentEvents > math.MaxInt32 {
+			return nil, fmt.Errorf("get session: recent event limit %d exceeds int32", req.NumRecentEvents)
+		}
+		request.Limit = new(int32(req.NumRecentEvents))
+		request.Order = apiv1alpha1.EventOrder_EVENT_ORDER_DESCENDING
 	}
 
-	requestURL := fmt.Sprintf("%s/api/sessions/%s?%s", s.BaseURL, url.PathEscape(req.SessionID), query.Encode())
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", requestURL, nil)
+	callContext, cancel := s.client.CallContext(ctx, req.UserID)
+	defer cancel()
+	response, err := s.client.SessionService().GetSession(callContext, request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build get session request: %w", err)
+		if status.Code(err) == codes.NotFound {
+			return nil, fmt.Errorf("%w: %s", ErrSessionNotFound, req.SessionID)
+		}
+		return nil, fmt.Errorf("get session: %w", err)
 	}
-	httpReq.Header.Set("X-User-ID", req.UserID)
-
-	resp, err := s.Client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute get session request: %w", err)
+	storedSession := response.GetSession()
+	if storedSession == nil {
+		return nil, fmt.Errorf("get session: response session is missing")
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("%w: %s", ErrSessionNotFound, req.SessionID)
-	}
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("get session: status %d, body: %s", resp.StatusCode, string(b))
-	}
-
-	var result struct {
-		Data struct {
-			Session struct {
-				ID     string `json:"id"`
-				UserID string `json:"user_id"`
-			} `json:"session"`
-			Events []struct {
-				Data json.RawMessage `json:"data"`
-			} `json:"events"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode get session response: %w", err)
-	}
+	events := response.GetEvents()
 	if req.NumRecentEvents > 0 {
-		slices.Reverse(result.Data.Events)
+		slices.Reverse(events)
 	}
 
-	log.V(1).Info("Session retrieved", "sessionID", result.Data.Session.ID, "eventsCount", len(result.Data.Events))
+	log.V(1).Info("Session retrieved", "sessionID", storedSession.GetId(), "eventsCount", len(events))
 
 	// Deserialise each raw event payload into a typed *adksession.Event.
 	// Mirrors Python: events.append(Event.model_validate_json(event_data["data"]))
-	adkEvents := make([]*adksession.Event, 0, len(result.Data.Events))
-	for i, raw := range result.Data.Events {
-		eventJSON := unwrapEventJSON(raw.Data)
+	adkEvents := make([]*adksession.Event, 0, len(events))
+	for i, storedEvent := range events {
+		eventJSON := unwrapEventJSON(json.RawMessage(storedEvent.GetData()))
 		if eventJSON == nil {
 			continue
 		}
@@ -191,8 +149,8 @@ func (s *KAgentSessionService) Get(ctx context.Context, req *adksession.GetReque
 	return &adksession.GetResponse{
 		Session: &localSession{
 			appName:   req.AppName,
-			userID:    result.Data.Session.UserID,
-			sessionID: result.Data.Session.ID,
+			userID:    storedSession.GetUserId(),
+			sessionID: storedSession.GetId(),
 			events:    adkEvents,
 			state:     make(map[string]any),
 		},
@@ -207,22 +165,11 @@ func (s *KAgentSessionService) List(_ context.Context, _ *adksession.ListRequest
 // Delete implements adksession.Service.
 func (s *KAgentSessionService) Delete(ctx context.Context, req *adksession.DeleteRequest) error {
 	log := logr.FromContextOrDiscard(ctx)
-	url := fmt.Sprintf("%s/api/sessions/%s?user_id=%s", s.BaseURL, url.PathEscape(req.SessionID), url.QueryEscape(req.UserID))
-	httpReq, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	callContext, cancel := s.client.CallContext(ctx, req.UserID)
+	defer cancel()
+	_, err := s.client.SessionService().DeleteSession(callContext, &apiv1alpha1.DeleteSessionRequest{SessionId: req.SessionID})
 	if err != nil {
-		return fmt.Errorf("failed to build delete session request: %w", err)
-	}
-	httpReq.Header.Set("X-User-ID", req.UserID)
-
-	resp, err := s.Client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("failed to execute delete session request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete session: status %d, body: %s", resp.StatusCode, string(b))
+		return fmt.Errorf("delete session: %w", err)
 	}
 	log.V(1).Info("Session deleted", "sessionID", req.SessionID)
 	return nil
@@ -254,32 +201,15 @@ func (s *KAgentSessionService) AppendEvent(ctx context.Context, adkSess adksessi
 		eventID = uuid.New().String()
 	}
 
-	reqData := map[string]any{
-		"id":   eventID,
-		"data": string(eventData),
-	}
-	body, err := json.Marshal(reqData)
+	callContext, callCancel := s.client.CallContext(persistCtx, adkSess.UserID())
+	defer callCancel()
+	_, err = s.client.SessionService().AddSessionEvent(callContext, &apiv1alpha1.AddSessionEventRequest{
+		SessionId: adkSess.ID(),
+		Id:        eventID,
+		Data:      string(eventData),
+	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal append event request: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/api/sessions/%s/events?user_id=%s", s.BaseURL, url.PathEscape(adkSess.ID()), url.QueryEscape(adkSess.UserID()))
-	httpReq, err := http.NewRequestWithContext(persistCtx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("failed to build append event request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-User-ID", adkSess.UserID())
-
-	resp, err := s.Client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("failed to execute append event request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("append event: status %d, response: %s", resp.StatusCode, string(b))
+		return fmt.Errorf("append event: %w", err)
 	}
 
 	log.V(1).Info("Event appended", "sessionID", adkSess.ID(), "eventID", eventID)
@@ -339,4 +269,15 @@ func unwrapEventJSON(raw json.RawMessage) []byte {
 		return []byte(s)
 	}
 	return raw
+}
+
+func sessionSourceToProto(source string) (apiv1alpha1.SessionSource, error) {
+	switch source {
+	case "user":
+		return apiv1alpha1.SessionSource_SESSION_SOURCE_USER, nil
+	case "agent":
+		return apiv1alpha1.SessionSource_SESSION_SOURCE_AGENT, nil
+	default:
+		return apiv1alpha1.SessionSource_SESSION_SOURCE_UNSPECIFIED, fmt.Errorf("create session: unsupported source %q", source)
+	}
 }

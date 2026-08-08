@@ -1,17 +1,17 @@
 package memory
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/embedding"
 	"github.com/kagent-dev/kagent/go/api/adk"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/adk/v2/memory"
 	adkmodel "google.golang.org/adk/v2/model"
 	adksession "google.golang.org/adk/v2/session"
@@ -21,22 +21,19 @@ import (
 // KagentMemoryService implements memory.Service by storing memories
 // via the Kagent backend API (backed by pgvector).
 type KagentMemoryService struct {
-	agentName       string
-	apiURL          string
-	client          *http.Client
-	ttlDays         int
-	embeddingClient *embedding.Client
-	model           adkmodel.LLM // Optional: for session summarization
+	agentName        string
+	controllerClient *controllerclient.Client
+	ttlDays          int
+	embeddingClient  *embedding.Client
+	model            adkmodel.LLM // Optional: for session summarization
 }
 
 // Config for creating a new KagentMemoryService.
 type Config struct {
 	// AgentName is used as the namespace for memory storage
 	AgentName string
-	// APIURL is the base URL of the Kagent API (e.g., "http://kagent-controller:8083")
-	APIURL string
-	// HTTPClient for making requests (optional, uses http.DefaultClient if nil)
-	HTTPClient *http.Client
+	// ControllerClient is the shared authenticated native gRPC client.
+	ControllerClient *controllerclient.Client
 	// TTLDays is the TTL for memory entries in days (0 uses server default of 15)
 	TTLDays int
 	// EmbeddingConfig for generating embeddings (optional but recommended)
@@ -50,13 +47,8 @@ func New(cfg Config) (*KagentMemoryService, error) {
 	if cfg.AgentName == "" {
 		return nil, fmt.Errorf("agent name is required")
 	}
-	if cfg.APIURL == "" {
-		return nil, fmt.Errorf("API URL is required")
-	}
-
-	client := cfg.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
+	if cfg.ControllerClient == nil {
+		return nil, fmt.Errorf("controller client is required")
 	}
 
 	if cfg.EmbeddingConfig == nil {
@@ -70,12 +62,11 @@ func New(cfg Config) (*KagentMemoryService, error) {
 	}
 
 	return &KagentMemoryService{
-		agentName:       cfg.AgentName,
-		apiURL:          strings.TrimSuffix(cfg.APIURL, "/"),
-		client:          client,
-		ttlDays:         cfg.TTLDays,
-		embeddingClient: embClient,
-		model:           cfg.Model,
+		agentName:        cfg.AgentName,
+		controllerClient: cfg.ControllerClient,
+		ttlDays:          cfg.TTLDays,
+		embeddingClient:  embClient,
+		model:            cfg.Model,
 	}, nil
 }
 
@@ -128,34 +119,21 @@ func (s *KagentMemoryService) AddSessionToMemory(ctx context.Context, session ad
 
 // storeMemory stores a single memory item via the Kagent API.
 func (s *KagentMemoryService) storeMemory(ctx context.Context, userID, content string, vector []float32) error {
-	req := addSessionRequest{
+	memoryInput := &apiv1alpha1.SessionMemoryInput{
 		AgentName: s.agentName,
-		UserID:    userID,
+		UserId:    userID,
 		Content:   content,
 		Vector:    vector,
-		TTLDays:   s.ttlDays,
+	}
+	if s.ttlDays != 0 {
+		memoryInput.TtlDays = new(int32(s.ttlDays))
 	}
 
-	body, err := json.Marshal(req)
+	callContext, cancel := s.controllerClient.CallContext(ctx, userID)
+	defer cancel()
+	_, err := s.controllerClient.MemoryService().AddSession(callContext, &apiv1alpha1.MemoryServiceAddSessionRequest{Memory: memoryInput})
 	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/api/memories/sessions", s.apiURL)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("API returned status %d", resp.StatusCode)
+		return fmt.Errorf("add session memory: %w", err)
 	}
 
 	return nil
@@ -187,50 +165,28 @@ func (s *KagentMemoryService) SearchMemory(ctx context.Context, req *memory.Sear
 	}
 
 	// Prepare API request
-	searchReq := searchRequest{
+	searchRequest := &apiv1alpha1.MemoryServiceSearchRequest{
 		AgentName: s.agentName,
-		UserID:    req.UserID,
+		UserId:    req.UserID,
 		Vector:    vector,
-		Limit:     5,
-		MinScore:  0.3,
+		Limit:     new(int32(5)),
+		MinScore:  new(0.3),
 	}
-
-	body, err := json.Marshal(searchReq)
+	callContext, cancel := s.controllerClient.CallContext(ctx, req.UserID)
+	defer cancel()
+	response, err := s.controllerClient.MemoryService().Search(callContext, searchRequest)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("search memory: %w", err)
 	}
 
-	// Make HTTP request
-	url := fmt.Sprintf("%s/api/memories/search", s.apiURL)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API returned status %d", resp.StatusCode)
-	}
-
-	// Parse response
-	var results []searchResultItem
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
+	results := response.GetMemories()
 	// Convert to memory.Entry
 	memories := make([]memory.Entry, 0, len(results))
 	for _, item := range results {
 		content := &genai.Content{
 			Role: "user",
 			Parts: []*genai.Part{
-				{Text: item.Content},
+				{Text: item.GetContent()},
 			},
 		}
 		memories = append(memories, memory.Entry{
@@ -366,28 +322,4 @@ func (s *KagentMemoryService) extractSessionContent(session adksession.Session) 
 	}
 
 	return strings.Join(parts, "\n")
-}
-
-// Request/response types for Kagent API
-
-type addSessionRequest struct {
-	AgentName string    `json:"agent_name"`
-	UserID    string    `json:"user_id"`
-	Content   string    `json:"content"`
-	Vector    []float32 `json:"vector"`
-	TTLDays   int       `json:"ttl_days,omitempty"`
-}
-
-type searchRequest struct {
-	AgentName string    `json:"agent_name"`
-	UserID    string    `json:"user_id"`
-	Vector    []float32 `json:"vector"`
-	Limit     int       `json:"limit"`
-	MinScore  float64   `json:"min_score"`
-}
-
-type searchResultItem struct {
-	ID      string  `json:"id"`
-	Content string  `json:"content"`
-	Score   float64 `json:"score"`
 }
