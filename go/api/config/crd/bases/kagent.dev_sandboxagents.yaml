@@ -11858,6 +11858,17 @@ spec:
             x-kubernetes-validations:
             - message: spec.skills is not supported for sandbox agents
               rule: '!has(self.skills)'
+            - message: 'deployment.nodeSelector is not supported for sandbox agents:
+                substrate schedules actors onto WorkerPool workers, so set the WorkerPool''s
+                nodeSelector instead'
+              rule: '!has(self.declarative) || !has(self.declarative.deployment) ||
+                !has(self.declarative.deployment.nodeSelector) || size(self.declarative.deployment.nodeSelector)
+                == 0'
+            - message: 'deployment.nodeSelector is not supported for sandbox agents:
+                substrate schedules actors onto WorkerPool workers, so set the WorkerPool''s
+                nodeSelector instead'
+              rule: '!has(self.byo) || !has(self.byo.deployment) || !has(self.byo.deployment.nodeSelector)
+                || size(self.byo.deployment.nodeSelector) == 0'
             - message: type must be specified
               rule: has(self.type)
             - message: type must be either Declarative or BYO
