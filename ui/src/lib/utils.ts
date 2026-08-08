@@ -44,6 +44,12 @@ export function generateId(): string {
   return uuidv4();
 }
 
+export function getBackendRoot(): string {
+  // Strip a trailing "/api" so callers can build same-origin paths like "/_p/...".
+  // An empty result is intentional for a relative "/api" base (same-origin root).
+  return getBackendUrl().replace(/\/api\/?$/, "");
+}
+
 export function getRelativeTimeString(date: string | number | Date): string {
   const now = new Date();
   const past = new Date(date);

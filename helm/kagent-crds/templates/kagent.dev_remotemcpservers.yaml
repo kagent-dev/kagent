@@ -250,6 +250,60 @@ spec:
                   rule: '!(has(self.disableSystemCAs) && self.disableSystemCAs &&
                     (!has(self.disableVerify) || !self.disableVerify) && (!has(self.caCertSecretRef)
                     || size(self.caCertSecretRef) == 0))'
+              ui:
+                description: |-
+                  UI defines optional web UI metadata for this MCP server.
+                  When ui.enabled is true, the server's UI is accessible via /_p/{ui.pathPrefix}/ (proxy)
+                  and browser URL /plugins/{ui.pathPrefix} (Next.js wrapper with sidebar + iframe)
+                properties:
+                  defaultPath:
+                    description: |-
+                      DefaultPath is the initial path to redirect to when the plugin root is loaded.
+                      For example, "/namespaces/kagent" makes the plugin open at that path by default.
+                    type: string
+                  displayName:
+                    description: |-
+                      DisplayName is the human-readable name shown in the sidebar.
+                      Defaults to the RemoteMCPServer name if not specified.
+                    type: string
+                  enabled:
+                    default: false
+                    description: Enabled indicates this MCP server provides a web
+                      UI.
+                    type: boolean
+                  icon:
+                    default: puzzle
+                    description: Icon is a lucide-react icon name (e.g., "kanban",
+                      "git-fork", "database").
+                    type: string
+                  injectCSS:
+                    description: |-
+                      InjectCSS is custom CSS injected into proxied HTML responses to customize the plugin UI.
+                      For example, `[data-testid="navigation-header"] { display: none !important; }` hides the nav.
+                    type: string
+                  pathPrefix:
+                    description: |-
+                      PathPrefix is the URL path segment used for routing: /_p/{pathPrefix}/
+                      Must be a valid URL path segment (lowercase alphanumeric + hyphens).
+                      Defaults to the RemoteMCPServer name if not specified.
+                    maxLength: 63
+                    pattern: ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$
+                    type: string
+                  section:
+                    default: RESOURCES
+                    description: Section is the sidebar section where this plugin
+                      appears.
+                    enum:
+                    - OVERVIEW
+                    - AGENTS
+                    - WORKFLOWS
+                    - KNOWLEDGE
+                    - EVALUATIONS
+                    - RESOURCES
+                    - ADMIN
+                    - PLUGINS
+                    type: string
+                type: object
               url:
                 minLength: 1
                 type: string

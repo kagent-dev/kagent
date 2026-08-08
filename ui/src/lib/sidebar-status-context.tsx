@@ -1,0 +1,81 @@
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
+import { getPlugins } from "@/app/actions/plugins";
+
+export interface SidebarPluginNav {
+  name: string;
+  namespace: string;
+  pathPrefix: string;
+  displayName: string;
+  icon: string;
+  section: string;
+  defaultPath?: string;
+}
+
+export type SidebarStatus = "ok" | "plugins-failed" | "loading";
+
+interface SidebarStatusContextValue {
+  status: SidebarStatus;
+  plugins: SidebarPluginNav[];
+  retry: () => void;
+}
+
+const SidebarStatusContext = createContext<SidebarStatusContextValue | null>(null);
+
+export function useSidebarStatus(): SidebarStatusContextValue {
+  const ctx = useContext(SidebarStatusContext);
+  if (!ctx) {
+    throw new Error("useSidebarStatus must be used within SidebarStatusProvider");
+  }
+  return ctx;
+}
+
+export function SidebarStatusProvider({ children }: { children: ReactNode }) {
+  const [status, setStatus] = useState<SidebarStatus>("loading");
+  const [plugins, setPlugins] = useState<SidebarPluginNav[]>([]);
+  const [fetchKey, setFetchKey] = useState(0);
+
+  const load = useCallback(() => {
+    setStatus("loading");
+    // Call the server action directly instead of a dedicated /api/plugins route:
+    // it runs on the server, reaches the in-cluster backend, and forwards auth.
+    getPlugins()
+      .then((res) => {
+        if (res.error) throw new Error(res.error);
+        setPlugins(res.data ?? []);
+        setStatus("ok");
+      })
+      .catch(() => {
+        setStatus("plugins-failed");
+      });
+  }, []);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(load);
+    return () => cancelAnimationFrame(id);
+  }, [load, fetchKey]); // fetchKey changes when retry() is called
+
+  const retry = useCallback(() => {
+    setFetchKey((k) => k + 1);
+  }, []);
+
+  const value: SidebarStatusContextValue = {
+    status,
+    plugins,
+    retry,
+  };
+
+  return (
+    <SidebarStatusContext.Provider value={value}>
+      {children}
+    </SidebarStatusContext.Provider>
+  );
+}
