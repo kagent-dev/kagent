@@ -50,6 +50,13 @@ resources:
     cpu: 500m
     memory: 512Mi
 
+# allowedHosts configures the --allowed-hosts argument for mcp-grafana's Host header
+# validation (required for streamable-http transport). When empty, defaults to the
+# standard Kubernetes Service DNS variants (<name>.<namespace>, <name>.<namespace>.svc,
+# <name>.<namespace>.svc.cluster.local, localhost). Override with a list of hosts or
+# set to ["*"] to allow all hosts.
+allowedHosts: []
+
 # Additional Arguments for the mcp server
 args: []
 
