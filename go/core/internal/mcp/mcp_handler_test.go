@@ -85,12 +85,12 @@ func TestListAgentsInputSchemaHasProperties(t *testing.T) {
 	require.Equal(t, false, schema["additionalProperties"], "additionalProperties must remain false")
 }
 
-func TestListReadyAgentsIncludesSandboxAgents(t *testing.T) {
+func TestListReadyAgentsIncludesSandboxAgentsWithCollidingRef(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1alpha2.AddToScheme(scheme))
 
 	regularAgent := &v1alpha2.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "regular-agent", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "shared-agent", Namespace: "default"},
 		Spec: v1alpha2.AgentSpec{
 			Description: "regular",
 		},
@@ -102,7 +102,7 @@ func TestListReadyAgentsIncludesSandboxAgents(t *testing.T) {
 		},
 	}
 	sandboxAgent := &v1alpha2.SandboxAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-agent", Namespace: "default"},
+		ObjectMeta: metav1.ObjectMeta{Name: "shared-agent", Namespace: "default"},
 		Spec: v1alpha2.SandboxAgentSpec{
 			AgentSpec: v1alpha2.AgentSpec{
 				Description: "sandbox",
@@ -128,8 +128,8 @@ func TestListReadyAgentsIncludesSandboxAgents(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []AgentSummary{
-		{Ref: "default/regular-agent", GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "Agent"}.String(), Description: "regular"},
-		{Ref: "default/sandbox-agent", GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "SandboxAgent"}.String(), Description: "sandbox"},
+		{Ref: "default/shared-agent", GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "Agent"}.String(), Description: "regular"},
+		{Ref: "default/shared-agent", GroupKind: schema.GroupKind{Group: "kagent.dev", Kind: "SandboxAgent"}.String(), Description: "sandbox"},
 	}, agents)
 }
 
