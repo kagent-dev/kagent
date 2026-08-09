@@ -137,3 +137,80 @@ describe("ToolsSection inside a <form>", () => {
     expect(setSelectedTools).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * Bug: when the same tool/agent ended up selected more than once (e.g. via
+ * repeated clicks in the SelectToolsDialog), getToolIdentifier() returned the
+ * same string for every duplicate, and that string was used directly as the
+ * React `key` for each rendered <Card>. Duplicate keys broke React's list
+ * reconciliation, so removing one entry could desync the DOM from state -
+ * surfacing as previously removed tools reappearing after later, unrelated
+ * clicks.
+ *
+ * Fix: the render list now folds the array index into each Card's key (and
+ * into the approval/isolate field ids), so every rendered row has a unique
+ * identity regardless of duplicate content. The remove handler still matches
+ * by tool identifier, so acting on any one duplicate consistently affects all
+ * of them.
+ */
+describe("ToolsSection with duplicate tool entries", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("renders duplicate Agent tools without a duplicate-key React warning", async () => {
+    const consoleErrorSpy = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const duplicateAgentTool: Tool = {
+      type: "Agent",
+      agent: { name: "duplicated-agent", namespace: "kagent" },
+    };
+
+    renderInsideForm({
+      selectedTools: [duplicateAgentTool, duplicateAgentTool, duplicateAgentTool],
+    });
+
+    const removeButtons = await screen.findAllByRole("button", {
+      name: /^remove tool$/i,
+    });
+    expect(removeButtons).toHaveLength(3);
+
+    const sawDuplicateKeyWarning = consoleErrorSpy.mock.calls.some((call) =>
+      call.some(
+        (arg) =>
+          typeof arg === "string" &&
+          arg.includes("Encountered two children with the same key"),
+      ),
+    );
+    expect(sawDuplicateKeyWarning).toBe(false);
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("removing one instance of a duplicated tool removes all instances of it, and leaves other tools untouched", async () => {
+    const user = userEvent.setup();
+    const duplicateAgentTool: Tool = {
+      type: "Agent",
+      agent: { name: "duplicated-agent", namespace: "kagent" },
+    };
+    const otherTool: Tool = {
+      type: "Agent",
+      agent: { name: "other-agent", namespace: "kagent" },
+    };
+    const setSelectedTools = jest.fn();
+
+    renderInsideForm({
+      selectedTools: [duplicateAgentTool, duplicateAgentTool, otherTool],
+      setSelectedTools,
+    });
+
+    const removeButtons = await screen.findAllByRole("button", {
+      name: /^remove tool$/i,
+    });
+    await user.click(removeButtons[0]);
+
+    expect(setSelectedTools).toHaveBeenCalledTimes(1);
+    expect(setSelectedTools).toHaveBeenCalledWith([otherTool]);
+  });
+});
