@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, ChevronDown, ChevronRight, FunctionSquare, Search } from 'lucide-react';
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, getToolResponseCategory, toolResponseToAgentTool } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, getToolResponseCategory, toolResponseToAgentTool, isMcpTool, serverNamesMatch } from "@/lib/toolUtils";
 import type { Tool, ToolsResponse } from "@/types";
 import { Input } from "@/components/ui/input";
 
@@ -39,7 +39,7 @@ export function ToolSelectionStep({
         if (tool.type === "Agent" && tool.agent) {
             return false; // Agents don't match ToolResponse objects
         } else if (tool.type === "McpServer" && tool.mcpServer) {
-            return tool.mcpServer.name === toolResponse.server_name && 
+            return serverNamesMatch(tool.mcpServer.name, toolResponse.server_name) &&
                    tool.mcpServer.toolNames.includes(toolResponse.id);
         }
         return false;
@@ -125,12 +125,31 @@ export function ToolSelectionStep({
                 "k8s_get_resources",
             ];
 
+            // Merge desired tools that share a server into one entry instead of
+            // pushing one per tool, so preselection doesn't itself produce
+            // duplicate-looking rows for the same server.
             const initialSelection: Tool[] = [];
             availableTools.forEach((tool) => {
                 const toolId = getToolResponseDisplayName(tool);
-                if (desiredIds.includes(toolId)) {
-                    initialSelection.push(toolResponseToAgentTool(tool, tool.server_name));
+                if (!desiredIds.includes(toolId)) {
+                    return;
                 }
+
+                const existingIndex = initialSelection.findIndex(
+                    (t) => isMcpTool(t) && serverNamesMatch(t.mcpServer.name, tool.server_name)
+                );
+                if (existingIndex === -1) {
+                    initialSelection.push(toolResponseToAgentTool(tool, tool.server_name));
+                    return;
+                }
+                const existing = initialSelection[existingIndex] as Tool;
+                initialSelection[existingIndex] = {
+                    ...existing,
+                    mcpServer: {
+                        ...existing.mcpServer!,
+                        toolNames: [...existing.mcpServer!.toolNames, tool.id],
+                    },
+                };
             });
 
             if (initialSelection.length > 0) {
@@ -141,10 +160,42 @@ export function ToolSelectionStep({
     }, [availableTools, initialSelectedTools, selectedTools.length]);
 
     const handleToolToggle = (toolResponse: ToolsResponse) => {
-        const agentTool = toolResponseToAgentTool(toolResponse, toolResponse.server_name);
         setSelectedTools(prev => {
             const isSelected = prev.some(t => toolResponseMatchesTool(toolResponse, t));
-            return isSelected ? prev.filter(t => !toolResponseMatchesTool(toolResponse, t)) : [...prev, agentTool];
+
+            if (isSelected) {
+                // Drop just this tool id from whichever entry holds it, and drop
+                // the entry entirely once it references no tools.
+                return prev
+                    .map(t => {
+                        if (!isMcpTool(t) || !serverNamesMatch(t.mcpServer.name, toolResponse.server_name)) {
+                            return t;
+                        }
+                        const remainingToolNames = t.mcpServer.toolNames.filter((id) => id !== toolResponse.id);
+                        return remainingToolNames.length > 0
+                            ? { ...t, mcpServer: { ...t.mcpServer, toolNames: remainingToolNames } }
+                            : null;
+                    })
+                    .filter((t): t is Tool => t !== null);
+            }
+
+            // Merge into the existing entry for this server instead of adding a
+            // second entry for the same server, which otherwise produced
+            // duplicate-looking rows downstream (Review step, agent edit page)
+            // and duplicate live MCP connections at agent runtime.
+            const existingIndex = prev.findIndex(t => isMcpTool(t) && serverNamesMatch(t.mcpServer.name, toolResponse.server_name));
+            if (existingIndex === -1) {
+                return [...prev, toolResponseToAgentTool(toolResponse, toolResponse.server_name)];
+            }
+            const existing = prev[existingIndex] as Tool;
+            const merged: Tool = {
+                ...existing,
+                mcpServer: {
+                    ...existing.mcpServer!,
+                    toolNames: [...existing.mcpServer!.toolNames, toolResponse.id],
+                },
+            };
+            return prev.map((t, i) => (i === existingIndex ? merged : t));
         });
     };
 
@@ -217,11 +268,20 @@ export function ToolSelectionStep({
                                     </div>
                                     {expandedCategories[category] && (
                                         <div className="pl-6 pt-2 space-y-2">
-                                            {categoryTools.map((tool: ToolsResponse) => (
-                                                <div key={getToolResponseIdentifier(tool)} className="flex items-start space-x-3">
+                                            {categoryTools.map((tool: ToolsResponse) => {
+                                                const selected = isToolSelected(tool);
+                                                return (
+                                                <div
+                                                    key={getToolResponseIdentifier(tool)}
+                                                    className={`flex items-start space-x-3 rounded-md border p-2 transition-colors ${
+                                                        selected
+                                                            ? "border-primary/40 bg-primary/5"
+                                                            : "border-transparent hover:bg-muted/50"
+                                                    }`}
+                                                >
                                                     <Checkbox
                                                         id={getToolResponseIdentifier(tool)}
-                                                        checked={isToolSelected(tool)}
+                                                        checked={selected}
                                                         onCheckedChange={() => handleToolToggle(tool)}
                                                         className="mt-1"
                                                     />
@@ -233,7 +293,8 @@ export function ToolSelectionStep({
                                                         <p className="text-xs text-muted-foreground">{getToolResponseDescription(tool)}</p>
                                                     </div>
                                                 </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     )}
                                 </div>
