@@ -234,7 +234,10 @@ def configure(
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
 
-    resource = Resource({"service.name": name, "service.namespace": namespace})
+    # Resource.create merges in OTEL_RESOURCE_ATTRIBUTES and the telemetry.sdk.*
+    # attributes; the bare constructor drops both, so deployment.environment.name,
+    # service.version and friends never reach the backend.
+    resource = Resource.create({"service.name": name, "service.namespace": namespace})
 
     # Configure tracing if enabled
     if tracing_enabled:
@@ -271,9 +274,11 @@ def configure(
 
         # Exclude agent-card endpoint from traces — this is used as a health
         # check endpoint (high-frequency polling requests) and has little
-        # diagnostic value.
+        # diagnostic value. Inbound only: HTTPXClientInstrumentor accepts no
+        # excluded_urls kwarg (newer releases read OTEL_PYTHON_HTTPX_EXCLUDED_URLS
+        # instead), so passing one here was silently dropped.
         _excluded_urls = ".*/\\.well-known/agent-card\\.json"
-        HTTPXClientInstrumentor().instrument(excluded_urls=_excluded_urls)
+        HTTPXClientInstrumentor().instrument()
         if fastapi_app:
             FastAPIInstrumentor().instrument_app(fastapi_app, excluded_urls=_excluded_urls)
             # Pre-response flushing is opt-in (the controller sets this on Agent

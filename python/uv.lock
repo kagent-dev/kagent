@@ -2384,7 +2384,7 @@ requires-dist = [
     { name = "kagent-skills", editable = "packages/kagent-skills" },
     { name = "openai", specifier = ">=1.72.0" },
     { name = "openai-agents", specifier = ">=0.4.0" },
-    { name = "opentelemetry-instrumentation-openai-agents", specifier = ">=0.50.0,<0.53.0" },
+    { name = "opentelemetry-instrumentation-openai-agents", specifier = ">=0.52.3,<0.53.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
