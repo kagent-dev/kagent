@@ -8,10 +8,11 @@ import (
 	"strings"
 	"sync"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"github.com/a2aproject/a2a-go/a2aclient"
-	"github.com/a2aproject/a2a-go/a2aclient/agentcard"
-	"github.com/a2aproject/a2a-go/a2asrv"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
+	"github.com/a2aproject/a2a-go/v2/a2aext"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -55,11 +56,11 @@ type userIDForwardingInterceptor struct {
 	a2aclient.PassthroughInterceptor
 }
 
-func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
+func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
 	if uid, ok := ctx.Value(userIDContextKey{}).(string); ok && uid != "" {
-		req.Meta.Append("x-user-id", uid)
+		req.ServiceParams.Append("x-user-id", uid)
 	}
-	return ctx, nil
+	return ctx, nil, nil
 }
 
 // lineageHeadersInterceptor stamps the parent + root context_id headers on
@@ -69,22 +70,22 @@ func (u *userIDForwardingInterceptor) Before(ctx context.Context, req *a2aclient
 // of the chain survives every hop), with a fallback to our own session id when
 // this agent is the chain root.
 //
-// Pre-existing headers on req.Meta win (analogous to Python's header_provider
+// Pre-existing headers on req.ServiceParams win (analogous to Python's header_provider
 // override), so a caller that sets extraHeaders for either header keeps full
 // control.
 type lineageHeadersInterceptor struct {
 	a2aclient.PassthroughInterceptor
 }
 
-func (l *lineageHeadersInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
+func (l *lineageHeadersInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
 	parent, _ := ctx.Value(parentContextIDContextKey{}).(string)
 	if parent == "" {
-		return ctx, nil
+		return ctx, nil, nil
 	}
 
 	var inboundRoot string
 	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
-		if meta := callCtx.RequestMeta(); meta != nil {
+		if meta := callCtx.ServiceParams(); meta != nil {
 			if vals, ok := meta.Get(RootContextIDHeader); ok && len(vals) > 0 {
 				inboundRoot = vals[0]
 			}
@@ -96,13 +97,13 @@ func (l *lineageHeadersInterceptor) Before(ctx context.Context, req *a2aclient.R
 		root = parent
 	}
 
-	if len(req.Meta.Get(ParentContextIDHeader)) == 0 {
-		req.Meta.Append(ParentContextIDHeader, parent)
+	if len(req.ServiceParams.Get(ParentContextIDHeader)) == 0 {
+		req.ServiceParams.Append(ParentContextIDHeader, parent)
 	}
-	if len(req.Meta.Get(RootContextIDHeader)) == 0 {
-		req.Meta.Append(RootContextIDHeader, root)
+	if len(req.ServiceParams.Get(RootContextIDHeader)) == 0 {
+		req.ServiceParams.Append(RootContextIDHeader, root)
 	}
-	return ctx, nil
+	return ctx, nil, nil
 }
 
 // authzForwardingInterceptor forwards the Authorization header from the
@@ -111,22 +112,37 @@ type authzForwardingInterceptor struct {
 	a2aclient.PassthroughInterceptor
 }
 
-func (a *authzForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, error) {
+func (a *authzForwardingInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
 	callCtx, ok := a2asrv.CallContextFrom(ctx)
 	if !ok {
-		return ctx, nil
+		return ctx, nil, nil
 	}
-	meta := callCtx.RequestMeta()
+	meta := callCtx.ServiceParams()
 	if meta == nil {
-		return ctx, nil
+		return ctx, nil, nil
 	}
-	if len(req.Meta.Get(constants.AuthorizationHeader)) > 0 {
-		return ctx, nil
+	if len(req.ServiceParams.Get(constants.AuthorizationHeader)) > 0 {
+		return ctx, nil, nil
 	}
 	if vals, ok := meta.Get(constants.AuthorizationHeader); ok && len(vals) > 0 && vals[0] != "" {
-		req.Meta.Append(constants.AuthorizationHeader, vals[0])
+		req.ServiceParams.Append(constants.AuthorizationHeader, vals[0])
 	}
-	return ctx, nil
+	return ctx, nil, nil
+}
+
+// staticHeadersInterceptor appends static request headers to every call.
+type staticHeadersInterceptor struct {
+	a2aclient.PassthroughInterceptor
+	headers map[string]string
+}
+
+func (s *staticHeadersInterceptor) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
+	for k, v := range s.headers {
+		if v != "" {
+			req.ServiceParams.Append(k, v)
+		}
+	}
+	return ctx, nil, nil
 }
 
 // remoteA2AInput is the typed argument for the remote A2A function tool.
@@ -260,21 +276,19 @@ func (s *remoteA2AState) ensureClient(ctx context.Context) (*a2aclient.Client, e
 		opts := []a2aclient.FactoryOption{
 			a2aclient.WithJSONRPCTransport(s.httpClient),
 		}
-		// Always inject x-kagent-source: agent to mark this as an agent-originated call.
-		meta := a2aclient.CallMeta{}
-		meta.Append("x-kagent-source", "agent")
-		for k, v := range s.extraHeaders {
-			meta.Append(k, v)
-		}
 		interceptors := []a2aclient.CallInterceptor{
-			a2aclient.NewStaticCallMetaInjector(meta),
+			a2aext.NewActivator(a2a.HITLExtensionURI),
+			&staticHeadersInterceptor{headers: map[string]string{"x-kagent-source": "agent"}},
 			&userIDForwardingInterceptor{},
 			&lineageHeadersInterceptor{},
+		}
+		if len(s.extraHeaders) > 0 {
+			interceptors = append(interceptors, &staticHeadersInterceptor{headers: s.extraHeaders})
 		}
 		if s.propagateToken {
 			interceptors = append(interceptors, &authzForwardingInterceptor{})
 		}
-		opts = append(opts, a2aclient.WithInterceptors(interceptors...))
+		opts = append(opts, a2aclient.WithCallInterceptors(interceptors...))
 
 		client, err := a2aclient.NewFromCard(ctx, card, opts...)
 		if err != nil {
@@ -308,13 +322,13 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText strin
 	contextID := s.contextIDForCall()
 	message := a2atype.NewMessage(
 		a2atype.MessageRoleUser,
-		a2atype.TextPart{Text: requestText},
+		a2atype.NewTextPart(requestText),
 	)
 	message.ContextID = contextID
 
 	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
 	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
-	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
+	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
 		slog.Error("Remote agent request failed", "tool", s.name, "error", err)
 		return remoteA2AResponse{Error: fmt.Sprintf("Remote agent '%s' request failed: %v", s.name, err)}, nil
@@ -327,33 +341,35 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText strin
 func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, error) {
 	confirmation := ctx.ToolConfirmation()
 	payload, _ := confirmation.Payload.(map[string]any)
-	hitlPayload := a2a.ParseHitlConfirmationPayload(payload)
+	remoteState := a2a.ParseRemoteHitlState(payload)
+	if remoteState == nil {
+		slog.Error("Resume for remote agent without valid remote HITL state", "tool", s.name)
+		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing task context.", s.name)}, nil
+	}
+	if !remoteState.HasResponse() {
+		slog.Error("Resume for remote agent without a HITL response",
+			"tool", remoteState.SubagentName, "taskID", remoteState.TaskID)
+		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing HITL response.", remoteState.SubagentName)}, nil
+	}
 
-	taskID := hitlPayload.TaskID
-	contextID := hitlPayload.ContextID
-	subagentName := hitlPayload.SubagentName
+	subagentName := remoteState.SubagentName
 	if subagentName == "" {
 		subagentName = s.name
 	}
-
-	if taskID == "" {
-		slog.Error("Resume for remote agent but no task_id in confirmation payload", "tool", s.name)
-		return remoteA2AResponse{Error: fmt.Sprintf("Cannot resume remote agent '%s': missing task context.", subagentName)}, nil
-	}
-
-	decisionData := buildDecisionData(confirmation.Confirmed, hitlPayload)
+	taskID := remoteState.TaskID
+	contextID := remoteState.ContextID
 
 	message := &a2atype.Message{
 		ID:        a2atype.NewMessageID(),
 		TaskID:    a2atype.TaskID(taskID),
 		ContextID: contextID,
 		Role:      a2atype.MessageRoleUser,
-		Parts:     a2atype.ContentParts{a2atype.DataPart{Data: decisionData}},
+		Parts:     a2atype.ContentParts{a2atype.NewTextPart("Human input supplied")},
 	}
+	a2a.AttachHitlExtension(message, remoteState.ResponsePayload())
 
-	decisionType, _ := decisionData[a2a.KAgentHitlDecisionTypeKey].(string)
-	slog.Info("Forwarding decision to subagent",
-		"decisionType", decisionType,
+	slog.Info("Forwarding HITL response to subagent",
+		"responseType", remoteState.ResponseType(),
 		"subagent", subagentName,
 		"taskID", taskID,
 	)
@@ -365,7 +381,7 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 
 	sendCtx := context.WithValue(ctx, userIDContextKey{}, ctx.UserID())
 	sendCtx = context.WithValue(sendCtx, parentContextIDContextKey{}, ctx.SessionID())
-	result, err := client.SendMessage(sendCtx, &a2atype.MessageSendParams{Message: message})
+	result, err := client.SendMessage(sendCtx, &a2atype.SendMessageRequest{Message: message})
 	if err != nil {
 		slog.Error("Remote agent resume failed", "tool", subagentName, "error", err)
 		return remoteA2AResponse{Error: fmt.Sprintf("Remote agent '%s' resume failed: %v", subagentName, err)}, nil
@@ -442,37 +458,21 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 		}
 	}
 
-	var hitlParts []a2a.HitlPartInfo
-	if task.Status.Message != nil {
-		hitlParts = a2a.ExtractHitlInfoFromParts(task.Status.Message.Parts)
-	}
-
-	var innerToolNames []string
-	for _, hp := range hitlParts {
-		if hp.OriginalFunctionCall.Name != "" {
-			innerToolNames = append(innerToolNames, hp.OriginalFunctionCall.Name)
+	state := a2a.BuildRemoteHitlState(task, s.name)
+	if state == nil {
+		slog.Error("Subagent returned input_required without a valid HITL extension", "tool", s.name)
+		return remoteA2AResponse{
+			Error:             fmt.Sprintf("Remote agent '%s' requested input without a valid HITL extension.", s.name),
+			Status:            "failed",
+			SubagentSessionID: contextID,
 		}
 	}
 
-	var hint string
-	if len(innerToolNames) > 0 {
-		hint = fmt.Sprintf("Remote agent '%s' requires approval for tool(s): %s",
-			s.name, strings.Join(innerToolNames, ", "))
-	} else {
-		hint = fmt.Sprintf("Remote agent '%s' requires human input before continuing.", s.name)
-	}
-
-	confirmPayload := a2a.HitlConfirmationPayload{
-		TaskID:       string(task.ID),
-		ContextID:    task.ContextID,
-		SubagentName: s.name,
-		HitlParts:    hitlParts,
-	}
-
+	hint := a2a.RemoteHitlHint(state)
 	slog.Info("Subagent returned input_required, requesting confirmation from parent",
 		"tool", s.name, "taskID", task.ID)
 
-	if err := ctx.RequestConfirmation(hint, confirmPayload.ToMap()); err != nil {
+	if err := ctx.RequestConfirmation(hint, state.ToMap()); err != nil {
 		slog.Error("Failed to request confirmation", "tool", s.name, "error", err)
 	}
 	return remoteA2AResponse{
@@ -480,50 +480,6 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 		WaitingFor:        "subagent_approval",
 		Subagent:          s.name,
 		SubagentSessionID: contextID,
-	}
-}
-
-// buildDecisionData constructs the decision DataPart.Data map to forward to the subagent.
-func buildDecisionData(confirmed bool, payload a2a.HitlConfirmationPayload) map[string]any {
-	switch {
-	case len(payload.BatchDecisions) > 0:
-		batchDecisions := make(map[string]any, len(payload.BatchDecisions))
-		for id, decision := range payload.BatchDecisions {
-			batchDecisions[id] = string(decision)
-		}
-		data := map[string]any{
-			a2a.KAgentHitlDecisionTypeKey: a2a.KAgentHitlDecisionTypeBatch,
-			a2a.KAgentHitlDecisionsKey:    batchDecisions,
-		}
-		if len(payload.RejectionReasons) > 0 {
-			rejReasons := make(map[string]any, len(payload.RejectionReasons))
-			for id, reason := range payload.RejectionReasons {
-				rejReasons[id] = reason
-			}
-			data[a2a.KAgentHitlRejectionReasonsKey] = rejReasons
-		}
-		return data
-
-	case len(payload.Answers) > 0:
-		askUserAnswers := make([]map[string]any, 0, len(payload.Answers))
-		for _, answer := range payload.Answers {
-			askUserAnswers = append(askUserAnswers, map[string]any{"answer": answer.Answer})
-		}
-		return map[string]any{
-			a2a.KAgentHitlDecisionTypeKey: a2a.KAgentHitlDecisionTypeApprove,
-			a2a.KAgentAskUserAnswersKey:   askUserAnswers,
-		}
-
-	default:
-		decisionType := a2a.KAgentHitlDecisionTypeApprove
-		if !confirmed {
-			decisionType = a2a.KAgentHitlDecisionTypeReject
-		}
-		data := map[string]any{a2a.KAgentHitlDecisionTypeKey: decisionType}
-		if !confirmed && payload.RejectionReason != "" {
-			data["rejection_reason"] = payload.RejectionReason
-		}
-		return data
 	}
 }
 
@@ -563,8 +519,11 @@ func extractTextFromTask(task *a2atype.Task) string {
 		var texts []string
 		for _, artifact := range task.Artifacts {
 			for _, part := range artifact.Parts {
-				if tp, ok := part.(a2atype.TextPart); ok && tp.Text != "" {
-					texts = append(texts, tp.Text)
+				if part == nil {
+					continue
+				}
+				if text := part.Text(); text != "" {
+					texts = append(texts, text)
 				}
 			}
 		}
@@ -586,8 +545,11 @@ func extractTextFromMessage(message *a2atype.Message) string {
 	}
 	var texts []string
 	for _, part := range message.Parts {
-		if tp, ok := part.(a2atype.TextPart); ok && tp.Text != "" {
-			texts = append(texts, tp.Text)
+		if part == nil {
+			continue
+		}
+		if text := part.Text(); text != "" {
+			texts = append(texts, text)
 		}
 	}
 	return strings.Join(texts, "\n")

@@ -117,10 +117,13 @@ export async function renameSession(sessionId: string, name: string): Promise<Ba
  */
 export async function getSessionTasks(sessionId: string, shareToken?: string): Promise<BaseResponse<Task[]>> {
   try {
-    const data = await fetchApi<BaseResponse<Task[]>>(`/sessions/${sessionId}/tasks`, {
+    const data = await fetchApi<BaseResponse<unknown[]>>(`/sessions/${sessionId}/tasks`, {
       headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
     });
-    return data;
+    return {
+      ...data,
+      data: (data.data ?? []).map((task) => Task.fromJSON(task)),
+    };
   } catch (error) {
     return createErrorResponse<Task[]>(error, "Error getting session tasks");
   }
@@ -138,7 +141,7 @@ export async function getSubagentSessionWithEvents(
     // fetchApi appends user_id=admin@kagent.dev automatically.
     const [sessionResp, tasksResp] = await Promise.all([
       fetchApi<BaseResponse<{ session: Session; events: unknown[] }>>(`/sessions/${sessionId}`),
-      fetchApi<BaseResponse<Task[]>>(`/sessions/${sessionId}/tasks`),
+      fetchApi<BaseResponse<unknown[]>>(`/sessions/${sessionId}/tasks`),
     ]);
 
     const session = sessionResp.data?.session;
@@ -147,7 +150,10 @@ export async function getSubagentSessionWithEvents(
     }
     return {
       message: "Session with events fetched successfully",
-      data: { session, tasks: tasksResp.data ?? [] },
+      data: {
+        session,
+        tasks: (tasksResp.data ?? []).map((task) => Task.fromJSON(task)),
+      },
     };
   } catch (error) {
     return createErrorResponse<{ session: Session; tasks: Task[] }>(error, "Error fetching session with events");

@@ -121,8 +121,7 @@ var DefaultImageConfig = ImageConfig{
 // can be overridden at runtime via the --app[-full]-image-digest / --golang-adk[-full]-image-digest
 // flags (for mirrored registries that re-assign digests). They are only consulted for sandbox
 // agents, since Substrate requires digest-pinned refs, while regular agents reference images by tag.
-// The "full" variants bundle the sandbox runtime (code execution / bash tools); the slim
-// variants do not.
+// The "full" variants bundle the sandbox runtime (bash tools); the slim variants do not.
 var PythonADKImageDigest string
 var PythonADKFullImageDigest string
 var GoADKImageDigest string
@@ -974,7 +973,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 
 		// Endpoint is validated above; Deployment (required) and APIVersion
-		// (defaulted) are guaranteed by the CRD — all three are always set.
+		// (defaulted) are guaranteed by the CRD, all three are always set.
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars,
 			corev1.EnvVar{
 				Name:  env.FoundryEndpoint.Name(),

@@ -690,7 +690,6 @@ func TestSessionsHandler(t *testing.T) {
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/tasks", nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
-			req.Header.Set("A2A-Version", "1.0")
 			req = setUser(req, userID)
 
 			handler.HandleListTasksForSession(responseRecorder, req)

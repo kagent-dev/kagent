@@ -8,26 +8,23 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
 
 from a2a.server.events import Event as A2AEvent
 from a2a.types import (
-    DataPart,
+    Artifact,
     Message,
     Role,
-    TaskState,
-    TaskStatus,
-    TaskStatusUpdateEvent,
-    TextPart,
+    TaskArtifactUpdateEvent,
 )
 from a2a.types import Part as A2APart
-from agents.items import MessageOutputItem, ToolCallItem, ToolCallOutputItem
+from agents.items import HandoffCallItem, HandoffOutputItem, MessageOutputItem, ToolCallItem, ToolCallOutputItem
 from agents.stream_events import (
-    AgentUpdatedStreamEvent,
     RawResponsesStreamEvent,
     RunItemStreamEvent,
     StreamEvent,
 )
+from google.protobuf.json_format import ParseDict
+from google.protobuf.struct_pb2 import Value
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
@@ -36,6 +33,20 @@ from kagent.core.a2a import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _artifact_event(message: Message, task_id: str, context_id: str) -> TaskArtifactUpdateEvent:
+    return TaskArtifactUpdateEvent(
+        task_id=task_id,
+        context_id=context_id,
+        last_chunk=True,
+        artifact=Artifact(
+            artifact_id=str(uuid.uuid4()),
+            parts=message.parts,
+            metadata=message.metadata,
+        ),
+        metadata=message.metadata,
+    )
 
 
 def convert_openai_event_to_a2a_events(
@@ -66,10 +77,6 @@ def convert_openai_event_to_a2a_events(
         elif isinstance(event, RawResponsesStreamEvent):
             # These are low-level events - can be logged but not converted
             logger.debug(f"Raw response event: {event.data}")
-
-        # Handle AgentUpdatedStreamEvent (agent handoffs)
-        elif isinstance(event, AgentUpdatedStreamEvent):
-            a2a_events.extend(_convert_agent_updated_event(event, task_id, context_id, app_name))
 
         # Other event types
         else:
@@ -110,6 +117,14 @@ def _convert_run_item_event(
     # Handle tool outputs
     elif isinstance(event.item, ToolCallOutputItem):
         return _convert_tool_output(event.item, task_id, context_id, app_name)
+
+    # Handle handoff calls (map to subagent-style function_call for the UI)
+    elif isinstance(event.item, HandoffCallItem):
+        return _convert_handoff_call(event.item, task_id, context_id, app_name)
+
+    # Handle handoff outputs (map to subagent-style function_response)
+    elif isinstance(event.item, HandoffOutputItem):
+        return _convert_handoff_output(event.item, task_id, context_id, app_name)
 
     # Other item types
     else:
@@ -153,29 +168,15 @@ def _convert_message_output(
 
     message = Message(
         message_id=str(uuid.uuid4()),
-        role=Role.agent,
-        parts=[A2APart(TextPart(text=text_content))],
+        role=Role.ROLE_AGENT,
+        parts=[A2APart(text=text_content)],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
             get_kagent_metadata_key("event_type"): "message_output",
         },
     )
 
-    status_event = TaskStatusUpdateEvent(
-        task_id=task_id,
-        context_id=context_id,
-        status=TaskStatus(
-            state=TaskState.working,
-            message=message,
-            timestamp=datetime.now(UTC).isoformat(),
-        ),
-        metadata={
-            get_kagent_metadata_key("app_name"): app_name,
-        },
-        final=False,
-    )
-
-    return [status_event]
+    return [_artifact_event(message, task_id, context_id)]
 
 
 def _convert_tool_call(
@@ -221,38 +222,24 @@ def _convert_tool_call(
         "args": tool_arguments,
     }
 
-    data_part = DataPart(
-        data=function_data,
-        metadata={
-            get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-        },
-    )
-
     message = Message(
         message_id=str(uuid.uuid4()),
-        role=Role.agent,
-        parts=[A2APart(data_part)],
+        role=Role.ROLE_AGENT,
+        parts=[
+            A2APart(
+                data=ParseDict(function_data, Value()),
+                metadata={
+                    get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                },
+            )
+        ],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
             get_kagent_metadata_key("event_type"): "tool_call",
         },
     )
 
-    status_event = TaskStatusUpdateEvent(
-        task_id=task_id,
-        context_id=context_id,
-        status=TaskStatus(
-            state=TaskState.working,
-            message=message,
-            timestamp=datetime.now(UTC).isoformat(),
-        ),
-        metadata={
-            get_kagent_metadata_key("app_name"): app_name,
-        },
-        final=False,
-    )
-
-    return [status_event]
+    return [_artifact_event(message, task_id, context_id)]
 
 
 def _convert_tool_output(
@@ -282,74 +269,93 @@ def _convert_tool_output(
         "response": {"result": actual_output},
     }
 
-    data_part = DataPart(
-        data=function_data,
-        metadata={
-            get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
-        },
-    )
-
     message = Message(
         message_id=str(uuid.uuid4()),
-        role=Role.agent,
-        parts=[A2APart(data_part)],
+        role=Role.ROLE_AGENT,
+        parts=[
+            A2APart(
+                data=ParseDict(function_data, Value()),
+                metadata={
+                    get_kagent_metadata_key(
+                        A2A_DATA_PART_METADATA_TYPE_KEY
+                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
+                },
+            )
+        ],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
             get_kagent_metadata_key("event_type"): "tool_output",
         },
     )
 
-    status_event = TaskStatusUpdateEvent(
-        task_id=task_id,
-        context_id=context_id,
-        status=TaskStatus(
-            state=TaskState.working,
-            message=message,
-            timestamp=datetime.now(UTC).isoformat(),
-        ),
-        metadata={
-            get_kagent_metadata_key("app_name"): app_name,
-        },
-        final=False,
-    )
-
-    return [status_event]
+    return [_artifact_event(message, task_id, context_id)]
 
 
-def _convert_agent_updated_event(
-    event: AgentUpdatedStreamEvent,
+def _agent_tool_name(agent_name: str) -> str:
+    """Encode an agent name so the UI renders it via AgentCallDisplay (__NS__)."""
+    if "/" in agent_name:
+        return agent_name.replace("/", "__NS__")
+    return f"{agent_name}__NS__agent"
+
+
+def _parse_tool_arguments(raw_arguments: object) -> dict:
+    if isinstance(raw_arguments, dict):
+        return raw_arguments
+    if isinstance(raw_arguments, str):
+        try:
+            parsed = json.loads(raw_arguments)
+            return parsed if isinstance(parsed, dict) else {"raw": raw_arguments}
+        except (json.JSONDecodeError, TypeError):
+            logger.warning(f"Failed to parse arguments: {raw_arguments}")
+            return {"raw": raw_arguments}
+    if raw_arguments is None:
+        return {}
+    return {"raw": str(raw_arguments)}
+
+
+def _handoff_target_from_call(raw_call: object) -> str:
+    """Best-effort target agent name from a transfer_to_* handoff tool call."""
+    tool_name = getattr(raw_call, "name", None) or "unknown"
+    if tool_name.startswith("transfer_to_"):
+        return tool_name.removeprefix("transfer_to_")
+    return tool_name
+
+
+def _convert_handoff_call(
+    item: HandoffCallItem,
     task_id: str,
     context_id: str,
     app_name: str,
 ) -> list[A2AEvent]:
-    """Convert an agent updated event (handoff) to A2A event.
-
-    This is converted to a function_call event so the frontend renders it
-    using the AgentCallDisplay component. This is ideal if there are multiple handoffs.
-    """
-    agent_name = event.new_agent.name
-    if "/" in agent_name:
-        tool_name = agent_name.replace("/", "__NS__")
-    else:
-        tool_name = f"{agent_name}__NS__agent"
+    """Convert a handoff request to a subagent-style function_call A2A event."""
+    raw_call = item.raw_item
+    call_id = (
+        raw_call.call_id
+        if hasattr(raw_call, "call_id") and raw_call.call_id
+        else (raw_call.id if hasattr(raw_call, "id") and raw_call.id else str(uuid.uuid4()))
+    )
+    agent_name = _handoff_target_from_call(raw_call)
+    tool_arguments = _parse_tool_arguments(getattr(raw_call, "arguments", None))
+    if "target_agent" not in tool_arguments:
+        tool_arguments = {**tool_arguments, "target_agent": agent_name}
 
     function_data = {
-        "id": str(uuid.uuid4()),
-        "name": tool_name,
-        "args": {"target_agent": agent_name},
+        "id": call_id,
+        "name": _agent_tool_name(agent_name),
+        "args": tool_arguments,
     }
-
-    data_part = DataPart(
-        data=function_data,
-        metadata={
-            get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
-        },
-    )
 
     message = Message(
         message_id=str(uuid.uuid4()),
-        role=Role.agent,
-        parts=[A2APart(data_part)],
+        role=Role.ROLE_AGENT,
+        parts=[
+            A2APart(
+                data=ParseDict(function_data, Value()),
+                metadata={
+                    get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY): A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
+                },
+            )
+        ],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
             get_kagent_metadata_key("event_type"): "agent_handoff",
@@ -357,18 +363,49 @@ def _convert_agent_updated_event(
         },
     )
 
-    status_event = TaskStatusUpdateEvent(
-        task_id=task_id,
-        context_id=context_id,
-        status=TaskStatus(
-            state=TaskState.working,
-            message=message,
-            timestamp=datetime.now(UTC).isoformat(),
-        ),
+    return [_artifact_event(message, task_id, context_id)]
+
+
+def _convert_handoff_output(
+    item: HandoffOutputItem,
+    task_id: str,
+    context_id: str,
+    app_name: str,
+) -> list[A2AEvent]:
+    """Convert a handoff output to a subagent-style function_response A2A event."""
+    raw_output = item.raw_item
+    if isinstance(raw_output, dict):
+        call_id = raw_output.get("call_id") or str(uuid.uuid4())
+        result = raw_output.get("output", "")
+    else:
+        call_id = getattr(raw_output, "call_id", None) or str(uuid.uuid4())
+        result = getattr(raw_output, "output", "")
+
+    agent_name = item.target_agent.name if item.target_agent else "unknown"
+    function_data = {
+        "id": call_id,
+        "name": _agent_tool_name(agent_name),
+        "response": {"result": result},
+    }
+
+    message = Message(
+        message_id=str(uuid.uuid4()),
+        role=Role.ROLE_AGENT,
+        parts=[
+            A2APart(
+                data=ParseDict(function_data, Value()),
+                metadata={
+                    get_kagent_metadata_key(
+                        A2A_DATA_PART_METADATA_TYPE_KEY
+                    ): A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
+                },
+            )
+        ],
         metadata={
             get_kagent_metadata_key("app_name"): app_name,
+            get_kagent_metadata_key("event_type"): "agent_handoff_output",
+            get_kagent_metadata_key("new_agent_name"): agent_name,
         },
-        final=False,
     )
 
-    return [status_event]
+    return [_artifact_event(message, task_id, context_id)]
