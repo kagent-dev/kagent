@@ -270,6 +270,7 @@ describe("Agent form serialization", () => {
       namespace: "team-a",
       description: "BYO sandbox agent",
       type: "BYO",
+      tools: [],
       byoImage: "example.com/agent:v1",
       byoCmd: "/agent",
       substrateWorkerPoolRefName: "pool-a",
@@ -284,6 +285,69 @@ describe("Agent form serialization", () => {
       workerPoolRef: { name: "pool-a" },
       snapshotsConfig: { location: "gs://snapshots" },
     });
+  });
+
+  it("maps S3 skills and AWS secret into initContainer.env", () => {
+    const agent = agentFormDataToAgent({
+      name: "demo",
+      namespace: "team-a",
+      description: "S3 skills agent",
+      type: "Declarative",
+      systemPrompt: "Use skills",
+      modelName: "team-a/main-model",
+      tools: [],
+      skillS3Repos: [
+        { uri: "s3://bucket/team/skill", region: "us-east-1", name: "skill" },
+      ],
+      skillsS3AuthSecretName: "aws-creds",
+    });
+
+    expect(agent.spec.skills).toEqual({
+      s3Refs: [{ uri: "s3://bucket/team/skill", region: "us-east-1", name: "skill" }],
+      initContainer: {
+        env: [
+          {
+            name: "AWS_ACCESS_KEY_ID",
+            valueFrom: { secretKeyRef: { name: "aws-creds", key: "AWS_ACCESS_KEY_ID" } },
+          },
+          {
+            name: "AWS_SECRET_ACCESS_KEY",
+            valueFrom: { secretKeyRef: { name: "aws-creds", key: "AWS_SECRET_ACCESS_KEY" } },
+          },
+          {
+            name: "AWS_SESSION_TOKEN",
+            valueFrom: {
+              secretKeyRef: {
+                name: "aws-creds",
+                key: "AWS_SESSION_TOKEN",
+                optional: true,
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const loaded = agentResponseToFormState({
+      ...response(),
+      agent: {
+        metadata: { name: "demo", namespace: "team-a" },
+        spec: {
+          type: "Declarative",
+          description: "S3 skills agent",
+          declarative: {
+            systemMessage: "Use skills",
+            modelConfig: "main-model",
+            tools: [],
+          },
+          skills: agent.spec.skills,
+        },
+      },
+    });
+    expect(loaded.skillS3Repos).toEqual([
+      { uri: "s3://bucket/team/skill", region: "us-east-1", name: "skill" },
+    ]);
+    expect(loaded.skillsS3AuthSecretName).toBe("aws-creds");
   });
 });
 

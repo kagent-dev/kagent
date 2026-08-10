@@ -1,9 +1,15 @@
 import {
   formRowsToGitRepos,
+  formRowsToS3Refs,
   gitRepoToFormRow,
   newEmptyGitSkillRow,
+  newEmptyS3SkillRow,
+  s3RefToFormRow,
+  s3SkillsAuthEnvFromSecret,
+  s3SkillsAuthSecretNameFromEnv,
   validateDeclarativeAgentSkills,
   type GitSkillFormRow,
+  type S3SkillFormRow,
 } from "@/lib/agentSkillsForm";
 import {
   formUsesByoSections,
@@ -38,6 +44,7 @@ import type {
   GitRepo,
   ModelConfig,
   PromptSource,
+  S3SkillRef,
   SandboxAgent,
   SkillForAgent,
   DeclarativeAgentSpec,
@@ -76,6 +83,8 @@ export interface AgentFormData {
   skillRefs?: string[];
   skillGitRepos?: GitRepo[];
   skillsGitAuthSecretName?: string;
+  skillS3Repos?: S3SkillRef[];
+  skillsS3AuthSecretName?: string;
   memory?: {
     modelConfig?: string;
     ttlDays?: number;
@@ -130,6 +139,8 @@ export interface AgentFormFields {
   skillRefs: string[];
   skillGitRepos: GitSkillFormRow[];
   skillsGitAuthSecretName: string;
+  skillS3Repos: S3SkillFormRow[];
+  skillsS3AuthSecretName: string;
   byoImage: string;
   byoCmd: string;
   byoArgs: string;
@@ -178,6 +189,8 @@ export function createInitialAgentFormState({
     skillRefs: [""],
     skillGitRepos: [newEmptyGitSkillRow()],
     skillsGitAuthSecretName: "",
+    skillS3Repos: [newEmptyS3SkillRow()],
+    skillsS3AuthSecretName: "",
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
@@ -342,6 +355,12 @@ export function agentResponseToFormState(
         ? agent.spec.skills.gitRefs.map(gitRepoToFormRow)
         : [newEmptyGitSkillRow()],
       skillsGitAuthSecretName: agent.spec.skills?.gitAuthSecretRef?.name || "",
+      skillS3Repos: agent.spec.skills?.s3Refs?.length
+        ? agent.spec.skills.s3Refs.map(s3RefToFormRow)
+        : [newEmptyS3SkillRow()],
+      skillsS3AuthSecretName: s3SkillsAuthSecretNameFromEnv(
+        agent.spec.skills?.initContainer?.env,
+      ),
       stream: declarative?.stream ?? false,
       shareTools: declarative?.shareTools ?? false,
       declarativeRuntime: declarative?.runtime === "go" ? "go" : "python",
@@ -461,6 +480,13 @@ export function agentFormStateToData(
       skillsEnabled && state.skillsGitAuthSecretName.trim()
         ? state.skillsGitAuthSecretName.trim()
         : undefined,
+    skillS3Repos: skillsEnabled
+      ? formRowsToS3Refs(state.skillS3Repos)
+      : undefined,
+    skillsS3AuthSecretName:
+      skillsEnabled && state.skillsS3AuthSecretName.trim()
+        ? state.skillsS3AuthSecretName.trim()
+        : undefined,
     memory:
       declarative && memoryEnabled
         ? {
@@ -507,6 +533,8 @@ export function validateAgentFormState(
       skillRefs: state.skillRefs,
       skillGitRepos: state.skillGitRepos,
       skillsGitAuthSecretName: state.skillsGitAuthSecretName,
+      skillS3Repos: state.skillS3Repos,
+      skillsS3AuthSecretName: state.skillsS3AuthSecretName,
     });
     if (skillsError) {
       errors.skills = skillsError;
@@ -606,15 +634,10 @@ function skillsFromForm(
   data: AgentWorkloadFormData,
 ): SkillForAgent | undefined {
   const refs = (data.skillRefs || []).map((ref) => ref.trim()).filter(Boolean);
-  const gitRefs = formRowsToGitRepos(
-    (data.skillGitRepos || []).map((repo) => ({
-      url: repo.url ?? "",
-      ref: repo.ref ?? "",
-      path: repo.path ?? "",
-      name: repo.name ?? "",
-    })),
-  );
-  if (refs.length === 0 && gitRefs.length === 0) {
+  // agentFormStateToData already resolves form rows → GitRepo / S3SkillRef.
+  const resolvedGit = data.skillGitRepos || [];
+  const resolvedS3 = data.skillS3Repos || [];
+  if (refs.length === 0 && resolvedGit.length === 0 && resolvedS3.length === 0) {
     return undefined;
   }
 
@@ -622,16 +645,22 @@ function skillsFromForm(
   if (refs.length > 0) {
     skills.refs = refs;
   }
-  if (gitRefs.length > 0) {
-    skills.gitRefs = gitRefs;
+  if (resolvedGit.length > 0) {
+    skills.gitRefs = resolvedGit;
     const secretName = data.skillsGitAuthSecretName?.trim();
     if (secretName) {
       skills.gitAuthSecretRef = { name: secretName };
     }
   }
+  if (resolvedS3.length > 0) {
+    skills.s3Refs = resolvedS3;
+    const s3Secret = data.skillsS3AuthSecretName?.trim();
+    if (s3Secret) {
+      skills.initContainer = { env: s3SkillsAuthEnvFromSecret(s3Secret) };
+    }
+  }
   return skills;
 }
-
 function attachPromptTemplate(
   declarative: DeclarativeAgentSpec,
   data: AgentWorkloadFormData,
