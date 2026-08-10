@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFilterValidNamespaces(t *testing.T) {
@@ -262,6 +263,47 @@ func TestDatabaseUrlFileFlag(t *testing.T) {
 	err := LoadFromEnv(fs)
 	assert.NoError(t, err)
 	assert.Equal(t, "/etc/credentials/db-url", cfg.Database.UrlFile)
+}
+
+func TestDatabasePoolFlags(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	cfg := Config{}
+	cfg.SetFlags(fs)
+
+	assert.Equal(t, "0", fs.Lookup("db-max-conns").DefValue)
+	assert.Equal(t, "-1", fs.Lookup("db-min-conns").DefValue)
+	assert.Equal(t, "0s", fs.Lookup("db-max-conn-idle-time").DefValue)
+	assert.Equal(t, "0s", fs.Lookup("db-max-conn-lifetime").DefValue)
+
+	t.Setenv("DB_MAX_CONNS", "4")
+	t.Setenv("DB_MIN_CONNS", "0")
+	t.Setenv("DB_MAX_CONN_IDLE_TIME", "1m")
+	t.Setenv("DB_MAX_CONN_LIFETIME", "10m")
+	assert.NoError(t, LoadFromEnv(fs))
+	assert.Equal(t, 4, cfg.Database.MaxConns)
+	assert.Equal(t, 0, cfg.Database.MinConns)
+	assert.Equal(t, time.Minute, cfg.Database.MaxConnIdleTime)
+	assert.Equal(t, 10*time.Minute, cfg.Database.MaxConnLifetime)
+
+	pgCfg := postgresConfigFromApp("postgres://localhost/db", &cfg)
+	require.NotNil(t, pgCfg.MaxConns)
+	assert.Equal(t, int32(4), *pgCfg.MaxConns)
+	require.NotNil(t, pgCfg.MinConns)
+	assert.Equal(t, int32(0), *pgCfg.MinConns)
+	require.NotNil(t, pgCfg.MaxConnIdleTime)
+	assert.Equal(t, time.Minute, *pgCfg.MaxConnIdleTime)
+	require.NotNil(t, pgCfg.MaxConnLifetime)
+	assert.Equal(t, 10*time.Minute, *pgCfg.MaxConnLifetime)
+}
+
+func TestPostgresConfigFromAppUnset(t *testing.T) {
+	cfg := Config{}
+	cfg.Database.MinConns = -1 // flag default
+	pgCfg := postgresConfigFromApp("postgres://localhost/db", &cfg)
+	assert.Nil(t, pgCfg.MaxConns)
+	assert.Nil(t, pgCfg.MinConns)
+	assert.Nil(t, pgCfg.MaxConnIdleTime)
+	assert.Nil(t, pgCfg.MaxConnLifetime)
 }
 
 func TestSubstrateAteAPITokenFileFlag(t *testing.T) {
