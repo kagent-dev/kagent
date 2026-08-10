@@ -65,3 +65,32 @@ func TestFlushTimeout(t *testing.T) {
 		})
 	}
 }
+
+// The resource must merge OTEL_RESOURCE_ATTRIBUTES and the telemetry.sdk.*
+// attributes. resource.New starts empty, so building it from WithAttributes
+// alone silently drops everything the environment supplies.
+func TestNewTelemetryResourceMergesEnvAttributes(t *testing.T) {
+	t.Setenv("OTEL_SERVICE_NAME", "should-not-win")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment.name=prod,service.version=1.4.2")
+
+	res, err := newTelemetryResource(context.Background(), "svc", "ns")
+	if err != nil {
+		t.Fatalf("newTelemetryResource: %v", err)
+	}
+
+	got := map[string]string{}
+	for _, kv := range res.Attributes() {
+		got[string(kv.Key)] = kv.Value.String()
+	}
+	for key, want := range map[string]string{
+		"deployment.environment.name": "prod",
+		"service.version":             "1.4.2",
+		"telemetry.sdk.language":      "go",
+		"service.name":                "svc",
+		"service.namespace":           "ns",
+	} {
+		if got[key] != want {
+			t.Errorf("attribute %s = %q, want %q (all: %v)", key, got[key], want, got)
+		}
+	}
+}

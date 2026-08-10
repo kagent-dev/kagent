@@ -49,7 +49,7 @@ def get_time() -> str:
 
 @tool
 def delete_file(path: str) -> str:
-    """Delete a file at the given path. This is a dangerous operation that requires human approval.
+    """Delete a file at the given path.
 
     Args:
         path: The file path to delete.
@@ -103,8 +103,8 @@ async def run_tools(state: AgentState) -> dict[str, Any]:
 
         if tool_name in TOOLS_REQUIRING_APPROVAL:
             # Pause execution and ask the user for approval.
-            # The executor reads "action_requests" from the interrupt value
-            # and emits an adk_request_confirmation DataPart to the frontend.
+            # The executor reads "action_requests" and emits an A2A hitl/v1
+            # tool_approval_request on the input-required status message.
             decision = interrupt(
                 {
                     "action_requests": [
@@ -117,17 +117,16 @@ async def run_tools(state: AgentState) -> dict[str, Any]:
                 }
             )
 
-            # The executor resumes with a dict like:
-            #   {"decision_type": "approve"}
-            #   {"decision_type": "reject", "rejection_reasons": {"*": "Too risky"}}
-            decision_type = decision.get("decision_type", "reject") if isinstance(decision, dict) else "reject"
-
-            if decision_type != "approve":
-                reason = ""
-                if isinstance(decision, dict):
-                    reasons = decision.get("rejection_reasons", {})
-                    reason = reasons.get("*", "") if isinstance(reasons, dict) else ""
+            # Executor resumes with the hitl/v1 tool_approval_response payload.
+            approval = None
+            if isinstance(decision, dict) and decision.get("type") == "tool_approval_response":
+                approval = next(
+                    (a for a in decision.get("approvals", []) if a.get("id") == tool_call_id),
+                    None,
+                )
+            if not approval or not approval.get("approved"):
                 rejection_msg = "Tool call was rejected by user."
+                reason = (approval or {}).get("rejection_reason") or ""
                 if reason:
                     rejection_msg += f" Reason: {reason}"
                 results.append(

@@ -1,7 +1,6 @@
 {
   "name": "poem-flow-agent",
   "description": "A flow that generates a poem of a random number of lines.",
-  "url": "localhost:8080",
   "version": "0.1.0",
   "capabilities": {
     "streaming": true

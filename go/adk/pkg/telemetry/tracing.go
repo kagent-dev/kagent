@@ -71,6 +71,17 @@ func flushTimeout() time.Duration {
 	return 3 * time.Second
 }
 
+// newTelemetryResource builds the resource describing this service.
+func newTelemetryResource(ctx context.Context, serviceName string, serviceNamespace string) (*resource.Resource, error) {
+	return resource.New(ctx,
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
+		resource.WithAttributes(
+			semconv.ServiceNameKey.String(serviceName),
+			semconv.ServiceNamespaceKey.String(serviceNamespace),
+		))
+}
+
 // Init initializes OpenTelemetry providers for Go ADK, sets global providers and
 // propagators, and returns a shutdown function.
 func Init(ctx context.Context, serviceName string, serviceNamespace string) (shutdown func(context.Context) error, enabled bool, err error) {
@@ -78,10 +89,7 @@ func Init(ctx context.Context, serviceName string, serviceNamespace string) (shu
 		return func(context.Context) error { return nil }, false, nil
 	}
 
-	telemetryResource, err := resource.New(ctx, resource.WithAttributes(
-		semconv.ServiceNameKey.String(serviceName),
-		semconv.ServiceNamespaceKey.String(serviceNamespace),
-	))
+	telemetryResource, err := newTelemetryResource(ctx, serviceName, serviceNamespace)
 	if err != nil {
 		return nil, true, err
 	}
