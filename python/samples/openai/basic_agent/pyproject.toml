@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "kagent-openai",
     "openai-agents>=0.18.3",
-    "uvicorn>=0.51.0",
+    "uvicorn>=0.52.1",
 ]
 
 [tool.uv.sources]
