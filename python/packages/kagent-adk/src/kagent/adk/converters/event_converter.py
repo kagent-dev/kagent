@@ -2,21 +2,30 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from a2a.server.events import Event as A2AEvent
-from a2a.types import DataPart, Message, Role, Task, TaskState, TaskStatus, TaskStatusUpdateEvent, TextPart
+from a2a.types import (
+    Artifact,
+    Message,
+    Role,
+    Task,
+    TaskArtifactUpdateEvent,
+    TaskState,
+    TaskStatus,
+    TaskStatusUpdateEvent,
+)
 from a2a.types import Part as A2APart
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
-from google.adk.flows.llm_flows.functions import REQUEST_EUC_FUNCTION_CALL_NAME
 from google.genai import types as genai_types
+from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL,
     A2A_DATA_PART_METADATA_TYPE_KEY,
     get_kagent_metadata_key,
+    now_timestamp,
 )
 
 from .error_mappings import _get_error_message, _is_normal_completion
@@ -32,7 +41,7 @@ ARTIFACT_ID_SEPARATOR = "-"
 logger = logging.getLogger("kagent_adk." + __name__)
 
 
-def serialize_metadata_value(value: Any) -> str | dict[str, Any]:
+def serialize_metadata_value(value: Any) -> Any:
     """Safely serializes a metadata value for A2A message/event metadata.
 
     Pydantic values (anything with ``model_dump``) are returned as their
@@ -45,9 +54,10 @@ def serialize_metadata_value(value: Any) -> str | dict[str, Any]:
       value: The value to serialize.
 
     Returns:
-      The value's JSON-compatible ``model_dump`` dict for Pydantic values,
-      otherwise its string representation.
+      JSON-serializable representation of the value.
     """
+    if hasattr(value, "DESCRIPTOR"):
+        return MessageToDict(value)
     if hasattr(value, "model_dump"):
         try:
             return value.model_dump(mode="json", exclude_none=True, by_alias=True)
@@ -77,7 +87,6 @@ def _get_context_metadata(event: Event, invocation_context: InvocationContext) -
 
     try:
         metadata: Dict[str, Any] = {
-            get_kagent_metadata_key("adk_partial"): event.partial,
             get_kagent_metadata_key("app_name"): invocation_context.app_name,
             get_kagent_metadata_key("user_id"): invocation_context.user_id,
             get_kagent_metadata_key("session_id"): invocation_context.session.id,
@@ -129,45 +138,27 @@ def _process_long_running_tool(a2a_part: A2APart, event: Event) -> None:
       a2a_part: The A2A part to potentially mark as long-running.
       event: The ADK event containing long-running tool information.
     """
-    if (
-        isinstance(a2a_part.root, DataPart)
-        and event.long_running_tool_ids
-        and a2a_part.root.metadata
-        and a2a_part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
-        == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-        and a2a_part.root.data.get("id") in event.long_running_tool_ids
-    ):
-        a2a_part.root.metadata[get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)] = True
-
-
-def _process_subagent_session_id(a2a_part: A2APart, subagent_session_ids: Dict[str, str]) -> None:
-    """Stamps a subagent session ID onto a function_call DataPart.
-
-    If the part is a function_call whose tool name appears in
-    ``subagent_session_ids``, the corresponding session ID is added to
-    the DataPart metadata so the UI can find the subagent session.
-
-    Args:
-      a2a_part: The A2A part to potentially stamp.
-      subagent_session_ids: Mapping of tool name to pre-generated session ID.
-    """
-    if not isinstance(a2a_part.root, DataPart) or not a2a_part.root.metadata:
+    if not event.long_running_tool_ids:
         return
+    if not a2a_part.HasField("data"):
+        return
+
+    metadata = MessageToDict(a2a_part.metadata) if a2a_part.metadata else {}
     if (
-        a2a_part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
+        metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
         != A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
     ):
         return
-    tool_name = a2a_part.root.data.get("name") if isinstance(a2a_part.root.data, dict) else None
-    if tool_name and tool_name in subagent_session_ids:
-        a2a_part.root.metadata[get_kagent_metadata_key("subagent_session_id")] = subagent_session_ids[tool_name]
+
+    part_data = MessageToDict(a2a_part.data)
+    if isinstance(part_data, dict) and part_data.get("id") in event.long_running_tool_ids:
+        a2a_part.metadata.update({get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY): True})
 
 
 def convert_event_to_a2a_message(
     event: Event,
     invocation_context: InvocationContext,
-    role: Role = Role.agent,
-    subagent_session_ids: Optional[Dict[str, str]] = None,
+    role: Role = Role.ROLE_AGENT,
     task_id: Optional[str] = None,
     context_id: Optional[str] = None,
 ) -> Optional[Message]:
@@ -177,9 +168,6 @@ def convert_event_to_a2a_message(
       event: The ADK event to convert.
       invocation_context: The invocation context.
       role: The role attribute for the message (default: Role.agent).
-      subagent_session_ids: Optional mapping of tool name to pre-generated
-        subagent session ID.  When provided, function_call DataParts for
-        matching tools will have the session ID stamped into their metadata.
       task_id: Optional task ID stamped onto the message so it carries the
         same identity as the enclosing task. A2A allows these to be omitted
         (the task is the canonical carrier), but stamping them lets consumers
@@ -208,8 +196,6 @@ def convert_event_to_a2a_message(
             if a2a_part:
                 a2a_parts.append(a2a_part)
                 _process_long_running_tool(a2a_part, event)
-                if subagent_session_ids:
-                    _process_subagent_session_id(a2a_part, subagent_session_ids)
 
         if a2a_parts:
             message_metadata = _get_context_metadata(event, invocation_context)
@@ -261,27 +247,27 @@ def _create_error_status_event(
         context_id=context_id,
         metadata=event_metadata,
         status=TaskStatus(
-            state=TaskState.failed,
+            state=TaskState.TASK_STATE_FAILED,
             message=Message(
                 message_id=str(uuid.uuid4()),
-                role=Role.agent,
-                parts=[A2APart(TextPart(text=error_message))],
+                role=Role.ROLE_AGENT,
+                parts=[A2APart(text=error_message)],
                 metadata={get_kagent_metadata_key("error_code"): str(event.error_code)} if event.error_code else {},
             ),
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=now_timestamp(),
         ),
-        final=False,
     )
 
 
-def _create_status_update_event(
+def _create_artifact_update_event(
     message: Message,
     invocation_context: InvocationContext,
     event: Event,
     task_id: Optional[str] = None,
     context_id: Optional[str] = None,
-) -> TaskStatusUpdateEvent:
-    """Creates a TaskStatusUpdateEvent for running scenarios.
+    agents_artifacts: Optional[Dict[str, str]] = None,
+) -> Optional[TaskArtifactUpdateEvent]:
+    """Creates a TaskArtifactUpdateEvent for task output.
 
     Args:
       message: The A2A message to include.
@@ -292,38 +278,37 @@ def _create_status_update_event(
 
 
     Returns:
-      A TaskStatusUpdateEvent with RUNNING state.
+      A TaskArtifactUpdateEvent containing the converted output parts.
     """
-    status = TaskStatus(
-        state=TaskState.working,
-        message=message,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-    )
+    metadata = _get_context_metadata(event, invocation_context)
+    partial = bool(getattr(event, "partial", False))
+    # Match Go adka2a.OutputArtifactPerEvent: reuse one artifact ID across
+    # partial deltas, append while partial, then replace+close on the final
+    # non-partial event (which may repeat the full text).
+    artifact_id = str(uuid.uuid4())
+    append = False
+    if agents_artifacts is not None:
+        agent_name = event.author or ""
+        active_artifact_id = agents_artifacts.get(agent_name)
+        if active_artifact_id:
+            artifact_id = active_artifact_id
+            append = partial
+        if partial:
+            agents_artifacts[agent_name] = artifact_id
+        elif active_artifact_id:
+            del agents_artifacts[agent_name]
 
-    if any(
-        part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
-        == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-        and part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is True
-        and part.root.data.get("name") == REQUEST_EUC_FUNCTION_CALL_NAME
-        for part in message.parts
-        if part.root.metadata
-    ):
-        status.state = TaskState.auth_required
-    elif any(
-        part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_TYPE_KEY))
-        == A2A_DATA_PART_METADATA_TYPE_FUNCTION_CALL
-        and part.root.metadata.get(get_kagent_metadata_key(A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY)) is True
-        for part in message.parts
-        if part.root.metadata
-    ):
-        status.state = TaskState.input_required
-
-    return TaskStatusUpdateEvent(
+    return TaskArtifactUpdateEvent(
         task_id=task_id,
         context_id=context_id,
-        status=status,
-        metadata=_get_context_metadata(event, invocation_context),
-        final=False,
+        append=append,
+        last_chunk=not partial,
+        artifact=Artifact(
+            artifact_id=artifact_id,
+            parts=list(message.parts),
+            metadata=metadata,
+        ),
+        metadata=metadata,
     )
 
 
@@ -332,7 +317,7 @@ def convert_event_to_a2a_events(
     invocation_context: InvocationContext,
     task_id: Optional[str] = None,
     context_id: Optional[str] = None,
-    subagent_session_ids: Optional[Dict[str, str]] = None,
+    agents_artifacts: Optional[Dict[str, str]] = None,
 ) -> List[A2AEvent]:
     """Converts a GenAI event to a list of A2A events.
 
@@ -341,8 +326,8 @@ def convert_event_to_a2a_events(
       invocation_context: The invocation context.
       task_id: Optional task ID to use for generated events.
       context_id: Optional Context ID to use for generated events.
-      subagent_session_ids: Optional mapping of tool name to pre-generated
-        subagent session ID, threaded to ``convert_event_to_a2a_message``.
+      agents_artifacts: Mutable mapping used to reuse artifact IDs across
+        partial chunks from the same agent.
 
     Returns:
       A list of A2A events representing the converted ADK event.
@@ -362,18 +347,26 @@ def convert_event_to_a2a_events(
         if event.error_code and not _is_normal_completion(event.error_code):
             error_event = _create_error_status_event(event, invocation_context, task_id, context_id)
             a2a_events.append(error_event)
+            return a2a_events
 
         # Handle regular message content
         message = convert_event_to_a2a_message(
             event,
             invocation_context,
-            subagent_session_ids=subagent_session_ids,
             task_id=task_id,
             context_id=context_id,
         )
         if message:
-            running_event = _create_status_update_event(message, invocation_context, event, task_id, context_id)
-            a2a_events.append(running_event)
+            artifact_event = _create_artifact_update_event(
+                message,
+                invocation_context,
+                event,
+                task_id,
+                context_id,
+                agents_artifacts,
+            )
+            if artifact_event is not None:
+                a2a_events.append(artifact_event)
 
     except Exception as e:
         logger.error("Failed to convert event to A2A events: %s", e)

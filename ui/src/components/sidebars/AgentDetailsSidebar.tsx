@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight, Edit, GitBranch, ShieldAlert } from "lucide-react";
+import { ChevronRight, Edit, GitBranch, Layers, ShieldAlert } from "lucide-react";
 import type { AgentResponse, GitRepo, Tool, ToolsResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -59,6 +59,7 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
     providerTooltip,
     description,
     requiresApproval,
+    isolateSessions,
     isExpanded,
     onToggleExpansion,
   }: {
@@ -67,6 +68,7 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
     providerTooltip: string;
     description: string;
     requiresApproval?: boolean;
+    isolateSessions?: boolean;
     isExpanded: boolean;
     onToggleExpansion: () => void;
   }) => {
@@ -86,6 +88,9 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
                   {requiresApproval && (
                     <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                   )}
+                  {isolateSessions && (
+                    <Layers className="h-3.5 w-3.5 text-sky-500 shrink-0" />
+                  )}
                   <ChevronRight
                     className={cn(
                       "h-4 w-4 transition-transform duration-200",
@@ -101,6 +106,9 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
               <p className="text-sm text-muted-foreground">{description}</p>
               {requiresApproval && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Requires approval before execution</p>
+              )}
+              {isolateSessions && (
+                <p className="text-xs text-sky-600 dark:text-sky-400 mt-1">Isolated sessions (new session each call)</p>
               )}
             </div>
           </CollapsibleContent>
@@ -223,6 +231,7 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
                 displayName={displayName}
                 providerTooltip={providerNameTooltip}
                 description={description}
+                isolateSessions={!!tool.isolateSessions}
                 isExpanded={isExpanded}
                 onToggleExpansion={() => toggleToolExpansion(toolIdentifier)}
               />

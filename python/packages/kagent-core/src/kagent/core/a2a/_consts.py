@@ -59,13 +59,3 @@ def read_metadata_value(metadata: dict | None, key: str, default=None):
     if kagent_key in metadata:
         return metadata[kagent_key]
     return default
-
-
-KAGENT_HITL_DECISION_TYPE_KEY = "decision_type"
-KAGENT_HITL_DECISION_TYPE_APPROVE = "approve"
-KAGENT_HITL_DECISION_TYPE_REJECT = "reject"
-KAGENT_HITL_DECISION_TYPE_BATCH = "batch"
-KAGENT_HITL_DECISIONS_KEY = "decisions"
-KAGENT_HITL_REJECTION_REASONS_KEY = "rejection_reasons"
-
-KAGENT_ASK_USER_ANSWERS_KEY = "ask_user_answers"

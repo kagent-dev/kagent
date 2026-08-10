@@ -14,19 +14,20 @@ Shared types, interfaces, and implementations for the Kagent Go ADK.
 - **runner/** - Google ADK `runner.Config` creation from `AgentConfig`
 - **session/** - Session management, persistence, and ADK session service adapter
 - **skills/** - Agent skills discovery and shell execution
-- **taskstore/** - Task storage and A2A result aggregation
+- **taskstore/** - A2A task persistence through the kagent controller API
 - **telemetry/** - OpenTelemetry tracing utilities
 
 ## Event Processing
 
-The executor (`KAgentExecutor`) holds a `*runner.Runner` directly and implements `a2asrv.AgentExecutor`:
+The executor (`KAgentExecutor`) is a thin kagent-specific wrapper around the
+upstream `adka2a.Executor`:
 
 ```
-main.go -> CreateGoogleADKRunner -> *runner.Runner
+main.go -> CreateRunnerConfig -> runner.Config
          |
-KAgentExecutor.Execute(ctx, reqCtx, queue)
-  -> runner.Run(ctx, userID, sessionID, content, runConfig)
-  -> iterate *adksession.Event
-  -> ConvertADKEventToA2AEvents -> queue.Write
-  -> inline aggregation -> final status/artifact
+KAgentExecutor.Execute(ctx, reqCtx)
+  -> kagent auth, telemetry, skills, session state, HITL resume setup
+  -> adka2a.Executor.Execute(ctx, reqCtx)
+  -> artifact updates for task output
+  -> status-only lifecycle and terminal events
 ```

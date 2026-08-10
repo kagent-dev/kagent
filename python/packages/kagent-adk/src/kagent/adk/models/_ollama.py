@@ -16,6 +16,7 @@ from ollama import AsyncClient
 from ollama import Message as OllamaMessage
 
 from ._ssl import KAgentTLSMixin
+from ._utils import function_declaration_schema
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
@@ -106,15 +107,7 @@ def _convert_tools_to_ollama(tools: list[types.Tool]) -> list[ollama_sdk.Tool]:
     ollama_tools = []
     for tool in tools:
         for func_decl in tool.function_declarations or []:
-            properties = {}
-            required = []
-            if func_decl.parameters:
-                for prop_name, prop_schema in (func_decl.parameters.properties or {}).items():
-                    value_dict = prop_schema.model_dump(exclude_none=True)
-                    if "type" in value_dict:
-                        value_dict["type"] = value_dict["type"].lower()
-                    properties[prop_name] = value_dict
-                required = func_decl.parameters.required or []
+            schema = function_declaration_schema(func_decl)
 
             ollama_tools.append(
                 ollama_sdk.Tool(
@@ -122,11 +115,7 @@ def _convert_tools_to_ollama(tools: list[types.Tool]) -> list[ollama_sdk.Tool]:
                     function=ollama_sdk.Tool.Function(
                         name=func_decl.name or "",
                         description=func_decl.description or "",
-                        parameters=ollama_sdk.Tool.Function.Parameters(
-                            type="object",
-                            properties=properties,
-                            required=required,
-                        ),
+                        parameters=ollama_sdk.Tool.Function.Parameters.model_validate(schema),
                     ),
                 )
             )

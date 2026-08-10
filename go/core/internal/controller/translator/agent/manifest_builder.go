@@ -7,8 +7,6 @@ import (
 	"maps"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
@@ -84,7 +82,7 @@ func (a *adkApiTranslator) BuildManifest(
 	outputs := &AgentOutputs{}
 	manifestCtx := newManifestContext(agent, inputs.Deployment)
 
-	configSecret, err := a.buildConfigSecret(ctx, manifestCtx, inputs.Config, inputs.Sandbox, inputs.AgentCard, inputs.SecretHashBytes)
+	configSecret, err := a.buildConfigSecret(manifestCtx, inputs.Config, inputs.Sandbox, inputs.AgentCard, inputs.SecretHashBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +95,7 @@ func (a *adkApiTranslator) BuildManifest(
 		outputs.Manifest = append(outputs.Manifest, sa)
 	}
 
-	podRuntime, err := buildPodRuntime(manifestCtx, inputs.Config, inputs.Sandbox, configSecret.volumes, configSecret.mounts)
+	podRuntime, err := buildPodRuntime(manifestCtx, inputs.Sandbox, configSecret.volumes, configSecret.mounts)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +186,6 @@ func (m manifestContext) deploymentObjectMeta() metav1.ObjectMeta {
 }
 
 func (a *adkApiTranslator) buildConfigSecret(
-	ctx context.Context,
 	manifestCtx manifestContext,
 	cfg *adk.AgentConfig,
 	sandboxCfg *v1alpha2.SandboxConfig,
@@ -210,13 +207,7 @@ func (a *adkApiTranslator) buildConfigSecret(
 		cfgJSON = string(bCfg)
 	}
 	if card != nil {
-		// TODO(0.11.0): use the v1 agent card producer once managed runtimes no longer need legacy top-level fields.
-		producer := a2av0.NewStaticAgentCardProducer(card)
-		jsonProducer, ok := producer.(a2asrv.AgentCardJSONProducer)
-		if !ok {
-			return nil, fmt.Errorf("compat agent card producer does not support JSON serialization")
-		}
-		cardJSON, err := jsonProducer.CardJSON(ctx)
+		cardJSON, err := json.Marshal(card)
 		if err != nil {
 			return nil, err
 		}
@@ -311,7 +302,6 @@ func buildServiceAccount(manifestCtx manifestContext) *corev1.ServiceAccount {
 
 func buildPodRuntime(
 	manifestCtx manifestContext,
-	cfg *adk.AgentConfig,
 	sandboxCfg *v1alpha2.SandboxConfig,
 	secretVolumes []corev1.Volume,
 	secretMounts []corev1.VolumeMount,
@@ -323,7 +313,7 @@ func buildPodRuntime(
 	volumeMounts := append([]corev1.VolumeMount{}, secretMounts...)
 	volumeMounts = append(volumeMounts, manifestCtx.deployment.VolumeMounts...)
 
-	needCodeExecIsolation := cfg != nil && cfg.GetExecuteCode()
+	needCodeExecIsolation := false
 	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
 	if err != nil {
 		return nil, err
@@ -361,12 +351,7 @@ func needsSRTSettings(agent v1alpha2.AgentObject, sandboxCfg *v1alpha2.SandboxCo
 	if spec.Type == v1alpha2.AgentType_BYO {
 		return sandboxCfg != nil
 	}
-	if spec.Skills != nil {
-		return true
-	}
-	return spec.Declarative != nil &&
-		spec.Declarative.ExecuteCodeBlocks != nil &&
-		*spec.Declarative.ExecuteCodeBlocks
+	return spec.Skills != nil
 }
 
 func buildSRTSettingsJSON(sandboxCfg *v1alpha2.SandboxConfig) ([]byte, error) {

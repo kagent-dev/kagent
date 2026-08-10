@@ -415,9 +415,10 @@ func TestNullOwnedTaskAccess(t *testing.T) {
 	ctx := context.Background()
 
 	seedNullTask := func(id, sessionID string) {
+		payload := fmt.Sprintf(`{"id":%q,"contextId":%q}`, id, sessionID)
 		_, err := db.Exec(ctx,
-			`INSERT INTO task (id, data, session_id, created_at, updated_at) VALUES ($1, '{}', $2, NOW(), NOW())`,
-			id, sessionID)
+			`INSERT INTO task (id, data, session_id, protocol_version, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+			id, payload, sessionID, string(a2a.Version))
 		require.NoError(t, err)
 	}
 
@@ -477,8 +478,8 @@ func TestNullOwnedTaskAgainstLaterSessionIsInaccessible(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := db.Exec(ctx,
-		`INSERT INTO task (id, data, session_id, created_at, updated_at) VALUES ($1, '{}', $2, NOW(), NOW())`,
-		"t-orphan", "s-freed")
+		`INSERT INTO task (id, data, session_id, protocol_version, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+		"t-orphan", `{"id":"t-orphan","contextId":"s-freed"}`, "s-freed", string(a2a.Version))
 	require.NoError(t, err)
 
 	time.Sleep(10 * time.Millisecond)
@@ -527,6 +528,34 @@ func TestListTasksForSessionIsScopedToOwner(t *testing.T) {
 	tasks, err = client.ListTasksForSession(ctx, "s-reused", "alice")
 	require.NoError(t, err)
 	assert.Empty(t, tasks)
+}
+
+func TestLegacyTaskProtocolVersionRejected(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-legacy", UserID: "alice"}))
+
+	_, err := db.Exec(ctx,
+		`INSERT INTO task (id, data, session_id, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW())`,
+		"t-legacy-null", `{"id":"t-legacy-null","contextId":"s-legacy"}`, "s-legacy")
+	require.NoError(t, err)
+
+	legacyVersion := "0.3"
+	_, err = db.Exec(ctx,
+		`INSERT INTO task (id, data, session_id, protocol_version, created_at, updated_at) VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+		"t-legacy-v0", `{"id":"t-legacy-v0","contextId":"s-legacy"}`, "s-legacy", legacyVersion)
+	require.NoError(t, err)
+
+	_, err = client.GetTask(ctx, "t-legacy-null", "alice")
+	require.ErrorContains(t, err, `unsupported task protocol_version ""`)
+
+	_, err = client.GetTask(ctx, "t-legacy-v0", "alice")
+	require.ErrorContains(t, err, `unsupported task protocol_version "0.3"`)
+
+	_, err = client.ListTasksForSession(ctx, "s-legacy", "alice")
+	require.ErrorContains(t, err, "unsupported task protocol_version")
 }
 
 // TestStoreAgentIdempotence verifies that calling StoreAgent multiple times

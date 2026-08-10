@@ -625,7 +625,7 @@ Documentation for security configuration: https://kagent.dev/docs/kagent (securi
 **Security Risk Evaluation:**
 Features evaluated for security risk:
 
-- **Agent Code Execution**: Sandboxed Python code execution for `executeCodeBlocks` feature
+- **Agent Bash Execution**: Sandboxed shell execution for skills via BashTool
 - **Tool Invocation**: RBAC-controlled access to Kubernetes APIs and external services
 - **Secret Access**: Scoped to agent's namespace, no cross-namespace access
 - **Database Access**: Session isolation prevents cross-user data access

@@ -595,6 +595,7 @@ function toolsFromForm(tools: Tool[], namespace: string): Tool[] {
           kind: tool.agent.kind || "Agent",
           apiGroup: tool.agent.apiGroup || "kagent.dev",
         },
+        ...(tool.isolateSessions ? { isolateSessions: true } : {}),
       };
     }
 
