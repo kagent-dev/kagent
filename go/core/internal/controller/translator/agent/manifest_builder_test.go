@@ -85,16 +85,6 @@ func TestNeedsSRTSettings(t *testing.T) {
 			Skills:      &v1alpha2.SkillForAgent{Refs: []string{"example.com/skill:latest"}},
 		},
 	}
-	executeCode := true
-	codeAgent := &v1alpha2.Agent{
-		ObjectMeta: metav1.ObjectMeta{Name: "code", Namespace: "default"},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
-				ExecuteCodeBlocks: &executeCode,
-			},
-		},
-	}
 	byoAgent := &v1alpha2.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "default"},
 		Spec: v1alpha2.AgentSpec{
@@ -108,9 +98,6 @@ func TestNeedsSRTSettings(t *testing.T) {
 	}
 	if !needsSRTSettings(skillsAgent, nil) {
 		t.Fatal("declarative agents with skills should get srt settings")
-	}
-	if !needsSRTSettings(codeAgent, nil) {
-		t.Fatal("declarative agents with executeCodeBlocks should get srt settings")
 	}
 	if needsSRTSettings(byoAgent, nil) {
 		t.Fatal("BYO agents should not get srt settings unless sandbox config is set")

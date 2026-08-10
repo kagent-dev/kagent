@@ -584,7 +584,6 @@ type AgentConfig struct {
 	HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
 	SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
 	RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
-	ExecuteCode   *bool                 `json:"execute_code,omitempty"`
 	Stream        *bool                 `json:"stream,omitempty"`
 	Memory        *MemoryConfig         `json:"memory,omitempty"`
 	Network       *NetworkConfig        `json:"network,omitempty"`
@@ -601,14 +600,6 @@ func (a *AgentConfig) GetStream() bool {
 	return false
 }
 
-// GetExecuteCode returns the execute_code value or default if not set
-func (a *AgentConfig) GetExecuteCode() bool {
-	if a.ExecuteCode != nil {
-		return *a.ExecuteCode
-	}
-	return false
-}
-
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
 		Model         json.RawMessage       `json:"model"`
@@ -617,7 +608,6 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
 		SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
 		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
-		ExecuteCode   *bool                 `json:"execute_code,omitempty"`
 		Stream        *bool                 `json:"stream,omitempty"`
 		Memory        json.RawMessage       `json:"memory"`
 		Network       *NetworkConfig        `json:"network,omitempty"`
@@ -654,7 +644,6 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
 	a.RemoteAgents = tmp.RemoteAgents
-	a.ExecuteCode = tmp.ExecuteCode
 	a.Stream = tmp.Stream
 	a.Memory = memory
 	a.Network = tmp.Network

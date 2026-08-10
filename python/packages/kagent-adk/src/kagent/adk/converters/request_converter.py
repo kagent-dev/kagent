@@ -29,7 +29,7 @@ def convert_a2a_request_to_adk_run_args(
         "session_id": request.context_id,
         "new_message": genai_types.Content(
             role="user",
-            parts=[convert_a2a_part_to_genai_part(part) for part in request.message.parts],
+            parts=[converted for part in request.message.parts if (converted := convert_a2a_part_to_genai_part(part))],
         ),
         "run_config": RunConfig(streaming_mode=StreamingMode.SSE if stream else StreamingMode.NONE),
     }

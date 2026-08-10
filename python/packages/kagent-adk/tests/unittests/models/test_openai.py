@@ -341,6 +341,30 @@ function_declaration_test_cases = [
 ]
 
 
+def test_function_declaration_uses_adk2_json_schema():
+    schema = {
+        "type": "object",
+        "properties": {
+            "namespace": {"type": "string", "enum": ["default", "kube-system"]},
+            "selector": {
+                "type": "object",
+                "properties": {"labels": {"type": "array", "items": {"type": "string"}}},
+            },
+        },
+        "required": ["namespace"],
+        "additionalProperties": False,
+    }
+    tool = types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(name="list_pods", description="List pods", parameters_json_schema=schema)
+        ]
+    )
+
+    result = _convert_tools_to_openai([tool])
+
+    assert result[0]["function"]["parameters"] == schema
+
+
 @pytest.mark.parametrize(
     "_, function_declaration, expected_tool_param",
     function_declaration_test_cases,

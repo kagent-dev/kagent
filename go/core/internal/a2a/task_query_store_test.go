@@ -11,7 +11,6 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -290,7 +289,7 @@ func TestListTasks_BackendFailurePropagates(t *testing.T) {
 	require.ErrorContains(t, err, "connection refused")
 }
 
-// ── Wire tests: identical filtering, different enum casing ──────────────────
+// ── Wire tests ───────────────────────────────────────────────────────────────
 
 func withUser(next http.Handler, user string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -310,61 +309,29 @@ func rpcCall(t *testing.T, h http.Handler, body string) map[string]any {
 	return out
 }
 
-func wireHandlers(user string, tasks ...*a2atype.Task) (v1 http.Handler, v0 http.Handler) {
+func wireHandler(user string, tasks ...*a2atype.Task) http.Handler {
 	store := newFakeStore()
 	store.addSession("s1", user)
 	for _, tk := range tasks {
 		store.addTask("s1", tk)
 	}
 	h := newStoreTaskQueryHandler(&PassthroughRequestHandler{}, store)
-	v1 = withUser(a2asrv.NewJSONRPCHandler(h), user)
-	v0 = withUser(newV0TasksListInterceptor(a2av0.NewJSONRPCHandler(h), h), user)
-	return v1, v0
+	return withUser(a2asrv.NewJSONRPCHandler(h), user)
 }
 
-func TestWire_ListTasksStateCasing(t *testing.T) {
+func TestWire_ListTasksUsesV1StateCasing(t *testing.T) {
 	tasks := []*a2atype.Task{
 		newTask("t1", "s1", a2atype.TaskStateInputRequired, 0, 0),
 		newTask("t2", "s1", a2atype.TaskStateWorking, 0, 0),
 	}
-	v1, v0 := wireHandlers("alice", tasks...)
+	handler := wireHandler("alice", tasks...)
 
-	// v1 wire: uppercase TaskState, method "ListTasks".
-	v1resp := rpcCall(t, v1, `{"jsonrpc":"2.0","id":1,"method":"ListTasks","params":{"contextId":"s1","status":"TASK_STATE_INPUT_REQUIRED"}}`)
-	v1result := v1resp["result"].(map[string]any)
-	v1list := v1result["tasks"].([]any)
-	require.Len(t, v1list, 1)
-	require.Equal(t, float64(1), v1result["totalSize"])
-	require.Contains(t, v1result, "nextPageToken")
-	v1state := v1list[0].(map[string]any)["status"].(map[string]any)["state"].(string)
-	require.Equal(t, "TASK_STATE_INPUT_REQUIRED", v1state)
-
-	// v0 wire: lowercase TaskState, method "tasks/list".
-	v0resp := rpcCall(t, v0, `{"jsonrpc":"2.0","id":1,"method":"tasks/list","params":{"contextId":"s1","status":"input-required"}}`)
-	v0result := v0resp["result"].(map[string]any)
-	v0list := v0result["tasks"].([]any)
-	require.Len(t, v0list, 1, "v0 must filter identically to v1")
-	require.Equal(t, float64(1), v0result["totalSize"])
-	require.Contains(t, v0result, "nextPageToken")
-	v0state := v0list[0].(map[string]any)["status"].(map[string]any)["state"].(string)
-	require.Equal(t, "input-required", v0state)
-}
-
-func TestWire_V0UnknownMethodDelegates(t *testing.T) {
-	_, v0 := wireHandlers("alice")
-	// A method the interceptor does not own must fall through to the v0 handler,
-	// which reports method-not-found rather than being swallowed here.
-	resp := rpcCall(t, v0, `{"jsonrpc":"2.0","id":1,"method":"tasks/frobnicate","params":{}}`)
-	require.Contains(t, resp, "error")
-}
-
-func TestWire_V0TasksListWithoutStoreIsMethodNotFound(t *testing.T) {
-	// Without a task store the v0 interceptor must not be installed: tasks/list
-	// keeps the legacy wire's native method-not-found instead of hitting the
-	// passthrough (which would surface ErrUnsupportedOperation).
-	_, legacy := newTaskQueryHandlers(&PassthroughRequestHandler{}, nil)
-	resp := rpcCall(t, withUser(legacy, "alice"), `{"jsonrpc":"2.0","id":1,"method":"tasks/list","params":{}}`)
-	require.Contains(t, resp, "error")
-	errObj := resp["error"].(map[string]any)
-	require.Equal(t, float64(-32601), errObj["code"], "expected JSON-RPC method-not-found")
+	resp := rpcCall(t, handler, `{"jsonrpc":"2.0","id":1,"method":"ListTasks","params":{"contextId":"s1","status":"TASK_STATE_INPUT_REQUIRED"}}`)
+	result := resp["result"].(map[string]any)
+	list := result["tasks"].([]any)
+	require.Len(t, list, 1)
+	require.Equal(t, float64(1), result["totalSize"])
+	require.Contains(t, result, "nextPageToken")
+	state := list[0].(map[string]any)["status"].(map[string]any)["state"].(string)
+	require.Equal(t, "TASK_STATE_INPUT_REQUIRED", state)
 }

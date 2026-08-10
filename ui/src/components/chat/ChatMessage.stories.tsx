@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import ChatMessage from "./ChatMessage";
-import type { Message } from "@a2a-js/sdk";
+import { Role, type Message } from "@a2a-js/sdk";
+import { createMockMessage, createTextPart } from "@/mocks/factories";
 
 const meta = {
   title: "Chat/ChatMessage",
@@ -21,20 +22,22 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const createMessage = (overrides: Partial<Message> = {}): Message => ({
-  kind: "message",
-  messageId: "msg-123",
-  role: "agent",
-  parts: [{ kind: "text", text: "Default message content" }],
-  ...overrides,
-});
+const createMessage = (overrides: Partial<Message> = {}): Message =>
+  createMockMessage({
+    messageId: "msg-123",
+    role: Role.ROLE_AGENT,
+    parts: [createTextPart("Default message content")],
+    contextId: "ctx-1",
+    taskId: "task-1",
+    ...overrides,
+  });
 
 export const UserMessage: Story = {
   args: {
     message: createMessage({
-      role: "user",
+      role: Role.ROLE_USER,
       messageId: "user-msg-1",
-      parts: [{ kind: "text", text: "Hello, can you help me with this?" }],
+      parts: [createTextPart("Hello, can you help me with this?")],
     }),
     allMessages: [],
   },
@@ -43,8 +46,8 @@ export const UserMessage: Story = {
 export const AgentMessage: Story = {
   args: {
     message: createMessage({
-      role: "agent",
-      parts: [{ kind: "text", text: "Of course! I'd be happy to help you with that." }],
+      role: Role.ROLE_AGENT,
+      parts: [createTextPart("Of course! I'd be happy to help you with that.")],
     }),
     allMessages: [],
   },
@@ -53,8 +56,8 @@ export const AgentMessage: Story = {
 export const AgentMessageWithTimestamp: Story = {
   args: {
     message: createMessage({
-      role: "agent",
-      parts: [{ kind: "text", text: "Here's the response to your question." }],
+      role: Role.ROLE_AGENT,
+      parts: [createTextPart("Here's the response to your question.")],
       metadata: {
         displaySource: "assistant",
         timestamp: Date.now(),
@@ -67,18 +70,16 @@ export const AgentMessageWithTimestamp: Story = {
 export const MessageWithLongContent: Story = {
   args: {
     message: createMessage({
-      role: "agent",
+      role: Role.ROLE_AGENT,
       parts: [
-        {
-          kind: "text",
-          text: `This is a much longer response that contains multiple paragraphs of information.
+        createTextPart(`This is a much longer response that contains multiple paragraphs of information.
 
 The first paragraph explains the main concept.
 
 The second paragraph provides additional details and examples.
 
 The third paragraph concludes with a summary of the key points.`,
-        },
+        ),
       ],
     }),
     allMessages: [],
@@ -88,11 +89,9 @@ The third paragraph concludes with a summary of the key points.`,
 export const MessageWithMarkdown: Story = {
   args: {
     message: createMessage({
-      role: "agent",
+      role: Role.ROLE_AGENT,
       parts: [
-        {
-          kind: "text",
-          text: `# Response Title
+        createTextPart(`# Response Title
 
 Here's a **bold** statement and an *italic* one.
 
@@ -106,7 +105,7 @@ const example = () => {
   return "code block";
 };
 \`\`\``,
-        },
+        ),
       ],
     }),
     allMessages: [],
@@ -116,11 +115,9 @@ const example = () => {
 export const MessageWithCodeBlocks: Story = {
   args: {
     message: createMessage({
-      role: "agent",
+      role: Role.ROLE_AGENT,
       parts: [
-        {
-          kind: "text",
-          text: `Here's how to implement this feature:
+        createTextPart(`Here's how to implement this feature:
 
 \`\`\`python
 def calculate_sum(numbers):
@@ -140,7 +137,7 @@ const calculateSum = (numbers) => {
 const result = calculateSum([1, 2, 3, 4, 5]);
 console.log(result);
 \`\`\``,
-        },
+        ),
       ],
     }),
     allMessages: [],
@@ -150,8 +147,8 @@ console.log(result);
 export const MessageWithCustomDisplaySource: Story = {
   args: {
     message: createMessage({
-      role: "agent",
-      parts: [{ kind: "text", text: "Response from custom agent" }],
+      role: Role.ROLE_AGENT,
+      parts: [createTextPart("Response from custom agent")],
       metadata: {
         displaySource: "DataAnalyzer",
       },
@@ -163,8 +160,8 @@ export const MessageWithCustomDisplaySource: Story = {
 export const MessageWithAgentContext: Story = {
   args: {
     message: createMessage({
-      role: "agent",
-      parts: [{ kind: "text", text: "Response from context agent" }],
+      role: Role.ROLE_AGENT,
+      parts: [createTextPart("Response from context agent")],
     }),
     allMessages: [],
     agentContext: {
@@ -177,9 +174,9 @@ export const MessageWithAgentContext: Story = {
 export const ShortUserMessage: Story = {
   args: {
     message: createMessage({
-      role: "user",
+      role: Role.ROLE_USER,
       messageId: "user-msg-2",
-      parts: [{ kind: "text", text: "OK" }],
+      parts: [createTextPart("OK")],
     }),
     allMessages: [],
   },
@@ -188,11 +185,9 @@ export const ShortUserMessage: Story = {
 export const AgentMessageWithTable: Story = {
   args: {
     message: createMessage({
-      role: "agent",
+      role: Role.ROLE_AGENT,
       parts: [
-        {
-          kind: "text",
-          text: `Here's the data in table format:
+        createTextPart(`Here's the data in table format:
 
 | Name | Score | Status |
 |------|-------|--------|
@@ -200,7 +195,29 @@ export const AgentMessageWithTable: Story = {
 | Bob | 87 | Pass |
 | Charlie | 72 | Pass |
 | Diana | 65 | Fail |`,
-        },
+        ),
+      ],
+    }),
+    allMessages: [],
+  },
+};
+
+/**
+ * Prose alongside content that offers no break opportunities — a tool-call id
+ * carrying a Gemini thought signature, and a long URL. The prose has to keep
+ * its word boundaries while the two long tokens wrap.
+ */
+export const MessageWithUnbreakableTokens: Story = {
+  args: {
+    message: createMessage({
+      role: Role.ROLE_AGENT,
+      parts: [
+        createTextPart(`The kagent controller reconciles ModelConfig resources and propagates configuration to the agent deployment automatically.
+
+Tool call id: \`call_9f2a__thought__QmFzZTY0RW5jb2RlZFRob3VnaHRTaWduYXR1cmVCbG9iQmFzZTY0RW5jb2RlZFRob3VnaHRTaWduYXR1cmU\`
+
+See https://github.com/kagent-dev/kagent/blob/main/ui/src/components/chat/ChatMessage.tsx for the renderer.`,
+        ),
       ],
     }),
     allMessages: [],
@@ -210,10 +227,10 @@ export const AgentMessageWithTable: Story = {
 export const MessageWithMultipleParts: Story = {
   args: {
     message: createMessage({
-      role: "agent",
+      role: Role.ROLE_AGENT,
       parts: [
-        { kind: "text", text: "First part of the message." },
-        { kind: "text", text: "Second part of the message." },
+        createTextPart("First part of the message."),
+        createTextPart("Second part of the message."),
       ],
     }),
     allMessages: [],

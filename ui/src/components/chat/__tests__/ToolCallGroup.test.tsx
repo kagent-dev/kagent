@@ -1,55 +1,55 @@
 import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { Message } from "@a2a-js/sdk";
+import { Role, type Message } from "@a2a-js/sdk";
 import ToolCallGroup, { groupToolCallMessages, isGroupableToolMessage, buildToolCallResultsIndex, collectPendingApprovalIds } from "@/components/chat/ToolCallGroup";
+import { buildHitlCard } from "@/lib/hitl";
 import { isAgentToolName } from "@/lib/utils";
+import { createDataPart, createMockMessage, createTextPart } from "@/mocks/factories";
+import type { ToolApprovalResponsePayload } from "@/types";
 
-const textMessage = (text: string, role: "user" | "agent" = "agent"): Message => ({
-  kind: "message",
-  messageId: `text-${text}`,
-  role,
-  parts: [{ kind: "text", text }],
-});
+const baseMessage = (overrides: Partial<Message> & Pick<Message, "messageId" | "role">): Message =>
+  createMockMessage({
+    contextId: "ctx-1",
+    taskId: "task-1",
+    ...overrides,
+  });
 
-const requestMessage = (id: string, name: string): Message => ({
-  kind: "message",
-  messageId: `req-${id}`,
-  role: "agent",
-  parts: [
-    {
-      kind: "data",
-      data: { id, name, args: {} },
-      metadata: { adk_type: "function_call" },
+const textMessage = (text: string, role: Role = Role.ROLE_AGENT): Message =>
+  baseMessage({
+    messageId: `text-${text}`,
+    role,
+    parts: [createTextPart(text)],
+  });
+
+const requestMessage = (id: string, name: string): Message =>
+  baseMessage({
+    messageId: `req-${id}`,
+    role: Role.ROLE_AGENT,
+    parts: [createDataPart({ id, name, args: {} }, { adk_type: "function_call" })],
+  });
+
+const responseMessage = (id: string, name: string, isError = false): Message =>
+  baseMessage({
+    messageId: `res-${id}`,
+    role: Role.ROLE_AGENT,
+    parts: [createDataPart({ id, name, response: { result: isError ? "boom" : "ok", isError } }, { adk_type: "function_response" })],
+  });
+
+const approvalMessage = (id: string, response?: ToolApprovalResponsePayload): Message =>
+  baseMessage({
+    messageId: `approval-${id}`,
+    role: Role.ROLE_AGENT,
+    metadata: {
+      hitlCard: buildHitlCard(
+        {
+          type: "tool_approval_request",
+          tools: [{ id: `confirm-${id}`, call_id: id, name: "dangerous_tool", args: {} }],
+        },
+        response,
+      ),
     },
-  ],
-});
-
-const responseMessage = (id: string, name: string, isError = false): Message => ({
-  kind: "message",
-  messageId: `res-${id}`,
-  role: "agent",
-  parts: [
-    {
-      kind: "data",
-      data: { id, name, response: { result: isError ? "boom" : "ok", isError } },
-      metadata: { adk_type: "function_response" },
-    },
-  ],
-});
-
-const approvalMessage = (id: string, approvalDecision?: unknown): Message => ({
-  kind: "message",
-  messageId: `approval-${id}`,
-  role: "agent",
-  metadata: { originalType: "ToolApprovalRequest", ...(approvalDecision !== undefined ? { approvalDecision } : {}) },
-  parts: [
-    {
-      kind: "data",
-      data: { id, name: "dangerous_tool", args: {} },
-      metadata: { adk_type: "function_call" },
-    },
-  ],
-});
+    parts: [],
+  });
 
 describe("isGroupableToolMessage", () => {
   it("accepts function_call and function_response messages", () => {
@@ -58,39 +58,65 @@ describe("isGroupableToolMessage", () => {
   });
 
   it("rejects user and plain text messages", () => {
-    expect(isGroupableToolMessage(textMessage("hi", "user"))).toBe(false);
+    expect(isGroupableToolMessage(textMessage("hi", Role.ROLE_USER))).toBe(false);
     expect(isGroupableToolMessage(textMessage("hello"))).toBe(false);
   });
 
   it("never groups undecided approval or ask-user messages", () => {
     expect(isGroupableToolMessage(approvalMessage("c1"))).toBe(false);
     expect(
-      isGroupableToolMessage({
-        kind: "message",
+      isGroupableToolMessage(baseMessage({
         messageId: "ask-1",
-        role: "agent",
-        metadata: { originalType: "AskUserRequest" },
+        role: Role.ROLE_AGENT,
+        metadata: {
+          hitlCard: buildHitlCard({
+            type: "ask_user_request",
+            id: "q1",
+            questions: [{ question: "Which?" }],
+          }),
+        },
         parts: [],
-      }),
+      })),
     ).toBe(false);
   });
 
+  it("never groups a nested HITL parent call carrying its child session", () => {
+    const message = baseMessage({
+      messageId: "nested-parent",
+      role: Role.ROLE_AGENT,
+      metadata: {
+        originalType: "ToolCallRequestEvent",
+        toolCallData: [{
+          id: "parent-call",
+          name: "child-agent",
+          args: {},
+          subagent_session_id: "child-session",
+        }],
+      },
+      parts: [],
+    });
+
+    expect(isGroupableToolMessage(message)).toBe(false);
+  });
+
   it("groups approval messages once decided", () => {
-    // Persisted decision (uniform string)
-    expect(isGroupableToolMessage(approvalMessage("c1", "approve"))).toBe(true);
-    // Persisted decision (per-tool map)
-    expect(isGroupableToolMessage(approvalMessage("c1", { c1: "reject" }))).toBe(true);
+    const rejected: ToolApprovalResponsePayload = {
+      type: "tool_approval_response",
+      approvals: [{ id: "confirm-c1", approved: false }],
+    };
+    // Persisted card response
+    expect(isGroupableToolMessage(approvalMessage("c1", rejected))).toBe(true);
     // Local optimistic decision
     expect(isGroupableToolMessage(approvalMessage("c1"), { pendingDecisions: { c1: "approve" } })).toBe(true);
-    // Map decision for a different call id does not count
-    expect(isGroupableToolMessage(approvalMessage("c1", { other: "approve" }))).toBe(false);
+    // Decision for a different call id does not count
+    expect(isGroupableToolMessage(approvalMessage("c1"), { pendingDecisions: { other: "approve" } })).toBe(false);
   });
 });
 
 describe("groupToolCallMessages", () => {
   it("folds consecutive tool messages into one group and keeps text standalone", () => {
     const messages = [
-      textMessage("question", "user"),
+      textMessage("question", Role.ROLE_USER),
       requestMessage("c1", "tool_a"),
       responseMessage("c1", "tool_a"),
       requestMessage("c2", "tool_b"),
@@ -207,7 +233,10 @@ describe("groupToolCallMessages", () => {
       responseMessage("c1", "k8s_get_events"),
       responseMessage("c2", "k8s_get_pod_logs"),
       responseMessage("c3", "show-weather-dashboard"),
-      approvalMessage("c4", "approve"),
+      approvalMessage("c4", {
+        type: "tool_approval_response",
+        approvals: [{ id: "confirm-c4", approved: true }],
+      }),
       responseMessage("c4", "datetime_get_current_time"),
       requestMessage("c5", "k8s_get_pod_logs"),
       responseMessage("c5", "k8s_get_pod_logs"),

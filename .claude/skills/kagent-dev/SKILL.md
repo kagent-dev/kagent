@@ -137,7 +137,7 @@ Adding a field propagates from the type definition through codegen, translator, 
 
 4. **If the field flows to the Python runtime**
 
-   Some fields need to reach the Python agent process (e.g., `stream`, `executeCodeBlocks`):
+   Some fields need to reach the Python agent process (e.g., `stream`):
    - `go/api/adk/types.go` — add field to `AgentConfig`
    - `python/packages/kagent-adk/src/kagent/adk/types.py` — add corresponding field
 
