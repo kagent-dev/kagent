@@ -83,6 +83,42 @@ def test_configure_tracing_only_uses_legacy_instrumentation(monkeypatch):
     assert instrument_calls["google_instrumented"] is True
 
 
+def test_configure_resource_merges_otel_env_attributes(monkeypatch):
+    # OTEL_RESOURCE_ATTRIBUTES is the only way to set deployment.environment.name
+    # or service.version. The bare Resource() constructor ignores it entirely.
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment.name=prod,service.version=1.4.2")
+
+    captured = {}
+
+    class FakeTracerProvider:
+        def __init__(self, resource):
+            captured["resource"] = resource
+
+        def add_span_processor(self, processor):
+            pass
+
+    monkeypatch.setattr(_utils, "TracerProvider", FakeTracerProvider)
+    monkeypatch.setattr(_utils, "_create_span_exporter", lambda **kwargs: object())
+    monkeypatch.setattr(_utils, "BatchSpanProcessor", lambda exporter: object())
+    monkeypatch.setattr(_utils.trace, "set_tracer_provider", lambda provider: None)
+    monkeypatch.setattr(_utils, "HTTPXClientInstrumentor", lambda: SimpleNamespace(instrument=lambda **kw: None))
+    monkeypatch.setattr(_utils, "OpenAIInstrumentor", lambda **kwargs: SimpleNamespace(instrument=lambda **kw: None))
+    monkeypatch.setattr(_utils, "_instrument_anthropic", lambda *a, **kw: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda *a, **kw: None)
+
+    _utils.configure(name="test-agent", namespace="test-ns")
+
+    attributes = captured["resource"].attributes
+    # Identity stays under our control; env-supplied attributes come along.
+    assert attributes["service.name"] == "test-agent"
+    assert attributes["service.namespace"] == "test-ns"
+    assert attributes["deployment.environment.name"] == "prod"
+    assert attributes["service.version"] == "1.4.2"
+    assert attributes["telemetry.sdk.language"] == "python"
+
+
 def test_configure_all_disabled_skips_instrumentation(monkeypatch):
     monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
     monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
@@ -280,7 +316,7 @@ def test_configure_gates_post_response_flush_on_env(monkeypatch, env_value, expe
     )
     monkeypatch.setattr(_utils, "OpenAIInstrumentor", lambda **kwargs: SimpleNamespace(instrument=lambda **kw: None))
     monkeypatch.setattr(_utils, "_instrument_anthropic", lambda *a, **kw: None)
-    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda *a, **kw: None)
 
     app = FastAPI()
     _utils.configure(name="test", namespace="test", fastapi_app=app)
