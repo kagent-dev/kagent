@@ -278,6 +278,32 @@ controller:
   # -- [Topology spread constraints](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#pod-topology-spread-constraints) for the controller pod.
   topologySpreadConstraints: []
 
+  # -- [PodDisruptionBudget](https://kubernetes.io/docs/tasks/run-application/configure-pdb/)
+  # for the controller pods. Disabled by default: `controller.replicas` is 1, and a
+  # `minAvailable: 1` budget on a single-replica Deployment blocks every voluntary
+  # eviction, so node drains and cluster upgrades hang indefinitely. Raise
+  # `controller.replicas` before switching to `minAvailable`.
+  pdb:
+    # -- Set to true to create the PodDisruptionBudget.
+    enabled: false
+    # -- Minimum number of pods that must remain available. Int or percentage string
+    # (e.g. `1` or `"50%"`). Mutually exclusive with `maxUnavailable`.
+    # @default -- unset (`maxUnavailable` is used instead)
+    minAvailable: null
+    # -- Maximum number of pods that may be unavailable. Int or percentage string
+    # (e.g. `1` or `"50%"`). Mutually exclusive with `minAvailable`.
+    maxUnavailable: 1
+    # -- `spec.unhealthyPodEvictionPolicy`, one of `IfHealthyBudget` (the Kubernetes
+    # default) or `AlwaysAllow`. `AlwaysAllow` lets unhealthy pods be evicted even when
+    # the budget is exhausted, which avoids drains wedging on a crash-looping pod.
+    # Requires Kubernetes >= 1.27. Omitted from the manifest when empty.
+    # @default -- "" (defer to the Kubernetes default)
+    unhealthyPodEvictionPolicy: ""
+    # -- Additional labels for the controller PodDisruptionBudget.
+    labels: {}
+    # -- Annotations for the controller PodDisruptionBudget.
+    annotations: {}
+
   image:
     registry: ""
     repository: kagent-dev/kagent/controller
@@ -494,6 +520,33 @@ ui:
 
   # -- [Topology spread constraints](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#pod-topology-spread-constraints) for the UI pod.
   topologySpreadConstraints: []
+
+  # -- [PodDisruptionBudget](https://kubernetes.io/docs/tasks/run-application/configure-pdb/)
+  # for the UI pods. Disabled by default: `ui.replicas` is 1, and a `minAvailable: 1`
+  # budget on a single-replica Deployment blocks every voluntary eviction, so node
+  # drains and cluster upgrades hang indefinitely. Raise `ui.replicas` before
+  # switching to `minAvailable`.
+  pdb:
+    # -- Set to true to create the PodDisruptionBudget.
+    enabled: false
+    # -- Minimum number of pods that must remain available. Int or percentage string
+    # (e.g. `1` or `"50%"`). Mutually exclusive with `maxUnavailable`.
+    # @default -- unset (`maxUnavailable` is used instead)
+    minAvailable: null
+    # -- Maximum number of pods that may be unavailable. Int or percentage string
+    # (e.g. `1` or `"50%"`). Mutually exclusive with `minAvailable`.
+    maxUnavailable: 1
+    # -- `spec.unhealthyPodEvictionPolicy`, one of `IfHealthyBudget` (the Kubernetes
+    # default) or `AlwaysAllow`. `AlwaysAllow` lets unhealthy pods be evicted even when
+    # the budget is exhausted, which avoids drains wedging on a crash-looping pod.
+    # Requires Kubernetes >= 1.27. Omitted from the manifest when empty.
+    # @default -- "" (defer to the Kubernetes default)
+    unhealthyPodEvictionPolicy: ""
+    # -- Additional labels for the UI PodDisruptionBudget.
+    labels: {}
+    # -- Annotations for the UI PodDisruptionBudget.
+    annotations: {}
+
   # -- Custom startup probe for the UI container.
   # Override to adjust thresholds, use exec-based probes, or change the health path.
   # @default -- httpGet /health on port http, periodSeconds=1, initialDelaySeconds=1

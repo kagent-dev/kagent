@@ -103,6 +103,24 @@ DOCUMENTATION:
 
   Ensure migrations are applied out-of-band before installing or upgrading.
 {{- end }}
+{{- range $component := (list "controller" "ui") }}
+{{- $cfg := index $.Values $component }}
+{{- $pdb := $cfg.pdb | default dict }}
+{{- if and $pdb.enabled (include "kagent.pdb.isSet" $pdb.minAvailable) (le (int $cfg.replicas) (int $pdb.minAvailable)) }}
+################################################################################
+{{ printf "# WARNING: %s PODDISRUPTIONBUDGET WILL BLOCK NODE DRAINS" (upper $component) | printf "%-79s" }}#
+################################################################################
+  {{ $component }}.pdb.minAvailable is {{ $pdb.minAvailable }} but {{ $component }}.replicas is {{ $cfg.replicas }}.
+  The budget can never be satisfied while a pod is evicted, so every voluntary
+  eviction is refused and node drains and cluster upgrades will hang.
+
+  Either raise the replica count:
+    {{ $component }}.replicas={{ add (int $pdb.minAvailable) 1 }}
+  or switch to maxUnavailable:
+    {{ $component }}.pdb.minAvailable=null {{ $component }}.pdb.maxUnavailable=1
+
+{{ end }}
+{{- end }}
 {{- if .Values.substrate.enabled }}
 ################################################################################
 # WARNING: SUBSTRATE IS EXPERIMENTAL, USE AT OWN RISK                          #
