@@ -247,13 +247,6 @@ type DeclarativeAgentSpec struct {
 	// +optional
 	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
 
-	// Allow code execution for python code blocks with this agent.
-	// If true, the agent will automatically execute python code blocks in the LLM responses.
-	// Code will be executed in a sandboxed environment.
-	// +optional
-	// due to a bug in adk (https://github.com/google/adk-python/issues/3921 ), this field is ignored for now.
-	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
-
 	// Memory configuration for the agent.
 	// +optional
 	Memory *MemorySpec `json:"memory,omitempty"`

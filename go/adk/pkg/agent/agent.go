@@ -97,13 +97,11 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 
 	// Build BeforeToolCallbacks. Approval gating runs first.
 	beforeToolCallbacks := []llmagent.BeforeToolCallback{}
-	// Strip synthetic HITL tool messages from the model request to avoid unnecessary token usage.
 	beforeModelCallbacks := []llmagent.BeforeModelCallback{}
 
 	if len(approvalSet) > 0 {
 		log.Info("Wiring approval callback", "toolCount", len(approvalSet))
 		beforeToolCallbacks = append(beforeToolCallbacks, MakeApprovalCallback(approvalSet))
-		beforeModelCallbacks = append(beforeModelCallbacks, MakeStripConfirmationPartsCallback())
 	}
 	if len(mcpAppToolNames) > 0 {
 		// For MCP App-capable tools, keep rich tool payloads in chat history for UI rendering,

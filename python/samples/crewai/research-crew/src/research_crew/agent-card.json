@@ -1,7 +1,6 @@
 {
   "name": "research-crew",
   "description": "A research CrewAI agent that can conduct research and analysis",
-  "url": "localhost:8080",
   "version": "0.1.0",
   "capabilities": {
     "streaming": true

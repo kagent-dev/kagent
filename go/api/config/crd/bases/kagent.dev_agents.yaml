@@ -76,6 +76,7 @@ spec:
                           description: Examples are optional usage examples.
                           items:
                             type: string
+                          maxItems: 20
                           type: array
                         id:
                           description: ID is the unique identifier for the skill.
@@ -87,6 +88,7 @@ spec:
                           type: array
                         name:
                           description: Name is the human-readable name of the skill.
+                          minLength: 1
                           type: string
                         outputModes:
                           description: OutputModes are the supported output data modes/types.
@@ -97,11 +99,10 @@ spec:
                           description: Tags are optional tags for categorization.
                           items:
                             type: string
+                          maxItems: 20
                           type: array
                       required:
-                      - id
                       - name
-                      - tags
                       type: object
                     minItems: 1
                     type: array
@@ -13521,13 +13522,6 @@ spec:
                     - message: serviceAccountName and serviceAccountConfig are mutually
                         exclusive
                       rule: '!(has(self.serviceAccountName) && has(self.serviceAccountConfig))'
-                  executeCodeBlocks:
-                    description: |-
-                      Allow code execution for python code blocks with this agent.
-                      If true, the agent will automatically execute python code blocks in the LLM responses.
-                      Code will be executed in a sandboxed environment.
-                      due to a bug in adk (https://github.com/google/adk-python/issues/3921 ), this field is ignored for now.
-                    type: boolean
                   memory:
                     description: Memory configuration for the agent.
                     properties:

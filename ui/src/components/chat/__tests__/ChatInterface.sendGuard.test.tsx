@@ -3,11 +3,12 @@
  */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { Message, Task, TaskStatusUpdateEvent } from "@a2a-js/sdk";
+import { Role, TaskState, type Message, type StreamResponse, type Task } from "@a2a-js/sdk";
 import { checkSessionExists, createSession, getSessionTasks } from "@/app/actions/sessions";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { toast } from "sonner";
 import ChatInterface from "@/components/chat/ChatInterface";
+import { createMockSession, createMockTask, createMockTextMessage, createTextPart } from "@/mocks/factories";
 import type { Session } from "@/types";
 
 jest.mock("@/app/actions/sessions", () => ({
@@ -58,10 +59,20 @@ jest.mock("@/components/chat/ChatMessage", () => ({
   default: ({ message }: { message: Message }) => (
     <div data-testid={`chat-message-${message.role}`}>
       {message.parts
-        ?.map((part) => part.kind === "text" ? part.text : JSON.stringify(part))
+        ?.map((part) => {
+          if ((part as { content?: { $case?: string; value?: unknown } }).content?.$case === "text") {
+            return (part as { content?: { value?: string } }).content?.value ?? "";
+          }
+          return JSON.stringify(part);
+        })
         .join("")}
     </div>
   ),
+}));
+
+jest.mock("@/components/chat/ShareButton", () => ({
+  __esModule: true,
+  default: () => null,
 }));
 
 jest.mock("@/components/chat/StreamingMessage", () => ({
@@ -77,59 +88,81 @@ const mockToastInfo = toast.info as jest.MockedFunction<typeof toast.info>;
 
 const staleToastMessage = "New messages loaded, please review before sending";
 
-// The send guard is server-authoritative: it compares the count of persisted
-// history messages across all tasks (the high-water mark) against the count this
-// tab last synced. These helpers build tasks whose `history.length` drives that
-// count, the message content is irrelevant to the guard.
+// The send guard is server-authoritative: it compares the persisted user-message
+// high-water mark against what this tab last synced. In A2A v1, assistant output
+// belongs in artifacts; history contains the user request that created the task.
 
 // The backend snapshot the mocked getSessionTasks currently returns. The stream
 // generators advance it to model a turn being persisted after it streams.
 let currentTasks: Task[] = [];
 
-function textMessage(messageId: string, role: "user" | "agent", text: string, contextId = "session-1", taskId = "task-1"): Message {
-  return {
-    kind: "message",
-    messageId,
-    role,
+function textMessage(messageId: string, role: Role, text: string, contextId = "session-1", taskId = "task-1"): Message {
+  return createMockTextMessage(messageId, role, text, {
     contextId,
     taskId,
-    parts: [{ kind: "text", text }],
     metadata: { timestamp: Date.now() },
-  } as Message;
+  });
 }
 
-/** A completed task whose history (a user + agent turn) contributes 2 to the mark. */
+/** A completed A2A v1 turn: user input in history and agent output in an artifact. */
 function completedTurnTask(taskId: string, prompt: string, answer: string, contextId = "session-1"): Task {
-  return {
-    id: taskId,
-    contextId,
-    status: {
-      state: "completed",
-      timestamp: new Date().toISOString(),
-    },
-    history: [
-      textMessage(`${taskId}-user`, "user", prompt, contextId, taskId),
-      textMessage(`${taskId}-agent`, "agent", answer, contextId, taskId),
-    ],
-  } as Task;
+  const task = createMockTask(taskId, contextId, [
+    textMessage(`${taskId}-user`, Role.ROLE_USER, prompt, contextId, taskId),
+  ]);
+  task.artifacts = [{
+    artifactId: `${taskId}-answer`,
+    name: "",
+    description: "",
+    parts: [createTextPart(answer)],
+    extensions: [],
+    metadata: undefined,
+  }];
+  return task;
 }
 
-function completedStatusEvent(text: string, contextId = "session-1", taskId = "task-streamed"): TaskStatusUpdateEvent {
+function finalArtifactEvent(text: string, contextId = "session-1", taskId = "task-streamed"): StreamResponse {
   return {
-    kind: "status-update",
-    contextId,
-    taskId,
-    final: true,
-    status: {
-      state: "completed",
-      timestamp: new Date().toISOString(),
-      message: textMessage(`assistant-${taskId}`, "agent", text, contextId, taskId),
+    payload: {
+      $case: "artifactUpdate",
+      value: {
+        contextId,
+        taskId,
+        metadata: undefined,
+        artifact: {
+          artifactId: `${taskId}-answer`,
+          name: "",
+          description: "",
+          parts: [createTextPart(text)],
+          extensions: [],
+          metadata: undefined,
+        },
+        append: false,
+        lastChunk: true,
+      },
     },
-  } as TaskStatusUpdateEvent;
+  } as StreamResponse;
+}
+
+function completedStatusEvent(contextId = "session-1", taskId = "task-streamed"): StreamResponse {
+  return {
+    payload: {
+      $case: "statusUpdate",
+      value: {
+        contextId,
+        taskId,
+        metadata: undefined,
+        status: {
+          state: TaskState.TASK_STATE_COMPLETED,
+          timestamp: new Date().toISOString(),
+          message: undefined,
+        },
+      },
+    },
+  } as StreamResponse;
 }
 
 /** Yields the given events, then advances the backend snapshot as if the turn was persisted. */
-async function* streamThenPersist(events: unknown[], persistedTasks: Task[]): AsyncIterable<unknown> {
+async function* streamThenPersist(events: StreamResponse[], persistedTasks: Task[]): AsyncIterable<StreamResponse> {
   for (const event of events) {
     yield event;
   }
@@ -137,16 +170,13 @@ async function* streamThenPersist(events: unknown[], persistedTasks: Task[]): As
 }
 
 function sessionFixture(overrides: Partial<Session> = {}): Session {
-  return {
+  return createMockSession({
     id: "session-1",
     name: "Existing chat",
     agent_id: "kagent__NS__test-agent",
     user_id: "user-1",
-    created_at: "2026-03-07T10:00:00Z",
-    updated_at: "2026-03-07T10:05:00Z",
-    deleted_at: "",
     ...overrides,
-  };
+  });
 }
 
 function renderExistingSession() {
@@ -174,19 +204,25 @@ describe("ChatInterface send guard (high-water mark)", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCheckSessionExists.mockResolvedValue({ data: true });
-    mockCreateSession.mockResolvedValue({ error: "unexpected createSession call" });
+    mockCheckSessionExists.mockResolvedValue({ message: "ok", data: true });
+    mockCreateSession.mockResolvedValue({ message: "unexpected createSession call", error: "unexpected createSession call" });
     // Every getSessionTasks (load, guard, refreshServerMark, reload) reads the
     // current backend snapshot; streams mutate it to simulate persistence.
-    mockGetSessionTasks.mockImplementation(async () => ({ data: currentTasks }));
+    mockGetSessionTasks.mockImplementation(async () => ({ message: "ok", data: currentTasks }));
   });
 
   it("does not block the next send after a same-tab turn advances the mark", async () => {
     currentTasks = initialTasks();
     const afterFirstTurn = [...initialTasks(), completedTurnTask("task-streamed", "same tab question", "same tab answer")];
     mockSendMessageStream
-      .mockResolvedValueOnce(streamThenPersist([completedStatusEvent("same tab answer")], afterFirstTurn))
-      .mockResolvedValueOnce(streamThenPersist([completedStatusEvent("next answer", "session-1", "task-next")], afterFirstTurn));
+      .mockResolvedValueOnce(streamThenPersist([
+        finalArtifactEvent("same tab answer"),
+        completedStatusEvent(),
+      ], afterFirstTurn))
+      .mockResolvedValueOnce(streamThenPersist([
+        finalArtifactEvent("next answer", "session-1", "task-next"),
+        completedStatusEvent("session-1", "task-next"),
+      ], afterFirstTurn));
 
     renderExistingSession();
 
@@ -228,7 +264,10 @@ describe("ChatInterface send guard (high-water mark)", () => {
 
   it("proceeds after a block once the reload re-syncs the mark", async () => {
     currentTasks = initialTasks();
-    mockSendMessageStream.mockResolvedValueOnce(streamThenPersist([completedStatusEvent("ok")], currentTasks));
+    mockSendMessageStream.mockResolvedValueOnce(streamThenPersist([
+      finalArtifactEvent("ok"),
+      completedStatusEvent(),
+    ], currentTasks));
 
     renderExistingSession();
     expect(await screen.findByText("initial answer")).toBeInTheDocument();

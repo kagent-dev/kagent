@@ -367,7 +367,7 @@ func TestE2E_RMS_PrivateCAUpstream(t *testing.T) {
 	}})
 	a2aClient := setupA2AClient(t, agent)
 
-	runSyncTest(t, a2aClient, "add 2 and 3", "5", nil)
+	runSyncTest(t, a2aClient, "add 2 and 3", "5")
 
 	// The agent's tools/call should also have reached mockmcp.
 	postInvoke := mcp.server.Requests()
@@ -416,7 +416,7 @@ func TestE2E_RMS_DisableVerify(t *testing.T) {
 	}})
 	a2aClient := setupA2AClient(t, agent)
 
-	runSyncTest(t, a2aClient, "add 2 and 3", "5", nil)
+	runSyncTest(t, a2aClient, "add 2 and 3", "5")
 }
 
 // TestE2E_RMS_SSE_TLS exercises the SSE-transport-with-TLS code path.
@@ -472,7 +472,7 @@ func TestE2E_RMS_SSE_TLS(t *testing.T) {
 	}})
 	a2aClient := setupA2AClient(t, agent)
 
-	runSyncTest(t, a2aClient, "add 2 and 3", "5", nil)
+	runSyncTest(t, a2aClient, "add 2 and 3", "5")
 }
 
 // TestE2E_API_ToolServerCompanionSecrets posts a ToolServerCreateRequest

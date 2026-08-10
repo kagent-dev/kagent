@@ -80,7 +80,6 @@ AgentSpec
 │   │       ├── summarizer: ContextSummarizerConfig
 │   │       ├── tokenThreshold: int
 │   │       └── eventRetentionSize: int
-│   └── executeCodeBlocks: bool (currently ignored)
 │
 └── byo: BYOAgentSpec (if type=BYO)
     └── deployment: ByoDeploymentSpec

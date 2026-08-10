@@ -1,12 +1,30 @@
 import { getBackendUrl } from "./utils";
 import { v4 as uuidv4 } from 'uuid';
-import { MessageSendParams } from '@a2a-js/sdk';
+import {
+  A2A_PROTOCOL_VERSION,
+  A2A_VERSION_HEADER,
+  parseSseStream,
+  SendMessageRequest,
+  StreamResponse,
+  SubscribeToTaskRequest,
+} from '@a2a-js/sdk';
+import type {
+  SendMessageRequest as A2ASendMessageRequest,
+  StreamResponse as A2AStreamResponse,
+  SubscribeToTaskRequest as A2ASubscribeToTaskRequest,
+} from '@a2a-js/sdk';
 import { formatA2AClientError } from './a2aErrors';
+import { HITL_EXTENSION_URI } from '@/types';
+
+export const A2A_JSONRPC_METHODS = {
+  sendStreamingMessage: "SendStreamingMessage",
+  subscribeToTask: "SubscribeToTask",
+} as const;
 
 export interface A2AJsonRpcRequest {
   jsonrpc: "2.0";
   method: string;
-  params: MessageSendParams;
+  params: Record<string, unknown>;
   id: string | number;
 }
 
@@ -28,11 +46,11 @@ export class KagentA2AClient {
   /**
    * Create JSON-RPC request for message streaming
    */
-  createStreamingRequest(params: MessageSendParams): A2AJsonRpcRequest {
+  createStreamingRequest(params: A2ASendMessageRequest): A2AJsonRpcRequest {
     return {
       jsonrpc: "2.0",
-      method: "message/stream",
-      params,
+      method: A2A_JSONRPC_METHODS.sendStreamingMessage,
+      params: SendMessageRequest.toJSON(params) as Record<string, unknown>,
       id: uuidv4(),  // A2A server requires an id field
     };
   }
@@ -44,11 +62,11 @@ export class KagentA2AClient {
   async sendMessageStream(
     namespace: string,
     agentName: string,
-    params: MessageSendParams,
+    params: A2ASendMessageRequest,
     signal?: AbortSignal,
     runInSandbox = false,
     shareToken?: string
-  ): Promise<AsyncIterable<unknown>> {
+  ): Promise<AsyncIterable<A2AStreamResponse>> {
     const request = this.createStreamingRequest(params);
     const proxyUrl = runInSandbox
       ? `/a2a-sandboxes/${namespace}/${agentName}`
@@ -57,6 +75,8 @@ export class KagentA2AClient {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream',
+      [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
+      'A2A-Extensions': HITL_EXTENSION_URI,
     };
     if (shareToken) headers['X-Share-Token'] = shareToken;
 
@@ -73,12 +93,8 @@ export class KagentA2AClient {
       throw new Error(formatA2AClientError(errorText || `${response.status} ${response.statusText}`));
     }
 
-    if (!response.body) {
-      throw new Error('Response body is null');
-    }
-
     // Return an async iterable for SSE processing
-    return this.processSSEStream(response.body);
+    return this.processSSEStream(response);
   }
 
   /**
@@ -93,11 +109,14 @@ export class KagentA2AClient {
     signal?: AbortSignal,
     runInSandbox = false,
     shareToken?: string
-  ): Promise<AsyncIterable<unknown>> {
-    const request = {
+  ): Promise<AsyncIterable<A2AStreamResponse>> {
+    const request: A2AJsonRpcRequest = {
       jsonrpc: "2.0" as const,
-      method: "tasks/resubscribe",
-      params: { id: taskId },
+      method: A2A_JSONRPC_METHODS.subscribeToTask,
+      params: SubscribeToTaskRequest.toJSON({
+        tenant: "",
+        id: taskId,
+      } satisfies A2ASubscribeToTaskRequest) as Record<string, unknown>,
       id: uuidv4(),
     };
 
@@ -108,6 +127,8 @@ export class KagentA2AClient {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream',
+      [A2A_VERSION_HEADER]: A2A_PROTOCOL_VERSION,
+      'A2A-Extensions': HITL_EXTENSION_URI,
     };
     if (shareToken) headers['X-Share-Token'] = shareToken;
 
@@ -123,62 +144,60 @@ export class KagentA2AClient {
       throw new Error(formatA2AClientError(errorText || `${response.status} ${response.statusText}`));
     }
 
-    if (!response.body) {
-      throw new Error('Response body is null');
-    }
-
-    return this.processSSEStream(response.body);
+    return this.processSSEStream(response);
   }
 
   /**
    * Process Server-Sent Events stream with proper event boundary detection
    */
-  private async *processSSEStream(body: ReadableStream<Uint8Array>): AsyncIterable<unknown> {
-    const reader = body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    try {
-      while (true) {
-        const { value, done } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-
-        // Process complete SSE events (delimited by \n\n)
-        let eventEndIndex;
-        while ((eventEndIndex = buffer.indexOf('\n\n')) >= 0) {
-          const eventText = buffer.substring(0, eventEndIndex);
-          buffer = buffer.substring(eventEndIndex + 2);
-
-          if (eventText.trim()) {
-            const lines = eventText.split('\n');
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const dataString = line.substring(6);
-
-                if (dataString === '[DONE]') {
-                  return;
-                }
-
-                try {
-                  const eventData = JSON.parse(dataString);
-                  yield eventData.result || eventData;
-                } catch (error) {
-                  console.error("❌ Failed to parse SSE data:", error, dataString);
-                }
-              }
-            }
-          }
-        }
+  private async *processSSEStream(response: Response): AsyncIterable<A2AStreamResponse> {
+    for await (const event of parseSseStream(response)) {
+      if (event.data === '[DONE]') {
+        return;
       }
-    } finally {
-      reader.releaseLock();
+
+      let eventData: unknown;
+      try {
+        eventData = JSON.parse(event.data) as unknown;
+      } catch (error) {
+        console.error("❌ Failed to parse SSE data:", error, event.data);
+        continue;
+      }
+
+      const error = getA2AStreamError(event.type, eventData);
+      if (error) {
+        throw new Error(`A2A error ${error.code ?? "unknown"}: ${error.message ?? "unknown error"}`);
+      }
+
+      const payload = isRecord(eventData) && "result" in eventData ? eventData.result : eventData;
+      yield StreamResponse.fromJSON(payload);
     }
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getA2AStreamError(
+  eventType: string,
+  eventData: unknown
+): { code?: number; message?: string } | undefined {
+  const errorData =
+    isRecord(eventData) && isRecord(eventData.error)
+      ? eventData.error
+      : eventType === "error" && isRecord(eventData)
+        ? eventData
+        : undefined;
+
+  if (!errorData) {
+    return undefined;
+  }
+
+  return {
+    code: typeof errorData.code === "number" ? errorData.code : undefined,
+    message: typeof errorData.message === "string" ? errorData.message : undefined,
+  };
 }
 
 export const kagentA2AClient = new KagentA2AClient(); 

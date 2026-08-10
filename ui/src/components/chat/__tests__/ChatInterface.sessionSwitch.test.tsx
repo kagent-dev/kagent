@@ -2,10 +2,12 @@
  * @jest-environment jsdom
  */
 import { act, render, screen, waitFor } from "@testing-library/react";
-import type { Message, Task } from "@a2a-js/sdk";
+import { Role, type Task } from "@a2a-js/sdk";
 import { checkSessionExists, createSession, getSessionTasks } from "@/app/actions/sessions";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import ChatInterface from "@/components/chat/ChatInterface";
+import { createMockTask, createMockTextMessage, createTextPart } from "@/mocks/factories";
+import type { BaseResponse } from "@/types";
 
 jest.mock("@/app/actions/sessions", () => ({
   checkSessionExists: jest.fn(),
@@ -47,9 +49,11 @@ jest.mock("@/components/chat/ChatAgentContext", () => ({
 
 jest.mock("@/components/chat/ChatMessage", () => ({
   __esModule: true,
-  default: ({ message }: { message: Message }) => (
+  default: ({ message }: { message: import("@a2a-js/sdk").Message }) => (
     <div data-testid={`chat-message-${message.role}`}>
-      {message.parts?.map((part) => (part.kind === "text" ? part.text : "")).join("")}
+      {message.parts
+        ?.map((part) => (part.content?.$case === "text" ? part.content.value : ""))
+        .join("")}
     </div>
   ),
 }));
@@ -66,23 +70,24 @@ const mockResubscribeStream = kagentA2AClient.resubscribeStream as jest.MockedFu
   typeof kagentA2AClient.resubscribeStream
 >;
 
+/** A completed A2A v1 turn: user request in history, agent output in an artifact. */
 function task(sessionId: string, answer: string): Task {
-  return {
-    id: `task-${sessionId}`,
-    contextId: sessionId,
-    status: { state: "completed", timestamp: new Date().toISOString() },
-    history: [
-      {
-        kind: "message",
-        messageId: `${sessionId}-agent`,
-        role: "agent",
-        contextId: sessionId,
-        taskId: `task-${sessionId}`,
-        parts: [{ kind: "text", text: answer }],
-        metadata: { timestamp: Date.now() },
-      } as Message,
-    ],
-  } as Task;
+  const taskId = `task-${sessionId}`;
+  const result = createMockTask(taskId, sessionId, [
+    createMockTextMessage(`${sessionId}-user`, Role.ROLE_USER, "hi", {
+      contextId: sessionId,
+      taskId,
+    }),
+  ]);
+  result.artifacts = [{
+    artifactId: `${taskId}-answer`,
+    name: "",
+    description: "",
+    parts: [createTextPart(answer)],
+    extensions: [],
+    metadata: undefined,
+  }];
+  return result;
 }
 
 /** A promise this test can resolve on demand, to control arrival order. */
@@ -97,14 +102,14 @@ function deferred<T>() {
 describe("ChatInterface session switch", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCheckSessionExists.mockResolvedValue({ data: true });
-    mockCreateSession.mockResolvedValue({ error: "unexpected createSession call" });
-    mockResubscribeStream.mockReturnValue((async function* () {})());
+    mockCheckSessionExists.mockResolvedValue({ message: "ok", data: true });
+    mockCreateSession.mockResolvedValue({ message: "unexpected createSession call", error: "unexpected createSession call" });
+    mockResubscribeStream.mockReturnValue(Promise.resolve((async function* () {})()));
   });
 
   it("does not show a stale session's messages after they arrive out of order", async () => {
-    const sessionA = deferred<{ data: Task[] }>();
-    const sessionB = deferred<{ data: Task[] }>();
+    const sessionA = deferred<BaseResponse<Task[]>>();
+    const sessionB = deferred<BaseResponse<Task[]>>();
     mockGetSessionTasks.mockImplementation(async (sessionId: string) =>
       sessionId === "session-a" ? sessionA.promise : sessionB.promise,
     );
@@ -116,13 +121,13 @@ describe("ChatInterface session switch", () => {
     await waitFor(() => expect(mockGetSessionTasks).toHaveBeenCalledWith("session-b", undefined));
 
     // session-b's fetch resolves first, then session-a's late response arrives.
-    sessionB.resolve({ data: [task("session-b", "answer b")] });
+    sessionB.resolve({ message: "ok", data: [task("session-b", "answer b")] });
     await screen.findByText("answer b");
 
     // Let the late session-a response run its full async continuation past
     // the awaited getSessionTasks call before asserting on the DOM.
     await act(async () => {
-      sessionA.resolve({ data: [task("session-a", "answer a")] });
+      sessionA.resolve({ message: "ok", data: [task("session-a", "answer a")] });
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();

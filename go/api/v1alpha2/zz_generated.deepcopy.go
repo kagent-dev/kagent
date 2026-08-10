@@ -879,11 +879,6 @@ func (in *DeclarativeAgentSpec) DeepCopyInto(out *DeclarativeAgentSpec) {
 		*out = new(DeclarativeDeploymentSpec)
 		(*in).DeepCopyInto(*out)
 	}
-	if in.ExecuteCodeBlocks != nil {
-		in, out := &in.ExecuteCodeBlocks, &out.ExecuteCodeBlocks
-		*out = new(bool)
-		**out = **in
-	}
 	if in.Memory != nil {
 		in, out := &in.Memory, &out.Memory
 		*out = new(MemorySpec)

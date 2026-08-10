@@ -4,13 +4,15 @@ import os
 from typing import Union
 
 import httpx
-from a2a.server.apps import A2AStarletteApplication
-from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.request_handlers import DefaultRequestHandlerV2
+from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
+from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, configure_tracing
 from kagent.core.a2a import (
+    A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
     get_a2a_max_content_length,
@@ -42,13 +44,13 @@ class KAgentApp:
         self,
         *,
         crew: Union[Crew, Flow],
-        agent_card: AgentCard,
+        agent_card: AgentCard | dict,
         config: KAgentConfig = KAgentConfig(),
         executor_config: CrewAIAgentExecutorConfig | None = None,
         tracing: bool = True,
     ):
         self._crew = crew
-        self.agent_card = AgentCard.model_validate(agent_card)
+        self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
         self.config = config
         self.executor_config = executor_config or CrewAIAgentExecutorConfig()
         self.tracing = tracing
@@ -65,17 +67,11 @@ class KAgentApp:
 
         task_store = KAgentTaskStore(http_client)
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandler(
+        request_handler = DefaultRequestHandlerV2(
             agent_executor=agent_executor,
             task_store=task_store,
-            request_context_builder=request_context_builder,
-        )
-
-        max_content_length = get_a2a_max_content_length()
-        a2a_app = A2AStarletteApplication(
             agent_card=self.agent_card,
-            http_handler=request_handler,
-            max_content_length=max_content_length,
+            request_context_builder=request_context_builder,
         )
 
         faulthandler.enable()
@@ -83,6 +79,10 @@ class KAgentApp:
             title=f"KAgent CrewAI: {self.config.app_name}",
             description=f"CrewAI agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
+        )
+        app.add_middleware(
+            A2ARequestSizeLimitMiddleware,
+            max_content_length=get_a2a_max_content_length(),
         )
 
         if self.tracing:
@@ -94,6 +94,10 @@ class KAgentApp:
 
         app.add_route("/health", methods=["GET"], route=def_health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-        a2a_app.add_routes_to_app(app)
+        add_a2a_routes_to_fastapi(
+            app,
+            agent_card_routes=create_agent_card_routes(self.agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+        )
 
         return app

@@ -255,6 +255,12 @@ export interface Tool {
   type: ToolProviderType;
   mcpServer?: McpServerTool;
   agent?: TypedLocalReference;
+  /**
+   * Agent tools only. When true, each call to the sub-agent gets a fresh
+   * A2A context_id (isolated session). Default/false reuses one session.
+   * Required for parallel fan-out to the same sub-agent.
+   */
+  isolateSessions?: boolean;
 }
 
 export interface TypedLocalReference {
@@ -680,70 +686,59 @@ export interface AgentMemory {
 // ---------------------------------------------------------------------------
 // HITL (Human-in-the-Loop) types
 //
-// These mirror the Python models in kagent-core/a2a/_hitl_utils.py and describe the
-// A2A - UI wire format for request and decision paths in HITL flow.
+// These mirror the framework-neutral models in kagent-core/a2a/_hitl.py.
 // ---------------------------------------------------------------------------
 
 /** A single tool approval decision value. */
 export type ToolDecision = "approve" | "reject";
 
-/**
- * The resolved approval decision stored on a ToolApprovalRequest message.
- * - A single ToolDecision string for uniform decisions (all approve or all reject).
- * - A per-tool map (keyed by tool call ID) for batch/mixed decisions.
- */
-export type ApprovalDecision = ToolDecision | Record<string, ToolDecision>;
+export const HITL_EXTENSION_URI = "https://kagent.dev/extensions/hitl/v1";
 
-// The original tool function call that requires human approval.
-export interface HitlOriginalFunctionCall {
+export interface HitlTool {
+  id: string;
+  call_id: string;
   name: string;
   args: Record<string, unknown>;
-  id?: string;
 }
 
-// Payload stored inside the toolConfirmation field of an adk_request_confirmation DataPart.
-export interface HitlToolConfirmationPayload {
-  /**
-   * For subagent HITL: serialized HitlPartInfo[] from the subagent's own
-   * input_required DataParts (see KAgentRemoteA2ATool._handle_input_required).
-   * Each entry has the same shape as AdkRequestConfirmationData (without
-   * toolConfirmation, since those are leaf-level tool calls).
-   */
-  hitl_parts?: HitlPartInfo[];
-  // The subagent name, set by KAgentRemoteA2ATool.
+export interface NestedHitlRequest {
   subagent_name?: string;
-  // Subagent task_id stored for the resume path.
   task_id?: string;
-  // Subagent context_id stored for the resume path.
   context_id?: string;
+  tools: HitlTool[];
 }
 
-// The toolConfirmation field of an adk_request_confirmation DataPart.
-export interface HitlToolConfirmation {
+export interface ToolApprovalRequestPayload {
+  type: "tool_approval_request";
   hint?: string;
-  confirmed?: boolean;
-  payload?: HitlToolConfirmationPayload;
+  tools: HitlTool[];
+  nested?: NestedHitlRequest | null;
 }
 
-// Args of the adk_request_confirmation FunctionCall.
-export interface HitlRequestConfirmationArgs {
-  originalFunctionCall: HitlOriginalFunctionCall;
-  toolConfirmation?: HitlToolConfirmation;
-}
-
-// A single serialized HitlPartInfo — the data dict of an adk_request_confirmation DataPart.
-export interface HitlPartInfo {
-  // Always "adk_request_confirmation".
-  name: string;
-  // The confirmation function-call ID (distinct from the original FC ID).
-  id?: string;
-  // The original tool call that requires approval.
-  originalFunctionCall: HitlOriginalFunctionCall;
-}
-
-// The full data payload of an adk_request_confirmation DataPart, as produced by the ADK event converter and read by the UI.
-export interface AdkRequestConfirmationData {
-  name: string;
+export interface AskUserRequestPayload {
+  type: "ask_user_request";
   id: string;
-  args: HitlRequestConfirmationArgs;
+  questions: Array<{ question: string; choices?: string[]; multiple?: boolean }>;
+  nested?: NestedHitlRequest | null;
 }
+
+export interface ToolApprovalResult {
+  id: string;
+  approved: boolean;
+  rejection_reason?: string;
+}
+
+export interface ToolApprovalResponsePayload {
+  type: "tool_approval_response";
+  approvals: ToolApprovalResult[];
+}
+
+export interface AskUserResponsePayload {
+  type: "ask_user_response";
+  id: string;
+  answers?: Array<{ answer: string[] }> | null;
+}
+
+export type HitlRequestPayload = ToolApprovalRequestPayload | AskUserRequestPayload;
+export type HitlResponsePayload = ToolApprovalResponsePayload | AskUserResponsePayload;
+export type HitlExtensionPayload = HitlRequestPayload | HitlResponsePayload;

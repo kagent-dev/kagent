@@ -16,9 +16,7 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
-	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/pgvector/pgvector-go"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 type postgresClient struct {
@@ -279,24 +277,19 @@ func (c *postgresClient) ListEventsForSession(ctx context.Context, sessionID, us
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
-// TODO(0.11.0): Switch task writes to v1 storage format and remove legacy conversion from this write path.
-// NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0
 func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task, userID string) error {
-	legacyTask, err := trpcv0.ToLegacyTask(task)
-	if err != nil {
-		return fmt.Errorf("failed to convert task to legacy format: %w", err)
-	}
-	data, err := json.Marshal(legacyTask)
+	data, err := json.Marshal(task)
 	if err != nil {
 		return fmt.Errorf("failed to serialize task: %w", err)
 	}
+	protocolVersion := string(a2a.Version)
 	// UpsertTask returns no rows when the write was rejected: the id belongs
 	// to another user, or to a soft-deleted task (deleted ids stay burned).
 	if _, err := c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
 		ID:              string(task.ID),
 		Data:            string(data),
 		SessionID:       strPtrIfNotEmpty(task.ContextID),
-		ProtocolVersion: nil,
+		ProtocolVersion: &protocolVersion,
 		UserID:          &userID,
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -362,19 +355,17 @@ func (c *postgresClient) DeleteTask(ctx context.Context, taskID, userID string) 
 
 // ── Push Notifications ────────────────────────────────────────────────────────
 
-// TODO(0.11.0): Switch push notification writes to v1 storage format and remove legacy conversion from this write path.
-// NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0.
 func (c *postgresClient) StorePushNotification(ctx context.Context, config *a2a.PushConfig) error {
-	legacyConfig := trpcv0.ToLegacyPushConfig(config)
-	data, err := json.Marshal(legacyConfig)
+	data, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to serialize push notification: %w", err)
 	}
+	protocolVersion := string(a2a.Version)
 	return c.q.UpsertPushNotification(ctx, dbgen.UpsertPushNotificationParams{
 		ID:              config.ID,
 		TaskID:          string(config.TaskID),
 		Data:            string(data),
-		ProtocolVersion: nil,
+		ProtocolVersion: &protocolVersion,
 	})
 }
 
@@ -1042,48 +1033,28 @@ func strPtrIfNotEmpty(s string) *string {
 	return &s
 }
 
-// parseVersionedTask parses a task from a string and a version, handles conversion from legacy to v1 format.
+// parseVersionedTask accepts only official A2A v1 rows during the v1-only cutover.
 func parseVersionedTask(data string, version *string) (*a2a.Task, error) {
-	switch {
-	case version == nil || *version == "":
-		var legacyTask protocol.Task
-		if err := json.Unmarshal([]byte(data), &legacyTask); err != nil {
-			return nil, fmt.Errorf("failed to deserialize legacy task: %w", err)
-		}
-		task, err := trpcv0.ToV1Task(&legacyTask)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert legacy task to v1: %w", err)
-		}
-		return task, nil
-	case *version == trpcv0.ProtocolVersionV1:
-		var task a2a.Task
-		if err := json.Unmarshal([]byte(data), &task); err != nil {
-			return nil, fmt.Errorf("failed to deserialize v1 task: %w", err)
-		}
-		return &task, nil
-	default:
-		return nil, fmt.Errorf("unsupported task protocol_version %q", *version)
+	if version == nil || *version != string(a2a.Version) {
+		return nil, fmt.Errorf("unsupported task protocol_version %q: expected %q", derefStr(version), a2a.Version)
 	}
+	var task a2a.Task
+	if err := json.Unmarshal([]byte(data), &task); err != nil {
+		return nil, fmt.Errorf("failed to deserialize task: %w", err)
+	}
+	return &task, nil
 }
 
-// parseVersionedPushConfig parses a push notification config from a string and a version, handles conversion from legacy to v1 format.
+// parseVersionedPushConfig accepts only official A2A v1 rows during the v1-only cutover.
 func parseVersionedPushConfig(data string, version *string) (*a2a.PushConfig, error) {
-	switch {
-	case version == nil || *version == "":
-		var legacyCfg protocol.TaskPushNotificationConfig
-		if err := json.Unmarshal([]byte(data), &legacyCfg); err != nil {
-			return nil, fmt.Errorf("failed to deserialize legacy push notification: %w", err)
-		}
-		return trpcv0.ToV1PushConfig(&legacyCfg), nil
-	case *version == trpcv0.ProtocolVersionV1:
-		var cfg a2a.PushConfig
-		if err := json.Unmarshal([]byte(data), &cfg); err != nil {
-			return nil, fmt.Errorf("failed to deserialize v1 push notification: %w", err)
-		}
-		return &cfg, nil
-	default:
-		return nil, fmt.Errorf("unsupported push_notification protocol_version %q", *version)
+	if version == nil || *version != string(a2a.Version) {
+		return nil, fmt.Errorf("unsupported push_notification protocol_version %q: expected %q", derefStr(version), a2a.Version)
 	}
+	var cfg a2a.PushConfig
+	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
+		return nil, fmt.Errorf("failed to deserialize push notification: %w", err)
+	}
+	return &cfg, nil
 }
 
 func derefStr(s *string) string {
