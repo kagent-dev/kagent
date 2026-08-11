@@ -31,7 +31,9 @@ import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import {
   MAX_SKILLS_PER_SOURCE,
   formRowsToGitRepos,
+  formRowsToS3Refs,
   newEmptyGitSkillRow,
+  newEmptyS3SkillRow,
 } from "@/lib/agentSkillsForm";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -111,6 +113,10 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   const resolvedGitSkillRepos = useMemo(
     () => formRowsToGitRepos(state.skillGitRepos || []),
     [state.skillGitRepos],
+  );
+  const resolvedS3SkillRefs = useMemo(
+    () => formRowsToS3Refs(state.skillS3Repos || []),
+    [state.skillS3Repos],
   );
 
   const ensureConfigMapSource = useCallback((cmName: string) => {
@@ -430,6 +436,8 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                                 skillRefs: [""],
                                 skillGitRepos: [newEmptyGitSkillRow()],
                                 skillsGitAuthSecretName: "",
+                                skillS3Repos: [newEmptyS3SkillRow()],
+                                skillsS3AuthSecretName: "",
                                 errors: { ...prev.errors, skills: undefined },
                               }
                             : {}),
@@ -706,9 +714,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   skillRefs={state.skillRefs}
                   skillGitRepos={state.skillGitRepos}
                   skillsGitAuthSecretName={state.skillsGitAuthSecretName}
+                  skillS3Repos={state.skillS3Repos}
+                  skillsS3AuthSecretName={state.skillsS3AuthSecretName}
                   skillsError={state.errors.skills}
                   disabled={disabled}
                   resolvedGitSkillRepos={resolvedGitSkillRepos}
+                  resolvedS3SkillRefs={resolvedS3SkillRefs}
                   onSkillRefChange={(index, value) => {
                     const copy = [...state.skillRefs];
                     copy[index] = value;
@@ -742,6 +753,26 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     }))
                   }
                   onGitAuthSecretChange={(value) => setState((prev) => ({ ...prev, skillsGitAuthSecretName: value }))}
+                  onS3RowChange={(index, next) => {
+                    const copy = [...state.skillS3Repos];
+                    copy[index] = next;
+                    setState((prev) => ({ ...prev, skillS3Repos: copy, errors: { ...prev.errors, skills: undefined } }));
+                  }}
+                  onAddS3Row={() => {
+                    if (state.skillS3Repos.length < MAX_SKILLS_PER_SOURCE) {
+                      setState((prev) => ({ ...prev, skillS3Repos: [...prev.skillS3Repos, newEmptyS3SkillRow()] }));
+                    }
+                  }}
+                  onRemoveS3Row={(index) =>
+                    setState((prev) => ({
+                      ...prev,
+                      skillS3Repos:
+                        prev.skillS3Repos.length <= 1
+                          ? [newEmptyS3SkillRow()]
+                          : prev.skillS3Repos.filter((_, i) => i !== index),
+                    }))
+                  }
+                  onS3AuthSecretChange={(value) => setState((prev) => ({ ...prev, skillsS3AuthSecretName: value }))}
                   onClearSkillsError={clearSkillsError}
                 />
                 ) : null}

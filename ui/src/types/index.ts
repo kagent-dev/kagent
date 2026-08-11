@@ -308,11 +308,24 @@ export interface GitRepo {
   name?: string;
 }
 
+/** Single S3 skill source (prefix or .zip/.tgz archive). */
+export interface S3SkillRef {
+  uri: string;
+  region?: string;
+  name?: string;
+}
+
+export interface SkillsInitContainer {
+  env?: EnvVar[];
+}
+
 export interface SkillForAgent {
   insecureSkipVerify?: boolean;
   refs?: string[];
   gitAuthSecretRef?: { name: string };
   gitRefs?: GitRepo[];
+  s3Refs?: S3SkillRef[];
+  initContainer?: SkillsInitContainer;
 }
 
 /** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). */

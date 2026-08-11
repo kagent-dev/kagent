@@ -35,6 +35,73 @@ func Test_ociSkillName(t *testing.T) {
 	}
 }
 
+func Test_s3SkillName(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  v1alpha2.S3SkillRef
+		want string
+	}{
+		{
+			name: "explicit name",
+			ref:  v1alpha2.S3SkillRef{URI: "s3://bucket/path/skill", Name: "custom"},
+			want: "custom",
+		},
+		{
+			name: "prefix last segment",
+			ref:  v1alpha2.S3SkillRef{URI: "s3://bucket/team/kebab-maker"},
+			want: "kebab-maker",
+		},
+		{
+			name: "zip strips extension",
+			ref:  v1alpha2.S3SkillRef{URI: "s3://bucket/bundles/ops.zip"},
+			want: "ops",
+		},
+		{
+			name: "tgz strips extension",
+			ref:  v1alpha2.S3SkillRef{URI: "s3://bucket/bundles/ops.tgz"},
+			want: "ops",
+		},
+		{
+			name: "tar.gz strips extension",
+			ref:  v1alpha2.S3SkillRef{URI: "s3://bucket/bundles/ops.tar.gz"},
+			want: "ops",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, s3SkillName(tt.ref))
+		})
+	}
+}
+
+func Test_prepareSkillsInitConfig_s3Refs(t *testing.T) {
+	cfg, err := prepareSkillsInitConfig(
+		nil, nil, nil, false, nil,
+		[]v1alpha2.S3SkillRef{
+			{URI: "s3://bucket/team/runbook", Region: "eu-west-1"},
+			{URI: "s3://bucket/bundles/ops.zip", Name: "ops-skill"},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, cfg.S3Refs, 2)
+	assert.Equal(t, skillsinit.S3Ref{
+		URI: "s3://bucket/team/runbook", Dest: "/skills/runbook", Region: "eu-west-1",
+	}, cfg.S3Refs[0])
+	assert.Equal(t, skillsinit.S3Ref{
+		URI: "s3://bucket/bundles/ops.zip", Dest: "/skills/ops-skill",
+	}, cfg.S3Refs[1])
+}
+
+func Test_prepareSkillsInitConfig_s3DuplicateName(t *testing.T) {
+	_, err := prepareSkillsInitConfig(
+		[]v1alpha2.GitRepo{{URL: "https://github.com/org/runbook", Ref: "main"}},
+		nil, nil, false, nil,
+		[]v1alpha2.S3SkillRef{{URI: "s3://bucket/team/runbook"}},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `duplicate skill directory name "runbook"`)
+}
+
 func Test_gitSkillName(t *testing.T) {
 	tests := []struct {
 		name string
@@ -280,7 +347,7 @@ func Test_prepareSkillsInitConfig_duplicateNames(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := prepareSkillsInitConfig(tt.gitRefs, nil, tt.ociRefs, false, nil)
+			_, err := prepareSkillsInitConfig(tt.gitRefs, nil, tt.ociRefs, false, nil, nil)
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -296,7 +363,7 @@ func Test_prepareSkillsInitConfig_pathTraversal(t *testing.T) {
 		[]v1alpha2.GitRepo{
 			{URL: "https://github.com/org/repo", Ref: "main", Path: "../escape"},
 		},
-		nil, nil, false, nil,
+		nil, nil, false, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "relative path")
@@ -307,7 +374,7 @@ func Test_prepareSkillsInitConfig_absolutePath(t *testing.T) {
 		[]v1alpha2.GitRepo{
 			{URL: "https://github.com/org/repo", Ref: "main", Path: "/etc/passwd"},
 		},
-		nil, nil, false, nil,
+		nil, nil, false, nil, nil,
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "relative path")
@@ -317,7 +384,7 @@ func Test_prepareSkillsInitConfig_authMountPath(t *testing.T) {
 	data, err := prepareSkillsInitConfig(
 		[]v1alpha2.GitRepo{{URL: "https://github.com/org/repo", Ref: "main"}},
 		&corev1.LocalObjectReference{Name: "my-secret"},
-		nil, false, nil,
+		nil, false, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "/git-auth", data.AuthMountPath)
@@ -333,7 +400,7 @@ func Test_prepareSkillsInitConfig_sshHosts(t *testing.T) {
 		},
 		&corev1.LocalObjectReference{Name: "ssh-secret"},
 		nil,
-		false, nil,
+		false, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, []skillsinit.SSHHost{
@@ -350,7 +417,7 @@ func Test_prepareSkillsInitConfig_sshHostsDedupesDefaultPort(t *testing.T) {
 		},
 		&corev1.LocalObjectReference{Name: "ssh-secret"},
 		nil,
-		false, nil,
+		false, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, []skillsinit.SSHHost{
@@ -366,7 +433,7 @@ func Test_prepareSkillsInitConfig_noAuthSkipsSSHHosts(t *testing.T) {
 		},
 		nil, // no auth secret
 		nil,
-		false, nil,
+		false, nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Empty(t, data.SSHHosts, "SSH hosts should not be collected when authSecretRef is nil")
@@ -443,7 +510,7 @@ func Test_prepareSkillsInitConfig_explicitNameRejectsTraversal(t *testing.T) {
 				[]v1alpha2.GitRepo{
 					{URL: "https://github.com/org/repo", Ref: "main", Name: tc.in},
 				},
-				nil, nil, false, nil,
+				nil, nil, false, nil, nil,
 			)
 			require.Error(t, err)
 		})
@@ -465,7 +532,7 @@ func Test_prepareSkillsInitConfig_ociNameDerivationRejectsInjection(t *testing.T
 	}
 	for _, ref := range cases {
 		t.Run(ref, func(t *testing.T) {
-			_, err := prepareSkillsInitConfig(nil, nil, []string{ref}, false, nil)
+			_, err := prepareSkillsInitConfig(nil, nil, []string{ref}, false, nil, nil)
 			require.Error(t, err, "ref %q should be rejected", ref)
 		})
 	}
@@ -487,7 +554,7 @@ func Test_prepareSkillsInitConfig_preservesInjectionStringsAsData(t *testing.T) 
 				Name: "safe-name",
 			},
 		},
-		nil, nil, false, nil,
+		nil, nil, false, nil, nil,
 	)
 	require.NoError(t, err, "URL/Ref are not allowlisted; they flow as data")
 	require.Len(t, cfg.GitRefs, 1)
@@ -512,7 +579,7 @@ func Test_prepareSkillsInitConfig_subPathRejectsInjection(t *testing.T) {
 				[]v1alpha2.GitRepo{
 					{URL: "https://github.com/org/repo", Ref: "main", Path: p},
 				},
-				nil, nil, false, nil,
+				nil, nil, false, nil, nil,
 			)
 			require.Error(t, err)
 		})

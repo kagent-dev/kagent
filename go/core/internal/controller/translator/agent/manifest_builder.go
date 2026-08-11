@@ -415,7 +415,8 @@ func buildSkillsRuntime(
 
 	skills := spec.Skills.Refs
 	gitRefs := spec.Skills.GitRefs
-	if len(skills) == 0 && len(gitRefs) == 0 {
+	s3Refs := spec.Skills.S3Refs
+	if len(skills) == 0 && len(gitRefs) == 0 && len(s3Refs) == 0 {
 		return nil, nil, nil
 	}
 
@@ -456,6 +457,7 @@ func buildSkillsRuntime(
 		initEnv,
 		getDefaultResources(initResources),
 		spec.Skills.ImagePullSecrets,
+		s3Refs,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build skills init container: %w", err)
