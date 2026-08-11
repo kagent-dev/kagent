@@ -6,8 +6,7 @@ them to the on-disk paths the ADK loads from at startup. This mirrors the Go ADK
 ``MaterializeFromEnv`` (see ``go/adk/pkg/config/config_materialize.go``): the environment value
 is written verbatim (raw, not base64-encoded) to the destination file.
 
-When the environment variables are absent (the normal Kubernetes Deployment path, where the
-config is mounted as a volume) this is a no-op.
+When the environment variables are absent this is a no-op.
 """
 
 import logging

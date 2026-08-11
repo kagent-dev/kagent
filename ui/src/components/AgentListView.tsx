@@ -40,7 +40,8 @@ function countSkills(agent: Agent): number {
   const s = agent.spec?.skills;
   const refs = s?.refs?.length ?? 0;
   const gits = s?.gitRefs?.length ?? 0;
-  return refs + gits;
+  const s3 = s?.s3Refs?.length ?? 0;
+  return refs + gits + s3;
 }
 
 function compareNumbers(a: number, b: number, dir: SortDir): number {
@@ -63,25 +64,21 @@ function RowTypeCell({ item }: { item: AgentResponse }) {
   if (harnessBackend) {
     return <span>{agentHarnessTypeLabel(harnessBackend)}</span>;
   }
-  if (item.workloadMode === "sandbox") {
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        {baseTypeLabel(item.agent.spec?.type)}
-        <SandboxBadge />
-      </span>
-    );
-  }
-  return <span>{baseTypeLabel(item.agent.spec?.type)}</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {baseTypeLabel(item.agent.spec?.type)}
+      <SandboxBadge />
+    </span>
+  );
 }
 
 function rowTypeSortKey(item: AgentResponse): string {
   const harnessBackend = getAgentHarnessBackend(item);
   if (harnessBackend) return agentHarnessTypeLabel(harnessBackend);
-  if (item.workloadMode === "sandbox") return `${baseTypeLabel(item.agent.spec?.type)} (sandbox)`;
-  return baseTypeLabel(item.agent.spec?.type);
+  return `${baseTypeLabel(item.agent.spec?.type)} (sandbox)`;
 }
 
-function getStatusInfo(accepted: boolean, deploymentReady: boolean) {
+function getStatusInfo(accepted: boolean, ready: boolean) {
   if (!accepted) {
     return {
       message: "Not accepted",
@@ -89,7 +86,7 @@ function getStatusInfo(accepted: boolean, deploymentReady: boolean) {
       rank: 0,
     };
   }
-  if (!deploymentReady) {
+  if (!ready) {
     return {
       message: "Not ready",
       className: "bg-amber-500/20 text-amber-900 dark:text-amber-200",
@@ -106,7 +103,7 @@ function getStatusInfo(accepted: boolean, deploymentReady: boolean) {
 function providerModelText(item: AgentResponse): string {
   const { agent, model, modelProvider } = item;
   const isBYO = agent.spec?.type === "BYO";
-  const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
+  const byoImage = isBYO ? agent.spec?.byo?.image : undefined;
   if (isBYO) {
     return byoImage ? byoImage : "—";
   }
@@ -119,7 +116,7 @@ function providerModelText(item: AgentResponse): string {
 function ProviderModelCell({ item }: { item: AgentResponse }) {
   const { agent, model, modelProvider } = item;
   const isBYO = agent.spec?.type === "BYO";
-  const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
+  const byoImage = isBYO ? agent.spec?.byo?.image : undefined;
   if (isBYO) {
     return (
       <div className="flex min-w-0 max-w-xs flex-col gap-1">
@@ -175,8 +172,8 @@ function sortAgents(items: AgentResponse[], key: SortKey, dir: SortDir): AgentRe
         return compareNumbers(countSkills(a), countSkills(b), dir);
       }
       case "state": {
-        const ra = getStatusInfo(A.accepted, A.deploymentReady).rank;
-        const rb = getStatusInfo(B.accepted, B.deploymentReady).rank;
+        const ra = getStatusInfo(A.accepted, A.ready).rank;
+        const rb = getStatusInfo(B.accepted, B.ready).rank;
         if (ra !== rb) {
           return dir === "asc" ? ra - rb : rb - ra;
         }
@@ -237,7 +234,7 @@ function SortableTh({ col, label, className, textAlign = "left", sort, onSort }:
 }
 
 function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgentsChanged?: () => Promise<void> | void }) {
-  const { agent, deploymentReady, accepted } = item;
+  const { agent, ready, accepted } = item;
   const router = useRouter();
   const [memoriesOpen, setMemoriesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -247,8 +244,8 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
 
   const name = agent.metadata.name || "";
   const namespace = agent.metadata.namespace || "";
-  const isReady = accepted && deploymentReady;
-  const status = getStatusInfo(accepted, deploymentReady);
+  const isReady = accepted && ready;
+  const status = getStatusInfo(accepted, ready);
   const providerTitle = providerModelText(item);
   const nTools = countAgentToolBindings(item);
   const nSkills = countSkills(agent);

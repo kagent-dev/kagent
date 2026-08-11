@@ -24,7 +24,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -49,7 +49,7 @@ func TestToolServersHandler(t *testing.T) {
 
 	err := v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
-	err = v1alpha2.AddToScheme(scheme)
+	err = v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
 	require.NoError(t, err)
@@ -104,7 +104,7 @@ func TestToolServersHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			err = dbClient.RefreshToolsForServer(context.Background(), "default/test-toolserver-1", "kagent.dev/RemoteMCPServer",
-				&v1alpha2.MCPTool{
+				&v1alpha3.MCPTool{
 					Name:        "test-tool",
 					Description: "Test tool",
 				},
@@ -155,16 +155,16 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
-				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+				RemoteMCPServer: &v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-remote-toolserver",
 						Namespace: "default",
 					},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						Description: "Test remote tool server",
-						Protocol:    v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+						Protocol:    v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 						URL:         "https://example.com/streamable",
-						HeadersFrom: []v1alpha2.ValueRef{
+						HeadersFrom: []v1alpha3.ValueRef{
 							{
 								Name:  "API-Key",
 								Value: "test-key",
@@ -185,13 +185,13 @@ func TestToolServersHandler(t *testing.T) {
 
 			require.Equal(t, http.StatusCreated, responseRecorder.Code)
 
-			var toolServer api.StandardResponse[v1alpha2.RemoteMCPServer]
+			var toolServer api.StandardResponse[v1alpha3.RemoteMCPServer]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &toolServer)
 			require.NoError(t, err)
 			assert.Equal(t, "test-remote-toolserver", toolServer.Data.Name)
 			assert.Equal(t, "default", toolServer.Data.Namespace)
 			assert.Equal(t, "Test remote tool server", toolServer.Data.Spec.Description)
-			assert.Equal(t, v1alpha2.RemoteMCPServerProtocolStreamableHttp, toolServer.Data.Spec.Protocol)
+			assert.Equal(t, v1alpha3.RemoteMCPServerProtocolStreamableHttp, toolServer.Data.Spec.Protocol)
 			assert.Equal(t, "https://example.com/streamable", toolServer.Data.Spec.URL)
 			assert.True(t, *toolServer.Data.Spec.TerminateOnClose)
 		})
@@ -201,20 +201,20 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
-				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+				RemoteMCPServer: &v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-sse-remote-toolserver",
 						Namespace: "default",
 					},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						Description: "Test SSE remote tool server",
-						Protocol:    v1alpha2.RemoteMCPServerProtocolSse,
+						Protocol:    v1alpha3.RemoteMCPServerProtocolSse,
 						URL:         "https://example.com/sse",
-						HeadersFrom: []v1alpha2.ValueRef{
+						HeadersFrom: []v1alpha3.ValueRef{
 							{
 								Name: "X-API-Key",
-								ValueFrom: &v1alpha2.ValueSource{
-									Type: v1alpha2.SecretValueSource,
+								ValueFrom: &v1alpha3.ValueSource{
+									Type: v1alpha3.SecretValueSource,
 									Name: "api-secret",
 									Key:  "api-key",
 								},
@@ -235,12 +235,12 @@ func TestToolServersHandler(t *testing.T) {
 
 			require.Equal(t, http.StatusCreated, responseRecorder.Code)
 
-			var toolServer api.StandardResponse[v1alpha2.RemoteMCPServer]
+			var toolServer api.StandardResponse[v1alpha3.RemoteMCPServer]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &toolServer)
 			require.NoError(t, err)
 			assert.Equal(t, "test-sse-remote-toolserver", toolServer.Data.Name)
 			assert.Equal(t, "default", toolServer.Data.Namespace)
-			assert.Equal(t, v1alpha2.RemoteMCPServerProtocolSse, toolServer.Data.Spec.Protocol)
+			assert.Equal(t, v1alpha3.RemoteMCPServerProtocolSse, toolServer.Data.Spec.Protocol)
 			assert.Equal(t, "https://example.com/sse", toolServer.Data.Spec.URL)
 		})
 
@@ -294,12 +294,12 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
-				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+				RemoteMCPServer: &v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "test-toolserver",
 						// No namespace specified
 					},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						Description: "Test tool server",
 						URL:         "https://example.com/test",
 					},
@@ -316,7 +316,7 @@ func TestToolServersHandler(t *testing.T) {
 			require.Equal(t, http.StatusCreated, responseRecorder.Code)
 
 			defaultNamespace := common.GetResourceNamespace()
-			var toolServer api.StandardResponse[v1alpha2.RemoteMCPServer]
+			var toolServer api.StandardResponse[v1alpha3.RemoteMCPServer]
 			err := json.Unmarshal(responseRecorder.Body.Bytes(), &toolServer)
 			require.NoError(t, err)
 			assert.Equal(t, defaultNamespace, toolServer.Data.Namespace)
@@ -400,12 +400,12 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
-				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+				RemoteMCPServer: &v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{Name: "corp-mcp", Namespace: "default"},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						Description: "Corp-CA MCP",
 						URL:         "https://mcp.corp.internal/mcp",
-						TLS: &v1alpha2.TLSConfig{
+						TLS: &v1alpha3.TLSConfig{
 							CACertSecretRef: "corp-ca",
 							CACertSecretKey: "ca.crt",
 						},
@@ -436,7 +436,7 @@ func TestToolServersHandler(t *testing.T) {
 			or := secret.OwnerReferences[0]
 			assert.Equal(t, "RemoteMCPServer", or.Kind)
 			assert.Equal(t, "corp-mcp", or.Name)
-			assert.Equal(t, v1alpha2.GroupVersion.Identifier(), or.APIVersion)
+			assert.Equal(t, v1alpha3.GroupVersion.Identifier(), or.APIVersion)
 		})
 
 		t.Run("Success_MCPServer_WithSecretMaterials_CreatesEnvSecret", func(t *testing.T) {
@@ -485,9 +485,9 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
-				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+				RemoteMCPServer: &v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{Name: "multi-secret-mcp", Namespace: "default"},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						Description: "RMS with multi-key Secret",
 						URL:         "https://mcp.corp.internal/mcp",
 					},
@@ -518,9 +518,9 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
-				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+				RemoteMCPServer: &v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{Name: "rms-invalid-secret", Namespace: "default"},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						Description: "x", URL: "https://x/y",
 					},
 				},
@@ -550,9 +550,9 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
-				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+				RemoteMCPServer: &v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{Name: "stranger-rms", Namespace: "default"},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						Description: "x", URL: "https://x/y",
 					},
 				},
@@ -581,7 +581,7 @@ func TestToolServersHandler(t *testing.T) {
 			// operator's retry doesn't hit AlreadyExists. Pins the
 			// partial-failure fix; without rollback the orphan would
 			// be readable here.
-			orphan := &v1alpha2.RemoteMCPServer{}
+			orphan := &v1alpha3.RemoteMCPServer{}
 			err = kubeClient.Get(context.Background(),
 				ctrl_client.ObjectKey{Namespace: "default", Name: "stranger-rms"}, orphan)
 			assert.True(t, apierrors.IsNotFound(err),
@@ -642,9 +642,9 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
-				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+				RemoteMCPServer: &v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{Name: "denied-rms", Namespace: "default"},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						Description: "should not be created",
 						URL:         "https://x/y",
 					},
@@ -664,7 +664,7 @@ func TestToolServersHandler(t *testing.T) {
 				"unauthorized RMS create must surface 403")
 			// Neither the RMS nor the companion Secret should have been
 			// created — the authz gate fires before any KubeClient.Create.
-			rms := &v1alpha2.RemoteMCPServer{}
+			rms := &v1alpha3.RemoteMCPServer{}
 			err := kubeClient.Get(context.Background(),
 				ctrl_client.ObjectKey{Namespace: "default", Name: "denied-rms"}, rms)
 			assert.Error(t, err, "denied request must not create the RemoteMCPServer")
@@ -713,12 +713,12 @@ func TestToolServersHandler(t *testing.T) {
 			handler, kubeClient, _, responseRecorder := setupHandler(t)
 
 			// Create existing tool server
-			existingToolServer := &v1alpha2.RemoteMCPServer{
+			existingToolServer := &v1alpha3.RemoteMCPServer{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-toolserver",
 					Namespace: "default",
 				},
-				Spec: v1alpha2.RemoteMCPServerSpec{
+				Spec: v1alpha3.RemoteMCPServerSpec{
 					Description: "Existing tool server",
 					URL:         "https://example.com/existing",
 				},
@@ -728,12 +728,12 @@ func TestToolServersHandler(t *testing.T) {
 
 			reqBody := &handlers.ToolServerCreateRequest{
 				Type: "RemoteMCPServer",
-				RemoteMCPServer: &v1alpha2.RemoteMCPServer{
+				RemoteMCPServer: &v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "test-toolserver",
 						Namespace: "default",
 					},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						Description: "New tool server",
 						URL:         "https://example.com/new",
 					},
@@ -757,12 +757,12 @@ func TestToolServersHandler(t *testing.T) {
 			handler, kubeClient, dbClient, responseRecorder := setupHandler(t)
 
 			// Create tool server to delete
-			toolServer := &v1alpha2.RemoteMCPServer{
+			toolServer := &v1alpha3.RemoteMCPServer{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-toolserver",
 					Namespace: "default",
 				},
-				Spec: v1alpha2.RemoteMCPServerSpec{
+				Spec: v1alpha3.RemoteMCPServerSpec{
 					Description: "Tool server to delete",
 					URL:         "https://example.com/delete",
 				},

@@ -4,7 +4,7 @@ import base64
 import json
 import os
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Literal, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Literal, Optional, cast
 
 import httpx
 from google.adk.models import BaseLlm
@@ -35,6 +35,7 @@ from pydantic import Field
 from ._file_extract import inline_file_to_text
 from ._ssl import KAgentTLSMixin
 from ._token_source import GDCHTokenSource
+from ._utils import function_declaration_schema
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
@@ -262,29 +263,6 @@ def _convert_content_to_openai_messages(
     return messages
 
 
-def _update_type_string(value_dict: dict[str, Any]):
-    """Updates 'type' field to expected JSON schema format."""
-    if "type" in value_dict:
-        value_dict["type"] = value_dict["type"].lower()
-
-    if "items" in value_dict:
-        # 'type' field could exist for items as well, this would be the case if
-        # items represent primitive types.
-        _update_type_string(value_dict["items"])
-
-        if "properties" in value_dict["items"]:
-            # There could be properties as well on the items, especially if the items
-            # are complex object themselves. We recursively traverse each individual
-            # property as well and fix the "type" value.
-            for _, value in value_dict["items"]["properties"].items():
-                _update_type_string(value)
-
-    if "properties" in value_dict:
-        # Handle nested properties
-        for _, value in value_dict["properties"].items():
-            _update_type_string(value)
-
-
 def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionToolParam]:
     """Convert google.genai Tools to OpenAI tools format."""
     openai_tools: list[ChatCompletionToolParam] = []
@@ -298,21 +276,9 @@ def _convert_tools_to_openai(tools: list[types.Tool]) -> list[ChatCompletionTool
                     description=func_decl.description or "",
                 )
 
-                # Always include parameters field, even if empty
-                properties = {}
-                required = []
-
-                if func_decl.parameters:
-                    if func_decl.parameters.properties:
-                        for prop_name, prop_schema in func_decl.parameters.properties.items():
-                            value_dict = prop_schema.model_dump(exclude_none=True)
-                            _update_type_string(value_dict)
-                            properties[prop_name] = value_dict
-
-                    if func_decl.parameters.required:
-                        required = func_decl.parameters.required
-
-                function_def["parameters"] = {"type": "object", "properties": properties, "required": required}
+                parameters = function_declaration_schema(func_decl)
+                parameters.setdefault("required", [])
+                function_def["parameters"] = cast(FunctionParameters, parameters)
 
                 # Create the tool param
                 openai_tool = ChatCompletionToolParam(type="function", function=function_def)

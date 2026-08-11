@@ -25,7 +25,6 @@ import (
 	"net/http/pprof"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -75,6 +74,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -98,6 +98,7 @@ func init() {
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
@@ -137,10 +138,15 @@ type Config struct {
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
 	Database           struct {
-		Url            string
-		UrlFile        string
-		VectorEnabled  bool
-		SkipMigrations bool
+		Url                  string
+		UrlFile              string
+		VectorEnabled        bool
+		SkipMigrations       bool
+		MaxConns             int           // 0 = unset (pgx default)
+		MinConns             int           // -1 = unset (pgx default); 0 is a valid value
+		MaxConnIdleTime      time.Duration // 0 = unset (pgx default)
+		MaxConnLifetime      time.Duration // 0 = unset (pgx default)
+		SessionRetentionDays int           // 0 = disabled; sliding idle TTL on session.updated_at
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
@@ -183,6 +189,11 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
 	commandLine.BoolVar(&cfg.Database.SkipMigrations, "skip-migrations", false, "Do not run database migrations at startup; instead verify the database is already migrated and fail if it is not. Migrations must be applied out-of-band (e.g. from a pipeline or pre-upgrade hook). Settable via the SKIP_MIGRATIONS env var.")
+	commandLine.IntVar(&cfg.Database.MaxConns, "db-max-conns", 0, "Maximum number of connections in the Postgres pool. 0 leaves the pgx default.")
+	commandLine.IntVar(&cfg.Database.MinConns, "db-min-conns", -1, "Minimum number of connections in the Postgres pool. -1 leaves the pgx default.")
+	commandLine.DurationVar(&cfg.Database.MaxConnIdleTime, "db-max-conn-idle-time", 0, "Maximum idle time before a Postgres pool connection is closed. 0 leaves the pgx default (30m).")
+	commandLine.DurationVar(&cfg.Database.MaxConnLifetime, "db-max-conn-lifetime", 0, "Maximum lifetime of a Postgres pool connection. 0 leaves the pgx default (1h).")
+	commandLine.IntVar(&cfg.Database.SessionRetentionDays, "session-retention-days", 0, "Hard-delete idle sessions and cascaded conversation state (events, tasks, checkpoints, shares) when session.updated_at is older than this many days. 0 disables (default). Retention is a sliding window: activity refreshes updated_at.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -196,8 +207,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
-	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
-	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 	commandLine.StringVar(&agent_translator.PythonADKImageDigest, "app-image-digest", agent_translator.PythonADKImageDigest, "Manifest digest (sha256:...) for the Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
 	commandLine.StringVar(&agent_translator.PythonADKFullImageDigest, "app-full-image-digest", agent_translator.PythonADKFullImageDigest, "Manifest digest (sha256:...) for the full Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
@@ -205,12 +214,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.GoADKFullImageDigest, "golang-adk-full-image-digest", agent_translator.GoADKFullImageDigest, "Manifest digest (sha256:...) for the full Go agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Registry, "skills-init-image-registry", agent_translator.DefaultSkillsInitImageConfig.Registry, "The registry to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
-	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Registry, "go-image-registry", agent_translator.DefaultGoImageConfig.Registry, "The registry to use for the Go (ADK) runtime agent image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Repository, "go-image-repository", agent_translator.DefaultGoImageConfig.Repository, "The repository to use for the Go (ADK) runtime agent image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Tag, "go-image-tag", agent_translator.DefaultGoImageConfig.Tag, "The tag to use for the Go (ADK) runtime agent image.")
-	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.PullPolicy, "go-image-pull-policy", agent_translator.DefaultGoImageConfig.PullPolicy, "The pull policy to use for the Go (ADK) runtime agent image.")
 
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
 	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
@@ -221,13 +228,32 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolName, "substrate-default-workerpool-name", "", "Default Agent Substrate WorkerPool name when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.PauseImage, "substrate-pause-image", "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da", "Pause image for generated ActorTemplates.")
-	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
+}
 
-	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
-
-	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentNodeSelector}, "default-agent-node-selector", "Comma-separated key=value pairs of node selector terms to apply to all agent deployments (e.g. 'kubernetes.io/os=linux'). A per-agent nodeSelector takes precedence.")
-
-	commandLine.StringVar(&agent_translator.DefaultAgentBindHost, "default-agent-bind-host", agent_translator.DefaultAgentBindHost, "Default host address for agent pods to bind to. Use '0.0.0.0' for IPv4 only or '::' for dual-stack (IPv4+IPv6).")
+// postgresConfigFromApp builds a database.PostgresConfig from app flags.
+// Zero/unset flag values leave the corresponding pool field nil so pgx defaults apply.
+func postgresConfigFromApp(dbURL string, cfg *Config) *database.PostgresConfig {
+	pgCfg := &database.PostgresConfig{
+		URL:           dbURL,
+		VectorEnabled: cfg.Database.VectorEnabled,
+	}
+	if cfg.Database.MaxConns > 0 {
+		v := int32(cfg.Database.MaxConns)
+		pgCfg.MaxConns = &v
+	}
+	if cfg.Database.MinConns >= 0 {
+		v := int32(cfg.Database.MinConns)
+		pgCfg.MinConns = &v
+	}
+	if cfg.Database.MaxConnIdleTime > 0 {
+		v := cfg.Database.MaxConnIdleTime
+		pgCfg.MaxConnIdleTime = &v
+	}
+	if cfg.Database.MaxConnLifetime > 0 {
+		v := cfg.Database.MaxConnLifetime
+		pgCfg.MaxConnLifetime = &v
+	}
+	return pgCfg
 }
 
 // LoadFromEnv loads configuration values from environment variables.
@@ -246,50 +272,6 @@ func LoadFromEnv(fs *flag.FlagSet) error {
 	})
 
 	return loadErr
-}
-
-// MapValue implements flag.Value for a map[string]string.
-// It parses comma-separated key=value pairs (e.g. "team=platform,env=prod").
-type MapValue struct {
-	Target *map[string]string
-}
-
-func (m *MapValue) String() string {
-	if m.Target == nil || *m.Target == nil {
-		return ""
-	}
-	keys := make([]string, 0, len(*m.Target))
-	for k := range *m.Target {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	pairs := make([]string, 0, len(keys))
-	for _, k := range keys {
-		pairs = append(pairs, k+"="+(*m.Target)[k])
-	}
-	return strings.Join(pairs, ",")
-}
-
-func (m *MapValue) Set(raw string) error {
-	result := make(map[string]string)
-	for pair := range strings.SplitSeq(raw, ",") {
-		pair = strings.TrimSpace(pair)
-		if pair == "" {
-			continue
-		}
-		k, v, ok := strings.Cut(pair, "=")
-		if !ok {
-			return fmt.Errorf("invalid format %q: expected key=value", pair)
-		}
-		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
-		if k == "" {
-			return fmt.Errorf("invalid entry: empty key in %q", pair)
-		}
-		result[k] = v
-	}
-	*m.Target = result
-	return nil
 }
 
 type BootstrapConfig struct {
@@ -512,10 +494,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	// Connect to database
-	db, err := database.Connect(ctx, &database.PostgresConfig{
-		URL:           dbURL,
-		VectorEnabled: cfg.Database.VectorEnabled,
-	})
+	db, err := database.Connect(ctx, postgresConfigFromApp(dbURL, &cfg))
 	if err != nil {
 		setupLog.Error(err, "unable to connect to database")
 		os.Exit(1)
@@ -593,17 +572,8 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	if err = (&controller.AgentController{
-		Scheme:        mgr.GetScheme(),
-		Reconciler:    rcnclr,
-		AdkTranslator: apiTranslator,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Agent")
-		os.Exit(1)
-	}
-
 	kubeClient := mgr.GetClient()
-	var substrateHarnessBackends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	var substrateHarnessBackends map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 	if cfg.Substrate.AteAPIEndpoint != "" {
 		var err error
 		substrateHarnessBackends, err = buildSubstrateHarnessBackends(ctx, &cfg, substrateAteClient)
@@ -685,7 +655,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	// Register A2A handlers on all replicas
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, dbClient)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, dbClient)
 	ateneRouterURL := cfg.Substrate.AtenetRouterURL
 	if ateneRouterURL == "" {
 		ateneRouterURL = substrate.DefaultAtenetRouterURL
@@ -694,7 +664,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		mgr.GetCache(),
 		a2aHandler,
 		clientRegistry,
-		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
 		ateneRouterURL,
 		extensionCfg.Authenticator,
@@ -777,9 +746,10 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	// Memory TTL cleanup runs only on the leader to avoid duplicate deletes.
-	if err := mgr.Add(httpserver.NewMemoryCleanupRunnable(dbClient, 0)); err != nil {
-		setupLog.Error(err, "unable to set up memory cleanup runnable")
+	// DB TTL cleanup (memory + sessions) runs only on the leader to avoid duplicate deletes.
+	// Currently configured to run every 24 hours.
+	if err := mgr.Add(httpserver.NewDbCleanupRunnable(dbClient, 24*time.Hour, cfg.Database.SessionRetentionDays)); err != nil {
+		setupLog.Error(err, "unable to set up DB cleanup runnable")
 		os.Exit(1)
 	}
 
@@ -790,16 +760,16 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 }
 
-func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
+func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
 	if client == nil {
 		return nil, fmt.Errorf("substrate ate-api client is required")
 	}
 	_ = ctx
 	_ = cfg
-	backends := make(map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend)
-	for _, b := range []v1alpha2.AgentHarnessBackendType{
-		v1alpha2.AgentHarnessBackendOpenClaw,
-		v1alpha2.AgentHarnessBackendHermes,
+	backends := make(map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend)
+	for _, b := range []v1alpha3.AgentHarnessBackendType{
+		v1alpha3.AgentHarnessBackendOpenClaw,
+		v1alpha3.AgentHarnessBackendHermes,
 	} {
 		backends[b] = substrate.NewOpenClawBackend(client, b, nil)
 	}

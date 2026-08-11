@@ -9,38 +9,10 @@ When a tool in the approval set is invoked:
 import logging
 from typing import Any
 
-from google.adk.agents.callback_context import CallbackContext
-from google.adk.models.llm_request import LlmRequest
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext
 
 logger = logging.getLogger(__name__)
-
-
-def strip_confirmation_parts_callback(
-    callback_context: CallbackContext,
-    llm_request: LlmRequest,
-) -> None:
-    """Before-model callback that strips adk_request_confirmation parts from the LLM request.
-
-    These are synthetic ADK HITL events the LLM never produced and does not need
-    to reason about. The session still stores them for ADK's resume machinery.
-    """
-    if not llm_request.contents:
-        return None
-    filtered_contents = []
-    for content in llm_request.contents:
-        parts = [
-            p
-            for p in (content.parts or [])
-            if not (p.function_call and p.function_call.name == "adk_request_confirmation")
-            and not (p.function_response and p.function_response.name == "adk_request_confirmation")
-        ]
-        if parts:
-            content.parts = parts
-            filtered_contents.append(content)
-    llm_request.contents = filtered_contents
-    return None
 
 
 def make_approval_callback(
@@ -71,7 +43,7 @@ def make_approval_callback(
                 return None  # Approved — proceed with tool execution
             logger.debug("Tool %s rejected by user", tool_name)
             # Check for an optional rejection reason in the payload
-            # (the key "rejection_reason" is set by _agent_executor._process_hitl_decision)
+            # (the key "rejection_reason" is set by the executor's HITL response adapter)
             payload = tool_context.tool_confirmation.payload or {}
             reason = payload.get("rejection_reason", "") if isinstance(payload, dict) else ""
             # __build_response_event wraps it as {"result": "..."} that LLM adapters expect

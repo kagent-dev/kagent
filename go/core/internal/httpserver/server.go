@@ -45,7 +45,6 @@ const (
 	APIPathMemories             = "/api/memories"
 	APIPathNamespaces           = "/api/namespaces"
 	APIPathPromptTemplates      = "/api/prompttemplates"
-	APIPathA2A                  = "/api/a2a"
 	APIPathA2ASandboxes         = "/api/a2a-sandboxes"
 	APIPathMCP                  = "/mcp"
 	APIPathFeedback             = "/api/feedback"
@@ -159,31 +158,38 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 	return nil
 }
 
-// MemoryCleanupRunnable is a controller-runtime Runnable that periodically
-// prunes expired memory entries. It implements NeedLeaderElection so that
-// the sweep only runs on the elected leader, preventing duplicate deletes
-// when multiple replicas are deployed.
-type MemoryCleanupRunnable struct {
-	DbClient dbpkg.Client
-	Interval time.Duration
+// DbCleanupRunnable is a controller-runtime Runnable that periodically
+// prunes expired DB rows (memory TTL, and when configured idle sessions).
+// It implements NeedLeaderElection so that the sweep only runs on the
+// elected leader, preventing duplicate deletes when multiple replicas are
+// deployed.
+type DbCleanupRunnable struct {
+	DbClient             dbpkg.Client
+	Interval             time.Duration
+	SessionRetentionDays int
 }
 
-func (m *MemoryCleanupRunnable) NeedLeaderElection() bool { return true }
+func (m *DbCleanupRunnable) NeedLeaderElection() bool { return true }
 
-// NewMemoryCleanupRunnable returns a MemoryCleanupRunnable with the given
-// database client. interval controls how often the cleanup runs; pass 0 to
-// use the default of 24 hours.
-func NewMemoryCleanupRunnable(dbClient dbpkg.Client, interval time.Duration) *MemoryCleanupRunnable {
+// NewDbCleanupRunnable returns a DbCleanupRunnable with the given database
+// client. interval controls how often the cleanup runs; pass 0 to use the
+// default of 24 hours. sessionRetentionDays is passed through to
+// PruneExpiredSessions (0 disables session cleanup).
+func NewDbCleanupRunnable(dbClient dbpkg.Client, interval time.Duration, sessionRetentionDays int) *DbCleanupRunnable {
 	if interval <= 0 {
 		interval = 24 * time.Hour
 	}
-	return &MemoryCleanupRunnable{DbClient: dbClient, Interval: interval}
+	return &DbCleanupRunnable{
+		DbClient:             dbClient,
+		Interval:             interval,
+		SessionRetentionDays: sessionRetentionDays,
+	}
 }
 
 // Start runs the periodic cleanup loop until ctx is cancelled.
-func (m *MemoryCleanupRunnable) Start(ctx context.Context) error {
-	log := ctrllog.FromContext(ctx).WithName("memory-cleanup")
-	log.Info("Starting memory TTL cleanup loop", "interval", m.Interval)
+func (m *DbCleanupRunnable) Start(ctx context.Context) error {
+	log := ctrllog.FromContext(ctx).WithName("db-cleanup")
+	log.Info("Starting DB TTL cleanup loop", "interval", m.Interval, "sessionRetentionDays", m.SessionRetentionDays)
 	ticker := time.NewTicker(m.Interval)
 	defer ticker.Stop()
 	for {
@@ -191,6 +197,11 @@ func (m *MemoryCleanupRunnable) Start(ctx context.Context) error {
 		case <-ticker.C:
 			if err := m.DbClient.PruneExpiredMemories(ctx); err != nil {
 				log.Error(err, "Failed to prune expired memories")
+			}
+			if deleted, err := m.DbClient.PruneExpiredSessions(ctx, m.SessionRetentionDays); err != nil {
+				log.Error(err, "Failed to prune expired sessions")
+			} else if deleted > 0 {
+				log.Info("Pruned expired sessions", "deleted", deleted)
 			}
 		case <-ctx.Done():
 			return nil
@@ -275,11 +286,6 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Agents - using database handlers
 	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleListAgents)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleCreateAgent)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleUpdateAgent)).Methods(http.MethodPut)
-	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
-
 	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathAgentHarnesses, adaptHandler(s.handlers.Agents.HandleCreateAgentHarness)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgentHarness)).Methods(http.MethodGet)
@@ -347,7 +353,6 @@ func (s *HTTPServer) setupRoutes() {
 	)
 
 	// A2A
-	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 	s.router.PathPrefix(APIPathA2ASandboxes + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 
 	// MCP

@@ -58,13 +58,12 @@ describe('validateFile', () => {
 });
 
 describe('fileToFilePart', () => {
-  test('produces a base64 inline file part', async () => {
+  test('produces an inline raw file part', async () => {
     const file = new File(['hello'], 'note.txt', { type: 'text/plain' });
     const part = await fileToFilePart(file);
-    expect(part.kind).toBe('file');
-    expect(part.file.name).toBe('note.txt');
-    expect(part.file.mimeType).toBe('text/plain');
-    // "hello" → base64
-    expect((part.file as { bytes: string }).bytes).toBe('aGVsbG8=');
+    expect(part.content?.$case).toBe('raw');
+    expect(part.filename).toBe('note.txt');
+    expect(part.mediaType).toBe('text/plain');
+    expect(part.content?.$case === 'raw' && new TextDecoder().decode(part.content.value)).toBe('hello');
   });
 });

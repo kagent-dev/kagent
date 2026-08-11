@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronRight, Edit, GitBranch, ShieldAlert } from "lucide-react";
-import type { AgentResponse, GitRepo, Tool, ToolsResponse } from "@/types";
+import { ChevronRight, Edit, GitBranch, HardDrive, Layers, ShieldAlert } from "lucide-react";
+import type { AgentResponse, GitRepo, S3SkillRef, Tool, ToolsResponse } from "@/types";
 import { SidebarHeader, Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem, SidebarMenuButton } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { LoadingState } from "@/components/LoadingState";
@@ -59,6 +59,7 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
     providerTooltip,
     description,
     requiresApproval,
+    isolateSessions,
     isExpanded,
     onToggleExpansion,
   }: {
@@ -67,6 +68,7 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
     providerTooltip: string;
     description: string;
     requiresApproval?: boolean;
+    isolateSessions?: boolean;
     isExpanded: boolean;
     onToggleExpansion: () => void;
   }) => {
@@ -86,6 +88,9 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
                   {requiresApproval && (
                     <ShieldAlert className="h-3.5 w-3.5 text-amber-500 shrink-0" />
                   )}
+                  {isolateSessions && (
+                    <Layers className="h-3.5 w-3.5 text-sky-500 shrink-0" />
+                  )}
                   <ChevronRight
                     className={cn(
                       "h-4 w-4 transition-transform duration-200",
@@ -101,6 +106,9 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
               <p className="text-sm text-muted-foreground">{description}</p>
               {requiresApproval && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">Requires approval before execution</p>
+              )}
+              {isolateSessions && (
+                <p className="text-xs text-sky-600 dark:text-sky-400 mt-1">Isolated sessions (new session each call)</p>
               )}
             </div>
           </CollapsibleContent>
@@ -223,6 +231,7 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
                 displayName={displayName}
                 providerTooltip={providerNameTooltip}
                 description={description}
+                isolateSessions={!!tool.isolateSessions}
                 isExpanded={isExpanded}
                 onToggleExpansion={() => toggleToolExpansion(toolIdentifier)}
               />
@@ -299,13 +308,14 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
             {isDeclarativeLikeAgent && (() => {
               const oci = selectedTeam?.agent.spec?.skills?.refs ?? [];
               const git = selectedTeam?.agent.spec?.skills?.gitRefs ?? [];
-              if (oci.length + git.length === 0) return null;
+              const s3 = selectedTeam?.agent.spec?.skills?.s3Refs ?? [];
+              if (oci.length + git.length + s3.length === 0) return null;
               return (
               <SidebarGroup className="group-data-[collapsible=icon]:hidden">
                 <div className="flex items-center justify-between px-2 mb-2">
                   <SidebarGroupLabel className="mb-0">Skills</SidebarGroupLabel>
                   <Badge variant="secondary" className="h-5">
-                    {oci.length + git.length}
+                    {oci.length + git.length + s3.length}
                   </Badge>
                 </div>
                 <SidebarMenu>
@@ -400,6 +410,35 @@ export function AgentDetailsSidebar({ currentAgent, allTools }: AgentDetailsSide
                               {g.path && (
                                 <p className="text-xs mt-1">Path: {g.path}</p>
                               )}
+                            </TooltipContent>
+                          </Tooltip>
+                        </SidebarMenuItem>
+                      );
+                    })}
+                    {s3.map((ref: S3SkillRef, index) => {
+                      const uri = (ref.uri || "").trim();
+                      const fromUri = uri.replace(/^s3:\/\//i, "").split("/").filter(Boolean).pop() || "";
+                      const displayName = (ref.name && ref.name.trim()) || fromUri || "S3";
+                      return (
+                        <SidebarMenuItem key={`s3-${index}`}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <SidebarMenuButton className="w-full h-auto py-2 cursor-default" type="button">
+                                <div className="flex items-center w-full min-w-0 justify-between gap-2">
+                                  <span className="truncate text-sm font-medium leading-tight flex items-center gap-1.5 min-w-0">
+                                    <HardDrive className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                                    <span className="truncate">{displayName}</span>
+                                  </span>
+                                  {ref.region && (
+                                    <span className="shrink-0 text-[10px] bg-muted px-1.5 py-0.5 rounded-sm text-muted-foreground font-mono">
+                                      {ref.region}
+                                    </span>
+                                  )}
+                                </div>
+                              </SidebarMenuButton>
+                            </TooltipTrigger>
+                            <TooltipContent side="left" className="max-w-sm">
+                              <p className="text-xs break-all">{uri}</p>
                             </TooltipContent>
                           </Tooltip>
                         </SidebarMenuItem>

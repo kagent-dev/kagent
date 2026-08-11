@@ -5,20 +5,20 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // GatewayProviderRecordName returns the OpenClaw provider record id for a ModelConfig provider.
-func GatewayProviderRecordName(provider v1alpha2.ModelProvider) string {
+func GatewayProviderRecordName(provider v1alpha3.ModelProvider) string {
 	return strings.ToLower(string(provider))
 }
 
 // ModelConfigAPIKeyEnvVar returns a container env var that references the ModelConfig API key Secret.
 // Substrate ate-api resolves secretKeyRef when resuming an actor (see workload_spec in substrate ate-api).
-func ModelConfigAPIKeyEnvVar(mc *v1alpha2.ModelConfig) (corev1.EnvVar, error) {
+func ModelConfigAPIKeyEnvVar(mc *v1alpha3.ModelConfig) (corev1.EnvVar, error) {
 	if mc == nil {
 		return corev1.EnvVar{}, fmt.Errorf("ModelConfig is required")
 	}
@@ -42,7 +42,7 @@ func ModelConfigAPIKeyEnvVar(mc *v1alpha2.ModelConfig) (corev1.EnvVar, error) {
 }
 
 // ResolveModelConfigAPIKey reads the API key from the Secret referenced by ModelConfig.
-func ResolveModelConfigAPIKey(ctx context.Context, kube client.Client, mc *v1alpha2.ModelConfig) (string, error) {
+func ResolveModelConfigAPIKey(ctx context.Context, kube client.Client, mc *v1alpha3.ModelConfig) (string, error) {
 	if mc.Spec.APIKeyPassthrough {
 		return "", fmt.Errorf("APIKeyPassthrough is not supported when registering an OpenClaw gateway provider from ModelConfig")
 	}

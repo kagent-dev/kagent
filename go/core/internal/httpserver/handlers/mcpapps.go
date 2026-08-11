@@ -11,7 +11,7 @@ import (
 	"time"
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
@@ -231,7 +231,7 @@ func mcpServerCRDKind(groupKind string) string {
 //   - "MCPServer": read the kmcp MCPServer only.
 //   - empty/unknown: fall back to trying RemoteMCPServer first, then MCPServer
 //     (legacy behavior for callers that don't pass a kind).
-func (h *MCPAppsHandler) resolveMCPServerEndpoint(ctx context.Context, namespace, name, groupKind string) (*v1alpha2.RemoteMCPServer, error) {
+func (h *MCPAppsHandler) resolveMCPServerEndpoint(ctx context.Context, namespace, name, groupKind string) (*v1alpha3.RemoteMCPServer, error) {
 	key := client.ObjectKey{Namespace: namespace, Name: name}
 
 	switch mcpServerCRDKind(groupKind) {
@@ -272,8 +272,8 @@ func (h *MCPAppsHandler) resolveMCPServerEndpoint(ctx context.Context, namespace
 
 // getRemoteMCPServer reads a RemoteMCPServer. found is false (with nil error)
 // when no such CRD exists, so callers can decide whether to try another kind.
-func (h *MCPAppsHandler) getRemoteMCPServer(ctx context.Context, key client.ObjectKey) (*v1alpha2.RemoteMCPServer, bool, error) {
-	server := &v1alpha2.RemoteMCPServer{}
+func (h *MCPAppsHandler) getRemoteMCPServer(ctx context.Context, key client.ObjectKey) (*v1alpha3.RemoteMCPServer, bool, error) {
+	server := &v1alpha3.RemoteMCPServer{}
 	if err := h.KubeClient.Get(ctx, key, server); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, false, nil
@@ -286,7 +286,7 @@ func (h *MCPAppsHandler) getRemoteMCPServer(ctx context.Context, key client.Obje
 // getMCPServerEndpoint reads a kmcp MCPServer (an in-cluster Deployment+Service)
 // and converts it to the RemoteMCPServer shape. found is false (with nil error)
 // when no such CRD exists.
-func (h *MCPAppsHandler) getMCPServerEndpoint(ctx context.Context, key client.ObjectKey) (*v1alpha2.RemoteMCPServer, bool, error) {
+func (h *MCPAppsHandler) getMCPServerEndpoint(ctx context.Context, key client.ObjectKey) (*v1alpha3.RemoteMCPServer, bool, error) {
 	mcpServer := &kmcp.MCPServer{}
 	if err := h.KubeClient.Get(ctx, key, mcpServer); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -324,7 +324,7 @@ func (h *MCPAppsHandler) connect(ctx context.Context, namespace, name, groupKind
 	httpClient := newMCPAppsHTTPClient(headers)
 	var transport mcp.Transport
 	switch server.Spec.Protocol {
-	case v1alpha2.RemoteMCPServerProtocolSse:
+	case v1alpha3.RemoteMCPServerProtocolSse:
 		transport = &mcp.SSEClientTransport{
 			Endpoint:   server.Spec.URL,
 			HTTPClient: httpClient,

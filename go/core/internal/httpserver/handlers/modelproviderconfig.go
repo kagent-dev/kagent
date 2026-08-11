@@ -6,7 +6,7 @@ import (
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -42,22 +42,22 @@ func NewModelProviderConfigHandler(base *Base, rcnclr reconciler.KagentReconcile
 }
 
 // Helper function to get JSON keys specifically marked as required
-func getRequiredKeysForModelProvider(providerType v1alpha2.ModelProvider) []string {
+func getRequiredKeysForModelProvider(providerType v1alpha3.ModelProvider) []string {
 	switch providerType {
-	case v1alpha2.ModelProviderAzureOpenAI:
+	case v1alpha3.ModelProviderAzureOpenAI:
 		// Based on the +required comments in the AzureOpenAIConfig struct definition
 		return []string{"azureEndpoint", "apiVersion"}
-	case v1alpha2.ModelProviderBedrock:
+	case v1alpha3.ModelProviderBedrock:
 		return []string{"region"}
-	case v1alpha2.ModelProviderSAPAICore:
+	case v1alpha3.ModelProviderSAPAICore:
 		return []string{"baseUrl"}
-	case v1alpha2.ModelProviderFoundry:
+	case v1alpha3.ModelProviderFoundry:
 		// In the UI, deployment and endpoint are both required. At the CRD level
 		// the endpoint may alternatively be resolved from a ConfigMap via
 		// endpointFrom, but that advanced path is configured via YAML, not this
 		// form, so the form requires an inline endpoint.
 		return []string{"deployment", "endpoint"}
-	case v1alpha2.ModelProviderOpenAI, v1alpha2.ModelProviderAnthropic, v1alpha2.ModelProviderOllama:
+	case v1alpha3.ModelProviderOpenAI, v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderOllama:
 		// These providers currently have no fields marked as strictly required in the API definition
 		return []string{}
 	default:
@@ -122,19 +122,19 @@ func (h *ModelProviderConfigHandler) HandleListSupportedModelProviders(w ErrorRe
 	log.Info("Listing supported model providers with parameters")
 
 	providersData := []struct {
-		providerEnum v1alpha2.ModelProvider
+		providerEnum v1alpha3.ModelProvider
 		configType   reflect.Type
 	}{
-		{v1alpha2.ModelProviderOpenAI, reflect.TypeFor[v1alpha2.OpenAIConfig]()},
-		{v1alpha2.ModelProviderAnthropic, reflect.TypeFor[v1alpha2.AnthropicConfig]()},
-		{v1alpha2.ModelProviderAzureOpenAI, reflect.TypeFor[v1alpha2.AzureOpenAIConfig]()},
-		{v1alpha2.ModelProviderOllama, reflect.TypeFor[v1alpha2.OllamaConfig]()},
-		{v1alpha2.ModelProviderGemini, reflect.TypeFor[v1alpha2.GeminiConfig]()},
-		{v1alpha2.ModelProviderGeminiVertexAI, reflect.TypeFor[v1alpha2.GeminiVertexAIConfig]()},
-		{v1alpha2.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha2.AnthropicVertexAIConfig]()},
-		{v1alpha2.ModelProviderBedrock, reflect.TypeFor[v1alpha2.BedrockConfig]()},
-		{v1alpha2.ModelProviderSAPAICore, reflect.TypeFor[v1alpha2.SAPAICoreConfig]()},
-		{v1alpha2.ModelProviderFoundry, reflect.TypeFor[v1alpha2.FoundryConfig]()},
+		{v1alpha3.ModelProviderOpenAI, reflect.TypeFor[v1alpha3.OpenAIConfig]()},
+		{v1alpha3.ModelProviderAnthropic, reflect.TypeFor[v1alpha3.AnthropicConfig]()},
+		{v1alpha3.ModelProviderAzureOpenAI, reflect.TypeFor[v1alpha3.AzureOpenAIConfig]()},
+		{v1alpha3.ModelProviderOllama, reflect.TypeFor[v1alpha3.OllamaConfig]()},
+		{v1alpha3.ModelProviderGemini, reflect.TypeFor[v1alpha3.GeminiConfig]()},
+		{v1alpha3.ModelProviderGeminiVertexAI, reflect.TypeFor[v1alpha3.GeminiVertexAIConfig]()},
+		{v1alpha3.ModelProviderAnthropicVertexAI, reflect.TypeFor[v1alpha3.AnthropicVertexAIConfig]()},
+		{v1alpha3.ModelProviderBedrock, reflect.TypeFor[v1alpha3.BedrockConfig]()},
+		{v1alpha3.ModelProviderSAPAICore, reflect.TypeFor[v1alpha3.SAPAICoreConfig]()},
+		{v1alpha3.ModelProviderFoundry, reflect.TypeFor[v1alpha3.FoundryConfig]()},
 	}
 
 	providersResponse := []map[string]any{}
@@ -180,7 +180,7 @@ func (h *ModelProviderConfigHandler) HandleListConfiguredProviders(w ErrorRespon
 
 	// List ModelProviderConfig CRs directly from Kubernetes
 	namespace := utils.GetResourceNamespace()
-	var modelProviderConfigList v1alpha2.ModelProviderConfigList
+	var modelProviderConfigList v1alpha3.ModelProviderConfigList
 	if err := h.KubeClient.List(r.Context(), &modelProviderConfigList, client.InNamespace(namespace)); err != nil {
 		log.Error(err, "Failed to list model provider configs")
 		RespondWithError(w, http.StatusInternalServerError, err.Error())
@@ -191,7 +191,7 @@ func (h *ModelProviderConfigHandler) HandleListConfiguredProviders(w ErrorRespon
 	var response []ModelProviderResponse
 	for _, p := range modelProviderConfigList.Items {
 		// Only include Ready model providers
-		if meta.IsStatusConditionTrue(p.Status.Conditions, v1alpha2.ModelProviderConfigConditionTypeReady) {
+		if meta.IsStatusConditionTrue(p.Status.Conditions, v1alpha3.ModelProviderConfigConditionTypeReady) {
 			response = append(response, ModelProviderResponse{
 				Name:     p.Name,
 				Type:     string(p.Spec.Type),
@@ -236,7 +236,7 @@ func (h *ModelProviderConfigHandler) HandleGetProviderModels(w ErrorResponseWrit
 		}
 	} else {
 		// Read cached models from ModelProviderConfig.Status
-		p := &v1alpha2.ModelProviderConfig{}
+		p := &v1alpha3.ModelProviderConfig{}
 		if err := h.KubeClient.Get(r.Context(), client.ObjectKey{
 			Namespace: namespace,
 			Name:      providerName,

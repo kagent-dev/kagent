@@ -1,4 +1,8 @@
-import { FilePart } from "@a2a-js/sdk";
+import { Part } from "@a2a-js/sdk";
+import { Buffer } from "buffer";
+
+// @a2a-js/sdk uses Buffer for raw parts, including in its browser JSON codec.
+globalThis.Buffer ??= Buffer;
 
 // Per-file upload limit (10 MB), enforced client-side; the server guards too.
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -74,22 +78,17 @@ export function validateFile(file: File): string | null {
   return null;
 }
 
-/** Reads a File into a base64 A2A FilePart (inline bytes). */
-export function fileToFilePart(file: File): Promise<FilePart> {
+/** Reads a File into an inline A2A raw part. */
+export function fileToFilePart(file: File): Promise<Part> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const result = reader.result as string;
-      // result is a data URL: "data:<mime>;base64,<data>"
-      const base64 = result.includes(",") ? result.split(",", 2)[1] : result;
-      resolve({
-        kind: "file",
-        file: {
-          name: file.name,
-          mimeType: file.type || "application/octet-stream",
-          bytes: base64,
-        },
-      });
+      const dataUrl = String(reader.result);
+      resolve(Part.fromJSON({
+        raw: dataUrl.slice(dataUrl.indexOf(",") + 1),
+        filename: file.name,
+        mediaType: file.type || "application/octet-stream",
+      }));
     };
     reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
     reader.readAsDataURL(file);

@@ -89,6 +89,44 @@ Guards on the rbac block
 {{- end -}}
 
 {{/*
+Returns "1" when a PodDisruptionBudget threshold is explicitly set, empty otherwise.
+
+Uses `kindIs "invalid"` rather than `default ""` so that an explicit `0` counts as
+set: Helm's `default` treats 0 as empty, which would silently drop a
+`maxUnavailable: 0` budget and render a manifest the user never asked for.
+An empty string is also treated as unset, so `minAvailable: ""` disables the field.
+*/}}
+{{- define "kagent.pdb.isSet" -}}
+{{- if not (kindIs "invalid" .) -}}
+{{- if ne (toString .) "" -}}1{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Guards on a component `pdb` block.
+
+Kubernetes rejects a PodDisruptionBudget that sets both `minAvailable` and
+`maxUnavailable`, and a budget that sets neither is meaningless, so both cases
+fail at template time with a message naming the offending values path rather
+than surfacing later as an opaque API server error.
+
+Call with a dict: (dict "pdb" .Values.controller.pdb "path" "controller.pdb")
+*/}}
+{{- define "kagent.pdb.validate" -}}
+{{- $pdb := .pdb | default dict -}}
+{{- if $pdb.enabled -}}
+{{- $hasMin := include "kagent.pdb.isSet" $pdb.minAvailable -}}
+{{- $hasMax := include "kagent.pdb.isSet" $pdb.maxUnavailable -}}
+{{- if and $hasMin $hasMax -}}
+{{- fail (printf "%s: minAvailable and maxUnavailable are mutually exclusive. Set exactly one (to use minAvailable, set %s.maxUnavailable=null)." .path .path) -}}
+{{- end -}}
+{{- if not (or $hasMin $hasMax) -}}
+{{- fail (printf "%s is enabled but neither minAvailable nor maxUnavailable is set. Set exactly one." .path) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 UI selector labels
 */}}
 {{- define "kagent.ui.selectorLabels" -}}

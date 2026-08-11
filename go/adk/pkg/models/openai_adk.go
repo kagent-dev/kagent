@@ -383,13 +383,14 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	var aggregatedText strings.Builder
 	toolCallsAcc := make(map[int64]map[string]any)
 	var finishReason string
-	var promptTokens, completionTokens int64
+	var promptTokens, completionTokens, totalTokens int64
 
 	for stream.Next() {
 		chunk := stream.Current()
 		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 			promptTokens = chunk.Usage.PromptTokens
 			completionTokens = chunk.Usage.CompletionTokens
+			totalTokens = chunk.Usage.TotalTokens
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -471,6 +472,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		usage = &genai.GenerateContentResponseUsageMetadata{
 			PromptTokenCount:     int32(promptTokens),
 			CandidatesTokenCount: int32(completionTokens),
+			TotalTokenCount:      int32(totalTokens),
 		}
 	}
 	resp := &model.LLMResponse{
@@ -532,6 +534,7 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 		usage = &genai.GenerateContentResponseUsageMetadata{
 			PromptTokenCount:     int32(completion.Usage.PromptTokens),
 			CandidatesTokenCount: int32(completion.Usage.CompletionTokens),
+			TotalTokenCount:      int32(completion.Usage.TotalTokens),
 		}
 	}
 	return &model.LLMResponse{

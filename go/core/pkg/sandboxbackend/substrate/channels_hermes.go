@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/channel_helpers"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -15,12 +15,12 @@ import (
 // env-var contract that the Hermes messaging gateway auto-detects
 // (SLACK_BOT_TOKEN, TELEGRAM_BOT_TOKEN, ...). Hermes supports a single account
 // per platform, so a second channel of the same type is rejected.
-func buildHermesChannelEnv(ctx context.Context, kube client.Client, namespace string, chs []v1alpha2.AgentHarnessChannel) ([]corev1.EnvVar, error) {
+func buildHermesChannelEnv(ctx context.Context, kube client.Client, namespace string, chs []v1alpha3.AgentHarnessChannel) ([]corev1.EnvVar, error) {
 	var env []corev1.EnvVar
 	var telegramSeen, slackSeen bool
 	for _, ch := range chs {
 		switch ch.Type {
-		case v1alpha2.AgentHarnessChannelTypeTelegram:
+		case v1alpha3.AgentHarnessChannelTypeTelegram:
 			if telegramSeen {
 				return nil, fmt.Errorf("hermes supports at most one telegram channel, found a second %q", ch.Name)
 			}
@@ -30,7 +30,7 @@ func buildHermesChannelEnv(ctx context.Context, kube client.Client, namespace st
 				return nil, err
 			}
 			env = append(env, e...)
-		case v1alpha2.AgentHarnessChannelTypeSlack:
+		case v1alpha3.AgentHarnessChannelTypeSlack:
 			if slackSeen {
 				return nil, fmt.Errorf("hermes supports at most one slack channel, found a second %q", ch.Name)
 			}
@@ -47,7 +47,7 @@ func buildHermesChannelEnv(ctx context.Context, kube client.Client, namespace st
 	return env, nil
 }
 
-func hermesTelegramEnv(ctx context.Context, kube client.Client, namespace string, ch v1alpha2.AgentHarnessChannel) ([]corev1.EnvVar, error) {
+func hermesTelegramEnv(ctx context.Context, kube client.Client, namespace string, ch v1alpha3.AgentHarnessChannel) ([]corev1.EnvVar, error) {
 	spec := ch.Telegram
 	if spec == nil {
 		return nil, fmt.Errorf("channel %q: telegram spec is required", ch.Name)
@@ -67,7 +67,7 @@ func hermesTelegramEnv(ctx context.Context, kube client.Client, namespace string
 	return out, nil
 }
 
-func hermesSlackEnv(ctx context.Context, kube client.Client, namespace string, ch v1alpha2.AgentHarnessChannel) ([]corev1.EnvVar, error) {
+func hermesSlackEnv(ctx context.Context, kube client.Client, namespace string, ch v1alpha3.AgentHarnessChannel) ([]corev1.EnvVar, error) {
 	spec := ch.Slack
 	if spec == nil {
 		return nil, fmt.Errorf("channel %q: slack spec is required", ch.Name)
@@ -99,6 +99,6 @@ func hermesSlackEnv(ctx context.Context, kube client.Client, namespace string, c
 	return out, nil
 }
 
-func unsupportedHermesChannelType(name string, typ v1alpha2.AgentHarnessChannelType) error {
+func unsupportedHermesChannelType(name string, typ v1alpha3.AgentHarnessChannelType) error {
 	return fmt.Errorf("channel %q: unsupported hermes channel type %q", name, typ)
 }

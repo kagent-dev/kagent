@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { v4 as uuidv4 } from "uuid";
-import { Message as A2AMessage, Task as A2ATask, TaskStatusUpdateEvent as A2ATaskStatusUpdateEvent, TaskArtifactUpdateEvent as A2ATaskArtifactUpdateEvent } from "@a2a-js/sdk";
+import { Role, type Part as A2APart } from "@a2a-js/sdk";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -148,23 +148,20 @@ export const createRFC1123ValidName = (parts: string[]): string => {
   return combined;
 };
 
-export const messageUtils = {
-  isA2AMessage(content: unknown): content is A2AMessage {
-    return typeof content === "object" && content !== null && "kind" in content && content.kind === "message";
-  },
+export type DataPart = A2APart & { content: { $case: "data"; value: unknown } };
+export type TextPart = A2APart & { content: { $case: "text"; value: string } };
 
-  isA2ATask(content: unknown): content is A2ATask {
-    return typeof content === "object" && content !== null && "kind" in content && content.kind === "task";
-  },
+export function isDataPart(part: A2APart): part is DataPart {
+  return part.content?.$case === "data";
+}
 
-  isA2ATaskStatusUpdate(content: unknown): content is A2ATaskStatusUpdateEvent {
-    return typeof content === "object" && content !== null && "kind" in content && content.kind === "status-update";
-  },
+export function isTextPart(part: A2APart): part is TextPart {
+  return part.content?.$case === "text";
+}
 
-  isA2ATaskArtifactUpdate(content: unknown): content is A2ATaskArtifactUpdateEvent {
-    return typeof content === "object" && content !== null && "kind" in content && content.kind === "artifact-update";
-  },
-};
+export function isUserRole(role: Role | undefined): boolean {
+  return role === Role.ROLE_USER;
+}
 
 const NAMESPACE_SEPARATOR = "__NS__";
 export function convertToUserFriendlyName(name: string): string {

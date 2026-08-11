@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // createSecretWithOwnerReference creates a Kubernetes secret with owner reference.
@@ -23,9 +23,9 @@ func createSecretWithOwnerReference(
 	var ownerKind string
 	var ownerAPIVersion string
 	switch owner.(type) {
-	case *v1alpha2.ModelConfig:
+	case *v1alpha3.ModelConfig:
 		ownerKind = "ModelConfig"
-		ownerAPIVersion = v1alpha2.GroupVersion.Identifier()
+		ownerAPIVersion = v1alpha3.GroupVersion.Identifier()
 	default:
 		return fmt.Errorf("unsupported owner type")
 	}

@@ -208,146 +208,6 @@ tests:
       - equal:
           path: data.ZAP_LOG_LEVEL
           value: "debug"
-  - it: should use controller.agentImage.pullSecret when set
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentImage:
-          pullSecret: "pull-secret"
-    asserts:
-      - equal:
-          path: data.IMAGE_PULL_SECRET
-          value: "pull-secret"
-  - it: should not use controller.agentImage.pullSecret when not set
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentImage:
-          pullSecret: ""
-    asserts:
-      - notExists:
-          path: data.IMAGE_PULL_SECRET
-
-  - it: should set DEFAULT_AGENT_POD_LABELS when podLabels are configured
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          podLabels:
-            team: platform
-            env: prod
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_POD_LABELS
-          value: "env=prod,team=platform"
-
-  - it: should not set DEFAULT_AGENT_POD_LABELS when podLabels are empty
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          podLabels: {}
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_POD_LABELS
-
-  - it: should not set DEFAULT_AGENT_POD_LABELS when podLabels are not configured
-    template: controller-configmap.yaml
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_POD_LABELS
-
-  - it: should set DEFAULT_AGENT_POD_LABELS with single label
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          podLabels:
-            team: platform
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_POD_LABELS
-          value: "team=platform"
-
-  - it: should set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is configured
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          nodeSelector:
-            kubernetes.io/os: linux
-            pool: agents
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_NODE_SELECTOR
-          value: "kubernetes.io/os=linux,pool=agents"
-
-  - it: should not set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is empty
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          nodeSelector: {}
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_NODE_SELECTOR
-
-  - it: should not set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is not configured
-    template: controller-configmap.yaml
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_NODE_SELECTOR
-
-  - it: should set DEFAULT_AGENT_BIND_HOST when host is configured
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          host: "::"
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_BIND_HOST
-          value: "::"
-
-  - it: should not set DEFAULT_AGENT_BIND_HOST when host is empty
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          host: ""
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_BIND_HOST
-
-  - it: should not set DEFAULT_AGENT_BIND_HOST when host is not configured
-    template: controller-configmap.yaml
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_BIND_HOST
-
-  - it: should set DEFAULT_AGENT_BIND_HOST to dual-stack when ipv6 is enabled
-    template: controller-configmap.yaml
-    set:
-      ipv6:
-        enabled: true
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_BIND_HOST
-          value: "::"
-
-  - it: should prefer explicit host over ipv6 flag
-    template: controller-configmap.yaml
-    set:
-      ipv6:
-        enabled: true
-      controller:
-        agentDeployment:
-          host: "0.0.0.0"
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_BIND_HOST
-          value: "0.0.0.0"
-
   - it: should configure watch namespaces
     template: controller-configmap.yaml
     set:
@@ -595,6 +455,42 @@ tests:
       - equal:
           path: data.DATABASE_VECTOR_ENABLED
           value: "true"
+
+  - it: should not set DB pool env vars by default
+    template: controller-configmap.yaml
+    asserts:
+      - notExists:
+          path: data.DB_MAX_CONNS
+      - notExists:
+          path: data.DB_MIN_CONNS
+      - notExists:
+          path: data.DB_MAX_CONN_IDLE_TIME
+      - notExists:
+          path: data.DB_MAX_CONN_LIFETIME
+
+  - it: should set DB pool env vars when pool is configured
+    template: controller-configmap.yaml
+    set:
+      database:
+        postgres:
+          pool:
+            maxConns: 4
+            minConns: 0
+            maxConnIdleTime: 1m
+            maxConnLifetime: 10m
+    asserts:
+      - equal:
+          path: data.DB_MAX_CONNS
+          value: "4"
+      - equal:
+          path: data.DB_MIN_CONNS
+          value: "0"
+      - equal:
+          path: data.DB_MAX_CONN_IDLE_TIME
+          value: "1m"
+      - equal:
+          path: data.DB_MAX_CONN_LIFETIME
+          value: "10m"
 
   - it: should not set POSTGRES_DATABASE_URL in configmap
     template: controller-configmap.yaml

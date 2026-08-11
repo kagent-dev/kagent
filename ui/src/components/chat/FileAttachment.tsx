@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { FilePart, FileWithBytes } from "@a2a-js/sdk";
+import type { Part } from "@a2a-js/sdk";
 import { Download, File as FileIcon } from "lucide-react";
-import { isFileWithBytes } from "@/lib/messageHandlers";
 
 interface FileAttachmentProps {
-  part: FilePart;
+  part: Part;
 }
 
 /** Format a byte count into a short human-readable string (e.g. "1.2 MB"). */
@@ -22,38 +21,26 @@ export function formatFileSize(bytes: number): string {
   return `${size.toFixed(1)} ${units[unitIndex]}`;
 }
 
-/** Decode a base64 string into a Blob with the given MIME type. */
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  const binary = atob(base64);
-  const len = binary.length;
-  const buffer = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    buffer[i] = binary.charCodeAt(i);
-  }
-  return new Blob([buffer], { type: mimeType || "application/octet-stream" });
-}
-
 /**
  * Renders a single A2A file part: an inline thumbnail for images, or a
  * downloadable chip (icon + filename + size) for all other types.
  */
 export default function FileAttachment({ part }: FileAttachmentProps) {
-  const file = part.file;
-
-  const fileWithBytes: FileWithBytes | null = isFileWithBytes(file) ? file : null;
-  const name = file.name || "file";
-  const mimeType = file.mimeType || "application/octet-stream";
+  const raw = part.content?.$case === "raw" ? part.content.value : null;
+  const uri = part.content?.$case === "url" ? part.content.value : undefined;
+  const name = part.filename || "file";
+  const mimeType = part.mediaType || "application/octet-stream";
   const isImage = mimeType.startsWith("image/");
 
   const { objectUrl, byteSize } = useMemo(() => {
-    if (!fileWithBytes) return { objectUrl: null, byteSize: null };
+    if (!raw) return { objectUrl: null, byteSize: null };
     try {
-      const blob = base64ToBlob(fileWithBytes.bytes, mimeType);
+      const blob = new Blob([new Uint8Array(raw)], { type: mimeType });
       return { objectUrl: URL.createObjectURL(blob), byteSize: blob.size };
     } catch {
       return { objectUrl: null, byteSize: null };
     }
-  }, [fileWithBytes, mimeType]);
+  }, [raw, mimeType]);
 
   useEffect(() => {
     return () => {
@@ -62,8 +49,7 @@ export default function FileAttachment({ part }: FileAttachmentProps) {
   }, [objectUrl]);
 
   // URI-based files (no inline bytes): render a plain external link.
-  if (!fileWithBytes) {
-    const uri = "uri" in file ? file.uri : undefined;
+  if (!raw) {
     return (
       <a
         href={uri}

@@ -6,7 +6,7 @@ import (
 
 	"github.com/gorilla/mux"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -110,7 +110,7 @@ func (h *Handlers) HandleGetAgentHarnessSessionActor(w ErrorResponseWriter, r *h
 
 // loadAgentHarnessSession validates the request, loads the AgentHarness and
 // returns it together with the session id.
-func (h *Handlers) loadAgentHarnessSession(r *http.Request) (*v1alpha2.AgentHarness, string, *errors.APIError) {
+func (h *Handlers) loadAgentHarnessSession(r *http.Request) (*v1alpha3.AgentHarness, string, *errors.APIError) {
 	if h.AgentHarnessSessionActor == nil {
 		return nil, "", errors.NewNotImplementedError("substrate session actor backend is not configured", nil)
 	}
@@ -126,7 +126,7 @@ func (h *Handlers) loadAgentHarnessSession(r *http.Request) (*v1alpha2.AgentHarn
 		return nil, "", errors.NewBadRequestError("session id is required", nil)
 	}
 
-	var ah v1alpha2.AgentHarness
+	var ah v1alpha3.AgentHarness
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{Namespace: namespace, Name: name}, &ah); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, "", errors.NewNotFoundError("AgentHarness not found", err)

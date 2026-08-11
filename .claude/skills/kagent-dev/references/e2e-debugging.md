@@ -186,7 +186,7 @@ kubectl get events -n kagent | grep -i invalid
 # Try creating agent manually to see validation error
 kubectl apply -f - <<EOF
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: test-agent
   namespace: kagent

@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeAll } from '@jest/globals';
 import { render, screen } from '@testing-library/react';
-import type { Message } from '@a2a-js/sdk';
+import { Part, Role, type Message } from '@a2a-js/sdk';
+import { createMockMessage, createTextPart } from '@/mocks/factories';
 
 // TruncatableText pulls in react-markdown (ESM) which jest does not transform;
 // stub it (and other heavy children not exercised here) to a plain renderer.
@@ -26,42 +27,47 @@ beforeAll(() => {
   global.URL.revokeObjectURL = jest.fn();
 });
 
-const PNG_B64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+const imagePart = Part.fromJSON({
+  raw: 'AQID',
+  filename: 'pic.png',
+  mediaType: 'image/png',
+});
 
-function fileMessage(role: 'user' | 'agent'): Message {
-  return {
-    kind: 'message',
+function fileMessage(role: Role): Message {
+  return createMockMessage({
     messageId: `msg-${role}`,
     role,
     parts: [
-      { kind: 'text', text: role === 'user' ? 'here you go' : 'here is your file' },
-      { kind: 'file', file: { name: 'pic.png', mimeType: 'image/png', bytes: PNG_B64 } },
+      createTextPart(role === Role.ROLE_USER ? 'here you go' : 'here is your file'),
+      imagePart,
     ],
     metadata: {},
-  };
+  });
 }
 
 describe('ChatMessage file rendering', () => {
   test('renders a file attachment in the user bubble', () => {
-    render(<ChatMessage message={fileMessage('user')} allMessages={[]} />);
-    expect(screen.getByAltText('pic.png')).toBeInTheDocument();
+    render(<ChatMessage message={fileMessage(Role.ROLE_USER)} allMessages={[]} />);
+    expect(screen.getByAltText('pic.png')).toBeTruthy();
   });
 
   test('renders a file attachment in the agent bubble', () => {
-    render(<ChatMessage message={fileMessage('agent')} allMessages={[]} />);
-    expect(screen.getByAltText('pic.png')).toBeInTheDocument();
+    render(<ChatMessage message={fileMessage(Role.ROLE_AGENT)} allMessages={[]} />);
+    expect(screen.getByAltText('pic.png')).toBeTruthy();
   });
 
   test('renders a file-only message (no text) instead of skipping it', () => {
-    const msg: Message = {
-      kind: 'message',
+    const msg = createMockMessage({
       messageId: 'file-only',
-      role: 'agent',
-      parts: [{ kind: 'file', file: { name: 'data.csv', mimeType: 'text/csv', bytes: 'YSxiCg==' } }],
+      role: Role.ROLE_AGENT,
+      parts: [Part.fromJSON({
+        raw: 'YSxiCg==',
+        filename: 'data.csv',
+        mediaType: 'text/csv',
+      })],
       metadata: {},
-    };
+    });
     render(<ChatMessage message={msg} allMessages={[]} />);
-    expect(screen.getByText('data.csv')).toBeInTheDocument();
+    expect(screen.getByText('data.csv')).toBeTruthy();
   });
 });

@@ -91,8 +91,8 @@ type AgentSpec struct {
 	// +optional
 	Provider *AgentProvider `json:"provider,omitempty"`
 
-	// Skills to load into the agent. They will be pulled from the specified container images.
-	// and made available to the agent under the `/skills` folder.
+	// Skills to load into the agent. They will be pulled from OCI images, git repos,
+	// and/or S3, and made available to the agent under the `/skills` folder.
 	// +optional
 	Skills *SkillForAgent `json:"skills,omitempty"`
 
@@ -124,7 +124,7 @@ type AgentProvider struct {
 	URL string `json:"url"`
 }
 
-// +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
+// +kubebuilder:validation:AtLeastOneOf=refs;gitRefs;s3Refs
 type SkillForAgent struct {
 	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
 	// Meant for development and testing purposes only.
@@ -158,6 +158,14 @@ type SkillForAgent struct {
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	GitRefs []GitRepo `json:"gitRefs,omitempty"`
+
+	// S3 object prefixes or archives to fetch skills from.
+	// Auth uses the AWS SDK default credential chain (typically static keys via
+	// skills.initContainer.env: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION).
+	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MinItems=1
+	// +optional
+	S3Refs []S3SkillRef `json:"s3Refs,omitempty"`
 
 	// Configuration for the skills-init init container.
 	// +optional
@@ -195,6 +203,29 @@ type GitRepo struct {
 	// Name for the skill directory under /skills. If omitted, defaults to the last
 	// segment of Path when Path is set; otherwise defaults to the repo name (last
 	// URL path segment, without .git).
+	// +optional
+	Name string `json:"name,omitempty"`
+}
+
+// S3SkillRef specifies a skill bundle in an S3 bucket.
+//
+// Two bundle shapes are supported:
+//   - Prefix: s3://bucket/path/to/skill/ containing SKILL.md (and siblings); synced recursively
+//   - Archive: a single .zip / .tgz / .tar.gz object; downloaded and extracted
+type S3SkillRef struct {
+	// S3 URI of the skill: s3://bucket/key-or-prefix
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^s3://.+`
+	URI string `json:"uri"`
+
+	// AWS region for the bucket. Optional when AWS_REGION / AWS_DEFAULT_REGION is set
+	// on the skills-init container (e.g. via initContainer.env).
+	// +optional
+	Region string `json:"region,omitempty"`
+
+	// Name for the skill directory under /skills. If omitted, defaults to the last
+	// non-empty path segment of the URI (archive extension stripped).
 	// +optional
 	Name string `json:"name,omitempty"`
 }
@@ -246,13 +277,6 @@ type DeclarativeAgentSpec struct {
 
 	// +optional
 	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
-
-	// Allow code execution for python code blocks with this agent.
-	// If true, the agent will automatically execute python code blocks in the LLM responses.
-	// Code will be executed in a sandboxed environment.
-	// +optional
-	// due to a bug in adk (https://github.com/google/adk-python/issues/3921 ), this field is ignored for now.
-	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
 
 	// Memory configuration for the agent.
 	// +optional

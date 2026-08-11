@@ -50,10 +50,6 @@ jest.mock("@/components/agent-form/AgentSkillsFormSection", () => ({
   AgentSkillsFormSection: () => null,
 }));
 
-jest.mock("@/components/agent-form/ServiceAccountNameField", () => ({
-  ServiceAccountNameField: () => null,
-}));
-
 jest.mock("@/components/agent-form/DeclarativeRuntimeField", () => ({
   DeclarativeRuntimeField: () => null,
 }));

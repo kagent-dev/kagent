@@ -20,7 +20,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -44,7 +44,7 @@ func TestSessionsHandler(t *testing.T) {
 	scheme := runtime.NewScheme()
 	err := v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
-	err = v1alpha2.AddToScheme(scheme)
+	err = v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	setupHandler := func(t *testing.T) (*handlers.SessionsHandler, database.Client, *mockErrorResponseWriter) {
@@ -65,7 +65,7 @@ func TestSessionsHandler(t *testing.T) {
 		t.Helper()
 		agent := &database.Agent{
 			ID:           agentRef,
-			WorkloadType: v1alpha2.WorkloadModeDeployment,
+			WorkloadType: v1alpha3.WorkloadModeSandbox,
 		}
 		require.NoError(t, dbClient.StoreAgent(context.Background(), agent))
 		return agent
@@ -238,7 +238,7 @@ func TestSessionsHandler(t *testing.T) {
 
 			require.NoError(t, dbClient.StoreAgent(context.Background(), &database.Agent{
 				ID:           agentRef,
-				WorkloadType: v1alpha2.WorkloadModeSandbox,
+				WorkloadType: v1alpha3.WorkloadModeSandbox,
 			}))
 
 			existingAgentID := agentRef
@@ -265,18 +265,18 @@ func TestSessionsHandler(t *testing.T) {
 			userID := "test-user"
 			agentRef := utils.ConvertToPythonIdentifier("kagent/test-substrate-agent")
 
-			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha2.SandboxAgent{
+			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-substrate-agent",
 					Namespace: "kagent",
 				},
-				Spec: v1alpha2.SandboxAgentSpec{},
+				Spec: v1alpha3.SandboxAgentSpec{},
 			}).Build()
 			handler.KubeClient = kubeClient
 
 			require.NoError(t, dbClient.StoreAgent(context.Background(), &database.Agent{
 				ID:           agentRef,
-				WorkloadType: v1alpha2.WorkloadModeSandbox,
+				WorkloadType: v1alpha3.WorkloadModeSandbox,
 			}))
 			createTestSession(t, dbClient, "existing-session", "other-user", agentRef)
 
@@ -690,7 +690,6 @@ func TestSessionsHandler(t *testing.T) {
 
 			req := httptest.NewRequest("GET", "/api/sessions/"+sessionID+"/tasks", nil)
 			req = mux.SetURLVars(req, map[string]string{"session_id": sessionID})
-			req.Header.Set("A2A-Version", "1.0")
 			req = setUser(req, userID)
 
 			handler.HandleListTasksForSession(responseRecorder, req)

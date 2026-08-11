@@ -6,7 +6,7 @@
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: my-agent
   namespace: kagent
@@ -76,7 +76,7 @@ spec:
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: my-custom-agent
   namespace: kagent

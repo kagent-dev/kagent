@@ -64,9 +64,10 @@ This EP enables an **end-to-end file upload / download round trip** in chat:
 
 ### Transport & data model
 
-- **Upload:** `@a2a-js/sdk` `FilePart` `{ kind: "file", file: { name, mimeType,
-  bytes /*base64*/ } }` appended alongside the text part on `message/stream`.
-- **Download:** A2A artifact-update events carrying a `FilePart`.
+- **Upload:** `@a2a-js/sdk` raw `Part` `{ content: { $case: "raw", value },
+  filename, mediaType }` appended alongside the text part. Its JSON encoding
+  carries the raw bytes as base64.
+- **Download:** A2A artifact-update events carrying raw or URL file parts.
 - **ADK artifact value:** `*genai.Part` with `InlineData {Data, MIMEType,
   DisplayName}`; key `(AppName, UserID, SessionID, FileName, Version)`; versions
   auto-increment; `ArtifactDelta map[filename]version` set automatically on save.
@@ -83,11 +84,11 @@ This EP enables an **end-to-end file upload / download round trip** in chat:
 - **`go/adk/pkg/a2a/executor.go`** — enable
   `runConfig.SaveInputBlobsAsArtifacts = true`; on each event with
   `Actions.ArtifactDelta`, `Load` each `(name, version)` from the store, set
-  `InlineData.DisplayName`, convert via `ToA2APart`, and emit an A2A
-  artifact-update `FilePart` event (`LastChunk=true`). Load/convert errors are
-  logged and skipped so the turn continues.
-- **`go/adk/pkg/a2a/artifacts.go`** — helpers for building/emitting artifact
-  events from saved ADK parts.
+  `InlineData.DisplayName`, convert via `ToA2APart`, and append it to the
+  artifact-update event produced by the upstream ADK executor. Load/convert
+  errors are logged and skipped so the turn continues.
+- **`go/adk/pkg/a2a/artifacts.go`** — inbound size validation and saved-artifact
+  conversion helpers.
 - **`go/adk/pkg/fileextract/`** (`fileextract.go`, `pdf.go`) — extract text from
   uploaded documents (PDF and other supported types) so the content is injected
   for models that can't read the raw file.
@@ -109,17 +110,18 @@ This EP enables an **end-to-end file upload / download round trip** in chat:
 ### UI (Next.js, `ui/src`)
 
 - **`lib/fileUpload.ts`** — `FILE_ACCEPT`, `MAX_FILE_BYTES` (10 MB), `isAllowedFile`,
-  `fileToFilePart` (read file → base64 `FilePart`). Allowlist: images, PDF,
+  `fileToFilePart` (read file → raw A2A `Part`). Allowlist: images, PDF,
   text/markdown, CSV, JSON.
 - **`components/chat/ChatInterface.tsx`** — attach button + hidden multi-file
   `<input>`; `pendingFiles` state with removable chips; type/size validation with
-  toasts; build `FilePart`s and append to the outgoing message; session naming
+  toasts; build file parts and append to the outgoing message; session naming
   falls back to the first file name for file-only messages.
 - **`components/chat/FileAttachment.tsx`** (new) — image thumbnail (object URL)
   or a download chip (icon, filename, human size, download button).
 - **`components/chat/ChatMessage.tsx`** — render file parts in user and agent
   bubbles.
-- **`lib/messageHandlers.ts`** — preserve `file` parts from messages and from
+- **`lib/messageHandlers.ts`** — preserve raw/URL file parts from messages and
+  from
   `artifact-update` events (`extractMessagesFromTasks`).
 
 ### Edge / deployment
@@ -133,20 +135,17 @@ This EP enables an **end-to-end file upload / download round trip** in chat:
 ### Acceptance criteria (AC1–AC8)
 
 AC1 artifact service wired · AC2 upload passed inline · AC3 upload persisted ·
-AC4 agent-saved artifact emitted as A2A `FilePart` · AC5 `loadartifactstool`
+AC4 agent-saved artifact emitted as an A2A file part · AC5 `loadartifactstool`
 registered · AC6 UI multi-file attach with validation · AC7 thumbnail/chip
-rendering in both bubbles · AC8 E2E upload round trip on kind.
+rendering in both bubbles · AC8 automated upload/artifact regression coverage.
 
 ### Test Plan
 
 - **Go unit:** `adapter_test.go` (non-nil `ArtifactService`), `agent_test.go`
-  (tool list includes load/save tools), `executor_test.go` (ArtifactDelta →
-  emitted `FilePart`; oversized inbound → failed status), `artifacts_test.go`,
+  (tool list includes load/save tools), `artifacts_test.go` (ArtifactDelta →
+  emitted file part; oversized inbound → error),
   `save_artifact_tool_test.go`, `fileextract` tests (`fileextract_test.go`,
   `fixture_test.go`), `models/openai_adk_test.go`.
-- **Go e2e:** `go/core/test/e2e/file_upload_test.go` — upload an inline A2A file
-  part to a Go ADK agent and assert it is processed (uses the current
-  `a2aproject/a2a-go/v2` API).
 - **Python unit:** `tests/unittests/models/test_file_extract.py`,
   `test_openai.py`.
 - **UI unit:** `lib/__tests__/fileUpload.test.ts`,

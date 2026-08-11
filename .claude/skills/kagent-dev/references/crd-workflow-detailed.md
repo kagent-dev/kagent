@@ -151,7 +151,7 @@ func (a *adkApiTranslator) translateInlineAgent(...) (*adk.AgentConfig, ...) {
 **Example usage in Agent YAML:**
 ```yaml
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: my-agent
 spec:
@@ -252,7 +252,7 @@ func (a *adkApiTranslator) translateInlineAgent(...) (*adk.AgentConfig, ...) {
 **Example usage:**
 ```yaml
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: my-agent
 spec:
@@ -352,7 +352,7 @@ func (a *adkApiTranslator) translateInlineAgent(...) (*adk.AgentConfig, ...) {
 **Example usage:**
 ```yaml
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: my-agent
 spec:
@@ -666,7 +666,7 @@ func TestE2EAgentWithCustomEnv(t *testing.T) {
 # Create example
 cat > examples/agent-with-env.yaml <<EOF
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: agent-with-custom-env
   namespace: kagent

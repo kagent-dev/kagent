@@ -6,7 +6,6 @@ import type { AgentResponse, AgentType } from "@/types";
 type ChatAgentRuntimeContextValue = {
   currentAgent: AgentResponse;
   agentType: AgentType;
-  runInSandbox: boolean;
   substrateSandbox: boolean;
 };
 
@@ -15,18 +14,16 @@ const ChatAgentRuntimeContext = createContext<ChatAgentRuntimeContextValue | und
 export function ChatAgentProvider({
   currentAgent,
   agentType,
-  runInSandbox = false,
   substrateSandbox = false,
   children,
 }: {
   currentAgent: AgentResponse;
   agentType: AgentType;
-  runInSandbox?: boolean;
   substrateSandbox?: boolean;
   children: ReactNode;
 }) {
   return (
-    <ChatAgentRuntimeContext.Provider value={{ currentAgent, agentType, runInSandbox, substrateSandbox }}>
+    <ChatAgentRuntimeContext.Provider value={{ currentAgent, agentType, substrateSandbox }}>
       {children}
     </ChatAgentRuntimeContext.Provider>
   );
@@ -44,11 +41,6 @@ export function useCurrentChatAgent(): AgentResponse {
 /** Agent type for the current chat route (from layout). Undefined outside provider. */
 export function useChatAgentType(): AgentType | undefined {
   return useContext(ChatAgentRuntimeContext)?.agentType;
-}
-
-/** SandboxAgent workloads (API `runInSandbox`). */
-export function useChatRunInSandbox(): boolean {
-  return useContext(ChatAgentRuntimeContext)?.runInSandbox ?? false;
 }
 
 /** Agent Substrate sandbox (multi-session; session actors resume on send). */

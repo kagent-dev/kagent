@@ -8,7 +8,7 @@ import (
 
 	"github.com/go-logr/logr"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
@@ -88,7 +88,7 @@ func (h *AgentsHandler) HandleListSandboxAgents(w ErrorResponseWriter, r *http.R
 		return
 	}
 
-	sandboxAgentList := &v1alpha2.SandboxAgentList{}
+	sandboxAgentList := &v1alpha3.SandboxAgentList{}
 	if err := h.KubeClient.List(r.Context(), sandboxAgentList); err != nil {
 		w.RespondWithError(errors.NewInternalServerError("Failed to list SandboxAgents from Kubernetes", err))
 		return
@@ -102,31 +102,25 @@ func (h *AgentsHandler) HandleListSandboxAgents(w ErrorResponseWriter, r *http.R
 	RespondWithJSON(w, http.StatusOK, data)
 }
 
-// listAgentResponses fetches Agent and AgentHarness resources, applies the
+// listAgentResponses fetches SandboxAgent and AgentHarness resources, applies the
 // provided list options (e.g. client.InNamespace), and returns the merged
 // slice of AgentResponse values.
 func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger, opts ...client.ListOption) ([]api.AgentResponse, error) {
-	agentList := &v1alpha2.AgentList{}
-	if err := h.KubeClient.List(ctx, agentList, opts...); err != nil {
-		return nil, errors.NewInternalServerError("Failed to list Agents from Kubernetes", err)
-	}
-
-	sandboxAgentList := &v1alpha2.SandboxAgentList{}
+	sandboxAgentList := &v1alpha3.SandboxAgentList{}
 	if err := h.KubeClient.List(ctx, sandboxAgentList, opts...); err != nil {
 		return nil, errors.NewInternalServerError("Failed to list SandboxAgents from Kubernetes", err)
 	}
 
-	harnessList := &v1alpha2.AgentHarnessList{}
+	harnessList := &v1alpha3.AgentHarnessList{}
 	if err := h.KubeClient.List(ctx, harnessList, opts...); err != nil {
 		return nil, errors.NewInternalServerError("Failed to list AgentHarness resources from Kubernetes", err)
 	}
 
-	result := make([]api.AgentResponse, 0, len(agentList.Items)+len(sandboxAgentList.Items)+len(harnessList.Items))
-	h.appendAgentResponses(ctx, log, agentObjects(agentList.Items), &result)
+	result := make([]api.AgentResponse, 0, len(sandboxAgentList.Items)+len(harnessList.Items))
 	h.appendAgentResponses(ctx, log, sandboxAgentObjects(sandboxAgentList.Items), &result)
 	for i := range harnessList.Items {
 		sb := &harnessList.Items[i]
-		if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
+		if !v1alpha3.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
 			continue
 		}
 		result = append(result, h.agentHarnessAgentResponse(ctx, log, sb))
@@ -138,7 +132,7 @@ func (h *AgentsHandler) listAgentResponses(ctx context.Context, log logr.Logger,
 func (h *AgentsHandler) appendAgentResponses(
 	ctx context.Context,
 	log logr.Logger,
-	items []v1alpha2.AgentObject,
+	items []*v1alpha3.SandboxAgent,
 	responses *[]api.AgentResponse,
 ) {
 	for _, agent := range items {
@@ -150,17 +144,17 @@ func (h *AgentsHandler) appendAgentResponses(
 	}
 }
 
-func (h *AgentsHandler) agentHarnessAgentResponse(ctx context.Context, log logr.Logger, sb *v1alpha2.AgentHarness) api.AgentResponse {
+func (h *AgentsHandler) agentHarnessAgentResponse(ctx context.Context, log logr.Logger, sb *v1alpha3.AgentHarness) api.AgentResponse {
 	ref := utils.GetObjectRef(sb)
 	id := utils.ConvertToPythonIdentifier(ref)
 
 	ready := false
 	accepted := false
 	for _, c := range sb.Status.Conditions {
-		if c.Type == v1alpha2.AgentHarnessConditionTypeReady && c.Status == metav1.ConditionTrue {
+		if c.Type == v1alpha3.AgentHarnessConditionTypeReady && c.Status == metav1.ConditionTrue {
 			ready = true
 		}
-		if c.Type == v1alpha2.AgentHarnessConditionTypeAccepted && c.Status == metav1.ConditionTrue {
+		if c.Type == v1alpha3.AgentHarnessConditionTypeAccepted && c.Status == metav1.ConditionTrue {
 			accepted = true
 		}
 	}
@@ -170,17 +164,15 @@ func (h *AgentsHandler) agentHarnessAgentResponse(ctx context.Context, log logr.
 	resp := api.AgentResponse{
 		ID: id,
 		Agent: &api.AgentResource{
-			APIVersion: v1alpha2.GroupVersion.String(),
+			APIVersion: v1alpha3.GroupVersion.String(),
 			Kind:       "AgentHarness",
 			Metadata:   *sb.ObjectMeta.DeepCopy(),
-			Spec: v1alpha2.SandboxAgentSpec{
-				AgentSpec: v1alpha2.AgentSpec{
-					Description: desc,
-				},
+			Spec: v1alpha3.SandboxAgentSpec{
+				Description: desc,
 			},
 		},
-		DeploymentReady: ready,
-		Accepted:        accepted,
+		Ready:    ready,
+		Accepted: accepted,
 	}
 
 	// Only substrate runtime is supported
@@ -207,7 +199,7 @@ func (h *AgentsHandler) agentHarnessAgentResponse(ctx context.Context, log logr.
 		log.V(1).Info("AgentHarness ModelConfigRef parse failed", "ref", mcRef, "error", err)
 		return resp
 	}
-	modelConfig := &v1alpha2.ModelConfig{}
+	modelConfig := &v1alpha3.ModelConfig{}
 	if err := h.KubeClient.Get(ctx, nn, modelConfig); err != nil {
 		if !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to get ModelConfig for AgentHarness", "modelConfigRef", nn)
@@ -220,33 +212,25 @@ func (h *AgentsHandler) agentHarnessAgentResponse(ctx context.Context, log logr.
 	return resp
 }
 
-func agentObjects(items []v1alpha2.Agent) []v1alpha2.AgentObject {
-	out := make([]v1alpha2.AgentObject, 0, len(items))
+func sandboxAgentObjects(items []v1alpha3.SandboxAgent) []*v1alpha3.SandboxAgent {
+	out := make([]*v1alpha3.SandboxAgent, 0, len(items))
 	for i := range items {
 		out = append(out, &items[i])
 	}
 	return out
 }
 
-func sandboxAgentObjects(items []v1alpha2.SandboxAgent) []v1alpha2.AgentObject {
-	out := make([]v1alpha2.AgentObject, 0, len(items))
-	for i := range items {
-		out = append(out, &items[i])
-	}
-	return out
-}
-
-func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, agent v1alpha2.AgentObject) (api.AgentResponse, error) {
+func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, agent *v1alpha3.SandboxAgent) (api.AgentResponse, error) {
 	agentRef := utils.GetObjectRef(agent)
 	log.V(1).Info("Processing Agent", "agentRef", agentRef)
 	spec := agent.GetAgentSpec()
 	status := agent.GetAgentStatus()
 
-	deploymentReady := false
+	ready := false
 	for _, condition := range status.Conditions {
 		if condition.Type == "Ready" && condition.Status == "True" {
-			if condition.Reason == reconciler.AgentReadyReasonDeploymentReady || condition.Reason == reconciler.AgentReadyReasonWorkloadReady {
-				deploymentReady = true
+			if condition.Reason == reconciler.AgentReadyReasonWorkloadReady {
+				ready = true
 				break
 			}
 		}
@@ -262,16 +246,15 @@ func (h *AgentsHandler) getAgentResponse(ctx context.Context, log logr.Logger, a
 	}
 
 	response := api.AgentResponse{
-		ID:              utils.ConvertToPythonIdentifier(agentRef),
-		Agent:           api.AgentResourceFrom(agent),
-		DeploymentReady: deploymentReady,
-		Accepted:        accepted,
-		WorkloadMode:    agent.GetWorkloadMode(),
+		ID:       utils.ConvertToPythonIdentifier(agentRef),
+		Agent:    api.AgentResourceFrom(agent),
+		Ready:    ready,
+		Accepted: accepted,
 	}
 
-	if spec.Type == v1alpha2.AgentType_Declarative && spec.Declarative != nil {
+	if spec.Type == v1alpha3.AgentType_Declarative && spec.Declarative != nil {
 		// Get the ModelConfig for the team
-		modelConfig := &v1alpha2.ModelConfig{}
+		modelConfig := &v1alpha3.ModelConfig{}
 		objKey := client.ObjectKey{
 			Namespace: agent.GetNamespace(),
 			Name:      spec.Declarative.ModelConfig,
@@ -309,11 +292,9 @@ func (h *AgentsHandler) buildTranslator(kubeClient client.Client) agent_translat
 	)
 }
 
-func (h *AgentsHandler) validateAgentObject(ctx context.Context, agent v1alpha2.AgentObject) error {
-	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
-		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
-			return errors.NewBadRequestError(err.Error(), err)
-		}
+func (h *AgentsHandler) validateAgentObject(ctx context.Context, agent *v1alpha3.SandboxAgent) error {
+	if err := v1alpha3.ValidateSubstrateSandboxAgentSpec(agent); err != nil {
+		return errors.NewBadRequestError(err.Error(), err)
 	}
 
 	kubeClientWrapper := utils.NewKubeClientWrapper(h.KubeClient)
@@ -353,9 +334,9 @@ func (h *AgentsHandler) parseAgentRef(log logr.Logger, agent client.Object, inva
 func (h *AgentsHandler) getAgentObject(
 	ctx context.Context,
 	key client.ObjectKey,
-	agent v1alpha2.AgentObject,
+	agent *v1alpha3.SandboxAgent,
 	notFoundMsg string,
-) (v1alpha2.AgentObject, error) {
+) (*v1alpha3.SandboxAgent, error) {
 	if err := h.KubeClient.Get(ctx, key, agent); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, errors.NewNotFoundError(notFoundMsg, err)
@@ -369,7 +350,7 @@ func (h *AgentsHandler) handleGetAgentObject(
 	w ErrorResponseWriter,
 	r *http.Request,
 	log logr.Logger,
-	agent v1alpha2.AgentObject,
+	agent *v1alpha3.SandboxAgent,
 	notFoundMsg string,
 	successMessage string,
 ) {
@@ -410,7 +391,7 @@ func (h *AgentsHandler) handleDeleteAgentObject(
 	w ErrorResponseWriter,
 	r *http.Request,
 	log logr.Logger,
-	agent v1alpha2.AgentObject,
+	agent *v1alpha3.SandboxAgent,
 	notFoundMsg string,
 	getFailedMsg string,
 	deleteFailedMsg string,
@@ -472,11 +453,11 @@ func (h *AgentsHandler) handleCreateAgentObject(
 	w ErrorResponseWriter,
 	r *http.Request,
 	log logr.Logger,
-	agent v1alpha2.AgentObject,
+	agent *v1alpha3.SandboxAgent,
 	invalidMetadataMsg string,
 	successMessage string,
-	normalize func(v1alpha2.AgentObject),
-	responseData func(context.Context, logr.Logger, v1alpha2.AgentObject) (any, error),
+	normalize func(*v1alpha3.SandboxAgent),
+	responseData func(context.Context, logr.Logger, *v1alpha3.SandboxAgent) (any, error),
 ) {
 	if err := DecodeJSONBody(r, agent); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
@@ -519,16 +500,16 @@ func (h *AgentsHandler) handleUpdateAgentObject(
 	w ErrorResponseWriter,
 	r *http.Request,
 	log logr.Logger,
-	incoming v1alpha2.AgentObject,
-	existing v1alpha2.AgentObject,
+	incoming *v1alpha3.SandboxAgent,
+	existing *v1alpha3.SandboxAgent,
 	invalidMetadataMsg string,
 	getFailedMsg string,
 	updateFailedMsg string,
 	notFoundMsg string,
 	successMessage string,
-	normalize func(v1alpha2.AgentObject),
+	normalize func(*v1alpha3.SandboxAgent),
 	validatePathMatch bool,
-	responseData func(context.Context, logr.Logger, v1alpha2.AgentObject) (any, error),
+	responseData func(context.Context, logr.Logger, *v1alpha3.SandboxAgent) (any, error),
 ) {
 	if err := DecodeJSONBody(r, incoming); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
@@ -574,17 +555,7 @@ func (h *AgentsHandler) handleUpdateAgentObject(
 		return
 	}
 
-	switch existingTyped := existing.(type) {
-	case *v1alpha2.SandboxAgent:
-		incomingTyped, ok := incoming.(*v1alpha2.SandboxAgent)
-		if !ok {
-			w.RespondWithError(errors.NewBadRequestError("Invalid SandboxAgent request body", nil))
-			return
-		}
-		existingTyped.Spec = *incomingTyped.Spec.DeepCopy()
-	default:
-		*existing.GetAgentSpec() = *incoming.GetAgentSpec()
-	}
+	existing.Spec = *incoming.Spec.DeepCopy()
 
 	if err := h.validateAgentObject(r.Context(), existing); err != nil {
 		w.RespondWithError(err)
@@ -603,12 +574,6 @@ func (h *AgentsHandler) handleUpdateAgentObject(
 
 	log.Info(successMessage, "agentRef", agentRef)
 	respondWithObjectResponse(w, http.StatusOK, response, successMessage)
-}
-
-// HandleGetAgent handles GET /api/agents/{namespace}/{name} requests using database
-func (h *AgentsHandler) HandleGetAgent(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "get-db")
-	h.handleGetAgentObject(w, r, log, &v1alpha2.Agent{}, "Agent not found", "Successfully retrieved agent")
 }
 
 // HandleGetAgentHarness handles GET /api/agentharnesses/{namespace}/{name} for known backends only.
@@ -633,7 +598,7 @@ func (h *AgentsHandler) HandleGetAgentHarness(w ErrorResponseWriter, r *http.Req
 	}
 
 	ctx := r.Context()
-	sb := &v1alpha2.AgentHarness{}
+	sb := &v1alpha3.AgentHarness{}
 	if err := h.KubeClient.Get(ctx, objKey, sb); err != nil {
 		if apierrors.IsNotFound(err) {
 			w.RespondWithError(errors.NewNotFoundError("AgentHarness not found", nil))
@@ -642,7 +607,7 @@ func (h *AgentsHandler) HandleGetAgentHarness(w ErrorResponseWriter, r *http.Req
 		w.RespondWithError(errors.NewInternalServerError("Failed to get AgentHarness", err))
 		return
 	}
-	if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
+	if !v1alpha3.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
 		w.RespondWithError(errors.NewNotFoundError("AgentHarness not found", nil))
 		return
 	}
@@ -654,86 +619,7 @@ func (h *AgentsHandler) HandleGetAgentHarness(w ErrorResponseWriter, r *http.Req
 // HandleGetSandboxAgent handles GET /api/sandboxagents/{namespace}/{name} requests.
 func (h *AgentsHandler) HandleGetSandboxAgent(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "get-sandboxagent")
-	h.handleGetAgentObject(w, r, log, &v1alpha2.SandboxAgent{}, "SandboxAgent not found", "Successfully retrieved sandbox agent")
-}
-
-// HandleCreateAgent handles POST /api/agents requests using database
-func (h *AgentsHandler) HandleCreateAgent(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "create-db")
-	h.handleCreateAgentObject(
-		w,
-		r,
-		log,
-		&v1alpha2.Agent{},
-		"Invalid agent metadata",
-		"Successfully created agent",
-		nil,
-		func(_ context.Context, _ logr.Logger, agent v1alpha2.AgentObject) (any, error) {
-			return agent, nil
-		},
-	)
-}
-
-// HandleUpdateAgent handles PUT /api/agents/{namespace}/{name} requests using database
-func (h *AgentsHandler) HandleUpdateAgent(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "update-db")
-	h.handleUpdateAgentObject(
-		w,
-		r,
-		log,
-		&v1alpha2.Agent{},
-		&v1alpha2.Agent{},
-		"Invalid Agent metadata",
-		"Failed to get Agent",
-		"Failed to update Agent",
-		"Agent not found",
-		"Successfully updated agent",
-		nil,
-		false,
-		func(_ context.Context, _ logr.Logger, agent v1alpha2.AgentObject) (any, error) {
-			return agent, nil
-		},
-	)
-}
-
-// HandleDeleteAgent handles DELETE /api/agents/{namespace}/{name} requests using database
-func (h *AgentsHandler) HandleDeleteAgent(w ErrorResponseWriter, r *http.Request) {
-	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "delete-db")
-	agentName, err := GetPathParam(r, "name")
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get name from path", err))
-		return
-	}
-	agentNamespace, err := GetPathParam(r, "namespace")
-	if err != nil {
-		w.RespondWithError(errors.NewBadRequestError("Failed to get namespace from path", err))
-		return
-	}
-	log = log.WithValues("agentName", agentName, "agentNamespace", agentNamespace)
-	objKey := client.ObjectKey{Namespace: agentNamespace, Name: agentName}
-
-	if err := Check(h.Authorizer, r, auth.Resource{Type: "Agent", Name: types.NamespacedName{Namespace: agentNamespace, Name: agentName}.String()}); err != nil {
-		w.RespondWithError(err)
-		return
-	}
-
-	ctx := r.Context()
-	agent := &v1alpha2.Agent{}
-	err = h.KubeClient.Get(ctx, objKey, agent)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			w.RespondWithError(errors.NewNotFoundError("Agent not found", nil))
-			return
-		}
-		w.RespondWithError(errors.NewInternalServerError("Failed to get Agent", err))
-		return
-	}
-	if err := h.KubeClient.Delete(ctx, agent); err != nil {
-		w.RespondWithError(errors.NewInternalServerError("Failed to delete Agent", err))
-		return
-	}
-	log.Info("Successfully deleted agent")
-	RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted agent", false))
+	h.handleGetAgentObject(w, r, log, &v1alpha3.SandboxAgent{}, "SandboxAgent not found", "Successfully retrieved sandbox agent")
 }
 
 // HandleDeleteAgentHarness handles DELETE /api/agentharnesses/{namespace}/{name} for known backends only.
@@ -758,7 +644,7 @@ func (h *AgentsHandler) HandleDeleteAgentHarness(w ErrorResponseWriter, r *http.
 	}
 
 	ctx := r.Context()
-	sb := &v1alpha2.AgentHarness{}
+	sb := &v1alpha3.AgentHarness{}
 	if err := h.KubeClient.Get(ctx, objKey, sb); err != nil {
 		if apierrors.IsNotFound(err) {
 			w.RespondWithError(errors.NewNotFoundError("AgentHarness not found", nil))
@@ -767,7 +653,7 @@ func (h *AgentsHandler) HandleDeleteAgentHarness(w ErrorResponseWriter, r *http.
 		w.RespondWithError(errors.NewInternalServerError("Failed to get AgentHarness", err))
 		return
 	}
-	if !v1alpha2.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
+	if !v1alpha3.IsKnownAgentHarnessBackend(sb.Spec.Backend) {
 		w.RespondWithError(errors.NewNotFoundError("AgentHarness not found", nil))
 		return
 	}
@@ -779,25 +665,25 @@ func (h *AgentsHandler) HandleDeleteAgentHarness(w ErrorResponseWriter, r *http.
 	RespondWithJSON(w, http.StatusOK, api.NewResponse(struct{}{}, "Successfully deleted AgentHarness", false))
 }
 
-func normalizeSandboxAgentForAPI(sa *v1alpha2.SandboxAgent) {
+func normalizeSandboxAgentForAPI(sa *v1alpha3.SandboxAgent) {
 	if sa == nil {
 		return
 	}
 	if sa.Spec.Type == "" {
-		sa.Spec.Type = v1alpha2.AgentType_Declarative
+		sa.Spec.Type = v1alpha3.AgentType_Declarative
 	}
 }
 
-// HandleCreateAgentHarness handles POST /api/agentharnesses requests (kagent.dev/v1alpha2 AgentHarness — OpenClaw VM, etc.).
+// HandleCreateAgentHarness handles POST /api/agentharnesses requests (kagent.dev/v1alpha3 AgentHarness — OpenClaw VM, etc.).
 func (h *AgentsHandler) HandleCreateAgentHarness(w ErrorResponseWriter, r *http.Request) {
 	log := ctrllog.FromContext(r.Context()).WithName("agents-handler").WithValues("operation", "create-agentharness")
-	sb := &v1alpha2.AgentHarness{}
+	sb := &v1alpha3.AgentHarness{}
 	if err := DecodeJSONBody(r, sb); err != nil {
 		w.RespondWithError(errors.NewBadRequestError("Invalid request body", err))
 		return
 	}
 	if sb.APIVersion == "" {
-		sb.APIVersion = v1alpha2.GroupVersion.String()
+		sb.APIVersion = v1alpha3.GroupVersion.String()
 	}
 	if sb.Kind == "" {
 		sb.Kind = "AgentHarness"
@@ -834,13 +720,11 @@ func (h *AgentsHandler) HandleCreateSandboxAgent(w ErrorResponseWriter, r *http.
 		w,
 		r,
 		log,
-		&v1alpha2.SandboxAgent{},
+		&v1alpha3.SandboxAgent{},
 		"Invalid sandboxagent metadata",
 		"Successfully created sandbox agent",
-		func(agent v1alpha2.AgentObject) {
-			normalizeSandboxAgentForAPI(agent.(*v1alpha2.SandboxAgent))
-		},
-		func(ctx context.Context, log logr.Logger, agent v1alpha2.AgentObject) (any, error) {
+		normalizeSandboxAgentForAPI,
+		func(ctx context.Context, log logr.Logger, agent *v1alpha3.SandboxAgent) (any, error) {
 			return h.getAgentResponse(ctx, log, agent)
 		},
 	)
@@ -853,18 +737,16 @@ func (h *AgentsHandler) HandleUpdateSandboxAgent(w ErrorResponseWriter, r *http.
 		w,
 		r,
 		log,
-		&v1alpha2.SandboxAgent{},
-		&v1alpha2.SandboxAgent{},
+		&v1alpha3.SandboxAgent{},
+		&v1alpha3.SandboxAgent{},
 		"Invalid SandboxAgent metadata",
 		"Failed to get SandboxAgent",
 		"Failed to update SandboxAgent",
 		"SandboxAgent not found",
 		"Successfully updated sandbox agent",
-		func(agent v1alpha2.AgentObject) {
-			normalizeSandboxAgentForAPI(agent.(*v1alpha2.SandboxAgent))
-		},
+		normalizeSandboxAgentForAPI,
 		true,
-		func(ctx context.Context, log logr.Logger, agent v1alpha2.AgentObject) (any, error) {
+		func(ctx context.Context, log logr.Logger, agent *v1alpha3.SandboxAgent) (any, error) {
 			return h.getAgentResponse(ctx, log, agent)
 		},
 	)
@@ -877,7 +759,7 @@ func (h *AgentsHandler) HandleDeleteSandboxAgent(w ErrorResponseWriter, r *http.
 		w,
 		r,
 		log,
-		&v1alpha2.SandboxAgent{},
+		&v1alpha3.SandboxAgent{},
 		"SandboxAgent not found",
 		"Failed to get SandboxAgent",
 		"Failed to delete SandboxAgent",

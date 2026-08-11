@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
@@ -16,15 +17,14 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/api/client"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/dialogs"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/keys"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
-	a2aclient "trpc.group/trpc-go/trpc-a2a-go/client"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 // RunWorkspace launches a split-pane TUI: sessions (left), chat (center), details (toggleable right).
@@ -53,7 +53,7 @@ type loadAgentMsg struct {
 }
 type sessionSelectedMsg struct{ session *api.Session }
 type sessionHistoryLoadedMsg struct {
-	items []*protocol.Task
+	items []*a2atype.Task
 	err   error
 }
 type agentChosenMsg struct{ agent api.AgentResponse }
@@ -291,14 +291,13 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					continue
 				}
 				for _, mmsg := range task.History {
-					if mmsg.MessageID != "" {
-						if _, ok := seen[mmsg.MessageID]; ok {
+					if mmsg.ID != "" {
+						if _, ok := seen[mmsg.ID]; ok {
 							continue
 						}
-						seen[mmsg.MessageID] = struct{}{}
+						seen[mmsg.ID] = struct{}{}
 					}
-					ev := protocol.StreamingMessageEvent{Result: &mmsg}
-					m.chat.appendEvent(ev)
+					m.chat.appendEvent(mmsg)
 				}
 			}
 		}
@@ -462,20 +461,14 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 	if m.agent == nil || m.current == nil {
 		return nil
 	}
-	a2aPath := "api/a2a"
-	if m.agent != nil && m.agent.WorkloadMode == v1alpha2.WorkloadModeSandbox {
-		a2aPath = "api/a2a-sandboxes"
-	}
-	a2aURL := fmt.Sprintf("%s/%s/%s", m.cfg.KAgentURL, a2aPath, m.agentRef)
-	client, err := a2aclient.NewA2AClient(a2aURL,
-		a2aclient.WithTimeout(m.cfg.Timeout),
-	)
+	a2aURL := fmt.Sprintf("%s/api/a2a-sandboxes/%s", m.cfg.KAgentURL, m.agentRef)
+	client, err := clia2a.NewClient(context.Background(), a2aURL, clia2a.ClientOptions{Timeout: m.cfg.Timeout})
 	if err != nil {
 		m.details.WriteString("\nA2A error\n")
 		return nil
 	}
-	sendFn := func(ctx context.Context, params protocol.SendMessageParams) (<-chan protocol.StreamingMessageEvent, error) {
-		return client.StreamMessage(ctx, params)
+	sendFn := func(ctx context.Context, req *a2atype.SendMessageRequest) <-chan clia2a.StreamResult {
+		return clia2a.StreamToChannel(ctx, client, req)
 	}
 	// Reset chat for new session
 	if m.chat == nil {
@@ -496,13 +489,17 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 func (m *workspaceModel) fetchSessionHistoryCmd(sessionID string) tea.Cmd {
 	return func() tea.Msg {
 		tasksURL := fmt.Sprintf("%s/api/sessions/%s/tasks?user_id=%s", m.cfg.KAgentURL, sessionID, "admin@kagent.dev")
-		resp, err := http.Get(tasksURL) //nolint:gosec
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, tasksURL, nil)
+		if err != nil {
+			return sessionHistoryLoadedMsg{items: nil, err: err}
+		}
+		resp, err := http.DefaultClient.Do(req) //nolint:gosec
 		if err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
 		}
 		defer resp.Body.Close()
 		var payload struct {
-			Data []*protocol.Task `json:"data"`
+			Data []*a2atype.Task `json:"data"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
@@ -526,7 +523,7 @@ func (m *workspaceModel) renderDetails() {
 		fmt.Fprintf(&m.details, "\nTools:\n")
 		for _, t := range m.agent.Agent.Spec.Declarative.Tools {
 			switch t.Type {
-			case v1alpha2.ToolProviderType_McpServer:
+			case v1alpha3.ToolProviderType_McpServer:
 				name := ""
 				if t.McpServer != nil {
 					name = t.McpServer.Name
@@ -536,7 +533,7 @@ func (m *workspaceModel) renderDetails() {
 					fmt.Fprintf(&m.details, " (tools: %s)", strings.Join(t.McpServer.ToolNames, ", "))
 				}
 				fmt.Fprint(&m.details, "\n")
-			case v1alpha2.ToolProviderType_Agent:
+			case v1alpha3.ToolProviderType_Agent:
 				name := ""
 				if t.Agent != nil {
 					name = t.Agent.Name

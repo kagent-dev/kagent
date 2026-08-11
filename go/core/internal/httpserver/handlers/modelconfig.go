@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -29,7 +29,7 @@ func NewModelConfigHandler(base *Base) *ModelConfigHandler {
 	return &ModelConfigHandler{Base: base}
 }
 
-func modelConfigResource(c *v1alpha2.ModelConfig) api.ModelConfigResource {
+func modelConfigResource(c *v1alpha3.ModelConfig) api.ModelConfigResource {
 	return api.ModelConfigResource{
 		Ref:    common.GetObjectRef(c),
 		Spec:   c.Spec,
@@ -46,7 +46,7 @@ func (h *ModelConfigHandler) HandleListModelConfigs(w ErrorResponseWriter, r *ht
 		return
 	}
 
-	modelConfigs := &v1alpha2.ModelConfigList{}
+	modelConfigs := &v1alpha3.ModelConfigList{}
 	if err := h.KubeClient.List(r.Context(), modelConfigs); err != nil {
 		log.Error(err, "Failed to list ModelConfigs from Kubernetes")
 		w.RespondWithError(errors.NewInternalServerError("Failed to list ModelConfigs from Kubernetes", err))
@@ -88,7 +88,7 @@ func (h *ModelConfigHandler) HandleGetModelConfig(w ErrorResponseWriter, r *http
 	}
 
 	log.V(1).Info("Checking if ModelConfig exists")
-	modelConfig := &v1alpha2.ModelConfig{}
+	modelConfig := &v1alpha3.ModelConfig{}
 	if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: configName}, modelConfig); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
@@ -140,7 +140,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	log.V(1).Info("Checking if ModelConfig already exists")
-	existingConfig := &v1alpha2.ModelConfig{}
+	existingConfig := &v1alpha3.ModelConfig{}
 	if err := h.KubeClient.Get(r.Context(), modelConfigRef, existingConfig); err == nil {
 		log.Info("ModelConfig already exists")
 		w.RespondWithError(errors.NewConflictError("ModelConfig already exists", nil))
@@ -152,12 +152,12 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	// Inline apiKey takes precedence: auto-create a secret and set the refs on spec.
-	if req.APIKey != "" && req.Spec.APIKeySecret == "" && req.Spec.Provider != v1alpha2.ModelProviderOllama {
+	if req.APIKey != "" && req.Spec.APIKeySecret == "" && req.Spec.Provider != v1alpha3.ModelProviderOllama {
 		req.Spec.APIKeySecret = modelConfigRef.Name
 		req.Spec.APIKeySecretKey = fmt.Sprintf("%s_API_KEY", strings.ToUpper(string(req.Spec.Provider)))
 	}
 
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      modelConfigRef.Name,
 			Namespace: modelConfigRef.Namespace,
@@ -173,7 +173,7 @@ func (h *ModelConfigHandler) HandleCreateModelConfig(w ErrorResponseWriter, r *h
 
 	log.V(1).Info("Successfully created ModelConfig resource")
 
-	if req.APIKey != "" && req.Spec.Provider != v1alpha2.ModelProviderOllama {
+	if req.APIKey != "" && req.Spec.Provider != v1alpha3.ModelProviderOllama {
 		log.V(1).Info("Creating API key secret with OwnerReference", "secretName", modelConfig.Spec.APIKeySecretKey)
 		if err := createSecretWithOwnerReference(
 			r.Context(), h.KubeClient,
@@ -243,7 +243,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	log.V(1).Info("Getting existing ModelConfig")
-	modelConfig := &v1alpha2.ModelConfig{}
+	modelConfig := &v1alpha3.ModelConfig{}
 	if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: configName}, modelConfig); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
@@ -262,7 +262,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 
 	// Inline apiKey: auto-set secret refs (the materialization happens
 	// below, after the secret writes complete).
-	if req.APIKey != nil && *req.APIKey != "" && req.Spec.APIKeySecret == "" && req.Spec.Provider != v1alpha2.ModelProviderOllama {
+	if req.APIKey != nil && *req.APIKey != "" && req.Spec.APIKeySecret == "" && req.Spec.Provider != v1alpha3.ModelProviderOllama {
 		req.Spec.APIKeySecret = configName
 		req.Spec.APIKeySecretKey = fmt.Sprintf("%s_API_KEY", strings.ToUpper(string(req.Spec.Provider)))
 	}
@@ -273,7 +273,7 @@ func (h *ModelConfigHandler) HandleUpdateModelConfig(w ErrorResponseWriter, r *h
 	// ModelConfig UID; if the Spec Update below fails, the new
 	// Secrets become owned-but-unreferenced and are GC'd whenever
 	// the ModelConfig is eventually deleted.
-	if req.APIKey != nil && *req.APIKey != "" && req.Spec.Provider != v1alpha2.ModelProviderOllama {
+	if req.APIKey != nil && *req.APIKey != "" && req.Spec.Provider != v1alpha3.ModelProviderOllama {
 		log.V(1).Info("Updating API key secret")
 		if err := createOrUpdateSecretWithOwnerReference(
 			r.Context(), h.KubeClient,
@@ -351,7 +351,7 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 	}
 
 	log.V(1).Info("Checking if ModelConfig exists")
-	existingConfig := &v1alpha2.ModelConfig{}
+	existingConfig := &v1alpha3.ModelConfig{}
 	if err := h.KubeClient.Get(r.Context(), client.ObjectKey{Namespace: namespace, Name: configName}, existingConfig); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("ModelConfig not found")
@@ -376,10 +376,10 @@ func (h *ModelConfigHandler) HandleDeleteModelConfig(w ErrorResponseWriter, r *h
 
 // validateAPIKeySecretRef returns an error if apiKeySecret is set without apiKeySecretKey
 // for providers that require it (all except Bedrock and SAPAICore).
-func validateAPIKeySecretRef(apiKeySecret, apiKeySecretKey string, provider v1alpha2.ModelProvider) error {
+func validateAPIKeySecretRef(apiKeySecret, apiKeySecretKey string, provider v1alpha3.ModelProvider) error {
 	if apiKeySecret != "" && apiKeySecretKey == "" &&
-		provider != v1alpha2.ModelProviderBedrock &&
-		provider != v1alpha2.ModelProviderSAPAICore {
+		provider != v1alpha3.ModelProviderBedrock &&
+		provider != v1alpha3.ModelProviderSAPAICore {
 		return fmt.Errorf("apiKeySecretKey is required when apiKeySecret is set")
 	}
 	return nil
@@ -388,4 +388,4 @@ func validateAPIKeySecretRef(apiKeySecret, apiKeySecretKey string, provider v1al
 // modelConfigGVK is passed to companion-secret helpers so the
 // OwnerReference and isOwnedBy check use the right Kind for this
 // resource.
-var modelConfigGVK = v1alpha2.GroupVersion.WithKind("ModelConfig")
+var modelConfigGVK = v1alpha3.GroupVersion.WithKind("ModelConfig")

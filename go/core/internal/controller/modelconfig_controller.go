@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 var (
@@ -63,7 +63,7 @@ func (r *ModelConfigController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: new(true),
 		}).
-		For(&v1alpha2.ModelConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha3.ModelConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -110,10 +110,10 @@ func (r *ModelConfigController) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *ModelConfigController) findModelsUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.ModelConfig {
-	var models []*v1alpha2.ModelConfig
+func (r *ModelConfigController) findModelsUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha3.ModelConfig {
+	var models []*v1alpha3.ModelConfig
 
-	var modelsList v1alpha2.ModelConfigList
+	var modelsList v1alpha3.ModelConfigList
 	if err := cl.List(
 		ctx,
 		&modelsList,
@@ -133,7 +133,7 @@ func (r *ModelConfigController) findModelsUsingSecret(ctx context.Context, cl cl
 	return models
 }
 
-func modelReferencesSecret(model *v1alpha2.ModelConfig, secretObj types.NamespacedName) bool {
+func modelReferencesSecret(model *v1alpha3.ModelConfig, secretObj types.NamespacedName) bool {
 	// secrets must be in the same namespace as the model
 	if model.Namespace != secretObj.Namespace {
 		return false
@@ -152,10 +152,10 @@ func modelReferencesSecret(model *v1alpha2.ModelConfig, secretObj types.Namespac
 	return false
 }
 
-func (r *ModelConfigController) findModelsUsingConfigMap(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.ModelConfig {
-	var models []*v1alpha2.ModelConfig
+func (r *ModelConfigController) findModelsUsingConfigMap(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha3.ModelConfig {
+	var models []*v1alpha3.ModelConfig
 
-	var modelsList v1alpha2.ModelConfigList
+	var modelsList v1alpha3.ModelConfigList
 	if err := cl.List(
 		ctx,
 		&modelsList,
@@ -175,7 +175,7 @@ func (r *ModelConfigController) findModelsUsingConfigMap(ctx context.Context, cl
 	return models
 }
 
-func modelReferencesConfigMap(model *v1alpha2.ModelConfig, cmObj types.NamespacedName) bool {
+func modelReferencesConfigMap(model *v1alpha3.ModelConfig, cmObj types.NamespacedName) bool {
 	// config maps must be in the same namespace as the model
 	if model.Namespace != cmObj.Namespace {
 		return false

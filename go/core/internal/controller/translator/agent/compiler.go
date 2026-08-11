@@ -7,14 +7,14 @@ import (
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 )
 
 // AgentManifestInputs holds the translated data needed to emit Kubernetes resources.
 type AgentManifestInputs struct {
 	Config          *adk.AgentConfig
-	Sandbox         *v1alpha2.SandboxConfig
+	Sandbox         *v1alpha3.SandboxConfig
 	Deployment      *resolvedDeployment
 	AgentCard       *a2a.AgentCard
 	SecretHashBytes []byte
@@ -31,7 +31,7 @@ type tState struct {
 	visitedAgents []string
 }
 
-func (s *tState) with(agent v1alpha2.AgentObject) *tState {
+func (s *tState) with(agent *v1alpha3.SandboxAgent) *tState {
 	visited := make([]string, len(s.visitedAgents), len(s.visitedAgents)+1)
 	copy(visited, s.visitedAgents)
 	visited = append(visited, agentStateKey(agent))
@@ -45,42 +45,23 @@ func (t *tState) isVisited(agentName string) bool {
 	return slices.Contains(t.visitedAgents, agentName)
 }
 
-// agentObjectKind returns the Kubernetes kind backing an AgentObject.
-func agentObjectKind(agent v1alpha2.AgentObject) string {
-	switch agent.(type) {
-	case *v1alpha2.SandboxAgent:
-		return "SandboxAgent"
-	default:
-		return "Agent"
-	}
-}
-
 // agentStateKey is a kind-qualified identity used for cycle/self-reference checks.
-func agentStateKey(agent v1alpha2.AgentObject) string {
-	return agentObjectKind(agent) + "/" + utils.GetObjectRef(agent)
+func agentStateKey(agent *v1alpha3.SandboxAgent) string {
+	return "SandboxAgent/" + utils.GetObjectRef(agent)
 }
 
-// getToolAgent resolves an Agent tool reference to its backing object, honoring
-// the reference Kind. An empty Kind defaults to Agent.
+// getToolAgent resolves an Agent tool reference to a SandboxAgent.
 func (a *adkApiTranslator) getToolAgent(
 	ctx context.Context,
-	ref *v1alpha2.TypedReference,
+	ref *v1alpha3.TypedReference,
 	defaultNamespace string,
-) (v1alpha2.AgentObject, error) {
+) (*v1alpha3.SandboxAgent, error) {
 	key := ref.NamespacedName(defaultNamespace)
-	fetchAgent := func(obj v1alpha2.AgentObject) (v1alpha2.AgentObject, error) {
-		return obj, a.kube.Get(ctx, key, obj)
-	}
-
-	switch ref.Kind {
-	case "", "Agent":
-		return fetchAgent(&v1alpha2.Agent{})
-	case "SandboxAgent":
-		return fetchAgent(&v1alpha2.SandboxAgent{})
-
-	default:
+	if ref.Kind != "SandboxAgent" {
 		return nil, fmt.Errorf("unsupported agent tool kind %q for agent %s", ref.Kind, key)
 	}
+	obj := &v1alpha3.SandboxAgent{}
+	return obj, a.kube.Get(ctx, key, obj)
 }
 
 // sandboxA2APathPrefix mirrors httpserver.APIPathA2ASandboxes (not imported to
@@ -89,19 +70,16 @@ func (a *adkApiTranslator) getToolAgent(
 const sandboxA2APathPrefix = "/api/a2a-sandboxes"
 
 // toolAgentURL returns the A2A URL a parent agent should use to call a sub-agent.
-func toolAgentURL(agent v1alpha2.AgentObject) string {
-	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
-		return fmt.Sprintf("http://%s.%s:8083%s/%s/%s",
-			utils.GetControllerName(), utils.GetResourceNamespace(),
-			sandboxA2APathPrefix, agent.GetNamespace(), agent.GetName())
-	}
-	return fmt.Sprintf("http://%s.%s:8080", agent.GetName(), agent.GetNamespace())
+func toolAgentURL(agent *v1alpha3.SandboxAgent) string {
+	return fmt.Sprintf("http://%s.%s:8083%s/%s/%s",
+		utils.GetControllerName(), utils.GetResourceNamespace(),
+		sandboxA2APathPrefix, agent.GetNamespace(), agent.GetName())
 }
 
 func TranslateAgent(
 	ctx context.Context,
 	translator AdkApiTranslator,
-	agent v1alpha2.AgentObject,
+	agent *v1alpha3.SandboxAgent,
 ) (*AgentOutputs, error) {
 	inputs, err := translator.CompileAgent(ctx, agent)
 	if err != nil {
@@ -112,7 +90,7 @@ func TranslateAgent(
 
 func (a *adkApiTranslator) CompileAgent(
 	ctx context.Context,
-	agent v1alpha2.AgentObject,
+	agent *v1alpha3.SandboxAgent,
 ) (*AgentManifestInputs, error) {
 	spec := agent.GetAgentSpec()
 	err := a.validateAgent(ctx, agent, &tState{})
@@ -125,7 +103,7 @@ func (a *adkApiTranslator) CompileAgent(
 	var secretHashBytes []byte
 
 	switch spec.Type {
-	case v1alpha2.AgentType_Declarative:
+	case v1alpha3.AgentType_Declarative:
 		var mdd *modelDeploymentData
 		cfg, mdd, secretHashBytes, err = a.translateInlineAgent(ctx, agent)
 		if err != nil {
@@ -136,7 +114,7 @@ func (a *adkApiTranslator) CompileAgent(
 			return nil, err
 		}
 
-	case v1alpha2.AgentType_BYO:
+	case v1alpha3.AgentType_BYO:
 		dep, err = resolveByoDeployment(agent)
 		if err != nil {
 			return nil, err
@@ -152,17 +130,12 @@ func (a *adkApiTranslator) CompileAgent(
 		return nil, fmt.Errorf("unknown agent type: %s", spec.Type)
 	}
 
-	runInSandbox := agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox
-	if runInSandbox && a.sandboxBackend == nil {
+	if a.sandboxBackend == nil {
 		return nil, fmt.Errorf("sandbox backend is not configured")
 	}
-	if runInSandbox {
-		cfg.SessionDBURL = a.sandboxBackend.SessionDBURL(agent)
-	}
-	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
-		if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
-			return nil, NewValidationError("%s", err.Error())
-		}
+	cfg.SessionDBURL = a.sandboxBackend.SessionDBURL(agent)
+	if err := v1alpha3.ValidateSubstrateSandboxAgentSpec(agent); err != nil {
+		return nil, NewValidationError("%s", err.Error())
 	}
 
 	card := GetA2AAgentCard(agent)
@@ -176,7 +149,7 @@ func (a *adkApiTranslator) CompileAgent(
 	}, nil
 }
 
-func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.AgentObject, state *tState) error {
+func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha3.SandboxAgent, state *tState) error {
 	agentRef := utils.GetObjectRef(agent)
 	spec := agent.GetAgentSpec()
 
@@ -188,14 +161,14 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 		return fmt.Errorf("recursion limit reached in agent tool chain: %s -> %s", agentRef, agentRef)
 	}
 
-	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
+	if spec.Type != v1alpha3.AgentType_Declarative || spec.Declarative == nil {
 		// We only need to validate loops in declarative agents
 		return nil
 	}
 
 	for _, tool := range spec.Declarative.Tools {
 		switch tool.Type {
-		case v1alpha2.ToolProviderType_Agent:
+		case v1alpha3.ToolProviderType_Agent:
 			if tool.Agent == nil {
 				return fmt.Errorf("tool must have an agent reference")
 			}
@@ -221,14 +194,14 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent v1alpha2.Age
 
 // requireFoundryGoRuntime returns an error if a Foundry model is used with a
 // non-go declarative runtime. Foundry is only supported by the Go ADK runtime.
-func requireFoundryGoRuntime(agent v1alpha2.AgentObject, modelType string) error {
-	if modelType == adk.ModelTypeFoundry && v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) != v1alpha2.DeclarativeRuntime_Go {
-		return fmt.Errorf("the Foundry model provider requires declarative runtime %q", v1alpha2.DeclarativeRuntime_Go)
+func requireFoundryGoRuntime(agent *v1alpha3.SandboxAgent, modelType string) error {
+	if modelType == adk.ModelTypeFoundry && v1alpha3.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) != v1alpha3.DeclarativeRuntime_Go {
+		return fmt.Errorf("the Foundry model provider requires declarative runtime %q", v1alpha3.DeclarativeRuntime_Go)
 	}
 	return nil
 }
 
-func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alpha2.AgentObject) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
+func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha3.SandboxAgent) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
 	spec := agent.GetAgentSpec()
 	model, mdd, secretHashBytes, err := a.translateModel(ctx, agent.GetNamespace(), spec.Declarative.ModelConfig)
 	if err != nil {
@@ -248,7 +221,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 		Description: spec.Description,
 		Instruction: rawSystemMessage,
 		Model:       model,
-		ExecuteCode: spec.Declarative.ExecuteCodeBlocks,
 		Stream:      new(spec.Declarative.Stream),
 	}
 
@@ -367,7 +339,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 
 			toolSpec := toolAgent.GetAgentSpec()
 			switch toolSpec.Type {
-			case v1alpha2.AgentType_BYO, v1alpha2.AgentType_Declarative:
+			case v1alpha3.AgentType_BYO, v1alpha3.AgentType_Declarative:
 				originalURL := toolAgentURL(toolAgent)
 
 				targetURL := originalURL
@@ -414,7 +386,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent v1alp
 
 // resolveRawSystemMessage gets the raw system message string from the agent spec
 // without applying any template processing.
-func (a *adkApiTranslator) resolveRawSystemMessage(ctx context.Context, agent v1alpha2.AgentObject) (string, error) {
+func (a *adkApiTranslator) resolveRawSystemMessage(ctx context.Context, agent *v1alpha3.SandboxAgent) (string, error) {
 	spec := agent.GetAgentSpec()
 	if spec.Declarative.SystemMessageFrom != nil {
 		return spec.Declarative.SystemMessageFrom.Resolve(ctx, a.kube, agent.GetNamespace())

@@ -3,7 +3,7 @@ package sandboxbackend
 import (
 	"context"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -25,18 +25,18 @@ type EnsureResult struct {
 }
 
 // AsyncBackend is the minimal surface a gRPC/HTTP-driven sandbox control
-// plane must implement to back the kagent.dev/v1alpha2 AgentHarness CRD. It is
+// plane must implement to back the kagent.dev/v1alpha3 AgentHarness CRD. It is
 // deliberately separate from Backend (which serves SandboxAgent's in-cluster
 // agent-runtime flow).
 type AsyncBackend interface {
 	// Name identifies the backend for AgentHarness.Status.BackendRef.Backend
 	// and logging.
-	Name() v1alpha2.AgentHarnessBackendType
+	Name() v1alpha3.AgentHarnessBackendType
 
 	// EnsureAgentHarness creates the sandbox on the backend if it does not
 	// already exist. Implementations must be idempotent — if a sandbox
 	// matching sbx.Name is already present, return its current handle.
-	EnsureAgentHarness(ctx context.Context, ah *v1alpha2.AgentHarness) (EnsureResult, error)
+	EnsureAgentHarness(ctx context.Context, ah *v1alpha3.AgentHarness) (EnsureResult, error)
 
 	// GetStatus returns a Ready condition (status, reason, message) for
 	// the sandbox identified by h. Used to refresh AgentHarness.Status after
@@ -52,5 +52,5 @@ type AsyncBackend interface {
 	// OnAgentHarnessReady runs one-time work after the AgentHarness reports
 	// Ready (for example ExecSandbox bootstrap inside the VM). Backends that
 	// have no post-ready work should return nil.
-	OnAgentHarnessReady(ctx context.Context, ah *v1alpha2.AgentHarness, h Handle) error
+	OnAgentHarnessReady(ctx context.Context, ah *v1alpha3.AgentHarness, h Handle) error
 }

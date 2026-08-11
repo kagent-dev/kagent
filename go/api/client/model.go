@@ -4,7 +4,7 @@ import (
 	"context"
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	v1alpha2 "github.com/kagent-dev/kagent/go/api/v1alpha2"
+	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // ModelInfo represents information about a model
@@ -14,7 +14,7 @@ type ModelInfo struct {
 }
 
 // ProviderModels represents a map of provider names to their supported models
-type ProviderModels map[v1alpha2.ModelProvider][]ModelInfo
+type ProviderModels map[v1alpha3.ModelProvider][]ModelInfo
 
 // Model defines the model operations
 type Model interface {

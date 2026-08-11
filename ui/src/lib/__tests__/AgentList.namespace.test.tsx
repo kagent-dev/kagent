@@ -1,9 +1,11 @@
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ComponentProps } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import AgentList from "@/components/AgentList";
 import { getAgents } from "@/app/actions/agents";
 import type { AgentResponse } from "@/types";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 jest.mock("@/app/actions/agents", () => ({
   getAgents: jest.fn(),
@@ -52,7 +54,7 @@ function agent(namespace: string, name: string): AgentResponse {
     modelProvider: "OpenAI",
     modelConfigRef: `${namespace}/model`,
     tools: [],
-    deploymentReady: true,
+    ready: true,
     accepted: true,
   };
 }
@@ -60,7 +62,7 @@ function agent(namespace: string, name: string): AgentResponse {
 function creatingAgent(namespace: string, name: string): AgentResponse {
   return {
     ...agent(namespace, name),
-    deploymentReady: false,
+    ready: false,
   };
 }
 
@@ -69,6 +71,14 @@ function setup(search = "") {
   mockUseRouter.mockReturnValue({ push });
   mockUseSearchParams.mockReturnValue(new URLSearchParams(search));
   return { push };
+}
+
+function renderAgentList(props: ComponentProps<typeof AgentList> = {}) {
+  return render(
+    <TooltipProvider>
+      <AgentList {...props} />
+    </TooltipProvider>,
+  );
 }
 
 describe("AgentList namespace filtering", () => {
@@ -83,7 +93,7 @@ describe("AgentList namespace filtering", () => {
   it("renders server-loaded agents without a duplicate client fetch", async () => {
     setup();
 
-    render(<AgentList initialAgents={[agent("kagent", "k8s-agent")]} />);
+    renderAgentList({ initialAgents: [agent("kagent", "k8s-agent")] });
 
     expect(mockGetAgents).not.toHaveBeenCalled();
     expect(
@@ -94,7 +104,7 @@ describe("AgentList namespace filtering", () => {
   it("renders namespace-scoped server data from the namespace URL query", async () => {
     setup("namespace=kagent");
 
-    render(<AgentList initialAgents={[agent("kagent", "k8s-agent")]} />);
+    renderAgentList({ initialAgents: [agent("kagent", "k8s-agent")] });
 
     expect(mockGetAgents).not.toHaveBeenCalled();
     expect(
@@ -106,7 +116,7 @@ describe("AgentList namespace filtering", () => {
     const user = userEvent.setup();
     const { push } = setup();
 
-    render(<AgentList />);
+    renderAgentList();
 
     await user.selectOptions(await screen.findByLabelText("Namespace"), "kagent");
 
@@ -117,7 +127,7 @@ describe("AgentList namespace filtering", () => {
     const user = userEvent.setup();
     const { push } = setup("namespace=kagent");
 
-    render(<AgentList />);
+    renderAgentList();
 
     await user.selectOptions(await screen.findByLabelText("Namespace"), "");
 
@@ -126,7 +136,7 @@ describe("AgentList namespace filtering", () => {
 
   it("renders scoped empty state with a namespace-aware create link", async () => {
     setup("namespace=kube-system");
-    render(<AgentList initialAgents={[]} />);
+    renderAgentList({ initialAgents: [] });
 
     expect(
       await screen.findByText('No agents found in namespace "kube-system".'),
@@ -146,7 +156,7 @@ describe("AgentList namespace filtering", () => {
         data: [agent("kagent", "k8s-agent")],
       });
 
-      render(<AgentList initialAgents={[creatingAgent("kagent", "k8s-agent")]} />);
+      renderAgentList({ initialAgents: [creatingAgent("kagent", "k8s-agent")] });
 
       expect(screen.getByText("Agent not Ready")).toBeInTheDocument();
 

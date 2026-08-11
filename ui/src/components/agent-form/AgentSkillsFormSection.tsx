@@ -4,26 +4,33 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Trash2, GitBranch, AlertCircle } from "lucide-react";
+import { PlusCircle, Trash2, GitBranch, HardDrive, AlertCircle } from "lucide-react";
 import { FieldHint, FieldLabel, FormSection } from "./form-primitives";
 import {
   MAX_SKILLS_PER_SOURCE,
   applyGitSkillUrlPathChange,
+  applyS3SkillUriChange,
   gitSkillRowUrlIssues,
   isDuplicateGitSkillFormRow,
   isDuplicateOciSkillRef,
+  isDuplicateS3SkillFormRow,
   isValidSkillContainerImage,
+  s3SkillRowUriIssues,
   type GitSkillFormRow,
+  type S3SkillFormRow,
 } from "@/lib/agentSkillsForm";
-import type { GitRepo } from "@/types";
+import type { GitRepo, S3SkillRef } from "@/types";
 
 type AgentSkillsFormSectionProps = {
   skillRefs: string[];
   skillGitRepos: GitSkillFormRow[];
   skillsGitAuthSecretName: string;
+  skillS3Repos: S3SkillFormRow[];
+  skillsS3AuthSecretName: string;
   skillsError?: string;
   disabled: boolean;
   resolvedGitSkillRepos: GitRepo[];
+  resolvedS3SkillRefs: S3SkillRef[];
   onSkillRefChange: (index: number, value: string) => void;
   onAddSkillRef: () => void;
   onRemoveSkillRef: (index: number) => void;
@@ -31,6 +38,10 @@ type AgentSkillsFormSectionProps = {
   onAddGitRow: () => void;
   onRemoveGitRow: (index: number) => void;
   onGitAuthSecretChange: (value: string) => void;
+  onS3RowChange: (index: number, next: S3SkillFormRow) => void;
+  onAddS3Row: () => void;
+  onRemoveS3Row: (index: number) => void;
+  onS3AuthSecretChange: (value: string) => void;
   onClearSkillsError: () => void;
 };
 
@@ -38,9 +49,12 @@ export function AgentSkillsFormSection({
   skillRefs,
   skillGitRepos,
   skillsGitAuthSecretName,
+  skillS3Repos,
+  skillsS3AuthSecretName,
   skillsError,
   disabled,
   resolvedGitSkillRepos,
+  resolvedS3SkillRefs,
   onSkillRefChange,
   onAddSkillRef,
   onRemoveSkillRef,
@@ -48,13 +62,17 @@ export function AgentSkillsFormSection({
   onAddGitRow,
   onRemoveGitRow,
   onGitAuthSecretChange,
+  onS3RowChange,
+  onAddS3Row,
+  onRemoveS3Row,
+  onS3AuthSecretChange,
   onClearSkillsError,
 }: AgentSkillsFormSectionProps) {
   return (
     <FormSection
       id="section-skills"
       title="Skills"
-      description="Mount skill bundles from OCI images or Git. Files appear under /skills in the agent runtime."
+      description="Mount skill bundles from OCI images, Git, or S3. Files appear under /skills in the agent runtime."
     >
       <div className="space-y-6">
         <div>
@@ -250,6 +268,124 @@ export function AgentSkillsFormSection({
             />
             <FieldHint className="mt-1">
               HTTPS: a <code className="text-xs">token</code> key. SSH: <code className="text-xs">ssh-privatekey</code>.
+            </FieldHint>
+          </div>
+        </div>
+
+        <div className="border-t border-border/60 pt-6">
+          <FieldLabel className="flex items-center gap-2 text-sm">
+            <HardDrive className="h-4 w-4 text-muted-foreground" aria-hidden />
+            S3 buckets
+          </FieldLabel>
+          <FieldHint>
+            Prefix with <code className="text-xs">SKILL.md</code>, or a <code className="text-xs">.zip</code> /{" "}
+            <code className="text-xs">.tgz</code> archive. Auth uses a Secret with standard AWS key names, wired into the
+            skills init container.
+          </FieldHint>
+          <div className="mt-3 space-y-4">
+            {skillS3Repos.map((row, idx) => {
+              const { hasExtraWithoutUri, uriInvalid } = s3SkillRowUriIssues(row);
+              const dupS3 = isDuplicateS3SkillFormRow(row, resolvedS3SkillRefs);
+
+              return (
+                <div key={idx} className="space-y-2 rounded-md border border-border/70 bg-muted/25 p-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">S3 URI</Label>
+                    <Input
+                      className="mt-1"
+                      placeholder="s3://bucket/path/to/skill"
+                      value={row.uri}
+                      onChange={(e) => {
+                        onClearSkillsError();
+                        onS3RowChange(idx, applyS3SkillUriChange(row, e.target.value));
+                      }}
+                      disabled={disabled}
+                      aria-invalid={hasExtraWithoutUri || uriInvalid || dupS3}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    {hasExtraWithoutUri && (
+                      <p className="mt-1 text-xs text-destructive">Set a URI when using region or name.</p>
+                    )}
+                    {uriInvalid && (
+                      <p className="mt-1 text-xs text-destructive">Use s3://bucket/key-or-prefix</p>
+                    )}
+                    {dupS3 && <p className="mt-1 text-xs text-destructive">Duplicate S3 URI</p>}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Region</Label>
+                      <Input
+                        className="mt-1"
+                        placeholder="us-east-1"
+                        value={row.region}
+                        onChange={(e) => {
+                          onClearSkillsError();
+                          onS3RowChange(idx, { ...row, region: e.target.value });
+                        }}
+                        disabled={disabled}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Name under /skills</Label>
+                      <Input
+                        className="mt-1"
+                        placeholder="autodetected from URI"
+                        value={row.name}
+                        onChange={(e) => {
+                          onClearSkillsError();
+                          onS3RowChange(idx, { ...row, name: e.target.value });
+                        }}
+                        disabled={disabled}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={onAddS3Row}
+                      disabled={skillS3Repos.length >= MAX_SKILLS_PER_SOURCE || disabled}
+                      aria-label="Add S3 skill"
+                    >
+                      <PlusCircle className="h-4 w-4" aria-hidden />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onRemoveS3Row(idx)}
+                      disabled={disabled}
+                      aria-label={`Remove S3 skill block ${idx + 1}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" aria-hidden />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4">
+            <Label className="text-xs text-muted-foreground" htmlFor="s3-skills-auth-secret">
+              AWS credentials secret (optional)
+            </Label>
+            <Input
+              id="s3-skills-auth-secret"
+              className="mt-1"
+              placeholder="e.g. aws-creds (same namespace as agent)"
+              value={skillsS3AuthSecretName}
+              onChange={(e) => {
+                onClearSkillsError();
+                onS3AuthSecretChange(e.target.value);
+              }}
+              disabled={disabled}
+            />
+            <FieldHint className="mt-1">
+              Keys: <code className="text-xs">AWS_ACCESS_KEY_ID</code>,{" "}
+              <code className="text-xs">AWS_SECRET_ACCESS_KEY</code>, optional{" "}
+              <code className="text-xs">AWS_SESSION_TOKEN</code>. Stored as{" "}
+              <code className="text-xs">skills.initContainer.env</code>.
             </FieldHint>
           </div>
           {skillsError ? (
