@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Info, ChevronDown, ChevronRight, FunctionSquare, Search } from 'lucide-react';
 import { LoadingState } from "@/components/LoadingState";
 import { ErrorState } from "@/components/ErrorState";
-import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, getToolResponseCategory, toolResponseToAgentTool, isMcpTool, serverNamesMatch } from "@/lib/toolUtils";
+import { getToolResponseDisplayName, getToolResponseDescription, getToolResponseIdentifier, getToolResponseCategory, isMcpTool, serverNamesMatch, mergeToolIntoServerEntry } from "@/lib/toolUtils";
 import type { Tool, ToolsResponse } from "@/types";
 import { Input } from "@/components/ui/input";
 
@@ -43,23 +43,6 @@ export function ToolSelectionStep({
                    tool.mcpServer.toolNames.includes(toolResponse.id);
         }
         return false;
-    };
-
-    const mergeToolIntoServerEntry = (tools: Tool[], toolResponse: ToolsResponse): Tool[] => {
-        const existing = tools
-            .filter(isMcpTool)
-            .find((t) => serverNamesMatch(t.mcpServer.name, toolResponse.server_name));
-        if (!existing) {
-            return [...tools, toolResponseToAgentTool(toolResponse, toolResponse.server_name)];
-        }
-        const merged: Tool = {
-            ...existing,
-            mcpServer: {
-                ...existing.mcpServer,
-                toolNames: Array.from(new Set([...existing.mcpServer.toolNames, toolResponse.id])),
-            },
-        };
-        return tools.map((t) => (t === existing ? merged : t));
     };
 
     const toolsByCategory = useMemo(() => {
