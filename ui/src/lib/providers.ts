@@ -1,6 +1,6 @@
 
-export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI" | "Bedrock" | "SAPAICore" | "Foundry";
-export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI", "Bedrock", "SAPAICore", "Foundry"] as const;
+export type BackendModelProviderType = "OpenAI" | "AzureOpenAI" | "Anthropic" | "Ollama" | "Gemini" | "GeminiVertexAI" | "AnthropicVertexAI" | "Bedrock" | "SAPAICore" | "Foundry" | "Mistral";
+export const modelProviders = ["OpenAI", "AzureOpenAI", "Anthropic", "Ollama", "Gemini", "GeminiVertexAI", "AnthropicVertexAI", "Bedrock", "SAPAICore", "Foundry", "Mistral"] as const;
 export type ModelProviderKey = typeof modelProviders[number];
 
 
@@ -82,6 +82,13 @@ export const PROVIDERS_INFO: {
         apiKeyLink: "https://ai.azure.com/",
         modelDocsLink: "https://learn.microsoft.com/azure/ai-foundry/",
         help: "Enter your Azure AI Foundry account endpoint and deployment name. The API key is optional — leave it blank to authenticate with Azure Workload Identity."
+    },
+    Mistral: {
+        name: "Mistral AI",
+        type: "Mistral",
+        apiKeyLink: "https://console.mistral.ai/api-keys",
+        modelDocsLink: "https://docs.mistral.ai/getting-started/models/models_overview/",
+        help: "Get your API key from the Mistral AI Console. Mistral uses an OpenAI-compatible endpoint at https://api.mistral.ai/v1."
     },
 };
 

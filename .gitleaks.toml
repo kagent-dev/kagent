@@ -1,0 +1,10 @@
+title = "kagent gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures use deterministic fake keys; no real credentials live in testdata."
+paths = [
+  '''.*testdata/.*''',
+]

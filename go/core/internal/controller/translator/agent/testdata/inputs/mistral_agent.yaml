@@ -1,0 +1,38 @@
+operation: translateAgent
+targetObject: mistral-agent
+namespace: test
+objects:
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: mistral-secret
+      namespace: test
+    data:
+      api-key: bWlzdHJhbC1hcGkta2V5  # base64 encoded "mistral-api-key"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: ModelConfig
+    metadata:
+      name: mistral-model
+      namespace: test
+    spec:
+      provider: Mistral
+      model: mistral-large-latest
+      apiKeySecret: mistral-secret
+      apiKeySecretKey: api-key
+      mistral:
+        baseUrl: "https://api.mistral.ai/v1"
+        temperature: "0.3"
+        maxTokens: 4096
+        topP: "0.9"
+  - apiVersion: kagent.dev/v1alpha2
+    kind: Agent
+    metadata:
+      name: mistral-agent
+      namespace: test
+    spec:
+      type: Declarative
+      declarative:
+        description: An agent using Mistral AI
+        systemMessage: You are a helpful assistant powered by Mistral AI.
+        modelConfig: mistral-model
+        tools: []
