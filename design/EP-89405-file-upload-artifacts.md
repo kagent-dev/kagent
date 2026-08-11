@@ -92,8 +92,8 @@ This EP enables an **end-to-end file upload / download round trip** in chat:
 - **`go/adk/pkg/fileextract/`** (`fileextract.go`, `pdf.go`) — extract text from
   uploaded documents (PDF and other supported types) so the content is injected
   for models that can't read the raw file.
-- **`go/adk/pkg/models/openai_adk.go`** — inject extracted file text into the
-  OpenAI request path.
+- **`go/adk/pkg/models/`** — inject extracted file text into OpenAI, Anthropic,
+  Bedrock, Ollama, and SAP AI Core request paths.
 - New Go deps in `go/go.mod` / `go/go.sum` for PDF extraction.
 
 ### Python runtime

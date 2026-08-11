@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
@@ -143,11 +144,15 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
-			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				imageParts = append(imageParts, struct {
-					mimeType string
-					data     []byte
-				}{part.InlineData.MIMEType, part.InlineData.Data})
+			} else if part.InlineData != nil {
+				if strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+					imageParts = append(imageParts, struct {
+						mimeType string
+						data     []byte
+					}{part.InlineData.MIMEType, part.InlineData.Data})
+				} else if text := fileextract.InlineFileToText(part.InlineData); text != "" {
+					textParts = append(textParts, text)
+				}
 			}
 		}
 

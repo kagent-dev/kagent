@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/ollama/ollama/api"
 	"google.golang.org/adk/v2/model"
@@ -295,6 +296,12 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 					content string
 				}{content: content})
 				continue
+			}
+
+			if part.InlineData != nil && !strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+				if text := fileextract.InlineFileToText(part.InlineData); text != "" {
+					textParts = append(textParts, text)
+				}
 			}
 		}
 
