@@ -110,7 +110,7 @@ data:
     Never expose secrets or credentials in your responses.
 ---
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: k8s-helper
   namespace: default
@@ -192,7 +192,7 @@ Example using built-in prompts:
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: my-agent
   namespace: kagent  # same namespace where kagent is installed

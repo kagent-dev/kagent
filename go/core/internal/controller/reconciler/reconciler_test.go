@@ -18,7 +18,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -450,71 +449,6 @@ func TestAgentIDConsistency(t *testing.T) {
 	assert.Equal(t, storeID, deleteID)
 }
 
-func TestReconcileAgentStatus_AvailableReplicas(t *testing.T) {
-	tests := []struct {
-		name              string
-		availableReplicas int32
-		wantStatus        metav1.ConditionStatus
-		wantReason        string
-	}{
-		{
-			name:              "one of two replicas available",
-			availableReplicas: 1,
-			wantStatus:        metav1.ConditionTrue,
-			wantReason:        AgentReadyReasonDeploymentReady,
-		},
-		{
-			name:              "no replicas available",
-			availableReplicas: 0,
-			wantStatus:        metav1.ConditionFalse,
-			wantReason:        "DeploymentNotReady",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			require.NoError(t, clientgoscheme.AddToScheme(scheme))
-			require.NoError(t, v1alpha2.AddToScheme(scheme))
-
-			replicas := int32(2)
-			agent := &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
-				Status: v1alpha2.AgentStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:    v1alpha2.AgentConditionTypeAccepted,
-							Status:  metav1.ConditionTrue,
-							Reason:  "Reconciled",
-							Message: "Agent configuration accepted",
-						},
-					},
-				},
-			}
-			deployment := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{Name: agent.Name, Namespace: agent.Namespace},
-				Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
-				Status:     appsv1.DeploymentStatus{AvailableReplicas: tt.availableReplicas},
-			}
-			kube := fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithStatusSubresource(agent).
-				WithObjects(agent, deployment).
-				Build()
-			reconciler := &kagentReconciler{kube: kube}
-
-			require.NoError(t, reconciler.reconcileAgentStatus(context.Background(), agent, nil))
-
-			updated := &v1alpha2.Agent{}
-			require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(agent), updated))
-			ready := meta.FindStatusCondition(updated.Status.Conditions, v1alpha2.AgentConditionTypeReady)
-			require.NotNil(t, ready)
-			assert.Equal(t, tt.wantStatus, ready.Status)
-			assert.Equal(t, tt.wantReason, ready.Reason)
-		})
-	}
-}
-
 func TestValidateCrossNamespaceReferences(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, clientgoscheme.AddToScheme(scheme))
@@ -539,14 +473,14 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		name              string
 		watchedNamespaces []string
 		objects           []client.Object // Additional objects to create in fake client
-		agent             *v1alpha2.Agent
+		agent             *v1alpha2.SandboxAgent
 		wantErr           bool
 		errContains       string
 	}{
 		{
 			name:              "BYO agent - no validation needed",
 			watchedNamespaces: []string{"source-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -560,7 +494,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Declarative agent with no tools - passes",
 			watchedNamespaces: []string{"source-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -577,7 +511,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Agent tool in unwatched namespace - fails",
 			watchedNamespaces: []string{"source-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -590,6 +524,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
 								Agent: &v1alpha2.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "other-agent",
 									Namespace: "unwatched-ns",
 								},
@@ -605,7 +540,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Same namespace agent tool - always allowed",
 			watchedNamespaces: []string{"source-ns"},
 			objects: []client.Object{
-				&v1alpha2.Agent{
+				&v1alpha2.SandboxAgent{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tool-agent",
 						Namespace: "source-ns",
@@ -616,7 +551,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -629,6 +564,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
 								Agent: &v1alpha2.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "tool-agent",
 									Namespace: "source-ns",
 								},
@@ -643,7 +579,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Cross-namespace agent tool - denied without AllowedNamespaces",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
 			objects: []client.Object{
-				&v1alpha2.Agent{
+				&v1alpha2.SandboxAgent{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tool-agent",
 						Namespace: "target-ns",
@@ -654,7 +590,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -667,6 +603,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
 								Agent: &v1alpha2.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -682,7 +619,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Cross-namespace agent tool - allowed with From=All",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
 			objects: []client.Object{
-				&v1alpha2.Agent{
+				&v1alpha2.SandboxAgent{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tool-agent",
 						Namespace: "target-ns",
@@ -695,7 +632,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -708,6 +645,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
 								Agent: &v1alpha2.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -722,7 +660,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Cross-namespace agent tool - allowed with matching selector",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
 			objects: []client.Object{
-				&v1alpha2.Agent{
+				&v1alpha2.SandboxAgent{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tool-agent",
 						Namespace: "target-ns",
@@ -740,7 +678,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns", // Has label "shared-access": "true"
@@ -753,6 +691,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
 								Agent: &v1alpha2.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -778,7 +717,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -823,7 +762,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -853,7 +792,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Cross-namespace MCPServer - always denied (external type)",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -884,7 +823,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Cross-namespace Service - always denied (external type)",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -915,7 +854,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Tool with empty namespace defaults to agent namespace - passes",
 			watchedNamespaces: []string{"source-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
@@ -928,6 +867,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 							{
 								Type: v1alpha2.ToolProviderType_Agent,
 								Agent: &v1alpha2.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "other-agent",
 									Namespace: "", // defaults to agent's namespace
 								},

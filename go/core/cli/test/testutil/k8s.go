@@ -41,13 +41,13 @@ func NewFakeControllerClient(t *testing.T, objects ...client.Object) client.Clie
 }
 
 // CreateTestAgent creates a test Agent resource for testing.
-func CreateTestAgent(namespace, name string) *v1alpha2.Agent {
-	return &v1alpha2.Agent{
+func CreateTestAgent(namespace, name string) *v1alpha2.SandboxAgent {
+	return &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: v1alpha2.AgentSpec{
+		Spec: v1alpha2.SandboxAgentSpec{
 			Type: v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",

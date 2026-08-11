@@ -79,8 +79,7 @@ Target personas interact with kagent through multiple interfaces:
 3. **Kubernetes API**: Direct interaction via `kubectl` and Kubernetes manifests:
    ```yaml
    apiVersion: kagent.dev/v1alpha2
-   kind: Agent
-   metadata:
+   kind: SandboxAgent   metadata:
      name: my-agent
    spec:
      type: Declarative
@@ -191,7 +190,7 @@ Kagent implements a multi-layered IAM approach:
 
 1. **Kubernetes RBAC**:
    - Controller uses ServiceAccount with ClusterRole for CRD management
-   - Agents receive individual ServiceAccounts with configurable RBAC permissions
+   - Standard agents run in isolated Agent Substrate actors; Kubernetes ServiceAccounts are not part of the SandboxAgent API
    - Example roles in [go/config/rbac/role.yaml](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/config/rbac/role.yaml)
    - Per-agent RBAC templates in [helm/agents/*/templates/rbac.yaml](https://github.com/kagent-dev/kagent/tree/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/helm/agents)
 
@@ -284,7 +283,7 @@ Persistent Storage:
 Kagent exposes multiple API surfaces:
 
 1. **Kubernetes API** (CRDs):
-   - `agents.kagent.dev/v1alpha2` - Agent definitions
+   - `sandboxagents.kagent.dev/v1alpha2` - Agent definitions
    - `modelconfigs.kagent.dev/v1alpha2` - LLM model configurations
    - `toolservers.kagent.dev/v1alpha1` - MCP tool server definitions
    - `remotemcpservers.kagent.dev/v1alpha2` - Remote MCP servers
@@ -299,7 +298,7 @@ Kagent exposes multiple API surfaces:
    - See [go/internal/httpserver/server.go](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/internal/httpserver/server.go)
 
 3. **A2A Protocol** (per-agent):
-   - Path: `/api/a2a/{namespace}/{agent-name}`
+   - Path: `/api/a2a-sandboxes/{namespace}/{agent-name}`
    - Spec: https://github.com/google/A2A
    - Supports streaming and synchronous invocations
 
@@ -447,7 +446,7 @@ kubectl wait --for=condition=Ready pods --all -n kagent --timeout=120s
 
 ```bash
 kubectl get crds | grep kagent.dev
-# Expected: agents.kagent.dev, modelconfigs.kagent.dev, etc.
+# Expected: sandboxagents.kagent.dev, modelconfigs.kagent.dev, etc.
 ```
 
 **3. Check Agents:**
@@ -537,7 +536,7 @@ Kagent satisfies the [Cloud Native Security Tenets](https://github.com/cncf/tag-
 
 3. **Least Privilege:**
    - Controller runs with minimal RBAC permissions (see [go/config/rbac/role.yaml](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/config/rbac/role.yaml))
-   - Each agent gets individual ServiceAccount with scoped permissions
+   - Standard agents are isolated by Agent Substrate
    - No cluster-admin privileges required
    - Agents cannot access secrets in other namespaces
 
@@ -653,7 +652,7 @@ Agents require (configurable per agent):
 
 Reasons for privileges:
 
-- Controller needs write access to create/update agent deployments and services
+- Controller needs write access to create/update agent configuration and Substrate ActorTemplates
 - Agents need read access to perform their operational tasks
 - Write access for agents is optional and scoped to specific use cases
 

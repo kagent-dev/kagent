@@ -15,10 +15,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -31,7 +30,7 @@ import (
 const configHashAnnotation = consts.ConfigHashAnnotation
 
 type manifestContext struct {
-	agent          v1alpha2.AgentObject
+	agent          *v1alpha2.SandboxAgent
 	deployment     *resolvedDeployment
 	selectorLabels map[string]string
 }
@@ -56,7 +55,6 @@ type configHashInput struct {
 type podRuntimeInputs struct {
 	initContainers  []corev1.Container
 	envVars         []corev1.EnvVar
-	envFrom         []corev1.EnvFromSource
 	volumes         []corev1.Volume
 	volumeMounts    []corev1.VolumeMount
 	securityContext *corev1.SecurityContext
@@ -67,9 +65,25 @@ type podRuntimeInputs struct {
 	skillsInitConfigMap *corev1.ConfigMap
 }
 
+func getDefaultResources(spec *corev1.ResourceRequirements) corev1.ResourceRequirements {
+	if spec != nil {
+		return *spec
+	}
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("384Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("2000m"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+		},
+	}
+}
+
 func (a *adkApiTranslator) BuildManifest(
 	ctx context.Context,
-	agent v1alpha2.AgentObject,
+	agent *v1alpha2.SandboxAgent,
 	inputs *AgentManifestInputs,
 ) (*AgentOutputs, error) {
 	if inputs == nil {
@@ -90,10 +104,6 @@ func (a *adkApiTranslator) BuildManifest(
 	// backends contribute their config (e.g. session_db_url) upstream in CompileAgent, and their
 	// ActorTemplates reference this Secret by the agent's stable name.
 	outputs.Manifest = append(outputs.Manifest, configSecret.secret)
-
-	if sa := buildServiceAccount(manifestCtx); sa != nil {
-		outputs.Manifest = append(outputs.Manifest, sa)
-	}
 
 	podRuntime, err := buildPodRuntime(manifestCtx, inputs.Sandbox, configSecret.volumes, configSecret.mounts)
 	if err != nil {
@@ -133,7 +143,7 @@ func (a *adkApiTranslator) BuildManifest(
 	return outputs, a.runPlugins(ctx, agent, outputs)
 }
 
-func newManifestContext(agent v1alpha2.AgentObject, dep *resolvedDeployment) manifestContext {
+func newManifestContext(agent *v1alpha2.SandboxAgent, dep *resolvedDeployment) manifestContext {
 	return manifestContext{
 		agent:      agent,
 		deployment: dep,
@@ -144,16 +154,8 @@ func newManifestContext(agent v1alpha2.AgentObject, dep *resolvedDeployment) man
 	}
 }
 
-func (m manifestContext) runInSandbox() bool {
-	return m.agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox
-}
-
 func (m manifestContext) podLabels() map[string]string {
-	podLabels := maps.Clone(m.selectorLabels)
-	if m.deployment.Labels != nil {
-		maps.Copy(podLabels, m.deployment.Labels)
-	}
-	return podLabels
+	return maps.Clone(m.selectorLabels)
 }
 
 // objectMeta returns the metadata shared by every object emitted for an agent. The
@@ -166,23 +168,6 @@ func (m manifestContext) objectMeta() metav1.ObjectMeta {
 		Annotations: maps.Clone(m.agent.GetAnnotations()),
 		Labels:      m.podLabels(),
 	}
-}
-
-// deploymentObjectMeta returns the object metadata for the agent Deployment. It extends
-// objectMeta with the user-supplied deploymentAnnotations, which take precedence over
-// annotations inherited from the agent resource metadata.
-func (m manifestContext) deploymentObjectMeta() metav1.ObjectMeta {
-	meta := m.objectMeta()
-	if len(m.deployment.DeploymentAnnotations) == 0 {
-		return meta
-	}
-
-	if meta.Annotations == nil {
-		meta.Annotations = map[string]string{}
-	}
-	maps.Copy(meta.Annotations, m.deployment.DeploymentAnnotations)
-
-	return meta
 }
 
 func (a *adkApiTranslator) buildConfigSecret(
@@ -266,40 +251,6 @@ func buildConfigSecretData(cfgJSON, agentCard, srtSettingsJSON string) map[strin
 	return data
 }
 
-func buildServiceAccount(manifestCtx manifestContext) *corev1.ServiceAccount {
-	serviceAccountName := manifestCtx.deployment.ServiceAccountName
-	if serviceAccountName == nil || *serviceAccountName != manifestCtx.agent.GetName() {
-		return nil
-	}
-
-	sa := &corev1.ServiceAccount{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "ServiceAccount",
-		},
-		ObjectMeta: manifestCtx.objectMeta(),
-	}
-
-	if manifestCtx.deployment.ServiceAccountConfig == nil {
-		return sa
-	}
-
-	if manifestCtx.deployment.ServiceAccountConfig.Labels != nil {
-		if sa.Labels == nil {
-			sa.Labels = make(map[string]string)
-		}
-		maps.Copy(sa.Labels, manifestCtx.deployment.ServiceAccountConfig.Labels)
-	}
-	if manifestCtx.deployment.ServiceAccountConfig.Annotations != nil {
-		if sa.Annotations == nil {
-			sa.Annotations = make(map[string]string)
-		}
-		maps.Copy(sa.Annotations, manifestCtx.deployment.ServiceAccountConfig.Annotations)
-	}
-
-	return sa
-}
-
 func buildPodRuntime(
 	manifestCtx manifestContext,
 	sandboxCfg *v1alpha2.SandboxConfig,
@@ -309,21 +260,13 @@ func buildPodRuntime(
 	sharedEnv := collectSharedEnv(manifestCtx.agent)
 
 	volumes := append([]corev1.Volume{}, secretVolumes...)
-	volumes = append(volumes, manifestCtx.deployment.Volumes...)
 	volumeMounts := append([]corev1.VolumeMount{}, secretMounts...)
-	volumeMounts = append(volumeMounts, manifestCtx.deployment.VolumeMounts...)
 
 	needCodeExecIsolation := false
 	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
 	if err != nil {
 		return nil, err
 	}
-
-	volumes = append(volumes, projectedTokenVolume())
-	volumeMounts = append(volumeMounts, corev1.VolumeMount{
-		Name:      "kagent-token",
-		MountPath: "/var/run/secrets/tokens",
-	})
 
 	if needsSRTSettings(manifestCtx.agent, sandboxCfg) {
 		sharedEnv = append(sharedEnv, corev1.EnvVar{
@@ -338,15 +281,14 @@ func buildPodRuntime(
 	return &podRuntimeInputs{
 		initContainers:      initContainers,
 		envVars:             envVars,
-		envFrom:             manifestCtx.deployment.EnvFrom,
 		volumes:             volumes,
 		volumeMounts:        volumeMounts,
-		securityContext:     buildContainerSecurityContext(manifestCtx.deployment.SecurityContext, needCodeExecIsolation),
+		securityContext:     buildContainerSecurityContext(nil, needCodeExecIsolation),
 		skillsInitConfigMap: skillsInitCM,
 	}, nil
 }
 
-func needsSRTSettings(agent v1alpha2.AgentObject, sandboxCfg *v1alpha2.SandboxConfig) bool {
+func needsSRTSettings(agent *v1alpha2.SandboxAgent, sandboxCfg *v1alpha2.SandboxConfig) bool {
 	spec := agent.GetAgentSpec()
 	if spec.Type == v1alpha2.AgentType_BYO {
 		return sandboxCfg != nil
@@ -373,7 +315,7 @@ func buildSRTSettingsJSON(sandboxCfg *v1alpha2.SandboxConfig) ([]byte, error) {
 	})
 }
 
-func collectSharedEnv(agent v1alpha2.AgentObject) []corev1.EnvVar {
+func collectSharedEnv(agent *v1alpha2.SandboxAgent) []corev1.EnvVar {
 	sharedEnv := make([]corev1.EnvVar, 0, 8)
 	sharedEnv = append(sharedEnv, collectOtelEnvFromProcess()...)
 	sharedEnv = append(sharedEnv,
@@ -453,7 +395,7 @@ func buildSkillsRuntime(
 		spec.Skills.GitAuthSecretRef,
 		skills,
 		spec.Skills.InsecureSkipVerify,
-		manifestCtx.deployment.SecurityContext,
+		nil,
 		initEnv,
 		getDefaultResources(initResources),
 		spec.Skills.ImagePullSecrets,
@@ -465,23 +407,6 @@ func buildSkillsRuntime(
 
 	*volumes = append(*volumes, skillsVolumes...)
 	return container, configMap, nil
-}
-
-func projectedTokenVolume() corev1.Volume {
-	return corev1.Volume{
-		Name: "kagent-token",
-		VolumeSource: corev1.VolumeSource{
-			Projected: &corev1.ProjectedVolumeSource{
-				Sources: []corev1.VolumeProjection{{
-					ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
-						Audience:          "kagent",
-						ExpirationSeconds: new(int64(3600)),
-						Path:              "kagent-token",
-					},
-				}},
-			},
-		},
-	}
 }
 
 func buildContainerSecurityContext(
@@ -509,22 +434,12 @@ func buildPodTemplate(
 	configHash uint64,
 ) corev1.PodTemplateSpec {
 	dep := manifestCtx.deployment
-	podTemplateAnnotations := maps.Clone(dep.Annotations)
-	if podTemplateAnnotations == nil {
-		podTemplateAnnotations = map[string]string{}
-	}
+	podTemplateAnnotations := map[string]string{}
 	podTemplateAnnotations[configHashAnnotation] = fmt.Sprintf("%d", configHash)
-
-	probeConf := getRuntimeProbeConfig(agentRuntime(manifestCtx.agent))
 
 	var cmd []string
 	if dep.Cmd != "" {
 		cmd = []string{dep.Cmd}
-	}
-
-	var workingDir string
-	if dep.WorkingDir != nil {
-		workingDir = *dep.WorkingDir
 	}
 
 	return corev1.PodTemplateSpec{
@@ -533,46 +448,19 @@ func buildPodTemplate(
 			Annotations: podTemplateAnnotations,
 		},
 		Spec: corev1.PodSpec{
-			ServiceAccountName: *dep.ServiceAccountName,
-			ImagePullSecrets:   dep.ImagePullSecrets,
-			SecurityContext:    dep.PodSecurityContext,
-			InitContainers:     runtimeInputs.initContainers,
-			Containers: append([]corev1.Container{{
+			InitContainers: runtimeInputs.initContainers,
+			Containers: []corev1.Container{{
 				Name:            "kagent",
 				Image:           dep.Image,
-				ImagePullPolicy: dep.ImagePullPolicy,
 				Command:         cmd,
 				Args:            dep.Args,
-				WorkingDir:      workingDir,
-				Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: dep.Port}},
-				Resources:       dep.Resources,
 				Env:             runtimeInputs.envVars,
-				EnvFrom:         runtimeInputs.envFrom,
-				ReadinessProbe: &corev1.Probe{
-					ProbeHandler: corev1.ProbeHandler{
-						HTTPGet: &corev1.HTTPGetAction{
-							Path: "/.well-known/agent-card.json",
-							Port: intstr.FromString("http"),
-						},
-					},
-					InitialDelaySeconds: probeConf.InitialDelaySeconds,
-					TimeoutSeconds:      probeConf.TimeoutSeconds,
-					PeriodSeconds:       probeConf.PeriodSeconds,
-				},
 				SecurityContext: runtimeInputs.securityContext,
 				VolumeMounts:    runtimeInputs.volumeMounts,
-			}}, dep.ExtraContainers...),
-			Volumes:                   runtimeInputs.volumes,
-			Tolerations:               dep.Tolerations,
-			Affinity:                  dep.Affinity,
-			NodeSelector:              dep.NodeSelector,
-			TopologySpreadConstraints: dep.TopologySpreadConstraints,
+			}},
+			Volumes: runtimeInputs.volumes,
 		},
 	}
-}
-
-func agentRuntime(agent v1alpha2.AgentObject) v1alpha2.DeclarativeRuntime {
-	return v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 }
 
 func (a *adkApiTranslator) buildWorkloadObjects(
@@ -580,61 +468,18 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 	manifestCtx manifestContext,
 	podTemplate corev1.PodTemplateSpec,
 ) ([]client.Object, error) {
-	if manifestCtx.runInSandbox() {
-		sbObjs, err := a.sandboxBackend.BuildSandbox(ctx, sandboxbackend.BuildInput{
-			Agent:       manifestCtx.agent,
-			PodTemplate: podTemplate,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("build sandbox workload: %w", err)
-		}
-		return sbObjs, nil
+	sbObjs, err := a.sandboxBackend.BuildSandbox(ctx, sandboxbackend.BuildInput{
+		Agent:       manifestCtx.agent,
+		PodTemplate: podTemplate,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("build sandbox workload: %w", err)
 	}
-
-	svcPort := corev1.ServicePort{
-		Name:       "http",
-		Port:       manifestCtx.deployment.Port,
-		TargetPort: intstr.FromInt(int(manifestCtx.deployment.Port)),
-	}
-	// BYO agents are always A2A servers (port 8080). Declarative agents get the
-	// marker only when a2aConfig is set.
-	if s := manifestCtx.agent.GetAgentSpec(); s != nil &&
-		(s.Type == v1alpha2.AgentType_BYO || (s.Declarative != nil && s.Declarative.A2AConfig != nil)) {
-		proto := "kgateway.dev/a2a"
-		svcPort.AppProtocol = &proto
-	}
-
-	return []client.Object{
-		&appsv1.Deployment{
-			TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-			ObjectMeta: manifestCtx.deploymentObjectMeta(),
-			Spec: appsv1.DeploymentSpec{
-				Replicas: manifestCtx.deployment.Replicas,
-				Strategy: appsv1.DeploymentStrategy{
-					Type: appsv1.RollingUpdateDeploymentStrategyType,
-					RollingUpdate: &appsv1.RollingUpdateDeployment{
-						MaxUnavailable: &intstr.IntOrString{Type: intstr.Int, IntVal: 0},
-						MaxSurge:       &intstr.IntOrString{Type: intstr.Int, IntVal: 1},
-					},
-				},
-				Selector: &metav1.LabelSelector{MatchLabels: manifestCtx.selectorLabels},
-				Template: podTemplate,
-			},
-		},
-		&corev1.Service{
-			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Service"},
-			ObjectMeta: manifestCtx.objectMeta(),
-			Spec: corev1.ServiceSpec{
-				Selector: manifestCtx.selectorLabels,
-				Ports:    []corev1.ServicePort{svcPort},
-				Type:     corev1.ServiceTypeClusterIP,
-			},
-		},
-	}, nil
+	return sbObjs, nil
 }
 
 func (a *adkApiTranslator) setManifestOwnerReferences(
-	agent v1alpha2.AgentObject,
+	agent *v1alpha2.SandboxAgent,
 	manifest []client.Object,
 ) error {
 	for _, obj := range manifest {

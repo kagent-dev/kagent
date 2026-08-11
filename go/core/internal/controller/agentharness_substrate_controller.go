@@ -247,7 +247,7 @@ func (r *SubstrateAgentHarnessController) upsertHarnessAgentRow(ctx context.Cont
 		// Harnesses are not sandbox agents: they serve many concurrent chats
 		// from one shared actor, so they must not pick up the sandbox
 		// single-session restriction.
-		WorkloadType: v1alpha2.WorkloadModeDeployment,
+		WorkloadType: v1alpha2.WorkloadModeSandbox,
 	}
 	if err := r.DbClient.StoreAgent(ctx, dbAgent); err != nil {
 		return fmt.Errorf("store agent row for AgentHarness %s: %w", id, err)

@@ -209,7 +209,7 @@ func TestRequireFoundryGoRuntime(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			agent := &v1alpha2.Agent{
+			agent := &v1alpha2.SandboxAgent{
 				Spec: v1alpha2.AgentSpec{
 					Type: v1alpha2.AgentType_Declarative,
 					Declarative: &v1alpha2.DeclarativeAgentSpec{
@@ -251,7 +251,7 @@ func TestTranslateInlineAgentFoundryMemoryRuntimeGate(t *testing.T) {
 			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mainModel, memModel).Build()
 			tr := &adkApiTranslator{kube: kubeClient}
 
-			agent := &v1alpha2.Agent{
+			agent := &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "default"},
 				Spec: v1alpha2.AgentSpec{
 					Type: v1alpha2.AgentType_Declarative,

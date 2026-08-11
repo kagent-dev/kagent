@@ -67,10 +67,8 @@ func TestBuildSubstrateDeclarativeCommand(t *testing.T) {
 func declarativeSandboxAgent(runtime v1alpha2.DeclarativeRuntime) *v1alpha2.SandboxAgent {
 	sa := &v1alpha2.SandboxAgent{
 		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{
-				Type:        v1alpha2.AgentType_Declarative,
-				Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: runtime},
-			},
+			Type:        v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: runtime},
 		},
 	}
 	sa.Name = "my-agent"
@@ -128,10 +126,8 @@ func TestBuildSubstrateKagentContainerCommandBYO(t *testing.T) {
 	cmd := "/serve"
 	sa := &v1alpha2.SandboxAgent{
 		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_BYO,
-				BYO:  &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
-			},
+			Type: v1alpha2.AgentType_BYO,
+			BYO:  &v1alpha2.BYOAgentSpec{Image: "example/agent:latest", Cmd: &cmd},
 		},
 	}
 	sa.Name = "byo-agent"
@@ -207,9 +203,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			name: "go declarative",
 			sa: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "go-agent", Namespace: "kagent"},
-				Spec: v1alpha2.SandboxAgentSpec{
-					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}},
-				},
+				Spec:       v1alpha2.SandboxAgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}},
 			},
 			container:   corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
 			wantCommand: []string{"/app", "--host", "0.0.0.0", "--port", "80"}},
@@ -217,9 +211,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			name: "python declarative",
 			sa: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-				Spec: v1alpha2.SandboxAgentSpec{
-					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
-				},
+				Spec:       v1alpha2.SandboxAgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
 			},
 			container:   corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
 			wantCommand: []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"}},
@@ -227,9 +219,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			name: "byo",
 			sa: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "byo-agent", Namespace: "kagent"},
-				Spec: v1alpha2.SandboxAgentSpec{
-					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}},
-				},
+				Spec:       v1alpha2.SandboxAgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Image: pinnedImage, Cmd: &cmd}},
 			},
 			container:   corev1.Container{Command: []string{"/serve"}, Args: []string{"--host", "0.0.0.0", "--port", "80"}},
 			wantCommand: []string{"/serve", "--host", "0.0.0.0", "--port", "80"}},
@@ -280,12 +270,12 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 	agentFor := func(spec v1alpha2.AgentSpec, annotations map[string]string) *v1alpha2.SandboxAgent {
 		return &v1alpha2.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent", Annotations: annotations},
-			Spec:       v1alpha2.SandboxAgentSpec{AgentSpec: spec},
+			Spec:       spec,
 		}
 	}
 	pythonSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}}
 	goSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}}
-	byoSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}}
+	byoSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Image: pinnedImage, Cmd: &cmd}}
 	for _, tc := range []struct {
 		name      string
 		sa        *v1alpha2.SandboxAgent

@@ -34,8 +34,8 @@ func egressRMS(name, url string) *v1alpha2.RemoteMCPServer {
 	}
 }
 
-func egressAgent(rmsName string) *v1alpha2.Agent {
-	return &v1alpha2.Agent{
+func egressAgent(rmsName string) *v1alpha2.SandboxAgent {
+	return &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "test"},
 		Spec: v1alpha2.AgentSpec{
 			Type: v1alpha2.AgentType_Declarative,
@@ -67,7 +67,7 @@ func egressTranslator(t *testing.T, mcpEgressPlaintext bool, proxyURL string, ob
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		proxyURL,
-		nil,
+		testSandboxBackend{},
 		mcpEgressPlaintext,
 	)
 }

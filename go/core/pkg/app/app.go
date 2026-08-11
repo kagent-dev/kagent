@@ -25,7 +25,6 @@ import (
 	"net/http/pprof"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -206,8 +205,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
-	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullPolicy, "image-pull-policy", agent_translator.DefaultImageConfig.PullPolicy, "The pull policy to use for the image.")
-	commandLine.StringVar(&agent_translator.DefaultImageConfig.PullSecret, "image-pull-secret", "", "The pull secret name for the agent image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 	commandLine.StringVar(&agent_translator.PythonADKImageDigest, "app-image-digest", agent_translator.PythonADKImageDigest, "Manifest digest (sha256:...) for the Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
 	commandLine.StringVar(&agent_translator.PythonADKFullImageDigest, "app-full-image-digest", agent_translator.PythonADKFullImageDigest, "Manifest digest (sha256:...) for the full Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
@@ -215,12 +212,10 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.GoADKFullImageDigest, "golang-adk-full-image-digest", agent_translator.GoADKFullImageDigest, "Manifest digest (sha256:...) for the full Go agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Registry, "skills-init-image-registry", agent_translator.DefaultSkillsInitImageConfig.Registry, "The registry to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
-	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "skills-init-image-pull-policy", agent_translator.DefaultSkillsInitImageConfig.PullPolicy, "The pull policy to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Registry, "go-image-registry", agent_translator.DefaultGoImageConfig.Registry, "The registry to use for the Go (ADK) runtime agent image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Repository, "go-image-repository", agent_translator.DefaultGoImageConfig.Repository, "The repository to use for the Go (ADK) runtime agent image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Tag, "go-image-tag", agent_translator.DefaultGoImageConfig.Tag, "The tag to use for the Go (ADK) runtime agent image.")
-	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.PullPolicy, "go-image-pull-policy", agent_translator.DefaultGoImageConfig.PullPolicy, "The pull policy to use for the Go (ADK) runtime agent image.")
 
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
 	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
@@ -231,13 +226,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolName, "substrate-default-workerpool-name", "", "Default Agent Substrate WorkerPool name when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.PauseImage, "substrate-pause-image", "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da", "Pause image for generated ActorTemplates.")
-	commandLine.StringVar(&agent_translator.DefaultServiceAccountName, "default-service-account-name", "", "Global default ServiceAccount name for agent pods. When set, agents without an explicit serviceAccountName will use this instead of creating a per-agent ServiceAccount.")
 
-	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentPodLabels}, "default-agent-pod-labels", "Comma-separated key=value pairs of labels to apply to all agent pod templates (e.g. 'team=platform,env=prod'). Per-agent labels take precedence.")
-
-	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentNodeSelector}, "default-agent-node-selector", "Comma-separated key=value pairs of node selector terms to apply to all agent deployments (e.g. 'kubernetes.io/os=linux'). A per-agent nodeSelector takes precedence.")
-
-	commandLine.StringVar(&agent_translator.DefaultAgentBindHost, "default-agent-bind-host", agent_translator.DefaultAgentBindHost, "Default host address for agent pods to bind to. Use '0.0.0.0' for IPv4 only or '::' for dual-stack (IPv4+IPv6).")
 }
 
 // postgresConfigFromApp builds a database.PostgresConfig from app flags.
@@ -282,50 +271,6 @@ func LoadFromEnv(fs *flag.FlagSet) error {
 	})
 
 	return loadErr
-}
-
-// MapValue implements flag.Value for a map[string]string.
-// It parses comma-separated key=value pairs (e.g. "team=platform,env=prod").
-type MapValue struct {
-	Target *map[string]string
-}
-
-func (m *MapValue) String() string {
-	if m.Target == nil || *m.Target == nil {
-		return ""
-	}
-	keys := make([]string, 0, len(*m.Target))
-	for k := range *m.Target {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	pairs := make([]string, 0, len(keys))
-	for _, k := range keys {
-		pairs = append(pairs, k+"="+(*m.Target)[k])
-	}
-	return strings.Join(pairs, ",")
-}
-
-func (m *MapValue) Set(raw string) error {
-	result := make(map[string]string)
-	for pair := range strings.SplitSeq(raw, ",") {
-		pair = strings.TrimSpace(pair)
-		if pair == "" {
-			continue
-		}
-		k, v, ok := strings.Cut(pair, "=")
-		if !ok {
-			return fmt.Errorf("invalid format %q: expected key=value", pair)
-		}
-		k = strings.TrimSpace(k)
-		v = strings.TrimSpace(v)
-		if k == "" {
-			return fmt.Errorf("invalid entry: empty key in %q", pair)
-		}
-		result[k] = v
-	}
-	*m.Target = result
-	return nil
 }
 
 type BootstrapConfig struct {
@@ -626,15 +571,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	if err = (&controller.AgentController{
-		Scheme:        mgr.GetScheme(),
-		Reconciler:    rcnclr,
-		AdkTranslator: apiTranslator,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Agent")
-		os.Exit(1)
-	}
-
 	kubeClient := mgr.GetClient()
 	var substrateHarnessBackends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 	if cfg.Substrate.AteAPIEndpoint != "" {
@@ -718,7 +654,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	// Register A2A handlers on all replicas
-	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2A, httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, dbClient)
+	a2aHandler := a2a.NewA2AHttpMux(httpserver.APIPathA2ASandboxes, extensionCfg.Authenticator, dbClient)
 	ateneRouterURL := cfg.Substrate.AtenetRouterURL
 	if ateneRouterURL == "" {
 		ateneRouterURL = substrate.DefaultAtenetRouterURL
@@ -727,7 +663,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		mgr.GetCache(),
 		a2aHandler,
 		clientRegistry,
-		cfg.A2ABaseUrl+httpserver.APIPathA2A,
 		cfg.A2ABaseUrl+httpserver.APIPathA2ASandboxes,
 		ateneRouterURL,
 		extensionCfg.Authenticator,

@@ -8,20 +8,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type agentDependencyPredicate func(v1alpha2.AgentObject, types.NamespacedName) bool
+type agentDependencyPredicate func(*v1alpha2.SandboxAgent, types.NamespacedName) bool
 
-func collectAgentRefs(items []v1alpha2.Agent, pred func(v1alpha2.AgentObject) bool) []types.NamespacedName {
-	var out []types.NamespacedName
-	for i := range items {
-		agent := &items[i]
-		if pred(agent) {
-			out = append(out, types.NamespacedName{Name: agent.Name, Namespace: agent.Namespace})
-		}
-	}
-	return out
-}
-
-func collectSandboxAgentRefs(items []v1alpha2.SandboxAgent, pred func(v1alpha2.AgentObject) bool) []types.NamespacedName {
+func collectSandboxAgentRefs(items []v1alpha2.SandboxAgent, pred func(*v1alpha2.SandboxAgent) bool) []types.NamespacedName {
 	var out []types.NamespacedName
 	for i := range items {
 		agent := &items[i]
@@ -40,7 +29,7 @@ func reconcileRequestsForRefs(refs []types.NamespacedName) []reconcile.Request {
 	return requests
 }
 
-func usesMCPServer(agent v1alpha2.AgentObject, obj types.NamespacedName) bool {
+func usesMCPServer(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
 	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
 		return false
@@ -55,7 +44,7 @@ func usesMCPServer(agent v1alpha2.AgentObject, obj types.NamespacedName) bool {
 	})
 }
 
-func usesRemoteMCPServer(agent v1alpha2.AgentObject, obj types.NamespacedName) bool {
+func usesRemoteMCPServer(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
 	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
 		return false
@@ -66,7 +55,7 @@ func usesRemoteMCPServer(agent v1alpha2.AgentObject, obj types.NamespacedName) b
 	})
 }
 
-func usesMCPService(agent v1alpha2.AgentObject, obj types.NamespacedName) bool {
+func usesMCPService(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
 	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
 		return false
@@ -81,7 +70,7 @@ func usesMCPService(agent v1alpha2.AgentObject, obj types.NamespacedName) bool {
 	})
 }
 
-func usesModelConfig(agent v1alpha2.AgentObject, obj types.NamespacedName) bool {
+func usesModelConfig(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
 	return agent.GetNamespace() == obj.Namespace &&
 		spec.Type == v1alpha2.AgentType_Declarative &&
@@ -89,7 +78,7 @@ func usesModelConfig(agent v1alpha2.AgentObject, obj types.NamespacedName) bool 
 		spec.Declarative.ModelConfig == obj.Name
 }
 
-func referencesConfigMap(agent v1alpha2.AgentObject, obj types.NamespacedName) bool {
+func referencesConfigMap(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
 	if agent.GetNamespace() != obj.Namespace || spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
 		return false

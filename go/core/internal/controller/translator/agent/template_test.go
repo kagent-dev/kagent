@@ -180,13 +180,13 @@ Available tools: get-pods, apply-manifest, `,
 func TestBuildTemplateContext(t *testing.T) {
 	tests := []struct {
 		name    string
-		agent   *v1alpha2.Agent
+		agent   *v1alpha2.SandboxAgent
 		cfg     *adk.AgentConfig
 		wantCtx PromptTemplateContext
 	}{
 		{
 			name: "tool names from config, skill names from spec",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-agent",
 					Namespace: "production",
@@ -220,7 +220,7 @@ func TestBuildTemplateContext(t *testing.T) {
 		},
 		{
 			name: "skills with OCI digests and git URLs with query/fragment",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-agent",
 					Namespace: "production",
@@ -262,7 +262,7 @@ func TestBuildTemplateContext(t *testing.T) {
 		},
 		{
 			name: "SSE tools included",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sse-agent",
 					Namespace: "default",
@@ -288,7 +288,7 @@ func TestBuildTemplateContext(t *testing.T) {
 		},
 		{
 			name: "empty config",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "simple-agent",
 					Namespace: "default",

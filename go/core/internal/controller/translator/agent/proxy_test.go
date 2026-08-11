@@ -51,7 +51,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		},
 	}
 
-	nestedAgent := &v1alpha2.Agent{
+	nestedAgent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "nested-agent",
 			Namespace: "test",
@@ -65,7 +65,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		},
 	}
 
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -79,6 +79,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 					{
 						Type: v1alpha2.ToolProviderType_Agent,
 						Agent: &v1alpha2.TypedReference{
+							Kind: "SandboxAgent",
 							Name: "nested-agent",
 						},
 					},
@@ -120,7 +121,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
 			"http://proxy.kagent.svc.cluster.local:8080",
-			nil,
+			testSandboxBackend{},
 		)
 
 		result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
@@ -131,9 +132,9 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		// Verify agent tool proxy configuration
 		require.Len(t, result.Config.RemoteAgents, 1)
 		remoteAgent := result.Config.RemoteAgents[0]
-		assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080", remoteAgent.Url)
+		assert.Equal(t, "http://proxy.kagent.svc.cluster.local:8080/api/a2a-sandboxes/test/nested-agent", remoteAgent.Url)
 		assert.NotNil(t, remoteAgent.Headers)
-		assert.Equal(t, "nested-agent.test", remoteAgent.Headers[agenttranslator.ProxyHostHeader])
+		assert.Equal(t, "kagent-controller.kagent", remoteAgent.Headers[agenttranslator.ProxyHostHeader])
 
 		// Verify RemoteMCPServer with internal k8s URL DOES use proxy
 		require.Len(t, result.Config.HttpTools, 1)
@@ -150,7 +151,7 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 			types.NamespacedName{Name: "default-model", Namespace: "test"},
 			nil,
 			"", // No proxy
-			nil,
+			testSandboxBackend{},
 		)
 
 		result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
@@ -158,10 +159,10 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 		require.NotNil(t, result)
 		require.NotNil(t, result.Config)
 
-		// Verify agent tool direct URL (no proxy)
+		// Verify agent tool uses the sandbox A2A route.
 		require.Len(t, result.Config.RemoteAgents, 1)
 		remoteAgent := result.Config.RemoteAgents[0]
-		assert.Equal(t, "http://nested-agent.test:8080", remoteAgent.Url)
+		assert.Equal(t, "http://kagent-controller.kagent:8083/api/a2a-sandboxes/test/nested-agent", remoteAgent.Url)
 		// Proxy header should not be set when no proxy
 		if remoteAgent.Headers != nil {
 			_, hasHost := remoteAgent.Headers[agenttranslator.ProxyHostHeader]
@@ -208,7 +209,7 @@ func TestProxyConfiguration_RemoteMCPServer_FallsBackToWatchedNamespacesWhenName
 		},
 	}
 
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -255,7 +256,7 @@ func TestProxyConfiguration_RemoteMCPServer_FallsBackToWatchedNamespacesWhenName
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
-		nil,
+		testSandboxBackend{},
 		false,
 	)
 
@@ -296,7 +297,7 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 		},
 	}
 
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -338,7 +339,7 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
-		nil,
+		testSandboxBackend{},
 	)
 
 	result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
@@ -389,7 +390,7 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 		},
 	}
 
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -431,7 +432,7 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
-		nil,
+		testSandboxBackend{},
 	)
 
 	result, err := agenttranslator.TranslateAgent(ctx, translator, agent)
@@ -487,7 +488,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 		},
 	}
 
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -529,7 +530,7 @@ func TestProxyConfiguration_Service(t *testing.T) {
 		types.NamespacedName{Name: "default-model", Namespace: "test"},
 		nil,
 		"http://proxy.kagent.svc.cluster.local:8080",
-		nil,
+		testSandboxBackend{},
 	)
 
 	result, err := agenttranslator.TranslateAgent(ctx, translator, agent)

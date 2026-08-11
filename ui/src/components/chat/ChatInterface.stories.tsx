@@ -33,7 +33,7 @@ const mockAgent: AgentResponse = {
   modelProvider: "openai",
   modelConfigRef: "default/test-model",
   tools: [],
-  deploymentReady: true,
+  ready: true,
   accepted: true,
 };
 

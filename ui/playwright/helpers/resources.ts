@@ -29,10 +29,10 @@ export async function firstReadyAgent(request: APIRequestContext): Promise<strin
   const res = await request.get(`${PROXY}/agents`);
   expect(res.ok(), "GET /api/agents failed").toBeTruthy();
   const body = (await res.json()) as {
-    data?: Array<{ deploymentReady?: boolean; accepted?: boolean; agent: { metadata: { namespace: string; name: string } } }>;
+    data?: Array<{ ready?: boolean; accepted?: boolean; agent: { metadata: { namespace: string; name: string } } }>;
   };
   const items = body.data ?? [];
-  const pick = items.find((a) => a.deploymentReady && a.accepted) ?? items[0];
+  const pick = items.find((a) => a.ready && a.accepted) ?? items[0];
   expect(pick, "no agent available for the chat flow").toBeTruthy();
   const m = pick!.agent.metadata;
   return `${m.namespace}/${m.name}`;

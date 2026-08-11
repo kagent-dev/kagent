@@ -56,7 +56,7 @@ func TestMCPServerValidation_InvalidPort(t *testing.T) {
 	}
 
 	// Create an Agent that references the MCPServer
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -94,7 +94,7 @@ func TestMCPServerValidation_InvalidPort(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
-		nil,
+		testSandboxBackend{},
 	)
 
 	// TranslateAgent should fail with error about invalid port
@@ -142,7 +142,7 @@ func TestMCPServerValidation_ValidPort(t *testing.T) {
 	}
 
 	// Create an Agent that references the MCPServer
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -180,7 +180,7 @@ func TestMCPServerValidation_ValidPort(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
-		nil,
+		testSandboxBackend{},
 	)
 
 	// TranslateAgent should succeed
@@ -213,7 +213,7 @@ func TestMCPServerValidation_NotFound(t *testing.T) {
 	}
 
 	// Create an Agent that references a non-existent MCPServer
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -251,7 +251,7 @@ func TestMCPServerValidation_NotFound(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
-		nil,
+		testSandboxBackend{},
 	)
 
 	// TranslateAgent should fail with not found error
@@ -281,7 +281,7 @@ func TestMCPServerValidation_NoMCPServerReference(t *testing.T) {
 	}
 
 	// Create an Agent with a tool that has type McpServer but no mcpServer reference
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -313,7 +313,7 @@ func TestMCPServerValidation_NoMCPServerReference(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
-		nil,
+		testSandboxBackend{},
 	)
 
 	// TranslateAgent should fail with provider or tool server error
@@ -354,7 +354,7 @@ func TestMCPServerValidation_RemoteMCPServer(t *testing.T) {
 	}
 
 	// Create an Agent that references the RemoteMCPServer
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -392,7 +392,7 @@ func TestMCPServerValidation_RemoteMCPServer(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
-		nil,
+		testSandboxBackend{},
 	)
 
 	// TranslateAgent should succeed - RemoteMCPServer doesn't have port validation
@@ -503,7 +503,7 @@ func TestMCPServerValidation_MultipleTools(t *testing.T) {
 	}
 
 	// Create an Agent that references both MCPServers
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
@@ -551,7 +551,7 @@ func TestMCPServerValidation_MultipleTools(t *testing.T) {
 		types.NamespacedName{Namespace: "test", Name: "default-model"},
 		nil,
 		"",
-		nil,
+		testSandboxBackend{},
 	)
 
 	// TranslateAgent should fail because one of the MCPServers is invalid

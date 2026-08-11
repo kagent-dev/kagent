@@ -28,7 +28,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -79,8 +78,6 @@ type ImageConfig struct {
 	Registry   string `json:"registry,omitempty"`
 	Tag        string `json:"tag,omitempty"`
 	Digest     string `json:"digest,omitempty"` // OCI manifest digest (sha256:...), set at link time
-	PullPolicy string `json:"pullPolicy,omitempty"`
-	PullSecret string `json:"pullSecret,omitempty"`
 	Repository string `json:"repository,omitempty"`
 }
 
@@ -111,8 +108,6 @@ func normalizeImageDigest(digest string) string {
 var DefaultImageConfig = ImageConfig{
 	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
-	PullPolicy: string(corev1.PullIfNotPresent),
-	PullSecret: "",
 	Repository: "kagent-dev/kagent/app",
 }
 
@@ -133,7 +128,6 @@ var GoADKFullImageDigest string
 var DefaultGoImageConfig = ImageConfig{
 	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
-	PullPolicy: string(corev1.PullIfNotPresent),
 	Repository: "kagent-dev/kagent/golang-adk",
 }
 
@@ -142,26 +136,8 @@ var DefaultGoImageConfig = ImageConfig{
 var DefaultSkillsInitImageConfig = ImageConfig{
 	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
-	PullPolicy: string(corev1.PullIfNotPresent),
 	Repository: "kagent-dev/kagent/skills-init",
 }
-
-// DefaultServiceAccountName is the global default ServiceAccount name for agent pods.
-// When set, agent pods that don't specify an explicit serviceAccountName will use this
-// instead of auto-creating a per-agent ServiceAccount.
-var DefaultServiceAccountName string
-
-// DefaultAgentPodLabels is a set of labels applied to all agent pod templates.
-// Per-agent labels from the Agent CRD spec take precedence over these defaults.
-var DefaultAgentPodLabels map[string]string
-
-// DefaultAgentNodeSelector is a node selector applied to all agent deployments.
-// A per-agent nodeSelector from the Agent CRD spec takes precedence over these defaults.
-var DefaultAgentNodeSelector map[string]string
-
-// DefaultAgentBindHost is the host address agent pods bind to.
-// Defaults to "0.0.0.0" (IPv4 only). Set to "::" for dual-stack (IPv4+IPv6) support.
-var DefaultAgentBindHost = "0.0.0.0"
 
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
@@ -169,46 +145,14 @@ type AgentOutputs = translator.AgentOutputs
 type AdkApiTranslator interface {
 	CompileAgent(
 		ctx context.Context,
-		agent v1alpha2.AgentObject,
+		agent *v1alpha2.SandboxAgent,
 	) (*AgentManifestInputs, error)
 	BuildManifest(
 		ctx context.Context,
-		agent v1alpha2.AgentObject,
+		agent *v1alpha2.SandboxAgent,
 		inputs *AgentManifestInputs,
 	) (*AgentOutputs, error)
 	GetOwnedResourceTypes() []client.Object
-}
-
-// probeConfig holds readiness probe timing configuration
-type probeConfig struct {
-	InitialDelaySeconds int32
-	TimeoutSeconds      int32
-	PeriodSeconds       int32
-}
-
-// getRuntimeProbeConfig returns readiness probe configuration for a runtime
-func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
-	switch runtime {
-	case v1alpha2.DeclarativeRuntime_Go:
-		return probeConfig{
-			InitialDelaySeconds: 1,
-			TimeoutSeconds:      5,
-			PeriodSeconds:       1,
-		}
-	case v1alpha2.DeclarativeRuntime_Python:
-		return probeConfig{
-			InitialDelaySeconds: 15,
-			TimeoutSeconds:      15,
-			PeriodSeconds:       15,
-		}
-	default:
-		// Default to Python timing (conservative)
-		return probeConfig{
-			InitialDelaySeconds: 15,
-			TimeoutSeconds:      15,
-			PeriodSeconds:       15,
-		}
-	}
 }
 
 type TranslatorPlugin = translator.TranslatorPlugin
@@ -249,11 +193,8 @@ type adkApiTranslator struct {
 // example structs rather than actual resources.
 func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 	ownedResources := []client.Object{
-		&appsv1.Deployment{},
 		&corev1.ConfigMap{},
 		&corev1.Secret{},
-		&corev1.Service{},
-		&corev1.ServiceAccount{},
 	}
 
 	for _, plugin := range r.plugins {
@@ -1770,7 +1711,7 @@ func buildSkillsInitContainer(
 	return containers, volumes, configMap, nil
 }
 
-func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error {
+func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.SandboxAgent, outputs *AgentOutputs) error {
 	var errs error
 	for _, plugin := range a.plugins {
 		if err := plugin.ProcessAgent(ctx, agent, outputs); err != nil {

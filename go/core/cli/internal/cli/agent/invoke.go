@@ -12,7 +12,6 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 )
@@ -159,9 +158,5 @@ func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
 }
 
 func buildA2AURL(baseURL, namespace, agent string, agentResponse *api.AgentResponse) string {
-	a2aPath := "api/a2a"
-	if agentResponse != nil && agentResponse.WorkloadMode == v1alpha2.WorkloadModeSandbox {
-		a2aPath = "api/a2a-sandboxes"
-	}
-	return fmt.Sprintf("%s/%s/%s/%s", baseURL, a2aPath, namespace, agent)
+	return fmt.Sprintf("%s/api/a2a-sandboxes/%s/%s", baseURL, namespace, agent)
 }

@@ -61,7 +61,7 @@ func resolvePromptSources(ctx context.Context, kube client.Client, namespace str
 // buildTemplateContext constructs the template context from an Agent resource and its
 // already-translated AgentConfig. Tool names are extracted from the config rather than
 // recomputed from the spec.
-func buildTemplateContext(agent v1alpha2.AgentObject, cfg *adk.AgentConfig) PromptTemplateContext {
+func buildTemplateContext(agent *v1alpha2.SandboxAgent, cfg *adk.AgentConfig) PromptTemplateContext {
 	spec := agent.GetAgentSpec()
 	tplCtx := PromptTemplateContext{
 		AgentName:      agent.GetName(),

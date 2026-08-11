@@ -75,10 +75,6 @@ export default function ChatAgentPage({ params }: { params: Promise<{ name: stri
           setGate("ready");
           return;
         }
-        if (currentAgent.workloadMode !== "sandbox") {
-          setGate("ready");
-          return;
-        }
         // Substrate sandbox agents: provision a session up front (same as "New Chat") so the
         // first message uses /chat/:id and does not inline-create + block on readiness polling.
         if (isSubstrateSandboxAgent(currentAgent)) {

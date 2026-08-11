@@ -175,13 +175,7 @@ func TestResolveInlineDeploymentImagePinning(t *testing.T) {
 		Declarative: &v1alpha2.DeclarativeAgentSpec{SystemMessage: "test", ModelConfig: "test-model"},
 	}
 
-	regular := &v1alpha2.Agent{Spec: spec}
-	dep, err := resolveInlineDeployment(regular, &modelDeploymentData{})
-	require.NoError(t, err)
-	require.NotContains(t, dep.Image, "@sha256:", "regular agents reference images by tag")
-	require.Contains(t, dep.Image, ":"+DefaultImageConfig.Tag)
-
-	sandbox := &v1alpha2.SandboxAgent{Spec: v1alpha2.SandboxAgentSpec{AgentSpec: spec}}
+	sandbox := &v1alpha2.SandboxAgent{Spec: spec}
 	sdep, err := resolveInlineDeployment(sandbox, &modelDeploymentData{})
 	require.NoError(t, err)
 	require.Contains(t, sdep.Image, "@sha256:pin-test", "sandbox agents require digest-pinned images (Substrate rejects tag refs)")

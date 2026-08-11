@@ -45,7 +45,6 @@ const (
 	APIPathMemories             = "/api/memories"
 	APIPathNamespaces           = "/api/namespaces"
 	APIPathPromptTemplates      = "/api/prompttemplates"
-	APIPathA2A                  = "/api/a2a"
 	APIPathA2ASandboxes         = "/api/a2a-sandboxes"
 	APIPathMCP                  = "/mcp"
 	APIPathFeedback             = "/api/feedback"
@@ -287,11 +286,6 @@ func (s *HTTPServer) setupRoutes() {
 
 	// Agents - using database handlers
 	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleListAgents)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleCreateAgent)).Methods(http.MethodPost)
-	s.router.HandleFunc(APIPathAgents, adaptHandler(s.handlers.Agents.HandleUpdateAgent)).Methods(http.MethodPut)
-	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgent)).Methods(http.MethodGet)
-	s.router.HandleFunc(APIPathAgents+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleDeleteAgent)).Methods(http.MethodDelete)
-
 	s.router.HandleFunc(APIPathSandboxAgents, adaptHandler(s.handlers.Agents.HandleCreateSandboxAgent)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathAgentHarnesses, adaptHandler(s.handlers.Agents.HandleCreateAgentHarness)).Methods(http.MethodPost)
 	s.router.HandleFunc(APIPathAgentHarnesses+"/{namespace}/{name}", adaptHandler(s.handlers.Agents.HandleGetAgentHarness)).Methods(http.MethodGet)
@@ -359,7 +353,6 @@ func (s *HTTPServer) setupRoutes() {
 	)
 
 	// A2A
-	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 	s.router.PathPrefix(APIPathA2ASandboxes + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 
 	// MCP

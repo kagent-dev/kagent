@@ -65,7 +65,7 @@ func TestSessionsHandler(t *testing.T) {
 		t.Helper()
 		agent := &database.Agent{
 			ID:           agentRef,
-			WorkloadType: v1alpha2.WorkloadModeDeployment,
+			WorkloadType: v1alpha2.WorkloadModeSandbox,
 		}
 		require.NoError(t, dbClient.StoreAgent(context.Background(), agent))
 		return agent

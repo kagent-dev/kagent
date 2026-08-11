@@ -31,7 +31,6 @@ type A2ARegistrar struct {
 	cache                        crcache.Cache
 	handlerMux                   A2AHandlerMux
 	clientRegistry               *AgentClientRegistry
-	a2aBaseURL                   string
 	sandboxA2AURL                string
 	ateneRouterURL               string
 	authenticator                auth.AuthProvider
@@ -50,7 +49,6 @@ func NewA2ARegistrar(
 	cache crcache.Cache,
 	mux A2AHandlerMux,
 	clientRegistry *AgentClientRegistry,
-	a2aBaseUrl string,
 	sandboxA2ABaseURL string,
 	ateneRouterURL string,
 	authenticator auth.AuthProvider,
@@ -65,7 +63,6 @@ func NewA2ARegistrar(
 		cache:                        cache,
 		handlerMux:                   mux,
 		clientRegistry:               clientRegistry,
-		a2aBaseURL:                   a2aBaseUrl,
 		sandboxA2AURL:                sandboxA2ABaseURL,
 		ateneRouterURL:               ateneRouterURL,
 		authenticator:                authenticator,
@@ -84,9 +81,6 @@ func (a *A2ARegistrar) NeedLeaderElection() bool {
 func (a *A2ARegistrar) Start(ctx context.Context) error {
 	log := ctrllog.FromContext(ctx).WithName("a2a-registrar")
 
-	if err := a.registerAgentInformer(ctx, &v1alpha2.Agent{}, log); err != nil {
-		return err
-	}
 	if err := a.registerAgentInformer(ctx, &v1alpha2.SandboxAgent{}, log); err != nil {
 		return err
 	}
@@ -99,7 +93,7 @@ func (a *A2ARegistrar) Start(ctx context.Context) error {
 	return nil
 }
 
-func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1alpha2.AgentObject, log logr.Logger) error {
+func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype *v1alpha2.SandboxAgent, log logr.Logger) error {
 	informer, err := a.cache.GetInformer(ctx, prototype)
 	if err != nil {
 		return fmt.Errorf("failed to get cache informer for %T: %w", prototype, err)
@@ -132,7 +126,7 @@ func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype v1al
 			}
 			// Also notify when readiness conditions change so subscribers don't
 			// hold stale agent lists (the resource filter uses Accepted +
-			// DeploymentReady, which are status conditions, not spec fields).
+			// workload readiness, which is a status condition rather than spec state).
 			if specChanged || agentReadinessChanged(oldAgent, newAgent) {
 				a.notifyAgentChange(ctx)
 			}
@@ -161,11 +155,11 @@ func (a *A2ARegistrar) notifyAgentChange(ctx context.Context) {
 	}
 }
 
-func agentReadinessChanged(oldAgent, newAgent v1alpha2.AgentObject) bool {
+func agentReadinessChanged(oldAgent, newAgent *v1alpha2.SandboxAgent) bool {
 	return isAgentReady(oldAgent) != isAgentReady(newAgent)
 }
 
-func isAgentReady(agent v1alpha2.AgentObject) bool {
+func isAgentReady(agent *v1alpha2.SandboxAgent) bool {
 	status := agent.GetAgentStatus()
 	if status == nil {
 		return false
@@ -174,7 +168,7 @@ func isAgentReady(agent v1alpha2.AgentObject) bool {
 	for _, c := range status.Conditions {
 		if c.Type == v1alpha2.AgentConditionTypeReady && c.Status == metav1.ConditionTrue {
 			switch c.Reason {
-			case reconciler.AgentReadyReasonDeploymentReady, reconciler.AgentReadyReasonWorkloadReady:
+			case reconciler.AgentReadyReasonWorkloadReady:
 				workloadReady = true
 			}
 		}
@@ -185,7 +179,7 @@ func isAgentReady(agent v1alpha2.AgentObject) bool {
 	return workloadReady && accepted
 }
 
-func sameAgentSpec(oldAgent, newAgent v1alpha2.AgentObject) bool {
+func sameAgentSpec(oldAgent, newAgent *v1alpha2.SandboxAgent) bool {
 	oldSpec := oldAgent.GetAgentSpec()
 	newSpec := newAgent.GetAgentSpec()
 	switch {
@@ -198,12 +192,12 @@ func sameAgentSpec(oldAgent, newAgent v1alpha2.AgentObject) bool {
 	}
 }
 
-func informerAgentObject(obj any) (v1alpha2.AgentObject, bool) {
-	typed, ok := obj.(v1alpha2.AgentObject)
+func informerAgentObject(obj any) (*v1alpha2.SandboxAgent, bool) {
+	typed, ok := obj.(*v1alpha2.SandboxAgent)
 	return typed, ok
 }
 
-func deletedInformerAgentObject(obj any) (v1alpha2.AgentObject, bool) {
+func deletedInformerAgentObject(obj any) (*v1alpha2.SandboxAgent, bool) {
 	if typed, ok := informerAgentObject(obj); ok {
 		return typed, true
 	}
@@ -214,15 +208,14 @@ func deletedInformerAgentObject(obj any) (v1alpha2.AgentObject, bool) {
 	return informerAgentObject(tombstone.Obj)
 }
 
-func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.AgentObject, log logr.Logger) error {
+func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.SandboxAgent, log logr.Logger) error {
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
 	card := agent_translator.GetA2AAgentCard(agent)
 
 	provider := resolveProviderName(ctx, a.cache, agent)
 
 	httpClient := a2aHTTPClient()
-	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok &&
-		a.substrateSandboxActorBackend != nil {
+	if a.substrateSandboxActorBackend != nil {
 		routerURL := a.ateneRouterURL
 		if routerURL == "" {
 			routerURL = substrate.DefaultAtenetRouterURL
@@ -231,7 +224,7 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent v1alpha2.Ag
 		if httpClient != nil && httpClient.Transport != nil {
 			baseTransport = httpClient.Transport
 		}
-		transport, err := newSubstrateSandboxSessionRoundTripper(routerURL, sa, a.substrateSandboxActorBackend, baseTransport, a.dbService)
+		transport, err := newSubstrateSandboxSessionRoundTripper(routerURL, agent, a.substrateSandboxActorBackend, baseTransport, a.dbService)
 		if err != nil {
 			return fmt.Errorf("substrate sandbox A2A transport for %s: %w", agentRef, err)
 		}
@@ -283,21 +276,17 @@ func a2aHTTPClient() *http.Client {
 	return client
 }
 
-func (a *A2ARegistrar) a2aRouteURL(agent v1alpha2.AgentObject) string {
-	baseURL := a.a2aBaseURL
-	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
-		baseURL = a.sandboxA2AURL
-	}
-	return baseURL + "/" + types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}.String() + "/"
+func (a *A2ARegistrar) a2aRouteURL(agent *v1alpha2.SandboxAgent) string {
+	return a.sandboxA2AURL + "/" + types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}.String() + "/"
 }
 
-func a2aRouteKey(agent v1alpha2.AgentObject) string {
+func a2aRouteKey(agent *v1alpha2.SandboxAgent) string {
 	return a2aRoutePath(agent)
 }
 
-func a2aRoutePath(agent v1alpha2.AgentObject) string {
+func a2aRoutePath(agent *v1alpha2.SandboxAgent) string {
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
-	return routeKey(agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox, agentRef.Namespace, agentRef.Name)
+	return routeKey(agentRef.Namespace, agentRef.Name)
 }
 
 // cloneInterfacesWithURL clones the interfaces and sets the URL to the given value.

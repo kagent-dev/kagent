@@ -461,11 +461,7 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 	if m.agent == nil || m.current == nil {
 		return nil
 	}
-	a2aPath := "api/a2a"
-	if m.agent != nil && m.agent.WorkloadMode == v1alpha2.WorkloadModeSandbox {
-		a2aPath = "api/a2a-sandboxes"
-	}
-	a2aURL := fmt.Sprintf("%s/%s/%s", m.cfg.KAgentURL, a2aPath, m.agentRef)
+	a2aURL := fmt.Sprintf("%s/api/a2a-sandboxes/%s", m.cfg.KAgentURL, m.agentRef)
 	client, err := clia2a.NewClient(context.Background(), a2aURL, clia2a.ClientOptions{Timeout: m.cfg.Timeout})
 	if err != nil {
 		m.details.WriteString("\nA2A error\n")

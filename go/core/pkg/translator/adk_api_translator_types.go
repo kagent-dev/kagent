@@ -21,6 +21,6 @@ type AgentOutputs struct {
 // hash baked into the pod template), so it may mutate or append to
 // outputs.Manifest but must not expect config edits to affect the config-hash.
 type TranslatorPlugin interface {
-	ProcessAgent(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error
+	ProcessAgent(ctx context.Context, agent *v1alpha2.SandboxAgent, outputs *AgentOutputs) error
 	GetOwnedResourceTypes() []client.Object
 }

@@ -219,7 +219,7 @@ Go code lives in the `go/` workspace (`go/api`, `go/core`, `go/adk`). Run
 
 - Receiver names: single letter, the **first letter of the concrete type name**,
   used consistently across all methods of that type (`k` for `kagentReconciler`,
-  `a` for `AgentController`, `m` for `ModelConfigHandler`).
+  `a` for `SandboxAgentController`, `m` for `ModelConfigHandler`).
 - Acronyms are uppercase: `URL`, `ID`, `HTTP`, `MCP`, `ADK`, `TLS`, `API`.
 - Getters are `GetXxx()`.
 - CRD enum constants use the `TypeName_Value` underscore pattern:

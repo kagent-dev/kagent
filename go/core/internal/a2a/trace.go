@@ -46,7 +46,7 @@ func (m *a2aTracingMiddleware) Wrap(next http.Handler) http.Handler {
 // resolveProviderName looks up the ModelConfig for a declarative agent and
 // returns the corresponding gen_ai.provider.name attribute. Falls back to "kagent"
 // for BYO agents or if the ModelConfig cannot be fetched.
-func resolveProviderName(ctx context.Context, cache crcache.Cache, agent v1alpha2.AgentObject) attribute.KeyValue {
+func resolveProviderName(ctx context.Context, cache crcache.Cache, agent *v1alpha2.SandboxAgent) attribute.KeyValue {
 	spec := agent.GetAgentSpec()
 	if spec.Declarative == nil {
 		return semconv.GenAIProviderNameKey.String("kagent")

@@ -37,13 +37,13 @@ func (b *AgentsBackend) GetOwnedResourceTypes() []client.Object {
 // removed only when the SandboxAgent is deleted (DeleteAllSandboxAgentActors +
 // CleanupSandboxAgentTemplate, plus owner-reference GC of the template objects). ActorTemplate
 // remains in GetOwnedResourceTypes for watches.
-func (b *AgentsBackend) OwnedResourceTypesFor(_ v1alpha2.AgentObject) ([]client.Object, error) {
+func (b *AgentsBackend) OwnedResourceTypesFor(_ *v1alpha2.SandboxAgent) ([]client.Object, error) {
 	return nil, nil
 }
 
 func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.BuildInput) ([]client.Object, error) {
-	sa, ok := in.Agent.(*v1alpha2.SandboxAgent)
-	if !ok || sa == nil {
+	sa := in.Agent
+	if sa == nil {
 		return nil, fmt.Errorf("substrate sandbox backend requires a SandboxAgent")
 	}
 	if b.Lifecycle == nil {
@@ -69,7 +69,7 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 // runtime-specific: python's google-adk DatabaseSessionService uses SQLAlchemy's async engine,
 // so the URL must name an async driver (aiosqlite, a core google-adk dependency); the Go ADK's
 // local store parses either form.
-func (b *AgentsBackend) SessionDBURL(agent v1alpha2.AgentObject) string {
+func (b *AgentsBackend) SessionDBURL(agent *v1alpha2.SandboxAgent) string {
 	if v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) == v1alpha2.DeclarativeRuntime_Go {
 		return sessionDBURLGo
 	}

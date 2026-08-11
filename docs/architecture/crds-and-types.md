@@ -67,9 +67,8 @@ AgentSpec
 │   │   └── headersFrom: []ValueRef
 │   ├── a2aConfig: A2AConfig
 │   │   └── skills: []AgentSkill
-│   ├── deployment: DeclarativeDeploymentSpec
-│   │   ├── imageRegistry: string
-│   │   └── SharedDeploymentSpec (replicas, volumes, env, resources, etc.)
+│   ├── imageRegistry: string
+│   ├── env: []EnvVar
 │   ├── memory: MemorySpec
 │   │   ├── modelConfig: string (embedding model)
 │   │   └── ttlDays: int
@@ -82,11 +81,10 @@ AgentSpec
 │   │       └── eventRetentionSize: int
 │
 └── byo: BYOAgentSpec (if type=BYO)
-    └── deployment: ByoDeploymentSpec
-        ├── image: string
-        ├── cmd: string
-        ├── args: []string
-        └── SharedDeploymentSpec (replicas, volumes, env, resources, etc.)
+    ├── image: string
+    ├── cmd: string
+    ├── args: []string
+    └── env: []EnvVar
 ```
 
 ### Status
@@ -96,7 +94,7 @@ AgentStatus
 ├── observedGeneration: int64
 └── conditions: []metav1.Condition
     ├── type: "Accepted" (CRD spec is valid)
-    └── type: "Ready" (agent pod is running and healthy)
+    └── type: "Ready" (Substrate ActorTemplate is ready)
 ```
 
 ### Key Validation Rules (CEL)
@@ -104,7 +102,6 @@ AgentStatus
 - `type` must be `Declarative` or `BYO`
 - If `type=Declarative`, `declarative` must be set; if `type=BYO`, `byo` must be set
 - `systemMessage` and `systemMessageFrom` are mutually exclusive
-- `serviceAccountName` and `serviceAccountConfig` are mutually exclusive
 - `requireApproval` entries must be a subset of `toolNames`
 
 ---

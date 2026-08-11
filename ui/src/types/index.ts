@@ -355,10 +355,6 @@ export interface AgentSpec {
   sandbox?: SandboxConfig;
 }
 
-export interface DeclarativeDeploymentSpec {
-  serviceAccountName?: string;
-}
-
 /** Prompt library sources referenced for {{include "alias/key"}} in system messages. */
 export interface PromptSource {
   kind: string;
@@ -398,7 +394,6 @@ export interface DeclarativeAgentSpec {
   stream?: boolean;
   a2aConfig?: A2AConfig;
   context?: ContextConfig;
-  deployment?: DeclarativeDeploymentSpec;
   /** Long-term memory (same shape as Kubernetes declarative spec). */
   memory?: MemorySpec;
   /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
@@ -430,26 +425,10 @@ export interface MemorySpec {
 }
 
 export interface BYOAgentSpec {
-  deployment: BYODeploymentSpec;
-}
-
-export interface BYODeploymentSpec {
   image: string;
   cmd?: string;
   args?: string[];
-
-  // Items from the SharedDeploymentSpec
-  replicas?: number;
-  imagePullSecrets?: Array<{ name: string }>;
-  volumes?: unknown[];
-  volumeMounts?: unknown[];
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
-  deploymentAnnotations?: Record<string, string>;
   env?: EnvVar[];
-  envFrom?: EnvFromSource[];
-  imagePullPolicy?: string;
-  serviceAccountName?: string;
 }
 
 export interface A2AConfig {
@@ -557,9 +536,8 @@ export interface AgentResponse {
   modelProvider: string;
   modelConfigRef: string;
   tools: Tool[];
-  deploymentReady: boolean;
+  ready: boolean;
   accepted: boolean;
-  workloadMode?: "deployment" | "sandbox";
   substrateAgentHarness?: AgentHarnessListEntry;
 }
 

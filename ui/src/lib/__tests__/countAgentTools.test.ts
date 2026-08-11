@@ -9,7 +9,7 @@ const base: AgentResponse = {
   modelProvider: "openai",
   modelConfigRef: "",
   tools: [],
-  deploymentReady: true,
+  ready: true,
   accepted: true,
 };
 

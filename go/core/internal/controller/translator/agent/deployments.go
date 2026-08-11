@@ -2,14 +2,11 @@ package agent
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
-	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
 )
 
 // Internal to translator - Data added to the deployment spec for an inline agent
@@ -22,76 +19,10 @@ type modelDeploymentData struct {
 
 // Internal to translator – a unified deployment spec for any agent.
 type resolvedDeployment struct {
-	// Required concrete runtime properties
-	Image           string
-	Cmd             string // empty → no explicit command
-	Args            []string
-	WorkingDir      *string
-	Port            int32 // container port and Service port
-	ImagePullPolicy corev1.PullPolicy
-
-	// SharedDeploymentSpec merged
-	Replicas                  *int32
-	ImagePullSecrets          []corev1.LocalObjectReference
-	Volumes                   []corev1.Volume
-	VolumeMounts              []corev1.VolumeMount
-	Labels                    map[string]string
-	Annotations               map[string]string
-	DeploymentAnnotations     map[string]string
-	Env                       []corev1.EnvVar
-	EnvFrom                   []corev1.EnvFromSource
-	Resources                 corev1.ResourceRequirements
-	Tolerations               []corev1.Toleration
-	Affinity                  *corev1.Affinity
-	NodeSelector              map[string]string
-	TopologySpreadConstraints []corev1.TopologySpreadConstraint
-	SecurityContext           *corev1.SecurityContext
-	PodSecurityContext        *corev1.PodSecurityContext
-	ServiceAccountName        *string
-	ServiceAccountConfig      *v1alpha2.ServiceAccountConfig
-	ExtraContainers           []corev1.Container
-}
-
-// getDefaultResources sets default resource requirements if not specified
-func getDefaultResources(spec *corev1.ResourceRequirements) corev1.ResourceRequirements {
-	if spec == nil {
-		return corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("384Mi"),
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("2000m"),
-				corev1.ResourceMemory: resource.MustParse("1Gi"),
-			},
-		}
-	}
-	return *spec
-}
-
-func getDefaultLabels(agentName string, incoming map[string]string) map[string]string {
-	defaultLabels := map[string]string{
-		labels.AppManagedBy: labels.ManagedByKagent,
-		labels.AppPartOf:    labels.ManagedByKagent,
-		labels.AppName:      agentName,
-	}
-	// Global default labels (from --default-agent-pod-labels flag) override built-in defaults
-	maps.Copy(defaultLabels, DefaultAgentPodLabels)
-	// Per-agent labels override global defaults
-	maps.Copy(defaultLabels, incoming)
-	return defaultLabels
-}
-
-func getDefaultNodeSelector(incoming map[string]string) map[string]string {
-	// No global default (from --default-agent-node-selector flag): keep the
-	// per-agent value as-is (nil stays nil).
-	if len(DefaultAgentNodeSelector) == 0 {
-		return maps.Clone(incoming)
-	}
-	nodeSelector := maps.Clone(DefaultAgentNodeSelector)
-	// Per-agent nodeSelector overrides global defaults
-	maps.Copy(nodeSelector, incoming)
-	return nodeSelector
+	Image string
+	Cmd   string // empty → no explicit command
+	Args  []string
+	Env   []corev1.EnvVar
 }
 
 // getRuntimeImageRepository returns the image repository for a given runtime:
@@ -102,22 +33,6 @@ func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
 		return DefaultGoImageConfig.Repository
 	}
 	return DefaultImageConfig.Repository
-}
-
-// validateExtraContainers checks that none of the extra containers use the
-// reserved name "kagent" and that no two containers share the same name.
-func validateExtraContainers(containers []corev1.Container) error {
-	seen := make(map[string]bool)
-	for _, c := range containers {
-		if c.Name == "kagent" {
-			return fmt.Errorf("extraContainers: %q is a reserved container name", c.Name)
-		}
-		if seen[c.Name] {
-			return fmt.Errorf("extraContainers: duplicate container name %q", c.Name)
-		}
-		seen[c.Name] = true
-	}
-	return nil
 }
 
 func resolvePythonRuntimeImage(registry string, full, pinDigest bool) (string, error) {
@@ -169,37 +84,17 @@ func resolveRuntimeImage(registry, repository, tag, digest, imageLabel string, f
 	)
 }
 
-func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentData) (*resolvedDeployment, error) {
+func resolveInlineDeployment(agent *v1alpha2.SandboxAgent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	specRef := agent.GetAgentSpec()
-	// Defaults
-	port := int32(8080)
-	args := []string{
-		"--host",
-		DefaultAgentBindHost,
-		"--port",
-		fmt.Sprintf("%d", port),
-		"--filepath",
-		"/config",
-	}
-
-	serviceAccountName := new(string)
-	*serviceAccountName = agent.GetName()
-
-	// Start with spec deployment spec
-	spec := v1alpha2.DeclarativeDeploymentSpec{}
-	if specRef.Declarative.Deployment != nil {
-		spec = *specRef.Declarative.Deployment
-	}
+	spec := specRef.Declarative
 
 	// Determine runtime (defaults to python when spec.declarative.runtime is unset).
 	runtime := v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 
-	// Resolve base registry and pull policy; the Go runtime uses DefaultGoImageConfig.
+	// Resolve the runtime image registry.
 	baseRegistry := DefaultImageConfig.Registry
-	basePullPolicy := DefaultImageConfig.PullPolicy
 	if runtime == v1alpha2.DeclarativeRuntime_Go {
 		baseRegistry = DefaultGoImageConfig.Registry
-		basePullPolicy = DefaultGoImageConfig.PullPolicy
 	}
 
 	// Per-agent spec overrides take precedence over all defaults.
@@ -210,9 +105,8 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 
 	var image string
 	full := needsSRTSettings(agent, specRef.Sandbox)
-	// Substrate ActorTemplates reject tag refs, so sandbox agents pin by digest;
-	// everything else references by tag (resolvable in mirrored registries).
-	pinDigest := agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox
+	// Substrate ActorTemplates reject tag refs, so runtime images are pinned.
+	pinDigest := true
 	switch runtime {
 	case v1alpha2.DeclarativeRuntime_Go:
 		var err error
@@ -228,85 +122,24 @@ func resolveInlineDeployment(agent v1alpha2.AgentObject, mdd *modelDeploymentDat
 		}
 	}
 
-	imagePullPolicy := corev1.PullPolicy(basePullPolicy)
-	if spec.ImagePullPolicy != "" {
-		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
-	}
-
-	if DefaultImageConfig.PullSecret != "" {
-		// Only append if not already present
-		alreadyPresent := checkPullSecretAlreadyPresent(spec)
-		if !alreadyPresent {
-			spec.ImagePullSecrets = append(spec.ImagePullSecrets, corev1.LocalObjectReference{Name: DefaultImageConfig.PullSecret})
-		}
-	}
-
-	if err := validateExtraContainers(spec.ExtraContainers); err != nil {
-		return nil, err
-	}
-
 	dep := &resolvedDeployment{
-		Image:                     image,
-		Args:                      args,
-		Port:                      port,
-		ImagePullPolicy:           imagePullPolicy,
-		Replicas:                  spec.Replicas,
-		ImagePullSecrets:          slices.Clone(spec.ImagePullSecrets),
-		Volumes:                   append(slices.Clone(spec.Volumes), mdd.Volumes...),
-		VolumeMounts:              append(slices.Clone(spec.VolumeMounts), mdd.VolumeMounts...),
-		Labels:                    getDefaultLabels(agent.GetName(), spec.Labels),
-		Annotations:               maps.Clone(spec.Annotations),
-		DeploymentAnnotations:     maps.Clone(spec.DeploymentAnnotations),
-		Env:                       append(slices.Clone(spec.Env), mdd.EnvVars...),
-		EnvFrom:                   slices.Clone(spec.EnvFrom),
-		Resources:                 getDefaultResources(spec.Resources), // Set default resources if not specified
-		Tolerations:               slices.Clone(spec.Tolerations),
-		Affinity:                  spec.Affinity,
-		TopologySpreadConstraints: slices.Clone(spec.TopologySpreadConstraints),
-		NodeSelector:              getDefaultNodeSelector(spec.NodeSelector),
-		SecurityContext:           spec.SecurityContext,
-		PodSecurityContext:        spec.PodSecurityContext,
-		ServiceAccountName:        spec.ServiceAccountName,
-		ServiceAccountConfig:      spec.ServiceAccountConfig,
-		ExtraContainers:           slices.Clone(spec.ExtraContainers),
-	}
-
-	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
-	if dep.ServiceAccountName == nil {
-		if DefaultServiceAccountName != "" {
-			dep.ServiceAccountName = new(DefaultServiceAccountName)
-		} else {
-			dep.ServiceAccountName = serviceAccountName
-		}
+		Image: image,
+		Env:   append(slices.Clone(spec.Env), mdd.EnvVars...),
 	}
 
 	return dep, nil
 }
 
-func checkPullSecretAlreadyPresent(spec v1alpha2.DeclarativeDeploymentSpec) bool {
-	alreadyPresent := false
-	for _, secret := range spec.ImagePullSecrets {
-		if secret.Name == DefaultImageConfig.PullSecret {
-			alreadyPresent = true
-			break
-		}
-	}
-	return alreadyPresent
-}
-
-func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, error) {
-	spec := agent.GetAgentSpec().BYO.Deployment
+func resolveByoDeployment(agent *v1alpha2.SandboxAgent) (*resolvedDeployment, error) {
+	spec := agent.GetAgentSpec().BYO
 	if spec == nil {
-		return nil, fmt.Errorf("BYO deployment spec is required")
+		return nil, fmt.Errorf("BYO spec is required")
 	}
-
-	// Defaults
-	port := int32(8080)
 
 	image := spec.Image
 	if image == "" {
 		// This should never happen as it's required by the API
-		return nil, fmt.Errorf("image is required for BYO deployment")
+		return nil, fmt.Errorf("image is required for BYO agent")
 	}
 
 	cmd := ""
@@ -319,54 +152,11 @@ func resolveByoDeployment(agent v1alpha2.AgentObject) (*resolvedDeployment, erro
 		args = spec.Args
 	}
 
-	imagePullPolicy := corev1.PullPolicy(DefaultImageConfig.PullPolicy)
-	if spec.ImagePullPolicy != "" {
-		imagePullPolicy = corev1.PullPolicy(spec.ImagePullPolicy)
-	}
-
-	replicas := spec.Replicas
-
-	if err := validateExtraContainers(spec.ExtraContainers); err != nil {
-		return nil, err
-	}
-
 	dep := &resolvedDeployment{
-		Image:                     image,
-		Cmd:                       cmd,
-		Args:                      args,
-		WorkingDir:                spec.WorkingDir,
-		Port:                      port,
-		ImagePullPolicy:           imagePullPolicy,
-		Replicas:                  replicas,
-		ImagePullSecrets:          slices.Clone(spec.ImagePullSecrets),
-		Volumes:                   slices.Clone(spec.Volumes),
-		VolumeMounts:              slices.Clone(spec.VolumeMounts),
-		Labels:                    getDefaultLabels(agent.GetName(), spec.Labels),
-		Annotations:               maps.Clone(spec.Annotations),
-		DeploymentAnnotations:     maps.Clone(spec.DeploymentAnnotations),
-		Env:                       slices.Clone(spec.Env),
-		EnvFrom:                   slices.Clone(spec.EnvFrom),
-		Resources:                 getDefaultResources(spec.Resources), // Set default resources if not specified
-		Tolerations:               slices.Clone(spec.Tolerations),
-		Affinity:                  spec.Affinity,
-		TopologySpreadConstraints: slices.Clone(spec.TopologySpreadConstraints),
-		NodeSelector:              getDefaultNodeSelector(spec.NodeSelector),
-		SecurityContext:           spec.SecurityContext,
-		PodSecurityContext:        spec.PodSecurityContext,
-		ServiceAccountName:        spec.ServiceAccountName,
-		ServiceAccountConfig:      spec.ServiceAccountConfig,
-		ExtraContainers:           slices.Clone(spec.ExtraContainers),
-	}
-
-	// Precedence: agent-level serviceAccountName > global default > auto-created SA (agent name)
-	if dep.ServiceAccountName == nil {
-		if DefaultServiceAccountName != "" {
-			dep.ServiceAccountName = new(string)
-			*dep.ServiceAccountName = DefaultServiceAccountName
-		} else {
-			dep.ServiceAccountName = new(string)
-			*dep.ServiceAccountName = agent.GetName()
-		}
+		Image: image,
+		Cmd:   cmd,
+		Args:  args,
+		Env:   slices.Clone(spec.Env),
 	}
 
 	return dep, nil

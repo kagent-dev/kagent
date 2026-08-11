@@ -10,7 +10,7 @@ import (
 
 const hitlExtensionURI = "https://kagent.dev/extensions/hitl/v1"
 
-func GetA2AAgentCard(agent v1alpha2.AgentObject) *a2atype.AgentCard {
+func GetA2AAgentCard(agent *v1alpha2.SandboxAgent) *a2atype.AgentCard {
 	spec := agent.GetAgentSpec()
 	card := a2atype.AgentCard{
 		Name:             strings.ReplaceAll(agent.GetName(), "-", "_"),

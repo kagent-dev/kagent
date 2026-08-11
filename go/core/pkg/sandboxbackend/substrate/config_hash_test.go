@@ -74,9 +74,7 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	p := newTestLifecycle(t)
 	sa := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
-		},
+		Spec:       v1alpha2.SandboxAgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
 	}
 	podFor := func(configHash, image string) corev1.PodTemplateSpec {
 		return corev1.PodTemplateSpec{
@@ -126,9 +124,7 @@ func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 	b := NewAgentsBackend(p, nil)
 	sa := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
-		},
+		Spec:       v1alpha2.SandboxAgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
 	}
 	pod := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{consts.ConfigHashAnnotation: "255"}},

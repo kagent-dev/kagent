@@ -83,12 +83,11 @@ type AgentResource struct {
 	Status     v1alpha2.AgentStatus      `json:"status,omitempty"`
 }
 
-func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
+func AgentResourceFrom(agent *v1alpha2.SandboxAgent) *AgentResource {
 	if agent == nil {
 		return nil
 	}
 
-	spec := agent.GetAgentSpec()
 	status := agent.GetAgentStatus()
 	gvk := agent.GetObjectKind().GroupVersionKind()
 	apiVersion := gvk.GroupVersion().String()
@@ -98,38 +97,16 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 		apiVersion = v1alpha2.GroupVersion.String()
 	}
 	if kind == "" {
-		if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
-			kind = "SandboxAgent"
-		} else {
-			kind = "Agent"
-		}
+		kind = "SandboxAgent"
 	}
-	switch typed := agent.(type) {
-	case *v1alpha2.Agent:
-		metadata = *typed.ObjectMeta.DeepCopy()
-	case *v1alpha2.SandboxAgent:
-		metadata = *typed.ObjectMeta.DeepCopy()
-	default:
-		metadata = metav1.ObjectMeta{
-			Name:            agent.GetName(),
-			Namespace:       agent.GetNamespace(),
-			Labels:          agent.GetLabels(),
-			Annotations:     agent.GetAnnotations(),
-			ResourceVersion: agent.GetResourceVersion(),
-			Generation:      agent.GetGeneration(),
-		}
-	}
+	metadata = *agent.ObjectMeta.DeepCopy()
 
 	res := &AgentResource{
 		APIVersion: apiVersion,
 		Kind:       kind,
 		Metadata:   metadata,
 	}
-	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
-		res.Spec = *sa.Spec.DeepCopy()
-	} else if spec != nil {
-		res.Spec.AgentSpec = *spec.DeepCopy()
-	}
+	res.Spec = *agent.Spec.DeepCopy()
 	if status != nil {
 		res.Status = *status.DeepCopy()
 	}
@@ -157,9 +134,8 @@ type AgentResponse struct {
 	ModelConfigRef        string                          `json:"modelConfigRef"`
 	MemoryRefs            []string                        `json:"memoryRefs"`
 	Tools                 []*v1alpha2.Tool                `json:"tools"`
-	DeploymentReady       bool                            `json:"deploymentReady"`
+	Ready                 bool                            `json:"ready"`
 	Accepted              bool                            `json:"accepted"`
-	WorkloadMode          v1alpha2.WorkloadMode           `json:"workloadMode,omitempty"`
 	SubstrateAgentHarness *SubstrateAgentHarnessListEntry `json:"substrateAgentHarness,omitempty"`
 }
 

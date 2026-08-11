@@ -38,13 +38,7 @@ type SandboxAgent struct {
 }
 
 // +kubebuilder:validation:XValidation:rule="!has(self.skills)",message="spec.skills is not supported for sandbox agents"
-type SandboxAgentSpec struct {
-	AgentSpec `json:",inline"`
-
-	// Substrate is optional Agent Substrate-specific settings.
-	// +optional
-	Substrate *SandboxSubstrateSpec `json:"substrate,omitempty"`
-}
+type SandboxAgentSpec = AgentSpec
 
 // +kubebuilder:object:root=true
 

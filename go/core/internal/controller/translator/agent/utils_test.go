@@ -15,7 +15,7 @@ import (
 func TestGetA2AAgentCard(t *testing.T) {
 	tests := []struct {
 		name                 string
-		agent                *v1alpha2.Agent
+		agent                *v1alpha2.SandboxAgent
 		wantName             string
 		wantDescription      string
 		wantURL              string
@@ -27,7 +27,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 	}{
 		{
 			name: "declarative agent with a2a config and skills",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "default",
@@ -52,7 +52,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 		},
 		{
 			name: "declarative agent with nil declarative spec",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "nil-declarative",
 					Namespace: "default",
@@ -69,7 +69,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 		},
 		{
 			name: "declarative agent with nil a2a config",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "no-a2a",
 					Namespace: "default",
@@ -88,7 +88,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 		},
 		{
 			name: "BYO agent",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "byo-agent",
 					Namespace: "default",
@@ -104,7 +104,7 @@ func TestGetA2AAgentCard(t *testing.T) {
 		},
 		{
 			name: "agent with card metadata",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "meta-agent",
 					Namespace: "default",

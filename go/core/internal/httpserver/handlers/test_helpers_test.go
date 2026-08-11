@@ -3,35 +3,17 @@ package handlers_test
 import (
 	"net/http"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/kubernetes/scheme"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 )
 
 func setupScheme() *runtime.Scheme {
-	s := scheme.Scheme
-
-	s.AddKnownTypes(schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha1"},
-		&v1alpha2.Agent{},
-		&v1alpha2.AgentList{},
-		&v1alpha2.ModelConfig{},
-		&v1alpha2.ModelConfigList{},
-	)
-
-	s.AddKnownTypes(v1alpha2.GroupVersion,
-		&v1alpha2.SandboxAgent{},
-		&v1alpha2.SandboxAgentList{},
-		&v1alpha2.AgentHarness{},
-		&v1alpha2.AgentHarnessList{},
-	)
-
-	metav1.AddToGroupVersion(s, schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha1"})
-	metav1.AddToGroupVersion(s, v1alpha2.GroupVersion)
-
+	s := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(s)
+	_ = v1alpha2.AddToScheme(s)
 	return s
 }
 

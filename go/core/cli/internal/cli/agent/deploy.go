@@ -13,16 +13,13 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/common"
-	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
 	commonimage "github.com/kagent-dev/kagent/go/core/cli/internal/common/image"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,7 +52,7 @@ type DeployCfg struct {
 
 	// EnvFile is the path to a .env file containing environment variables to be loaded into the agent.
 	// This MUST include the model provider API key (e.g., ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY).
-	// A Secret will be created with these values and mounted in the agent deployment.
+	// A Secret will be created with these values for the agent ActorTemplate.
 	EnvFile string
 
 	// Platform specifies the target platform for Docker builds (e.g., "linux/amd64", "linux/arm64")
@@ -119,13 +116,6 @@ func DeployCmd(ctx context.Context, k8sClient client.Client, cfg *DeployCfg) err
 	// Step 9: Deploy MCP servers if defined
 	if err := deployMCPServersIfNeeded(ctx, k8sClient, cfg, manifest); err != nil {
 		return err
-	}
-
-	// Step 10: Restart deployment if not in dry-run mode
-	if !cfg.DryRun {
-		if err := restartAgentDeployment(ctx, k8sClient, cfg, manifest); err != nil {
-			fmt.Printf("Warning: failed to restart deployment: %v\n", err)
-		}
 	}
 
 	printDeploymentResult(cfg, manifest)
@@ -424,71 +414,6 @@ func createEnvFileSecret(ctx context.Context, k8sClient client.Client, namespace
 	return nil
 }
 
-// waitForDeployment polls for a deployment to be created, with a timeout
-func waitForDeployment(ctx context.Context, k8sClient client.Client, namespace, name string, timeout time.Duration, config *config.Config) (*appsv1.Deployment, error) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	timeoutTimer := time.NewTimer(timeout)
-	defer timeoutTimer.Stop()
-
-	deployment := &appsv1.Deployment{}
-
-	for {
-		select {
-		case <-timeoutTimer.C:
-			return nil, apierrors.NewNotFound(appsv1.Resource("deployment"), name)
-		case <-ticker.C:
-			err := k8sClient.Get(ctx, types.NamespacedName{
-				Name:      name,
-				Namespace: namespace,
-			}, deployment)
-
-			if err == nil {
-				if IsVerbose(config) {
-					fmt.Printf("Deployment '%s' found in namespace '%s'\n", name, namespace)
-				}
-				return deployment, nil
-			}
-
-			if !apierrors.IsNotFound(err) {
-				return nil, fmt.Errorf("error checking for deployment: %v", err)
-			}
-		}
-	}
-}
-
-// restartAgentDeployment restarts the agent deployment using kubectl rollout restart
-func restartAgentDeployment(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest) error {
-	deploymentName := manifest.Name
-	namespace := cfg.Config.Namespace
-
-	_, err := waitForDeployment(ctx, k8sClient, namespace, deploymentName, 30*time.Second, cfg.Config)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			if IsVerbose(cfg.Config) {
-				fmt.Printf("Deployment '%s' not found after timeout, it may still be being created by the controller\n", deploymentName)
-			}
-			return nil
-		}
-		return fmt.Errorf("failed to wait for deployment: %v", err)
-	}
-
-	kubectl := commonexec.NewKubectlExecutor(IsVerbose(cfg.Config), namespace)
-
-	if err := kubectl.RolloutRestart(deploymentName); err != nil {
-		return fmt.Errorf("failed to restart deployment: %v", err)
-	}
-
-	if err := kubectl.WaitForDeployment(deploymentName, 2*time.Minute); err != nil {
-		if IsVerbose(cfg.Config) {
-			fmt.Printf("Warning: failed to check rollout status: %v\n", err)
-		}
-	}
-
-	return nil
-}
-
 // deployMCPServersIfNeeded deploys MCP servers if any are defined in the manifest
 func deployMCPServersIfNeeded(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest) error {
 	if len(manifest.McpServers) == 0 {
@@ -510,9 +435,8 @@ func deployMCPServersIfNeeded(ctx context.Context, k8sClient client.Client, cfg 
 func printDeploymentResult(cfg *DeployCfg, manifest *common.AgentManifest) {
 	if !cfg.DryRun {
 		fmt.Printf("\n✅ Successfully deployed agent '%s' to namespace '%s'\n", manifest.Name, cfg.Config.Namespace)
-		fmt.Printf("\nTo check the deployment status:\n")
-		fmt.Printf("  kubectl get agent %s -n %s\n", manifest.Name, cfg.Config.Namespace)
-		fmt.Printf("  kubectl get pods -l kagent=%s -n %s\n", manifest.Name, cfg.Config.Namespace)
+		fmt.Printf("\nTo check the agent status:\n")
+		fmt.Printf("  kubectl get sandboxagent %s -n %s\n", manifest.Name, cfg.Config.Namespace)
 	}
 }
 
@@ -652,8 +576,8 @@ func determineImageName(configImage, agentName string) string {
 	return commonimage.ConstructImageName(configImage, agentName)
 }
 
-// buildAgentCRD constructs an Agent CRD object
-func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName string, envData *envFileData) *v1alpha2.Agent {
+// buildAgentCRD constructs a SandboxAgent CRD object.
+func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName string, envData *envFileData) *v1alpha2.SandboxAgent {
 	var envVars []corev1.EnvVar
 
 	// Add all environment variables from the env file secret
@@ -673,33 +597,30 @@ func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName s
 		}
 	}
 
-	deploymentSpec := v1alpha2.ByoDeploymentSpec{
+	byoSpec := v1alpha2.BYOAgentSpec{
 		Image: imageName,
-		SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
-			Env: envVars,
-		},
+		Cmd:   &manifest.Name,
+		Env:   envVars,
 	}
 
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      manifest.Name,
 			Namespace: namespace,
 		},
-		Spec: v1alpha2.AgentSpec{
+		Spec: v1alpha2.SandboxAgentSpec{
 			Type:        v1alpha2.AgentType_BYO,
 			Description: manifest.Description,
-			BYO: &v1alpha2.BYOAgentSpec{
-				Deployment: &deploymentSpec,
-			},
+			BYO:         &byoSpec,
 		},
 	}
-	agent.SetGroupVersionKind(v1alpha2.GroupVersion.WithKind("Agent"))
+	agent.SetGroupVersionKind(v1alpha2.GroupVersion.WithKind("SandboxAgent"))
 	return agent
 }
 
 // createOrUpdateAgent creates a new agent or updates an existing one
-func createOrUpdateAgent(ctx context.Context, k8sClient client.Client, agent *v1alpha2.Agent, namespace, name string, verbose bool) error {
-	existingAgent := &v1alpha2.Agent{}
+func createOrUpdateAgent(ctx context.Context, k8sClient client.Client, agent *v1alpha2.SandboxAgent, namespace, name string, verbose bool) error {
+	existingAgent := &v1alpha2.SandboxAgent{}
 	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, existingAgent)
 
 	if err != nil {

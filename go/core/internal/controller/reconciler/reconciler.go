@@ -22,7 +22,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,8 +48,7 @@ var (
 
 // Reasons for Agent status condition type Ready.
 const (
-	AgentReadyReasonDeploymentReady = "DeploymentReady"
-	AgentReadyReasonWorkloadReady   = "WorkloadReady"
+	AgentReadyReasonWorkloadReady = "WorkloadReady"
 
 	// mcpRegistrationTimeout is the default deadline applied to a RemoteMCPServer
 	// registration attempt (header resolution + MCP connect + tool listing) when
@@ -71,7 +69,6 @@ func remoteMCPRegistrationTimeout(s *v1alpha2.RemoteMCPServer) time.Duration {
 }
 
 type KagentReconciler interface {
-	ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentSandboxAgent(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error
 	ReconcileKagentRemoteMCPServer(ctx context.Context, req ctrl.Request) error
@@ -125,23 +122,6 @@ func NewKagentReconciler(
 	}
 }
 
-func (a *kagentReconciler) ReconcileKagentAgent(ctx context.Context, req ctrl.Request) error {
-	agent := &v1alpha2.Agent{}
-	if err := a.kube.Get(ctx, req.NamespacedName, agent); err != nil {
-		if apierrors.IsNotFound(err) {
-			return a.handleDeletedAgentResource(ctx, req, "agent")
-		}
-		return fmt.Errorf("failed to get agent %s: %w", req.NamespacedName, err)
-	}
-
-	err := a.reconcileAgent(ctx, agent)
-	if err != nil {
-		reconcileLog.Error(err, "failed to reconcile agent", "agent", req.NamespacedName)
-	}
-
-	return a.reconcileAgentStatus(ctx, agent, err)
-}
-
 func (a *kagentReconciler) ReconcileKagentSandboxAgent(ctx context.Context, req ctrl.Request) error {
 	sandboxAgent := &v1alpha2.SandboxAgent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, sandboxAgent); err != nil {
@@ -177,21 +157,10 @@ func (a *kagentReconciler) handleDeletedAgentResource(ctx context.Context, req c
 	return nil
 }
 
-func (a *kagentReconciler) reassignManifestOwnershipToSandboxAgent(sa *v1alpha2.SandboxAgent, manifest []client.Object) error {
-	for _, obj := range manifest {
-		obj.SetOwnerReferences(nil)
-		if err := controllerutil.SetControllerReference(sa, obj, a.kube.Scheme()); err != nil {
-			return fmt.Errorf("set controller reference for %s %s/%s: %w", obj.GetObjectKind().GroupVersionKind().Kind, obj.GetNamespace(), obj.GetName(), err)
-		}
-	}
-	return nil
-}
-
 func (a *kagentReconciler) reconcileTranslatedAgent(
 	ctx context.Context,
-	agent v1alpha2.AgentObject,
+	agent *v1alpha2.SandboxAgent,
 	resourceName string,
-	mutateManifest func([]client.Object) error,
 ) error {
 	if err := a.validateCrossNamespaceReferences(ctx, agent); err != nil {
 		return err
@@ -205,12 +174,6 @@ func (a *kagentReconciler) reconcileTranslatedAgent(
 	agentOutputs, err := a.adkTranslator.BuildManifest(ctx, agent, inputs)
 	if err != nil {
 		return fmt.Errorf("failed to build manifest for %s %s/%s: %w", resourceName, agent.GetNamespace(), agent.GetName(), err)
-	}
-
-	if mutateManifest != nil {
-		if err := mutateManifest(agentOutputs.Manifest); err != nil {
-			return err
-		}
 	}
 
 	// TODO: create different translations with different owned objects
@@ -244,9 +207,7 @@ func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alph
 		return fmt.Errorf("sandbox backend is not configured")
 	}
 
-	return a.reconcileTranslatedAgent(ctx, sa, "sandboxagent", func(manifest []client.Object) error {
-		return a.reassignManifestOwnershipToSandboxAgent(sa, manifest)
-	})
+	return a.reconcileTranslatedAgent(ctx, sa, "sandboxagent")
 }
 
 func (a *kagentReconciler) reconcileSandboxAgentStatus(ctx context.Context, sa *v1alpha2.SandboxAgent, reconcileErr error, actorTemplatePending bool) error {
@@ -277,42 +238,7 @@ func (a *kagentReconciler) reconcileSandboxAgentStatus(ctx context.Context, sa *
 	return a.updateAgentObjectStatus(ctx, sa, reconcileErr, deployedCondition)
 }
 
-func (a *kagentReconciler) reconcileAgentStatus(ctx context.Context, agent *v1alpha2.Agent, err error) error {
-	deployedCondition := metav1.Condition{
-		Type:               v1alpha2.AgentConditionTypeReady,
-		Status:             metav1.ConditionUnknown,
-		ObservedGeneration: agent.Generation,
-	}
-
-	switch agent.Spec.Type {
-	default:
-		// Check if the deployment exists
-		deployment := &appsv1.Deployment{}
-		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: agent.Namespace, Name: agent.Name}, deployment); err != nil {
-			deployedCondition.Status = metav1.ConditionUnknown
-			deployedCondition.Reason = "DeploymentNotFound"
-			deployedCondition.Message = err.Error()
-		} else {
-			replicas := int32(1)
-			if deployment.Spec.Replicas != nil {
-				replicas = *deployment.Spec.Replicas
-			}
-			if deployment.Status.AvailableReplicas > 0 {
-				deployedCondition.Status = metav1.ConditionTrue
-				deployedCondition.Reason = AgentReadyReasonDeploymentReady
-				deployedCondition.Message = "Deployment is ready"
-			} else {
-				deployedCondition.Status = metav1.ConditionFalse
-				deployedCondition.Reason = "DeploymentNotReady"
-				deployedCondition.Message = fmt.Sprintf("Deployment is not ready, %d/%d pods are ready", deployment.Status.AvailableReplicas, replicas)
-			}
-		}
-	}
-
-	return a.updateAgentObjectStatus(ctx, agent, err, deployedCondition)
-}
-
-func (a *kagentReconciler) updateAgentObjectStatus(ctx context.Context, agent v1alpha2.AgentObject, reconcileErr error, readyCondition metav1.Condition) error {
+func (a *kagentReconciler) updateAgentObjectStatus(ctx context.Context, agent *v1alpha2.SandboxAgent, reconcileErr error, readyCondition metav1.Condition) error {
 	statusRef := agent.GetAgentStatus()
 	var (
 		status  metav1.ConditionStatus
@@ -479,7 +405,7 @@ func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req c
 	// Fold the resolved value into the status hash so agents roll when Azure
 	// Service Operator (or anything else) rewrites the endpoint — ConfigMap
 	// edits don't bump the ModelConfig generation, so this hash is the only
-	// signal that reaches the agent Deployment. The ConfigMap is not a Secret,
+	// signal that reaches the agent ActorTemplate. The ConfigMap is not a Secret,
 	// but computeStatusSecretHash only needs an identity plus key/value bytes,
 	// so we adapt it into the same secretRef shape.
 	if fc := modelConfig.Spec.Foundry; fc != nil && fc.EndpointFrom != nil {
@@ -791,7 +717,7 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 // references in the agent's tools target namespaces that are watched by the
 // controller. This prevents agents from referencing tools or agents in
 // namespaces that the controller cannot access.
-func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context, agent v1alpha2.AgentObject) error {
+func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context, agent *v1alpha2.SandboxAgent) error {
 	spec := agent.GetAgentSpec()
 	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
 		return nil
@@ -833,7 +759,10 @@ func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourc
 	}
 
 	// For cross-namespace references, check AllowedNamespaces on the target agent
-	targetAgent := &v1alpha2.Agent{}
+	if ref.Kind != "SandboxAgent" {
+		return fmt.Errorf("agent tool kind must be SandboxAgent, got %q", ref.Kind)
+	}
+	targetAgent := &v1alpha2.SandboxAgent{}
 	if err := a.kube.Get(ctx, agentRef, targetAgent); err != nil {
 		return fmt.Errorf("failed to get agent %s: %w", agentRef, err)
 	}
@@ -909,14 +838,10 @@ func (a *kagentReconciler) validateMcpServerReference(ctx context.Context, sourc
 	return nil
 }
 
-func (a *kagentReconciler) reconcileAgent(ctx context.Context, agent *v1alpha2.Agent) error {
-	return a.reconcileTranslatedAgent(ctx, agent, "agent", nil)
-}
-
 // validateRuntimeFeatures checks if the agent configures features unsupported by its runtime.
 // Returns a warning message if unsupported features are detected, empty string otherwise.
 // This implements soft validation - warns but doesn't fail reconciliation.
-func (a *kagentReconciler) validateRuntimeFeatures(agent v1alpha2.AgentObject) string {
+func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha2.SandboxAgent) string {
 	spec := agent.GetAgentSpec()
 	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
 		return ""
@@ -1113,16 +1038,12 @@ func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.
 	return errors.Join(pruneErrs...)
 }
 
-func (a *kagentReconciler) upsertAgent(ctx context.Context, agent v1alpha2.AgentObject, agentOutputs *agent_translator.AgentOutputs) error {
+func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.SandboxAgent, agentOutputs *agent_translator.AgentOutputs) error {
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
-	dbType := string(agent.GetAgentSpec().Type)
-	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
-		dbType = "SandboxAgent"
-	}
 	dbAgent := &database.Agent{
 		ID:           id,
-		Type:         dbType,
-		WorkloadType: agent.GetWorkloadMode(),
+		Type:         "SandboxAgent",
+		WorkloadType: v1alpha2.WorkloadModeSandbox,
 		Config:       agentOutputs.Config,
 	}
 
@@ -1133,11 +1054,8 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent v1alpha2.Agent
 	return nil
 }
 
-func agentKind(agent v1alpha2.AgentObject) string {
-	if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
-		return "SandboxAgent"
-	}
-	return "Agent"
+func agentKind(agent *v1alpha2.SandboxAgent) string {
+	return "SandboxAgent"
 }
 
 func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServer) ([]*v1alpha2.MCPTool, error) {

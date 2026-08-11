@@ -52,7 +52,7 @@ function agent(namespace: string, name: string): AgentResponse {
     modelProvider: "OpenAI",
     modelConfigRef: `${namespace}/model`,
     tools: [],
-    deploymentReady: true,
+    ready: true,
     accepted: true,
   };
 }
@@ -60,7 +60,7 @@ function agent(namespace: string, name: string): AgentResponse {
 function creatingAgent(namespace: string, name: string): AgentResponse {
   return {
     ...agent(namespace, name),
-    deploymentReady: false,
+    ready: false,
   };
 }
 

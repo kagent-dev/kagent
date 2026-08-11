@@ -6,16 +6,12 @@ import (
 	"net/url"
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 )
 
 // Agent defines the agent operations
 type Agent interface {
 	ListAgents(ctx context.Context, opts ...ListAgentsOptions) (*api.StandardResponse[[]api.AgentResponse], error)
-	CreateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error)
 	GetAgent(ctx context.Context, agentRef string) (*api.StandardResponse[*api.AgentResponse], error)
-	UpdateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error)
-	DeleteAgent(ctx context.Context, agentRef string) error
 }
 
 // ListAgentsOptions configures ListAgents requests.
@@ -62,21 +58,6 @@ func (c *agentClient) ListAgents(ctx context.Context, opts ...ListAgentsOptions)
 	return &response, nil
 }
 
-// CreateAgent creates a new agent
-func (c *agentClient) CreateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error) {
-	resp, err := c.client.Post(ctx, "/api/agents", request, "")
-	if err != nil {
-		return nil, err
-	}
-
-	var response api.StandardResponse[*v1alpha2.Agent]
-	if err := DecodeResponse(resp, &response); err != nil {
-		return nil, err
-	}
-
-	return &response, nil
-}
-
 // GetAgent retrieves a specific agent
 func (c *agentClient) GetAgent(ctx context.Context, agentRef string) (*api.StandardResponse[*api.AgentResponse], error) {
 	list, err := c.ListAgents(ctx)
@@ -93,10 +74,8 @@ func (c *agentClient) GetAgent(ctx context.Context, agentRef string) (*api.Stand
 			break
 		}
 	}
-	path := fmt.Sprintf("/api/agents/%s", agentRef)
+	path := fmt.Sprintf("/api/sandboxagents/%s", agentRef)
 	switch kind {
-	case "SandboxAgent":
-		path = fmt.Sprintf("/api/sandboxagents/%s", agentRef)
 	case "AgentHarness":
 		path = fmt.Sprintf("/api/agentharnesses/%s", agentRef)
 	}
@@ -111,31 +90,4 @@ func (c *agentClient) GetAgent(ctx context.Context, agentRef string) (*api.Stand
 	}
 
 	return &response, nil
-}
-
-// UpdateAgent updates an existing agent
-func (c *agentClient) UpdateAgent(ctx context.Context, request *v1alpha2.Agent) (*api.StandardResponse[*v1alpha2.Agent], error) {
-	path := fmt.Sprintf("/api/agents/%s/%s", request.Namespace, request.Name)
-	resp, err := c.client.Put(ctx, path, request, "")
-	if err != nil {
-		return nil, err
-	}
-
-	var response api.StandardResponse[*v1alpha2.Agent]
-	if err := DecodeResponse(resp, &response); err != nil {
-		return nil, err
-	}
-
-	return &response, nil
-}
-
-// DeleteAgent deletes a agent
-func (c *agentClient) DeleteAgent(ctx context.Context, agentRef string) error {
-	path := fmt.Sprintf("/api/agents/%s", agentRef)
-	resp, err := c.client.Delete(ctx, path, "")
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
-	return nil
 }

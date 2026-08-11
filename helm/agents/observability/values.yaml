@@ -10,24 +10,7 @@ memory:
 # -- Optional runtime specification for the agent. If not specified, it will default to "go". Supported runtimes include "python" and "go".
 runtime: ""
 
-imagePullSecrets: []
-
-resources:
-  requests:
-    cpu: 100m
-    memory: 256Mi
-  limits:
-    cpu: 1000m
-    memory: 1Gi
-
 compaction: {}
-
-podSecurityContext: {}
-
-securityContext: {}
-
-# -- Optional nodeSelector to constrain the agent pods to nodes with matching labels.
-nodeSelector: {}
 
 # -- Optional Grafana datasource name for Prometheus (e.g. "Prometheus"). When set, the agent
 # uses this datasource name for all Prometheus queries instead of discovering it at runtime.

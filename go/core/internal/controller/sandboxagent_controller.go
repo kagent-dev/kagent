@@ -61,7 +61,6 @@ type SandboxAgentController struct {
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes/finalizers,verbs=update
@@ -159,7 +158,7 @@ func (r *SandboxAgentController) sandboxAgentDependencyFinder(errMsg string, pre
 			return nil
 		}
 
-		return collectSandboxAgentRefs(list.Items, func(agent v1alpha2.AgentObject) bool {
+		return collectSandboxAgentRefs(list.Items, func(agent *v1alpha2.SandboxAgent) bool {
 			return pred(agent, obj)
 		})
 	}

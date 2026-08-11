@@ -1,5 +1,5 @@
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: k8s-agent
   namespace: {{ include "kagent.namespace" . }}
@@ -156,5 +156,3 @@ spec:
     context:
       compaction: {{- toYaml .Values.compaction | nindent 8 }}
     {{- end }}
-    deployment:
-      {{- include "agent.deploymentSpec" . | nindent 6 }}

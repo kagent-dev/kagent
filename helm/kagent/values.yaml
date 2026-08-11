@@ -178,39 +178,6 @@ controller:
     # JWT claim for user identity (default: "sub")
     # Override only if your OIDC provider uses a different claim
     userIdClaim: ""
-  # -- Global deployment defaults applied to all agent pods.
-  # Per-agent settings in the Agent CRD take precedence over these defaults.
-  agentDeployment:
-    # -- Default ServiceAccount name for agent pods.
-    # When set, agent pods that don't specify an explicit serviceAccountName
-    # will use this ServiceAccount instead of creating a per-agent one.
-    # Useful for Workload Identity (GCP, AWS IRSA, Azure Workload Identity).
-    # Precedence: agent-level serviceAccountName > this default > auto-created SA.
-    # @default -- "" (auto-create per-agent ServiceAccount)
-    serviceAccountName: ""
-    # -- Default labels applied to all agent pod templates.
-    # Per-agent labels in the Agent CRD take precedence over these defaults.
-    # @default -- {} (no extra labels)
-    podLabels: {}
-    # Example:
-    #   podLabels:
-    #     team: platform
-    #     environment: production
-    # -- Default nodeSelector applied to all agent deployments.
-    # Useful when admission policies require a nodeSelector on every
-    # Deployment, since wizard-created Agents carry none. A per-agent
-    # nodeSelector in the Agent CRD takes precedence over these defaults.
-    # @default -- {} (no default nodeSelector)
-    nodeSelector: {}
-    # Example:
-    #   nodeSelector:
-    #     kubernetes.io/os: linux
-    # -- Default host address for agent pods to bind to.
-    # Leave empty to use the controller's default fallback of "0.0.0.0".
-    # Automatically set to "::" when ipv6.enabled is true.
-    # Can be explicitly overridden here regardless of the ipv6 flag.
-    # @default -- "" (controller falls back to "0.0.0.0"; "::" when ipv6.enabled)
-    host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
   a2aBaseUrl: ""
@@ -218,21 +185,16 @@ controller:
     registry: ""
     repository: kagent-dev/kagent/app
     tag: "" # Will default to global, then Chart version
-    pullPolicy: ""
-    # -- Image pull secret name set on agent pods created by the controller
-    pullSecret: ""
   # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
   skillsInitImage:
     registry: ""
     repository: kagent-dev/kagent/skills-init
     tag: "" # Will default to global, then Chart version
-    pullPolicy: ""
   # -- The image used for the Go (ADK) runtime agent.
   goAgentImage:
     registry: ""
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
-    pullPolicy: ""
   # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
   # internally. These values have no effect and will be removed in a future release.
   streaming: null

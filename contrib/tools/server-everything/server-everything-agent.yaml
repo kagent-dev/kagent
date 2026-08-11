@@ -1,5 +1,5 @@
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: server-everything-agent
   namespace: kagent

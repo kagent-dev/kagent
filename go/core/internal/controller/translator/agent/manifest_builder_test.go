@@ -46,14 +46,14 @@ func TestBuildSRTSettingsJSON_DefaultDenyConfig(t *testing.T) {
 }
 
 func TestNeedsSRTSettings(t *testing.T) {
-	declarativeAgent := &v1alpha2.Agent{
+	declarativeAgent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "decl", Namespace: "default"},
 		Spec: v1alpha2.AgentSpec{
 			Type:        v1alpha2.AgentType_Declarative,
 			Declarative: &v1alpha2.DeclarativeAgentSpec{},
 		},
 	}
-	skillsAgent := &v1alpha2.Agent{
+	skillsAgent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "skills", Namespace: "default"},
 		Spec: v1alpha2.AgentSpec{
 			Type:        v1alpha2.AgentType_Declarative,
@@ -61,7 +61,7 @@ func TestNeedsSRTSettings(t *testing.T) {
 			Skills:      &v1alpha2.SkillForAgent{Refs: []string{"example.com/skill:latest"}},
 		},
 	}
-	byoAgent := &v1alpha2.Agent{
+	byoAgent := &v1alpha2.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "default"},
 		Spec: v1alpha2.AgentSpec{
 			Type: v1alpha2.AgentType_BYO,

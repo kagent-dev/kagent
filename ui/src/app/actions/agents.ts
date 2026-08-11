@@ -14,7 +14,6 @@ import type {
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { buildAgentHarnessCRDraft } from "@/lib/agentHarnessForm";
 import {
-  agentFormDataToAgent,
   agentFormDataToSandboxAgent,
 } from "@/lib/agentFormDomain";
 
@@ -88,27 +87,6 @@ async function createOrUpdateSandboxAgentFromForm(
   return { message: response.message || "Successfully created agent", data: agent };
 }
 
-async function createOrUpdateStandardAgentFromForm(
-  agentConfig: AgentWorkloadFormData,
-  update: boolean,
-): Promise<BaseResponse<Agent>> {
-  const agentPayload = agentFormDataToAgent(agentConfig);
-  const response = await fetchApi<BaseResponse<Agent>>(`/agents`, {
-    method: update ? "PUT" : "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(agentPayload),
-  });
-
-  if (!response?.data) {
-    throw new Error("Failed to create agent");
-  }
-
-  revalidateAgentListAndChat(response.data.metadata.namespace, response.data.metadata.name);
-  return { message: "Successfully created agent", data: response.data };
-}
-
 /**
  * Fetches one workload by Kubernetes kind so namespace/name is unambiguous across Agent / SandboxAgent / AgentHarness.
  */
@@ -118,10 +96,8 @@ export async function getAgent(
   kubernetesKind?: string
 ): Promise<BaseResponse<AgentResponse>> {
   try {
-    let path = `/agents/${namespace}/${agentName}`;
-    if (kubernetesKind === "SandboxAgent") {
-      path = `/sandboxagents/${namespace}/${agentName}`;
-    } else if (kubernetesKind === "AgentHarness") {
+    let path = `/sandboxagents/${namespace}/${agentName}`;
+    if (kubernetesKind === "AgentHarness") {
       path = `/agentharnesses/${namespace}/${agentName}`;
     }
     const agentData = await fetchApi<BaseResponse<AgentResponse>>(path);
@@ -154,7 +130,7 @@ export async function getAgentWithResolvedKind(
 }
 
 /**
- * Polls GET /api/sandboxagents/{namespace}/{name} until deploymentReady is true (Sandbox workload ready).
+ * Polls GET /api/sandboxagents/{namespace}/{name} until ready is true (Sandbox workload ready).
  */
 export async function waitForSandboxAgentReady(
   agentName: string,
@@ -170,7 +146,7 @@ export async function waitForSandboxAgentReady(
     if (!res.data) {
       return { ok: false, error: res.message || "Agent not found" };
     }
-    if (res.data.deploymentReady === true) {
+    if (res.data.ready === true) {
       return { ok: true };
     }
     await new Promise((r) => setTimeout(r, intervalMs));
@@ -191,10 +167,8 @@ export async function deleteAgent(
   kubernetesKind?: string
 ): Promise<BaseResponse<void>> {
   try {
-    let path = `/agents/${namespace}/${agentName}`;
-    if (kubernetesKind === "SandboxAgent") {
-      path = `/sandboxagents/${namespace}/${agentName}`;
-    } else if (kubernetesKind === "AgentHarness") {
+    let path = `/sandboxagents/${namespace}/${agentName}`;
+    if (kubernetesKind === "AgentHarness") {
       path = `/agentharnesses/${namespace}/${agentName}`;
     }
     await fetchApi(path, {
@@ -226,11 +200,7 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
       return await createAgentHarnessFromForm(agentConfig);
     }
 
-    if (agentConfig.runInSandbox) {
-      return await createOrUpdateSandboxAgentFromForm(agentConfig, update);
-    }
-
-    return await createOrUpdateStandardAgentFromForm(agentConfig, update);
+    return await createOrUpdateSandboxAgentFromForm(agentConfig, update);
   } catch (error) {
     return createErrorResponse<Agent>(error, "Error creating agent");
   }

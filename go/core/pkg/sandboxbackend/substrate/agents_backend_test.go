@@ -42,7 +42,7 @@ func TestSessionDBURL(t *testing.T) {
 			name: "byo",
 			spec: v1alpha2.AgentSpec{
 				Type: v1alpha2.AgentType_BYO,
-				BYO:  &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
+				BYO:  &v1alpha2.BYOAgentSpec{Image: "example/agent:latest", Cmd: &cmd},
 			},
 			want: "sqlite+aiosqlite:////data/sessions.db",
 		},
@@ -51,7 +51,7 @@ func TestSessionDBURL(t *testing.T) {
 			t.Parallel()
 			sa := &v1alpha2.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"},
-				Spec:       v1alpha2.SandboxAgentSpec{AgentSpec: tc.spec},
+				Spec:       tc.spec,
 			}
 			require.Equal(t, tc.want, b.SessionDBURL(sa))
 		})

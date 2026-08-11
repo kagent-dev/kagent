@@ -29,7 +29,7 @@ const baseAgentResponse: AgentResponse = {
   modelProvider: "openai",
   modelConfigRef: "openai-config",
   tools: [],
-  deploymentReady: true,
+  ready: true,
   accepted: true,
 };
 
@@ -43,7 +43,7 @@ export const NotReady: Story = {
   args: {
     agentResponse: {
       ...baseAgentResponse,
-      deploymentReady: false,
+      ready: false,
     },
   },
 };

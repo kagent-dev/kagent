@@ -19,9 +19,7 @@ package v1alpha1
 import (
 	"encoding/json"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 type AgentType string
@@ -50,29 +48,10 @@ type AgentSpec struct {
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).
 	// The A2A server URL will be served at
-	// <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
+	// <kagent-controller-ip>:8083/api/a2a-sandboxes/<agent-namespace>/<agent-name>
 	// Read more about the A2A protocol here: https://github.com/a2aproject/A2A
 	// +optional
 	A2AConfig *A2AConfig `json:"a2aConfig,omitempty"`
-	// +optional
-	Deployment *DeploymentSpec `json:"deployment,omitempty"`
-}
-
-type DeploymentSpec struct {
-	// If not specified, the default value is 1.
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	Replicas *int32 `json:"replicas,omitempty"`
-	// +optional
-	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
-	// +optional
-	Volumes []corev1.Volume `json:"volumes,omitempty"`
-	// +optional
-	Labels map[string]string `json:"labels,omitempty"`
-	// +optional
-	Annotations map[string]string `json:"annotations,omitempty"`
-	// +optional
-	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type
@@ -169,39 +148,4 @@ type AgentStatus struct {
 	ConfigHash []byte `json:"configHash,omitempty"`
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-}
-
-// +kubebuilder:object:root=true
-// +kubebuilder:resource:categories=kagent
-// +kubebuilder:subresource:status
-// +kubebuilder:printcolumn:name="ModelConfig",type="string",JSONPath=".spec.modelConfig",description="The ModelConfig resource referenced by this agent."
-// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
-// +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
-
-// Agent is the Schema for the agents API.
-type Agent struct {
-	metav1.TypeMeta `json:",inline"`
-	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	// +optional
-	Spec AgentSpec `json:"spec,omitempty"`
-	// +optional
-	Status AgentStatus `json:"status,omitempty"`
-}
-
-// +kubebuilder:object:root=true
-
-// AgentList contains a list of Agent.
-type AgentList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Agent `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(func(s *runtime.Scheme) error {
-		s.AddKnownTypes(GroupVersion, &Agent{}, &AgentList{})
-		return nil
-	})
 }

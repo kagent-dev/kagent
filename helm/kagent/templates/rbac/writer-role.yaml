@@ -2,7 +2,6 @@
 - apiGroups:
   - kagent.dev
   resources:
-  - agents
   - sandboxagents
   - agentharnesses
   - modelconfigs
@@ -19,7 +18,6 @@
 - apiGroups:
   - kagent.dev
   resources:
-  - agents/finalizers
   - sandboxagents/finalizers
   - agentharnesses/finalizers
   - modelconfigs/finalizers

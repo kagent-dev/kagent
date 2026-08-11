@@ -175,7 +175,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 				return okShare, nil
 			},
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2ASandboxes+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "valid-token")
 				return withUser(r, "visitor-id")
 			},
@@ -189,7 +189,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 				return rwShare, nil
 			},
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2ASandboxes+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "rw-token")
 				return withUser(r, "visitor-id")
 			},
