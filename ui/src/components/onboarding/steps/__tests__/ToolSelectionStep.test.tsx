@@ -76,6 +76,7 @@ describe("ToolSelectionStep duplicate-selection prevention", () => {
     await user.click(screen.getByRole("checkbox", { name: /k8s_get_pods/i }));
     await user.click(screen.getByRole("button", { name: /next: review/i }));
 
+    expect(onNext).toHaveBeenCalledTimes(1);
     const submitted = onNext.mock.calls[0][0];
     expect(submitted).toHaveLength(1);
     expect(submitted[0]!.mcpServer!.toolNames).toEqual(["k8s_get_events"]);

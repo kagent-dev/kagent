@@ -46,21 +46,20 @@ export function ToolSelectionStep({
     };
 
     const mergeToolIntoServerEntry = (tools: Tool[], toolResponse: ToolsResponse): Tool[] => {
-        const existingIndex = tools.findIndex(
-            (t) => isMcpTool(t) && serverNamesMatch(t.mcpServer.name, toolResponse.server_name)
-        );
-        if (existingIndex === -1) {
+        const existing = tools
+            .filter(isMcpTool)
+            .find((t) => serverNamesMatch(t.mcpServer.name, toolResponse.server_name));
+        if (!existing) {
             return [...tools, toolResponseToAgentTool(toolResponse, toolResponse.server_name)];
         }
-        const existing = tools[existingIndex] as Tool;
         const merged: Tool = {
             ...existing,
             mcpServer: {
-                ...existing.mcpServer!,
-                toolNames: Array.from(new Set([...existing.mcpServer!.toolNames, toolResponse.id])),
+                ...existing.mcpServer,
+                toolNames: Array.from(new Set([...existing.mcpServer.toolNames, toolResponse.id])),
             },
         };
-        return tools.map((t, i) => (i === existingIndex ? merged : t));
+        return tools.map((t) => (t === existing ? merged : t));
     };
 
     const toolsByCategory = useMemo(() => {
