@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { AgentCard } from "./AgentCard";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { AgentResponse } from "@/types";
 
 const meta = {
@@ -8,6 +9,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
+  decorators: [(Story) => <TooltipProvider><Story /></TooltipProvider>],
 } satisfies Meta<typeof AgentCard>;
 
 export default meta;
