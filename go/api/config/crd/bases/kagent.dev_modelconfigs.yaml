@@ -581,10 +581,22 @@ spec:
               foundry:
                 description: Azure AI Foundry-specific configuration
                 properties:
+                  apiFormat:
+                    default: OpenAI
+                    description: |-
+                      APIFormat selects the Foundry API format: "OpenAI" (default, chat
+                      completions) or "Anthropic" (Claude models served over the Anthropic
+                      Messages API).
+                    enum:
+                    - OpenAI
+                    - Anthropic
+                    type: string
                   apiVersion:
                     default: "2024-10-21"
-                    description: APIVersion is the Foundry OpenAI-compatible data-plane
-                      API version.
+                    description: |-
+                      APIVersion is the Foundry OpenAI-compatible data-plane API version.
+                      Ignored when APIFormat is Anthropic (the Messages surface is versioned via
+                      the anthropic-version header instead).
                     type: string
                   deployment:
                     description: Deployment is the Foundry model deployment name.
@@ -1234,10 +1246,22 @@ spec:
               foundry:
                 description: Azure AI Foundry-specific configuration
                 properties:
+                  apiFormat:
+                    default: OpenAI
+                    description: |-
+                      APIFormat selects the Foundry API format: "OpenAI" (default, chat
+                      completions) or "Anthropic" (Claude models served over the Anthropic
+                      Messages API).
+                    enum:
+                    - OpenAI
+                    - Anthropic
+                    type: string
                   apiVersion:
                     default: "2024-10-21"
-                    description: APIVersion is the Foundry OpenAI-compatible data-plane
-                      API version.
+                    description: |-
+                      APIVersion is the Foundry OpenAI-compatible data-plane API version.
+                      Ignored when APIFormat is Anthropic (the Messages surface is versioned via
+                      the anthropic-version header instead).
                     type: string
                   deployment:
                     description: Deployment is the Foundry model deployment name.

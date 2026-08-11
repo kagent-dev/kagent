@@ -10,7 +10,13 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestA2ATracingMiddleware_SetsGenAIAttributes(t *testing.T) {
@@ -63,5 +69,83 @@ func TestA2ATracingMiddleware_SetsGenAIAttributes(t *testing.T) {
 
 	if spans[0].Name != "invoke_agent" {
 		t.Errorf("span name: want %q, got %q", "invoke_agent", spans[0].Name)
+	}
+}
+
+func TestResolveProviderName(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatalf("AddToScheme() error = %v", err)
+	}
+
+	foundryMC := func(format v1alpha3.FoundryAPIFormat, withFoundry bool) *v1alpha3.ModelConfig {
+		mc := &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "mc", Namespace: "default"},
+			Spec:       v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderFoundry},
+		}
+		if withFoundry {
+			mc.Spec.Foundry = &v1alpha3.FoundryConfig{Deployment: "d", APIFormat: format}
+		}
+		return mc
+	}
+	declarativeAgent := func(mcName string) *v1alpha3.SandboxAgent {
+		return &v1alpha3.SandboxAgent{
+			ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "default"},
+			Spec:       v1alpha3.SandboxAgentSpec{Declarative: &v1alpha3.DeclarativeAgentSpec{ModelConfig: mcName}},
+		}
+	}
+
+	tests := []struct {
+		name  string
+		objs  []client.Object
+		agent *v1alpha3.SandboxAgent
+		want  string
+	}{
+		{
+			name:  "foundry anthropic format -> anthropic",
+			objs:  []client.Object{foundryMC(v1alpha3.FoundryAPIFormatAnthropic, true)},
+			agent: declarativeAgent("mc"),
+			want:  "anthropic",
+		},
+		{
+			name:  "foundry openai format -> azure.ai.inference",
+			objs:  []client.Object{foundryMC(v1alpha3.FoundryAPIFormatOpenAI, true)},
+			agent: declarativeAgent("mc"),
+			want:  "azure.ai.inference",
+		},
+		{
+			name:  "foundry empty format -> azure.ai.inference",
+			objs:  []client.Object{foundryMC("", true)},
+			agent: declarativeAgent("mc"),
+			want:  "azure.ai.inference",
+		},
+		{
+			name:  "foundry nil config -> azure.ai.inference",
+			objs:  []client.Object{foundryMC("", false)},
+			agent: declarativeAgent("mc"),
+			want:  "azure.ai.inference",
+		},
+		{
+			name:  "non-declarative agent -> kagent",
+			objs:  nil,
+			agent: &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "default"}},
+			want:  "kagent",
+		},
+		{
+			name:  "missing model config -> kagent",
+			objs:  nil,
+			agent: declarativeAgent("does-not-exist"),
+			want:  "kagent",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.objs...).Build()
+			got := resolveProviderName(context.Background(), reader, tt.agent)
+			if got.Value.AsString() != tt.want {
+				t.Errorf("resolveProviderName() = %q, want %q", got.Value.AsString(), tt.want)
+			}
+		})
 	}
 }

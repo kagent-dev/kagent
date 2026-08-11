@@ -372,6 +372,15 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 		return models.NewSAPAICoreModelWithLogger(cfg, log)
 
 	case *adk.Foundry:
+		if m.APIFormat == adk.FoundryAPIFormatAnthropic {
+			// Claude on Foundry uses the Anthropic Messages API, not the
+			// OpenAI-compatible surface, so it maps to an AnthropicModel.
+			cfg := &models.AnthropicConfig{
+				TransportConfig: transportConfigFromBase(m.BaseModel, nil),
+				Model:           m.Model,
+			}
+			return models.NewFoundryAnthropicModelWithLogger(ctx, cfg, m.Endpoint, m.Deployment, nil, log)
+		}
 		cfg := &models.FoundryConfig{
 			TransportConfig: transportConfigFromBase(m.BaseModel, nil),
 			Model:           m.Model,

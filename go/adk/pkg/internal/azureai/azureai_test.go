@@ -10,27 +10,45 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go/v3"
 )
 
 type fakeCredential struct {
-	t     *testing.T
-	token string
-	err   error
+	t         *testing.T
+	token     string
+	err       error
+	wantScope string
 }
 
 func (c fakeCredential) GetToken(_ context.Context, opts policy.TokenRequestOptions) (azcore.AccessToken, error) {
 	if c.err != nil {
 		return azcore.AccessToken{}, c.err
 	}
-	if c.t != nil && (len(opts.Scopes) != 1 || opts.Scopes[0] != CognitiveServicesScope) {
-		c.t.Fatalf("Scopes = %v, want cognitive services scope", opts.Scopes)
+	if c.t != nil {
+		want := c.wantScope
+		if want == "" {
+			want = CognitiveServicesScope
+		}
+		if len(opts.Scopes) != 1 || opts.Scopes[0] != want {
+			c.t.Fatalf("Scopes = %v, want %q", opts.Scopes, want)
+		}
 	}
 	return azcore.AccessToken{Token: c.token}, nil
 }
 
 func TestAcquireTokenReturnsToken(t *testing.T) {
-	got, err := AcquireToken(context.Background(), fakeCredential{t: t, token: "tok"})
+	got, err := AcquireToken(context.Background(), fakeCredential{t: t, token: "tok"}, "")
+	if err != nil {
+		t.Fatalf("AcquireToken() error = %v", err)
+	}
+	if got != "tok" {
+		t.Fatalf("AcquireToken() = %q, want tok", got)
+	}
+}
+
+func TestAcquireTokenUsesProvidedScope(t *testing.T) {
+	got, err := AcquireToken(context.Background(), fakeCredential{t: t, token: "tok", wantScope: AIFoundryScope}, AIFoundryScope)
 	if err != nil {
 		t.Fatalf("AcquireToken() error = %v", err)
 	}
@@ -40,13 +58,13 @@ func TestAcquireTokenReturnsToken(t *testing.T) {
 }
 
 func TestAcquireTokenPropagatesError(t *testing.T) {
-	if _, err := AcquireToken(context.Background(), fakeCredential{err: fmt.Errorf("boom")}); err == nil {
+	if _, err := AcquireToken(context.Background(), fakeCredential{err: fmt.Errorf("boom")}, ""); err == nil {
 		t.Fatal("AcquireToken() error = nil, want error")
 	}
 }
 
 func TestBearerTokenMiddlewareSetsAuthorization(t *testing.T) {
-	mw := BearerTokenMiddleware(fakeCredential{t: t, token: "entra-token"})
+	mw := BearerTokenMiddleware(fakeCredential{t: t, token: "entra-token"}, "")
 	req := httptest.NewRequest(http.MethodPost, "https://example.com/openai/deployments/x/embeddings", nil)
 	_, err := mw(req, func(r *http.Request) (*http.Response, error) {
 		if got := r.Header.Get("Authorization"); got != "Bearer entra-token" {
@@ -145,6 +163,83 @@ func TestNewOpenAIClientWorkloadIdentity(t *testing.T) {
 	}
 }
 
+func TestNewAnthropicClientValidates(t *testing.T) {
+	if _, err := NewAnthropicClient(AnthropicClientConfig{APIKey: "k"}); err == nil {
+		t.Fatal("want error for missing endpoint")
+	}
+	if _, err := NewAnthropicClient(AnthropicClientConfig{Endpoint: "https://e"}); err == nil {
+		t.Fatal("want error for missing auth")
+	}
+}
+
+func TestNewAnthropicClientAPIKey(t *testing.T) {
+	var gotPath, gotAPIKey, gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAPIKey = r.Header.Get("X-Api-Key")
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"msg_1","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer server.Close()
+
+	client, err := NewAnthropicClient(AnthropicClientConfig{
+		Endpoint: server.URL,
+		APIKey:   "secret",
+	})
+	if err != nil {
+		t.Fatalf("NewAnthropicClient() error = %v", err)
+	}
+	_, _ = client.Messages.New(context.Background(), anthropic.MessageNewParams{
+		Model:     anthropic.Model("dep"),
+		MaxTokens: 16,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock("hi")),
+		},
+	})
+	if gotPath != "/anthropic/v1/messages" {
+		t.Fatalf("path = %q, want /anthropic/v1/messages", gotPath)
+	}
+	if gotAPIKey != "secret" {
+		t.Fatalf("X-Api-Key = %q, want secret", gotAPIKey)
+	}
+	if gotAuth != "" {
+		t.Fatalf("Authorization = %q, want empty", gotAuth)
+	}
+}
+
+func TestNewAnthropicClientWorkloadIdentity(t *testing.T) {
+	var gotAuth, gotAPIKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotAPIKey = r.Header.Get("X-Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"msg_1","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	}))
+	defer server.Close()
+
+	client, err := NewAnthropicClient(AnthropicClientConfig{
+		Endpoint:   server.URL,
+		Credential: fakeCredential{t: t, token: "entra-token", wantScope: AIFoundryScope},
+	})
+	if err != nil {
+		t.Fatalf("NewAnthropicClient() error = %v", err)
+	}
+	_, _ = client.Messages.New(context.Background(), anthropic.MessageNewParams{
+		Model:     anthropic.Model("dep"),
+		MaxTokens: 16,
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock("hi")),
+		},
+	})
+	if gotAuth != "Bearer entra-token" {
+		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
+	}
+	if gotAPIKey != "" {
+		t.Fatalf("X-Api-Key = %q, want empty", gotAPIKey)
+	}
+}
+
 func TestResolveFoundryUsesProvidedValues(t *testing.T) {
 	t.Setenv(FoundryEndpointEnvVar, "env-endpoint")
 	t.Setenv(FoundryDeploymentEnvVar, "env-deployment")
@@ -229,4 +324,45 @@ func TestApplyImplicitAuthNoProbeSkipsTokenAcquisition(t *testing.T) {
 	if cfg.Credential == nil {
 		t.Fatalf("Credential not set")
 	}
+}
+
+// TestResolveImplicitAuth covers the shared resolver both Azure surfaces use.
+func TestResolveImplicitAuth(t *testing.T) {
+	t.Run("api key short-circuits credential", func(t *testing.T) {
+		apiKey, cred, err := ResolveImplicitAuth(context.Background(), AuthOptions{
+			APIKey:     "secret",
+			Credential: fakeCredential{err: fmt.Errorf("should not be consulted")},
+			EagerProbe: true,
+		})
+		if err != nil {
+			t.Fatalf("ResolveImplicitAuth() error = %v", err)
+		}
+		if apiKey != "secret" || cred != nil {
+			t.Fatalf("apiKey=%q cred=%v, want key set and no credential", apiKey, cred)
+		}
+	})
+
+	t.Run("credential path probes at scope", func(t *testing.T) {
+		apiKey, cred, err := ResolveImplicitAuth(context.Background(), AuthOptions{
+			Credential: fakeCredential{t: t, token: "tok", wantScope: AIFoundryScope},
+			EagerProbe: true,
+			EntraScope: AIFoundryScope,
+		})
+		if err != nil {
+			t.Fatalf("ResolveImplicitAuth() error = %v", err)
+		}
+		if apiKey != "" || cred == nil {
+			t.Fatalf("apiKey=%q cred=%v, want credential set and no key", apiKey, cred)
+		}
+	})
+
+	t.Run("eager probe failure surfaces actionable error", func(t *testing.T) {
+		_, _, err := ResolveImplicitAuth(context.Background(), AuthOptions{
+			Credential: fakeCredential{err: fmt.Errorf("no ambient credential")},
+			EagerProbe: true,
+		})
+		if err == nil || !strings.Contains(err.Error(), "no Azure credential resolved") {
+			t.Fatalf("ResolveImplicitAuth() error = %v, want credential-not-resolved", err)
+		}
+	})
 }
