@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "google/longrunning/operations.proto";
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1alpha1/agent_instances.proto";
+import "kagent/api/v1alpha1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+service CheckpointService {
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Standard long-running operations share the Operation response type.
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Standard long-running operations return google.longrunning.Operation.
+  rpc CreateCheckpoint(CreateCheckpointRequest) returns (google.longrunning.Operation) {
+    option (google.longrunning.operation_info) = {
+      response_type: "Checkpoint"
+      metadata_type: "CreateCheckpointOperationMetadata"
+    };
+  }
+  rpc GetCheckpoint(GetCheckpointRequest) returns (GetCheckpointResponse);
+  rpc ListCheckpoints(ListCheckpointsRequest) returns (ListCheckpointsResponse);
+  rpc DeleteCheckpoint(DeleteCheckpointRequest) returns (DeleteCheckpointResponse);
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Standard long-running operations share the Operation response type.
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Standard long-running operations return google.longrunning.Operation.
+  rpc ForkAgentInstance(ForkAgentInstanceRequest) returns (google.longrunning.Operation) {
+    option (google.longrunning.operation_info) = {
+      response_type: "AgentInstance"
+      metadata_type: "ForkAgentInstanceOperationMetadata"
+    };
+  }
+}
+
+enum CheckpointState {
+  CHECKPOINT_STATE_UNSPECIFIED = 0;
+  CHECKPOINT_STATE_CREATING = 1;
+  CHECKPOINT_STATE_READY = 2;
+  CHECKPOINT_STATE_FAILED = 3;
+  CHECKPOINT_STATE_DELETING = 4;
+}
+
+message Checkpoint {
+  string id = 1;
+  string namespace = 2;
+  string agent_instance_id = 3;
+  string head_task_id = 4;
+  uint64 history_sequence = 5;
+  CheckpointState state = 6;
+  google.protobuf.Timestamp created_at = 7;
+  Failure failure = 8;
+}
+
+message CreateCheckpointRequest {
+  string namespace = 1;
+  string agent_instance_id = 2;
+  string request_id = 3;
+}
+
+message CreateCheckpointOperationMetadata {
+  string namespace = 1;
+  string agent_instance_id = 2;
+  string checkpoint_id = 3;
+}
+
+message GetCheckpointRequest {
+  string namespace = 1;
+  string checkpoint_id = 2;
+}
+
+message GetCheckpointResponse {
+  Checkpoint checkpoint = 1;
+}
+
+message ListCheckpointsRequest {
+  string namespace = 1;
+  string agent_instance_id = 2;
+  PageRequest page = 3;
+}
+
+message ListCheckpointsResponse {
+  repeated Checkpoint checkpoints = 1;
+  PageResponse page = 2;
+}
+
+message DeleteCheckpointRequest {
+  string namespace = 1;
+  string checkpoint_id = 2;
+}
+
+message DeleteCheckpointResponse {}
+
+message ForkAgentInstanceRequest {
+  string namespace = 1;
+  string checkpoint_id = 2;
+  string request_id = 3;
+}
+
+message ForkAgentInstanceOperationMetadata {
+  string namespace = 1;
+  string checkpoint_id = 2;
+  string agent_instance_id = 3;
+}

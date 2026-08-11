@@ -56,6 +56,7 @@ require (
 )
 
 require (
+	cloud.google.com/go/longrunning v0.9.0
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.0
 	github.com/agent-substrate/substrate v0.0.0
