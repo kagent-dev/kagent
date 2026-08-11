@@ -67,9 +67,7 @@ export const BYOAgent: Story = {
           ...baseAgentResponse.agent.spec,
           type: "BYO",
           byo: {
-            deployment: {
-              image: "my-registry.azurecr.io/my-agent:v1.0.0",
-            },
+            image: "my-registry.azurecr.io/my-agent:v1.0.0",
           },
         },
       },

@@ -176,7 +176,6 @@ func TestHandleGetSandboxAgent(t *testing.T) {
 		require.True(t, response.Data.Accepted)
 		require.True(t, response.Data.Ready)
 	})
-
 }
 
 func TestHandleGetAgentHarness(t *testing.T) {
@@ -504,7 +503,6 @@ func TestHandleListSandboxAgents(t *testing.T) {
 		require.True(t, response.Data[0].Accepted)
 		require.True(t, response.Data[0].Ready)
 	})
-
 }
 
 func TestHandleUpdateSandboxAgent(t *testing.T) {

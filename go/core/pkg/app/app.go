@@ -226,7 +226,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolName, "substrate-default-workerpool-name", "", "Default Agent Substrate WorkerPool name when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.PauseImage, "substrate-pause-image", "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da", "Pause image for generated ActorTemplates.")
-
 }
 
 // postgresConfigFromApp builds a database.PostgresConfig from app flags.

@@ -192,7 +192,6 @@ Kagent implements a multi-layered IAM approach:
    - Controller uses ServiceAccount with ClusterRole for CRD management
    - Standard agents run in isolated Agent Substrate actors; Kubernetes ServiceAccounts are not part of the SandboxAgent API
    - Example roles in [go/config/rbac/role.yaml](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/config/rbac/role.yaml)
-   - Per-agent RBAC templates in [helm/agents/*/templates/rbac.yaml](https://github.com/kagent-dev/kagent/tree/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/helm/agents)
 
 2. **API Authentication** (planned enhancement - [Issue #476](https://github.com/kagent-dev/kagent/issues/476)):
    - Current: UnsecureAuthenticator for development, A2AAuthenticator for agent-to-agent
@@ -578,12 +577,7 @@ For development or specific use cases, users may need to relax security:
    - Production: Configure proper authentication via [Issue #476](https://github.com/kagent-dev/kagent/issues/476)
    - Documentation: Planned for v1.0 release
 
-2. **Expanded RBAC Permissions:**
-   - Default: Read-only access to most resources
-   - Custom: Edit agent RBAC templates in [helm/agents/*/templates/rbac.yaml](https://github.com/kagent-dev/kagent/tree/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/helm/agents)
-   - Example: Grant write access for agents that need to modify resources
-
-3. **Cross-Namespace Access:**
+2. **Cross-Namespace Access:**
    - Default: Agents can only access resources in their namespace
    - Custom: Use ClusterRole instead of Role for cluster-wide access
    - Warning: Increases security risk, use with caution

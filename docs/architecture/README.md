@@ -466,8 +466,6 @@ Kagent is deployed via two Helm charts:
    - `kagent-tools` Deployment (built-in tool server, optional)
    - Various Services, ConfigMaps, ServiceAccounts, RBAC
 
-Agent Helm charts in `helm/agents/` provide pre-configured agents (k8s-agent, helm-agent, istio-agent, etc.) that can be installed alongside the core chart.
-
 ---
 
 ## Key Architectural Decisions

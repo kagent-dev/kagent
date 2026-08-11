@@ -430,29 +430,6 @@ helm-test: helm-version
 	helm plugin ls | grep unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git
 	helm unittest helm/kagent
 
-.PHONY: helm-agents
-helm-agents: ## Package all agent Helm charts into the dist folder
-	VERSION=$(VERSION) envsubst < helm/agents/k8s/Chart-template.yaml > helm/agents/k8s/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/k8s
-	VERSION=$(VERSION) envsubst < helm/agents/kgateway/Chart-template.yaml > helm/agents/kgateway/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/kgateway
-	VERSION=$(VERSION) envsubst < helm/agents/istio/Chart-template.yaml > helm/agents/istio/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/istio
-	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/promql
-	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/observability
-	VERSION=$(VERSION) envsubst < helm/agents/helm/Chart-template.yaml > helm/agents/helm/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/helm
-	VERSION=$(VERSION) envsubst < helm/agents/argo-rollouts/Chart-template.yaml > helm/agents/argo-rollouts/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/argo-rollouts
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-policy/Chart-template.yaml > helm/agents/cilium-policy/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-policy
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-debug/Chart-template.yaml > helm/agents/cilium-debug/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-debug
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-manager
-
 .PHONY: helm-tools
 helm-tools: ## Package all tool Helm charts into the dist folder
 	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
@@ -462,7 +439,7 @@ helm-tools: ## Package all tool Helm charts into the dist folder
 
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
-helm-version: helm-cleanup helm-agents helm-tools
+helm-version: helm-cleanup helm-tools
 	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
@@ -651,15 +628,6 @@ helm-publish: ## Package and push all Helm charts to the OCI registry
 helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
 	helm push ./$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
-	helm push ./$(HELM_DIST_FOLDER)/helm-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/istio-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/promql-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/observability-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/argo-rollouts-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/cilium-policy-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/cilium-manager-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/cilium-debug-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 ##@ Dev
 
