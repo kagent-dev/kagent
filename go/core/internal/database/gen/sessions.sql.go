@@ -10,6 +10,82 @@ import (
 	"time"
 )
 
+const deleteExpiredSessionsBatch = `-- name: DeleteExpiredSessionsBatch :one
+WITH expired AS (
+    SELECT id, user_id
+    FROM session
+    WHERE updated_at < NOW() - make_interval(days => $1::int)
+    ORDER BY updated_at ASC
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+),
+del_sessions AS (
+    DELETE FROM session s
+    USING expired e
+    WHERE s.id = e.id AND s.user_id = e.user_id
+    RETURNING s.id, s.user_id
+),
+del_shares AS (
+    DELETE FROM session_share ss
+    USING del_sessions d
+    WHERE ss.session_id = d.id AND ss.user_id = d.user_id
+),
+del_events AS (
+    DELETE FROM event ev
+    USING del_sessions d
+    WHERE ev.session_id = d.id AND ev.user_id = d.user_id
+),
+del_push AS (
+    DELETE FROM push_notification pn
+    USING task t, del_sessions d
+    WHERE pn.task_id = t.id
+      AND t.session_id = d.id
+      AND COALESCE(t.user_id, d.user_id) = d.user_id
+),
+del_tasks AS (
+    DELETE FROM task t
+    USING del_sessions d
+    WHERE t.session_id = d.id
+      AND COALESCE(t.user_id, d.user_id) = d.user_id
+),
+del_cp_writes AS (
+    DELETE FROM lg_checkpoint_write w
+    USING del_sessions d
+    WHERE w.user_id = d.user_id AND w.thread_id = d.id
+),
+del_cps AS (
+    DELETE FROM lg_checkpoint c
+    USING del_sessions d
+    WHERE c.user_id = d.user_id AND c.thread_id = d.id
+),
+del_crewai_mem AS (
+    DELETE FROM crewai_agent_memory m
+    USING del_sessions d
+    WHERE m.user_id = d.user_id AND m.thread_id = d.id
+),
+del_crewai_flow AS (
+    DELETE FROM crewai_flow_state f
+    USING del_sessions d
+    WHERE f.user_id = d.user_id AND f.thread_id = d.id
+)
+SELECT COUNT(*)::bigint AS deleted FROM del_sessions
+`
+
+type DeleteExpiredSessionsBatchParams struct {
+	RetentionDays int32
+	BatchSize     int32
+}
+
+// DeleteExpiredSessionsBatch hard-deletes up to batch_size idle sessions whose
+// updated_at is older than retention_days, plus cascaded conversation state.
+// Soft-deleted sessions are included so tombstones still reclaim disk.
+func (q *Queries) DeleteExpiredSessionsBatch(ctx context.Context, arg DeleteExpiredSessionsBatchParams) (int64, error) {
+	row := q.db.QueryRow(ctx, deleteExpiredSessionsBatch, arg.RetentionDays, arg.BatchSize)
+	var deleted int64
+	err := row.Scan(&deleted)
+	return deleted, err
+}
+
 const getSession = `-- name: GetSession :one
 SELECT id, user_id, name, created_at, updated_at, deleted_at, agent_id, source FROM session
 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL

@@ -25,6 +25,17 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxSkillsUnsupportedMsg)
 	})
 
+	t.Run("rejects s3 skills", func(t *testing.T) {
+		agent := &SandboxAgent{
+			Spec: SandboxAgentSpec{
+				AgentSpec: AgentSpec{Skills: &SkillForAgent{S3Refs: []S3SkillRef{{URI: "s3://bucket/skill"}}}},
+			},
+		}
+		err := ValidateSubstrateSandboxAgentSpec(agent)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), substrateSandboxSkillsUnsupportedMsg)
+	})
+
 	t.Run("allows python runtime", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{

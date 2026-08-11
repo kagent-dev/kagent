@@ -60,6 +60,21 @@ data:
   {{- end }}
   DATABASE_VECTOR_ENABLED: {{ .Values.database.postgres.vectorEnabled | quote }}
   SKIP_MIGRATIONS: {{ .Values.database.postgres.skipMigrations | default false | quote }}
+  {{- with .Values.database.postgres.pool }}
+  {{- if and (hasKey . "maxConns") (ne .maxConns nil) }}
+  DB_MAX_CONNS: {{ .maxConns | quote }}
+  {{- end }}
+  {{- if and (hasKey . "minConns") (ne .minConns nil) }}
+  DB_MIN_CONNS: {{ .minConns | quote }}
+  {{- end }}
+  {{- if .maxConnIdleTime }}
+  DB_MAX_CONN_IDLE_TIME: {{ .maxConnIdleTime | quote }}
+  {{- end }}
+  {{- if .maxConnLifetime }}
+  DB_MAX_CONN_LIFETIME: {{ .maxConnLifetime | quote }}
+  {{- end }}
+  {{- end }}
+  SESSION_RETENTION_DAYS: {{ .Values.database.postgres.sessionRetentionDays | default 0 | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
   {{- if .Values.controller.a2aClientTimeout }}

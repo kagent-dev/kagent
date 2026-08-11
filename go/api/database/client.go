@@ -98,4 +98,9 @@ type Client interface {
 	ListAgentMemories(ctx context.Context, agentName, userID string) ([]Memory, error)
 	DeleteAgentMemory(ctx context.Context, agentName, userID string) error
 	PruneExpiredMemories(ctx context.Context) error
+
+	// PruneExpiredSessions hard-deletes idle sessions older than retentionDays
+	// (sliding window on updated_at) and cascaded conversation state. No-op when
+	// retentionDays <= 0. Returns the number of sessions deleted.
+	PruneExpiredSessions(ctx context.Context, retentionDays int) (int64, error)
 }

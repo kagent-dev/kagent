@@ -138,10 +138,15 @@ type Config struct {
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
 	Database           struct {
-		Url            string
-		UrlFile        string
-		VectorEnabled  bool
-		SkipMigrations bool
+		Url                  string
+		UrlFile              string
+		VectorEnabled        bool
+		SkipMigrations       bool
+		MaxConns             int           // 0 = unset (pgx default)
+		MinConns             int           // -1 = unset (pgx default); 0 is a valid value
+		MaxConnIdleTime      time.Duration // 0 = unset (pgx default)
+		MaxConnLifetime      time.Duration // 0 = unset (pgx default)
+		SessionRetentionDays int           // 0 = disabled; sliding idle TTL on session.updated_at
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
@@ -184,6 +189,11 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&cfg.Database.UrlFile, "postgres-database-url-file", "", "Path to a file containing the PostgreSQL database URL. Takes precedence over --postgres-database-url.")
 	commandLine.BoolVar(&cfg.Database.VectorEnabled, "database-vector-enabled", true, "Enable pgvector extension and memory table. Requires pgvector to be installed on the PostgreSQL server.")
 	commandLine.BoolVar(&cfg.Database.SkipMigrations, "skip-migrations", false, "Do not run database migrations at startup; instead verify the database is already migrated and fail if it is not. Migrations must be applied out-of-band (e.g. from a pipeline or pre-upgrade hook). Settable via the SKIP_MIGRATIONS env var.")
+	commandLine.IntVar(&cfg.Database.MaxConns, "db-max-conns", 0, "Maximum number of connections in the Postgres pool. 0 leaves the pgx default.")
+	commandLine.IntVar(&cfg.Database.MinConns, "db-min-conns", -1, "Minimum number of connections in the Postgres pool. -1 leaves the pgx default.")
+	commandLine.DurationVar(&cfg.Database.MaxConnIdleTime, "db-max-conn-idle-time", 0, "Maximum idle time before a Postgres pool connection is closed. 0 leaves the pgx default (30m).")
+	commandLine.DurationVar(&cfg.Database.MaxConnLifetime, "db-max-conn-lifetime", 0, "Maximum lifetime of a Postgres pool connection. 0 leaves the pgx default (1h).")
+	commandLine.IntVar(&cfg.Database.SessionRetentionDays, "session-retention-days", 0, "Hard-delete idle sessions and cascaded conversation state (events, tasks, checkpoints, shares) when session.updated_at is older than this many days. 0 disables (default). Retention is a sliding window: activity refreshes updated_at.")
 
 	commandLine.StringVar(&cfg.WatchNamespaces, "watch-namespaces", "", "The namespaces to watch for .")
 
@@ -229,6 +239,32 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.Var(&MapValue{Target: &agent_translator.DefaultAgentNodeSelector}, "default-agent-node-selector", "Comma-separated key=value pairs of node selector terms to apply to all agent deployments (e.g. 'kubernetes.io/os=linux'). A per-agent nodeSelector takes precedence.")
 
 	commandLine.StringVar(&agent_translator.DefaultAgentBindHost, "default-agent-bind-host", agent_translator.DefaultAgentBindHost, "Default host address for agent pods to bind to. Use '0.0.0.0' for IPv4 only or '::' for dual-stack (IPv4+IPv6).")
+}
+
+// postgresConfigFromApp builds a database.PostgresConfig from app flags.
+// Zero/unset flag values leave the corresponding pool field nil so pgx defaults apply.
+func postgresConfigFromApp(dbURL string, cfg *Config) *database.PostgresConfig {
+	pgCfg := &database.PostgresConfig{
+		URL:           dbURL,
+		VectorEnabled: cfg.Database.VectorEnabled,
+	}
+	if cfg.Database.MaxConns > 0 {
+		v := int32(cfg.Database.MaxConns)
+		pgCfg.MaxConns = &v
+	}
+	if cfg.Database.MinConns >= 0 {
+		v := int32(cfg.Database.MinConns)
+		pgCfg.MinConns = &v
+	}
+	if cfg.Database.MaxConnIdleTime > 0 {
+		v := cfg.Database.MaxConnIdleTime
+		pgCfg.MaxConnIdleTime = &v
+	}
+	if cfg.Database.MaxConnLifetime > 0 {
+		v := cfg.Database.MaxConnLifetime
+		pgCfg.MaxConnLifetime = &v
+	}
+	return pgCfg
 }
 
 // LoadFromEnv loads configuration values from environment variables.
@@ -513,10 +549,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	// Connect to database
-	db, err := database.Connect(ctx, &database.PostgresConfig{
-		URL:           dbURL,
-		VectorEnabled: cfg.Database.VectorEnabled,
-	})
+	db, err := database.Connect(ctx, postgresConfigFromApp(dbURL, &cfg))
 	if err != nil {
 		setupLog.Error(err, "unable to connect to database")
 		os.Exit(1)
@@ -801,9 +834,10 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	// Memory TTL cleanup runs only on the leader to avoid duplicate deletes.
-	if err := mgr.Add(httpserver.NewMemoryCleanupRunnable(dbClient, 0)); err != nil {
-		setupLog.Error(err, "unable to set up memory cleanup runnable")
+	// DB TTL cleanup (memory + sessions) runs only on the leader to avoid duplicate deletes.
+	// Currently configured to run every 24 hours.
+	if err := mgr.Add(httpserver.NewDbCleanupRunnable(dbClient, 24*time.Hour, cfg.Database.SessionRetentionDays)); err != nil {
+		setupLog.Error(err, "unable to set up DB cleanup runnable")
 		os.Exit(1)
 	}
 

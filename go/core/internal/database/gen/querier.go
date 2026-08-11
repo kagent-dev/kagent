@@ -12,6 +12,10 @@ type Querier interface {
 	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
+	// DeleteExpiredSessionsBatch hard-deletes up to batch_size idle sessions whose
+	// updated_at is older than retention_days, plus cascaded conversation state.
+	// Soft-deleted sessions are included so tombstones still reclaim disk.
+	DeleteExpiredSessionsBatch(ctx context.Context, arg DeleteExpiredSessionsBatchParams) (int64, error)
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
 	ExtendMemoryTTL(ctx context.Context) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
