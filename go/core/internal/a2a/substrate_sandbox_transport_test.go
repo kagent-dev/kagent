@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	coredatabase "github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 )
@@ -83,10 +83,10 @@ func TestEnsureSessionRow(t *testing.T) {
 	t.Cleanup(pool.Close)
 	db := coredatabase.NewClient(pool)
 
-	sa := &v1alpha2.SandboxAgent{
-		Spec: v1alpha2.SandboxAgentSpec{
-			Type:        v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python},
+	sa := &v1alpha3.SandboxAgent{
+		Spec: v1alpha3.SandboxAgentSpec{
+			Type:        v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{Runtime: v1alpha3.DeclarativeRuntime_Python},
 		},
 	}
 	sa.Name = "my-agent"

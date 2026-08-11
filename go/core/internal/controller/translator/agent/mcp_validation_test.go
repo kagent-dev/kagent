@@ -13,7 +13,7 @@ import (
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
@@ -23,18 +23,18 @@ import (
 func TestMCPServerValidation_InvalidPort(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	// Create a ModelConfig for the agent
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
@@ -56,21 +56,21 @@ func TestMCPServerValidation_InvalidPort(t *testing.T) {
 	}
 
 	// Create an Agent that references the MCPServer
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "test-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -109,18 +109,18 @@ func TestMCPServerValidation_InvalidPort(t *testing.T) {
 func TestMCPServerValidation_ValidPort(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	// Create a ModelConfig for the agent
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
@@ -142,21 +142,21 @@ func TestMCPServerValidation_ValidPort(t *testing.T) {
 	}
 
 	// Create an Agent that references the MCPServer
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "test-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -195,39 +195,39 @@ func TestMCPServerValidation_ValidPort(t *testing.T) {
 func TestMCPServerValidation_NotFound(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	// Create a ModelConfig for the agent
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
 	}
 
 	// Create an Agent that references a non-existent MCPServer
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "non-existent-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -265,35 +265,35 @@ func TestMCPServerValidation_NotFound(t *testing.T) {
 func TestMCPServerValidation_NoMCPServerReference(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	// Create a ModelConfig for the agent
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
 	}
 
 	// Create an Agent with a tool that has type McpServer but no mcpServer reference
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type:      v1alpha2.ToolProviderType_McpServer,
+						Type:      v1alpha3.ToolProviderType_McpServer,
 						McpServer: nil, // Missing reference
 					},
 				},
@@ -326,49 +326,49 @@ func TestMCPServerValidation_NoMCPServerReference(t *testing.T) {
 func TestMCPServerValidation_RemoteMCPServer(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	// Create a ModelConfig for the agent
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
 	}
 
 	// Create a RemoteMCPServer
-	remoteMcpServer := &v1alpha2.RemoteMCPServer{
+	remoteMcpServer := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-remote-mcp",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL:      "http://external-mcp-server:8080/mcp",
-			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
 
 	// Create an Agent that references the RemoteMCPServer
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "test-remote-mcp",
 								Kind: "RemoteMCPServer",
 							},
@@ -448,25 +448,25 @@ func TestConvertMCPServerToRemoteMCPServer_ValidPort(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, remoteMCP)
 	assert.Equal(t, "http://test-mcp-server.test:8080/mcp", remoteMCP.Spec.URL)
-	assert.Equal(t, v1alpha2.RemoteMCPServerProtocolStreamableHttp, remoteMCP.Spec.Protocol)
+	assert.Equal(t, v1alpha3.RemoteMCPServerProtocolStreamableHttp, remoteMCP.Spec.Protocol)
 }
 
 // TestMCPServerValidation_MultipleTools tests validation with multiple tools including valid and invalid MCPServers.
 func TestMCPServerValidation_MultipleTools(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	// Create a ModelConfig for the agent
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
@@ -503,21 +503,21 @@ func TestMCPServerValidation_MultipleTools(t *testing.T) {
 	}
 
 	// Create an Agent that references both MCPServers
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "valid-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -525,9 +525,9 @@ func TestMCPServerValidation_MultipleTools(t *testing.T) {
 						},
 					},
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "invalid-mcp-server",
 								Kind: "MCPServer",
 							},

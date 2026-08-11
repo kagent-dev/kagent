@@ -3,7 +3,7 @@ package sandboxbackend
 import (
 	"context"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -12,7 +12,7 @@ import (
 
 // BuildInput carries the pod template for a Sandbox workload (agents.x-k8s.io Sandbox).
 type BuildInput struct {
-	Agent        *v1alpha2.SandboxAgent
+	Agent        *v1alpha3.SandboxAgent
 	PodTemplate  corev1.PodTemplateSpec
 	WorkloadName string
 	ExtraLabels  map[string]string
@@ -23,12 +23,12 @@ type Backend interface {
 	BuildSandbox(ctx context.Context, in BuildInput) ([]client.Object, error)
 	GetOwnedResourceTypes() []client.Object
 	// OwnedResourceTypesFor returns owned types for the agent's sandbox platform (for reconcile lists).
-	OwnedResourceTypesFor(agent *v1alpha2.SandboxAgent) ([]client.Object, error)
+	OwnedResourceTypesFor(agent *v1alpha3.SandboxAgent) ([]client.Object, error)
 
 	// SessionDBURL returns the backend-specific session-store URL the translator bakes into the
 	// agent's rendered config (AgentConfig.session_db_url) before building the config Secret,
 	// or "" when the backend keeps sessions in the controller database.
-	SessionDBURL(agent *v1alpha2.SandboxAgent) string
+	SessionDBURL(agent *v1alpha3.SandboxAgent) string
 
 	// ComputeReady reflects implementation-specific status into condition pieces for Agent.status.
 	ComputeReady(ctx context.Context, cl client.Client, nn types.NamespacedName) (status metav1.ConditionStatus, reason, message string)

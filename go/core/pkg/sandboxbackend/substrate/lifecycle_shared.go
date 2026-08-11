@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -48,8 +48,8 @@ type Lifecycle struct {
 // AgentHarnessLifecycle is the substrate lifecycle surface used by the
 // AgentHarness controller.
 type AgentHarnessLifecycle interface {
-	EnsureGeneratedTemplate(ctx context.Context, ah *v1alpha2.AgentHarness) (LifecycleState, error)
-	CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha2.AgentHarness) (bool, error)
+	EnsureGeneratedTemplate(ctx context.Context, ah *v1alpha3.AgentHarness) (LifecycleState, error)
+	CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha3.AgentHarness) (bool, error)
 }
 
 var _ AgentHarnessLifecycle = (*Lifecycle)(nil)
@@ -85,7 +85,7 @@ func workerSelectorForPool(wpKey types.NamespacedName) *metav1.LabelSelector {
 	}
 }
 
-func substrateSnapshotsLocation(ah *v1alpha2.AgentHarness) string {
+func substrateSnapshotsLocation(ah *v1alpha3.AgentHarness) string {
 	if ah == nil {
 		return substrateSnapshotsLocationFor("", "", "")
 	}
@@ -106,7 +106,7 @@ func substrateSnapshotsLocationFor(namespace, name, explicitLocation string) str
 func (p *Lifecycle) resolveWorkerPoolRefFor(
 	ctx context.Context,
 	namespace string,
-	explicit *v1alpha2.TypedLocalReference,
+	explicit *v1alpha3.TypedLocalReference,
 ) (types.NamespacedName, error) {
 	if p == nil || p.Client == nil {
 		return types.NamespacedName{}, fmt.Errorf("substrate lifecycle kubernetes client is required")
@@ -135,14 +135,14 @@ func defaultSubstrateSnapshotsLocation(namespace, name string) string {
 	return fmt.Sprintf("gs://%s/%s/%s", defaultSnapshotsBucket, namespace, name)
 }
 
-func lifecycleLabels(ah *v1alpha2.AgentHarness) map[string]string {
+func lifecycleLabels(ah *v1alpha3.AgentHarness) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/managed-by": "kagent",
 		"kagent.dev/agent-harness":     ah.Name,
 	}
 }
 
-func actorTemplateName(ah *v1alpha2.AgentHarness) string {
+func actorTemplateName(ah *v1alpha3.AgentHarness) string {
 	return truncateDNS1123(ah.Name)
 }
 

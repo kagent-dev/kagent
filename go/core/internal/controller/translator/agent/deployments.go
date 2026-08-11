@@ -6,7 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // Internal to translator - Data added to the deployment spec for an inline agent
@@ -28,8 +28,8 @@ type resolvedDeployment struct {
 // getRuntimeImageRepository returns the image repository for a given runtime:
 // DefaultGoImageConfig.Repository for the Go runtime, DefaultImageConfig.Repository
 // otherwise.
-func getRuntimeImageRepository(runtime v1alpha2.DeclarativeRuntime) string {
-	if runtime == v1alpha2.DeclarativeRuntime_Go {
+func getRuntimeImageRepository(runtime v1alpha3.DeclarativeRuntime) string {
+	if runtime == v1alpha3.DeclarativeRuntime_Go {
 		return DefaultGoImageConfig.Repository
 	}
 	return DefaultImageConfig.Repository
@@ -47,7 +47,7 @@ func resolvePythonRuntimeImage(registry string, full, pinDigest bool) (string, e
 }
 
 func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error) {
-	repo := getRuntimeImageRepository(v1alpha2.DeclarativeRuntime_Go)
+	repo := getRuntimeImageRepository(v1alpha3.DeclarativeRuntime_Go)
 	digest := GoADKImageDigest
 	imageLabel := "golang-adk"
 	if full {
@@ -84,16 +84,16 @@ func resolveRuntimeImage(registry, repository, tag, digest, imageLabel string, f
 	)
 }
 
-func resolveInlineDeployment(agent *v1alpha2.SandboxAgent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
+func resolveInlineDeployment(agent *v1alpha3.SandboxAgent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	specRef := agent.GetAgentSpec()
 	spec := specRef.Declarative
 
 	// Determine runtime (defaults to python when spec.declarative.runtime is unset).
-	runtime := v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
+	runtime := v1alpha3.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
 
 	// Resolve the runtime image registry.
 	baseRegistry := DefaultImageConfig.Registry
-	if runtime == v1alpha2.DeclarativeRuntime_Go {
+	if runtime == v1alpha3.DeclarativeRuntime_Go {
 		baseRegistry = DefaultGoImageConfig.Registry
 	}
 
@@ -108,7 +108,7 @@ func resolveInlineDeployment(agent *v1alpha2.SandboxAgent, mdd *modelDeploymentD
 	// Substrate ActorTemplates reject tag refs, so runtime images are pinned.
 	pinDigest := true
 	switch runtime {
-	case v1alpha2.DeclarativeRuntime_Go:
+	case v1alpha3.DeclarativeRuntime_Go:
 		var err error
 		image, err = resolveGoRuntimeImage(registry, full, pinDigest)
 		if err != nil {
@@ -130,7 +130,7 @@ func resolveInlineDeployment(agent *v1alpha2.SandboxAgent, mdd *modelDeploymentD
 	return dep, nil
 }
 
-func resolveByoDeployment(agent *v1alpha2.SandboxAgent) (*resolvedDeployment, error) {
+func resolveByoDeployment(agent *v1alpha3.SandboxAgent) (*resolvedDeployment, error) {
 	spec := agent.GetAgentSpec().BYO
 	if spec == nil {
 		return nil, fmt.Errorf("BYO spec is required")

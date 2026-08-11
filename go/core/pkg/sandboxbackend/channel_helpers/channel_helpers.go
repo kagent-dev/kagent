@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -18,7 +18,7 @@ import (
 // CredentialContainerEnv maps a harness channel credential to an ActorTemplate
 // env var. Inline values use env.Value; Secret/ConfigMap sources stay as
 // valueFrom refs resolved by Substrate ate-api at resume (never inlined).
-func CredentialContainerEnv(cred v1alpha2.AgentHarnessChannelCredential, envKey string) (corev1.EnvVar, error) {
+func CredentialContainerEnv(cred v1alpha3.AgentHarnessChannelCredential, envKey string) (corev1.EnvVar, error) {
 	if v := strings.TrimSpace(cred.Value); v != "" {
 		return corev1.EnvVar{Name: envKey, Value: v}, nil
 	}
@@ -26,7 +26,7 @@ func CredentialContainerEnv(cred v1alpha2.AgentHarnessChannelCredential, envKey 
 		return corev1.EnvVar{}, fmt.Errorf("channel credential requires value or valueFrom")
 	}
 	switch cred.ValueFrom.Type {
-	case v1alpha2.SecretValueSource:
+	case v1alpha3.SecretValueSource:
 		return corev1.EnvVar{
 			Name: envKey,
 			ValueFrom: &corev1.EnvVarSource{
@@ -36,7 +36,7 @@ func CredentialContainerEnv(cred v1alpha2.AgentHarnessChannelCredential, envKey 
 				},
 			},
 		}, nil
-	case v1alpha2.ConfigMapValueSource:
+	case v1alpha3.ConfigMapValueSource:
 		return corev1.EnvVar{
 			Name: envKey,
 			ValueFrom: &corev1.EnvVarSource{
@@ -54,7 +54,7 @@ func CredentialContainerEnv(cred v1alpha2.AgentHarnessChannelCredential, envKey 
 // ResolveAllowedUserIDs returns the explicit allowlist IDs (trimmed) when set,
 // otherwise resolves and splits the value referenced by from. Returns nil when
 // neither is provided.
-func ResolveAllowedUserIDs(ctx context.Context, kube client.Client, namespace string, ids []string, from *v1alpha2.ValueSource) ([]string, error) {
+func ResolveAllowedUserIDs(ctx context.Context, kube client.Client, namespace string, ids []string, from *v1alpha3.ValueSource) ([]string, error) {
 	if len(ids) > 0 {
 		return TrimNonEmpty(ids), nil
 	}

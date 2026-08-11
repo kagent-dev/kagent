@@ -29,7 +29,7 @@ import (
 	"k8s.io/client-go/util/retry"
 
 	"github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/provider"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -61,7 +61,7 @@ const (
 // remoteMCPRegistrationTimeout returns the effective registration deadline for
 // a RemoteMCPServer. It uses .spec.timeout when set, and falls back to the
 // package-level default otherwise.
-func remoteMCPRegistrationTimeout(s *v1alpha2.RemoteMCPServer) time.Duration {
+func remoteMCPRegistrationTimeout(s *v1alpha3.RemoteMCPServer) time.Duration {
 	if s != nil && s.Spec.Timeout != nil {
 		return s.Spec.Timeout.Duration
 	}
@@ -123,7 +123,7 @@ func NewKagentReconciler(
 }
 
 func (a *kagentReconciler) ReconcileKagentSandboxAgent(ctx context.Context, req ctrl.Request) error {
-	sandboxAgent := &v1alpha2.SandboxAgent{}
+	sandboxAgent := &v1alpha3.SandboxAgent{}
 	if err := a.kube.Get(ctx, req.NamespacedName, sandboxAgent); err != nil {
 		if apierrors.IsNotFound(err) {
 			return a.handleDeletedAgentResource(ctx, req, "sandbox agent")
@@ -159,7 +159,7 @@ func (a *kagentReconciler) handleDeletedAgentResource(ctx context.Context, req c
 
 func (a *kagentReconciler) reconcileTranslatedAgent(
 	ctx context.Context,
-	agent *v1alpha2.SandboxAgent,
+	agent *v1alpha3.SandboxAgent,
 	resourceName string,
 ) error {
 	if err := a.validateCrossNamespaceReferences(ctx, agent); err != nil {
@@ -198,8 +198,8 @@ func (a *kagentReconciler) reconcileTranslatedAgent(
 	return nil
 }
 
-func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alpha2.SandboxAgent) error {
-	if err := v1alpha2.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
+func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alpha3.SandboxAgent) error {
+	if err := v1alpha3.ValidateSubstrateSandboxAgentSpec(sa); err != nil {
 		return err
 	}
 
@@ -210,9 +210,9 @@ func (a *kagentReconciler) reconcileSandboxAgent(ctx context.Context, sa *v1alph
 	return a.reconcileTranslatedAgent(ctx, sa, "sandboxagent")
 }
 
-func (a *kagentReconciler) reconcileSandboxAgentStatus(ctx context.Context, sa *v1alpha2.SandboxAgent, reconcileErr error, actorTemplatePending bool) error {
+func (a *kagentReconciler) reconcileSandboxAgentStatus(ctx context.Context, sa *v1alpha3.SandboxAgent, reconcileErr error, actorTemplatePending bool) error {
 	deployedCondition := metav1.Condition{
-		Type:               v1alpha2.AgentConditionTypeReady,
+		Type:               v1alpha3.AgentConditionTypeReady,
 		Status:             metav1.ConditionUnknown,
 		ObservedGeneration: sa.Generation,
 	}
@@ -238,7 +238,7 @@ func (a *kagentReconciler) reconcileSandboxAgentStatus(ctx context.Context, sa *
 	return a.updateAgentObjectStatus(ctx, sa, reconcileErr, deployedCondition)
 }
 
-func (a *kagentReconciler) updateAgentObjectStatus(ctx context.Context, agent *v1alpha2.SandboxAgent, reconcileErr error, readyCondition metav1.Condition) error {
+func (a *kagentReconciler) updateAgentObjectStatus(ctx context.Context, agent *v1alpha3.SandboxAgent, reconcileErr error, readyCondition metav1.Condition) error {
 	statusRef := agent.GetAgentStatus()
 	var (
 		status  metav1.ConditionStatus
@@ -256,7 +256,7 @@ func (a *kagentReconciler) updateAgentObjectStatus(ctx context.Context, agent *v
 	}
 
 	conditionChanged := meta.SetStatusCondition(&statusRef.Conditions, metav1.Condition{
-		Type:               v1alpha2.AgentConditionTypeAccepted,
+		Type:               v1alpha3.AgentConditionTypeAccepted,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
@@ -267,7 +267,7 @@ func (a *kagentReconciler) updateAgentObjectStatus(ctx context.Context, agent *v
 	// This implements soft validation - warns but doesn't fail reconciliation.
 	if warning := a.validateRuntimeFeatures(agent); warning != "" {
 		conditionChanged = conditionChanged || meta.SetStatusCondition(&statusRef.Conditions, metav1.Condition{
-			Type:               v1alpha2.AgentConditionTypeUnsupportedFeatures,
+			Type:               v1alpha3.AgentConditionTypeUnsupportedFeatures,
 			Status:             metav1.ConditionTrue,
 			Reason:             "UnsupportedFeatures",
 			Message:            warning,
@@ -276,7 +276,7 @@ func (a *kagentReconciler) updateAgentObjectStatus(ctx context.Context, agent *v
 	} else {
 		// Clear warning condition if previously set
 		for i, cond := range statusRef.Conditions {
-			if cond.Type == v1alpha2.AgentConditionTypeUnsupportedFeatures && cond.Reason == "UnsupportedFeatures" {
+			if cond.Type == v1alpha3.AgentConditionTypeUnsupportedFeatures && cond.Reason == "UnsupportedFeatures" {
 				statusRef.Conditions = append(statusRef.Conditions[:i], statusRef.Conditions[i+1:]...)
 				conditionChanged = true
 				break
@@ -347,7 +347,7 @@ type secretRef struct {
 }
 
 func (a *kagentReconciler) ReconcileKagentModelConfig(ctx context.Context, req ctrl.Request) error {
-	modelConfig := &v1alpha2.ModelConfig{}
+	modelConfig := &v1alpha3.ModelConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, modelConfig); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil
@@ -473,7 +473,7 @@ func computeStatusSecretHash(secrets []secretRef) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha2.ModelConfig, err error, secretHash string) error {
+func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, modelConfig *v1alpha3.ModelConfig, err error, secretHash string) error {
 	var (
 		status  metav1.ConditionStatus
 		message string
@@ -491,7 +491,7 @@ func (a *kagentReconciler) reconcileModelConfigStatus(ctx context.Context, model
 	}
 
 	conditionChanged := meta.SetStatusCondition(&modelConfig.Status.Conditions, metav1.Condition{
-		Type:               v1alpha2.ModelConfigConditionTypeAccepted,
+		Type:               v1alpha3.ModelConfigConditionTypeAccepted,
 		Status:             status,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
@@ -563,7 +563,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 	serverRef := nns.String()
 	l := reconcileLog.WithValues("remoteMCPServer", serverRef)
 
-	server := &v1alpha2.RemoteMCPServer{}
+	server := &v1alpha3.RemoteMCPServer{}
 	if err := a.kube.Get(ctx, nns, server); err != nil {
 		// if the remote MCP server is not found, we can ignore it
 		if apierrors.IsNotFound(err) {
@@ -647,7 +647,7 @@ func (a *kagentReconciler) ReconcileKagentRemoteMCPServer(ctx context.Context, r
 // gets a clear Accepted=false on the RMS rather than a startup crash
 // (FileNotFoundError from the Python ADK) on every consuming agent —
 // mirrors the equivalent check in ReconcileKagentModelConfig.
-func (a *kagentReconciler) computeRemoteMCPServerSecretHash(ctx context.Context, server *v1alpha2.RemoteMCPServer) (string, error) {
+func (a *kagentReconciler) computeRemoteMCPServerSecretHash(ctx context.Context, server *v1alpha3.RemoteMCPServer) (string, error) {
 	tlsSpec := server.Spec.TLS
 	if tlsSpec == nil || tlsSpec.CACertSecretRef == "" {
 		return "", nil
@@ -667,8 +667,8 @@ func (a *kagentReconciler) computeRemoteMCPServerSecretHash(ctx context.Context,
 
 func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 	ctx context.Context,
-	server *v1alpha2.RemoteMCPServer,
-	discoveredTools []*v1alpha2.MCPTool,
+	server *v1alpha3.RemoteMCPServer,
+	discoveredTools []*v1alpha3.MCPTool,
 	secretHash string,
 	err error,
 ) error {
@@ -687,7 +687,7 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 		message = "Remote MCP server configuration accepted"
 	}
 	conditionChanged := meta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{
-		Type:               v1alpha2.AgentConditionTypeAccepted,
+		Type:               v1alpha3.AgentConditionTypeAccepted,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
@@ -717,9 +717,9 @@ func (a *kagentReconciler) reconcileRemoteMCPServerStatus(
 // references in the agent's tools target namespaces that are watched by the
 // controller. This prevents agents from referencing tools or agents in
 // namespaces that the controller cannot access.
-func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context, agent *v1alpha2.SandboxAgent) error {
+func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context, agent *v1alpha3.SandboxAgent) error {
 	spec := agent.GetAgentSpec()
-	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
+	if spec.Type != v1alpha3.AgentType_Declarative || spec.Declarative == nil {
 		return nil
 	}
 	decl := spec.Declarative
@@ -744,7 +744,7 @@ func (a *kagentReconciler) validateCrossNamespaceReferences(ctx context.Context,
 // This includes:
 //  1. Checking that target namespaces are watched by the controller
 //  2. Checking that the target Agent allows references from the agent's namespace
-func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.TypedReference) error {
+func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourceNamespace string, ref *v1alpha3.TypedReference) error {
 	agentRef := ref.NamespacedName(sourceNamespace)
 
 	// Same namespace references are always allowed
@@ -762,7 +762,7 @@ func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourc
 	if ref.Kind != "SandboxAgent" {
 		return fmt.Errorf("agent tool kind must be SandboxAgent, got %q", ref.Kind)
 	}
-	targetAgent := &v1alpha2.SandboxAgent{}
+	targetAgent := &v1alpha3.SandboxAgent{}
 	if err := a.kube.Get(ctx, agentRef, targetAgent); err != nil {
 		return fmt.Errorf("failed to get agent %s: %w", agentRef, err)
 	}
@@ -783,7 +783,7 @@ func (a *kagentReconciler) validateAgentToolReference(ctx context.Context, sourc
 //  1. Enforcing same-namespace-only for MCPServer and Service (external types)
 //  2. Checking that target namespaces are watched by the controller
 //  3. Checking that the target resource allows references from the agent's namespace
-func (a *kagentReconciler) validateMcpServerReference(ctx context.Context, sourceNamespace string, ref *v1alpha2.McpServerTool) error {
+func (a *kagentReconciler) validateMcpServerReference(ctx context.Context, sourceNamespace string, ref *v1alpha3.McpServerTool) error {
 	gk := ref.GroupKind()
 	targetRef := ref.NamespacedName(sourceNamespace)
 
@@ -815,7 +815,7 @@ func (a *kagentReconciler) validateMcpServerReference(ctx context.Context, sourc
 		}
 
 		// For RemoteMCPServer, check AllowedNamespaces
-		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
+		remoteMcpServer := &v1alpha3.RemoteMCPServer{}
 		if err := a.kube.Get(ctx, targetRef, remoteMcpServer); err != nil {
 			return fmt.Errorf("failed to get RemoteMCPServer %s: %w", targetRef, err)
 		}
@@ -841,9 +841,9 @@ func (a *kagentReconciler) validateMcpServerReference(ctx context.Context, sourc
 // validateRuntimeFeatures checks if the agent configures features unsupported by its runtime.
 // Returns a warning message if unsupported features are detected, empty string otherwise.
 // This implements soft validation - warns but doesn't fail reconciliation.
-func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha2.SandboxAgent) string {
+func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha3.SandboxAgent) string {
 	spec := agent.GetAgentSpec()
-	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
+	if spec.Type != v1alpha3.AgentType_Declarative || spec.Declarative == nil {
 		return ""
 	}
 	decl := spec.Declarative
@@ -851,11 +851,11 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha2.SandboxAgent)
 	// Get runtime (defaults to python)
 	runtime := decl.Runtime
 	if runtime == "" {
-		runtime = v1alpha2.DeclarativeRuntime_Python
+		runtime = v1alpha3.DeclarativeRuntime_Python
 	}
 
 	// Python runtime supports all features
-	if runtime != v1alpha2.DeclarativeRuntime_Go {
+	if runtime != v1alpha3.DeclarativeRuntime_Go {
 		return ""
 	}
 
@@ -1038,12 +1038,12 @@ func (a *kagentReconciler) deleteObjects(ctx context.Context, objects map[types.
 	return errors.Join(pruneErrs...)
 }
 
-func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.SandboxAgent, agentOutputs *agent_translator.AgentOutputs) error {
+func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha3.SandboxAgent, agentOutputs *agent_translator.AgentOutputs) error {
 	id := utils.ConvertToPythonIdentifier(utils.GetObjectRef(agent))
 	dbAgent := &database.Agent{
 		ID:           id,
 		Type:         "SandboxAgent",
-		WorkloadType: v1alpha2.WorkloadModeSandbox,
+		WorkloadType: v1alpha3.WorkloadModeSandbox,
 		Config:       agentOutputs.Config,
 	}
 
@@ -1054,11 +1054,11 @@ func (a *kagentReconciler) upsertAgent(ctx context.Context, agent *v1alpha2.Sand
 	return nil
 }
 
-func agentKind(agent *v1alpha2.SandboxAgent) string {
+func agentKind(agent *v1alpha3.SandboxAgent) string {
 	return "SandboxAgent"
 }
 
-func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha2.RemoteMCPServer) ([]*v1alpha2.MCPTool, error) {
+func (a *kagentReconciler) upsertToolServerForRemoteMCPServer(ctx context.Context, toolServer *database.ToolServer, remoteMcpServer *v1alpha3.RemoteMCPServer) ([]*v1alpha3.MCPTool, error) {
 	if _, err := a.dbClient.StoreToolServer(ctx, toolServer); err != nil {
 		return nil, fmt.Errorf("failed to store toolServer %s: %w", toolServer.Name, err)
 	}
@@ -1095,7 +1095,7 @@ func (a *kagentReconciler) isNamespaceWatched(namespace string) bool {
 	return slices.Contains(a.watchedNamespaces, namespace)
 }
 
-func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.RemoteMCPServer) (mcp.Transport, error) {
+func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha3.RemoteMCPServer) (mcp.Transport, error) {
 	headers, err := s.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
@@ -1122,7 +1122,7 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 	httpClient := newHTTPClient(headers, remoteMCPRegistrationTimeout(s), tlsConfig)
 
 	switch s.Spec.Protocol {
-	case v1alpha2.RemoteMCPServerProtocolSse:
+	case v1alpha3.RemoteMCPServerProtocolSse:
 		return &mcp.SSEClientTransport{
 			Endpoint:   endpoint,
 			HTTPClient: httpClient,
@@ -1143,7 +1143,7 @@ func (a *kagentReconciler) createMcpTransport(ctx context.Context, s *v1alpha2.R
 // translator emits — disableVerify, custom CA from a Secret, and
 // disableSystemCAs trust-only-the-named-bundle — so tool discovery
 // trusts the same upstream chain the agent will trust at runtime.
-func (a *kagentReconciler) buildRemoteMCPServerTLSConfig(ctx context.Context, s *v1alpha2.RemoteMCPServer) (*tls.Config, error) {
+func (a *kagentReconciler) buildRemoteMCPServerTLSConfig(ctx context.Context, s *v1alpha3.RemoteMCPServer) (*tls.Config, error) {
 	tlsSpec := s.Spec.TLS
 	if tlsSpec.IsEmpty() {
 		return nil, nil
@@ -1238,7 +1238,7 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(req)
 }
 
-func (a *kagentReconciler) listTools(ctx context.Context, tsp mcp.Transport, toolServer *database.ToolServer) ([]*v1alpha2.MCPTool, error) {
+func (a *kagentReconciler) listTools(ctx context.Context, tsp mcp.Transport, toolServer *database.ToolServer) ([]*v1alpha3.MCPTool, error) {
 	impl := &mcp.Implementation{
 		Name:    "kagent-controller",
 		Version: version.Version,
@@ -1256,9 +1256,9 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp mcp.Transport, too
 		return nil, fmt.Errorf("failed to list tools for toolServer %s: %w", toolServer.Name, err)
 	}
 
-	tools := make([]*v1alpha2.MCPTool, 0, len(result.Tools))
+	tools := make([]*v1alpha3.MCPTool, 0, len(result.Tools))
 	for _, tool := range result.Tools {
-		tools = append(tools, &v1alpha2.MCPTool{
+		tools = append(tools, &v1alpha3.MCPTool{
 			Name:        tool.Name,
 			Description: tool.Description,
 		})
@@ -1267,14 +1267,14 @@ func (a *kagentReconciler) listTools(ctx context.Context, tsp mcp.Transport, too
 	return tools, nil
 }
 
-func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef string) ([]*v1alpha2.MCPTool, error) {
+func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef string) ([]*v1alpha3.MCPTool, error) {
 	// This function is currently only used for RemoteMCPServer
 	allTools, err := a.dbClient.ListToolsForServer(ctx, serverRef, schema.GroupKind{Group: "kagent.dev", Kind: "RemoteMCPServer"}.String())
 	if err != nil {
 		return nil, err
 	}
 
-	var discoveredTools []*v1alpha2.MCPTool
+	var discoveredTools []*v1alpha3.MCPTool
 	for _, tool := range allTools {
 		mcpTool, err := convertTool(&tool)
 		if err != nil {
@@ -1286,8 +1286,8 @@ func (a *kagentReconciler) getDiscoveredMCPTools(ctx context.Context, serverRef 
 	return discoveredTools, nil
 }
 
-func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {
-	return &v1alpha2.MCPTool{
+func convertTool(tool *database.Tool) (*v1alpha3.MCPTool, error) {
+	return &v1alpha3.MCPTool{
 		Name:        tool.ID,
 		Description: tool.Description,
 	}, nil
@@ -1295,7 +1295,7 @@ func convertTool(tool *database.Tool) (*v1alpha2.MCPTool, error) {
 
 // ReconcileKagentModelProviderConfig reconciles a ModelProviderConfig object
 func (a *kagentReconciler) ReconcileKagentModelProviderConfig(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	mpc := &v1alpha2.ModelProviderConfig{}
+	mpc := &v1alpha3.ModelProviderConfig{}
 	if err := a.kube.Get(ctx, req.NamespacedName, mpc); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil // Deleted, cleanup done by OwnerReferences
@@ -1322,7 +1322,7 @@ func (a *kagentReconciler) ReconcileKagentModelProviderConfig(ctx context.Contex
 
 // resolveModelProviderConfigSecret fetches the Secret, validates it, and returns the API key and hash.
 // For model provider configs that don't require authentication (e.g., Ollama), returns empty apiKey with no error.
-func (a *kagentReconciler) resolveModelProviderConfigSecret(ctx context.Context, mpc *v1alpha2.ModelProviderConfig) (string, string, error) {
+func (a *kagentReconciler) resolveModelProviderConfigSecret(ctx context.Context, mpc *v1alpha3.ModelProviderConfig) (string, string, error) {
 	// Model providers like Ollama don't require authentication
 	if !mpc.Spec.RequiresSecret() {
 		return "", "", nil
@@ -1381,7 +1381,7 @@ func computeModelProviderSecretHash(secret *corev1.Secret) string {
 }
 
 // shouldDiscoverModels checks if model discovery is needed
-func (a *kagentReconciler) shouldDiscoverModels(mpc *v1alpha2.ModelProviderConfig) bool {
+func (a *kagentReconciler) shouldDiscoverModels(mpc *v1alpha3.ModelProviderConfig) bool {
 	// Initial discovery when ModelProviderConfig is first created or spec changed
 	if mpc.Status.LastDiscoveryTime == nil {
 		return true
@@ -1397,7 +1397,7 @@ func (a *kagentReconciler) shouldDiscoverModels(mpc *v1alpha2.ModelProviderConfi
 }
 
 // discoverModelProviderConfigModels calls the model discoverer to fetch models
-func (a *kagentReconciler) discoverModelProviderConfigModels(ctx context.Context, mpc *v1alpha2.ModelProviderConfig, apiKey string) ([]string, error) {
+func (a *kagentReconciler) discoverModelProviderConfigModels(ctx context.Context, mpc *v1alpha3.ModelProviderConfig, apiKey string) ([]string, error) {
 	// For model provider configs that require auth, ensure we have an API key
 	if mpc.Spec.RequiresSecret() && apiKey == "" {
 		return nil, fmt.Errorf("cannot discover models: API key not available")
@@ -1412,7 +1412,7 @@ func (a *kagentReconciler) discoverModelProviderConfigModels(ctx context.Context
 // Only modifies the status subresource - never modifies the ModelProviderConfig object itself.
 func (a *kagentReconciler) updateModelProviderConfigStatus(
 	ctx context.Context,
-	mpc *v1alpha2.ModelProviderConfig,
+	mpc *v1alpha3.ModelProviderConfig,
 	secretErr, discoveryErr error,
 	models []string,
 	secretHash string,
@@ -1424,7 +1424,7 @@ func (a *kagentReconciler) updateModelProviderConfigStatus(
 	// Update SecretResolved condition
 	if secretRequired {
 		meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
-			Type:               v1alpha2.ModelProviderConfigConditionTypeSecretResolved,
+			Type:               v1alpha3.ModelProviderConfigConditionTypeSecretResolved,
 			Status:             conditionStatus(secretErr == nil),
 			Reason:             conditionReason(secretErr, "SecretResolved", "SecretNotFound"),
 			Message:            conditionMessage(secretErr, "Secret resolved successfully"),
@@ -1433,7 +1433,7 @@ func (a *kagentReconciler) updateModelProviderConfigStatus(
 	} else {
 		// Model provider config doesn't require a secret (e.g., Ollama)
 		meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
-			Type:               v1alpha2.ModelProviderConfigConditionTypeSecretResolved,
+			Type:               v1alpha3.ModelProviderConfigConditionTypeSecretResolved,
 			Status:             metav1.ConditionTrue,
 			Reason:             "SecretNotRequired",
 			Message:            "Model provider config does not require authentication",
@@ -1444,7 +1444,7 @@ func (a *kagentReconciler) updateModelProviderConfigStatus(
 	// Update ModelsDiscovered condition
 	modelsDiscovered := discoveryErr == nil && len(models) > 0
 	meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
-		Type:               v1alpha2.ModelProviderConfigConditionTypeModelsDiscovered,
+		Type:               v1alpha3.ModelProviderConfigConditionTypeModelsDiscovered,
 		Status:             conditionStatus(modelsDiscovered),
 		Reason:             conditionReason(discoveryErr, "ModelsDiscovered", "DiscoveryFailed"),
 		Message:            fmt.Sprintf("Discovered %d models", len(models)),
@@ -1454,7 +1454,7 @@ func (a *kagentReconciler) updateModelProviderConfigStatus(
 	// Update Ready condition (overall health)
 	ready := secretResolved && modelsDiscovered
 	meta.SetStatusCondition(&mpc.Status.Conditions, metav1.Condition{
-		Type:               v1alpha2.ModelProviderConfigConditionTypeReady,
+		Type:               v1alpha3.ModelProviderConfigConditionTypeReady,
 		Status:             conditionStatus(ready),
 		Reason:             conditionReason(nil, "Ready", "NotReady"),
 		Message:            conditionMessage(nil, "Model provider config is ready"),
@@ -1507,7 +1507,7 @@ func conditionMessage(err error, successMessage string) string {
 // This is called by the HTTP API when refresh=true is requested.
 // It reuses all existing internal reconciler methods - no code duplication.
 func (a *kagentReconciler) RefreshModelProviderConfigModels(ctx context.Context, namespace, name string) ([]string, error) {
-	mpc := &v1alpha2.ModelProviderConfig{}
+	mpc := &v1alpha3.ModelProviderConfig{}
 	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, mpc); err != nil {
 		return nil, fmt.Errorf("failed to get model provider config %s/%s: %w", namespace, name, err)
 	}

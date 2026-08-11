@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
 	"github.com/pgvector/pgvector-go"
 )
@@ -460,7 +460,7 @@ func (c *postgresClient) DeleteToolsForServer(ctx context.Context, serverName, g
 	return c.q.SoftDeleteToolsForServer(ctx, dbgen.SoftDeleteToolsForServerParams{ServerName: serverName, GroupKind: groupKind})
 }
 
-func (c *postgresClient) RefreshToolsForServer(ctx context.Context, serverName, groupKind string, tools ...*v1alpha2.MCPTool) error {
+func (c *postgresClient) RefreshToolsForServer(ctx context.Context, serverName, groupKind string, tools ...*v1alpha3.MCPTool) error {
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
 		if err := q.SoftDeleteToolsForServer(ctx, dbgen.SoftDeleteToolsForServerParams{
 			ServerName: serverName, GroupKind: groupKind,
@@ -867,7 +867,7 @@ func toAgent(r dbgen.Agent) *dbpkg.Agent {
 		UpdatedAt:    derefTime(r.UpdatedAt),
 		DeletedAt:    r.DeletedAt,
 		Type:         r.Type,
-		WorkloadType: v1alpha2.WorkloadMode(r.WorkloadType),
+		WorkloadType: v1alpha3.WorkloadMode(r.WorkloadType),
 		Config:       r.Config,
 	}
 }

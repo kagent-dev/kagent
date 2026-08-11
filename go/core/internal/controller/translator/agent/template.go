@@ -8,7 +8,7 @@ import (
 	"text/template"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,7 +30,7 @@ type PromptTemplateContext struct {
 
 // resolvePromptSources fetches all data from the referenced ConfigMaps and builds
 // a lookup map keyed by "identifier/key" where identifier is the alias (if set) or resource name.
-func resolvePromptSources(ctx context.Context, kube client.Client, namespace string, sources []v1alpha2.PromptSource) (map[string]string, error) {
+func resolvePromptSources(ctx context.Context, kube client.Client, namespace string, sources []v1alpha3.PromptSource) (map[string]string, error) {
 	lookup := make(map[string]string)
 
 	for _, src := range sources {
@@ -61,7 +61,7 @@ func resolvePromptSources(ctx context.Context, kube client.Client, namespace str
 // buildTemplateContext constructs the template context from an Agent resource and its
 // already-translated AgentConfig. Tool names are extracted from the config rather than
 // recomputed from the spec.
-func buildTemplateContext(agent *v1alpha2.SandboxAgent, cfg *adk.AgentConfig) PromptTemplateContext {
+func buildTemplateContext(agent *v1alpha3.SandboxAgent, cfg *adk.AgentConfig) PromptTemplateContext {
 	spec := agent.GetAgentSpec()
 	tplCtx := PromptTemplateContext{
 		AgentName:      agent.GetName(),

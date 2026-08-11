@@ -3,14 +3,14 @@ package controller
 import (
 	"slices"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type agentDependencyPredicate func(*v1alpha2.SandboxAgent, types.NamespacedName) bool
+type agentDependencyPredicate func(*v1alpha3.SandboxAgent, types.NamespacedName) bool
 
-func collectSandboxAgentRefs(items []v1alpha2.SandboxAgent, pred func(*v1alpha2.SandboxAgent) bool) []types.NamespacedName {
+func collectSandboxAgentRefs(items []v1alpha3.SandboxAgent, pred func(*v1alpha3.SandboxAgent) bool) []types.NamespacedName {
 	var out []types.NamespacedName
 	for i := range items {
 		agent := &items[i]
@@ -29,13 +29,13 @@ func reconcileRequestsForRefs(refs []types.NamespacedName) []reconcile.Request {
 	return requests
 }
 
-func usesMCPServer(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
+func usesMCPServer(agent *v1alpha3.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
-	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
+	if spec.Type != v1alpha3.AgentType_Declarative || spec.Declarative == nil {
 		return false
 	}
 
-	return slices.ContainsFunc(spec.Declarative.Tools, func(tool *v1alpha2.Tool) bool {
+	return slices.ContainsFunc(spec.Declarative.Tools, func(tool *v1alpha3.Tool) bool {
 		return tool != nil &&
 			tool.McpServer != nil &&
 			tool.McpServer.ApiGroup == "kagent.dev" &&
@@ -44,24 +44,24 @@ func usesMCPServer(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool 
 	})
 }
 
-func usesRemoteMCPServer(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
+func usesRemoteMCPServer(agent *v1alpha3.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
-	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
+	if spec.Type != v1alpha3.AgentType_Declarative || spec.Declarative == nil {
 		return false
 	}
 
-	return slices.ContainsFunc(spec.Declarative.Tools, func(tool *v1alpha2.Tool) bool {
+	return slices.ContainsFunc(spec.Declarative.Tools, func(tool *v1alpha3.Tool) bool {
 		return tool != nil && tool.McpServer != nil && tool.McpServer.NamespacedName(agent.GetNamespace()) == obj
 	})
 }
 
-func usesMCPService(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
+func usesMCPService(agent *v1alpha3.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
-	if spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
+	if spec.Type != v1alpha3.AgentType_Declarative || spec.Declarative == nil {
 		return false
 	}
 
-	return slices.ContainsFunc(spec.Declarative.Tools, func(tool *v1alpha2.Tool) bool {
+	return slices.ContainsFunc(spec.Declarative.Tools, func(tool *v1alpha3.Tool) bool {
 		return tool != nil &&
 			tool.McpServer != nil &&
 			tool.McpServer.ApiGroup == "" &&
@@ -70,28 +70,28 @@ func usesMCPService(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool
 	})
 }
 
-func usesModelConfig(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
+func usesModelConfig(agent *v1alpha3.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
 	return agent.GetNamespace() == obj.Namespace &&
-		spec.Type == v1alpha2.AgentType_Declarative &&
+		spec.Type == v1alpha3.AgentType_Declarative &&
 		spec.Declarative != nil &&
 		spec.Declarative.ModelConfig == obj.Name
 }
 
-func referencesConfigMap(agent *v1alpha2.SandboxAgent, obj types.NamespacedName) bool {
+func referencesConfigMap(agent *v1alpha3.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
-	if agent.GetNamespace() != obj.Namespace || spec.Type != v1alpha2.AgentType_Declarative || spec.Declarative == nil {
+	if agent.GetNamespace() != obj.Namespace || spec.Type != v1alpha3.AgentType_Declarative || spec.Declarative == nil {
 		return false
 	}
 
 	if ref := spec.Declarative.SystemMessageFrom; ref != nil {
-		if ref.Type == v1alpha2.ConfigMapValueSource && ref.Name == obj.Name {
+		if ref.Type == v1alpha3.ConfigMapValueSource && ref.Name == obj.Name {
 			return true
 		}
 	}
 
 	if pt := spec.Declarative.PromptTemplate; pt != nil {
-		return slices.ContainsFunc(pt.DataSources, func(ds v1alpha2.PromptSource) bool {
+		return slices.ContainsFunc(pt.DataSources, func(ds v1alpha3.PromptSource) bool {
 			return ds.Name == obj.Name
 		})
 	}

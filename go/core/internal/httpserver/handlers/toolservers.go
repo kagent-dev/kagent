@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-logr/logr"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -35,7 +35,7 @@ type ToolServerCreateRequest struct {
 	Type ToolServerType `json:"type"`
 
 	// RemoteMCPServer is used when Type is "RemoteMCPServer"
-	RemoteMCPServer *v1alpha2.RemoteMCPServer `json:"remoteMCPServer,omitempty"`
+	RemoteMCPServer *v1alpha3.RemoteMCPServer `json:"remoteMCPServer,omitempty"`
 
 	// MCPServer is used when Type is "MCPServer"
 	MCPServer *v1alpha1.MCPServer `json:"mcpServer,omitempty"`
@@ -56,9 +56,9 @@ type ToolServerCreateRequest struct {
 // remoteMCPServerGVK and mcpServerGVK are passed to the
 // companion-secret helpers so the OwnerReference and ownership check
 // use the right Kind. kmcp.MCPServer shares the kagent.dev group with
-// v1alpha2 (see kmcp/api/v1alpha1/groupversion_info.go).
+// v1alpha3 (see kmcp/api/v1alpha1/groupversion_info.go).
 var (
-	remoteMCPServerGVK = v1alpha2.GroupVersion.WithKind("RemoteMCPServer")
+	remoteMCPServerGVK = v1alpha3.GroupVersion.WithKind("RemoteMCPServer")
 	mcpServerGVK       = v1alpha1.GroupVersion.WithKind("MCPServer")
 )
 
@@ -85,9 +85,9 @@ func (h *ToolServersHandler) HandleListToolServers(w ErrorResponseWriter, r *htt
 			return
 		}
 
-		discoveredTools := make([]*v1alpha2.MCPTool, len(tools))
+		discoveredTools := make([]*v1alpha3.MCPTool, len(tools))
 		for j, tool := range tools {
-			discoveredTools[j] = &v1alpha2.MCPTool{
+			discoveredTools[j] = &v1alpha3.MCPTool{
 				Name:        tool.ID,
 				Description: tool.Description,
 			}
@@ -147,7 +147,7 @@ func (h *ToolServersHandler) HandleCreateToolServer(w ErrorResponseWriter, r *ht
 }
 
 // handleCreateRemoteMCPServer handles the creation of a RemoteMCPServer
-func (h *ToolServersHandler) handleCreateRemoteMCPServer(w ErrorResponseWriter, r *http.Request, toolServerRequest *v1alpha2.RemoteMCPServer, secrets []api.SecretMaterial, log logr.Logger) {
+func (h *ToolServersHandler) handleCreateRemoteMCPServer(w ErrorResponseWriter, r *http.Request, toolServerRequest *v1alpha3.RemoteMCPServer, secrets []api.SecretMaterial, log logr.Logger) {
 	if toolServerRequest.Namespace == "" {
 		toolServerRequest.Namespace = common.GetResourceNamespace()
 	}
@@ -300,7 +300,7 @@ func (h *ToolServersHandler) HandleDeleteToolServer(w ErrorResponseWriter, r *ht
 	// Delete based on the groupKind
 	switch groupKind {
 	case "RemoteMCPServer.kagent.dev":
-		toolServer := &v1alpha2.RemoteMCPServer{}
+		toolServer := &v1alpha3.RemoteMCPServer{}
 		err = h.KubeClient.Get(
 			r.Context(),
 			client.ObjectKey{

@@ -3,7 +3,7 @@ package httpapi
 import (
 	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -45,8 +45,8 @@ type VersionResponse struct {
 // ModelConfigResource is the HTTP response for a ModelConfig: ref + raw CRD spec/status.
 type ModelConfigResource struct {
 	Ref    string                     `json:"ref"`
-	Spec   v1alpha2.ModelConfigSpec   `json:"spec"`
-	Status v1alpha2.ModelConfigStatus `json:"status,omitempty"`
+	Spec   v1alpha3.ModelConfigSpec   `json:"spec"`
+	Status v1alpha3.ModelConfigStatus `json:"status,omitempty"`
 }
 
 // SecretMaterial describes a Secret key/value pair to create or update alongside a ModelConfig.
@@ -63,13 +63,13 @@ type CreateModelConfigRequest struct {
 	APIKey string `json:"apiKey,omitempty"`
 	// Secrets are optional companion Secrets to create or update alongside the ModelConfig.
 	Secrets []SecretMaterial         `json:"secrets,omitempty"`
-	Spec    v1alpha2.ModelConfigSpec `json:"spec"`
+	Spec    v1alpha3.ModelConfigSpec `json:"spec"`
 }
 
 // UpdateModelConfigRequest is a thin wrapper: optional inline apiKey + full CRD spec.
 type UpdateModelConfigRequest struct {
 	APIKey  *string                  `json:"apiKey,omitempty"`
-	Spec    v1alpha2.ModelConfigSpec `json:"spec"`
+	Spec    v1alpha3.ModelConfigSpec `json:"spec"`
 	Secrets []SecretMaterial         `json:"secrets,omitempty"`
 }
 
@@ -79,11 +79,11 @@ type AgentResource struct {
 	APIVersion string                    `json:"apiVersion,omitempty"`
 	Kind       string                    `json:"kind,omitempty"`
 	Metadata   metav1.ObjectMeta         `json:"metadata,omitempty"`
-	Spec       v1alpha2.SandboxAgentSpec `json:"spec,omitempty"`
-	Status     v1alpha2.AgentStatus      `json:"status,omitempty"`
+	Spec       v1alpha3.SandboxAgentSpec `json:"spec,omitempty"`
+	Status     v1alpha3.AgentStatus      `json:"status,omitempty"`
 }
 
-func AgentResourceFrom(agent *v1alpha2.SandboxAgent) *AgentResource {
+func AgentResourceFrom(agent *v1alpha3.SandboxAgent) *AgentResource {
 	if agent == nil {
 		return nil
 	}
@@ -94,7 +94,7 @@ func AgentResourceFrom(agent *v1alpha2.SandboxAgent) *AgentResource {
 	kind := gvk.Kind
 	var metadata metav1.ObjectMeta
 	if apiVersion == "" {
-		apiVersion = v1alpha2.GroupVersion.String()
+		apiVersion = v1alpha3.GroupVersion.String()
 	}
 	if kind == "" {
 		kind = "SandboxAgent"
@@ -115,7 +115,7 @@ func AgentResourceFrom(agent *v1alpha2.SandboxAgent) *AgentResource {
 
 // SubstrateAgentHarnessListEntry describes an AgentHarness backed by Agent Substrate.
 type SubstrateAgentHarnessListEntry struct {
-	Backend v1alpha2.AgentHarnessBackendType `json:"backend"`
+	Backend v1alpha3.AgentHarnessBackendType `json:"backend"`
 	ActorID string                           `json:"actorId,omitempty"`
 	// AcpPath is the server-side ACP WebSocket proxy path for chatting with
 	// the harness from the kagent UI.
@@ -129,11 +129,11 @@ type AgentResponse struct {
 	ID    string         `json:"id"`
 	Agent *AgentResource `json:"agent"`
 	// Config         *adk.AgentConfig       `json:"config"`
-	ModelProvider         v1alpha2.ModelProvider          `json:"modelProvider"`
+	ModelProvider         v1alpha3.ModelProvider          `json:"modelProvider"`
 	Model                 string                          `json:"model"`
 	ModelConfigRef        string                          `json:"modelConfigRef"`
 	MemoryRefs            []string                        `json:"memoryRefs"`
-	Tools                 []*v1alpha2.Tool                `json:"tools"`
+	Tools                 []*v1alpha3.Tool                `json:"tools"`
 	Ready                 bool                            `json:"ready"`
 	Accepted              bool                            `json:"accepted"`
 	SubstrateAgentHarness *SubstrateAgentHarnessListEntry `json:"substrateAgentHarness,omitempty"`
@@ -182,7 +182,7 @@ type Feedback = database.Feedback
 type ToolServerResponse struct {
 	Ref             string              `json:"ref"`
 	GroupKind       string              `json:"groupKind"`
-	DiscoveredTools []*v1alpha2.MCPTool `json:"discoveredTools"`
+	DiscoveredTools []*v1alpha3.MCPTool `json:"discoveredTools"`
 }
 
 // Memory types

@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // NewFakeK8sClientset creates a fake Kubernetes clientset with optional initial objects.
@@ -26,8 +26,8 @@ func NewFakeControllerClient(t *testing.T, objects ...client.Object) client.Clie
 
 	scheme := runtime.NewScheme()
 
-	if err := v1alpha2.AddToScheme(scheme); err != nil {
-		t.Fatalf("failed to add v1alpha2 to scheme: %v", err)
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add v1alpha3 to scheme: %v", err)
 	}
 
 	if err := corev1.AddToScheme(scheme); err != nil {
@@ -41,15 +41,15 @@ func NewFakeControllerClient(t *testing.T, objects ...client.Object) client.Clie
 }
 
 // CreateTestAgent creates a test Agent resource for testing.
-func CreateTestAgent(namespace, name string) *v1alpha2.SandboxAgent {
-	return &v1alpha2.SandboxAgent{
+func CreateTestAgent(namespace, name string) *v1alpha3.SandboxAgent {
+	return &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
 		},
-		Spec: v1alpha2.SandboxAgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.SandboxAgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test agent",
 			},
 		},

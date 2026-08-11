@@ -17,13 +17,13 @@ This document details all Custom Resource Definitions in kagent and how their ty
 └──────────────────┘       └──────────────────┘
 ```
 
-**All CRDs use API version `kagent.dev/v1alpha2`** (except MCPServer which is from KMCP).
+**All CRDs use API version `kagent.dev/v1alpha3`** (except MCPServer which is from KMCP).
 
 ---
 
 ## Agent CRD
 
-**File:** `go/api/v1alpha2/agent_types.go`
+**File:** `go/api/v1alpha3/agent_types.go`
 
 The central CRD. Defines an AI agent's configuration, tools, and deployment.
 
@@ -108,7 +108,7 @@ AgentStatus
 
 ## ModelConfig CRD
 
-**File:** `go/api/v1alpha2/modelconfig_types.go`
+**File:** `go/api/v1alpha3/modelconfig_types.go`
 
 Configures LLM provider credentials and model parameters.
 
@@ -163,7 +163,7 @@ ModelConfigSpec
 
 ## RemoteMCPServer CRD
 
-**File:** `go/api/v1alpha2/remotemcpserver_types.go`
+**File:** `go/api/v1alpha3/remotemcpserver_types.go`
 
 Declares a remote MCP tool server that agents can reference.
 
@@ -199,7 +199,7 @@ When reconciled, the controller connects to the MCP server, lists tools, and pop
 
 ## Common Types
 
-**File:** `go/api/v1alpha2/common_types.go`
+**File:** `go/api/v1alpha3/common_types.go`
 
 ### ValueRef
 
@@ -252,7 +252,7 @@ The same configuration data flows through three type systems:
 
 ```
 CRD Types (Go)                    Go ADK Types              Python ADK Types
-go/api/v1alpha2/                  go/api/adk/types.go       kagent/adk/types.py
+go/api/v1alpha3/                  go/api/adk/types.go       kagent/adk/types.py
 ────────────────                  ───────────────────       ────────────────────
 AgentSpec                    ──▶  AgentConfig          ──▶  AgentConfig
 DeclarativeAgentSpec         ──▶  AgentConfig.Agent    ──▶  AgentConfig.agent
@@ -339,7 +339,7 @@ Memory (DB)
 
 When adding a field to an existing CRD, update all layers:
 
-1. **CRD type** — `go/api/v1alpha2/*_types.go` (add field with kubebuilder markers)
+1. **CRD type** — `go/api/v1alpha3/*_types.go` (add field with kubebuilder markers)
 2. **Code generation** — `make -C go generate` (DeepCopy, CRD manifests)
 3. **Helm CRD chart** — `cp go/api/config/crd/bases/*.yaml helm/kagent-crds/templates/`
 4. **Go ADK types** — `go/api/adk/types.go` (if field affects agent config)

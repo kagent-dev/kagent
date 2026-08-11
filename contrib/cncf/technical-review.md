@@ -78,8 +78,9 @@ Target personas interact with kagent through multiple interfaces:
 
 3. **Kubernetes API**: Direct interaction via `kubectl` and Kubernetes manifests:
    ```yaml
-   apiVersion: kagent.dev/v1alpha2
-   kind: SandboxAgent   metadata:
+   apiVersion: kagent.dev/v1alpha3
+   kind: SandboxAgent
+   metadata:
      name: my-agent
    spec:
      type: Declarative
@@ -282,10 +283,10 @@ Persistent Storage:
 Kagent exposes multiple API surfaces:
 
 1. **Kubernetes API** (CRDs):
-   - `sandboxagents.kagent.dev/v1alpha2` - Agent definitions
-   - `modelconfigs.kagent.dev/v1alpha2` - LLM model configurations
+   - `sandboxagents.kagent.dev/v1alpha3` - Agent definitions
+   - `modelconfigs.kagent.dev/v1alpha3` - LLM model configurations
    - `toolservers.kagent.dev/v1alpha1` - MCP tool server definitions
-   - `remotemcpservers.kagent.dev/v1alpha2` - Remote MCP servers
+   - `remotemcpservers.kagent.dev/v1alpha3` - Remote MCP servers
    - `memories.kagent.dev/v1alpha1` - Memory/vector store configurations
    - `mcpservers.kagent.dev` (inherited via KMCP dependency)
 
@@ -346,13 +347,13 @@ These do not modify existing Kubernetes APIs or cloud provider APIs.
 **API Compatibility:**
 
 - **Kubernetes API Server**: Compatible with Kubernetes 1.27+ (uses standard CRD and controller-runtime patterns)
-- **API Versioning**: Currently `v1alpha2` for core types, `v1alpha1` for memory types
+- **API Versioning**: Currently `v1alpha3` for core types, with `v1alpha1` and `v1alpha2` compatibility APIs
 - **Backward Compatibility**: Breaking changes allowed in alpha versions, will stabilize in v1beta1 and v1
 - **Conversion Webhooks**: Planned for v1beta1 to support multiple API versions simultaneously
 
 **API Versioning and Breaking Changes:**
 
-- **Alpha** (`v1alpha1`, `v1alpha2`): Breaking changes allowed between versions, deprecated APIs removed after 1-2 releases
+- **Alpha** (`v1alpha1`, `v1alpha2`, `v1alpha3`): Breaking changes allowed between versions, deprecated APIs removed after 1-2 releases
 - **Beta** (planned `v1beta1`): Breaking changes discouraged, deprecated APIs supported for 2+ releases
 - **Stable** (planned `v1`): Strong backward compatibility guarantees, deprecated APIs supported for 3+ releases
 - **Deprecation Policy**: Follows Kubernetes deprecation policy - announcements in release notes, migration guides provided

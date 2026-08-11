@@ -5,7 +5,7 @@ import (
 
 	kclient "github.com/kagent-dev/kagent/go/api/client"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	v1alpha2 "github.com/kagent-dev/kagent/go/api/v1alpha2"
+	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -35,7 +35,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 	//   Vertex   -> https://platform.claude.com/docs/en/build-with-claude/claude-in-google-cloud-vertex-ai
 	//   SAP      -> SAP Note 3437766 (live model/version table)
 	supportedModels := kclient.ProviderModels{
-		v1alpha2.ModelProviderOpenAI: {
+		v1alpha3.ModelProviderOpenAI: {
 			// GPT-5.6 family
 			{Name: "gpt-5.6-terra", FunctionCalling: true},
 			{Name: "gpt-5.6-luna", FunctionCalling: true},
@@ -70,7 +70,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "gpt-4", FunctionCalling: true},
 			{Name: "gpt-3.5-turbo", FunctionCalling: true},
 		},
-		v1alpha2.ModelProviderAnthropic: {
+		v1alpha3.ModelProviderAnthropic: {
 			{Name: "claude-fable-5", FunctionCalling: true},
 			{Name: "claude-opus-4-8", FunctionCalling: true},
 			{Name: "claude-opus-4-7", FunctionCalling: true},
@@ -86,7 +86,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "claude-3-7-sonnet-20250219", FunctionCalling: true},
 			{Name: "claude-3-5-sonnet-20240620", FunctionCalling: true},
 		},
-		v1alpha2.ModelProviderAzureOpenAI: {
+		v1alpha3.ModelProviderAzureOpenAI: {
 			// Azure rollout lags OpenAI; newer point releases may be region-limited.
 			{Name: "gpt-5.5", FunctionCalling: true},
 			{Name: "gpt-5.4", FunctionCalling: true},
@@ -109,7 +109,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "gpt-35-turbo", FunctionCalling: true}, // Azure spelling (no dot)
 			{Name: "gpt-oss-120b", FunctionCalling: true},
 		},
-		v1alpha2.ModelProviderFoundry: {
+		v1alpha3.ModelProviderFoundry: {
 			// Azure AI Foundry serves many vendors' chat-completion models through
 			// its OpenAI-compatible data plane. These are common suggestions; the
 			// value is the model name, while the Foundry deployment name is set
@@ -133,7 +133,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "cohere-command-a", FunctionCalling: true},
 			{Name: "grok-3", FunctionCalling: true},
 		},
-		v1alpha2.ModelProviderOllama: {
+		v1alpha3.ModelProviderOllama: {
 			// FunctionCalling flags corrected: recent Ollama builds of these models
 			// support tool calling.
 			{Name: "llama3.3", FunctionCalling: true},
@@ -146,7 +146,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "llama2:13b", FunctionCalling: false},
 			{Name: "llama2:70b", FunctionCalling: false},
 		},
-		v1alpha2.ModelProviderGemini: {
+		v1alpha3.ModelProviderGemini: {
 			// Gemini 3 family
 			{Name: "gemini-3.5-flash", FunctionCalling: true},
 			{Name: "gemini-3.1-pro", FunctionCalling: true},
@@ -158,7 +158,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "gemini-2.5-flash", FunctionCalling: true},
 			{Name: "gemini-2.5-flash-lite", FunctionCalling: true},
 		},
-		v1alpha2.ModelProviderGeminiVertexAI: {
+		v1alpha3.ModelProviderGeminiVertexAI: {
 			{Name: "gemini-3.5-flash", FunctionCalling: true},
 			{Name: "gemini-3.1-pro", FunctionCalling: true},
 			{Name: "gemini-3-pro", FunctionCalling: true},
@@ -168,7 +168,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "gemini-2.5-flash", FunctionCalling: true},
 			{Name: "gemini-2.5-flash-lite", FunctionCalling: true},
 		},
-		v1alpha2.ModelProviderAnthropicVertexAI: {
+		v1alpha3.ModelProviderAnthropicVertexAI: {
 			{Name: "claude-opus-4-8", FunctionCalling: true},
 			{Name: "claude-opus-4-7", FunctionCalling: true},
 			{Name: "claude-sonnet-5", FunctionCalling: true},
@@ -178,7 +178,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			{Name: "claude-sonnet-4@20250514", FunctionCalling: true},
 			{Name: "claude-haiku-4-5@20251001", FunctionCalling: true},
 		},
-		v1alpha2.ModelProviderBedrock: {
+		v1alpha3.ModelProviderBedrock: {
 			{Name: "global.anthropic.claude-fable-5", FunctionCalling: true},
 			{Name: "global.anthropic.claude-opus-4-8", FunctionCalling: true},
 			{Name: "global.anthropic.claude-opus-4-7", FunctionCalling: true},
@@ -194,7 +194,7 @@ func (h *ModelHandler) HandleListSupportedModels(w ErrorResponseWriter, r *http.
 			// Amazon Nova
 			{Name: "us.amazon.nova-2-lite-v1:0", FunctionCalling: false},
 		},
-		v1alpha2.ModelProviderSAPAICore: {
+		v1alpha3.ModelProviderSAPAICore: {
 			// Anthropic (via SAP Generative AI Hub proxy naming)
 			{Name: "anthropic--claude-4.7-opus", FunctionCalling: true},
 			{Name: "anthropic--claude-4.6-sonnet", FunctionCalling: true},

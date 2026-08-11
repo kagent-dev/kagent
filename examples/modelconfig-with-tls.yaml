@@ -47,7 +47,7 @@ stringData:
   key: sk-litellm-1234567890abcdef  # Replace with your actual API key
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: litellm-internal
@@ -107,7 +107,7 @@ stringData:
     -----END CERTIFICATE-----
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: corporate-llm
@@ -145,7 +145,7 @@ stringData:
     -----END CERTIFICATE-----
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: strict-internal-llm
@@ -177,7 +177,7 @@ spec:
 # Use Case: Local development where you want to quickly test without
 # managing certificates, or testing against a server with invalid certificates.
 
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: litellm-dev
@@ -234,7 +234,7 @@ stringData:
   key: your-azure-api-key-here
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: azure-through-proxy
@@ -270,7 +270,7 @@ stringData:
   key: sk-openai-1234567890abcdef
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: openai-public
@@ -291,7 +291,7 @@ spec:
 # Complete example showing how to create an Agent that uses a ModelConfig
 # with TLS configuration.
 
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: SandboxAgent
 metadata:
   name: internal-assistant

@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,8 +56,8 @@ type AgentSpec struct {
 	Type AgentType `json:"type,omitempty"`
 
 	// BYO configures a "bring your own" agent backed by a user-provided
-	// container image. Kagent runs the image through Agent Substrate and expects
-	// it to serve the agent over the A2A protocol on port 80.
+	// container image. Kagent deploys the image and expects it to serve the
+	// agent over the A2A protocol on port 8080.
 	// Required if type is BYO.
 	// +optional
 	BYO *BYOAgentSpec `json:"byo,omitempty"`
@@ -100,10 +101,6 @@ type AgentSpec struct {
 	// be consumed by BYO agents.
 	// +optional
 	Sandbox *SandboxConfig `json:"sandbox,omitempty"`
-
-	// Substrate configures the Agent Substrate worker pool.
-	// +optional
-	Substrate *SandboxSubstrateSpec `json:"substrate,omitempty"`
 
 	// AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
 	// This follows the Gateway API pattern for cross-namespace route attachments.
@@ -238,7 +235,7 @@ type DeclarativeAgentSpec struct {
 	// Runtime specifies which ADK implementation to use for this agent.
 	// - "go": Uses the Go ADK (default, faster startup, most features supported)
 	// - "python": Uses the Python ADK (slower startup, full feature set)
-	// The runtime determines the ActorTemplate container image and command.
+	// The runtime determines both the container image and readiness probe configuration.
 	// +optional
 	// +kubebuilder:default=go
 	Runtime DeclarativeRuntime `json:"runtime,omitempty"`
@@ -273,18 +270,13 @@ type DeclarativeAgentSpec struct {
 	// served on the HTTP port of the kagent kubernetes
 	// controller (default 8083).
 	// The A2A server URL will be served at
-	// <kagent-controller-ip>:8083/api/a2a-sandboxes/<agent-namespace>/<agent-name>
+	// <kagent-controller-ip>:8083/api/a2a/<agent-namespace>/<agent-name>
 	// Read more about the A2A protocol here: https://github.com/a2aproject/A2A
 	// +optional
 	A2AConfig *A2AConfig `json:"a2aConfig,omitempty"`
 
-	// ImageRegistry overrides the registry used for the declarative runtime image.
 	// +optional
-	ImageRegistry string `json:"imageRegistry,omitempty"`
-
-	// Env are additional environment variables set on the runtime container.
-	// +optional
-	Env []corev1.EnvVar `json:"env,omitempty"`
+	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
 
 	// Memory configuration for the agent.
 	// +optional
@@ -429,24 +421,117 @@ type MemorySpec struct {
 	TTLDays int `json:"ttlDays,omitempty"`
 }
 
+type DeclarativeDeploymentSpec struct {
+	// +optional
+	ImageRegistry string `json:"imageRegistry,omitempty"`
+
+	SharedDeploymentSpec `json:",inline"`
+}
+
 type BYOAgentSpec struct {
+	// Deployment configures the Kubernetes Deployment created for the BYO agent container.
+	// +optional
+	Deployment *ByoDeploymentSpec `json:"deployment,omitempty"`
+}
+
+type ByoDeploymentSpec struct {
 	// Image is the container image of the BYO agent.
-	// The image must serve A2A on port 80.
+	// The image is expected to serve the agent over the A2A protocol on port 8080.
 	// +kubebuilder:validation:MinLength=1
 	// +optional
 	Image string `json:"image,omitempty"`
-
 	// Cmd overrides the container entrypoint (the container's command).
 	// +optional
 	Cmd *string `json:"cmd,omitempty"`
-
 	// Args are the arguments passed to the container entrypoint.
 	// +optional
 	Args []string `json:"args,omitempty"`
+	// workingDir sets the container working directory. Defaults to the image WORKDIR when omitted.
+	// +optional
+	WorkingDir *string `json:"workingDir,omitempty"`
 
-	// Env are additional environment variables set on the runtime container.
+	SharedDeploymentSpec `json:",inline"`
+}
+
+// +kubebuilder:validation:XValidation:message="serviceAccountName and serviceAccountConfig are mutually exclusive",rule="!(has(self.serviceAccountName) && has(self.serviceAccountConfig))"
+type SharedDeploymentSpec struct {
+	// Replicas is the number of desired agent pods. Defaults to 1.
+	// +optional
+	Replicas *int32 `json:"replicas,omitempty"`
+	// ImagePullSecrets are references to secrets in the agent's namespace
+	// used for pulling the agent container image.
+	// +optional
+	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
+	// Volumes are additional volumes added to the agent pod.
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+	// VolumeMounts are additional volume mounts added to the agent container.
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// Labels are additional labels added to the agent pods.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// Annotations are additional annotations added to the agent pods.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// DeploymentAnnotations are additional annotations added to the agent Deployment
+	// object itself. Unlike Annotations, which apply to the agent pods, these apply to
+	// the Deployment metadata. Keys set here take precedence over annotations inherited
+	// from the agent resource metadata. This has no effect when the agent runs with the
+	// Sandbox workload mode, as no Deployment is created in that mode.
+	// +optional
+	DeploymentAnnotations map[string]string `json:"deploymentAnnotations,omitempty"`
+	// Env are additional environment variables set on the agent container.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// EnvFrom are sources (ConfigMaps/Secrets) used to populate environment variables
+	// on the agent container. Values defined in Env with a duplicate key take precedence.
+	// +optional
+	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
+	// +optional
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// +optional
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	// Tolerations applied to the agent pods.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// TopologySpreadConstraints describes how a group of pods ought to spread across topology
+	// domains. All topologySpreadConstraints are ANDed.
+	// +optional
+	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
+	// NodeSelector restricts the nodes the agent pods can be scheduled on.
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+	// +optional
+	PodSecurityContext *corev1.PodSecurityContext `json:"podSecurityContext,omitempty"`
+	// ServiceAccountName specifies the name of an existing ServiceAccount to use.
+	// If this field is set, the Agent controller will not create a ServiceAccount for the agent.
+	// This field is mutually exclusive with ServiceAccountConfig.
+	// +optional
+	ServiceAccountName *string `json:"serviceAccountName,omitempty"`
+	// ServiceAccountConfig configures the ServiceAccount created by the Agent controller.
+	// This field can only be used when ServiceAccountName is not set.
+	// If ServiceAccountName is not set, a default ServiceAccount (named after the agent)
+	// is created, and this config will be applied to it.
+	// +optional
+	ServiceAccountConfig *ServiceAccountConfig `json:"serviceAccountConfig,omitempty"`
+	// ExtraContainers is a list of additional containers to run alongside the main agent container.
+	// Useful for sidecars such as token proxies, log shippers, or security agents.
+	// +optional
+	ExtraContainers []corev1.Container `json:"extraContainers,omitempty"`
+}
+
+type ServiceAccountConfig struct {
+	// Labels are additional labels added to the created ServiceAccount.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// Annotations are additional annotations added to the created ServiceAccount.
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // ToolProviderType represents the tool provider type
@@ -636,4 +721,40 @@ type AgentStatus struct {
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Type",type="string",JSONPath=".spec.type",description="The type of the agent."
+// +kubebuilder:printcolumn:name="Runtime",type="string",JSONPath=".spec.declarative.runtime",description="The runtime implementation for declarative agents."
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Whether or not the agent is ready to serve requests."
+// +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status",description="Whether or not the agent has been accepted by the system."
+// +kubebuilder:storageversion
+
+// Agent is the Schema for the agents API.
+type Agent struct {
+	metav1.TypeMeta `json:",inline"`
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// +optional
+	Spec AgentSpec `json:"spec,omitempty"`
+	// +optional
+	Status AgentStatus `json:"status,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+
+// AgentList contains a list of Agent.
+type AgentList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Agent `json:"items"`
+}
+
+func init() {
+	SchemeBuilder.Register(func(s *runtime.Scheme) error {
+		s.AddKnownTypes(GroupVersion, &Agent{}, &AgentList{})
+		return nil
+	})
 }

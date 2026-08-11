@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 )
@@ -25,68 +25,68 @@ import (
 func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 
 	// Create test objects
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
 	}
 
-	remoteMcpServer := &v1alpha2.RemoteMCPServer{
+	remoteMcpServer := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-mcp",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL:      "http://test-mcp-server.kagent:8084/mcp",
-			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
 
-	nestedAgent := &v1alpha2.SandboxAgent{
+	nestedAgent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "nested-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test",
 				ModelConfig:   "default-model",
 			},
 		},
 	}
 
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_Agent,
-						Agent: &v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_Agent,
+						Agent: &v1alpha3.TypedReference{
 							Kind: "SandboxAgent",
 							Name: "nested-agent",
 						},
 					},
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "test-mcp",
 								Kind: "RemoteMCPServer",
 							},
@@ -184,46 +184,46 @@ func TestProxyConfiguration_ThroughTranslateAgent(t *testing.T) {
 func TestProxyConfiguration_RemoteMCPServer_FallsBackToWatchedNamespacesWhenNamespaceReadsForbidden(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
 	}
 
-	remoteMcpServer := &v1alpha2.RemoteMCPServer{
+	remoteMcpServer := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-mcp",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL:      "http://test-mcp-server.kagent:8084/mcp",
-			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
 
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "test-mcp",
 								Kind: "RemoteMCPServer",
 							},
@@ -271,47 +271,47 @@ func TestProxyConfiguration_RemoteMCPServer_FallsBackToWatchedNamespacesWhenName
 func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
 	}
 
 	// RemoteMCPServer with external URL (not internal k8s)
-	remoteMcpServer := &v1alpha2.RemoteMCPServer{
+	remoteMcpServer := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "external-mcp",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL:      "https://external-mcp.example.com/mcp",
-			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
 
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "external-mcp",
 								Kind: "RemoteMCPServer",
 							},
@@ -362,17 +362,17 @@ func TestProxyConfiguration_RemoteMCPServer_ExternalURL(t *testing.T) {
 func TestProxyConfiguration_MCPServer(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = v1alpha1.AddToScheme(scheme)
 	require.NoError(t, err)
 
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
@@ -390,21 +390,21 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 		},
 	}
 
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "test-mcp-server",
 								Kind: "MCPServer",
 							},
@@ -453,15 +453,15 @@ func TestProxyConfiguration_MCPServer(t *testing.T) {
 func TestProxyConfiguration_Service(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "default-model",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
@@ -488,21 +488,21 @@ func TestProxyConfiguration_Service(t *testing.T) {
 		},
 	}
 
-	agent := &v1alpha2.SandboxAgent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-agent",
 			Namespace: "test",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{
 								Name: "test-service",
 								Kind: "Service",
 							},

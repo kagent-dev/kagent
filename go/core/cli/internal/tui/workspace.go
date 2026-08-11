@@ -17,7 +17,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/api/client"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/dialogs"
@@ -523,7 +523,7 @@ func (m *workspaceModel) renderDetails() {
 		fmt.Fprintf(&m.details, "\nTools:\n")
 		for _, t := range m.agent.Agent.Spec.Declarative.Tools {
 			switch t.Type {
-			case v1alpha2.ToolProviderType_McpServer:
+			case v1alpha3.ToolProviderType_McpServer:
 				name := ""
 				if t.McpServer != nil {
 					name = t.McpServer.Name
@@ -533,7 +533,7 @@ func (m *workspaceModel) renderDetails() {
 					fmt.Fprintf(&m.details, " (tools: %s)", strings.Join(t.McpServer.ToolNames, ", "))
 				}
 				fmt.Fprint(&m.details, "\n")
-			case v1alpha2.ToolProviderType_Agent:
+			case v1alpha3.ToolProviderType_Agent:
 				name := ""
 				if t.Agent != nil {
 					name = t.Agent.Name

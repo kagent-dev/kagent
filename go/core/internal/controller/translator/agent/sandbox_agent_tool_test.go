@@ -12,7 +12,7 @@ import (
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 )
 
@@ -21,13 +21,13 @@ import (
 func Test_AdkApiTranslator_SandboxAgentTool(t *testing.T) {
 	ctx := context.Background()
 	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
-	declarativeSpec := func(tools ...*v1alpha2.Tool) v1alpha2.AgentSpec {
-		return v1alpha2.AgentSpec{
-			Type:        v1alpha2.AgentType_Declarative,
+	declarativeSpec := func(tools ...*v1alpha3.Tool) v1alpha3.AgentSpec {
+		return v1alpha3.AgentSpec{
+			Type:        v1alpha3.AgentType_Declarative,
 			Description: "test agent",
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test",
 				ModelConfig:   "default-model",
 				Tools:         tools,
@@ -35,39 +35,39 @@ func Test_AdkApiTranslator_SandboxAgentTool(t *testing.T) {
 		}
 	}
 
-	agentToolRef := func(name, kind string) *v1alpha2.Tool {
-		return &v1alpha2.Tool{
-			Type: v1alpha2.ToolProviderType_Agent,
-			Agent: &v1alpha2.TypedReference{
+	agentToolRef := func(name, kind string) *v1alpha3.Tool {
+		return &v1alpha3.Tool{
+			Type: v1alpha3.ToolProviderType_Agent,
+			Agent: &v1alpha3.TypedReference{
 				Name: name,
 				Kind: kind,
 			},
 		}
 	}
 
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "default-model", Namespace: "test"},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Provider: "OpenAI",
 			Model:    "gpt-4o",
 		},
 	}
 	testNamespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "test"}}
 
-	sandboxTool := &v1alpha2.SandboxAgent{
+	sandboxTool := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "shared-name", Namespace: "test"},
 		Spec:       declarativeSpec(),
 	}
 	tests := []struct {
 		name        string
-		agent       *v1alpha2.SandboxAgent
+		agent       *v1alpha3.SandboxAgent
 		wantURL     string
 		wantErr     bool
 		errContains string
 	}{
 		{
 			name: "kind SandboxAgent resolves SandboxAgent and routes via controller proxy",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: "test"},
 				Spec:       declarativeSpec(agentToolRef("shared-name", "SandboxAgent")),
 			},
@@ -75,7 +75,7 @@ func Test_AdkApiTranslator_SandboxAgentTool(t *testing.T) {
 		},
 		{
 			name: "empty kind is rejected",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: "test"},
 				Spec:       declarativeSpec(agentToolRef("shared-name", "")),
 			},
@@ -84,7 +84,7 @@ func Test_AdkApiTranslator_SandboxAgentTool(t *testing.T) {
 		},
 		{
 			name: "unsupported kind is rejected",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: "test"},
 				Spec:       declarativeSpec(agentToolRef("shared-name", "AgentHarness")),
 			},
@@ -93,7 +93,7 @@ func Test_AdkApiTranslator_SandboxAgentTool(t *testing.T) {
 		},
 		{
 			name: "missing SandboxAgent returns not found",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "parent", Namespace: "test"},
 				Spec:       declarativeSpec(agentToolRef("does-not-exist", "SandboxAgent")),
 			},
@@ -102,7 +102,7 @@ func Test_AdkApiTranslator_SandboxAgentTool(t *testing.T) {
 		},
 		{
 			name: "SandboxAgent referencing itself is rejected",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "shared-name", Namespace: "test"},
 				Spec:       declarativeSpec(agentToolRef("shared-name", "SandboxAgent")),
 			},

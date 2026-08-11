@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
@@ -68,7 +68,7 @@ type SandboxAgentController struct {
 // +kubebuilder:rbac:groups=ate.dev,resources=actortemplates/status,verbs=get
 
 func (r *SandboxAgentController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var sa v1alpha2.SandboxAgent
+	var sa v1alpha3.SandboxAgent
 	if err := r.Client.Get(ctx, req.NamespacedName, &sa); err != nil {
 		if apierrors.IsNotFound(err) {
 			if recErr := r.Reconciler.ReconcileKagentSandboxAgent(ctx, req); recErr != nil {
@@ -104,7 +104,7 @@ func (r *SandboxAgentController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: new(true),
 		}).
-		For(&v1alpha2.SandboxAgent{}, builder.WithPredicates(sandboxAgentPrimaryPredicate()))
+		For(&v1alpha3.SandboxAgent{}, builder.WithPredicates(sandboxAgentPrimaryPredicate()))
 
 	var err error
 	build, err = addOwnedResourceWatches(build, mgr, r.AdkTranslator.GetOwnedResourceTypes())
@@ -152,13 +152,13 @@ func sandboxAgentPrimaryPredicate() predicate.Predicate {
 
 func (r *SandboxAgentController) sandboxAgentDependencyFinder(errMsg string, pred agentDependencyPredicate) dependentRefFinder {
 	return func(ctx context.Context, cl client.Client, obj types.NamespacedName) []types.NamespacedName {
-		var list v1alpha2.SandboxAgentList
+		var list v1alpha3.SandboxAgentList
 		if err := cl.List(ctx, &list); err != nil {
 			sandboxAgentControllerLog.Error(err, errMsg)
 			return nil
 		}
 
-		return collectSandboxAgentRefs(list.Items, func(agent *v1alpha2.SandboxAgent) bool {
+		return collectSandboxAgentRefs(list.Items, func(agent *v1alpha3.SandboxAgent) bool {
 			return pred(agent, obj)
 		})
 	}

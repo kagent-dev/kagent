@@ -3,7 +3,7 @@ package agent_test
 import (
 	"context"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -18,11 +18,11 @@ func (testSandboxBackend) BuildSandbox(context.Context, sandboxbackend.BuildInpu
 
 func (testSandboxBackend) GetOwnedResourceTypes() []client.Object { return nil }
 
-func (testSandboxBackend) OwnedResourceTypesFor(*v1alpha2.SandboxAgent) ([]client.Object, error) {
+func (testSandboxBackend) OwnedResourceTypesFor(*v1alpha3.SandboxAgent) ([]client.Object, error) {
 	return nil, nil
 }
 
-func (testSandboxBackend) SessionDBURL(*v1alpha2.SandboxAgent) string {
+func (testSandboxBackend) SessionDBURL(*v1alpha3.SandboxAgent) string {
 	return "sqlite+aiosqlite:////durable/session.db"
 }
 

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestImageConfigImage(t *testing.T) {
@@ -170,12 +170,12 @@ func TestResolveInlineDeploymentImagePinning(t *testing.T) {
 	t.Cleanup(func() { PythonADKImageDigest = original })
 	PythonADKImageDigest = "sha256:pin-test"
 
-	spec := v1alpha2.AgentSpec{
-		Type:        v1alpha2.AgentType_Declarative,
-		Declarative: &v1alpha2.DeclarativeAgentSpec{SystemMessage: "test", ModelConfig: "test-model"},
+	spec := v1alpha3.AgentSpec{
+		Type:        v1alpha3.AgentType_Declarative,
+		Declarative: &v1alpha3.DeclarativeAgentSpec{SystemMessage: "test", ModelConfig: "test-model"},
 	}
 
-	sandbox := &v1alpha2.SandboxAgent{Spec: spec}
+	sandbox := &v1alpha3.SandboxAgent{Spec: spec}
 	sdep, err := resolveInlineDeployment(sandbox, &modelDeploymentData{})
 	require.NoError(t, err)
 	require.Contains(t, sdep.Image, "@sha256:pin-test", "sandbox agents require digest-pinned images (Substrate rejects tag refs)")

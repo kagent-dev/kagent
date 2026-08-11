@@ -12,7 +12,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -81,7 +81,7 @@ func (a *A2ARegistrar) NeedLeaderElection() bool {
 func (a *A2ARegistrar) Start(ctx context.Context) error {
 	log := ctrllog.FromContext(ctx).WithName("a2a-registrar")
 
-	if err := a.registerAgentInformer(ctx, &v1alpha2.SandboxAgent{}, log); err != nil {
+	if err := a.registerAgentInformer(ctx, &v1alpha3.SandboxAgent{}, log); err != nil {
 		return err
 	}
 
@@ -93,7 +93,7 @@ func (a *A2ARegistrar) Start(ctx context.Context) error {
 	return nil
 }
 
-func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype *v1alpha2.SandboxAgent, log logr.Logger) error {
+func (a *A2ARegistrar) registerAgentInformer(ctx context.Context, prototype *v1alpha3.SandboxAgent, log logr.Logger) error {
 	informer, err := a.cache.GetInformer(ctx, prototype)
 	if err != nil {
 		return fmt.Errorf("failed to get cache informer for %T: %w", prototype, err)
@@ -155,31 +155,31 @@ func (a *A2ARegistrar) notifyAgentChange(ctx context.Context) {
 	}
 }
 
-func agentReadinessChanged(oldAgent, newAgent *v1alpha2.SandboxAgent) bool {
+func agentReadinessChanged(oldAgent, newAgent *v1alpha3.SandboxAgent) bool {
 	return isAgentReady(oldAgent) != isAgentReady(newAgent)
 }
 
-func isAgentReady(agent *v1alpha2.SandboxAgent) bool {
+func isAgentReady(agent *v1alpha3.SandboxAgent) bool {
 	status := agent.GetAgentStatus()
 	if status == nil {
 		return false
 	}
 	workloadReady, accepted := false, false
 	for _, c := range status.Conditions {
-		if c.Type == v1alpha2.AgentConditionTypeReady && c.Status == metav1.ConditionTrue {
+		if c.Type == v1alpha3.AgentConditionTypeReady && c.Status == metav1.ConditionTrue {
 			switch c.Reason {
 			case reconciler.AgentReadyReasonWorkloadReady:
 				workloadReady = true
 			}
 		}
-		if c.Type == v1alpha2.AgentConditionTypeAccepted && c.Status == metav1.ConditionTrue {
+		if c.Type == v1alpha3.AgentConditionTypeAccepted && c.Status == metav1.ConditionTrue {
 			accepted = true
 		}
 	}
 	return workloadReady && accepted
 }
 
-func sameAgentSpec(oldAgent, newAgent *v1alpha2.SandboxAgent) bool {
+func sameAgentSpec(oldAgent, newAgent *v1alpha3.SandboxAgent) bool {
 	oldSpec := oldAgent.GetAgentSpec()
 	newSpec := newAgent.GetAgentSpec()
 	switch {
@@ -192,12 +192,12 @@ func sameAgentSpec(oldAgent, newAgent *v1alpha2.SandboxAgent) bool {
 	}
 }
 
-func informerAgentObject(obj any) (*v1alpha2.SandboxAgent, bool) {
-	typed, ok := obj.(*v1alpha2.SandboxAgent)
+func informerAgentObject(obj any) (*v1alpha3.SandboxAgent, bool) {
+	typed, ok := obj.(*v1alpha3.SandboxAgent)
 	return typed, ok
 }
 
-func deletedInformerAgentObject(obj any) (*v1alpha2.SandboxAgent, bool) {
+func deletedInformerAgentObject(obj any) (*v1alpha3.SandboxAgent, bool) {
 	if typed, ok := informerAgentObject(obj); ok {
 		return typed, true
 	}
@@ -208,7 +208,7 @@ func deletedInformerAgentObject(obj any) (*v1alpha2.SandboxAgent, bool) {
 	return informerAgentObject(tombstone.Obj)
 }
 
-func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha2.SandboxAgent, log logr.Logger) error {
+func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha3.SandboxAgent, log logr.Logger) error {
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
 	card := agent_translator.GetA2AAgentCard(agent)
 
@@ -276,15 +276,15 @@ func a2aHTTPClient() *http.Client {
 	return client
 }
 
-func (a *A2ARegistrar) a2aRouteURL(agent *v1alpha2.SandboxAgent) string {
+func (a *A2ARegistrar) a2aRouteURL(agent *v1alpha3.SandboxAgent) string {
 	return a.sandboxA2AURL + "/" + types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}.String() + "/"
 }
 
-func a2aRouteKey(agent *v1alpha2.SandboxAgent) string {
+func a2aRouteKey(agent *v1alpha3.SandboxAgent) string {
 	return a2aRoutePath(agent)
 }
 
-func a2aRoutePath(agent *v1alpha2.SandboxAgent) string {
+func a2aRoutePath(agent *v1alpha3.SandboxAgent) string {
 	agentRef := types.NamespacedName{Namespace: agent.GetNamespace(), Name: agent.GetName()}
 	return routeKey(agentRef.Namespace, agentRef.Name)
 }

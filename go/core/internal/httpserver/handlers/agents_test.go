@@ -19,7 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
@@ -28,55 +28,55 @@ import (
 )
 
 // Test fixtures and helper functions
-func createTestModelConfig() *v1alpha2.ModelConfig {
-	return &v1alpha2.ModelConfig{
+func createTestModelConfig() *v1alpha3.ModelConfig {
+	return &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-model-config",
 			Namespace: "default",
 		},
-		Spec: v1alpha2.ModelConfigSpec{
-			Provider: v1alpha2.ModelProviderOpenAI,
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderOpenAI,
 			Model:    "gpt-4",
 		},
 	}
 }
 
-func createTestAgent(name string, modelConfig *v1alpha2.ModelConfig) *v1alpha2.SandboxAgent {
-	return &v1alpha2.SandboxAgent{
+func createTestAgent(name string, modelConfig *v1alpha3.ModelConfig) *v1alpha3.SandboxAgent {
+	return &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "default",
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				ModelConfig: modelConfig.Name,
 			},
 		},
 	}
 }
 
-func createTestAgentWithStatus(name string, modelConfig *v1alpha2.ModelConfig, conditions []metav1.Condition) *v1alpha2.SandboxAgent {
+func createTestAgentWithStatus(name string, modelConfig *v1alpha3.ModelConfig, conditions []metav1.Condition) *v1alpha3.SandboxAgent {
 	agent := createTestAgent(name, modelConfig)
-	agent.Status = v1alpha2.AgentStatus{
+	agent.Status = v1alpha3.AgentStatus{
 		Conditions: conditions,
 	}
 	return agent
 }
 
-func createTestSandboxAgentCRD(name string, modelConfig *v1alpha2.ModelConfig, conditions []metav1.Condition) *v1alpha2.SandboxAgent {
-	return &v1alpha2.SandboxAgent{
+func createTestSandboxAgentCRD(name string, modelConfig *v1alpha3.ModelConfig, conditions []metav1.Condition) *v1alpha3.SandboxAgent {
+	return &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: "default",
 		},
-		Spec: v1alpha2.SandboxAgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.SandboxAgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				ModelConfig: modelConfig.Name,
 			},
 		},
-		Status: v1alpha2.AgentStatus{
+		Status: v1alpha3.AgentStatus{
 			Conditions: conditions,
 		},
 	}
@@ -117,11 +117,11 @@ func (testSandboxBackend) BuildSandbox(context.Context, sandboxbackend.BuildInpu
 
 func (testSandboxBackend) GetOwnedResourceTypes() []client.Object { return nil }
 
-func (testSandboxBackend) OwnedResourceTypesFor(*v1alpha2.SandboxAgent) ([]client.Object, error) {
+func (testSandboxBackend) OwnedResourceTypesFor(*v1alpha3.SandboxAgent) ([]client.Object, error) {
 	return nil, nil
 }
 
-func (testSandboxBackend) SessionDBURL(*v1alpha2.SandboxAgent) string { return "" }
+func (testSandboxBackend) SessionDBURL(*v1alpha3.SandboxAgent) string { return "" }
 
 func (testSandboxBackend) ComputeReady(context.Context, client.Client, types.NamespacedName) (metav1.ConditionStatus, string, string) {
 	return metav1.ConditionTrue, "WorkloadReady", "ready"
@@ -142,7 +142,7 @@ func withRuntimeImageDigests(t *testing.T) {
 	})
 }
 
-func createAgent(client database.Client, agent *v1alpha2.SandboxAgent) {
+func createAgent(client database.Client, agent *v1alpha3.SandboxAgent) {
 	dbAgent := &database.Agent{
 		Config: &adk.AgentConfig{},
 		ID:     common.GetObjectRef(agent),
@@ -180,9 +180,9 @@ func TestHandleGetSandboxAgent(t *testing.T) {
 
 func TestHandleGetAgentHarness(t *testing.T) {
 	t.Run("gets AgentHarness", func(t *testing.T) {
-		sb := &v1alpha2.AgentHarness{
+		sb := &v1alpha3.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "gh-get", Namespace: "default"},
-			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
+			Spec:       v1alpha3.AgentHarnessSpec{Backend: v1alpha3.AgentHarnessBackendOpenClaw},
 		}
 		handler, _ := setupTestHandler(t, sb)
 
@@ -244,12 +244,12 @@ func TestHandleListAgents(t *testing.T) {
 		require.Equal(t, "not-ready-agent", response.Data[0].Agent.Metadata.Name)
 		require.Equal(t, "default/test-model-config", response.Data[0].ModelConfigRef)
 		require.Equal(t, "gpt-4", response.Data[0].Model)
-		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data[0].ModelProvider)
+		require.Equal(t, v1alpha3.ModelProviderOpenAI, response.Data[0].ModelProvider)
 		require.Equal(t, false, response.Data[0].Ready)
 		require.Equal(t, "ready-agent", response.Data[1].Agent.Metadata.Name)
 		require.Equal(t, "default/test-model-config", response.Data[1].ModelConfigRef)
 		require.Equal(t, "gpt-4", response.Data[1].Model)
-		require.Equal(t, v1alpha2.ModelProviderOpenAI, response.Data[1].ModelProvider)
+		require.Equal(t, v1alpha3.ModelProviderOpenAI, response.Data[1].ModelProvider)
 		require.Equal(t, true, response.Data[1].Ready)
 	})
 
@@ -340,19 +340,19 @@ func TestHandleListAgents(t *testing.T) {
 	t.Run("includes openclaw AgentHarness CR in agent list", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("list-agent", modelConfig)
-		sb := &v1alpha2.AgentHarness{
+		sb := &v1alpha3.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "openclaw-1", Namespace: "default"},
-			Spec: v1alpha2.AgentHarnessSpec{
-				Backend:        v1alpha2.AgentHarnessBackendOpenClaw,
+			Spec: v1alpha3.AgentHarnessSpec{
+				Backend:        v1alpha3.AgentHarnessBackendOpenClaw,
 				Description:    "Workload VM for experiments",
 				ModelConfigRef: "test-model-config",
 			},
-			Status: v1alpha2.AgentHarnessStatus{
+			Status: v1alpha3.AgentHarnessStatus{
 				Conditions: []metav1.Condition{
-					{Type: v1alpha2.AgentHarnessConditionTypeAccepted, Status: "True", Reason: "AgentHarnessAccepted"},
-					{Type: v1alpha2.AgentHarnessConditionTypeReady, Status: "True", Reason: "SandboxReady"},
+					{Type: v1alpha3.AgentHarnessConditionTypeAccepted, Status: "True", Reason: "AgentHarnessAccepted"},
+					{Type: v1alpha3.AgentHarnessConditionTypeReady, Status: "True", Reason: "SandboxReady"},
 				},
-				BackendRef: &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenClaw, ID: "default-openclaw-1"},
+				BackendRef: &v1alpha3.AgentHarnessStatusRef{Backend: v1alpha3.AgentHarnessBackendOpenClaw, ID: "default-openclaw-1"},
 			},
 		}
 		handler, _ := setupTestHandler(t, agent, sb, modelConfig)
@@ -374,13 +374,13 @@ func TestHandleListAgents(t *testing.T) {
 				continue
 			}
 			found = true
-			require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, row.SubstrateAgentHarness.Backend)
+			require.Equal(t, v1alpha3.AgentHarnessBackendOpenClaw, row.SubstrateAgentHarness.Backend)
 			require.Equal(t, "AgentHarness", row.Agent.Kind)
 			require.Equal(t, "openclaw-1", row.Agent.Metadata.Name)
 			require.Equal(t, "Workload VM for experiments", row.Agent.Spec.Description)
 			require.True(t, row.Accepted)
 			require.True(t, row.Ready)
-			require.Equal(t, v1alpha2.ModelProviderOpenAI, row.ModelProvider)
+			require.Equal(t, v1alpha3.ModelProviderOpenAI, row.ModelProvider)
 		}
 		require.True(t, found)
 	})
@@ -388,33 +388,33 @@ func TestHandleListAgents(t *testing.T) {
 	t.Run("filters Agent and AgentHarness rows by namespace query parameter", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agentDefault := createTestAgent("agent-in-default", modelConfig)
-		agentOther := &v1alpha2.SandboxAgent{
+		agentOther := &v1alpha3.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "agent-in-other", Namespace: "other"},
-			Spec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_Declarative,
-				Declarative: &v1alpha2.DeclarativeAgentSpec{
+			Spec: v1alpha3.AgentSpec{
+				Type: v1alpha3.AgentType_Declarative,
+				Declarative: &v1alpha3.DeclarativeAgentSpec{
 					ModelConfig: modelConfig.Name,
 				},
 			},
 		}
-		harnessDefault := &v1alpha2.AgentHarness{
+		harnessDefault := &v1alpha3.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "harness-default", Namespace: "default"},
-			Spec: v1alpha2.AgentHarnessSpec{
-				Backend:        v1alpha2.AgentHarnessBackendOpenClaw,
+			Spec: v1alpha3.AgentHarnessSpec{
+				Backend:        v1alpha3.AgentHarnessBackendOpenClaw,
 				ModelConfigRef: "test-model-config",
 			},
 		}
-		harnessOther := &v1alpha2.AgentHarness{
+		harnessOther := &v1alpha3.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "harness-other", Namespace: "other"},
-			Spec: v1alpha2.AgentHarnessSpec{
-				Backend:        v1alpha2.AgentHarnessBackendOpenClaw,
+			Spec: v1alpha3.AgentHarnessSpec{
+				Backend:        v1alpha3.AgentHarnessBackendOpenClaw,
 				ModelConfigRef: "test-model-config",
 			},
 		}
-		unsupportedHarnessDefault := &v1alpha2.AgentHarness{
+		unsupportedHarnessDefault := &v1alpha3.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "unsupported-harness", Namespace: "default"},
-			Spec: v1alpha2.AgentHarnessSpec{
-				Backend:        v1alpha2.AgentHarnessBackendType("unsupported"),
+			Spec: v1alpha3.AgentHarnessSpec{
+				Backend:        v1alpha3.AgentHarnessBackendType("unsupported"),
 				ModelConfigRef: "test-model-config",
 			},
 		}
@@ -507,25 +507,25 @@ func TestHandleListSandboxAgents(t *testing.T) {
 
 func TestHandleUpdateSandboxAgent(t *testing.T) {
 	t.Run("updates agent successfully", func(t *testing.T) {
-		oldModelConfig := &v1alpha2.ModelConfig{
+		oldModelConfig := &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "old-model-config", Namespace: "default"},
-			Spec: v1alpha2.ModelConfigSpec{
+			Spec: v1alpha3.ModelConfigSpec{
 				Model:    "gpt-4o-mini",
-				Provider: v1alpha2.ModelProviderOpenAI,
+				Provider: v1alpha3.ModelProviderOpenAI,
 			},
 		}
-		newModelConfig := &v1alpha2.ModelConfig{
+		newModelConfig := &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "new-model-config", Namespace: "default"},
-			Spec: v1alpha2.ModelConfigSpec{
+			Spec: v1alpha3.ModelConfigSpec{
 				Model:    "gpt-4.1",
-				Provider: v1alpha2.ModelProviderOpenAI,
+				Provider: v1alpha3.ModelProviderOpenAI,
 			},
 		}
-		existingAgent := &v1alpha2.SandboxAgent{
+		existingAgent := &v1alpha3.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
-			Spec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_Declarative,
-				Declarative: &v1alpha2.DeclarativeAgentSpec{
+			Spec: v1alpha3.AgentSpec{
+				Type: v1alpha3.AgentType_Declarative,
+				Declarative: &v1alpha3.DeclarativeAgentSpec{
 					ModelConfig:   "old-model-config",
 					SystemMessage: "old system message",
 				},
@@ -534,11 +534,11 @@ func TestHandleUpdateSandboxAgent(t *testing.T) {
 
 		handler, _ := setupTestHandler(t, existingAgent, oldModelConfig, newModelConfig)
 
-		updatedAgent := &v1alpha2.SandboxAgent{
+		updatedAgent := &v1alpha3.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
-			Spec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_Declarative,
-				Declarative: &v1alpha2.DeclarativeAgentSpec{
+			Spec: v1alpha3.AgentSpec{
+				Type: v1alpha3.AgentType_Declarative,
+				Declarative: &v1alpha3.DeclarativeAgentSpec{
 					ModelConfig:   "new-model-config",
 					SystemMessage: "new system message",
 				},
@@ -563,18 +563,18 @@ func TestHandleUpdateSandboxAgent(t *testing.T) {
 	})
 
 	t.Run("returns 400 for invalid updated agent configuration", func(t *testing.T) {
-		modelConfig := &v1alpha2.ModelConfig{
+		modelConfig := &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "old-model-config", Namespace: "default"},
-			Spec: v1alpha2.ModelConfigSpec{
+			Spec: v1alpha3.ModelConfigSpec{
 				Model:    "gpt-4o-mini",
-				Provider: v1alpha2.ModelProviderOpenAI,
+				Provider: v1alpha3.ModelProviderOpenAI,
 			},
 		}
-		existingAgent := &v1alpha2.SandboxAgent{
+		existingAgent := &v1alpha3.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
-			Spec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_Declarative,
-				Declarative: &v1alpha2.DeclarativeAgentSpec{
+			Spec: v1alpha3.AgentSpec{
+				Type: v1alpha3.AgentType_Declarative,
+				Declarative: &v1alpha3.DeclarativeAgentSpec{
 					ModelConfig:   modelConfig.Name,
 					SystemMessage: "old system message",
 				},
@@ -583,11 +583,11 @@ func TestHandleUpdateSandboxAgent(t *testing.T) {
 
 		handler, _ := setupTestHandler(t, existingAgent, modelConfig)
 
-		updatedAgent := &v1alpha2.SandboxAgent{
+		updatedAgent := &v1alpha3.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
-			Spec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_Declarative,
-				Declarative: &v1alpha2.DeclarativeAgentSpec{
+			Spec: v1alpha3.AgentSpec{
+				Type: v1alpha3.AgentType_Declarative,
+				Declarative: &v1alpha3.DeclarativeAgentSpec{
 					ModelConfig:   "missing-model-config",
 					SystemMessage: "updated system message",
 				},
@@ -609,7 +609,7 @@ func TestHandleUpdateSandboxAgent(t *testing.T) {
 	t.Run("returns 404 for non-existent team", func(t *testing.T) {
 		handler, _ := setupTestHandler(t)
 
-		agent := &v1alpha2.SandboxAgent{
+		agent := &v1alpha3.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "non-existent", Namespace: "default"},
 		}
 
@@ -628,23 +628,23 @@ func TestHandleUpdateSandboxAgent(t *testing.T) {
 
 func TestHandleCreateSandboxAgent(t *testing.T) {
 	t.Run("creates agent successfully", func(t *testing.T) {
-		modelConfig := &v1alpha2.ModelConfig{
+		modelConfig := &v1alpha3.ModelConfig{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-model-config", Namespace: "default"},
-			Spec: v1alpha2.ModelConfigSpec{
+			Spec: v1alpha3.ModelConfigSpec{
 				Model:    "test",
 				Provider: "Ollama",
-				Ollama:   &v1alpha2.OllamaConfig{Host: "http://test-host"},
+				Ollama:   &v1alpha3.OllamaConfig{Host: "http://test-host"},
 			},
 		}
 
 		handler, _ := setupTestHandler(t, modelConfig)
 
-		agent := &v1alpha2.SandboxAgent{
+		agent := &v1alpha3.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
-			Spec: v1alpha2.AgentSpec{
-				Type:        v1alpha2.AgentType_Declarative,
+			Spec: v1alpha3.AgentSpec{
+				Type:        v1alpha3.AgentType_Declarative,
 				Description: "Test team description",
-				Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Declarative: &v1alpha3.DeclarativeAgentSpec{
 					ModelConfig:   modelConfig.Name,
 					SystemMessage: "You are an imaginary agent",
 				},
@@ -673,7 +673,7 @@ func TestHandleCreateSandboxAgent(t *testing.T) {
 
 func TestHandleDeleteTeam(t *testing.T) {
 	t.Run("deletes team successfully", func(t *testing.T) {
-		team := &v1alpha2.SandboxAgent{
+		team := &v1alpha3.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "test-team", Namespace: "default"},
 		}
 
@@ -707,9 +707,9 @@ func TestHandleDeleteTeam(t *testing.T) {
 	})
 
 	t.Run("does not delete AgentHarness via DELETE /api/agents (use /api/agentharnesses)", func(t *testing.T) {
-		sb := &v1alpha2.AgentHarness{
+		sb := &v1alpha3.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "sb-only", Namespace: "default"},
-			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
+			Spec:       v1alpha3.AgentHarnessSpec{Backend: v1alpha3.AgentHarnessBackendOpenClaw},
 		}
 		handler, _ := setupTestHandler(t, sb)
 
@@ -729,9 +729,9 @@ func TestHandleDeleteTeam(t *testing.T) {
 	t.Run("does not delete AgentHarness when Agent with same name exists", func(t *testing.T) {
 		modelConfig := createTestModelConfig()
 		agent := createTestAgent("harness-shared", modelConfig)
-		sb := &v1alpha2.AgentHarness{
+		sb := &v1alpha3.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "harness-shared", Namespace: "default"},
-			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
+			Spec:       v1alpha3.AgentHarnessSpec{Backend: v1alpha3.AgentHarnessBackendOpenClaw},
 		}
 		handler, _ := setupTestHandler(t, agent, sb, modelConfig)
 		createAgent(handler.DatabaseService, agent)
@@ -752,9 +752,9 @@ func TestHandleDeleteTeam(t *testing.T) {
 
 func TestHandleDeleteAgentHarness(t *testing.T) {
 	t.Run("deletes AgentHarness", func(t *testing.T) {
-		sb := &v1alpha2.AgentHarness{
+		sb := &v1alpha3.AgentHarness{
 			ObjectMeta: metav1.ObjectMeta{Name: "sb-only", Namespace: "default"},
-			Spec:       v1alpha2.AgentHarnessSpec{Backend: v1alpha2.AgentHarnessBackendOpenClaw},
+			Spec:       v1alpha3.AgentHarnessSpec{Backend: v1alpha3.AgentHarnessBackendOpenClaw},
 		}
 		handler, _ := setupTestHandler(t, sb)
 
@@ -796,7 +796,7 @@ func TestHandleCreateAgentHarness(t *testing.T) {
 		handler, _ := setupTestHandler(t, modelConfig)
 
 		body := map[string]any{
-			"apiVersion": "kagent.dev/v1alpha2",
+			"apiVersion": "kagent.dev/v1alpha3",
 			"kind":       "AgentHarness",
 			"metadata": map[string]string{
 				"name":      "my-openclaw",
@@ -825,11 +825,11 @@ func TestHandleCreateAgentHarness(t *testing.T) {
 		require.Equal(t, "AgentHarness", response.Data.Agent.Kind)
 		require.Equal(t, "my-openclaw", response.Data.Agent.Metadata.Name)
 		require.NotNil(t, response.Data.SubstrateAgentHarness)
-		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, response.Data.SubstrateAgentHarness.Backend)
+		require.Equal(t, v1alpha3.AgentHarnessBackendOpenClaw, response.Data.SubstrateAgentHarness.Backend)
 
-		var created v1alpha2.AgentHarness
+		var created v1alpha3.AgentHarness
 		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-openclaw"}, &created))
-		require.Equal(t, v1alpha2.AgentHarnessBackendOpenClaw, created.Spec.Backend)
+		require.Equal(t, v1alpha3.AgentHarnessBackendOpenClaw, created.Spec.Backend)
 	})
 
 	t.Run("creates hermes AgentHarness", func(t *testing.T) {
@@ -837,7 +837,7 @@ func TestHandleCreateAgentHarness(t *testing.T) {
 		handler, _ := setupTestHandler(t, modelConfig)
 
 		body := map[string]any{
-			"apiVersion": "kagent.dev/v1alpha2",
+			"apiVersion": "kagent.dev/v1alpha3",
 			"kind":       "AgentHarness",
 			"metadata": map[string]string{
 				"name":      "my-hermes",
@@ -863,10 +863,10 @@ func TestHandleCreateAgentHarness(t *testing.T) {
 
 		var response api.StandardResponse[api.AgentResponse]
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-		require.Equal(t, v1alpha2.AgentHarnessBackendHermes, response.Data.SubstrateAgentHarness.Backend)
+		require.Equal(t, v1alpha3.AgentHarnessBackendHermes, response.Data.SubstrateAgentHarness.Backend)
 
-		var created v1alpha2.AgentHarness
+		var created v1alpha3.AgentHarness
 		require.NoError(t, handler.KubeClient.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "my-hermes"}, &created))
-		require.Equal(t, v1alpha2.AgentHarnessBackendHermes, created.Spec.Backend)
+		require.Equal(t, v1alpha3.AgentHarnessBackendHermes, created.Spec.Backend)
 	})
 }

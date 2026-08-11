@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
@@ -26,7 +26,7 @@ import (
 func TestToolServerTypesHandler_NoKmcp(t *testing.T) {
 	scheme := runtime.NewScheme()
 
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
 	require.NoError(t, err)
@@ -68,7 +68,7 @@ func TestToolServerTypesHandler_NoKmcp(t *testing.T) {
 func TestToolServerTypesHandler_WithKmcp(t *testing.T) {
 	scheme := runtime.NewScheme()
 
-	err := v1alpha2.AddToScheme(scheme)
+	err := v1alpha3.AddToScheme(scheme)
 	require.NoError(t, err)
 	err = corev1.AddToScheme(scheme)
 	require.NoError(t, err)

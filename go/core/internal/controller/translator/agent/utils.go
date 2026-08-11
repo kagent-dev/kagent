@@ -5,12 +5,12 @@ import (
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 const hitlExtensionURI = "https://kagent.dev/extensions/hitl/v1"
 
-func GetA2AAgentCard(agent *v1alpha2.SandboxAgent) *a2atype.AgentCard {
+func GetA2AAgentCard(agent *v1alpha3.SandboxAgent) *a2atype.AgentCard {
 	spec := agent.GetAgentSpec()
 	card := a2atype.AgentCard{
 		Name:             strings.ReplaceAll(agent.GetName(), "-", "_"),
@@ -45,7 +45,7 @@ func GetA2AAgentCard(agent *v1alpha2.SandboxAgent) *a2atype.AgentCard {
 			URL: spec.Provider.URL,
 		}
 	}
-	if spec.Type == v1alpha2.AgentType_Declarative && spec.Declarative != nil && spec.Declarative.A2AConfig != nil {
+	if spec.Type == v1alpha3.AgentType_Declarative && spec.Declarative != nil && spec.Declarative.A2AConfig != nil {
 		card.Skills = make([]a2atype.AgentSkill, 0, len(spec.Declarative.A2AConfig.Skills))
 		for _, skill := range spec.Declarative.A2AConfig.Skills {
 			card.Skills = append(card.Skills, a2atype.AgentSkill{

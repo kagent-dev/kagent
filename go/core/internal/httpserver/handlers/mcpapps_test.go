@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	kmcp "github.com/kagent-dev/kmcp/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -47,18 +47,18 @@ func TestVisibilityAllowsApp(t *testing.T) {
 // error. An empty groupKind keeps the legacy RemoteMCPServer-first fallback.
 func TestResolveMCPServerEndpoint(t *testing.T) {
 	scheme := runtime.NewScheme()
-	if err := v1alpha2.AddToScheme(scheme); err != nil {
-		t.Fatalf("add v1alpha2 to scheme: %v", err)
+	if err := v1alpha3.AddToScheme(scheme); err != nil {
+		t.Fatalf("add v1alpha3 to scheme: %v", err)
 	}
 	if err := kmcp.AddToScheme(scheme); err != nil {
 		t.Fatalf("add kmcp to scheme: %v", err)
 	}
 
-	remote := &v1alpha2.RemoteMCPServer{
+	remote := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "remote", Namespace: "default"},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL:      "https://example.com/mcp",
-			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
 	mcpServer := &kmcp.MCPServer{
@@ -68,11 +68,11 @@ func TestResolveMCPServerEndpoint(t *testing.T) {
 
 	// Same namespace/name registered as both CRD kinds, to prove groupKind
 	// disambiguates them.
-	collideRemote := &v1alpha2.RemoteMCPServer{
+	collideRemote := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "shared", Namespace: "clash"},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL:      "https://remote.example.com/mcp",
-			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
 	collideMCP := &kmcp.MCPServer{

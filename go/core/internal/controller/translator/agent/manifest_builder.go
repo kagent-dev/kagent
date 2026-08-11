@@ -8,7 +8,7 @@ import (
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
@@ -30,7 +30,7 @@ import (
 const configHashAnnotation = consts.ConfigHashAnnotation
 
 type manifestContext struct {
-	agent          *v1alpha2.SandboxAgent
+	agent          *v1alpha3.SandboxAgent
 	deployment     *resolvedDeployment
 	selectorLabels map[string]string
 }
@@ -83,7 +83,7 @@ func getDefaultResources(spec *corev1.ResourceRequirements) corev1.ResourceRequi
 
 func (a *adkApiTranslator) BuildManifest(
 	ctx context.Context,
-	agent *v1alpha2.SandboxAgent,
+	agent *v1alpha3.SandboxAgent,
 	inputs *AgentManifestInputs,
 ) (*AgentOutputs, error) {
 	if inputs == nil {
@@ -143,7 +143,7 @@ func (a *adkApiTranslator) BuildManifest(
 	return outputs, a.runPlugins(ctx, agent, outputs)
 }
 
-func newManifestContext(agent *v1alpha2.SandboxAgent, dep *resolvedDeployment) manifestContext {
+func newManifestContext(agent *v1alpha3.SandboxAgent, dep *resolvedDeployment) manifestContext {
 	return manifestContext{
 		agent:      agent,
 		deployment: dep,
@@ -173,7 +173,7 @@ func (m manifestContext) objectMeta() metav1.ObjectMeta {
 func (a *adkApiTranslator) buildConfigSecret(
 	manifestCtx manifestContext,
 	cfg *adk.AgentConfig,
-	sandboxCfg *v1alpha2.SandboxConfig,
+	sandboxCfg *v1alpha3.SandboxConfig,
 	card *a2a.AgentCard,
 	modelConfigSecretHashBytes []byte,
 ) (*configSecretInputs, error) {
@@ -253,7 +253,7 @@ func buildConfigSecretData(cfgJSON, agentCard, srtSettingsJSON string) map[strin
 
 func buildPodRuntime(
 	manifestCtx manifestContext,
-	sandboxCfg *v1alpha2.SandboxConfig,
+	sandboxCfg *v1alpha3.SandboxConfig,
 	secretVolumes []corev1.Volume,
 	secretMounts []corev1.VolumeMount,
 ) (*podRuntimeInputs, error) {
@@ -288,15 +288,15 @@ func buildPodRuntime(
 	}, nil
 }
 
-func needsSRTSettings(agent *v1alpha2.SandboxAgent, sandboxCfg *v1alpha2.SandboxConfig) bool {
+func needsSRTSettings(agent *v1alpha3.SandboxAgent, sandboxCfg *v1alpha3.SandboxConfig) bool {
 	spec := agent.GetAgentSpec()
-	if spec.Type == v1alpha2.AgentType_BYO {
+	if spec.Type == v1alpha3.AgentType_BYO {
 		return sandboxCfg != nil
 	}
 	return spec.Skills != nil
 }
 
-func buildSRTSettingsJSON(sandboxCfg *v1alpha2.SandboxConfig) ([]byte, error) {
+func buildSRTSettingsJSON(sandboxCfg *v1alpha3.SandboxConfig) ([]byte, error) {
 	allowedDomains := []string{}
 	if sandboxCfg != nil && sandboxCfg.Network != nil {
 		allowedDomains = append(allowedDomains, sandboxCfg.Network.AllowedDomains...)
@@ -315,7 +315,7 @@ func buildSRTSettingsJSON(sandboxCfg *v1alpha2.SandboxConfig) ([]byte, error) {
 	})
 }
 
-func collectSharedEnv(agent *v1alpha2.SandboxAgent) []corev1.EnvVar {
+func collectSharedEnv(agent *v1alpha3.SandboxAgent) []corev1.EnvVar {
 	sharedEnv := make([]corev1.EnvVar, 0, 8)
 	sharedEnv = append(sharedEnv, collectOtelEnvFromProcess()...)
 	sharedEnv = append(sharedEnv,
@@ -479,7 +479,7 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 }
 
 func (a *adkApiTranslator) setManifestOwnerReferences(
-	agent *v1alpha2.SandboxAgent,
+	agent *v1alpha3.SandboxAgent,
 	manifest []client.Object,
 ) error {
 	for _, obj := range manifest {

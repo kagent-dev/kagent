@@ -1,4 +1,4 @@
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: SandboxAgent
 metadata:
   name: add-numbers-agent

@@ -202,14 +202,14 @@ The web interface is a Next.js application that communicates with the controller
 
 ## Custom Resource Definitions (CRDs)
 
-Kagent defines four main CRDs (all in `apiVersion: kagent.dev/v1alpha2`):
+Kagent defines four main CRDs (all in `apiVersion: kagent.dev/v1alpha3`):
 
 ### Agent
 
 The primary resource. Defines an AI agent with its system prompt, model, tools, and deployment configuration.
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: SandboxAgent
 metadata:
   name: my-agent
@@ -259,7 +259,7 @@ Runnable standard agents require a configured Agent Substrate backend.
 Configures LLM provider credentials and settings.
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: my-model
@@ -278,7 +278,7 @@ spec:
 Declares a remote MCP tool server that agents can reference.
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: RemoteMCPServer
 metadata:
   name: my-tool-server
@@ -388,7 +388,8 @@ The Go code is a single module (`github.com/kagent-dev/kagent/go`) with three to
 ```
 go/
 ├── api/        # Shared types
-│   ├── v1alpha2/         # CRD type definitions
+│   ├── v1alpha2/         # Compatibility CRD type definitions
+│   ├── v1alpha3/         # Current CRD type definitions
 │   ├── adk/              # ADK config types (shared with Python)
 │   ├── database/         # database models
 │   ├── httpapi/          # HTTP API request/response types

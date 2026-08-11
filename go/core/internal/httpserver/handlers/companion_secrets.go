@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-logr/logr"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -190,7 +190,7 @@ func isOwnedBy(secret *corev1.Secret, owner client.Object, gvk schema.GroupVersi
 // the update but aren't after — candidates for cleanup if owned by
 // this ModelConfig. Add new fields here when ModelConfigSpec grows
 // additional Secret-ref fields so the sweep keeps up.
-func referencedSecretNames(spec v1alpha2.ModelConfigSpec) map[string]struct{} {
+func referencedSecretNames(spec v1alpha3.ModelConfigSpec) map[string]struct{} {
 	refs := map[string]struct{}{}
 	if spec.APIKeySecret != "" {
 		refs[spec.APIKeySecret] = struct{}{}

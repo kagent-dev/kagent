@@ -3,7 +3,7 @@ package controller
 import (
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -11,19 +11,19 @@ import (
 func TestModelProviderConfigReferencesSecret(t *testing.T) {
 	tests := []struct {
 		name      string
-		mpc       *v1alpha2.ModelProviderConfig
+		mpc       *v1alpha3.ModelProviderConfig
 		secretObj types.NamespacedName
 		want      bool
 	}{
 		{
 			name: "matching secret ref",
-			mpc: &v1alpha2.ModelProviderConfig{
+			mpc: &v1alpha3.ModelProviderConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "openai-provider",
 					Namespace: "kagent",
 				},
-				Spec: v1alpha2.ModelProviderConfigSpec{
-					SecretRef: &v1alpha2.SecretReference{
+				Spec: v1alpha3.ModelProviderConfigSpec{
+					SecretRef: &v1alpha3.SecretReference{
 						Name: "openai-secret",
 					},
 				},
@@ -36,13 +36,13 @@ func TestModelProviderConfigReferencesSecret(t *testing.T) {
 		},
 		{
 			name: "non-matching secret name",
-			mpc: &v1alpha2.ModelProviderConfig{
+			mpc: &v1alpha3.ModelProviderConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "openai-provider",
 					Namespace: "kagent",
 				},
-				Spec: v1alpha2.ModelProviderConfigSpec{
-					SecretRef: &v1alpha2.SecretReference{
+				Spec: v1alpha3.ModelProviderConfigSpec{
+					SecretRef: &v1alpha3.SecretReference{
 						Name: "openai-secret",
 					},
 				},
@@ -55,12 +55,12 @@ func TestModelProviderConfigReferencesSecret(t *testing.T) {
 		},
 		{
 			name: "nil secret ref (e.g. Ollama)",
-			mpc: &v1alpha2.ModelProviderConfig{
+			mpc: &v1alpha3.ModelProviderConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "ollama-provider",
 					Namespace: "kagent",
 				},
-				Spec: v1alpha2.ModelProviderConfigSpec{
+				Spec: v1alpha3.ModelProviderConfigSpec{
 					SecretRef: nil,
 				},
 			},
@@ -72,13 +72,13 @@ func TestModelProviderConfigReferencesSecret(t *testing.T) {
 		},
 		{
 			name: "different namespace",
-			mpc: &v1alpha2.ModelProviderConfig{
+			mpc: &v1alpha3.ModelProviderConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "openai-provider",
 					Namespace: "kagent",
 				},
-				Spec: v1alpha2.ModelProviderConfigSpec{
-					SecretRef: &v1alpha2.SecretReference{
+				Spec: v1alpha3.ModelProviderConfigSpec{
+					SecretRef: &v1alpha3.SecretReference{
 						Name: "openai-secret",
 					},
 				},

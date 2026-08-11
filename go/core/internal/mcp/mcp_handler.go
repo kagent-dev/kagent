@@ -9,7 +9,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/jsonschema-go/jsonschema"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -131,7 +131,7 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 
 // listReadyAgents returns SandboxAgents that are accepted and ready.
 func (h *MCPHandler) listReadyAgents(ctx context.Context) ([]AgentSummary, error) {
-	agentList := &v1alpha2.SandboxAgentList{}
+	agentList := &v1alpha3.SandboxAgentList{}
 	if err := h.kubeClient.List(ctx, agentList); err != nil {
 		return nil, err
 	}

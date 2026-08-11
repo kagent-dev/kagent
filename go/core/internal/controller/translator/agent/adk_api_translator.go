@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
@@ -44,7 +44,7 @@ const (
 	MCPServiceProtocolAnnotation = "kagent.dev/mcp-service-protocol"
 
 	MCPServicePathDefault     = "/mcp"
-	MCPServiceProtocolDefault = v1alpha2.RemoteMCPServerProtocolStreamableHttp
+	MCPServiceProtocolDefault = v1alpha3.RemoteMCPServerProtocolStreamableHttp
 
 	ProxyHostHeader = "x-kagent-host"
 
@@ -145,11 +145,11 @@ type AgentOutputs = translator.AgentOutputs
 type AdkApiTranslator interface {
 	CompileAgent(
 		ctx context.Context,
-		agent *v1alpha2.SandboxAgent,
+		agent *v1alpha3.SandboxAgent,
 	) (*AgentManifestInputs, error)
 	BuildManifest(
 		ctx context.Context,
-		agent *v1alpha2.SandboxAgent,
+		agent *v1alpha3.SandboxAgent,
 		inputs *AgentManifestInputs,
 	) (*AgentOutputs, error)
 	GetOwnedResourceTypes() []client.Object
@@ -247,7 +247,7 @@ func tlsCAPaths(secretName, key string) (volumeName, mountPath, certPath string)
 	return
 }
 
-// deriveTLSFields turns a v1alpha2.TLSConfig into the three pointer fields
+// deriveTLSFields turns a v1alpha3.TLSConfig into the three pointer fields
 // that every TLS-aware adk wire type carries (BaseModel,
 // StreamableHTTPConnectionParams, SseConnectionParams). Returns nils for
 // nil or all-zero configs so the caller can assign-through to all three
@@ -256,7 +256,7 @@ func tlsCAPaths(secretName, key string) (volumeName, mountPath, certPath string)
 // short-circuit and silently swap google-adk's default httpx client for
 // kagent's, which has the same SSL behavior but different
 // timeout/redirect defaults.
-func deriveTLSFields(tlsConfig *v1alpha2.TLSConfig) (*bool, *string, *bool) {
+func deriveTLSFields(tlsConfig *v1alpha3.TLSConfig) (*bool, *string, *bool) {
 	if tlsConfig.IsEmpty() {
 		return nil, nil, nil
 	}
@@ -276,7 +276,7 @@ func deriveTLSFields(tlsConfig *v1alpha2.TLSConfig) (*bool, *string, *bool) {
 // assignment at each site. The MCP-connection params (StreamableHTTPConnectionParams,
 // SseConnectionParams) carry the same three fields but do not embed BaseModel;
 // those callers assign through deriveTLSFields directly.
-func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) {
+func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha3.TLSConfig) {
 	baseModel.TLSInsecureSkipVerify, baseModel.TLSCACertPath, baseModel.TLSDisableSystemCAs = deriveTLSFields(tlsConfig)
 }
 
@@ -298,7 +298,7 @@ func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) 
 // misconfiguration; mounting an absent key here would crash the agent at
 // startup, but the operator gets the early signal on the resource's own
 // Accepted condition.
-func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha2.TLSConfig) {
+func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha3.TLSConfig) {
 	if tlsConfig == nil {
 		return
 	}
@@ -337,13 +337,13 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 // model and mounts the service account secret (referenced by the top-level
 // apiKeySecret / apiKeySecretKey fields) as a file for google.auth to read.
 // Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
-func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha2.ModelConfigSpec) {
+func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha3.ModelConfigSpec) {
 	if spec.OpenAI == nil || spec.OpenAI.TokenExchange == nil {
 		return
 	}
 	tokenExchange := spec.OpenAI.TokenExchange
 	switch tokenExchange.Type {
-	case v1alpha2.TokenExchangeTypeGDCH:
+	case v1alpha3.TokenExchangeTypeGDCH:
 		cfg := tokenExchange.GDCHServiceAccount
 		if cfg == nil {
 			return
@@ -390,7 +390,7 @@ func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespa
 // resolveFoundryEndpoint returns the Foundry endpoint, preferring the inline
 // value and otherwise resolving it from the referenced ConfigMap (endpointFrom),
 // which lets Azure Service Operator own the account endpoint.
-func (a *adkApiTranslator) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha2.FoundryConfig) (string, error) {
+func (a *adkApiTranslator) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha3.FoundryConfig) (string, error) {
 	if cfg.Endpoint != "" {
 		return cfg.Endpoint, nil
 	}
@@ -413,7 +413,7 @@ func (a *adkApiTranslator) resolveFoundryEndpoint(ctx context.Context, namespace
 }
 
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, []byte, error) {
-	model := &v1alpha2.ModelConfig{}
+	model := &v1alpha3.ModelConfig{}
 	err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: modelConfig}, model)
 	if err != nil {
 		return nil, nil, nil, err
@@ -435,7 +435,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	addTLSConfiguration(modelDeploymentData, model.Spec.TLS)
 
 	switch model.Spec.Provider {
-	case v1alpha2.ModelProviderOpenAI:
+	case v1alpha3.ModelProviderOpenAI:
 		usingTokenExchange := model.Spec.OpenAI != nil && model.Spec.OpenAI.TokenExchange != nil
 		if !model.Spec.APIKeyPassthrough && !usingTokenExchange && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
@@ -500,7 +500,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			}
 		}
 		return openai, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderAnthropic:
+	case v1alpha3.ModelProviderAnthropic:
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.AnthropicAPIKey.Name(),
@@ -537,7 +537,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			}
 		}
 		return anthropic, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderAzureOpenAI:
+	case v1alpha3.ModelProviderAzureOpenAI:
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
@@ -589,7 +589,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return azureOpenAI, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderGeminiVertexAI:
+	case v1alpha3.ModelProviderGeminiVertexAI:
 		if model.Spec.GeminiVertexAI == nil {
 			return nil, nil, nil, fmt.Errorf("GeminiVertexAI model config is required")
 		}
@@ -638,7 +638,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 
 		return gemini, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderAnthropicVertexAI:
+	case v1alpha3.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil {
 			return nil, nil, nil, fmt.Errorf("AnthropicVertexAI model config is required")
 		}
@@ -679,7 +679,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return anthropic, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderOllama:
+	case v1alpha3.ModelProviderOllama:
 		if model.Spec.Ollama == nil {
 			return nil, nil, nil, fmt.Errorf("ollama model config is required")
 		}
@@ -703,7 +703,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		ollama.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return ollama, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderGemini:
+	case v1alpha3.ModelProviderGemini:
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name: env.GoogleAPIKey.Name(),
 			ValueFrom: &corev1.EnvVarSource{
@@ -727,7 +727,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			gemini.MaxOutputTokens = &model.Spec.Gemini.MaxOutputTokens
 		}
 		return gemini, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderBedrock:
+	case v1alpha3.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil {
 			return nil, nil, nil, fmt.Errorf("bedrock model config is required")
 		}
@@ -828,7 +828,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderSAPAICore:
+	case v1alpha3.ModelProviderSAPAICore:
 		if model.Spec.SAPAICore == nil {
 			return nil, nil, nil, fmt.Errorf("sapAICore model config is required")
 		}
@@ -877,7 +877,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return sapAICore, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderFoundry:
+	case v1alpha3.ModelProviderFoundry:
 		if model.Spec.Foundry == nil {
 			return nil, nil, nil, fmt.Errorf("foundry model config is required")
 		}
@@ -945,7 +945,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	}
 }
 
-func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.StreamableHTTPConnectionParams, error) {
+func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha3.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.StreamableHTTPConnectionParams, error) {
 	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
@@ -984,7 +984,7 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, serv
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.SseConnectionParams, error) {
+func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha3.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.SseConnectionParams, error) {
 	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
@@ -1019,7 +1019,7 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1a
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, agentNamespace string, toolServer *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) ([]byte, error) {
+func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, agentNamespace string, toolServer *v1alpha3.McpServerTool, agentHeaders map[string]string, proxyURL string) ([]byte, error) {
 	gvk := toolServer.GroupKind()
 
 	switch gvk {
@@ -1061,7 +1061,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Group: "kagent.dev",
 		Kind:  "RemoteMCPServer",
 	}:
-		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
+		remoteMcpServer := &v1alpha3.RemoteMCPServer{}
 		remoteMcpServerRef := toolServer.NamespacedName(agentNamespace)
 
 		err := a.kube.Get(ctx, remoteMcpServerRef, remoteMcpServer)
@@ -1111,9 +1111,9 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 	}
 }
 
-func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, remoteMcpServer *v1alpha2.RemoteMCPServer, mcpServerTool *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string, egressRewrite bool) ([]byte, error) {
+func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, remoteMcpServer *v1alpha3.RemoteMCPServer, mcpServerTool *v1alpha3.McpServerTool, agentHeaders map[string]string, proxyURL string, egressRewrite bool) ([]byte, error) {
 	switch remoteMcpServer.Spec.Protocol {
-	case v1alpha2.RemoteMCPServerProtocolSse:
+	case v1alpha3.RemoteMCPServerProtocolSse:
 		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL, egressRewrite)
 		if err != nil {
 			return nil, err
@@ -1152,7 +1152,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 // status hash is empty or malformed — the controller is responsible for
 // keeping Status.SecretHash in sync, and a transient missing/garbage
 // value should not block agent translation.
-func remoteMCPServerSecretHashBytes(remoteMcpServer *v1alpha2.RemoteMCPServer) []byte {
+func remoteMCPServerSecretHashBytes(remoteMcpServer *v1alpha3.RemoteMCPServer) []byte {
 	if remoteMcpServer == nil || remoteMcpServer.Status.SecretHash == "" {
 		return nil
 	}
@@ -1317,7 +1317,7 @@ func isCommitSHA(ref string) bool {
 // last path segment of Path is used. If Path is empty, the last path segment of
 // the repo URL (with any .git suffix stripped) is used.
 // Query parameters and fragments are stripped before extracting the base name from the URL.
-func gitSkillName(ref v1alpha2.GitRepo) string {
+func gitSkillName(ref v1alpha3.GitRepo) string {
 	if n := strings.TrimSpace(ref.Name); n != "" {
 		return n
 	}
@@ -1444,7 +1444,7 @@ func ociSkillName(imageRef string) string {
 // s3SkillName returns the directory name for an S3 skill ref.
 // If Name is set, it is used. Otherwise the last path segment of the URI is
 // used, with archive extensions (.zip / .tgz / .tar.gz) stripped.
-func s3SkillName(ref v1alpha2.S3SkillRef) string {
+func s3SkillName(ref v1alpha3.S3SkillRef) string {
 	if n := strings.TrimSpace(ref.Name); n != "" {
 		return n
 	}
@@ -1469,12 +1469,12 @@ func s3SkillName(ref v1alpha2.S3SkillRef) string {
 // flow through this struct as data only — the binary passes them to
 // git/library/SDK calls as argv/API inputs, never as shell input.
 func prepareSkillsInitConfig(
-	gitRefs []v1alpha2.GitRepo,
+	gitRefs []v1alpha3.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
 	ociRefs []string,
 	insecureOCI bool,
 	imagePullSecrets []string,
-	s3Refs []v1alpha2.S3SkillRef,
+	s3Refs []v1alpha3.S3SkillRef,
 ) (skillsinit.Config, error) {
 	cfg := skillsinit.Config{
 		InsecureOCI:      insecureOCI,
@@ -1606,7 +1606,7 @@ func validateSkillsInitConfigMapName(name string) error {
 // single config.json and sets DOCKER_CONFIG for the OCI client library.
 func buildSkillsInitContainer(
 	agentName, agentNamespace string,
-	gitRefs []v1alpha2.GitRepo,
+	gitRefs []v1alpha3.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
 	ociRefs []string,
 	insecureOCI bool,
@@ -1614,7 +1614,7 @@ func buildSkillsInitContainer(
 	envVars []corev1.EnvVar,
 	resources corev1.ResourceRequirements,
 	imagePullSecrets []corev1.LocalObjectReference,
-	s3Refs []v1alpha2.S3SkillRef,
+	s3Refs []v1alpha3.S3SkillRef,
 ) (containers []corev1.Container, volumes []corev1.Volume, configMap *corev1.ConfigMap, err error) {
 	pullSecretNames := make([]string, len(imagePullSecrets))
 	for i, s := range imagePullSecrets {
@@ -1711,7 +1711,7 @@ func buildSkillsInitContainer(
 	return containers, volumes, configMap, nil
 }
 
-func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha2.SandboxAgent, outputs *AgentOutputs) error {
+func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha3.SandboxAgent, outputs *AgentOutputs) error {
 	var errs error
 	for _, plugin := range a.plugins {
 		if err := plugin.ProcessAgent(ctx, agent, outputs); err != nil {

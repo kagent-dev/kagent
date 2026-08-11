@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	corev1 "k8s.io/api/core/v1"
@@ -20,7 +20,7 @@ func TestFilterTranslatorOwnedTypesForList(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, atev1alpha1.AddToScheme(scheme))
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
 	backend := substrate.NewAgentsBackend(nil, nil)
@@ -31,7 +31,7 @@ func TestFilterTranslatorOwnedTypesForList(t *testing.T) {
 	}
 
 	t.Run("SandboxAgent drops ActorTemplate from prune (managed via blue-green)", func(t *testing.T) {
-		sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"}}
+		sa := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "s", Namespace: "ns"}}
 		out, err := sandboxbackend.FilterTranslatorOwnedTypesForList(cl, sa, allTypes, backend)
 		require.NoError(t, err)
 		// Substrate manages ActorTemplate lifecycle itself (config-hashed, blue-green), so it is
@@ -44,7 +44,7 @@ func TestFilterTranslatorOwnedTypesForList(t *testing.T) {
 	})
 
 	t.Run("nil backend is passthrough", func(t *testing.T) {
-		agent := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns"}}
+		agent := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "a", Namespace: "ns"}}
 		out, err := sandboxbackend.FilterTranslatorOwnedTypesForList(cl, agent, allTypes, nil)
 		require.NoError(t, err)
 		require.Len(t, out, len(allTypes))

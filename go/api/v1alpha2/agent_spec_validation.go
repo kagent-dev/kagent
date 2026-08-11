@@ -7,7 +7,7 @@ import (
 
 const (
 	substrateSandboxSkillsUnsupportedMsg = "spec.skills is not supported for sandbox agents"
-	substrateSandboxBYOMissingCommandMsg = "BYO agents on substrate must set spec.byo.cmd (substrate does not fall back to the image entrypoint)"
+	substrateSandboxBYOMissingCommandMsg = "BYO agents on substrate must set spec.byo.deployment.cmd (substrate does not fall back to the image entrypoint)"
 )
 
 // AgentSpecHasSkills reports whether the spec configures any skill sources.
@@ -33,10 +33,10 @@ func ValidateSubstrateSandboxAgentSpec(agent *SandboxAgent) error {
 		return fmt.Errorf("%s", substrateSandboxSkillsUnsupportedMsg)
 	}
 	if spec.Type == AgentType_BYO {
-		byo := spec.BYO
+		dep := spec.BYO
 		// Trim so a whitespace-only cmd is rejected like an empty one (substrate would treat it
 		// as no command, and the UI trims before validating — keep backend/UI aligned).
-		if byo == nil || byo.Cmd == nil || strings.TrimSpace(*byo.Cmd) == "" {
+		if dep == nil || dep.Deployment == nil || dep.Deployment.Cmd == nil || strings.TrimSpace(*dep.Deployment.Cmd) == "" {
 			return fmt.Errorf("%s", substrateSandboxBYOMissingCommandMsg)
 		}
 	}

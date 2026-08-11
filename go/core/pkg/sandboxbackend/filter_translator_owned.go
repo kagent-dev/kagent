@@ -3,7 +3,7 @@ package sandboxbackend
 import (
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -15,7 +15,7 @@ import (
 // For sandbox workloads it keeps only the owned types for the Agent Substrate backend.
 //
 // translatorOwnedTypes is typically AdkApiTranslator.GetOwnedResourceTypes() (full set used for watches).
-func FilterTranslatorOwnedTypesForList(cl client.Client, agent *v1alpha2.SandboxAgent, translatorOwnedTypes []client.Object, backend Backend) ([]client.Object, error) {
+func FilterTranslatorOwnedTypesForList(cl client.Client, agent *v1alpha3.SandboxAgent, translatorOwnedTypes []client.Object, backend Backend) ([]client.Object, error) {
 	if backend == nil {
 		return translatorOwnedTypes, nil
 	}

@@ -74,6 +74,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -97,6 +98,7 @@ func init() {
 
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
@@ -571,7 +573,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	kubeClient := mgr.GetClient()
-	var substrateHarnessBackends map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	var substrateHarnessBackends map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 	if cfg.Substrate.AteAPIEndpoint != "" {
 		var err error
 		substrateHarnessBackends, err = buildSubstrateHarnessBackends(ctx, &cfg, substrateAteClient)
@@ -758,16 +760,16 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 }
 
-func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
+func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
 	if client == nil {
 		return nil, fmt.Errorf("substrate ate-api client is required")
 	}
 	_ = ctx
 	_ = cfg
-	backends := make(map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend)
-	for _, b := range []v1alpha2.AgentHarnessBackendType{
-		v1alpha2.AgentHarnessBackendOpenClaw,
-		v1alpha2.AgentHarnessBackendHermes,
+	backends := make(map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend)
+	for _, b := range []v1alpha3.AgentHarnessBackendType{
+		v1alpha3.AgentHarnessBackendOpenClaw,
+		v1alpha3.AgentHarnessBackendHermes,
 	} {
 		backends[b] = substrate.NewOpenClawBackend(client, b, nil)
 	}

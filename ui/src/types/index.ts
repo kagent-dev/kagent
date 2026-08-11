@@ -278,7 +278,7 @@ export interface McpServerTool extends TypedLocalReference {
 export type AgentType = "Declarative" | "BYO" | "AgentHarness";
 
 /**
- * AgentHarness.spec.backend (go/api/v1alpha2/agentharness_types.go).
+ * AgentHarness.spec.backend (go/api/v1alpha3/agentharness_types.go).
  * Single source of truth for backend strings — forms, API payloads, and helpers should use this.
  */
 export type AgentHarnessCrBackend =
@@ -328,7 +328,7 @@ export interface SkillForAgent {
   initContainer?: SkillsInitContainer;
 }
 
-/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). */
+/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha3). */
 export interface SandboxAgent {
   apiVersion?: string;
   kind?: string;

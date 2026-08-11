@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -59,7 +59,7 @@ func addOwnedResourceWatches(build *builder.Builder, mgr ctrl.Manager, owned []c
 
 func addCommonAgentWatches(build *builder.Builder, mgr ctrl.Manager, finders agentWatchFinders) (*builder.Builder, error) {
 	build = build.Watches(
-		&v1alpha2.ModelConfig{},
+		&v1alpha3.ModelConfig{},
 		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			return reconcileRequestsForRefs(finders.modelConfig(ctx, mgr.GetClient(), types.NamespacedName{
 				Name:      obj.GetName(),
@@ -68,7 +68,7 @@ func addCommonAgentWatches(build *builder.Builder, mgr ctrl.Manager, finders age
 		}),
 		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 	).Watches(
-		&v1alpha2.RemoteMCPServer{},
+		&v1alpha3.RemoteMCPServer{},
 		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			return reconcileRequestsForRefs(finders.remoteMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
 				Name:      obj.GetName(),

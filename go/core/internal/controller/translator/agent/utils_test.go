@@ -8,14 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 )
 
 func TestGetA2AAgentCard(t *testing.T) {
 	tests := []struct {
 		name                 string
-		agent                *v1alpha2.SandboxAgent
+		agent                *v1alpha3.SandboxAgent
 		wantName             string
 		wantDescription      string
 		wantURL              string
@@ -27,17 +27,17 @@ func TestGetA2AAgentCard(t *testing.T) {
 	}{
 		{
 			name: "declarative agent with a2a config and skills",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "default",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
+				Spec: v1alpha3.AgentSpec{
+					Type:        v1alpha3.AgentType_Declarative,
 					Description: "A test agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						A2AConfig: &v1alpha2.A2AConfig{
-							Skills: []v1alpha2.AgentSkill{
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
+						A2AConfig: &v1alpha3.A2AConfig{
+							Skills: []v1alpha3.AgentSkill{
 								{Name: "skill-1"},
 								{Name: "skill-2"},
 							},
@@ -52,13 +52,13 @@ func TestGetA2AAgentCard(t *testing.T) {
 		},
 		{
 			name: "declarative agent with nil declarative spec",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "nil-declarative",
 					Namespace: "default",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
+				Spec: v1alpha3.AgentSpec{
+					Type:        v1alpha3.AgentType_Declarative,
 					Declarative: nil,
 				},
 			},
@@ -69,14 +69,14 @@ func TestGetA2AAgentCard(t *testing.T) {
 		},
 		{
 			name: "declarative agent with nil a2a config",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "no-a2a",
 					Namespace: "default",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						A2AConfig: nil,
 					},
 				},
@@ -88,13 +88,13 @@ func TestGetA2AAgentCard(t *testing.T) {
 		},
 		{
 			name: "BYO agent",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "byo-agent",
 					Namespace: "default",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_BYO,
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_BYO,
 				},
 			},
 			wantName:        "byo_agent",
@@ -104,17 +104,17 @@ func TestGetA2AAgentCard(t *testing.T) {
 		},
 		{
 			name: "agent with card metadata",
-			agent: &v1alpha2.SandboxAgent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "meta-agent",
 					Namespace: "default",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type:             v1alpha2.AgentType_BYO,
+				Spec: v1alpha3.AgentSpec{
+					Type:             v1alpha3.AgentType_BYO,
 					IconURL:          "https://example.com/icon.png",
 					DocumentationURL: "https://example.com/docs",
 					Version:          "1.2.3",
-					Provider: &v1alpha2.AgentProvider{
+					Provider: &v1alpha3.AgentProvider{
 						Organization: "Acme",
 						URL:          "https://acme.example.com",
 					},

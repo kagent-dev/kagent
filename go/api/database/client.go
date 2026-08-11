@@ -6,7 +6,7 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
 )
 
@@ -65,7 +65,7 @@ type Client interface {
 	ListPushNotifications(ctx context.Context, taskID string) ([]*a2a.PushConfig, error)
 
 	// Helper methods
-	RefreshToolsForServer(ctx context.Context, serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error
+	RefreshToolsForServer(ctx context.Context, serverName string, groupKind string, tools ...*v1alpha3.MCPTool) error
 
 	// LangGraph Checkpoint methods
 	StoreCheckpoint(ctx context.Context, checkpoint *LangGraphCheckpoint) error

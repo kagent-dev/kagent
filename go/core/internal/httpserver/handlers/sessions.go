@@ -11,7 +11,7 @@ import (
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/database"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -145,7 +145,7 @@ func (h *SessionsHandler) HandleCreateSession(w ErrorResponseWriter, r *http.Req
 		w.RespondWithError(errors.NewBadRequestError(fmt.Sprintf("Agent ref is invalid, please check the agent ref %s", *sessionRequest.AgentRef), err))
 		return
 	}
-	if agent.WorkloadType == v1alpha2.WorkloadModeSandbox {
+	if agent.WorkloadType == v1alpha3.WorkloadModeSandbox {
 		_, isSubstrateSandbox, lookupErr := h.lookupSubstrateSandboxAgent(r.Context(), *sessionRequest.AgentRef)
 		if lookupErr != nil {
 			w.RespondWithError(errors.NewInternalServerError("Failed to inspect sandbox agent", lookupErr))
@@ -283,12 +283,12 @@ func eventQueryOptionsFromRequest(r *http.Request) (database.QueryOptions, error
 
 // substrateSandboxAgentForSession resolves the session's agent to a substrate SandboxAgent CR,
 // returning nil when the session has no agent or its agent is anything else.
-func (h *SessionsHandler) substrateSandboxAgentForSession(ctx context.Context, session *database.Session) (*v1alpha2.SandboxAgent, error) {
+func (h *SessionsHandler) substrateSandboxAgentForSession(ctx context.Context, session *database.Session) (*v1alpha3.SandboxAgent, error) {
 	agent, err := h.DatabaseService.GetAgent(ctx, *session.AgentID)
 	if err != nil {
 		return nil, err
 	}
-	if agent.WorkloadType != v1alpha2.WorkloadModeSandbox {
+	if agent.WorkloadType != v1alpha3.WorkloadModeSandbox {
 		return nil, nil
 	}
 	sandboxAgent, isSubstrate, err := h.lookupSubstrateSandboxAgent(ctx, utils.ConvertToKubernetesIdentifier(*session.AgentID))
@@ -377,7 +377,7 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 	}
 	log = log.WithValues("session_id", sessionID)
 
-	var substrateCleanup *v1alpha2.SandboxAgent
+	var substrateCleanup *v1alpha3.SandboxAgent
 	if h.SubstrateSandboxActorBackend != nil {
 		// Best-effort preflight: a session without an agent (or whose agent is gone) simply has
 		// no actor to clean up — it must never block deleting the session row itself.
@@ -534,7 +534,7 @@ func getUserIDOrAgentUser(r *http.Request) (string, error) {
 	return "", fmt.Errorf("no user or agent in principal")
 }
 
-func (h *SessionsHandler) lookupSubstrateSandboxAgent(ctx context.Context, agentRef string) (*v1alpha2.SandboxAgent, bool, error) {
+func (h *SessionsHandler) lookupSubstrateSandboxAgent(ctx context.Context, agentRef string) (*v1alpha3.SandboxAgent, bool, error) {
 	ref := strings.TrimSpace(agentRef)
 	if ref == "" {
 		return nil, false, nil
@@ -545,7 +545,7 @@ func (h *SessionsHandler) lookupSubstrateSandboxAgent(ctx context.Context, agent
 	if err != nil {
 		return nil, false, nil
 	}
-	sa := &v1alpha2.SandboxAgent{}
+	sa := &v1alpha3.SandboxAgent{}
 	if err := h.KubeClient.Get(ctx, nn, sa); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, false, nil

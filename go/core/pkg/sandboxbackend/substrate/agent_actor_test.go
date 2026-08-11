@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -95,6 +95,6 @@ func TestDeleteSandboxAgentSessionActor(t *testing.T) {
 }
 
 // reapAgent is the SandboxAgent used by the reap tests.
-func reapAgent() *v1alpha2.SandboxAgent {
-	return &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"}}
+func reapAgent() *v1alpha3.SandboxAgent {
+	return &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"}}
 }

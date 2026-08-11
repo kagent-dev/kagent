@@ -634,7 +634,7 @@ export function agentFormDataToSandboxAgent(
   const spec = agentSpecFromForm(data);
 
   return {
-    apiVersion: "kagent.dev/v1alpha2",
+    apiVersion: "kagent.dev/v1alpha3",
     kind: "SandboxAgent",
     metadata: { name: data.name, namespace: data.namespace || "" },
     spec,

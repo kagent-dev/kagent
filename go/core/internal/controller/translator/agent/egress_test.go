@@ -13,40 +13,40 @@ import (
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 )
 
-func egressModelConfig() *v1alpha2.ModelConfig {
-	return &v1alpha2.ModelConfig{
+func egressModelConfig() *v1alpha3.ModelConfig {
+	return &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "default-model", Namespace: "test"},
-		Spec:       v1alpha2.ModelConfigSpec{Provider: "OpenAI", Model: "gpt-4o"},
+		Spec:       v1alpha3.ModelConfigSpec{Provider: "OpenAI", Model: "gpt-4o"},
 	}
 }
 
-func egressRMS(name, url string) *v1alpha2.RemoteMCPServer {
-	return &v1alpha2.RemoteMCPServer{
+func egressRMS(name, url string) *v1alpha3.RemoteMCPServer {
+	return &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test"},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL:      url,
-			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
 }
 
-func egressAgent(rmsName string) *v1alpha2.SandboxAgent {
-	return &v1alpha2.SandboxAgent{
+func egressAgent(rmsName string) *v1alpha3.SandboxAgent {
+	return &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "test"},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{
 				SystemMessage: "Test",
 				ModelConfig:   "default-model",
-				Tools: []*v1alpha2.Tool{
+				Tools: []*v1alpha3.Tool{
 					{
-						Type: v1alpha2.ToolProviderType_McpServer,
-						McpServer: &v1alpha2.McpServerTool{
-							TypedReference: v1alpha2.TypedReference{Name: rmsName, Kind: "RemoteMCPServer"},
+						Type: v1alpha3.ToolProviderType_McpServer,
+						McpServer: &v1alpha3.McpServerTool{
+							TypedReference: v1alpha3.TypedReference{Name: rmsName, Kind: "RemoteMCPServer"},
 							ToolNames:      []string{"test-tool"},
 						},
 					},
@@ -59,7 +59,7 @@ func egressAgent(rmsName string) *v1alpha2.SandboxAgent {
 func egressTranslator(t *testing.T, mcpEgressPlaintext bool, proxyURL string, objs ...ctrl_client.Object) agenttranslator.AdkApiTranslator {
 	t.Helper()
 	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 	return agenttranslator.NewAdkApiTranslatorWithWatchedNamespaces(
 		kubeClient,
@@ -123,7 +123,7 @@ func TestEgressRewrite_ThroughTranslateAgent(t *testing.T) {
 
 	t.Run("scheme-less TLS RMS with gate on resolves to effective 443", func(t *testing.T) {
 		rms := egressRMS("tls-mcp", "tls-mcp.example.com/mcp")
-		rms.Spec.TLS = &v1alpha2.TLSConfig{}
+		rms.Spec.TLS = &v1alpha3.TLSConfig{}
 		tr := egressTranslator(t, true, "", egressAgent("tls-mcp"), rms, egressModelConfig(), testNamespace)
 
 		result, err := agenttranslator.TranslateAgent(ctx, tr, egressAgent("tls-mcp"))

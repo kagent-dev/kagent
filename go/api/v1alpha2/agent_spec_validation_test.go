@@ -16,7 +16,9 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 
 	t.Run("rejects skills", func(t *testing.T) {
 		agent := &SandboxAgent{
-			Spec: SandboxAgentSpec{Skills: &SkillForAgent{Refs: []string{"ghcr.io/org/skill:latest"}}},
+			Spec: SandboxAgentSpec{
+				AgentSpec: AgentSpec{Skills: &SkillForAgent{Refs: []string{"ghcr.io/org/skill:latest"}}},
+			},
 		}
 		err := ValidateSubstrateSandboxAgentSpec(agent)
 		require.Error(t, err)
@@ -25,7 +27,9 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 
 	t.Run("rejects s3 skills", func(t *testing.T) {
 		agent := &SandboxAgent{
-			Spec: SandboxAgentSpec{Skills: &SkillForAgent{S3Refs: []S3SkillRef{{URI: "s3://bucket/skill"}}}},
+			Spec: SandboxAgentSpec{
+				AgentSpec: AgentSpec{Skills: &SkillForAgent{S3Refs: []S3SkillRef{{URI: "s3://bucket/skill"}}}},
+			},
 		}
 		err := ValidateSubstrateSandboxAgentSpec(agent)
 		require.Error(t, err)
@@ -35,9 +39,11 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 	t.Run("allows python runtime", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Type: AgentType_Declarative,
-				Declarative: &DeclarativeAgentSpec{
-					Runtime: DeclarativeRuntime_Python,
+				AgentSpec: AgentSpec{
+					Type: AgentType_Declarative,
+					Declarative: &DeclarativeAgentSpec{
+						Runtime: DeclarativeRuntime_Python,
+					},
 				},
 			},
 		}
@@ -47,8 +53,10 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 	t.Run("rejects BYO agents without an explicit command", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Type: AgentType_BYO,
-				BYO:  &BYOAgentSpec{Image: "example/agent:latest"},
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest"}},
+				},
 			},
 		}
 		err := ValidateSubstrateSandboxAgentSpec(agent)
@@ -60,8 +68,10 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		cmd := "   "
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Type: AgentType_BYO,
-				BYO:  &BYOAgentSpec{Image: "example/agent:latest", Cmd: &cmd},
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
+				},
 			},
 		}
 		err := ValidateSubstrateSandboxAgentSpec(agent)
@@ -73,8 +83,10 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		cmd := "/app"
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Type: AgentType_BYO,
-				BYO:  &BYOAgentSpec{Image: "example/agent:latest", Cmd: &cmd},
+				AgentSpec: AgentSpec{
+					Type: AgentType_BYO,
+					BYO:  &BYOAgentSpec{Deployment: &ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
+				},
 			},
 		}
 		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
@@ -83,9 +95,11 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 	t.Run("allows go runtime", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Type: AgentType_Declarative,
-				Declarative: &DeclarativeAgentSpec{
-					Runtime: DeclarativeRuntime_Go,
+				AgentSpec: AgentSpec{
+					Type: AgentType_Declarative,
+					Declarative: &DeclarativeAgentSpec{
+						Runtime: DeclarativeRuntime_Go,
+					},
 				},
 			},
 		}
