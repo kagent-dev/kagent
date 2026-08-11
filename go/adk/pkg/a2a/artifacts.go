@@ -33,8 +33,11 @@ func checkInboundFileSizes(message *a2atype.Message, limit int) error {
 		return nil
 	}
 	for _, part := range message.Parts {
-		if size := len(part.Raw()); size > limit {
-			return fmt.Errorf("file %q exceeds maximum allowed size: %d bytes > %d bytes", part.Filename, size, limit)
+		if part == nil {
+			continue
+		}
+		if raw := part.Raw(); len(raw) > limit {
+			return fmt.Errorf("file %q exceeds maximum allowed size: %d bytes > %d bytes", part.Filename, len(raw), limit)
 		}
 	}
 	return nil

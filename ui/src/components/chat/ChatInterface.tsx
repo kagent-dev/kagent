@@ -495,7 +495,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         storedMessages.length === 0 &&
         isPlaceholderSessionTitle(session?.name)
       ) {
-        const title = deriveSessionTitle(userMessageText);
+        const title = userMessageText.trim()
+          ? deriveSessionTitle(userMessageText)
+          : (fileParts[0]?.filename || "File upload");
         if (title) {
           try {
             const renameResponse = await createSession({
@@ -934,7 +936,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
+      if ((currentInputMessage.trim() || pendingFiles.length > 0) && selectedAgentName && selectedNamespace && chatStatus === "ready") {
         handleSendMessage(e);
       }
     }

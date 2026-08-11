@@ -49,6 +49,7 @@ func TestCheckInboundFileSizes(t *testing.T) {
 		{name: "at limit", message: fileMessage([]byte("12345")), limit: 5},
 		{name: "over limit", message: fileMessage([]byte("123456")), limit: 5, wantErr: true},
 		{name: "text ignored", message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("long text")), limit: 1},
+		{name: "nil part ignored", message: &a2atype.Message{Parts: []*a2atype.Part{nil}}, limit: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -81,7 +81,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 			appendSavedArtifacts(
 				ctx,
 				runnerConfig.ArtifactService,
-				cfg.AppName,
+				runnerConfig.AppName,
 				ctx.UserID(),
 				ctx.SessionID(),
 				event,
