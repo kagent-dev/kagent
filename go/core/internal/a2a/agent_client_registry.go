@@ -10,8 +10,8 @@ import (
 )
 
 // AgentClientRegistry maps agent route keys to their A2A clients.
-// The A2ARegistrar populates it; the MCP handler reads from it to invoke
-// agents without an HTTP round trip through the controller's own A2A listener.
+// The A2ARegistrar populates it. Runtime handlers and schedulers read from it
+// to invoke agents without routing through the controller's own A2A listener.
 type AgentClientRegistry struct {
 	mu      sync.RWMutex
 	clients map[string]*a2aclient.Client
@@ -35,17 +35,38 @@ func (r *AgentClientRegistry) delete(agentRef string) {
 
 // Register adds or replaces the A2A client for the given agent.
 func (r *AgentClientRegistry) Register(namespace, name string, c *a2aclient.Client) {
-	r.set(namespace+"/"+name, c)
+	r.set(RouteKeyForAgent(namespace, name), c)
 }
 
 // SendMessage invokes an agent directly via its cached A2A client.
 func (r *AgentClientRegistry) SendMessage(ctx context.Context, namespace, name string, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
-	key := namespace + "/" + name
+	return r.SendMessageToRoute(ctx, RouteKeyForAgent(namespace, name), req)
+}
+
+// SendMessageToRoute invokes an agent by an explicit A2A route key.
+func (r *AgentClientRegistry) SendMessageToRoute(ctx context.Context, key string, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+	c, err := r.clientForRoute(key)
+	if err != nil {
+		return nil, err
+	}
+	return c.SendMessage(ctx, req)
+}
+
+func (r *AgentClientRegistry) clientForRoute(key string) (*a2aclient.Client, error) {
 	r.mu.RLock()
 	c, ok := r.clients[key]
 	r.mu.RUnlock()
 	if !ok {
-		return nil, fmt.Errorf("agent %s/%s not found or not ready", namespace, name)
+		return nil, fmt.Errorf("agent route %s not found or not ready", key)
 	}
-	return c.SendMessage(ctx, req)
+	return c, nil
+}
+
+// GetTaskFromRoute retrieves a task from an agent by its explicit A2A route key.
+func (r *AgentClientRegistry) GetTaskFromRoute(ctx context.Context, key string, req *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+	c, err := r.clientForRoute(key)
+	if err != nil {
+		return nil, err
+	}
+	return c.GetTask(ctx, req)
 }

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,10 +14,12 @@ import (
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/errors"
+	"github.com/kagent-dev/kagent/go/core/internal/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -198,6 +201,104 @@ type SessionResponse struct {
 	ReadOnly *bool             `json:"read_only,omitempty"`
 }
 
+// ScheduledRunSessionAccess contains the authorization and route scope attached
+// to a ScheduledRun-owned session.
+type ScheduledRunSessionAccess struct {
+	Session    *database.Session
+	UserID     string
+	ReadOnly   bool
+	TargetKind string
+	Target     types.NamespacedName
+}
+
+var (
+	// ErrScheduledRunSessionForbidden indicates that the caller may not access
+	// the ScheduledRun that owns a session.
+	ErrScheduledRunSessionForbidden = stderrors.New("scheduled run session access forbidden")
+	// ErrScheduledRunSessionNotFound indicates that the owning ScheduledRun no
+	// longer exists or no longer matches the durable execution record.
+	ErrScheduledRunSessionNotFound = stderrors.New("scheduled run session owner not found")
+)
+
+// ResolveScheduledRunSessionAccess resolves a ScheduledRun-owned session after
+// verifying that the caller may read the owning ScheduledRun.
+func (h *SessionsHandler) ResolveScheduledRunSessionAccess(r *http.Request, sessionID string) (ScheduledRunSessionAccess, bool, error) {
+	return resolveScheduledRunSessionAccess(h.Base, r, sessionID)
+}
+
+func resolveScheduledRunSessionAccess(base *Base, r *http.Request, sessionID string) (ScheduledRunSessionAccess, bool, error) {
+	if base == nil || base.DatabaseService == nil {
+		return ScheduledRunSessionAccess{}, false, fmt.Errorf("session storage is not configured")
+	}
+
+	// Source is the ownership discriminator. SessionUserID remains a reserved
+	// database key, but matching that string alone must never grant access.
+	session, err := base.DatabaseService.GetSession(r.Context(), sessionID, scheduledrun.SessionUserID)
+	if err != nil {
+		if stderrors.Is(err, database.ErrNotFound) {
+			return ScheduledRunSessionAccess{}, false, nil
+		}
+		return ScheduledRunSessionAccess{}, false, fmt.Errorf("load possible ScheduledRun session %s: %w", sessionID, err)
+	}
+	if session.Source == nil || *session.Source != database.SessionSourceScheduledRun {
+		return ScheduledRunSessionAccess{}, false, nil
+	}
+	if base.KubeClient == nil || base.Authorizer == nil {
+		return ScheduledRunSessionAccess{}, true, fmt.Errorf("scheduled run session authorization is not configured")
+	}
+	principal, err := GetPrincipal(r)
+	if err != nil {
+		return ScheduledRunSessionAccess{}, true, fmt.Errorf("%w: %w", ErrScheduledRunSessionForbidden, err)
+	}
+
+	// Durable execution history is the authoritative lookup. It keeps sessions
+	// accessible after their summary has been trimmed from Scheduled Run status.
+	executionRecord, executionErr := base.DatabaseService.GetScheduledRunExecutionBySessionID(r.Context(), sessionID)
+	if executionErr != nil {
+		if stderrors.Is(executionErr, database.ErrNotFound) {
+			return ScheduledRunSessionAccess{}, true, fmt.Errorf("%w: execution for session %s", ErrScheduledRunSessionNotFound, sessionID)
+		}
+		return ScheduledRunSessionAccess{}, true, fmt.Errorf("load ScheduledRun execution for session %s: %w", sessionID, executionErr)
+	}
+	key := types.NamespacedName{Namespace: executionRecord.ScheduledRunNamespace, Name: executionRecord.ScheduledRunName}
+	var sr v1alpha2.ScheduledRun
+	if err := base.KubeClient.Get(r.Context(), key, &sr); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ScheduledRunSessionAccess{}, true, fmt.Errorf("%w: %s", ErrScheduledRunSessionNotFound, key)
+		}
+		return ScheduledRunSessionAccess{}, true, fmt.Errorf("load ScheduledRun %s: %w", key, err)
+	}
+	if string(sr.UID) != executionRecord.ScheduledRunUID {
+		return ScheduledRunSessionAccess{}, true, fmt.Errorf("%w: ScheduledRun %s UID changed", ErrScheduledRunSessionNotFound, key)
+	}
+	if err := base.Authorizer.Check(r.Context(), principal, auth.VerbGet, auth.Resource{Type: "ScheduledRun", Name: key.String()}); err != nil {
+		return ScheduledRunSessionAccess{}, true, fmt.Errorf("%w: %w", ErrScheduledRunSessionForbidden, err)
+	}
+	access := scheduledRunSessionAccess(&sr)
+	access.Session = session
+	return access, true, nil
+}
+
+func scheduledRunSessionAccess(sr *v1alpha2.ScheduledRun) ScheduledRunSessionAccess {
+	return ScheduledRunSessionAccess{
+		UserID:     scheduledrun.SessionUserID,
+		ReadOnly:   !scheduledrun.AllowsSessionInteraction(sr),
+		TargetKind: sr.Spec.TargetRef.Kind,
+		Target:     scheduledrun.TargetKey(sr.Namespace, sr.Spec.TargetRef),
+	}
+}
+
+func respondScheduledRunSessionAccessError(w ErrorResponseWriter, err error) {
+	switch {
+	case stderrors.Is(err, ErrScheduledRunSessionForbidden):
+		w.RespondWithError(errors.NewForbiddenError("Not authorized to access ScheduledRun session", err))
+	case stderrors.Is(err, ErrScheduledRunSessionNotFound):
+		w.RespondWithError(errors.NewNotFoundError("ScheduledRun session not found", err))
+	default:
+		w.RespondWithError(errors.NewInternalServerError("Failed to authorize ScheduledRun session", err))
+	}
+}
+
 // getEffectiveUserIDForSession returns the user ID to use for DB lookups on a specific session.
 // When the request carries a valid X-Share-Token scoped to sessionID, the share owner's user ID
 // is returned so that shared access works transparently.
@@ -227,10 +328,24 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 	log = log.WithValues("userID", userID)
 
 	log.V(1).Info("Getting session from database")
-	session, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID)
-	if err != nil {
-		RespondNotFoundOrError(w, "Session not found", err)
+	access, isScheduledRunSession, accessErr := h.ResolveScheduledRunSessionAccess(r, sessionID)
+	if accessErr != nil {
+		respondScheduledRunSessionAccessError(w, accessErr)
 		return
+	}
+	var session *database.Session
+	scheduledRunReadOnly := false
+	if isScheduledRunSession {
+		userID = access.UserID
+		session = access.Session
+		scheduledRunReadOnly = access.ReadOnly
+		log = log.WithValues("scheduledRunSession", true)
+	} else {
+		session, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
+		if err != nil {
+			RespondNotFoundOrError(w, "Session not found", err)
+			return
+		}
 	}
 
 	queryOptions, err := eventQueryOptionsFromRequest(r)
@@ -251,6 +366,10 @@ func (h *SessionsHandler) HandleGetSession(w ErrorResponseWriter, r *http.Reques
 		Events:  events,
 	}
 	if sc, ok := auth.ShareContextFrom(r.Context()); ok && sc.SessionID == sessionID && sc.ReadOnly {
+		t := true
+		resp.ReadOnly = &t
+	}
+	if scheduledRunReadOnly {
 		t := true
 		resp.ReadOnly = &t
 	}
@@ -318,6 +437,13 @@ func (h *SessionsHandler) HandleUpdateSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 	log = log.WithValues("userID", userID, "session_id", sessionID)
+	if _, isScheduledRunSession, accessErr := h.ResolveScheduledRunSessionAccess(r, sessionID); accessErr != nil {
+		respondScheduledRunSessionAccessError(w, accessErr)
+		return
+	} else if isScheduledRunSession {
+		w.RespondWithError(errors.NewForbiddenError("ScheduledRun sessions cannot be updated", nil))
+		return
+	}
 
 	var sessionRequest api.SessionRequest
 	if err := DecodeJSONBody(r, &sessionRequest); err != nil {
@@ -376,6 +502,13 @@ func (h *SessionsHandler) HandleDeleteSession(w ErrorResponseWriter, r *http.Req
 		return
 	}
 	log = log.WithValues("session_id", sessionID)
+	if _, isScheduledRunSession, accessErr := h.ResolveScheduledRunSessionAccess(r, sessionID); accessErr != nil {
+		respondScheduledRunSessionAccessError(w, accessErr)
+		return
+	} else if isScheduledRunSession {
+		w.RespondWithError(errors.NewForbiddenError("ScheduledRun sessions cannot be deleted", nil))
+		return
+	}
 
 	var substrateCleanup *v1alpha2.SandboxAgent
 	if h.SubstrateSandboxActorBackend != nil {
@@ -422,11 +555,21 @@ func (h *SessionsHandler) HandleListTasksForSession(w ErrorResponseWriter, r *ht
 	}
 	log = log.WithValues("userID", userID)
 
-	// Verify session exists
-	_, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID)
-	if err != nil {
-		RespondNotFoundOrError(w, "Session not found for given ID", err)
+	// Verify session exists and resolve ScheduledRun ownership before ordinary
+	// user ownership so the reserved user ID can never bypass RBAC.
+	access, isScheduledRunSession, accessErr := h.ResolveScheduledRunSessionAccess(r, sessionID)
+	if accessErr != nil {
+		respondScheduledRunSessionAccessError(w, accessErr)
 		return
+	}
+	if isScheduledRunSession {
+		userID = access.UserID
+		log = log.WithValues("scheduledRunSession", true)
+	} else {
+		if _, err = h.DatabaseService.GetSession(r.Context(), sessionID, userID); err != nil {
+			RespondNotFoundOrError(w, "Session not found for given ID", err)
+			return
+		}
 	}
 
 	log.V(1).Info("Getting session tasks from database")

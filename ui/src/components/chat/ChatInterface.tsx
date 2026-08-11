@@ -21,7 +21,7 @@ import StreamingMessage from "./StreamingMessage";
 import SessionTokenStatsDisplay from "@/components/chat/TokenStats";
 import { type HitlResponsePayload, type TokenStats, type Session, type ChatStatus, type ToolDecision } from "@/types";
 import StatusDisplay from "./StatusDisplay";
-import { createSession, getSessionTasks, checkSessionExists, getSessionWithEvents } from "@/app/actions/sessions";
+import { createSession, getSessionTasks, getSessionWithEvents } from "@/app/actions/sessions";
 import { deriveSessionTitle, isPlaceholderSessionTitle } from "@/lib/sessionTitle";
 import { normalizeSessionTimestamps } from "@/lib/sessionTimestamps";
 import ShareButton from "@/components/chat/ShareButton";
@@ -33,6 +33,7 @@ import { useRouter } from "next/navigation";
 import {
   createMessageHandlers,
   extractMessagesFromTasks,
+  extractMessagesFromSessionEvents,
   extractApprovalMessagesFromTasks,
   extractTokenStatsFromTasks,
   collectTerminalTaskIds,
@@ -85,7 +86,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const [statusMessage, setStatusMessage] = useState<string | undefined>(undefined);
 
   const [session, setSession] = useState<Session | null>(selectedSession || null);
-  const [shareReadOnly, setShareReadOnly] = useState<boolean>(false);
+  const [sessionReadOnly, setSessionReadOnly] = useState<boolean>(false);
   const [storedMessages, setStoredMessages] = useState<Message[]>([]);
   const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState<string>("");
@@ -250,28 +251,21 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
       setIsLoading(true);
       setSessionNotFound(false);
-      setShareReadOnly(false);
+      setSessionReadOnly(false);
 
       let activeTask: Task | undefined;
 
       try {
-        if (shareToken) {
-          // Fetch session info to get authoritative read_only status from the server.
-          const sessionInfoResponse = await getSessionWithEvents(sessionId, shareToken);
-          if (sessionInfoResponse.error || !sessionInfoResponse.data) {
-            setSessionNotFound(true);
-            setIsLoading(false);
-            return;
-          }
-          setShareReadOnly(sessionInfoResponse.data.read_only === true);
-        } else {
-          const sessionExistsResponse = await checkSessionExists(sessionId);
-          if (sessionExistsResponse.error || !sessionExistsResponse.data) {
-            setSessionNotFound(true);
-            setIsLoading(false);
-            return;
-          }
+        // Fetch session info to get authoritative read_only status from the
+        // server. ScheduledRun-owned sessions are exposed as read-only even
+        // without a share token.
+        const sessionInfoResponse = await getSessionWithEvents(sessionId, shareToken);
+        if (sessionInfoResponse.error || !sessionInfoResponse.data) {
+          setSessionNotFound(true);
+          setIsLoading(false);
+          return;
         }
+        setSessionReadOnly(sessionInfoResponse.data.read_only === true);
 
         const messagesResponse = await getSessionTasks(sessionId, shareToken);
         if (messagesResponse.error) {
@@ -280,7 +274,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           return;
         }
         if (!messagesResponse.data || messagesResponse?.data?.length === 0) {
-          setStoredMessages([]);
+          setStoredMessages(extractMessagesFromSessionEvents(sessionInfoResponse.data.events));
           setSessionStats({ total: 0, prompt: 0, completion: 0 });
           setTerminalTaskIds(new Set());
           setTaskTokenStats(new Map());
@@ -922,9 +916,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       agentContext={agentContext}
       showReplyActions={isFinishedAssistantReply(message, allMessages, terminalTaskIds)}
       replyTokenStats={message.taskId ? taskTokenStats.get(message.taskId) : undefined}
-      onApprove={shareReadOnly ? undefined : handleApprove}
-      onReject={shareReadOnly ? undefined : handleReject}
-      onAskUserSubmit={shareReadOnly ? undefined : handleAskUserSubmit}
+      onApprove={sessionReadOnly ? undefined : handleApprove}
+      onReject={sessionReadOnly ? undefined : handleReject}
+      onAskUserSubmit={sessionReadOnly ? undefined : handleAskUserSubmit}
       pendingDecisions={pendingDecisions}
       getMcpAppForTool={getMcpAppForTool}
       onMcpAppSendMessage={handleMcpAppSendMessage}
@@ -1007,10 +1001,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       </div>
 
       <div className="w-full shrink-0 overflow-hidden rounded-none border bg-secondary p-4 transition-all duration-300 ease-in-out md:rounded-lg">
-        {shareReadOnly ? (
+        {sessionReadOnly ? (
           <div className="flex items-center justify-between py-2">
             <p className="text-sm text-muted-foreground">
-              This is a read-only shared session. You can view the conversation but cannot send messages.
+              This is a read-only session. You can view the conversation but cannot send messages.
             </p>
             {sessionStats.total > 0 && <SessionTokenStatsDisplay stats={sessionStats} />}
           </div>

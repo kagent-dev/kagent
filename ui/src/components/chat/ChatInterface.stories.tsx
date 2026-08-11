@@ -9,11 +9,11 @@ import {
   createMockSession,
   createMockTask,
   createMockToolCallTask,
-  sessionExistsHandler,
+  sessionWithEventsHandler,
   sessionNotFoundHandler,
   sessionTasksHandler,
   emptySessionTasksHandler,
-  slowSessionExistsHandler,
+  slowSessionWithEventsHandler,
   slowSessionTasksHandler,
 } from "@/mocks/handlers";
 
@@ -182,7 +182,7 @@ export const NewChat: Story = {
 
 /**
  * An existing session loaded via its `sessionId`.
- * MSW intercepts `checkSessionExists` and `getSessionTasks` to return
+ * MSW intercepts `getSessionWithEvents` and `getSessionTasks` to return
  * a single user→agent exchange.
  */
 export const ExistingSessionWithMessages: Story = {
@@ -193,7 +193,7 @@ export const ExistingSessionWithMessages: Story = {
   },
   beforeEach: () => {
     worker.use(
-      sessionExistsHandler(mockSession),
+      sessionWithEventsHandler(mockSession),
       sessionTasksHandler([singleExchangeTask]),
     );
   },
@@ -217,7 +217,7 @@ export const LongConversation: Story = {
   },
   beforeEach: () => {
     worker.use(
-      sessionExistsHandler(multiExchangeSession),
+      sessionWithEventsHandler(multiExchangeSession),
       sessionTasksHandler(multiExchangeTasks),
     );
   },
@@ -242,7 +242,7 @@ export const WithToolCalls: Story = {
   },
   beforeEach: () => {
     worker.use(
-      sessionExistsHandler(toolCallSession),
+      sessionWithEventsHandler(toolCallSession),
       sessionTasksHandler([toolCallTask]),
     );
   },
@@ -282,7 +282,7 @@ export const EmptySession: Story = {
   },
   beforeEach: () => {
     worker.use(
-      sessionExistsHandler(mockSession),
+      sessionWithEventsHandler(mockSession),
       emptySessionTasksHandler(),
     );
   },
@@ -300,7 +300,7 @@ export const Loading: Story = {
   },
   beforeEach: () => {
     worker.use(
-      slowSessionExistsHandler(mockSession, 2000),
+      slowSessionWithEventsHandler(mockSession, 2000),
       slowSessionTasksHandler([singleExchangeTask], 2000),
     );
   },
@@ -308,8 +308,8 @@ export const Loading: Story = {
 
 /**
  * Session is pre-loaded via the `selectedSession` prop, but the component
- * still calls `checkSessionExists` when `sessionId` is present, so MSW
- * handlers are required for both the session check and task history.
+ * still calls `getSessionWithEvents` when `sessionId` is present, so MSW
+ * handlers are required for both the session fetch and task history.
  */
 export const PreLoadedSession: Story = {
   args: {
@@ -320,7 +320,7 @@ export const PreLoadedSession: Story = {
   },
   beforeEach: () => {
     worker.use(
-      sessionExistsHandler(mockSession),
+      sessionWithEventsHandler(mockSession),
       sessionTasksHandler([singleExchangeTask]),
     );
   },

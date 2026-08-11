@@ -53,6 +53,7 @@ const (
 	APIPathCrewAI               = "/api/crewai"
 	APIPathAgentHarnessHarness  = "/api/agentharnesses/{namespace}/{name}/"
 	APIPathSubstrateStatus      = "/api/substrate/status"
+	APIPathScheduledRuns        = "/api/scheduledruns"
 )
 
 var defaultModelConfig = types.NamespacedName{
@@ -79,6 +80,7 @@ type ServerConfig struct {
 	MCPEgressPlaintext           bool
 	SubstrateSandboxActorBackend *substrate.SandboxAgentActorBackend
 	AgentHarnessSessionActor     *substrate.AgentHarnessSessionActorBackend
+	ScheduledRunTrigger          handlers.ScheduledRunTrigger
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -111,6 +113,7 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 			config.MCPEgressPlaintext,
 			config.SubstrateSandboxActorBackend,
 			config.AgentHarnessSessionActor,
+			config.ScheduledRunTrigger,
 		),
 		authenticator: config.Authenticator,
 	}, nil
@@ -358,6 +361,15 @@ func (s *HTTPServer) setupRoutes() {
 		adaptHandler(s.handlers.HandleAgentHarnessGateway),
 	)
 
+	// ScheduledRuns
+	s.router.HandleFunc(APIPathScheduledRuns, adaptHandler(s.handlers.ScheduledRuns.HandleListScheduledRuns)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathScheduledRuns, adaptHandler(s.handlers.ScheduledRuns.HandleCreateScheduledRun)).Methods(http.MethodPost)
+	s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleGetScheduledRun)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}/executions", adaptHandler(s.handlers.ScheduledRuns.HandleListScheduledRunExecutions)).Methods(http.MethodGet)
+	s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleUpdateScheduledRun)).Methods(http.MethodPut)
+	s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}", adaptHandler(s.handlers.ScheduledRuns.HandleDeleteScheduledRun)).Methods(http.MethodDelete)
+	s.router.HandleFunc(APIPathScheduledRuns+"/{namespace}/{name}/trigger", adaptHandler(s.handlers.ScheduledRuns.HandleTriggerScheduledRun)).Methods(http.MethodPost)
+
 	// A2A
 	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
 	s.router.PathPrefix(APIPathA2ASandboxes + "/{namespace}/{name}").Handler(s.config.A2AHandler)
@@ -370,7 +382,9 @@ func (s *HTTPServer) setupRoutes() {
 	// Use middleware for common functionality (first registered runs outermost on incoming requests).
 	s.router.Use(wsAuthQueryMiddleware)
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
+	s.router.Use(reservedScheduledRunUserMiddleware)
 	s.router.Use(s.shareTokenMiddleware)
+	s.router.Use(s.scheduledRunSessionMiddleware)
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)

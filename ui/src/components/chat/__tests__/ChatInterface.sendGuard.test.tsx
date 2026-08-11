@@ -4,7 +4,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Role, TaskState, type Message, type StreamResponse, type Task } from "@a2a-js/sdk";
-import { checkSessionExists, createSession, getSessionTasks } from "@/app/actions/sessions";
+import { createSession, getSessionTasks, getSessionWithEvents } from "@/app/actions/sessions";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { toast } from "sonner";
 import ChatInterface from "@/components/chat/ChatInterface";
@@ -12,9 +12,9 @@ import { createMockSession, createMockTask, createMockTextMessage, createTextPar
 import type { Session } from "@/types";
 
 jest.mock("@/app/actions/sessions", () => ({
-  checkSessionExists: jest.fn(),
   createSession: jest.fn(),
   getSessionTasks: jest.fn(),
+  getSessionWithEvents: jest.fn(),
 }));
 
 jest.mock("@/app/actions/agents", () => ({
@@ -80,9 +80,9 @@ jest.mock("@/components/chat/StreamingMessage", () => ({
   default: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 
-const mockCheckSessionExists = checkSessionExists as jest.MockedFunction<typeof checkSessionExists>;
 const mockCreateSession = createSession as jest.MockedFunction<typeof createSession>;
 const mockGetSessionTasks = getSessionTasks as jest.MockedFunction<typeof getSessionTasks>;
+const mockGetSessionWithEvents = getSessionWithEvents as jest.MockedFunction<typeof getSessionWithEvents>;
 const mockSendMessageStream = kagentA2AClient.sendMessageStream as jest.MockedFunction<typeof kagentA2AClient.sendMessageStream>;
 const mockToastInfo = toast.info as jest.MockedFunction<typeof toast.info>;
 
@@ -204,11 +204,14 @@ describe("ChatInterface send guard (high-water mark)", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockCheckSessionExists.mockResolvedValue({ message: "ok", data: true });
     mockCreateSession.mockResolvedValue({ message: "unexpected createSession call", error: "unexpected createSession call" });
     // Every getSessionTasks (load, guard, refreshServerMark, reload) reads the
     // current backend snapshot; streams mutate it to simulate persistence.
     mockGetSessionTasks.mockImplementation(async () => ({ message: "ok", data: currentTasks }));
+    mockGetSessionWithEvents.mockResolvedValue({
+      message: "ok",
+      data: { session: sessionFixture(), events: [], read_only: false },
+    });
   });
 
   it("does not block the next send after a same-tab turn advances the mark", async () => {
@@ -241,6 +244,35 @@ describe("ChatInterface send guard (high-water mark)", () => {
 
     await waitFor(() => expect(mockSendMessageStream).toHaveBeenCalledTimes(2));
     expect(mockToastInfo).not.toHaveBeenCalledWith(staleToastMessage);
+  });
+
+  it("renders persisted session events when a ScheduledRun has no A2A tasks", async () => {
+    currentTasks = [];
+    const event = (role: "user" | "model", text: string, created_at: string) => ({
+      created_at,
+      data: JSON.stringify({
+        ID: `${role}-event`,
+        Author: role === "user" ? "user" : "scheduled_run_demo_agent",
+        Content: { role, parts: [{ text }] },
+      }),
+    });
+    mockGetSessionWithEvents.mockResolvedValue({
+      message: "",
+      data: {
+        session: sessionFixture({ user_id: "scheduled-run" }),
+        events: [
+          event("model", "The answer is 4.", "2026-03-07T10:00:02Z"),
+          event("user", "What is 2+2?", "2026-03-07T10:00:01Z"),
+        ],
+        read_only: true,
+      },
+    });
+
+    renderExistingSession();
+
+    await waitFor(() => expect(
+      screen.getAllByTestId(/^chat-message-/).map((message) => message.textContent),
+    ).toEqual(["What is 2+2?", "The answer is 4."]));
   });
 
   it("blocks the send when another tab advanced the conversation past the synced mark", async () => {

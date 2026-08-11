@@ -60,6 +60,8 @@ const (
 	SessionSourceUser SessionSource = "user"
 	// SessionSourceAgent indicates the session was created by a parent agent's A2A call.
 	SessionSourceAgent SessionSource = "agent"
+	// SessionSourceScheduledRun indicates the session was created by a ScheduledRun.
+	SessionSourceScheduledRun SessionSource = "scheduled_run"
 )
 
 type Session struct {
@@ -72,7 +74,8 @@ type Session struct {
 
 	AgentID *string `json:"agent_id,omitempty"`
 	// Source indicates how this session was created.
-	// SessionSourceUser = user-initiated, SessionSourceAgent = created by a parent agent's A2A call.
+	// SessionSourceUser = user-initiated, SessionSourceAgent = created by a parent agent's A2A call,
+	// SessionSourceScheduledRun = created by a ScheduledRun.
 	Source *SessionSource `json:"source,omitempty"`
 }
 
@@ -83,6 +86,30 @@ type SessionWithShareToken struct {
 	Session
 	ShareToken    *string `json:"share_token,omitempty"`
 	ShareReadOnly *bool   `json:"share_read_only,omitempty"`
+}
+
+// ScheduledRunExecutionRecord is the durable representation of one
+// execution.
+type ScheduledRunExecutionRecord struct {
+	ID                    string                                `json:"id"`
+	ScheduledRunNamespace string                                `json:"scheduledRunNamespace"`
+	ScheduledRunName      string                                `json:"scheduledRunName"`
+	ScheduledRunUID       string                                `json:"scheduledRunUID"`
+	StartTime             time.Time                             `json:"startTime"`
+	CompletionTime        *time.Time                            `json:"completionTime,omitempty"`
+	Trigger               v1alpha2.ScheduledRunExecutionTrigger `json:"trigger"`
+	SessionID             *string                               `json:"sessionID,omitempty"`
+	TaskID                *string                               `json:"taskID,omitempty"`
+	Status                v1alpha2.ScheduledRunExecutionStatus  `json:"status"`
+	StatusMessage         *string                               `json:"statusMessage,omitempty"`
+	CreatedAt             time.Time                             `json:"createdAt"`
+	UpdatedAt             time.Time                             `json:"updatedAt"`
+}
+
+type ScheduledRunExecutionQueryOptions struct {
+	Before   time.Time
+	BeforeID string
+	Limit    int
 }
 
 type Task struct {

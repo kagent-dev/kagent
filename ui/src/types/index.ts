@@ -755,3 +755,75 @@ export interface AskUserResponsePayload {
 export type HitlRequestPayload = ToolApprovalRequestPayload | AskUserRequestPayload;
 export type HitlResponsePayload = ToolApprovalResponsePayload | AskUserResponsePayload;
 export type HitlExtensionPayload = HitlRequestPayload | HitlResponsePayload;
+
+// --- ScheduledRun CRD types ---
+
+export type ScheduledRunExecutionStatus =
+  | "DispatchFailed"
+  | "InProgress"
+  | "Succeeded"
+  | "Failed"
+  | "TimedOut";
+
+export type ScheduledRunExecutionTrigger = "Scheduled" | "Manual";
+
+export type ScheduledRunTargetKind = "Agent" | "SandboxAgent";
+
+export interface ScheduledRunTargetReference {
+  apiGroup: "kagent.dev";
+  kind: ScheduledRunTargetKind;
+  name: string;
+}
+
+export interface ScheduledRunExecution {
+  id: string;
+  startTime: string;
+  completionTime?: string;
+  trigger: ScheduledRunExecutionTrigger;
+  sessionID?: string;
+  taskID?: string;
+  status: ScheduledRunExecutionStatus;
+  statusMessage?: string;
+}
+
+export interface ScheduledRunExecutionRecord extends ScheduledRunExecution {
+  scheduledRunNamespace: string;
+  scheduledRunName: string;
+  scheduledRunUID: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScheduledRunSpec {
+  schedule: string;
+  timeZone?: string;
+  targetRef: ScheduledRunTargetReference;
+  prompt: string;
+  suspended?: boolean;
+  allowSessionInteraction?: boolean;
+  executionTimeout?: string;
+  recentExecutionsLimit?: number;
+}
+
+export interface ScheduledRunStatus {
+  lastExecutionTime?: string;
+  nextExecutionTime?: string;
+  recentExecutions?: ScheduledRunExecution[];
+  observedGeneration?: number;
+  conditions?: Array<{
+    type: string;
+    status: string;
+    reason?: string;
+    message?: string;
+    lastTransitionTime?: string;
+    observedGeneration?: number;
+  }>;
+}
+
+export interface ScheduledRun {
+  apiVersion?: string;
+  kind?: string;
+  metadata: ResourceMetadata;
+  spec: ScheduledRunSpec;
+  status?: ScheduledRunStatus;
+}

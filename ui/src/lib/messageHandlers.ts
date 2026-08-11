@@ -339,6 +339,41 @@ function aggregatePartsToDisplayText(parts: Part[]): string {
   }).join("");
 }
 
+type StoredSessionEvent = {
+  id?: string;
+  session_id?: string;
+  created_at?: string;
+  data: string;
+};
+
+type StoredADKEvent = {
+  ID: string;
+  Author: string;
+  Content: { role: string; parts?: Array<{ text?: string }> };
+};
+
+// ScheduledRuns persist ADK events without creating controller-side A2A tasks.
+export function extractMessagesFromSessionEvents(events: unknown[]): Message[] {
+  return [...events as StoredSessionEvent[]]
+    .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""))
+    .flatMap((event): Message[] => {
+      try {
+        const payload = JSON.parse(event.data) as StoredADKEvent;
+        const text = payload.Content.parts?.map((part) => part.text ?? "").join("");
+        if (!text) return [];
+        const source = payload.Content.role === "user"
+          ? "user"
+          : convertToUserFriendlyName(payload.Author);
+        return [createMessage(text, source, {
+          messageId: payload.ID,
+          contextId: event.session_id,
+        })];
+      } catch {
+        return [];
+      }
+    });
+}
+
 /** Returns true if the message is a user HITL decision (approve/reject) or ask-user answer. */
 function isUserDecisionMessage(message: Message): boolean {
   if (!isUserRole(message.role)) return false;

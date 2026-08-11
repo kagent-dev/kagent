@@ -22,6 +22,19 @@ func NewSessionSharesHandler(base *Base) *SessionSharesHandler {
 	return &SessionSharesHandler{Base: base}
 }
 
+func (h *SessionSharesHandler) rejectScheduledRunSession(w ErrorResponseWriter, r *http.Request, sessionID string) bool {
+	_, isScheduledRunSession, err := resolveScheduledRunSessionAccess(h.Base, r, sessionID)
+	if err != nil {
+		respondScheduledRunSessionAccessError(w, err)
+		return true
+	}
+	if isScheduledRunSession {
+		w.RespondWithError(errors.NewForbiddenError("ScheduledRun sessions cannot be shared", nil))
+		return true
+	}
+	return false
+}
+
 func generateShareToken() (string, error) {
 	b := make([]byte, 24)
 	if _, err := rand.Read(b); err != nil {
@@ -50,6 +63,9 @@ func (h *SessionSharesHandler) HandleCreateSessionShare(w ErrorResponseWriter, r
 	userID, err := GetUserID(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("failed to get user ID", err))
+		return
+	}
+	if h.rejectScheduledRunSession(w, r, sessionID) {
 		return
 	}
 
@@ -110,6 +126,9 @@ func (h *SessionSharesHandler) HandleListSessionShares(w ErrorResponseWriter, r 
 		w.RespondWithError(errors.NewBadRequestError("failed to get user ID", err))
 		return
 	}
+	if h.rejectScheduledRunSession(w, r, sessionID) {
+		return
+	}
 
 	// Verify the session belongs to the caller.
 	if _, err := h.DatabaseService.GetSession(r.Context(), sessionID, userID); err != nil {
@@ -147,6 +166,9 @@ func (h *SessionSharesHandler) HandleDeleteSessionShare(w ErrorResponseWriter, r
 	userID, err := GetUserID(r)
 	if err != nil {
 		w.RespondWithError(errors.NewBadRequestError("failed to get user ID", err))
+		return
+	}
+	if h.rejectScheduledRunSession(w, r, sessionID) {
 		return
 	}
 

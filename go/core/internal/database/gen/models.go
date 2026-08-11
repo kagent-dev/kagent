@@ -116,6 +116,22 @@ type PushNotification struct {
 	ProtocolVersion *string
 }
 
+type ScheduledRunExecution struct {
+	ID                    string
+	ScheduledRunNamespace string
+	ScheduledRunName      string
+	ScheduledRunUid       string
+	StartTime             time.Time
+	CompletionTime        *time.Time
+	Trigger               string
+	SessionID             *string
+	TaskID                *string
+	Status                string
+	StatusMessage         *string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
 type Session struct {
 	ID        string
 	UserID    string
