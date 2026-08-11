@@ -43,6 +43,43 @@ describe("ReviewStep Selected Tools", () => {
     expect(screen.queryByText("kagent-tool-server")).not.toBeInTheDocument();
   });
 
+  it("shows tools from two different servers as separate entries, not merged", () => {
+    const serverATool: Tool = {
+      type: "McpServer",
+      mcpServer: {
+        kind: "RemoteMCPServer",
+        apiGroup: "kagent.dev",
+        name: "kagent-tool-server",
+        namespace: "kagent",
+        toolNames: ["k8s_get_pods"],
+      },
+    };
+    const serverBTool: Tool = {
+      type: "McpServer",
+      mcpServer: {
+        kind: "RemoteMCPServer",
+        apiGroup: "kagent.dev",
+        name: "context-forge",
+        namespace: "kagent",
+        toolNames: ["argocd-get-application"],
+      },
+    };
+
+    render(
+      <ReviewStep
+        onboardingData={{ selectedTools: [serverATool, serverBTool] }}
+        isLoading={false}
+        onBack={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("k8s_get_pods")).toBeInTheDocument();
+    expect(screen.getByText("argocd-get-application")).toBeInTheDocument();
+    expect(screen.queryByText("kagent-tool-server")).not.toBeInTheDocument();
+    expect(screen.queryByText("context-forge")).not.toBeInTheDocument();
+  });
+
   it("shows the agent name for Agent-type selections", () => {
     const agentTool: Tool = {
       type: "Agent",

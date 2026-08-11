@@ -20,9 +20,12 @@ import userEvent from "@testing-library/user-event";
 import { ToolSelectionStep } from "@/components/onboarding/steps/ToolSelectionStep";
 import type { Tool, ToolsResponse } from "@/types";
 
-const makeTool = (id: string): ToolsResponse => ({
+const makeTool = (
+  id: string,
+  serverName = "kagent/kagent-tool-server",
+): ToolsResponse => ({
   id,
-  server_name: "kagent/kagent-tool-server",
+  server_name: serverName,
   created_at: "",
   updated_at: "",
   deleted_at: "",
@@ -88,5 +91,32 @@ describe("ToolSelectionStep duplicate-selection prevention", () => {
     await user.click(screen.getByRole("button", { name: /next: review/i }));
 
     expect(onNext).toHaveBeenCalledWith([]);
+  });
+
+  it("keeps tools from different servers as separate Tool entries instead of merging them", async () => {
+    // Both server names contain "kagent-tool-server" so ToolSelectionStep's
+    // own K8s-only filter (server_name?.includes("kagent-tool-server"))
+    // lets both through - but they have different parsed names, so
+    // serverNamesMatch must NOT treat them as the same server.
+    const user = userEvent.setup();
+    const tools = [
+      makeTool("k8s_get_pods", "kagent/kagent-tool-server"),
+      makeTool("k8s_get_events", "kagent/kagent-tool-server-extra"),
+    ];
+    const { onNext } = renderStep(tools);
+
+    await user.click(await screen.findByRole("checkbox", { name: /k8s_get_pods/i }));
+    await user.click(screen.getByRole("checkbox", { name: /k8s_get_events/i }));
+    await user.click(screen.getByRole("button", { name: /next: review/i }));
+
+    expect(onNext).toHaveBeenCalledTimes(1);
+    const submitted = onNext.mock.calls[0][0];
+    expect(submitted).toHaveLength(2);
+
+    const byServer = new Map(
+      submitted.map((t) => [t!.mcpServer!.name, t!.mcpServer!.toolNames]),
+    );
+    expect(byServer.get("kagent-tool-server")).toEqual(["k8s_get_pods"]);
+    expect(byServer.get("kagent-tool-server-extra")).toEqual(["k8s_get_events"]);
   });
 });

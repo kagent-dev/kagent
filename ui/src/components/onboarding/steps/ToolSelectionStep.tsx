@@ -45,6 +45,24 @@ export function ToolSelectionStep({
         return false;
     };
 
+    const mergeToolIntoServerEntry = (tools: Tool[], toolResponse: ToolsResponse): Tool[] => {
+        const existingIndex = tools.findIndex(
+            (t) => isMcpTool(t) && serverNamesMatch(t.mcpServer.name, toolResponse.server_name)
+        );
+        if (existingIndex === -1) {
+            return [...tools, toolResponseToAgentTool(toolResponse, toolResponse.server_name)];
+        }
+        const existing = tools[existingIndex] as Tool;
+        const merged: Tool = {
+            ...existing,
+            mcpServer: {
+                ...existing.mcpServer!,
+                toolNames: Array.from(new Set([...existing.mcpServer!.toolNames, toolResponse.id])),
+            },
+        };
+        return tools.map((t, i) => (i === existingIndex ? merged : t));
+    };
+
     const toolsByCategory = useMemo(() => {
         if (!availableTools) return {} as Record<string, ToolsResponse[]>;
 
@@ -128,28 +146,13 @@ export function ToolSelectionStep({
             // Merge desired tools that share a server into one entry instead of
             // pushing one per tool, so preselection doesn't itself produce
             // duplicate-looking rows for the same server.
-            const initialSelection: Tool[] = [];
+            let initialSelection: Tool[] = [];
             availableTools.forEach((tool) => {
                 const toolId = getToolResponseDisplayName(tool);
                 if (!desiredIds.includes(toolId)) {
                     return;
                 }
-
-                const existingIndex = initialSelection.findIndex(
-                    (t) => isMcpTool(t) && serverNamesMatch(t.mcpServer.name, tool.server_name)
-                );
-                if (existingIndex === -1) {
-                    initialSelection.push(toolResponseToAgentTool(tool, tool.server_name));
-                    return;
-                }
-                const existing = initialSelection[existingIndex] as Tool;
-                initialSelection[existingIndex] = {
-                    ...existing,
-                    mcpServer: {
-                        ...existing.mcpServer!,
-                        toolNames: [...existing.mcpServer!.toolNames, tool.id],
-                    },
-                };
+                initialSelection = mergeToolIntoServerEntry(initialSelection, tool);
             });
 
             if (initialSelection.length > 0) {
@@ -183,19 +186,7 @@ export function ToolSelectionStep({
             // second entry for the same server, which otherwise produced
             // duplicate-looking rows downstream (Review step, agent edit page)
             // and duplicate live MCP connections at agent runtime.
-            const existingIndex = prev.findIndex(t => isMcpTool(t) && serverNamesMatch(t.mcpServer.name, toolResponse.server_name));
-            if (existingIndex === -1) {
-                return [...prev, toolResponseToAgentTool(toolResponse, toolResponse.server_name)];
-            }
-            const existing = prev[existingIndex] as Tool;
-            const merged: Tool = {
-                ...existing,
-                mcpServer: {
-                    ...existing.mcpServer!,
-                    toolNames: [...existing.mcpServer!.toolNames, toolResponse.id],
-                },
-            };
-            return prev.map((t, i) => (i === existingIndex ? merged : t));
+            return mergeToolIntoServerEntry(prev, toolResponse);
         });
     };
 

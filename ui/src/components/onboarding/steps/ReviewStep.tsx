@@ -75,10 +75,10 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                     {onboardingData.selectedTools && onboardingData.selectedTools.length > 0 ? (
                         <ScrollArea className="h-[100px] w-full rounded-md border p-3 bg-muted/50">
                             <div className="flex flex-wrap gap-2">
-                                {onboardingData.selectedTools.flatMap((tool, toolIndex) => {
+                                {onboardingData.selectedTools.flatMap((tool) => {
                                     if (isMcpTool(tool)) {
                                         return tool.mcpServer.toolNames.map((toolName) => (
-                                            <Badge variant="secondary" key={`${toolIndex}-${toolName}`} className="flex items-center gap-1">
+                                            <Badge variant="secondary" key={`${tool.mcpServer.name}-${toolName}`} className="flex items-center gap-1">
                                                 <FunctionSquare className="h-3 w-3" />
                                                 {toolName}
                                             </Badge>
@@ -86,7 +86,7 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                                     }
                                     if (isAgentTool(tool)) {
                                         return [(
-                                            <Badge variant="secondary" key={`${toolIndex}-${tool.agent.name}`} className="flex items-center gap-1">
+                                            <Badge variant="secondary" key={`${tool.agent.namespace}-${tool.agent.name}`} className="flex items-center gap-1">
                                                 <FunctionSquare className="h-3 w-3" />
                                                 {tool.agent.name}
                                             </Badge>
