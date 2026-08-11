@@ -11499,8 +11499,8 @@ spec:
                 type: object
               skills:
                 description: |-
-                  Skills to load into the agent. They will be pulled from the specified container images.
-                  and made available to the agent under the `/skills` folder.
+                  Skills to load into the agent. They will be pulled from OCI images, git repos,
+                  and/or S3, and made available to the agent under the `/skills` folder.
                 properties:
                   gitAuthSecretRef:
                     description: |-
@@ -11809,6 +11809,40 @@ spec:
                     description: The list of skill images to fetch.
                     items:
                       type: string
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                  s3Refs:
+                    description: |-
+                      S3 object prefixes or archives to fetch skills from.
+                      Auth uses the AWS SDK default credential chain (typically static keys via
+                      skills.initContainer.env: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION).
+                    items:
+                      description: |-
+                        S3SkillRef specifies a skill bundle in an S3 bucket.
+
+                        Two bundle shapes are supported:
+                          - Prefix: s3://bucket/path/to/skill/ containing SKILL.md (and siblings); synced recursively
+                          - Archive: a single .zip / .tgz / .tar.gz object; downloaded and extracted
+                      properties:
+                        name:
+                          description: |-
+                            Name for the skill directory under /skills. If omitted, defaults to the last
+                            non-empty path segment of the URI (archive extension stripped).
+                          type: string
+                        region:
+                          description: |-
+                            AWS region for the bucket. Optional when AWS_REGION / AWS_DEFAULT_REGION is set
+                            on the skills-init container (e.g. via initContainer.env).
+                          type: string
+                        uri:
+                          description: 'S3 URI of the skill: s3://bucket/key-or-prefix'
+                          minLength: 1
+                          pattern: ^s3://.+
+                          type: string
+                      required:
+                      - uri
+                      type: object
                     maxItems: 20
                     minItems: 1
                     type: array

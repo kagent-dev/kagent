@@ -827,6 +827,37 @@ func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
 	})
 }
 
+const sessionRetentionBatchSize int32 = 1000
+
+func (c *postgresClient) PruneExpiredSessions(ctx context.Context, retentionDays int) (int64, error) {
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	var total int64
+	for {
+		var n int64
+		err := c.withTx(ctx, func(q *dbgen.Queries) error {
+			var err error
+			n, err = q.DeleteExpiredSessionsBatch(ctx, dbgen.DeleteExpiredSessionsBatchParams{
+				RetentionDays: int32(retentionDays),
+				BatchSize:     sessionRetentionBatchSize,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to delete expired sessions batch: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return total, err
+		}
+		total += n
+		if n == 0 {
+			break
+		}
+	}
+	return total, nil
+}
+
 // ── Conversion helpers ────────────────────────────────────────────────────────
 
 func toAgent(r dbgen.Agent) *dbpkg.Agent {

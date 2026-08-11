@@ -40,7 +40,8 @@ function countSkills(agent: Agent): number {
   const s = agent.spec?.skills;
   const refs = s?.refs?.length ?? 0;
   const gits = s?.gitRefs?.length ?? 0;
-  return refs + gits;
+  const s3 = s?.s3Refs?.length ?? 0;
+  return refs + gits + s3;
 }
 
 function compareNumbers(a: number, b: number, dir: SortDir): number {
