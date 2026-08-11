@@ -140,7 +140,7 @@ describe("ToolsSection inside a <form>", () => {
 
 /**
  * Bug: when the same tool/agent ended up selected more than once (e.g. via
- * repeated clicks in the SelectToolsDialog), getToolIdentifier() returned the
+ * repeated clicks in the onboarding wizard's ToolSelectionStep), getToolIdentifier() returned the
  * same string for every duplicate, and that string was used directly as the
  * React `key` for each rendered <Card>. Duplicate keys broke React's list
  * reconciliation, so removing one entry could desync the DOM from state -
@@ -162,13 +162,17 @@ describe("ToolsSection with duplicate tool entries", () => {
     const consoleErrorSpy = jest
       .spyOn(console, "error")
       .mockImplementation(() => {});
-    const duplicateAgentTool: Tool = {
+    const makeDuplicateAgentTool = (): Tool => ({
       type: "Agent",
       agent: { name: "duplicated-agent", namespace: "kagent" },
-    };
+    });
 
     renderInsideForm({
-      selectedTools: [duplicateAgentTool, duplicateAgentTool, duplicateAgentTool],
+      selectedTools: [
+        makeDuplicateAgentTool(),
+        makeDuplicateAgentTool(),
+        makeDuplicateAgentTool(),
+      ],
     });
 
     const removeButtons = await screen.findAllByRole("button", {
@@ -190,10 +194,10 @@ describe("ToolsSection with duplicate tool entries", () => {
 
   it("removing one instance of a duplicated tool removes all instances of it, and leaves other tools untouched", async () => {
     const user = userEvent.setup();
-    const duplicateAgentTool: Tool = {
+    const makeDuplicateAgentTool = (): Tool => ({
       type: "Agent",
       agent: { name: "duplicated-agent", namespace: "kagent" },
-    };
+    });
     const otherTool: Tool = {
       type: "Agent",
       agent: { name: "other-agent", namespace: "kagent" },
@@ -201,7 +205,11 @@ describe("ToolsSection with duplicate tool entries", () => {
     const setSelectedTools = jest.fn();
 
     renderInsideForm({
-      selectedTools: [duplicateAgentTool, duplicateAgentTool, otherTool],
+      selectedTools: [
+        makeDuplicateAgentTool(),
+        makeDuplicateAgentTool(),
+        otherTool,
+      ],
       setSelectedTools,
     });
 
