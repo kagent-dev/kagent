@@ -2,17 +2,11 @@ package httpapi
 
 import (
 	"github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Common types
-
-// APIError represents an error response from the API
-type APIError struct {
-	Error string `json:"error"`
-}
 
 func NewResponse[T any](data T, message string, error bool) StandardResponse[T] {
 	return StandardResponse[T]{
@@ -27,12 +21,6 @@ type StandardResponse[T any] struct {
 	Error   bool   `json:"error"`
 	Data    T      `json:"data,omitempty"`
 	Message string `json:"message,omitempty"`
-}
-
-// Provider represents a provider configuration
-type Provider struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
 }
 
 // Version represents the version information
@@ -92,19 +80,17 @@ func AgentResourceFrom(agent *v1alpha3.SandboxAgent) *AgentResource {
 	gvk := agent.GetObjectKind().GroupVersionKind()
 	apiVersion := gvk.GroupVersion().String()
 	kind := gvk.Kind
-	var metadata metav1.ObjectMeta
 	if apiVersion == "" {
 		apiVersion = v1alpha3.GroupVersion.String()
 	}
 	if kind == "" {
 		kind = "SandboxAgent"
 	}
-	metadata = *agent.ObjectMeta.DeepCopy()
 
 	res := &AgentResource{
 		APIVersion: apiVersion,
 		Kind:       kind,
-		Metadata:   metadata,
+		Metadata:   *agent.ObjectMeta.DeepCopy(),
 	}
 	res.Spec = *agent.Spec.DeepCopy()
 	if status != nil {
@@ -149,13 +135,6 @@ type SessionRequest struct {
 	Source   *database.SessionSource `json:"source,omitempty"`
 }
 
-// Run types
-
-// RunRequest represents a run creation request
-type RunRequest struct {
-	Task string `json:"task"`
-}
-
 // Run represents a run from the database
 type Task = database.Task
 
@@ -185,57 +164,6 @@ type ToolServerResponse struct {
 	DiscoveredTools []*v1alpha3.MCPTool `json:"discoveredTools"`
 }
 
-// Memory types
-
-// MemoryResponse represents a memory response
-type MemoryResponse struct {
-	Ref             string         `json:"ref"`
-	ProviderName    string         `json:"providerName"`
-	APIKeySecretRef string         `json:"apiKeySecretRef"`
-	APIKeySecretKey string         `json:"apiKeySecretKey"`
-	MemoryParams    map[string]any `json:"memoryParams"`
-}
-
-// CreateMemoryRequest represents a request to create a memory
-type CreateMemoryRequest struct {
-	Ref            string                   `json:"ref"`
-	Provider       Provider                 `json:"provider"`
-	APIKey         string                   `json:"apiKey"`
-	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
-}
-
-// UpdateMemoryRequest represents a request to update a memory
-type UpdateMemoryRequest struct {
-	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
-}
-
-// PromptTemplateSummary is a lightweight entry for listing prompt ConfigMaps.
-type PromptTemplateSummary struct {
-	Namespace string   `json:"namespace"`
-	Name      string   `json:"name"`
-	KeyCount  int      `json:"keyCount"`
-	Keys      []string `json:"keys,omitempty"`
-}
-
-// PromptTemplateDetail includes all string keys for editing.
-type PromptTemplateDetail struct {
-	Namespace string            `json:"namespace"`
-	Name      string            `json:"name"`
-	Data      map[string]string `json:"data"`
-}
-
-// CreatePromptTemplateRequest creates a labeled ConfigMap in the namespace.
-type CreatePromptTemplateRequest struct {
-	Namespace string            `json:"namespace"`
-	Name      string            `json:"name"`
-	Data      map[string]string `json:"data"`
-}
-
-// UpdatePromptTemplateRequest replaces the data map of an existing ConfigMap.
-type UpdatePromptTemplateRequest struct {
-	Data map[string]string `json:"data"`
-}
-
 // Namespace types
 
 // NamespaceResponse represents a namespace response
@@ -252,15 +180,4 @@ type ProviderInfo struct {
 	Type           string   `json:"type"`
 	RequiredParams []string `json:"requiredParams"`
 	OptionalParams []string `json:"optionalParams"`
-}
-
-// SessionRunsResponse represents the response for session runs
-type SessionRunsResponse struct {
-	Status bool `json:"status"`
-	Data   any  `json:"data"`
-}
-
-// SessionRunsData represents the data part of session runs response
-type SessionRunsData struct {
-	Runs []any `json:"runs"`
 }

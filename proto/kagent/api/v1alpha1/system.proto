@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+service SystemService {
+  rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
+  rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse);
+  rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
+  rpc GetSubstrateStatus(GetSubstrateStatusRequest) returns (GetSubstrateStatusResponse);
+}
+
+message GetVersionRequest {}
+
+message GetVersionResponse {
+  string kagent_version = 1;
+  string git_commit = 2;
+  string build_date = 3;
+}
+
+message GetCurrentUserRequest {}
+
+message GetCurrentUserResponse {
+  google.protobuf.Struct claims = 1;
+}
+
+message ListNamespacesRequest {}
+
+message Namespace {
+  string name = 1;
+  string status = 2;
+}
+
+message ListNamespacesResponse {
+  repeated Namespace namespaces = 1;
+}
+
+message GetSubstrateStatusRequest {
+  string namespace = 1;
+}
+
+message GetSubstrateStatusResponse {
+  bool enabled = 1;
+  string ate_api_error = 2;
+  repeated SubstrateWorkerPool worker_pools = 3;
+  repeated SubstrateActorTemplate actor_templates = 4;
+  repeated SubstrateActor actors = 5;
+  repeated SubstrateWorker workers = 6;
+}
+
+message SubstrateWorkerPool {
+  string namespace = 1;
+  string name = 2;
+  int32 replicas = 3;
+  string ateom_image = 4;
+}
+
+message SubstrateActorTemplate {
+  string namespace = 1;
+  string name = 2;
+  string phase = 3;
+  string golden_actor_id = 4;
+  string golden_snapshot = 5;
+  string sandbox_class = 6;
+  string worker_selector = 7;
+  string harness_name = 8;
+  bool managed_by_kagent = 9;
+}
+
+message SubstrateActor {
+  string actor_id = 1;
+  string atespace = 2;
+  string status = 3;
+  string actor_template_namespace = 4;
+  string actor_template_name = 5;
+  string ateom_pod_namespace = 6;
+  string ateom_pod_name = 7;
+  string ateom_pod_ip = 8;
+  string latest_snapshot = 9;
+  string worker_pool_name = 10;
+  string in_progress_snapshot = 11;
+  int64 version = 12;
+}
+
+message SubstrateWorker {
+  string worker_namespace = 1;
+  string worker_pool = 2;
+  string worker_pod = 3;
+  string actor_namespace = 4;
+  string actor_template = 5;
+  string actor_id = 6;
+  string ip = 7;
+  int64 version = 8;
+}

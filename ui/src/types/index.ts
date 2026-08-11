@@ -464,7 +464,7 @@ export interface Agent {
   };
 }
 
-/** Merged into GET /api/agents for an AgentHarness backed by Agent Substrate. */
+/** Merged into an AgentHarness list result when Agent Substrate provides the backend. */
 export interface AgentHarnessListEntry {
   backend: string;
   actorId?: string;
@@ -475,7 +475,7 @@ export interface AgentHarnessListEntry {
   endpoint?: string;
 }
 
-/** GET /api/substrate/status — WorkerPools, ActorTemplates, and ate-api actors/workers. */
+/** WorkerPools, ActorTemplates, and ate-api actors/workers returned by GetSubstrateStatus. */
 export interface SubstrateStatusResponse {
   enabled: boolean;
   ateApiError?: string;

@@ -4,7 +4,6 @@ import logging
 import os
 from typing import Any, Callable, List, Optional
 
-import httpx
 from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
@@ -19,6 +18,7 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService, InMemorySessionService
 from google.genai import types
+from kagent.core import AsyncControllerClient
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
@@ -50,9 +50,6 @@ def thread_dump(request: Request) -> PlainTextResponse:
         return PlainTextResponse(tmp.read())
 
 
-kagent_url_override = os.getenv("KAGENT_URL")
-
-
 class KAgentApp:
     def __init__(
         self,
@@ -64,6 +61,7 @@ class KAgentApp:
         plugins: Optional[List[BasePlugin]] = None,
         stream: bool = False,
         agent_config: Optional[AgentConfig] = None,
+        kagent_grpc_url: Optional[str] = None,
     ):
         """Initialize the KAgent application.
 
@@ -79,6 +77,7 @@ class KAgentApp:
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_url = kagent_url
+        self.kagent_grpc_url = kagent_grpc_url or os.getenv("KAGENT_GRPC_URL")
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan
@@ -90,7 +89,7 @@ class KAgentApp:
         attach_hitl_agent_extension(self.agent_card)
         session_service = InMemorySessionService()
         token_service = None
-        http_client: Optional[httpx.AsyncClient] = None
+        controller_client: Optional[AsyncControllerClient] = None
         memory_service = None
         # Substrate sandbox agents with durable-dir session storage keep session state in a
         # local sqlite DB inside the actor's durableDir volume. The URL arrives as
@@ -98,21 +97,23 @@ class KAgentApp:
         session_db_url = self.agent_config.session_db_url if self.agent_config else None
 
         if not local:
+            if not self.kagent_grpc_url:
+                raise ValueError("KAGENT_GRPC_URL environment variable is not set")
             token_service = KAgentTokenService(self.app_name)
-            http_client = httpx.AsyncClient(
-                # TODO: add user  and agent headers
-                base_url=kagent_url_override or self.kagent_url,
-                event_hooks=token_service.event_hooks(),
+            controller_client = AsyncControllerClient(
+                self.kagent_grpc_url,
+                agent_name=self.app_name,
+                token_provider=token_service,
             )
             if session_db_url:
                 session_service = DatabaseSessionService(db_url=session_db_url)
             else:
-                session_service = KAgentSessionService(http_client)
+                session_service = KAgentSessionService(controller_client)
 
             if self.agent_config and self.agent_config.memory is not None:
                 memory_service = KagentMemoryService(
                     agent_name=self.app_name,
-                    http_client=http_client,
+                    controller_client=controller_client,
                     embedding_config=self.agent_config.memory.embedding,
                     ttl_days=self.agent_config.memory.ttl_days,
                 )
@@ -120,14 +121,14 @@ class KAgentApp:
         def create_runner() -> Runner:
             root_agent = self.root_agent_factory()
 
-            if not local and http_client is not None and self.agent_config and self.agent_config.share_tools:
+            if not local and controller_client is not None and self.agent_config and self.agent_config.share_tools:
                 from kagent.adk.tools.share_tools import CreateShareLinkTool, DeleteShareLinkTool, ListShareLinksTool
 
                 root_agent.tools.extend(
                     [
-                        CreateShareLinkTool(http_client),
-                        ListShareLinksTool(http_client),
-                        DeleteShareLinkTool(http_client),
+                        CreateShareLinkTool(controller_client),
+                        ListShareLinksTool(controller_client),
+                        DeleteShareLinkTool(controller_client),
                     ]
                 )
 
@@ -154,8 +155,8 @@ class KAgentApp:
             )
 
         task_store: InMemoryTaskStore | KAgentTaskStore = InMemoryTaskStore()
-        if not local and http_client is not None:
-            task_store = KAgentTaskStore(http_client)
+        if not local and controller_client is not None:
+            task_store = KAgentTaskStore(controller_client)
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
@@ -176,6 +177,7 @@ class KAgentApp:
         lifespan_manager.add(self._lifespan)
         if not local:
             lifespan_manager.add(token_service.lifespan())
+            lifespan_manager.add(controller_client.lifespan())
 
         app = FastAPI(lifespan=lifespan_manager)
         app.add_middleware(

@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+service MemoryService {
+  rpc AddSession(MemoryServiceAddSessionRequest) returns (MemoryServiceAddSessionResponse);
+  rpc AddSessionBatch(MemoryServiceAddSessionBatchRequest) returns (MemoryServiceAddSessionBatchResponse);
+  rpc Search(MemoryServiceSearchRequest) returns (MemoryServiceSearchResponse);
+  rpc List(MemoryServiceListRequest) returns (MemoryServiceListResponse);
+  rpc Delete(MemoryServiceDeleteRequest) returns (MemoryServiceDeleteResponse);
+}
+
+message SessionMemoryInput {
+  string agent_name = 1;
+  string user_id = 2;
+  string content = 3;
+  repeated float vector = 4;
+  google.protobuf.Struct metadata = 5;
+  optional int32 ttl_days = 6;
+}
+
+message MemorySearchResult {
+  string id = 1;
+  string content = 2;
+  double score = 3;
+  google.protobuf.Struct metadata = 4;
+  google.protobuf.Timestamp created_at = 5;
+}
+
+message MemorySummary {
+  string id = 1;
+  string content = 2;
+  int64 access_count = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message MemoryServiceAddSessionRequest {
+  SessionMemoryInput memory = 1;
+}
+
+message MemoryServiceAddSessionResponse {
+  string id = 1;
+}
+
+message MemoryServiceAddSessionBatchRequest {
+  repeated SessionMemoryInput items = 1;
+}
+
+message MemoryServiceAddSessionBatchResponse {
+  int32 count = 1;
+}
+
+message MemoryServiceSearchRequest {
+  string agent_name = 1;
+  string user_id = 2;
+  repeated float vector = 3;
+  optional int32 limit = 4;
+  optional double min_score = 5;
+}
+
+message MemoryServiceSearchResponse {
+  repeated MemorySearchResult memories = 1;
+}
+
+message MemoryServiceListRequest {
+  string agent_name = 1;
+  string user_id = 2;
+}
+
+message MemoryServiceListResponse {
+  repeated MemorySummary memories = 1;
+}
+
+message MemoryServiceDeleteRequest {
+  string agent_name = 1;
+  string user_id = 2;
+}
+
+message MemoryServiceDeleteResponse {
+  string status = 1;
+}
