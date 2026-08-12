@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,19 +37,19 @@ func (b *AgentsBackend) GetOwnedResourceTypes() []client.Object {
 // removed only when the SandboxAgent is deleted (DeleteAllSandboxAgentActors +
 // CleanupSandboxAgentTemplate, plus owner-reference GC of the template objects). ActorTemplate
 // remains in GetOwnedResourceTypes for watches.
-func (b *AgentsBackend) OwnedResourceTypesFor(_ v1alpha2.AgentObject) ([]client.Object, error) {
+func (b *AgentsBackend) OwnedResourceTypesFor(_ *v1alpha3.SandboxAgent) ([]client.Object, error) {
 	return nil, nil
 }
 
 func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.BuildInput) ([]client.Object, error) {
-	sa, ok := in.Agent.(*v1alpha2.SandboxAgent)
-	if !ok || sa == nil {
+	sa := in.Agent
+	if sa == nil {
 		return nil, fmt.Errorf("substrate sandbox backend requires a SandboxAgent")
 	}
 	if b.Lifecycle == nil {
 		return nil, fmt.Errorf("substrate lifecycle is not configured")
 	}
-	var workerPoolRef *v1alpha2.TypedLocalReference
+	var workerPoolRef *v1alpha3.TypedLocalReference
 	if sa.Spec.Substrate != nil {
 		workerPoolRef = sa.Spec.Substrate.WorkerPoolRef
 	}
@@ -69,8 +69,8 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 // runtime-specific: python's google-adk DatabaseSessionService uses SQLAlchemy's async engine,
 // so the URL must name an async driver (aiosqlite, a core google-adk dependency); the Go ADK's
 // local store parses either form.
-func (b *AgentsBackend) SessionDBURL(agent v1alpha2.AgentObject) string {
-	if v1alpha2.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) == v1alpha2.DeclarativeRuntime_Go {
+func (b *AgentsBackend) SessionDBURL(agent *v1alpha3.SandboxAgent) string {
+	if v1alpha3.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) == v1alpha3.DeclarativeRuntime_Go {
 		return sessionDBURLGo
 	}
 	return sessionDBURLPython
@@ -88,7 +88,7 @@ func (b *AgentsBackend) ReconcileActorTemplate(ctx context.Context, desired clie
 }
 
 func (b *AgentsBackend) ComputeReady(ctx context.Context, cl client.Client, nn types.NamespacedName) (metav1.ConditionStatus, string, string) {
-	sa := &v1alpha2.SandboxAgent{}
+	sa := &v1alpha3.SandboxAgent{}
 	if err := cl.Get(ctx, nn, sa); err != nil {
 		if apierrors.IsNotFound(err) {
 			return metav1.ConditionUnknown, "SandboxAgentNotFound", err.Error()

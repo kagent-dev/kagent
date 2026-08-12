@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,7 +43,7 @@ func (h *Handlers) HandleAgentHarnessGateway(w ErrorResponseWriter, r *http.Requ
 		return
 	}
 
-	var ah v1alpha2.AgentHarness
+	var ah v1alpha3.AgentHarness
 	if err := h.KubeClient.Get(r.Context(), types.NamespacedName{Namespace: namespace, Name: name}, &ah); err != nil {
 		if apierrors.IsNotFound(err) {
 			http.Error(w, "AgentHarness not found", http.StatusNotFound)

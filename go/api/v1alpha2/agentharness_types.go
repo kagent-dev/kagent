@@ -267,6 +267,7 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=agentharnesses,singular=agentharness,shortName=ahr,categories=kagent
 // +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 // +kubebuilder:printcolumn:name="Backend",type="string",JSONPath=".spec.backend"
 // +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
 // +kubebuilder:printcolumn:name="ID",type="string",JSONPath=".status.backendRef.id"

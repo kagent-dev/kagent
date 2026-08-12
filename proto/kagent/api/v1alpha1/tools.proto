@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "kagent/api/v1alpha1/common.proto";
+import "kagent/api/v1alpha1/models.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+service ToolService {
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+  rpc ListToolServers(ListToolServersRequest) returns (ListToolServersResponse);
+  rpc CreateToolServer(CreateToolServerRequest) returns (CreateToolServerResponse);
+  rpc DeleteToolServer(DeleteToolServerRequest) returns (DeleteToolServerResponse);
+  rpc ListToolServerTypes(ListToolServerTypesRequest) returns (ListToolServerTypesResponse);
+  rpc ListMCPAppTools(ListMCPAppToolsRequest) returns (ListMCPAppToolsResponse);
+  rpc CallMCPAppTool(CallMCPAppToolRequest) returns (CallMCPAppToolResponse);
+  rpc ReadMCPAppResource(ReadMCPAppResourceRequest) returns (ReadMCPAppResourceResponse);
+}
+
+message ListToolsRequest {}
+
+message Tool {
+  StructuredObject resource = 1;
+}
+
+message ListToolsResponse {
+  repeated Tool tools = 1;
+}
+
+message ListToolServersRequest {}
+
+message DiscoveredTool {
+  string name = 1;
+  string description = 2;
+}
+
+message ToolServer {
+  string ref = 1;
+  string group_kind = 2;
+  repeated DiscoveredTool discovered_tools = 3;
+}
+
+message ListToolServersResponse {
+  repeated ToolServer tool_servers = 1;
+}
+
+message CreateToolServerRequest {
+  string type = 1;
+  ResourceReference ref = 2;
+  StructuredObject resource = 3;
+  repeated SecretMaterial secrets = 4;
+}
+
+message CreateToolServerResponse {
+  StructuredObject resource = 1;
+}
+
+message DeleteToolServerRequest {
+  ResourceReference ref = 1;
+}
+
+message DeleteToolServerResponse {}
+
+message ListToolServerTypesRequest {}
+
+message ListToolServerTypesResponse {
+  repeated string types = 1;
+}
+
+message MCPServerReference {
+  ResourceReference ref = 1;
+  string group_kind = 2;
+}
+
+message MCPAppTool {
+  string name = 1;
+  string description = 2;
+  StructuredObject input_schema = 3;
+  string ui_resource_uri = 4;
+  StructuredObject meta = 5;
+}
+
+message ListMCPAppToolsRequest {
+  MCPServerReference server = 1;
+}
+
+message ListMCPAppToolsResponse {
+  repeated MCPAppTool tools = 1;
+}
+
+message CallMCPAppToolRequest {
+  MCPServerReference server = 1;
+  string tool_name = 2;
+  StructuredObject arguments = 3;
+}
+
+message CallMCPAppToolResponse {
+  StructuredObject result = 1;
+}
+
+message ReadMCPAppResourceRequest {
+  MCPServerReference server = 1;
+  string uri = 2;
+}
+
+message ReadMCPAppResourceResponse {
+  StructuredObject result = 1;
+}

@@ -41,7 +41,7 @@ const availableAgents: AgentResponse[] = [
     modelProvider: "openai",
     modelConfigRef: "default",
     tools: [],
-    deploymentReady: true,
+    ready: true,
     accepted: true,
   },
 ];

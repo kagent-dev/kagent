@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/channel_helpers"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -12,18 +12,18 @@ import (
 
 // accumulateSubstrateHarnessChannels configures channels with OpenClaw env SecretRefs in openclaw.json
 // and returns container env vars (inline value or Kubernetes valueFrom refs) for the ActorTemplate.
-func accumulateSubstrateHarnessChannels(ctx context.Context, kube client.Client, namespace string, channels []v1alpha2.AgentHarnessChannel) (*harnessChannels, []corev1.EnvVar, error) {
+func accumulateSubstrateHarnessChannels(ctx context.Context, kube client.Client, namespace string, channels []v1alpha3.AgentHarnessChannel) (*harnessChannels, []corev1.EnvVar, error) {
 	a := newHarnessChannels()
 	var containerEnv []corev1.EnvVar
 	for _, ch := range channels {
 		switch ch.Type {
-		case v1alpha2.AgentHarnessChannelTypeTelegram:
+		case v1alpha3.AgentHarnessChannelTypeTelegram:
 			env, err := a.addSubstrateTelegram(ctx, kube, namespace, ch)
 			if err != nil {
 				return nil, nil, err
 			}
 			containerEnv = append(containerEnv, env...)
-		case v1alpha2.AgentHarnessChannelTypeSlack:
+		case v1alpha3.AgentHarnessChannelTypeSlack:
 			env, err := a.addSubstrateSlack(ctx, kube, namespace, ch)
 			if err != nil {
 				return nil, nil, err
@@ -36,7 +36,7 @@ func accumulateSubstrateHarnessChannels(ctx context.Context, kube client.Client,
 	return a, containerEnv, nil
 }
 
-func (a *harnessChannels) addSubstrateTelegram(ctx context.Context, kube client.Client, namespace string, ch v1alpha2.AgentHarnessChannel) ([]corev1.EnvVar, error) {
+func (a *harnessChannels) addSubstrateTelegram(ctx context.Context, kube client.Client, namespace string, ch v1alpha3.AgentHarnessChannel) ([]corev1.EnvVar, error) {
 	spec := ch.Telegram
 	if spec == nil {
 		return nil, fmt.Errorf("channel %q: telegram spec is required", ch.Name)
@@ -69,7 +69,7 @@ func (a *harnessChannels) addSubstrateTelegram(ctx context.Context, kube client.
 	return []corev1.EnvVar{botEnvVar}, nil
 }
 
-func (a *harnessChannels) addSubstrateSlack(ctx context.Context, kube client.Client, namespace string, ch v1alpha2.AgentHarnessChannel) ([]corev1.EnvVar, error) {
+func (a *harnessChannels) addSubstrateSlack(ctx context.Context, kube client.Client, namespace string, ch v1alpha3.AgentHarnessChannel) ([]corev1.EnvVar, error) {
 	spec := ch.Slack
 	if spec == nil {
 		return nil, fmt.Errorf("channel %q: slack spec is required", ch.Name)

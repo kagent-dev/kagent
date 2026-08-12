@@ -2,17 +2,11 @@ package httpapi
 
 import (
 	"github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Common types
-
-// APIError represents an error response from the API
-type APIError struct {
-	Error string `json:"error"`
-}
 
 func NewResponse[T any](data T, message string, error bool) StandardResponse[T] {
 	return StandardResponse[T]{
@@ -29,12 +23,6 @@ type StandardResponse[T any] struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Provider represents a provider configuration
-type Provider struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-}
-
 // Version represents the version information
 type VersionResponse struct {
 	KAgentVersion string `json:"kagent_version"`
@@ -45,8 +33,8 @@ type VersionResponse struct {
 // ModelConfigResource is the HTTP response for a ModelConfig: ref + raw CRD spec/status.
 type ModelConfigResource struct {
 	Ref    string                     `json:"ref"`
-	Spec   v1alpha2.ModelConfigSpec   `json:"spec"`
-	Status v1alpha2.ModelConfigStatus `json:"status,omitempty"`
+	Spec   v1alpha3.ModelConfigSpec   `json:"spec"`
+	Status v1alpha3.ModelConfigStatus `json:"status,omitempty"`
 }
 
 // SecretMaterial describes a Secret key/value pair to create or update alongside a ModelConfig.
@@ -63,13 +51,13 @@ type CreateModelConfigRequest struct {
 	APIKey string `json:"apiKey,omitempty"`
 	// Secrets are optional companion Secrets to create or update alongside the ModelConfig.
 	Secrets []SecretMaterial         `json:"secrets,omitempty"`
-	Spec    v1alpha2.ModelConfigSpec `json:"spec"`
+	Spec    v1alpha3.ModelConfigSpec `json:"spec"`
 }
 
 // UpdateModelConfigRequest is a thin wrapper: optional inline apiKey + full CRD spec.
 type UpdateModelConfigRequest struct {
 	APIKey  *string                  `json:"apiKey,omitempty"`
-	Spec    v1alpha2.ModelConfigSpec `json:"spec"`
+	Spec    v1alpha3.ModelConfigSpec `json:"spec"`
 	Secrets []SecretMaterial         `json:"secrets,omitempty"`
 }
 
@@ -79,57 +67,32 @@ type AgentResource struct {
 	APIVersion string                    `json:"apiVersion,omitempty"`
 	Kind       string                    `json:"kind,omitempty"`
 	Metadata   metav1.ObjectMeta         `json:"metadata,omitempty"`
-	Spec       v1alpha2.SandboxAgentSpec `json:"spec,omitempty"`
-	Status     v1alpha2.AgentStatus      `json:"status,omitempty"`
+	Spec       v1alpha3.SandboxAgentSpec `json:"spec,omitempty"`
+	Status     v1alpha3.AgentStatus      `json:"status,omitempty"`
 }
 
-func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
+func AgentResourceFrom(agent *v1alpha3.SandboxAgent) *AgentResource {
 	if agent == nil {
 		return nil
 	}
 
-	spec := agent.GetAgentSpec()
 	status := agent.GetAgentStatus()
 	gvk := agent.GetObjectKind().GroupVersionKind()
 	apiVersion := gvk.GroupVersion().String()
 	kind := gvk.Kind
-	var metadata metav1.ObjectMeta
 	if apiVersion == "" {
-		apiVersion = v1alpha2.GroupVersion.String()
+		apiVersion = v1alpha3.GroupVersion.String()
 	}
 	if kind == "" {
-		if agent.GetWorkloadMode() == v1alpha2.WorkloadModeSandbox {
-			kind = "SandboxAgent"
-		} else {
-			kind = "Agent"
-		}
-	}
-	switch typed := agent.(type) {
-	case *v1alpha2.Agent:
-		metadata = *typed.ObjectMeta.DeepCopy()
-	case *v1alpha2.SandboxAgent:
-		metadata = *typed.ObjectMeta.DeepCopy()
-	default:
-		metadata = metav1.ObjectMeta{
-			Name:            agent.GetName(),
-			Namespace:       agent.GetNamespace(),
-			Labels:          agent.GetLabels(),
-			Annotations:     agent.GetAnnotations(),
-			ResourceVersion: agent.GetResourceVersion(),
-			Generation:      agent.GetGeneration(),
-		}
+		kind = "SandboxAgent"
 	}
 
 	res := &AgentResource{
 		APIVersion: apiVersion,
 		Kind:       kind,
-		Metadata:   metadata,
+		Metadata:   *agent.ObjectMeta.DeepCopy(),
 	}
-	if sa, ok := agent.(*v1alpha2.SandboxAgent); ok {
-		res.Spec = *sa.Spec.DeepCopy()
-	} else if spec != nil {
-		res.Spec.AgentSpec = *spec.DeepCopy()
-	}
+	res.Spec = *agent.Spec.DeepCopy()
 	if status != nil {
 		res.Status = *status.DeepCopy()
 	}
@@ -138,7 +101,7 @@ func AgentResourceFrom(agent v1alpha2.AgentObject) *AgentResource {
 
 // SubstrateAgentHarnessListEntry describes an AgentHarness backed by Agent Substrate.
 type SubstrateAgentHarnessListEntry struct {
-	Backend v1alpha2.AgentHarnessBackendType `json:"backend"`
+	Backend v1alpha3.AgentHarnessBackendType `json:"backend"`
 	ActorID string                           `json:"actorId,omitempty"`
 	// AcpPath is the server-side ACP WebSocket proxy path for chatting with
 	// the harness from the kagent UI.
@@ -152,14 +115,13 @@ type AgentResponse struct {
 	ID    string         `json:"id"`
 	Agent *AgentResource `json:"agent"`
 	// Config         *adk.AgentConfig       `json:"config"`
-	ModelProvider         v1alpha2.ModelProvider          `json:"modelProvider"`
+	ModelProvider         v1alpha3.ModelProvider          `json:"modelProvider"`
 	Model                 string                          `json:"model"`
 	ModelConfigRef        string                          `json:"modelConfigRef"`
 	MemoryRefs            []string                        `json:"memoryRefs"`
-	Tools                 []*v1alpha2.Tool                `json:"tools"`
-	DeploymentReady       bool                            `json:"deploymentReady"`
+	Tools                 []*v1alpha3.Tool                `json:"tools"`
+	Ready                 bool                            `json:"ready"`
 	Accepted              bool                            `json:"accepted"`
-	WorkloadMode          v1alpha2.WorkloadMode           `json:"workloadMode,omitempty"`
 	SubstrateAgentHarness *SubstrateAgentHarnessListEntry `json:"substrateAgentHarness,omitempty"`
 }
 
@@ -171,13 +133,6 @@ type SessionRequest struct {
 	Name     *string                 `json:"name,omitempty"`
 	ID       *string                 `json:"id,omitempty"`
 	Source   *database.SessionSource `json:"source,omitempty"`
-}
-
-// Run types
-
-// RunRequest represents a run creation request
-type RunRequest struct {
-	Task string `json:"task"`
 }
 
 // Run represents a run from the database
@@ -206,58 +161,7 @@ type Feedback = database.Feedback
 type ToolServerResponse struct {
 	Ref             string              `json:"ref"`
 	GroupKind       string              `json:"groupKind"`
-	DiscoveredTools []*v1alpha2.MCPTool `json:"discoveredTools"`
-}
-
-// Memory types
-
-// MemoryResponse represents a memory response
-type MemoryResponse struct {
-	Ref             string         `json:"ref"`
-	ProviderName    string         `json:"providerName"`
-	APIKeySecretRef string         `json:"apiKeySecretRef"`
-	APIKeySecretKey string         `json:"apiKeySecretKey"`
-	MemoryParams    map[string]any `json:"memoryParams"`
-}
-
-// CreateMemoryRequest represents a request to create a memory
-type CreateMemoryRequest struct {
-	Ref            string                   `json:"ref"`
-	Provider       Provider                 `json:"provider"`
-	APIKey         string                   `json:"apiKey"`
-	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
-}
-
-// UpdateMemoryRequest represents a request to update a memory
-type UpdateMemoryRequest struct {
-	PineconeParams *v1alpha1.PineconeConfig `json:"pinecone,omitempty"`
-}
-
-// PromptTemplateSummary is a lightweight entry for listing prompt ConfigMaps.
-type PromptTemplateSummary struct {
-	Namespace string   `json:"namespace"`
-	Name      string   `json:"name"`
-	KeyCount  int      `json:"keyCount"`
-	Keys      []string `json:"keys,omitempty"`
-}
-
-// PromptTemplateDetail includes all string keys for editing.
-type PromptTemplateDetail struct {
-	Namespace string            `json:"namespace"`
-	Name      string            `json:"name"`
-	Data      map[string]string `json:"data"`
-}
-
-// CreatePromptTemplateRequest creates a labeled ConfigMap in the namespace.
-type CreatePromptTemplateRequest struct {
-	Namespace string            `json:"namespace"`
-	Name      string            `json:"name"`
-	Data      map[string]string `json:"data"`
-}
-
-// UpdatePromptTemplateRequest replaces the data map of an existing ConfigMap.
-type UpdatePromptTemplateRequest struct {
-	Data map[string]string `json:"data"`
+	DiscoveredTools []*v1alpha3.MCPTool `json:"discoveredTools"`
 }
 
 // Namespace types
@@ -276,15 +180,4 @@ type ProviderInfo struct {
 	Type           string   `json:"type"`
 	RequiredParams []string `json:"requiredParams"`
 	OptionalParams []string `json:"optionalParams"`
-}
-
-// SessionRunsResponse represents the response for session runs
-type SessionRunsResponse struct {
-	Status bool `json:"status"`
-	Data   any  `json:"data"`
-}
-
-// SessionRunsData represents the data part of session runs response
-type SessionRunsData struct {
-	Runs []any `json:"runs"`
 }

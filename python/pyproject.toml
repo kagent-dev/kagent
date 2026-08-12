@@ -38,6 +38,7 @@ line-length = 120
 fix = true
 exclude = [
   "notebooks/",
+  "packages/kagent-proto/src/",
 ]
 
 target-version = "py311"

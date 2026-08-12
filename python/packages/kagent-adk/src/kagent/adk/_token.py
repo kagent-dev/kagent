@@ -47,7 +47,7 @@ class KAgentTokenService:
         if self.update_task:
             self.update_task.cancel()
 
-    async def _get_token(self) -> str | None:
+    async def get_token(self) -> str | None:
         async with self.update_lock:
             return self.token
 
@@ -68,7 +68,7 @@ class KAgentTokenService:
                 logger.exception("Error refreshing kagent token, will retry next cycle")
 
     async def _add_headers(self, request: httpx.Request):
-        token = await self._get_token()
+        token = await self.get_token()
         headers = {"X-Agent-Name": self.app_name}
         if token:
             headers["Authorization"] = f"Bearer {token}"

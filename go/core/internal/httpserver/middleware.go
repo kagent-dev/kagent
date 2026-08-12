@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/database"
@@ -93,8 +92,7 @@ func contentTypeMiddleware(next http.Handler) http.Handler {
 // shareTokenMiddleware validates X-Share-Token headers.
 // It runs after the auth middleware, so the caller is already authenticated.
 // When the header is present and resolves to a valid share record, a ShareContext
-// is stored on the request context so that session handlers can use the owner's
-// user ID for DB lookups while retaining the caller's identity for initiated_by tracking.
+// is stored on the request context for A2A task queries and write enforcement.
 func (s *HTTPServer) shareTokenMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("X-Share-Token")
@@ -117,20 +115,6 @@ func (s *HTTPServer) shareTokenMiddleware(next http.Handler) http.Handler {
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 			}
 			return
-		}
-
-		// Enforce read-only on the session REST path by HTTP verb. A2A traffic is
-		// JSON-RPC over POST, so the verb does not distinguish reads from writes;
-		// its read-only enforcement is per-method in the A2A request handler
-		// (requireWritableShare), which lets a read-only share list and get tasks
-		// while still rejecting message sends, cancels, and push-config writes.
-		// Visitors retain full authenticated access to all other endpoints
-		// (creating their own sessions, submitting feedback, etc.).
-		if share.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead {
-			if strings.HasPrefix(r.URL.Path, APIPathSessions+"/") {
-				http.Error(w, "This share link is read-only", http.StatusForbidden)
-				return
-			}
 		}
 
 		callerSession, _ := auth.AuthSessionFrom(r.Context())

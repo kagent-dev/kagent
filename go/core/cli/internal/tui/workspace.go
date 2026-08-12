@@ -2,9 +2,7 @@ package tui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"slices"
 	"strings"
 
@@ -17,7 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/api/client"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/dialogs"
@@ -461,11 +459,7 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 	if m.agent == nil || m.current == nil {
 		return nil
 	}
-	a2aPath := "api/a2a"
-	if m.agent != nil && m.agent.WorkloadMode == v1alpha2.WorkloadModeSandbox {
-		a2aPath = "api/a2a-sandboxes"
-	}
-	a2aURL := fmt.Sprintf("%s/%s/%s", m.cfg.KAgentURL, a2aPath, m.agentRef)
+	a2aURL := fmt.Sprintf("%s/api/a2a-sandboxes/%s", m.cfg.KAgentURL, m.agentRef)
 	client, err := clia2a.NewClient(context.Background(), a2aURL, clia2a.ClientOptions{Timeout: m.cfg.Timeout})
 	if err != nil {
 		m.details.WriteString("\nA2A error\n")
@@ -492,23 +486,15 @@ func (m *workspaceModel) startChat(loadHistory bool) tea.Cmd {
 
 func (m *workspaceModel) fetchSessionHistoryCmd(sessionID string) tea.Cmd {
 	return func() tea.Msg {
-		tasksURL := fmt.Sprintf("%s/api/sessions/%s/tasks?user_id=%s", m.cfg.KAgentURL, sessionID, "admin@kagent.dev")
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, tasksURL, nil)
+		response, err := m.client.Session.ListSessionRuns(context.Background(), sessionID)
 		if err != nil {
 			return sessionHistoryLoadedMsg{items: nil, err: err}
 		}
-		resp, err := http.DefaultClient.Do(req) //nolint:gosec
-		if err != nil {
-			return sessionHistoryLoadedMsg{items: nil, err: err}
+		tasks, ok := response.Data.([]*a2atype.Task)
+		if !ok {
+			return sessionHistoryLoadedMsg{items: nil, err: fmt.Errorf("unexpected session task response type %T", response.Data)}
 		}
-		defer resp.Body.Close()
-		var payload struct {
-			Data []*a2atype.Task `json:"data"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			return sessionHistoryLoadedMsg{items: nil, err: err}
-		}
-		return sessionHistoryLoadedMsg{items: payload.Data, err: nil}
+		return sessionHistoryLoadedMsg{items: tasks, err: nil}
 	}
 }
 
@@ -527,7 +513,7 @@ func (m *workspaceModel) renderDetails() {
 		fmt.Fprintf(&m.details, "\nTools:\n")
 		for _, t := range m.agent.Agent.Spec.Declarative.Tools {
 			switch t.Type {
-			case v1alpha2.ToolProviderType_McpServer:
+			case v1alpha3.ToolProviderType_McpServer:
 				name := ""
 				if t.McpServer != nil {
 					name = t.McpServer.Name
@@ -537,7 +523,7 @@ func (m *workspaceModel) renderDetails() {
 					fmt.Fprintf(&m.details, " (tools: %s)", strings.Join(t.McpServer.ToolNames, ", "))
 				}
 				fmt.Fprint(&m.details, "\n")
-			case v1alpha2.ToolProviderType_Agent:
+			case v1alpha3.ToolProviderType_Agent:
 				name := ""
 				if t.Agent != nil {
 					name = t.Agent.Name
