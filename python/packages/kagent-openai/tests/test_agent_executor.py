@@ -14,7 +14,7 @@ def _make_context() -> MagicMock:
     context = MagicMock(spec=RequestContext)
     context.message = Message(
         message_id=str(uuid.uuid4()),
-        role=Role.user,
+        role=Role.ROLE_USER,
         parts=[Part(text="hello")],
     )
     context.current_task = None
