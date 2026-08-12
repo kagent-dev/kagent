@@ -122,29 +122,42 @@ type HarnessSpec struct {
 type HarnessCapabilities struct {
 	// Version identifies the controller capability catalog entry.
 	// +kubebuilder:validation:MinLength=1
+	// +required
 	Version string `json:"version"`
 
+	// +required
 	NativeAgentTools bool `json:"nativeAgentTools"`
 
 	// +kubebuilder:validation:Minimum=0
+	// +required
 	MaxNativeAgentDepth int32 `json:"maxNativeAgentDepth"`
 
+	// +required
 	DedicatedAgentTools bool `json:"dedicatedAgentTools"`
-	MCPInjection        bool `json:"mcpInjection"`
-	Streaming           bool `json:"streaming"`
-	Interruption        bool `json:"interruption"`
-	InputRequired       bool `json:"inputRequired"`
-	Approvals           bool `json:"approvals"`
+	// +required
+	MCPInjection bool `json:"mcpInjection"`
+	// +required
+	Streaming bool `json:"streaming"`
+	// +required
+	Interruption bool `json:"interruption"`
+	// +required
+	InputRequired bool `json:"inputRequired"`
+	// +required
+	Approvals bool `json:"approvals"`
 
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=set
+	// +optional
 	InputModalities []string `json:"inputModalities,omitempty"`
 
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=set
+	// +optional
 	OutputModalities []string `json:"outputModalities,omitempty"`
 
-	Resume     bool `json:"resume"`
+	// +required
+	Resume bool `json:"resume"`
+	// +required
 	Checkpoint bool `json:"checkpoint"`
 }
 
