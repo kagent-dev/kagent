@@ -255,6 +255,7 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 		}
 
 		var textParts []string
+		var images []api.ImageData
 		var toolCalls []api.ToolCall
 		var toolResults []struct {
 			content string
@@ -296,6 +297,22 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 				}{content: content})
 				continue
 			}
+
+			if part.InlineData != nil {
+				mime := part.InlineData.MIMEType
+				name := blobName(part.InlineData)
+				if isImageMIME(mime) {
+					images = append(images, api.ImageData(part.InlineData.Data))
+				} else {
+					textParts = append(textParts, unsupportedFileNote(name, mime))
+				}
+				continue
+			}
+
+			if part.FileData != nil {
+				textParts = append(textParts, unsupportedFileNote(fileDataName(part.FileData), part.FileData.MIMEType))
+				continue
+			}
 		}
 
 		// Build message based on what we found
@@ -319,8 +336,7 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 			}
 		}
 
-		if len(textParts) > 0 {
-			// Regular text message
+		if len(textParts) > 0 || len(images) > 0 {
 			// Check if this is a system message
 			if content.Role == "system" {
 				systemInstruction = strings.Join(textParts, "\n")
@@ -328,6 +344,7 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 				msg := api.Message{
 					Role:    role,
 					Content: strings.Join(textParts, "\n"),
+					Images:  images,
 				}
 				messages = append(messages, msg)
 			}
