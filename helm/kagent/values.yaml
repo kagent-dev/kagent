@@ -648,7 +648,7 @@ providers:
       azureEndpoint: ""
   gemini:
     provider: Gemini
-    model: "gemini-2.0-flash-lite"
+    model: "gemini-2.5-flash-lite"
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""
