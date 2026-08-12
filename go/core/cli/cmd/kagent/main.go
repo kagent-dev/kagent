@@ -72,7 +72,11 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 	}
 	rootCmd.SetContext(ctx)
 
-	rootCmd.PersistentFlags().StringVar(&cfg.KAgentURL, "kagent-url", cfg.KAgentURL, "KAgent URL")
+	rootCmd.PersistentFlags().StringVar(&cfg.KAgentURL, "kagent-url", cfg.KAgentURL, "KAgent REST URL")
+	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCURL, "kagent-grpc-url", cfg.KAgentGRPCURL, "KAgent gRPC target")
+	rootCmd.PersistentFlags().BoolVar(&cfg.KAgentGRPCTLS, "kagent-grpc-tls", cfg.KAgentGRPCTLS, "Use TLS for KAgent gRPC")
+	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCCAFile, "kagent-grpc-ca-file", cfg.KAgentGRPCCAFile, "CA certificate file for KAgent gRPC")
+	rootCmd.PersistentFlags().StringVar(&cfg.KAgentGRPCServerName, "kagent-grpc-server-name", cfg.KAgentGRPCServerName, "TLS server name for KAgent gRPC")
 	rootCmd.PersistentFlags().StringVarP(&cfg.Namespace, "namespace", "n", cfg.Namespace, "Namespace")
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", cfg.OutputFormat, "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", cfg.Verbose, "Verbose output")
@@ -534,6 +538,7 @@ func currentKubeContext() string {
 
 func runInteractive(cmd *cobra.Command, args []string, cfg *config.Config) {
 	client := cfg.Client()
+	defer client.Close() //nolint:errcheck
 
 	// Start port forward and ensure it is healthy.
 	var pf *cli.PortForward
@@ -546,7 +551,7 @@ func runInteractive(cmd *cobra.Command, args []string, cfg *config.Config) {
 		defer pf.Stop()
 	}
 
-	if err := tui.RunWorkspace(cfg, cfg.Client(), cfg.Verbose); err != nil {
+	if err := tui.RunWorkspace(cfg, client, cfg.Verbose); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 	}
 }

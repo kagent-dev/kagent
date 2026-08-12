@@ -26,8 +26,8 @@ function agentCard(page: import("@playwright/test").Page, ref: string) {
   return page.locator("div.rounded-xl", { has: page.getByTestId(`agent-options-${ref}`) });
 }
 
-test("agents: create, read, update, delete", async ({ page, request }, testInfo) => {
-  const { ref: modelRef, model, namespace } = await firstModelConfig(request);
+test("agents: create, read, update, delete", async ({ page }, testInfo) => {
+  const { ref: modelRef, model, namespace } = await firstModelConfig();
   const modelOption = `${model} (${modelRef})`;
   const name = `e2e-agent-${Date.now().toString(36)}-${testInfo.retry}`;
   const ref = `${namespace}/${name}`;

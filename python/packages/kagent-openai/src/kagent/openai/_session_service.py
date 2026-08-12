@@ -1,7 +1,7 @@
 """KAgent Session Service for OpenAI Agents SDK.
 
 This module implements the OpenAI Agents SDK SessionABC protocol,
-storing session data in the KAgent backend via REST API.
+storing session data through the KAgent controller SessionService.
 """
 
 from __future__ import annotations
@@ -11,25 +11,22 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-import httpx
+import grpc
 from agents.items import TResponseInputItem
 from agents.memory.session import SessionABC
+from kagent.api.v1alpha1 import sessions_pb2
+from kagent.core import AsyncControllerClient
 
 logger = logging.getLogger(__name__)
 
 
 class KAgentSession(SessionABC):
-    """A session implementation that uses the KAgent API.
-
-    This session integrates with the KAgent server to manage session state
-    and persistence through HTTP API calls, implementing the OpenAI Agents SDK
-    SessionABC protocol.
-    """
+    """OpenAI Agents SDK session backed by generated Session RPCs."""
 
     def __init__(
         self,
         session_id: str,
-        client: httpx.AsyncClient,
+        client: AsyncControllerClient,
         app_name: str,
         user_id: str,
     ):
@@ -37,7 +34,7 @@ class KAgentSession(SessionABC):
 
         Args:
             session_id: Unique identifier for this session
-            client: HTTP client for making API calls
+            client: Shared authenticated controller gRPC client
             app_name: Application name for session tracking
             user_id: User identifier for session scoping
         """
@@ -50,42 +47,30 @@ class KAgentSession(SessionABC):
     async def _ensure_session_exists(self) -> None:
         """Ensure the session exists in KAgent backend, creating if needed."""
         try:
-            # Try to get the session
-            response = await self.client.get(
-                f"/api/sessions/{self.session_id}?user_id={self.user_id}&limit=0",
-                headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
+            await self.client.session_service.GetSession(
+                sessions_pb2.GetSessionRequest(
+                    session_id=self.session_id,
+                    order=sessions_pb2.EVENT_ORDER_DESCENDING,
+                    limit=1,
+                ),
+                **await self.client.call_options(self.user_id),
             )
-            if response.status_code == 404:
-                # Session doesn't exist, create it
+        except grpc.aio.AioRpcError as error:
+            if error.code() == grpc.StatusCode.NOT_FOUND:
                 await self._create_session()
-            else:
-                response.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                await self._create_session()
-            else:
-                raise
+                return
+            raise
 
     async def _create_session(self) -> None:
         """Create a new session in KAgent backend."""
-        request_data = {
-            "id": self.session_id,
-            "user_id": self.user_id,
-            "agent_ref": self.app_name,
-        }
-
-        response = await self.client.post(
-            "/api/sessions",
-            json=request_data,
-            headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
+        response = await self.client.session_service.CreateSession(
+            sessions_pb2.CreateSessionRequest(id=self.session_id, agent_ref=self.app_name),
+            **await self.client.call_options(self.user_id),
         )
-        response.raise_for_status()
+        if not response.HasField("session"):
+            raise RuntimeError("failed to create session: response did not include a session")
 
-        data = response.json()
-        if not data.get("data"):
-            raise RuntimeError(f"Failed to create session: {data.get('message', 'Unknown error')}")
-
-        logger.debug(f"Created session {self.session_id} for user {self.user_id}")
+        logger.debug("Created session %s for user %s", self.session_id, self.user_id)
 
     async def get_items(self, limit: int | None = None) -> list[TResponseInputItem]:
         """Retrieve conversation history for this session.
@@ -97,57 +82,33 @@ class KAgentSession(SessionABC):
             List of conversation items from the session
         """
         try:
-            # Build URL with limit parameter
-            url = f"/api/sessions/{self.session_id}?user_id={self.user_id}"
-            if limit is not None:
-                url += f"&limit={limit}"
-            else:
-                url += "&limit=-1"  # -1 means all items
-
-            response = await self.client.get(
-                url,
-                headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
+            response = await self.client.session_service.GetSession(
+                sessions_pb2.GetSessionRequest(
+                    session_id=self.session_id,
+                    order=sessions_pb2.EVENT_ORDER_ASCENDING,
+                ),
+                **await self.client.call_options(self.user_id),
             )
-
-            if response.status_code == 404:
-                # Session doesn't exist yet, return empty list
-                return []
-
-            response.raise_for_status()
-            data = response.json()
-
-            if not data.get("data") or not data["data"].get("events"):
-                return []
-
-            # Convert stored events back to OpenAI items format
-            items: list[TResponseInputItem] = []
-            events_data = data["data"]["events"]
-
-            for event_data in events_data:
-                # Events are stored as JSON strings in the 'data' field
-                event_json = event_data.get("data")
-                if event_json:
-                    # Parse the event and extract items if they exist
-                    try:
-                        event_obj = json.loads(event_json)
-                        # Look for items in the event
-                        if "items" in event_obj:
-                            items.extend(event_obj["items"])
-                    except (json.JSONDecodeError, TypeError) as e:
-                        logger.warning(f"Failed to parse event data: {e}")
-                        continue
-
-            # Apply limit if specified
-            if limit is not None and limit > 0:
-                items = items[-limit:]
-
-            self._items_cache = items
-            return items
-
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
+        except grpc.aio.AioRpcError as error:
+            if error.code() == grpc.StatusCode.NOT_FOUND:
                 return []
             raise
+
+        items: list[TResponseInputItem] = []
+        for event in response.events:
+            try:
+                event_obj = json.loads(event.data)
+            except (json.JSONDecodeError, TypeError) as error:
+                logger.warning("Failed to parse event data: %s", error)
+                continue
+            if isinstance(event_obj, dict) and isinstance(event_obj.get("items"), list):
+                items.extend(event_obj["items"])
+
+        if limit is not None and limit > 0:
+            items = items[-limit:]
+
+        self._items_cache = items
+        return items
 
     async def add_items(self, items: list[TResponseInputItem]) -> None:
         """Store new items for this session.
@@ -161,30 +122,26 @@ class KAgentSession(SessionABC):
         # Ensure session exists before adding items
         await self._ensure_session_exists()
 
-        # Store items as an event in the session
-        event_data = {
-            "id": str(uuid.uuid4()),
-            "data": json.dumps(
-                {
-                    "timestamp": datetime.now(UTC).isoformat(),
-                    "items": items,
-                    "type": "conversation_items",
-                }
+        await self.client.session_service.AddSessionEvent(
+            sessions_pb2.AddSessionEventRequest(
+                session_id=self.session_id,
+                id=str(uuid.uuid4()),
+                data=json.dumps(
+                    {
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "items": items,
+                        "type": "conversation_items",
+                    }
+                ),
             ),
-        }
-
-        response = await self.client.post(
-            f"/api/sessions/{self.session_id}/events?user_id={self.user_id}",
-            json=event_data,
-            headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
+            **await self.client.call_options(self.user_id),
         )
-        response.raise_for_status()
 
         # Update cache
         if self._items_cache is not None:
             self._items_cache.extend(items)
 
-        logger.debug(f"Added {len(items)} items to session {self.session_id}")
+        logger.debug("Added %d items to session %s", len(items), self.session_id)
 
     async def pop_item(self) -> TResponseInputItem | None:
         """Remove and return the most recent item from this session.
@@ -216,43 +173,30 @@ class KAgentSession(SessionABC):
     async def clear_session(self) -> None:
         """Clear all items for this session."""
         try:
-            # Delete the session from KAgent backend
-            response = await self.client.delete(
-                f"/api/sessions/{self.session_id}?user_id={self.user_id}",
-                headers={"X-User-ID": self.user_id, "X-Agent-Name": self.app_name},
+            await self.client.session_service.DeleteSession(
+                sessions_pb2.DeleteSessionRequest(session_id=self.session_id),
+                **await self.client.call_options(self.user_id),
             )
-            response.raise_for_status()
-
-            # Clear cache
-            self._items_cache = None
-
-            logger.debug(f"Cleared session {self.session_id}")
-
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                # Session doesn't exist, that's fine
-                self._items_cache = None
-            else:
+        except grpc.aio.AioRpcError as error:
+            if error.code() != grpc.StatusCode.NOT_FOUND:
                 raise
+        self._items_cache = None
+        logger.debug("Cleared session %s", self.session_id)
 
 
 class KAgentSessionFactory:
-    """Factory for creating KAgent sessions.
-
-    This factory manages the HTTP client and configuration needed to create
-    KAgentSession instances that communicate with the KAgent backend.
-    """
+    """Factory for sessions sharing one controller gRPC client."""
 
     def __init__(
         self,
-        client: httpx.AsyncClient,
+        client: AsyncControllerClient,
         app_name: str,
         default_user_id: str = "admin@kagent.dev",
     ):
         """Initialize the session factory.
 
         Args:
-            client: HTTP client for making API calls to KAgent
+            client: Shared authenticated controller gRPC client
             app_name: Application name for session tracking
             default_user_id: Default user ID if not specified per session
         """

@@ -1,7 +1,7 @@
 "use server";
 
-import { BaseResponse, ToolsResponse } from "@/types";
-import { fetchApi } from "./utils";
+import { ToolsResponse } from "@/types";
+import { getToolGrpcGateway } from "@/lib/grpc/client";
 
 /**
  * Gets all available tools
@@ -9,11 +9,8 @@ import { fetchApi } from "./utils";
  */
 export async function getTools(): Promise<ToolsResponse[]> {
   try {
-    const response = await fetchApi<BaseResponse<ToolsResponse[]>>("/tools");
-    if (!response) {
-      throw new Error("Failed to get built-in tools");
-    }
-    return response.data || [];
+    const gateway = await getToolGrpcGateway();
+    return await gateway.listTools();
   } catch (error) {
     throw new Error(`Error getting built-in tools. ${error}`);
   }

@@ -72,11 +72,11 @@ uv run currency test
 This agent demonstrates:
 
 - **StateGraph**: Simple conversation flow with one node
-- **KAgentCheckpointer**: Persists conversation state to KAgent sessions
+- **SqliteSaver**: Stores conversation state in a local SQLite file
 - **A2A Integration**: Compatible with KAgent's agent-to-agent protocol
 - **Streaming**: Real-time response streaming via A2A events
 
-The agent maintains conversation history across sessions using the KAgent REST API for persistence.
+The agent stores conversation history in `KAGENT_CHECKPOINT_DB` (default: `/tmp/currency-checkpoints.sqlite`). Mount a persistent volume and point the variable there for persistence across pod replacement.
 
 ## Configuration
 

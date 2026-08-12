@@ -66,7 +66,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 			name:     "no token passes through without ShareContext",
 			getShare: nil, // never called
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
 				return withUser(r, "caller-id")
 			},
 			wantStatus:   http.StatusOK,
@@ -76,7 +76,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 			name:     "token without auth session returns 401",
 			getShare: nil, // never called
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "some-token")
 				return r // no auth session
 			},
@@ -89,7 +89,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 				return nil, dbpkg.ErrNotFound
 			},
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "bad-token")
 				return withUser(r, "caller-id")
 			},
@@ -104,7 +104,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 				return nil, dbpkg.ErrNotFound
 			},
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "revoked-token")
 				return withUser(r, "visitor-id")
 			},
@@ -112,65 +112,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 			wantShareCtx: false,
 		},
 		{
-			name: "valid read-only token with GET passes through with ShareContext",
-			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return okShare, nil
-			},
-			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
-				r.Header.Set("X-Share-Token", "valid-token")
-				return withUser(r, "visitor-id")
-			},
-			wantStatus:   http.StatusOK,
-			wantShareCtx: true,
-			wantReadOnly: true,
-		},
-		{
-			name: "valid read-only token with POST to session path returns 403",
-			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return okShare, nil
-			},
-			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, "/api/sessions/sess-1/events", nil)
-				r.Header.Set("X-Share-Token", "valid-token")
-				return withUser(r, "visitor-id")
-			},
-			wantStatus:   http.StatusForbidden,
-			wantShareCtx: false,
-		},
-		{
-			name: "valid read-only token with POST to unrelated path passes through",
-			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return okShare, nil
-			},
-			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, "/api/feedback", nil)
-				r.Header.Set("X-Share-Token", "valid-token")
-				return withUser(r, "visitor-id")
-			},
-			wantStatus:   http.StatusOK,
-			wantShareCtx: true,
-			wantReadOnly: true,
-		},
-		{
-			name: "valid read-write token with POST passes through with ShareContext",
-			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return rwShare, nil
-			},
-			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, "/api/sessions/sess-1/events", nil)
-				r.Header.Set("X-Share-Token", "rw-token")
-				return withUser(r, "visitor-id")
-			},
-			wantStatus:   http.StatusOK,
-			wantShareCtx: true,
-			wantReadOnly: false,
-		},
-		{
-			// A2A is JSON-RPC over POST, so read-only enforcement can't be done by
-			// verb here; the middleware passes the request through with a ShareContext
-			// and the A2A handler rejects mutating methods per-method.
-			name: "valid read-only token with POST to A2A path passes through with ShareContext",
+			name: "valid read-only token passes through with ShareContext",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
 				return okShare, nil
 			},
@@ -184,7 +126,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 			wantReadOnly: true,
 		},
 		{
-			name: "valid read-write token with POST to A2A path passes through",
+			name: "valid read-write token passes through with ShareContext",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
 				return rwShare, nil
 			},

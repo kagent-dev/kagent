@@ -333,6 +333,10 @@ func collectSharedEnv(agent *v1alpha3.SandboxAgent) []corev1.EnvVar {
 			Name:  env.KagentURL.Name(),
 			Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace()),
 		},
+		corev1.EnvVar{
+			Name:  env.KagentGRPCURL.Name(),
+			Value: fmt.Sprintf("%s.%s:8084", utils.GetControllerName(), utils.GetResourceNamespace()),
+		},
 	)
 	if uiURL := env.KagentUIURL.Get(); uiURL != "" {
 		sharedEnv = append(sharedEnv, corev1.EnvVar{

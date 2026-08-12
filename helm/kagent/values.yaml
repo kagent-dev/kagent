@@ -287,6 +287,7 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
+      grpc: 8084
     annotations: {}
   # -- Prometheus-style /metrics endpoint for the controller manager.
   # When enabled, provisions a dedicated metrics Service plus the
@@ -308,6 +309,14 @@ controller:
     service:
       type: ClusterIP
       port: 8443
+  # -- Native gRPC application API settings. This port is internal unless a
+  # separate TLS-capable GRPCRoute or ingress is configured.
+  grpc:
+    bindAddress: ":8084"
+    maxMessageBytes: 16777216
+    reflection: false
+    tlsCertFile: ""
+    tlsKeyFile: ""
 
   # Extra controller env (mapped to flags via SUBSTRATE_* env names).
   env: []
@@ -449,8 +458,11 @@ ui:
   #     - X-Forwarded-Email
   # Browser uses this path on the UI hostname (nginx proxies /api → controller). Required for client-side /api and WebSockets from outside the cluster.
   publicBackendUrl: "/api"
-  # Next.js server default when set (BACKEND_INTERNAL_URL). Override if the controller API base differs.
+  # Next.js server HTTP base for A2A and other protocol-native routes. The
+  # kagent application API uses backendGrpcUrl instead.
   backendInternalUrl: ""
+  # Next.js server-only native gRPC target. Include http:// for internal h2c.
+  backendGrpcUrl: ""
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}

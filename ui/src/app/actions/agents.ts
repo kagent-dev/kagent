@@ -6,7 +6,11 @@ import {
   BaseResponse,
 } from "@/types";
 import { revalidatePath } from "next/cache";
-import { fetchApi, createErrorResponse } from "./utils";
+import { createErrorResponse } from "./utils";
+import {
+  getAgentGrpcGateway,
+  type AgentKubernetesKind,
+} from "@/lib/grpc/client";
 import type {
   AgentFormData,
   AgentWorkloadFormData,
@@ -29,7 +33,7 @@ function revalidateAgentListAndChat(namespace: string | undefined, name: string)
   revalidatePath(`/agents/${agentRef}/chat`);
 }
 
-/** Mutates `agentConfig` — strips namespace/name ref to name only for API payloads. */
+/** Builds an AgentHarness payload with a name-only model reference for the controller API. */
 async function createAgentHarnessFromForm(agentConfig: AgentFormData): Promise<BaseResponse<Agent>> {
   if (!agentConfig.agentHarness) {
     throw new Error("AgentHarness configuration is missing.");
@@ -45,21 +49,15 @@ async function createAgentHarnessFromForm(agentConfig: AgentFormData): Promise<B
     throw new Error(draft.error);
   }
 
-  const response = await fetchApi<BaseResponse<AgentResponse>>(`/agentharnesses`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(draft),
-  });
-
-  const agent = response.data?.agent;
+  const gateway = await getAgentGrpcGateway();
+  const response = await gateway.createAgentHarness(draft);
+  const agent = response.agent;
   if (!agent) {
     throw new Error("Failed to create AgentHarness");
   }
 
   revalidateAgentListAndChat(agent.metadata.namespace, agent.metadata.name);
-  return { message: response.message || "Successfully created AgentHarness", data: agent };
+  return { message: "Successfully created AgentHarness", data: agent };
 }
 
 async function createOrUpdateSandboxAgentFromForm(
@@ -67,24 +65,17 @@ async function createOrUpdateSandboxAgentFromForm(
   update: boolean,
 ): Promise<BaseResponse<Agent>> {
   const sandboxPayload = agentFormDataToSandboxAgent(agentConfig);
-  const ns = sandboxPayload.metadata.namespace || "";
-  const name = sandboxPayload.metadata.name;
-  const path = update ? `/sandboxagents/${ns}/${name}` : `/sandboxagents`;
-  const response = await fetchApi<BaseResponse<AgentResponse>>(path, {
-    method: update ? "PUT" : "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(sandboxPayload),
-  });
-
-  const agent = response.data?.agent;
+  const gateway = await getAgentGrpcGateway();
+  const response = update
+    ? await gateway.updateSandboxAgent(sandboxPayload)
+    : await gateway.createSandboxAgent(sandboxPayload);
+  const agent = response.agent;
   if (!agent) {
     throw new Error("Failed to create sandbox agent");
   }
 
   revalidateAgentListAndChat(agent.metadata.namespace, agent.metadata.name);
-  return { message: response.message || "Successfully created agent", data: agent };
+  return { message: update ? "Successfully updated agent" : "Successfully created agent", data: agent };
 }
 
 /**
@@ -96,12 +87,9 @@ export async function getAgent(
   kubernetesKind?: string
 ): Promise<BaseResponse<AgentResponse>> {
   try {
-    let path = `/sandboxagents/${namespace}/${agentName}`;
-    if (kubernetesKind === "AgentHarness") {
-      path = `/agentharnesses/${namespace}/${agentName}`;
-    }
-    const agentData = await fetchApi<BaseResponse<AgentResponse>>(path);
-    return { message: "Successfully fetched agent", data: agentData.data };
+    const gateway = await getAgentGrpcGateway();
+    const agent = await gateway.getAgent(namespace, agentName, agentKind(kubernetesKind));
+    return { message: "Successfully fetched agent", data: agent };
   } catch (error) {
     return createErrorResponse<AgentResponse>(error, "Error getting agent");
   }
@@ -130,7 +118,7 @@ export async function getAgentWithResolvedKind(
 }
 
 /**
- * Polls GET /api/sandboxagents/{namespace}/{name} until ready is true (Sandbox workload ready).
+ * Polls the SandboxAgent RPC until ready is true.
  */
 export async function waitForSandboxAgentReady(
   agentName: string,
@@ -167,16 +155,8 @@ export async function deleteAgent(
   kubernetesKind?: string
 ): Promise<BaseResponse<void>> {
   try {
-    let path = `/sandboxagents/${namespace}/${agentName}`;
-    if (kubernetesKind === "AgentHarness") {
-      path = `/agentharnesses/${namespace}/${agentName}`;
-    }
-    await fetchApi(path, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
+    const gateway = await getAgentGrpcGateway();
+    await gateway.deleteAgent(namespace, agentName, agentKind(kubernetesKind));
 
     revalidatePath("/");
     return { message: "Successfully deleted agent" };
@@ -213,10 +193,10 @@ export async function createAgent(agentConfig: AgentFormData, update: boolean = 
  */
 export async function getAgents(opts: { namespace?: string } = {}): Promise<BaseResponse<AgentResponse[]>> {
   try {
-    const path = opts.namespace ? `/agents?namespace=${encodeURIComponent(opts.namespace)}` : `/agents`;
-    const { data } = await fetchApi<BaseResponse<AgentResponse[]>>(path);
+    const gateway = await getAgentGrpcGateway();
+    const data = await gateway.listAgents(opts.namespace);
 
-    const sortedData = (data ?? []).sort((a, b) => {
+    const sortedData = data.sort((a, b) => {
       const aRef = k8sRefUtils.toRef(a.agent.metadata.namespace || "", a.agent.metadata.name);
       const bRef = k8sRefUtils.toRef(b.agent.metadata.namespace || "", b.agent.metadata.name);
       return aRef.localeCompare(bRef);
@@ -226,4 +206,11 @@ export async function getAgents(opts: { namespace?: string } = {}): Promise<Base
   } catch (error) {
     return createErrorResponse<AgentResponse[]>(error, "Error getting agents");
   }
+}
+
+function agentKind(kind: string | undefined): AgentKubernetesKind {
+  if (kind === "SandboxAgent" || kind === "AgentHarness") {
+    return kind;
+  }
+  return "SandboxAgent";
 }
