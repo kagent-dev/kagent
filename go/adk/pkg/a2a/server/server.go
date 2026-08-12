@@ -13,9 +13,14 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 )
@@ -34,10 +39,12 @@ type ServerConfig struct {
 
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
 type A2AServer struct {
-	httpServer *http.Server
-	logger     logr.Logger
-	config     ServerConfig
-	listenErr  chan error
+	httpServer   *http.Server
+	grpcServer   *grpc.Server
+	healthServer *health.Server
+	logger       logr.Logger
+	config       ServerConfig
+	listenErr    chan error
 }
 
 // NewA2AServer creates a new A2A server using a2asrv.
@@ -52,11 +59,26 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	RegisterHealthEndpoints(mux)
 	mux.Handle(a2asrv.WellKnownAgentCardPath, a2asrv.NewStaticAgentCardHandler(&agentCard))
 	mux.Handle("/", jsonrpcHandler)
+
+	grpcServer := grpc.NewServer()
+	a2agrpc.NewHandler(requestHandler).RegisterWith(grpcServer)
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus(a2apb.A2AService_ServiceDesc.ServiceName, grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
+	handlerMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 	// Health and agent-card requests are neither traced nor flushed; only A2A
 	// requests get an inbound server span and a span flush.
 	isA2ARequest := func(r *http.Request) bool {
-		switch r.URL.Path {
-		case "/health", "/healthz", a2asrv.WellKnownAgentCardPath:
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/grpc.health.v1.Health/"):
+			return false
+		case r.URL.Path == "/health", r.URL.Path == "/healthz", r.URL.Path == a2asrv.WellKnownAgentCardPath:
 			return false
 		default:
 			return true
@@ -65,7 +87,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 	// Wrap the whole server mux to enable trace context extraction and an inbound
 	// HTTP server span for each request.
 	instrumentedHandler := otelhttp.NewHandler(
-		mux,
+		handlerMux,
 		"a2a-server",
 		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 			return r.Method + " " + r.URL.Path
@@ -97,13 +119,20 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 		addr = net.JoinHostPort(config.Host, config.Port)
 	}
 
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+
 	return &A2AServer{
 		httpServer: &http.Server{
-			Addr:    addr,
-			Handler: handler,
+			Addr:      addr,
+			Handler:   handler,
+			Protocols: protocols,
 		},
-		logger: logger,
-		config: config,
+		grpcServer:   grpcServer,
+		healthServer: healthServer,
+		logger:       logger,
+		config:       config,
 	}, nil
 }
 
@@ -174,9 +203,19 @@ func (s *A2AServer) WaitForShutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.ShutdownTimeout)
 	defer cancel()
 
+	s.healthServer.Shutdown()
+	grpcStopped := make(chan struct{})
+	go func() {
+		s.grpcServer.GracefulStop()
+		close(grpcStopped)
+	}()
+
 	if err := s.httpServer.Shutdown(ctx); err != nil {
+		s.grpcServer.Stop()
+		<-grpcStopped
 		return fmt.Errorf("error shutting down server: %w", err)
 	}
+	<-grpcStopped
 
 	return nil
 }
