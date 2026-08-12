@@ -373,7 +373,7 @@ func TestKAgentExecutor_HITLPauseAndResumeFlow(t *testing.T) {
 // must always be valid UTF-8, and pure-ASCII behavior must be unchanged.
 func TestExtractSessionName(t *testing.T) {
 	textMsg := func(s string) *a2atype.Message {
-		return &a2atype.Message{Parts: []a2atype.Part{a2atype.TextPart{Text: s}}}
+		return a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(s))
 	}
 
 	tests := []struct {
@@ -413,10 +413,7 @@ func TestExtractSessionName(t *testing.T) {
 		},
 		{
 			name: "skips empty text part and uses first non-empty",
-			msg: &a2atype.Message{Parts: []a2atype.Part{
-				a2atype.TextPart{Text: ""},
-				a2atype.TextPart{Text: "hi"},
-			}},
+			msg:  a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(""), a2atype.NewTextPart("hi")),
 			want: "hi",
 		},
 	}
