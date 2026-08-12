@@ -45,8 +45,11 @@ import {
   type SessionGuardOptions,
 } from "@/lib/chatSessionGuard";
 
-/** Soft client cap so base64 A2A FileParts stay reasonable. */
-const MAX_CHAT_FILE_BYTES = 10 * 1024 * 1024;
+// Soft client caps aligned with the strictest common provider (Bedrock Converse):
+// images ≤ 3.75 MB, documents ≤ 4.5 MB, ≤ 5 documents / ≤ 20 images per message.
+const MAX_CHAT_IMAGE_BYTES = Math.floor(3.75 * 1024 * 1024);
+const MAX_CHAT_DOC_BYTES = Math.floor(4.5 * 1024 * 1024);
+const MAX_CHAT_FILES = 5;
 
 type PendingChatFile = {
   id: string;
@@ -348,12 +351,15 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     userMessageText: string,
     options: {
       clearInput?: boolean;
+      /** When false, do not attach/clear staged files (MCP ui/message path). */
+      attachPendingFiles?: boolean;
       restoreInputOnError?: boolean;
       errorLabel?: string;
       rethrowOnError?: boolean;
     } = {},
   ) => {
-    const filesToSend = pendingFiles;
+    const attachPendingFiles = options.attachPendingFiles ?? true;
+    const filesToSend = attachPendingFiles ? pendingFiles : [];
     if ((!userMessageText.trim() && filesToSend.length === 0) || !selectedAgentName || !selectedNamespace) {
       return;
     }
@@ -364,11 +370,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         throw error;
       }
       return;
-    }
-
-    if (options.clearInput ?? true) {
-      setCurrentInputMessage("");
-      setPendingFiles([]);
     }
 
     // Cross-tab guard: fetch the latest session state before mutating anything.
@@ -384,11 +385,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           staleOrChanged: "New messages loaded — please review before sending",
         },
       });
+      // Don't clear staged files/input if the send was blocked.
       if (guardResult === "blocked") return;
     }
 
-    setCurrentInputMessage("");
-    setPendingFiles([]);
+    if (options.clearInput ?? true) {
+      setCurrentInputMessage("");
+    }
+    if (attachPendingFiles) {
+      setPendingFiles([]);
+    }
     setChatStatus("thinking");
     setStoredMessages(prev => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
@@ -448,7 +454,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             toast.error("Failed to create session");
             setChatStatus("error");
             setCurrentInputMessage(userMessageText);
-            setPendingFiles(filesToSend);
+            if (attachPendingFiles) setPendingFiles(filesToSend);
             isCreatingSessionRef.current = false;
             return;
           }
@@ -475,7 +481,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           toast.error("Error creating session");
           setChatStatus("error");
           setCurrentInputMessage(userMessageText);
-          setPendingFiles(filesToSend);
+          if (attachPendingFiles) setPendingFiles(filesToSend);
           isCreatingSessionRef.current = false;
           return;
         }
@@ -523,7 +529,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         errorLabel: "Streaming failed",
         onError: () => {
           setCurrentInputMessage(userMessageText);
-          setPendingFiles(filesToSend);
+          if (attachPendingFiles) setPendingFiles(filesToSend);
         },
         sessionIdForWait: currentSessionId,
       });
@@ -533,7 +539,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setChatStatus("error");
       if (options.restoreInputOnError ?? true) {
         setCurrentInputMessage(userMessageText);
-        setPendingFiles(filesToSend);
+        if (attachPendingFiles) setPendingFiles(filesToSend);
       }
       if (options.rethrowOnError) {
         throw error;
@@ -544,9 +550,22 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const handleAttachFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     const next: PendingChatFile[] = [];
+    let slots = MAX_CHAT_FILES - pendingFiles.length;
+    if (slots <= 0) {
+      toast.error(`You can attach at most ${MAX_CHAT_FILES} files per message`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     for (const file of Array.from(fileList)) {
-      if (file.size > MAX_CHAT_FILE_BYTES) {
-        toast.error(`${file.name} exceeds the ${MAX_CHAT_FILE_BYTES / (1024 * 1024)}MB limit`);
+      if (slots <= 0) {
+        toast.error(`You can attach at most ${MAX_CHAT_FILES} files per message`);
+        break;
+      }
+      const isImage = file.type.startsWith("image/");
+      const maxBytes = isImage ? MAX_CHAT_IMAGE_BYTES : MAX_CHAT_DOC_BYTES;
+      if (file.size > maxBytes) {
+        const mb = (maxBytes / (1024 * 1024)).toFixed(2);
+        toast.error(`${file.name} exceeds the ${mb}MB ${isImage ? "image" : "file"} limit`);
         continue;
       }
       try {
@@ -559,6 +578,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           mimeType: file.type || "application/octet-stream",
           bytes,
         });
+        slots -= 1;
       } catch {
         toast.error(`Failed to read ${file.name}`);
       }
@@ -629,6 +649,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const handleMcpAppSendMessage = async (text: string) => {
     await sendChatMessageText(text, {
       clearInput: false,
+      attachPendingFiles: false, // don't send/clear user-staged attachments
       restoreInputOnError: false,
       errorLabel: "MCP app message failed",
       rethrowOnError: true,
