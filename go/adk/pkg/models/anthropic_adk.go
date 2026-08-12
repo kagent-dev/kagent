@@ -145,11 +145,11 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 				name := blobName(part.InlineData)
 				if isImageMIME(mime) {
 					mediaBlocks = append(mediaBlocks, anthropic.NewImageBlockBase64(mime, base64.StdEncoding.EncodeToString(part.InlineData.Data)))
-				} else if isAnthropicPDF(mime) {
+				} else if isAnthropicPDF(mime, name) {
 					mediaBlocks = append(mediaBlocks, anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{
 						Data: base64.StdEncoding.EncodeToString(part.InlineData.Data),
 					}))
-				} else if isAnthropicPlainText(mime) {
+				} else if isAnthropicPlainText(mime, name) {
 					mediaBlocks = append(mediaBlocks, anthropic.NewDocumentBlock(anthropic.PlainTextSourceParam{
 						Data: string(part.InlineData.Data),
 					}))
@@ -160,7 +160,7 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 				mime := part.FileData.MIMEType
 				name := fileDataName(part.FileData)
 				uri := part.FileData.FileURI
-				if uri != "" && isAnthropicPDF(mime) {
+				if uri != "" && isAnthropicPDF(mime, name) {
 					mediaBlocks = append(mediaBlocks, anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{URL: uri}))
 				} else {
 					textParts = append(textParts, unsupportedFileNote(name, mime))

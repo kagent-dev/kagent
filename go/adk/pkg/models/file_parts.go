@@ -43,16 +43,112 @@ func isImageMIME(mime string) bool {
 	return strings.HasPrefix(mime, "image/")
 }
 
-func isOpenAIFileMIME(mime string) bool {
-	return mime == "application/pdf"
+// OpenAI file support differs by API surface:
+//
+//   - Chat Completions (`messages[].content[].type=file`, inline file_data): PDF only.
+//   - Responses (`input_file`): broad list (txt/md/csv/docx/xlsx/pptx/…).
+func isOpenAIPDF(mime, name string) bool {
+	if strings.ToLower(mime) == "application/pdf" {
+		return true
+	}
+	return strings.ToLower(path.Ext(name)) == ".pdf"
 }
 
-func isAnthropicPDF(mime string) bool {
-	return mime == "application/pdf"
+// isOpenAIResponsesFileMIME is the Responses input_file allowlist (common types).
+// Link: https://platform.openai.com/docs/guides/file-inputs
+func isOpenAIResponsesFileMIME(mime, name string) bool {
+	if isOpenAIPDF(mime, name) {
+		return true
+	}
+	switch strings.ToLower(mime) {
+	case "text/plain", "text/markdown", "text/csv", "text/tsv", "text/html", "text/xml", "text/css",
+		"application/json", "application/xml", "application/rtf", "application/csv", "text/rtf",
+		"application/msword",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.ms-excel",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"application/vnd.ms-powerpoint",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"application/vnd.oasis.opendocument.text":
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(mime), "text/") {
+		return true
+	}
+	// Browsers often send "" / application/octet-stream — use extension.
+	switch strings.ToLower(path.Ext(name)) {
+	case ".pdf", ".txt", ".text", ".md", ".markdown", ".csv", ".tsv", ".html", ".htm",
+		".xml", ".json", ".rtf", ".odt",
+		".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+		".py", ".js", ".mjs", ".ts", ".go", ".java", ".c", ".cc", ".cpp", ".h", ".rb",
+		".sh", ".yaml", ".yml", ".css", ".sql":
+		return true
+	}
+	return false
 }
 
-func isAnthropicPlainText(mime string) bool {
-	return mime == "text/plain" || mime == "text/markdown"
+func isAnthropicPDF(mime, name string) bool {
+	return isOpenAIPDF(mime, name)
+}
+
+// isTextFileMIME is true for UTF-8 text we can inline (CC fallback) or send as
+// Anthropic PlainTextSource. Binary office formats are excluded.
+func isTextFileMIME(mime, name string) bool {
+	switch strings.ToLower(mime) {
+	case "text/plain", "text/markdown", "text/csv", "text/tsv", "text/html", "text/xml", "text/css",
+		"application/json", "application/xml", "application/x-yaml", "text/yaml", "text/x-yaml":
+		return true
+	}
+	if strings.HasPrefix(strings.ToLower(mime), "text/") {
+		return true
+	}
+	switch strings.ToLower(path.Ext(name)) {
+	case ".txt", ".text", ".md", ".markdown", ".csv", ".tsv", ".html", ".htm",
+		".xml", ".json", ".yaml", ".yml", ".css",
+		".py", ".js", ".mjs", ".ts", ".go", ".java", ".c", ".cc", ".cpp", ".h", ".rb", ".sh", ".sql":
+		return true
+	}
+	return false
+}
+
+func isAnthropicPlainText(mime, name string) bool {
+	return isTextFileMIME(mime, name)
+}
+
+// inlineFileText wraps file bytes as a labeled text chunk for APIs that cannot
+// take the file natively (Chat Completions non-PDF).
+func inlineFileText(name string, data []byte) string {
+	if name == "" {
+		name = "file"
+	}
+	return fmt.Sprintf("[file: %s]\n%s", name, string(data))
+}
+
+// openAIFilename ensures OpenAI gets a filename (it uses the extension for type detection).
+func openAIFilename(name, mime string) string {
+	if name != "" {
+		return name
+	}
+	switch strings.ToLower(mime) {
+	case "application/pdf":
+		return "document.pdf"
+	case "text/plain":
+		return "document.txt"
+	case "text/markdown":
+		return "document.md"
+	case "text/csv", "application/csv":
+		return "document.csv"
+	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return "document.docx"
+	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+		return "document.xlsx"
+	case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+		return "document.pptx"
+	case "application/json":
+		return "document.json"
+	default:
+		return "document"
+	}
 }
 
 // bedrockImageFormat maps image MIME → Bedrock ImageFormat. Empty if unsupported.

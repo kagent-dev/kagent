@@ -753,12 +753,35 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 			}
 		}
 
+		// Bedrock Converse: a document ContentBlock requires a text ContentBlock
+		// in the same message (https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Message.html).
+		contentBlocks = ensureBedrockDocumentHasText(contentBlocks)
+
 		if len(contentBlocks) > 0 {
 			messages = append(messages, types.Message{Role: role, Content: contentBlocks})
 		}
 	}
 
 	return messages, mergeSystemInstructionFromConfig(systemInstruction, config)
+}
+
+// ensureBedrockDocumentHasText appends a short prompt when a message has documents but no text
+func ensureBedrockDocumentHasText(blocks []types.ContentBlock) []types.ContentBlock {
+	hasDoc, hasText := false, false
+	for _, b := range blocks {
+		switch b.(type) {
+		case *types.ContentBlockMemberDocument:
+			hasDoc = true
+		case *types.ContentBlockMemberText:
+			hasText = true
+		}
+	}
+	if hasDoc && !hasText {
+		blocks = append(blocks, &types.ContentBlockMemberText{
+			Value: "Please review the attached document.",
+		})
+	}
+	return blocks
 }
 
 // convertGenaiToolsToBedrock converts genai.Tool to Bedrock Tool format.

@@ -113,12 +113,16 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 					img := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
 					img.OfInputImage.ImageURL = param.NewOpt(dataURI(mime, part.InlineData.Data))
 					contentParts = append(contentParts, img)
-				} else if isOpenAIFileMIME(mime) {
-					file := responses.ResponseInputFileParam{
-						FileData: param.NewOpt(dataURI(mime, part.InlineData.Data)),
+				} else if isOpenAIResponsesFileMIME(mime, name) {
+					// Responses input_file: PDF + txt/md/csv/docx/xlsx/pptx/…
+					fileMIME := mime
+					if isOpenAIPDF(mime, name) {
+						fileMIME = "application/pdf"
 					}
-					if name != "" {
-						file.Filename = param.NewOpt(name)
+					fname := openAIFilename(name, fileMIME)
+					file := responses.ResponseInputFileParam{
+						FileData: param.NewOpt(dataURI(fileMIME, part.InlineData.Data)),
+						Filename: param.NewOpt(fname),
 					}
 					contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
 				} else {
@@ -128,12 +132,11 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 				mime := part.FileData.MIMEType
 				name := fileDataName(part.FileData)
 				uri := part.FileData.FileURI
-				if uri != "" && isOpenAIFileMIME(mime) {
+				// file_url is Responses-only (Chat Completions docs: not supported).
+				if uri != "" && isOpenAIResponsesFileMIME(mime, name) {
 					file := responses.ResponseInputFileParam{
-						FileURL: param.NewOpt(uri),
-					}
-					if name != "" {
-						file.Filename = param.NewOpt(name)
+						FileURL:  param.NewOpt(uri),
+						Filename: param.NewOpt(openAIFilename(name, mime)),
 					}
 					contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
 				} else {

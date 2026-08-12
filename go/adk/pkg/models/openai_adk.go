@@ -265,19 +265,21 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 					contentParts = append(contentParts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
 						URL: dataURI(mime, part.InlineData.Data),
 					}))
-				} else if isOpenAIFileMIME(mime) {
+				} else if isOpenAIPDF(mime, name) {
+					// Chat Completions file_data accepts PDF only (not txt/docx/…).
 					file := openai.ChatCompletionContentPartFileFileParam{
-						FileData: param.NewOpt(dataURI(mime, part.InlineData.Data)),
-					}
-					if name != "" {
-						file.Filename = param.NewOpt(name)
+						FileData: param.NewOpt(dataURI("application/pdf", part.InlineData.Data)),
+						Filename: param.NewOpt(openAIFilename(name, "application/pdf")),
 					}
 					contentParts = append(contentParts, openai.FileContentPart(file))
+				} else if isTextFileMIME(mime, name) {
+					// Fallback: inline text so .txt still reaches the model on CC.
+					textParts = append(textParts, inlineFileText(name, part.InlineData.Data))
 				} else {
 					textParts = append(textParts, unsupportedFileNote(name, mime))
 				}
 			} else if part.FileData != nil {
-				// Chat Completions file parts have no URL field.
+				// Chat Completions has no file_url; only Responses does.
 				textParts = append(textParts, unsupportedFileNote(fileDataName(part.FileData), part.FileData.MIMEType))
 			}
 		}
