@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from a2a.server.agent_execution.context import RequestContext
 from a2a.server.events.event_queue import EventQueue
-from a2a.types import Message, Part, Role, TextPart
+from a2a.types import Message, Part, Role
 
 from kagent.openai._agent_executor import OpenAIAgentExecutor
 
@@ -15,7 +15,7 @@ def _make_context() -> MagicMock:
     context.message = Message(
         message_id=str(uuid.uuid4()),
         role=Role.user,
-        parts=[Part(TextPart(text="hello"))],
+        parts=[Part(text="hello")],
     )
     context.current_task = None
     context.task_id = "task-1"
