@@ -4,20 +4,22 @@ import (
 	"context"
 	"testing"
 
-	"github.com/a2aproject/a2a-go/a2aclient"
-	"github.com/a2aproject/a2a-go/a2asrv"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 )
 
-// newReq returns an empty outbound client Request with an initialized CallMeta.
+// newReq returns an empty outbound client Request with initialized service params.
 func newReq() *a2aclient.Request {
-	return &a2aclient.Request{Meta: a2aclient.CallMeta{}}
+	return &a2aclient.Request{ServiceParams: a2aclient.ServiceParams{}}
 }
 
 // withCallContext returns a context that carries an a2asrv.CallContext whose
-// RequestMeta exposes the given inbound headers, so the interceptor's
-// CallContextFrom + RequestMeta path can be exercised.
+// service params expose the given inbound headers, so the interceptor's
+// CallContextFrom + ServiceParams path can be exercised.
 func withCallContext(parent context.Context, inbound map[string][]string) context.Context {
-	ctx, _ := a2asrv.WithCallContext(parent, a2asrv.NewRequestMeta(inbound))
+	ctx, _ := a2asrv.NewCallContext(parent, a2asrv.NewServiceParams(inbound))
 	return ctx
 }
 
@@ -33,7 +35,7 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		ctx := context.WithValue(context.Background(), parentContextIDContextKey{}, ownSession)
 		req := newReq()
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
@@ -49,7 +51,7 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		})
 		req := newReq()
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
@@ -67,7 +69,7 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		})
 		req := newReq()
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
@@ -81,19 +83,19 @@ func TestLineageHeaderPropagation(t *testing.T) {
 		ctx := context.Background()
 		req := newReq()
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
-		if got := req.Meta.Get(ParentContextIDHeader); len(got) != 0 {
+		if got := req.ServiceParams.Get(ParentContextIDHeader); len(got) != 0 {
 			t.Errorf("expected no parent header, got %v", got)
 		}
-		if got := req.Meta.Get(RootContextIDHeader); len(got) != 0 {
+		if got := req.ServiceParams.Get(RootContextIDHeader); len(got) != 0 {
 			t.Errorf("expected no root header, got %v", got)
 		}
 	})
 
-	t.Run("pre-existing header on req.Meta wins over lineage", func(t *testing.T) {
+	t.Run("pre-existing header on req.ServiceParams wins over lineage", func(t *testing.T) {
 		// Analogous to Python's header_provider override: a caller-supplied
 		// header that is already present on the outbound request must not be
 		// overwritten by the lineage interceptor.
@@ -102,10 +104,10 @@ func TestLineageHeaderPropagation(t *testing.T) {
 			RootContextIDHeader: {upstreamRoot},
 		})
 		req := newReq()
-		req.Meta.Append(ParentContextIDHeader, "caller-override-parent")
-		req.Meta.Append(RootContextIDHeader, "caller-override-root")
+		req.ServiceParams.Append(ParentContextIDHeader, "caller-override-parent")
+		req.ServiceParams.Append(RootContextIDHeader, "caller-override-root")
 
-		if _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
+		if _, _, err := (&lineageHeadersInterceptor{}).Before(ctx, req); err != nil {
 			t.Fatalf("Before returned error: %v", err)
 		}
 
@@ -116,11 +118,139 @@ func TestLineageHeaderPropagation(t *testing.T) {
 
 func assertSingleHeader(t *testing.T, req *a2aclient.Request, key, want string) {
 	t.Helper()
-	got := req.Meta.Get(key)
+	got := req.ServiceParams.Get(key)
 	if len(got) != 1 {
 		t.Fatalf("%s: expected exactly 1 value, got %v", key, got)
 	}
 	if got[0] != want {
 		t.Errorf("%s: got %q, want %q", key, got[0], want)
+	}
+}
+
+// TestContextIDForCall_IsolateSessions covers the EP#2137 fix: isolated tools
+// mint a fresh context_id per call so parallel/serial calls to the same
+// sub-agent land in independent sessions, while non-isolated tools keep
+// reusing one context_id for session continuity.
+func TestContextIDForCall_IsolateSessions(t *testing.T) {
+	t.Run("isolated: each call gets a distinct, non-empty context_id", func(t *testing.T) {
+		s := &remoteA2AState{isolateSessions: true, sharedContextID: "stable-id"}
+
+		first := s.contextIDForCall()
+		second := s.contextIDForCall()
+
+		if first == "" || second == "" {
+			t.Fatalf("expected non-empty context ids, got %q and %q", first, second)
+		}
+		if first == second {
+			t.Errorf("expected distinct context ids for isolated calls, got the same id %q twice", first)
+		}
+	})
+
+	t.Run("not isolated: every call reuses the stable sharedContextID", func(t *testing.T) {
+		s := &remoteA2AState{isolateSessions: false, sharedContextID: "stable-id"}
+
+		first := s.contextIDForCall()
+		second := s.contextIDForCall()
+
+		if first != "stable-id" || second != "stable-id" {
+			t.Errorf("expected both calls to reuse sharedContextID %q, got %q and %q", "stable-id", first, second)
+		}
+	})
+}
+
+// TestProcessResult_SetsSubagentSessionIDOnEveryBranch covers the review
+// feedback on #2153: subagent_session_id must be present in the response for
+// every result shape (direct Message, completed Task, input_required Task,
+// failed Task, and the unrecognised-result fallback) — not just the
+// completed-Task branch — since it is the UI's only source of truth for
+// linking the AgentCallDisplay Activity panel to the correct subagent
+// session, especially when isolateSessions means every call has a distinct id.
+func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
+	const contextID = "call-specific-context-id"
+	s := &remoteA2AState{name: "worker"}
+	ctx := context.Background()
+
+	t.Run("direct Message result", func(t *testing.T) {
+		msg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("hi"))
+		resp, err := s.processResult(nil, contextID, msg)
+		_ = ctx
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.SubagentSessionID != contextID {
+			t.Errorf("SubagentSessionID = %q, want %q", resp.SubagentSessionID, contextID)
+		}
+	})
+
+	t.Run("failed Task result", func(t *testing.T) {
+		task := &a2atype.Task{Status: a2atype.TaskStatus{State: a2atype.TaskStateFailed}}
+		resp, err := s.processResult(nil, contextID, task)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.SubagentSessionID != contextID {
+			t.Errorf("SubagentSessionID = %q, want %q", resp.SubagentSessionID, contextID)
+		}
+		if resp.Error == "" {
+			t.Errorf("expected a non-empty Error for a failed task")
+		}
+	})
+
+	t.Run("unrecognised result type", func(t *testing.T) {
+		resp, err := s.processResult(nil, contextID, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if resp.SubagentSessionID != contextID {
+			t.Errorf("SubagentSessionID = %q, want %q", resp.SubagentSessionID, contextID)
+		}
+	})
+}
+
+func TestHandleInputRequiredStoresPublicRemoteHitlState(t *testing.T) {
+	s := &remoteA2AState{name: "worker"}
+	task := &a2atype.Task{
+		ID:        "child-task",
+		ContextID: "child-context",
+		Status: a2atype.TaskStatus{
+			State: a2atype.TaskStateInputRequired,
+			Message: a2a.AttachHitlExtension(
+				a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")),
+				&a2a.ToolApprovalRequest{
+					Type: a2a.HITLTypeToolApprovalRequest,
+					Tools: []a2a.HitlTool{{
+						ID: "child-confirm", CallID: "child-call", Name: "delete_pod", Args: map[string]any{},
+					}},
+				},
+			),
+		},
+	}
+
+	// RequestConfirmation is not available without a real agent context; verify
+	// the state we would store matches the public extension shape.
+	state := a2a.BuildRemoteHitlState(task, s.name)
+	if state == nil || state.ToolApprovalRequest == nil {
+		t.Fatalf("state = %#v", state)
+	}
+	if _, legacy := state.ToMap()["hitl_parts"]; legacy {
+		t.Fatalf("remote state still uses legacy hitl_parts: %#v", state.ToMap())
+	}
+}
+
+func TestHandleInputRequiredWithoutHITLExtensionFails(t *testing.T) {
+	s := &remoteA2AState{name: "worker"}
+	task := &a2atype.Task{
+		Status: a2atype.TaskStatus{
+			State:   a2atype.TaskStateInputRequired,
+			Message: a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Input required")),
+		},
+	}
+
+	response := s.handleInputRequired(nil, task, "child-context")
+	if response.Status != "failed" || response.Error != "Remote agent 'worker' requested input without a valid HITL extension." {
+		t.Fatalf("response = %#v", response)
+	}
+	if response.SubagentSessionID != "child-context" {
+		t.Fatalf("SubagentSessionID = %q, want %q", response.SubagentSessionID, "child-context")
 	}
 }

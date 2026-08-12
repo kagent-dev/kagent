@@ -16,7 +16,7 @@ func AgentSpecHasSkills(spec *AgentSpec) bool {
 		return false
 	}
 	s := spec.Skills
-	return len(s.Refs) > 0 || len(s.GitRefs) > 0
+	return len(s.Refs) > 0 || len(s.GitRefs) > 0 || len(s.S3Refs) > 0
 }
 
 // ValidateSubstrateSandboxAgentSpec rejects sandbox agent configurations that kagent

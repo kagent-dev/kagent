@@ -1,6 +1,6 @@
 package a2a
 
-import "google.golang.org/adk/v2/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
+import "google.golang.org/adk/v2/server/adka2a/v2"
 
 const (
 	StateKeySessionName = "session_name"
@@ -21,14 +21,6 @@ const (
 	PartKeyArgs     = "args"
 	PartKeyResponse = "response"
 	PartKeyID       = "id"
-)
-
-// HITL batch/rejection/ask-user constants.
-const (
-	KAgentHitlDecisionTypeBatch   = "batch"
-	KAgentHitlDecisionsKey        = "decisions"
-	KAgentHitlRejectionReasonsKey = "rejection_reasons"
-	KAgentAskUserAnswersKey       = "ask_user_answers"
 )
 
 // ReadMetadataValue checks adk_<key> first, then kagent_<key>.

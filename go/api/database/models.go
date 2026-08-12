@@ -6,7 +6,7 @@ import (
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
 )
 
@@ -17,7 +17,7 @@ type Agent struct {
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
 	Type         string                `json:"type"`
-	WorkloadType v1alpha2.WorkloadMode `json:"workload_type"`
+	WorkloadType v1alpha3.WorkloadMode `json:"workload_type"`
 	Config       *adk.AgentConfig      `json:"config"`
 }
 

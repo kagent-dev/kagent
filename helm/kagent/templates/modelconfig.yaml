@@ -1,3 +1,4 @@
+{{- if .Values.providers }}
 {{- $dot := . }}
 {{- $defaultProvider := .Values.providers.default | default "openAI" }}
 {{- if hasKey .Values.providers $defaultProvider | not }}
@@ -5,7 +6,7 @@
 {{- end }}
 {{- $model := index .Values.providers $defaultProvider }}
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: {{ include "kagent.defaultModelConfigName" $dot | quote }}
@@ -35,7 +36,8 @@ spec:
     {{- toYaml $model.tls | nindent 4 }}
   {{- end }}
   {{- if $model.config }}
-  {{ $dot.Values.providers.default }}:
+  {{ $defaultProvider }}:
   {{- toYaml $model.config | nindent 4 }}
   {{- end }}
   {{- end }}
+{{- end }}

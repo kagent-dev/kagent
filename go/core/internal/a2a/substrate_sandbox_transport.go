@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -22,7 +22,7 @@ import (
 // substrateSandboxSessionRoundTripper routes each A2A request to the session actor identified by contextId.
 type substrateSandboxSessionRoundTripper struct {
 	routerURL    string
-	sandboxAgent *v1alpha2.SandboxAgent
+	sandboxAgent *v1alpha3.SandboxAgent
 	actorBackend *substrate.SandboxAgentActorBackend
 	base         http.RoundTripper
 	db           database.Client
@@ -30,7 +30,7 @@ type substrateSandboxSessionRoundTripper struct {
 
 func newSubstrateSandboxSessionRoundTripper(
 	routerURL string,
-	sa *v1alpha2.SandboxAgent,
+	sa *v1alpha3.SandboxAgent,
 	actorBackend *substrate.SandboxAgentActorBackend,
 	base http.RoundTripper,
 	db database.Client,

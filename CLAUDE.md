@@ -155,7 +155,7 @@ docs: update CLAUDE.md with testing requirements
 
 ## API Versioning
 
-- **v1alpha2** (current) - All new features go here
+- **v1alpha3** (current) - All new features go here
 - **v1alpha1** (legacy/deprecated) - Minimal maintenance only
 
 Breaking changes are acceptable in alpha versions.
@@ -178,7 +178,7 @@ Breaking changes are acceptable in alpha versions.
 ### Don'ts ❌
 
 - Don't add features beyond what's requested (avoid over-engineering)
-- Don't modify v1alpha1 unless fixing critical bugs (focus on v1alpha2)
+- Don't modify v1alpha1 or v1alpha2 unless fixing compatibility bugs (focus on v1alpha3)
 - Don't vendor dependencies (use go.mod)
 - Don't commit without testing locally first
 - Don't use `any` type in TypeScript

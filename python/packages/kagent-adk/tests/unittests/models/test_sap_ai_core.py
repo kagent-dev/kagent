@@ -173,6 +173,21 @@ class TestBuildOrchestrationTools:
         names = [r["function"]["name"] for r in result]
         assert names == ["fn_a", "fn_b"]
 
+    def test_adk2_json_schema_is_preserved(self):
+        schema = {
+            "type": "object",
+            "properties": {"namespace": {"type": "string"}},
+            "required": ["namespace"],
+            "additionalProperties": False,
+        }
+        tool = types.Tool(
+            function_declarations=[types.FunctionDeclaration(name="list_pods", parameters_json_schema=schema)]
+        )
+
+        result = _build_orchestration_tools([tool])
+
+        assert result[0]["function"]["parameters"] == schema
+
 
 # ---------------------------------------------------------------------------
 # _parse_orchestration_chunk

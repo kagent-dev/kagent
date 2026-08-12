@@ -44,10 +44,10 @@ jest.mock("@/components/chat/ChatMcpAppsContext", () => ({
 
 const currentAgent = {
   agent: {
+    kind: "SandboxAgent",
     metadata: { namespace: "kagent", name: "kanban-mcp-agent" },
     spec: { type: "Declarative" },
   },
-  workloadMode: "deployment",
 } as unknown as AgentResponse;
 
 function renderLayout() {

@@ -1,8 +1,102 @@
-import { Message, Task, TaskStatusUpdateEvent, TaskArtifactUpdateEvent, TextPart, Part, DataPart } from "@a2a-js/sdk";
+import {
+  type Artifact,
+  Message,
+  Role,
+  TaskState,
+  type Part,
+  type StreamResponse,
+  type Task,
+  type TaskArtifactUpdateEvent,
+  type TaskStatusUpdateEvent,
+} from "@a2a-js/sdk";
 import { v4 as uuidv4 } from "uuid";
-import { convertToUserFriendlyName, isAgentToolName, messageUtils } from "@/lib/utils";
-import { ApprovalDecision, AdkRequestConfirmationData, HitlPartInfo, ToolDecision, TokenStats, ChatStatus } from "@/types";
+import {
+  convertToUserFriendlyName,
+  isAgentToolName,
+  isDataPart,
+  isTextPart,
+  isUserRole,
+} from "@/lib/utils";
+import type {
+  ChatStatus,
+  HitlRequestPayload,
+  HitlResponsePayload,
+  TokenStats,
+} from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
+import {
+  buildHitlCard,
+  getHitlPayload,
+  isHitlRequest,
+  isHitlResponse,
+  relatedHitlCallIds,
+  responseMatchesRequest,
+  visibleHitlTools,
+} from "@/lib/hitl";
+
+function isInputRequiredState(state: TaskState | undefined): boolean {
+  return state === TaskState.TASK_STATE_INPUT_REQUIRED;
+}
+
+// A2A v1 dropped status-update `final`; terminal TaskState is the stream end signal.
+export function isTerminalTaskState(state: TaskState | undefined): boolean {
+  return (
+    state === TaskState.TASK_STATE_COMPLETED ||
+    state === TaskState.TASK_STATE_CANCELED ||
+    state === TaskState.TASK_STATE_FAILED ||
+    state === TaskState.TASK_STATE_REJECTED
+  );
+}
+
+/** Task IDs whose status is terminal — used to derive finished-reply chrome at render time. */
+export function collectTerminalTaskIds(tasks: Task[]): Set<string> {
+  const ids = new Set<string>();
+  for (const task of tasks) {
+    if (isTerminalTaskState(task.status?.state)) {
+      ids.add(task.id);
+    }
+  }
+  return ids;
+}
+
+/** Last usage-bearing artifact stats keyed by task id (for reply token tooltips). */
+export function collectTaskTokenStats(tasks: Task[]): Map<string, TokenStats> {
+  const statsByTask = new Map<string, TokenStats>();
+  for (const task of tasks) {
+    const stats = lastArtifactTokenStats(task);
+    if (stats) statsByTask.set(task.id, stats);
+  }
+  return statsByTask;
+}
+
+/**
+ * True when this assistant text message is the last one for a terminal task.
+ * Derived from task status + transcript position — no message metadata writes.
+ */
+export function isFinishedAssistantReply(
+  message: Message,
+  allMessages: Message[],
+  terminalTaskIds: ReadonlySet<string>,
+): boolean {
+  if (isUserRole(message.role)) return false;
+  const taskId = message.taskId;
+  if (!taskId || !terminalTaskIds.has(taskId)) return false;
+
+  const originalType = (message.metadata as ADKMetadata | undefined)?.originalType;
+  if (originalType && originalType !== "TextMessage") return false;
+
+  const messageIndex = allMessages.indexOf(message);
+  if (messageIndex < 0) return false;
+
+  for (let i = allMessages.length - 1; i >= 0; i--) {
+    const candidate = allMessages[i];
+    if (candidate.taskId !== taskId || isUserRole(candidate.role)) continue;
+    const candidateType = (candidate.metadata as ADKMetadata | undefined)?.originalType;
+    if (candidateType && candidateType !== "TextMessage") continue;
+    return i === messageIndex;
+  }
+  return false;
+}
 
 // Helper functions for extracting data from stored tasks
 export function extractMessagesFromTasks(tasks: Task[]): Message[] {
@@ -10,174 +104,51 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   const seenMessageIds = new Set<string>();
 
   for (const task of tasks) {
-    if (!task.history) continue;
+    const history = task.history ?? [];
+    const historicalHitlByCallId = indexHistoricalHitlByCallId(history);
+    const emittedHistoricalHitl = new Set<HistoricalHitl>();
 
-    // Track the most recent LLM usage seen so far within this task so we can
-    // attach it to HITL confirmation cards (which share the same invocation as
-    // the preceding function_call but don't carry usage_metadata themselves).
-    let lastSeenStats: TokenStats | undefined;
-
-    for (let i = 0; i < task.history.length; i++) {
-      const historyItem = task.history[i];
-      if (historyItem.kind !== "message") continue;
+    for (const historyItem of history) {
 
       // Deduplicate by messageId to avoid showing the same message twice
       if (seenMessageIds.has(historyItem.messageId)) continue;
       seenMessageIds.add(historyItem.messageId);
 
-      // If this history message IS an adk_request_confirmation, replace
-      // it with a ToolApprovalRequest card carrying the decision status.
-      const confirmationParts = findConfirmationParts(historyItem);
-      if (confirmationParts.length > 0) {
-        // Find the decision that applies to THIS confirmation (first decision AFTER this message)
-        const decision = findDecisionAfterIndex(
-          task.history as Array<{ kind?: string; role?: string; parts?: Part[] }>,
-          i
-        );
-
-        // Skip unresolved confirmations — extractApprovalMessagesFromTasks
-        // handles pending ones via task.status.message to avoid duplicates.
-        if (!decision) continue;
-
-        for (const confPart of confirmationParts) {
-          // Use lastSeenStats: the confirmation message shares an invocation with
-          // the preceding function_call message that carries the usage.
-          messages.push(buildApprovalMessage(confPart, task.contextId, task.id, decision, lastSeenStats));
-        }
-        continue;
-      }
-
-      // Skip user decision messages — the decision is shown on the
-      // approval card itself, not as a separate chat bubble.
+      // HITL status messages and their user decisions do not have a defined
+      // position relative to persisted artifacts. Only ordinary user messages
+      // belong in the reloaded transcript; the current pending interaction is
+      // reconstructed separately from task.status.message.
       if (isUserDecisionMessage(historyItem)) continue;
 
       // User messages: push as-is (no tokenStats needed).
-      if (historyItem.role === "user") {
+      if (isUserRole(historyItem.role)) {
         messages.push(historyItem);
-        continue;
       }
+    }
 
-      // Agent messages: convert function_call / function_response DataParts to
-      // the same ToolCallRequestEvent / ToolCallExecutionEvent format produced
-      // by the live-stream handlers so the rendering component can display them.
-      //
-      // Backfill contextId/taskId from the task when the history item omits them.
-      // Persisted agent messages (both tool and text) frequently carry empty
-      // strings here, and `??` would keep the empty string ("" is not nullish).
-      // The locally-streamed copies of these messages carry the task's real ids,
-      // so the send guard keys them on (contextId, taskId); without the backfill
-      // the backend-extracted copies fall back to messageId and never match the
-      // local ones, counting the backend as ahead and falsely blocking the next
-      // send on every turn. Treat "" as absent so both copies get the task's
-      // stable ids. Applied to every extracted agent message below.
-      const msgContextId = historyItem.contextId || task.contextId;
-      const msgTaskId = historyItem.taskId || task.id;
-      const source = getSourceFromMetadata(historyItem.metadata as ADKMetadata | undefined, "assistant");
-      const msgStats = getMessageTokenStats(historyItem.metadata as Record<string, unknown>);
+    // A2A task output is persisted as artifacts, not history messages. Process
+    // the server-assembled artifacts in their stored order using the same
+    // text/tool representation as the live artifact-update path.
+    for (const artifact of task.artifacts ?? []) {
+      appendArtifactMessages(messages, task, artifact, historicalHitlByCallId, emittedHistoricalHitl);
+    }
 
-      if (msgStats) lastSeenStats = msgStats;
-
-      let hasConvertedParts = false;
-      for (const part of historyItem.parts ?? []) {
-        if (part.kind !== "data") continue;
-        const dp = part as DataPart;
-        const partMeta = dp.metadata as Record<string, unknown> | undefined;
-        const partType = getMetadataValue<string>(partMeta, "type");
-
-        if (partType === "function_call") {
-          const fcName = (dp.data as Record<string, unknown>)?.name as string | undefined;
-          // Skip ADK internal calls — confirmations are handled above.
-          if (fcName === "adk_request_confirmation" || fcName === "adk_request_credential") continue;
-
-          const toolData = dp.data as unknown as ToolCallData;
-          // Agent calls get no initial tokenStats; child stats arrive later via
-          // the function_response and are stamped on this card below.
-          // Regular tool calls use the message's own invocation stats.
-          const toolStats = isAgentToolName(toolData.name) ? undefined : msgStats;
-          const fcSubagentSessionId = isAgentToolName(toolData.name)
-            ? getMetadataValue<string>(partMeta, "subagent_session_id")
-            : undefined;
-          messages.push(createMessage("", source, {
-            originalType: "ToolCallRequestEvent",
-            contextId: msgContextId,
-            taskId: msgTaskId,
-            additionalMetadata: {
-              toolCallData: [{
-                id: toolData.id,
-                name: toolData.name,
-                args: (toolData.args as Record<string, unknown>) || {},
-                ...(fcSubagentSessionId ? { subagent_session_id: fcSubagentSessionId } : {}),
-              }],
-              ...(toolStats && { tokenStats: toolStats }),
-            },
-          }));
-          hasConvertedParts = true;
-
-        } else if (partType === "function_response") {
-          const toolData = dp.data as unknown as ToolResponseData;
-          // Skip internal HITL markers (parity with the streaming path): the
-          // before_tool_callback confirmation stub and the ask_user pending
-          // stub — the real result arrives in a later function_response.
-          const respStatus = (toolData.response as Record<string, unknown> | undefined)?.status as string | undefined;
-          if (respStatus === "confirmation_requested" || respStatus === "pending") {
-            hasConvertedParts = true;
-            continue;
-          }
-          let frSubagentSessionId: string | undefined;
-          if (isAgentToolName(toolData.name)) {
-            const responseObj = toolData.response as Record<string, unknown> | undefined;
-            if (responseObj && typeof responseObj.subagent_session_id === "string") {
-              frSubagentSessionId = responseObj.subagent_session_id;
-            }
-          }
-          messages.push(createMessage("", source, {
-            originalType: "ToolCallExecutionEvent",
-            contextId: msgContextId,
-            taskId: msgTaskId,
-            additionalMetadata: {
-              toolResultData: [{
-                call_id: toolData.id,
-                name: toolData.name,
-                content: normalizeToolResultToText(toolData),
-                is_error: toolData.response?.isError || false,
-                raw_result: getRawToolResult(toolData),
-                ...(frSubagentSessionId ? { subagent_session_id: frSubagentSessionId } : {}),
-              }],
-            },
-          }));
-          hasConvertedParts = true;
-
-          // For agent tools, extract child usage from the response dict and
-          // stamp it on the matching ToolCallRequestEvent card.
-          if (isAgentToolName(toolData.name)) {
-            const responseUsage = (toolData.response as Record<string, unknown> | undefined)?.kagent_usage_metadata;
-            if (responseUsage) {
-              const agentCallStats = getMessageTokenStats({ kagent_usage_metadata: responseUsage } as Record<string, unknown>);
-              if (agentCallStats) {
-                for (let j = messages.length - 2; j >= 0; j--) {
-                  const prevMeta = messages[j].metadata as ADKMetadata | undefined;
-                  if (prevMeta?.originalType === "ToolCallRequestEvent" &&
-                      prevMeta?.toolCallData?.some(tc => tc.id === toolData.id)) {
-                    messages[j] = { ...messages[j], metadata: { ...(messages[j].metadata as object || {}), tokenStats: agentCallStats } };
-                    break;
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Text messages (or any message without data parts): push with tokenStats
-      // and the backfilled contextId/taskId so they key the same way the
-      // locally-streamed copy does.
-      if (!hasConvertedParts) {
-        messages.push({
-          ...historyItem,
-          contextId: msgContextId,
-          taskId: msgTaskId,
-          ...(msgStats ? { metadata: { ...(historyItem.metadata as object || {}), tokenStats: msgStats } } : {}),
-        });
+    // Status messages are control-plane explanations, never task results.
+    // Preserve only the states whose status is expected to carry explanatory
+    // content; INPUT_REQUIRED confirmations are handled above/separately.
+    const statusState = task.status?.state;
+    const statusMessage = task.status?.message;
+    if (
+      statusMessage &&
+      (statusState === TaskState.TASK_STATE_FAILED || statusState === TaskState.TASK_STATE_AUTH_REQUIRED)
+    ) {
+      const content = aggregatePartsToDisplayText(statusMessage.parts);
+      if (content) {
+        messages.push(createMessage(content, getSourceFromMetadata(statusMessage.metadata as ADKMetadata, "assistant"), {
+          originalType: "TextMessage",
+          contextId: task.contextId,
+          taskId: task.id,
+        }));
       }
     }
   }
@@ -185,23 +156,202 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   return messages;
 }
 
+function appendArtifactMessages(
+  messages: Message[],
+  task: Task,
+  artifact: Artifact,
+  historicalHitlByCallId: ReadonlyMap<string, HistoricalHitl>,
+  emittedHistoricalHitl: Set<HistoricalHitl>,
+): void {
+  const metadata = artifact.metadata as ADKMetadata | undefined;
+  const source = getSourceFromMetadata(metadata, "assistant");
+  const tokenStats = getMessageTokenStats(metadata as Record<string, unknown> | undefined);
+  let text = "";
+
+  const flushText = () => {
+    if (!text) return;
+    messages.push(createMessage(text, source, {
+      originalType: "TextMessage",
+      contextId: task.contextId,
+      taskId: task.id,
+    }));
+    text = "";
+  };
+
+  const replaceFunctionCallWithHistoricalHitl = (callId: string | undefined): boolean => {
+    if (!callId) return false;
+    const hitl = historicalHitlByCallId.get(callId);
+    if (!hitl) return false;
+    if (!emittedHistoricalHitl.has(hitl)) {
+      messages.push(...buildHitlMessagesFromPayload(hitl.requestPayload, task.contextId, task.id, {
+        response: hitl.response,
+      }));
+      emittedHistoricalHitl.add(hitl);
+    }
+    return true;
+  };
+
+  const appendHistoricalHitlBeforeResponse = (callId: string | undefined): void => {
+    if (!callId) return;
+    const hitl = historicalHitlByCallId.get(callId);
+    if (!hitl || emittedHistoricalHitl.has(hitl)) return;
+    messages.push(...buildHitlMessagesFromPayload(hitl.requestPayload, task.contextId, task.id, {
+      response: hitl.response,
+    }));
+    emittedHistoricalHitl.add(hitl);
+  };
+
+  for (const part of artifact.parts ?? []) {
+    if (isTextPart(part)) {
+      text += part.content.value || "";
+      continue;
+    }
+
+    if (isDataPart(part)) {
+      const partMetadata = part.metadata as Record<string, unknown> | undefined;
+      const partType = getMetadataValue<string>(partMetadata, "type");
+      const data = part.content.value as Record<string, unknown> | undefined;
+
+      if (partType === "function_call" && data) {
+        const toolData = data as unknown as ToolCallData;
+        if (toolData.name === "adk_request_credential") {
+          continue;
+        }
+        flushText();
+        if (replaceFunctionCallWithHistoricalHitl(toolData.id)) {
+          continue;
+        }
+        messages.push(createMessage("", source, {
+          originalType: "ToolCallRequestEvent",
+          contextId: task.contextId,
+          taskId: task.id,
+          additionalMetadata: {
+            toolCallData: [{
+              id: toolData.id,
+              name: toolData.name,
+              args: toolData.args || {},
+            }],
+            ...(!isAgentToolName(toolData.name) && tokenStats ? { tokenStats } : {}),
+          },
+        }));
+        continue;
+      }
+
+      if (partType === "function_response" && data) {
+        const toolData = data as unknown as ToolResponseData;
+        const responseData = toolData.response as Record<string, unknown> | undefined;
+        const responseStatus = responseData?.status as string | undefined;
+        const isPendingAgentSession =
+          responseStatus === "pending" &&
+          isAgentToolName(toolData.name) &&
+          typeof responseData?.subagent_session_id === "string";
+        if (
+          (responseStatus === "confirmation_requested" || responseStatus === "pending") &&
+          !isPendingAgentSession
+        ) {
+          continue;
+        }
+
+        flushText();
+        // ADK executors may move the long-running function call exclusively
+        // into the INPUT_REQUIRED status. Once resolved, anchor that historical
+        // HITL interaction immediately before the matching artifact response.
+        appendHistoricalHitlBeforeResponse(toolData.id);
+        const subagentSessionId = isAgentToolName(toolData.name) &&
+          typeof responseData?.subagent_session_id === "string"
+          ? responseData.subagent_session_id
+          : undefined;
+        messages.push(createMessage("", source, {
+          originalType: "ToolCallExecutionEvent",
+          contextId: task.contextId,
+          taskId: task.id,
+          additionalMetadata: {
+            toolResultData: [{
+              call_id: toolData.id,
+              name: toolData.name,
+              content: normalizeToolResultToText(toolData),
+              is_error: toolData.response?.isError || false,
+              raw_result: getRawToolResult(toolData),
+              ...(subagentSessionId ? { subagent_session_id: subagentSessionId } : {}),
+            }],
+          },
+        }));
+
+        const responseUsage = responseData?.kagent_usage_metadata;
+        const childStats = responseUsage
+          ? getMessageTokenStats({ kagent_usage_metadata: responseUsage })
+          : undefined;
+        if (childStats && isAgentToolName(toolData.name)) {
+          for (let i = messages.length - 2; i >= 0; i--) {
+            const messageMetadata = messages[i].metadata as ADKMetadata | undefined;
+            if (
+              messageMetadata?.originalType === "ToolCallRequestEvent" &&
+              messageMetadata.toolCallData?.some(call => call.id === toolData.id)
+            ) {
+              messages[i] = {
+                ...messages[i],
+                metadata: { ...(messages[i].metadata as object || {}), tokenStats: childStats },
+              };
+              break;
+            }
+          }
+        }
+        continue;
+      }
+
+      if (data && Object.keys(data).length > 0) {
+        try {
+          text += JSON.stringify(data);
+        } catch {
+          text += String(data);
+        }
+      }
+      continue;
+    }
+
+    if (part.content?.$case === "raw" || part.content?.$case === "url") {
+      text += `[File: ${part.filename || "unknown"}]`;
+    }
+  }
+
+  flushText();
+}
+
+function aggregatePartsToDisplayText(parts: Part[]): string {
+  return parts.map((part: Part) => {
+    if (isTextPart(part)) {
+      return part.content.value || "";
+    }
+    if (isDataPart(part)) {
+      if (isModelInternalDataPart(part.content.value)) {
+        return "";
+      }
+      try {
+        return JSON.stringify(part.content.value || "");
+      } catch {
+        return String(part.content.value);
+      }
+    }
+    if (part.content?.$case === "raw" || part.content?.$case === "url") {
+      return `[File: ${part.filename || "unknown"}]`;
+    }
+    return String(part);
+  }).join("");
+}
+
 /** Returns true if the message is a user HITL decision (approve/reject) or ask-user answer. */
 function isUserDecisionMessage(message: Message): boolean {
-  if (message.role !== "user" || !message.parts) return false;
-  return message.parts.some((p: Part) => {
-    if (p.kind !== "data") return false;
-    const data = (p as DataPart).data as Record<string, unknown> | undefined;
-    return data?.decision_type != null;
-  });
+  if (!isUserRole(message.role)) return false;
+  const payload = getHitlPayload(message);
+  return payload !== undefined && isHitlResponse(payload);
 }
 
 /**
- * Check tasks for pending ADK confirmation requests (task still in
- * input-required state) and create ToolApprovalRequest messages with
- * Approve/Reject buttons.
+ * Check tasks for pending HITL requests (task still in input-required state)
+ * and create typed hitlCard messages with Approve/Reject buttons.
  *
- * Resolved approvals are handled inline by extractMessagesFromTasks
- * (inserted at the correct history position with an approved/rejected badge).
+ * Historical status messages are intentionally not reconstructed here because
+ * A2A task snapshots do not define their order relative to artifacts.
  */
 export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Message[]; hasPendingApproval: boolean } {
   const approvalMessages: Message[] = [];
@@ -209,187 +359,89 @@ export function extractApprovalMessagesFromTasks(tasks: Task[]): { messages: Mes
 
   for (const task of tasks) {
     const status = task.status;
-    if (status?.state !== "input-required" || !status?.message) continue;
+    if (!isInputRequiredState(status?.state) || !status?.message) continue;
 
-    const confirmationParts = findConfirmationParts(status.message as Message);
-    if (confirmationParts.length === 0) continue;
-
-    for (const confPart of confirmationParts) {
-      approvalMessages.push(buildApprovalMessage(confPart, task.contextId, task.id));
-    }
+    const payload = getHitlPayload(status.message as Message);
+    if (!payload || !isHitlRequest(payload)) continue;
+    approvalMessages.push(...buildHitlMessagesFromPayload(payload, task.contextId, task.id));
     hasPending = true;
   }
 
   return { messages: approvalMessages, hasPendingApproval: hasPending };
 }
 
-/** Find adk_request_confirmation DataParts in a message's parts. */
-function findConfirmationParts(message: Message): DataPart[] {
-  if (!message.parts) return [];
-  return message.parts.filter((part: Part) => {
-    if (part.kind !== "data") return false;
-    const dp = part as DataPart;
-    const meta = dp.metadata as Record<string, unknown> | undefined;
-    return (
-      getMetadataValue<string>(meta, "type") === "function_call" &&
-      getMetadataValue<boolean>(meta, "is_long_running") === true &&
-      (dp.data as Record<string, unknown>)?.name === "adk_request_confirmation"
-    );
-  }) as DataPart[];
-}
-
-/**
- * Find the user's HITL decision data from task history, starting after a specific index.
- * This ensures we associate the correct decision payload with each specific approval cycle
- * if a task enters input-required multiple times.
- */
-function findDecisionAfterIndex(
-  history: Array<{ kind?: string; role?: string; parts?: Part[] }>,
-  startIndex: number
-): Record<string, unknown> | undefined {
-  for (let i = startIndex + 1; i < history.length; i++) {
-    const item = history[i];
-    if (item.kind !== "message" || item.role !== "user" || !item.parts) continue;
-    for (const p of item.parts) {
-      if (p.kind !== "data") continue;
-      const data = (p as DataPart).data as Record<string, unknown> | undefined;
-      if (data?.decision_type != null) {
-        return data;
-      }
-    }
-  }
-  return undefined;
-}
-
-/**
- * Resolve the decision for a specific tool from the user's decision data.
- * Handles uniform ("approve"/"reject") and batch modes.
- */
-function resolveToolDecision(
-  decisionData: Record<string, unknown> | undefined,
-  toolId: string
-): ToolDecision | undefined {
-  if (!decisionData) return undefined;
-  const decisionType = decisionData.decision_type as string;
-
-  if (decisionType === "batch") {
-    const decisions = decisionData.decisions as Record<string, ToolDecision> | undefined;
-    return decisions?.[toolId];
-  }
-
-  // Uniform decision — applies to all tools
-  return decisionType as ToolDecision;
-}
-
-/**
- * Build a confirmation message from an adk_request_confirmation DataPart.
- * Branches on the original function call name:
- *   - "ask_user" → AskUserRequest message
- *   - everything else → ToolApprovalRequest message
- */
-export function buildApprovalMessage(
-  confPart: DataPart,
-  contextId: string | undefined,
-  taskId: string | undefined,
-  decisionData?: Record<string, unknown>,
-  tokenStats?: TokenStats
-): Message {
-  const data = confPart.data as unknown as AdkRequestConfirmationData;
-  const origFc = data.args.originalFunctionCall;
-  const toolId = origFc.id || data.id;
-
-  // ask_user tool uses a dedicated UI card
-  if (origFc.name === "ask_user") {
-    // Resolve the user's previous answers (if already resolved)
-    const askUserAnswers = decisionData?.ask_user_answers as Array<{ answer: string[] }> | undefined;
-    return createMessage("", "agent", {
-      originalType: "AskUserRequest",
-      contextId,
-      taskId,
-      additionalMetadata: {
-        askUserData: {
-          id: toolId,
-          questions: (origFc.args as { questions?: unknown }).questions || [],
-        },
-        // If already resolved, store the answers so the card can show them read-only.
-        askUserAnswers: askUserAnswers || null,
-        // Track the decision type so we know it was resolved
-        approvalDecision: decisionData?.decision_type ? "approve" : undefined,
-        ...(tokenStats && { tokenStats }),
-      },
-    });
-  }
-
-  // Check for inner subagent tool details in toolConfirmation.payload.hitl_parts.
-  // When a subagent's tool needs approval, KAgentRemoteA2ATool stores the
-  // subagent's adk_request_confirmation DataParts in the payload so we can
-  // show the actual inner tool(s) instead of the generic "call subagent" request.
-  const hitlParts: HitlPartInfo[] | undefined = data.args.toolConfirmation?.payload?.hitl_parts;
-
-  // Subagent ask_user: if the only inner tool is ask_user, render the
-  // AskUserDisplay instead of a generic approval card.
-  if (hitlParts && hitlParts.length === 1 && hitlParts[0].originalFunctionCall.name === "ask_user") {
-    const innerFc = hitlParts[0].originalFunctionCall;
-    const innerToolId = innerFc.id || hitlParts[0].id || toolId;
-    const askUserAnswers = decisionData?.ask_user_answers as Array<{ answer: string[] }> | undefined;
-    const subagentNameForAskUser: string | undefined = data.args.toolConfirmation?.payload?.subagent_name;
-    return createMessage("", "agent", {
-      originalType: "AskUserRequest",
-      contextId,
-      taskId,
-      additionalMetadata: {
-        askUserData: {
-          id: innerToolId,
-          questions: (innerFc.args as { questions?: unknown }).questions || [],
-        },
-        askUserAnswers: askUserAnswers || null,
-        approvalDecision: decisionData?.decision_type ? "approve" : undefined,
-        subagentName: subagentNameForAskUser,
-        ...(tokenStats && { tokenStats }),
-      },
-    });
-  }
-
-  let toolCallContent: ProcessedToolCallData[];
-
-  if (hitlParts && hitlParts.length > 0) {
-    toolCallContent = hitlParts.map((hp: HitlPartInfo) => ({
-      id: hp.originalFunctionCall.id || hp.id || toolId,
-      name: hp.originalFunctionCall.name || origFc.name,
-      args: hp.originalFunctionCall.args || {},
-    }));
-  } else {
-    toolCallContent = [{
-      id: toolId,
-      name: origFc.name,
-      args: origFc.args || {},
-    }];
-  }
-
-  // Resolve the approval decision for this message.
-  // For subagent HITL with batch decisions, the decision keys are inner tool
-  // IDs (not the outer toolId), so return the full per-tool map.
-  let approvalDecision: ApprovalDecision | undefined;
-  if (hitlParts && hitlParts.length > 0 && decisionData?.decision_type === "batch") {
-    approvalDecision = decisionData.decisions as Record<string, ToolDecision> | undefined;
-  } else {
-    approvalDecision = resolveToolDecision(decisionData, toolId);
-  }
-
-  // Extract subagent name if this is a subagent HITL request
-  const subagentName: string | undefined = data.args.toolConfirmation?.payload?.subagent_name;
-
+function buildApprovalMessageFromPayload(payload: HitlRequestPayload, contextId: string | undefined, taskId: string | undefined, options: BuildApprovalMessageOptions = {}): Message {
+  const { response, tokenStats } = options;
   return createMessage("", "agent", {
-    originalType: "ToolApprovalRequest",
+    contextId,
+    taskId,
+    additionalMetadata: { hitlCard: buildHitlCard(payload, response), ...(tokenStats && { tokenStats }) },
+  });
+}
+
+/** Build the parent AgentCall card whose activity panel opens the paused child session. */
+function buildNestedAgentCallMessage(payload: HitlRequestPayload, contextId: string | undefined, taskId: string | undefined): Message | undefined {
+  const nested = payload.nested;
+  if (!nested?.context_id || !nested.subagent_name) return undefined;
+
+  // Nested ask_user leaves the parent agent call in the transcript (its call id
+  // is not in relatedHitlCallIds). A synthetic card keyed by payload.id would
+  // render a second "Delegating" box beside the real Completed/pending one.
+  if (payload.type !== "tool_approval_request") return undefined;
+
+  const parentTool =
+    payload.tools.find(tool => tool.name === nested.subagent_name) ??
+    payload.tools.find(tool => isAgentToolName(tool.name)) ??
+    payload.tools[0];
+  return createMessage("", "agent", {
+    originalType: "ToolCallRequestEvent",
     contextId,
     taskId,
     additionalMetadata: {
-      toolCallData: toolCallContent,
-      approvalDecision,
-      subagentName,
-      ...(tokenStats && { tokenStats }),
+      toolCallData: [{
+        id: parentTool?.call_id ?? nested.context_id,
+        name: parentTool?.name ?? nested.subagent_name,
+        args: parentTool?.args ?? {},
+        subagent_session_id: nested.context_id,
+      }],
     },
   });
+}
+
+function buildHitlMessagesFromPayload(payload: HitlRequestPayload, contextId: string | undefined, taskId: string | undefined, options: BuildApprovalMessageOptions = {}): Message[] {
+  const approvalMessage = buildApprovalMessageFromPayload(payload, contextId, taskId, options);
+  const agentCallMessage = buildNestedAgentCallMessage(payload, contextId, taskId);
+  return agentCallMessage ? [agentCallMessage, approvalMessage] : [approvalMessage];
+}
+
+interface HistoricalHitl {
+  requestPayload: HitlRequestPayload;
+  response: HitlResponsePayload;
+}
+
+/** Index resolved history-only HITL interactions by the tool call they govern. */
+function indexHistoricalHitlByCallId(history: Message[]): Map<string, HistoricalHitl> {
+  const byCallId = new Map<string, HistoricalHitl>();
+  for (let i = 0; i < history.length; i++) {
+    const requestPayload = getHitlPayload(history[i]);
+    if (!requestPayload || !isHitlRequest(requestPayload)) continue;
+    const response = history
+      .slice(i + 1)
+      .map(getHitlPayload)
+      .find((payload): payload is HitlResponsePayload =>
+        payload !== undefined && isHitlResponse(payload) && responseMatchesRequest(requestPayload, payload));
+    if (!response) continue;
+    const hitl: HistoricalHitl = { requestPayload, response };
+    for (const callId of relatedHitlCallIds(requestPayload)) {
+      byCallId.set(callId, hitl);
+    }
+  }
+  return byCallId;
+}
+
+interface BuildApprovalMessageOptions {
+  response?: HitlResponsePayload;
+  tokenStats?: TokenStats;
 }
 
 /**
@@ -399,40 +451,46 @@ export function buildApprovalMessage(
 function getMessageTokenStats(metadata: Record<string, unknown> | undefined): TokenStats | undefined {
   const usage = getMetadataValue<ADKMetadata["kagent_usage_metadata"]>(metadata, "usage_metadata");
   if (!usage) return undefined;
+  const prompt = usage.promptTokenCount ?? 0;
+  const completion = usage.candidatesTokenCount ?? 0;
   return {
-    total: usage.totalTokenCount ?? 0,
-    prompt: usage.promptTokenCount ?? 0,
-    completion: usage.candidatesTokenCount ?? 0,
+    total: usage.totalTokenCount ?? prompt + completion,
+    prompt,
+    completion,
   };
+}
+
+function lastArtifactTokenStats(task: Task): TokenStats | undefined {
+  let last: TokenStats | undefined;
+  for (const artifact of task.artifacts ?? []) {
+    const stats = getMessageTokenStats(artifact.metadata as Record<string, unknown> | undefined);
+    if (stats) last = stats;
+  }
+  return last;
 }
 
 export function extractTokenStatsFromTasks(tasks: Task[]): TokenStats {
   let total = 0, prompt = 0, completion = 0;
   for (const task of tasks) {
-    for (const item of task.history ?? []) {
-      const msg = item as unknown as { kind?: string; role?: string; metadata?: Record<string, unknown>; parts?: Part[] };
-      if (msg.kind !== "message" || msg.role === "user") continue;
+    // Per-event artifact usage is cumulative for a task (prompt grows with
+    // context). Use the last usage-bearing artifact, not the sum.
+    const last = lastArtifactTokenStats(task);
+    if (last) {
+      total += last.total;
+      prompt += last.prompt;
+      completion += last.completion;
+    }
 
-      // Message-level usage (most agent messages carry this).
-      const stats = getMessageTokenStats(msg.metadata);
-      if (stats) {
-        total += stats.total;
-        prompt += stats.prompt;
-        completion += stats.completion;
-      }
-
-      // function_response from agent tools carries child-agent usage inside the
-      // response dict rather than in message-level metadata — include it here.
-      for (const part of msg.parts ?? []) {
-        if (part.kind !== "data") continue;
-        const dp = part as DataPart;
-        const partMeta = dp.metadata as Record<string, unknown> | undefined;
-        if (getMetadataValue<string>(partMeta, "type") !== "function_response") continue;
-        const toolData = dp.data as unknown as ToolResponseData;
+    for (const artifact of task.artifacts ?? []) {
+      for (const part of artifact.parts ?? []) {
+        if (!isDataPart(part)) continue;
+        const partMetadata = part.metadata as Record<string, unknown> | undefined;
+        if (getMetadataValue<string>(partMetadata, "type") !== "function_response") continue;
+        const toolData = part.content.value as unknown as ToolResponseData;
         if (!isAgentToolName(toolData.name)) continue;
         const responseUsage = (toolData.response as Record<string, unknown> | undefined)?.kagent_usage_metadata;
         if (!responseUsage) continue;
-        const childStats = getMessageTokenStats({ kagent_usage_metadata: responseUsage } as Record<string, unknown>);
+        const childStats = getMessageTokenStats({ kagent_usage_metadata: responseUsage });
         if (childStats) {
           total += childStats.total;
           prompt += childStats.prompt;
@@ -448,9 +506,7 @@ export type OriginalMessageType =
   | "TextMessage"
   | "ToolCallRequestEvent"
   | "ToolCallExecutionEvent"
-  | "ToolCallSummaryMessage"
-  | "ToolApprovalRequest"
-  | "AskUserRequest";
+  | "ToolCallSummaryMessage";
 
 export interface ADKMetadata {
   kagent_app_name?: string;
@@ -465,6 +521,7 @@ export interface ADKMetadata {
   kagent_author?: string;
   kagent_invocation_id?: string;
   originalType?: OriginalMessageType;
+  hitlCard?: import("@/lib/hitl").HitlCard;
   displaySource?: string;
   toolCallData?: ProcessedToolCallData[];
   toolResultData?: ProcessedToolResultData[];
@@ -565,15 +622,24 @@ export function normalizeToolResultToText(toolData: ToolResponseData): string {
   return "";
 }
 
-function isTextPart(part: Part): part is TextPart {
-  return part.kind === "text";
+// Keys that belong to the model protocol rather than to the answer. Gemini
+// attaches an encrypted `thoughtSignature` to the parts it returns; it is meant
+// to be round-tripped into the next request, never rendered.
+const MODEL_INTERNAL_DATA_KEYS = new Set(["thoughtSignature", "thought_signature"]);
+
+// A data part that carries nothing but model-internal keys is not content.
+// It reaches the UI unlabeled (no kagent_type metadata), so without this check
+// it falls through to the JSON.stringify fallback and lands in the visible
+// answer text.
+function isModelInternalDataPart(data: unknown): boolean {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return false;
+  }
+  const keys = Object.keys(data as Record<string, unknown>);
+  return keys.length > 0 && keys.every(key => MODEL_INTERNAL_DATA_KEYS.has(key));
 }
 
-function isDataPart(part: Part): part is DataPart {
-  return part.kind === "data";
-}
-
-function  getSourceFromMetadata(metadata: ADKMetadata | undefined, fallback: string = "assistant"): string {
+function getSourceFromMetadata(metadata: ADKMetadata | undefined, fallback: string = "assistant"): string {
   const appName = getMetadataValue<string>(metadata as Record<string, unknown>, "app_name");
   if (appName) {
     return convertToUserFriendlyName(appName);
@@ -606,20 +672,23 @@ export function createMessage(
   } = options;
 
   const message: Message = {
-    kind: "message",
     messageId,
-    role: source === "user" ? "user" : "agent",
+    role: source === "user" ? Role.ROLE_USER : Role.ROLE_AGENT,
     parts: [{
-      kind: "text",
-      text: content
+      content: { $case: "text", value: content },
+      metadata: undefined,
+      filename: "",
+      mediaType: "text/plain",
     }],
-    contextId,
-    taskId,
+    contextId: contextId ?? "",
+    taskId: taskId ?? "",
     metadata: {
       originalType,
       displaySource: source,
-      ...additionalMetadata
-    }
+      ...additionalMetadata,
+    },
+    extensions: [],
+    referenceTaskIds: [],
   };
   return message;
 }
@@ -629,6 +698,8 @@ export type MessageHandlers = {
   setIsStreaming: (value: boolean) => void;
   setStreamingContent: (updater: (prev: string) => string) => void;
   setChatStatus?: (status: ChatStatus) => void;
+  /** Transient progress text from WORKING status updates (not chat transcript). */
+  setStatusMessage?: (message: string | undefined) => void;
   setSessionStats?: (updater: (prev: TokenStats) => TokenStats) => void;
   /**
    * External mutable container for pending turn stats. Pass a ref-like object
@@ -637,6 +708,8 @@ export type MessageHandlers = {
    * every time `createMessageHandlers` is called.
    */
   pendingTurnStats?: { current: TokenStats | undefined };
+  /** Called when a task reaches a terminal A2A status (finished-reply signal). */
+  onTerminalTask?: (taskId: string, tokenStats?: TokenStats) => void;
   agentContext?: {
     namespace: string;
     agentName: string;
@@ -656,32 +729,37 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   // survives React re-renders between A2A stream events.  If no container is
   // provided we fall back to a local one (fine for tests / non-React usage).
   const pts = handlers.pendingTurnStats ?? { current: undefined as TokenStats | undefined };
+  const artifactTextBuffers = new Map<string, {
+    text: string;
+    source: string;
+    contextId: string | undefined;
+    taskId: string | undefined;
+  }>();
 
-  const getTokenStatsFromMetadata = (adkMetadata: ADKMetadata | undefined): TokenStats | undefined => {
-    const usage = getMetadataValue<ADKMetadata["kagent_usage_metadata"]>(adkMetadata as Record<string, unknown>, "usage_metadata");
-    if (!usage) return undefined;
-    return {
-      total: usage.totalTokenCount ?? 0,
-      prompt: usage.promptTokenCount ?? 0,
-      completion: usage.candidatesTokenCount ?? 0,
-    };
+  const updateStreamingArtifactText = () => {
+    const content = [...artifactTextBuffers.values()].map(buffer => buffer.text).join("");
+    handlers.setIsStreaming(content.length > 0);
+    handlers.setStreamingContent(() => content);
   };
 
-  const aggregatePartsToText = (parts: Part[]): string => {
-    return parts.map((part: Part) => {
-      if (isTextPart(part)) {
-        return part.text || "";
-      } else if (isDataPart(part)) {
-        try {
-          return JSON.stringify(part.data || "");
-        } catch {
-          return String(part.data);
-        }
-      } else if (part.kind === "file") {
-        return `[File: ${(part as { file?: { name?: string } }).file?.name || "unknown"}]`;
-      }
-      return String(part);
-    }).join("");
+  const commitArtifactText = (tokenStats?: TokenStats, artifactId?: string) => {
+    const ids = artifactId ? [artifactId] : [...artifactTextBuffers.keys()];
+    for (const id of ids) {
+      const buffer = artifactTextBuffers.get(id);
+      if (!buffer?.text) continue;
+      appendMessage(createMessage(buffer.text, buffer.source, {
+        originalType: "TextMessage",
+        contextId: buffer.contextId,
+        taskId: buffer.taskId,
+        additionalMetadata: { ...(tokenStats && { tokenStats }) },
+      }));
+      artifactTextBuffers.delete(id);
+    }
+    updateStreamingArtifactText();
+  };
+
+  const getTokenStatsFromMetadata = (adkMetadata: ADKMetadata | undefined): TokenStats | undefined => {
+    return getMessageTokenStats(adkMetadata as Record<string, unknown> | undefined);
   };
 
   const accumulateSessionStats = (stats: TokenStats) => {
@@ -697,6 +775,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
   const finalizeStreaming = () => {
     handlers.setIsStreaming(false);
     handlers.setStreamingContent(() => "");
+    artifactTextBuffers.clear();
     if (pts.current) {
       accumulateSessionStats(pts.current);
     }
@@ -711,7 +790,7 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     contextId: string | undefined,
     taskId: string | undefined,
     source: string,
-    options?: { setProcessingStatus?: boolean; tokenStats?: TokenStats; subagentSessionId?: string }
+    options?: { setProcessingStatus?: boolean; tokenStats?: TokenStats }
   ) => {
     if (options?.setProcessingStatus && handlers.setChatStatus) {
       handlers.setChatStatus("processing_tools");
@@ -720,7 +799,6 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       id: toolData.id,
       name: toolData.name,
       args: toolData.args || {},
-      ...(options?.subagentSessionId ? { subagent_session_id: options.subagentSessionId } : {}),
     }];
     const convertedMessage = createMessage(
       "",
@@ -795,171 +873,109 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     }
   };
 
-  const isUserMessage = (message: Message): boolean => message.role === "user";
+  const isUserMessage = (message: Message): boolean => isUserRole(message.role);
 
   // Simple fallback source when metadata is not available
   const defaultAgentSource = handlers.agentContext
     ? `${handlers.agentContext.namespace}/${handlers.agentContext.agentName.replace(/_/g, "-")}`
     : "assistant";
 
+  const applyTurnStats = (turnStats: TokenStats | undefined) => {
+    if (!turnStats) return;
+
+    // Keep the latest usage for this task. Artifact usage is cumulative
+    // (prompt grows with context), so mid-stream values must not be summed.
+    // Session totals accumulate once on HITL pause / terminal finalize.
+    pts.current = turnStats;
+    handlers.setMessages(prev => {
+      const updated = [...prev];
+      for (let i = updated.length - 1; i >= 0; i--) {
+        if (isUserRole(updated[i].role)) break;
+        const iterMeta = updated[i].metadata as ADKMetadata | undefined;
+        const type = iterMeta?.originalType;
+        if (iterMeta?.hitlCard) break;
+        // Stamp the nearest non-agent tool-call request; text gets stats on terminal status.
+        if (type === "ToolCallRequestEvent") {
+          if (iterMeta?.toolCallData?.some(tc => isAgentToolName(tc.name))) break;
+          updated[i] = { ...updated[i], metadata: { ...(updated[i].metadata as object || {}), tokenStats: turnStats } };
+          break;
+        }
+      }
+      return updated;
+    });
+  };
+
   const handleA2ATaskStatusUpdate = (statusUpdate: TaskStatusUpdateEvent) => {
     try {
       const adkMetadata = getADKMetadata(statusUpdate);
       const turnStats = getTokenStatsFromMetadata(adkMetadata);
 
-      // When usage arrives, retroactively tag all agent messages from the
-      // current invocation. The loop stops at an invocation boundary so that
-      // messages from earlier LLM calls keep their own stats.
-      if (turnStats) {
-        // If a previous invocation already deposited stats that DIFFER from the
-        // current event's stats, accumulate them before replacing — each LLM
-        // call within a turn is independent.
-        // When stats are identical the current event is a state transition from
-        // the same LLM call (e.g. working→input-required both carry {470}).
-        // Accumulating in that case would double-count; the input-required
-        // branch handles the single accumulation instead.
-        const isNewInvocation = pts.current && (
-          pts.current.total !== turnStats.total ||
-          pts.current.prompt !== turnStats.prompt ||
-          pts.current.completion !== turnStats.completion
-        );
-        if (isNewInvocation) {
-          accumulateSessionStats(pts.current!);
-        }
-        pts.current = turnStats;
-        handlers.setMessages(prev => {
-          const updated = [...prev];
-          for (let i = updated.length - 1; i >= 0; i--) {
-            if (updated[i].role === "user") break;
-            // Stop at an invocation boundary — everything before belongs to an
-            // earlier LLM call and must not be tagged with this turn's stats.
-            // ToolApprovalRequest: HITL boundary; ToolCallExecutionEvent: the
-            // tool response that separates two back-to-back LLM invocations.
-            const iterMeta = updated[i].metadata as ADKMetadata | undefined;
-            const type = iterMeta?.originalType;
-            if (type === "ToolApprovalRequest" || type === "ToolCallExecutionEvent") break;
-            // AgentCall cards get stats from the child agent's function_response — don't overwrite with parent synthesis stats
-            if (type === "ToolCallRequestEvent" && iterMeta?.toolCallData?.some(tc => isAgentToolName(tc.name))) break;
-            updated[i] = { ...updated[i], metadata: { ...(updated[i].metadata as object || {}), tokenStats: turnStats } };
-          }
-          return updated;
-        });
-      }
+      applyTurnStats(turnStats);
 
       // Check for tool approval interrupt
-      if (
-        statusUpdate.status.state === "input-required" &&
-        statusUpdate.status.message
-      ) {
-        const confirmationParts = findConfirmationParts(statusUpdate.status.message as Message);
-
-        if (confirmationParts.length > 0) {
-          for (const confPart of confirmationParts) {
-            // Use pts.current (accumulated turn stats) in preference to turnStats
-            // (current event's stats) — the confirmation event often carries no
-            // usage_metadata of its own; the stats live in the preceding event.
-            appendMessage(buildApprovalMessage(confPart, statusUpdate.contextId, statusUpdate.taskId, undefined, pts.current ?? turnStats));
+      if (isInputRequiredState(statusUpdate.status?.state) && statusUpdate.status?.message) {
+        const hitlPayload = getHitlPayload(statusUpdate.status.message as Message);
+        if (hitlPayload?.type === "tool_approval_request" || hitlPayload?.type === "ask_user_request") {
+          commitArtifactText();
+          const callIds = relatedHitlCallIds(hitlPayload);
+          if (callIds.size > 0) {
+            handlers.setMessages(prev => prev.filter(message => {
+              const metadata = message.metadata as ADKMetadata | undefined;
+              return metadata?.originalType !== "ToolCallRequestEvent" ||
+                !metadata.toolCallData?.some(tool => callIds.has(tool.id));
+            }));
           }
-
-          // Accumulate this turn's stats now — the HITL interrupt ends the
-          // current invocation and the stream will pause until the user decides.
-          if (pts.current) {
-            accumulateSessionStats(pts.current);
+          for (const message of buildHitlMessagesFromPayload(hitlPayload, statusUpdate.contextId, statusUpdate.taskId, {
+            tokenStats: pts.current ?? turnStats,
+          })) {
+            appendMessage(message);
           }
+          if (pts.current) accumulateSessionStats(pts.current);
           pts.current = undefined;
-
-          if (handlers.setChatStatus) {
-            handlers.setChatStatus("input_required");
-          }
+          handlers.setChatStatus?.("input_required");
           return;
         }
       }
 
-      // If the status update has a message, process it
-      if (statusUpdate.status.message) {
-        const message = statusUpdate.status.message;
-
-        // Skip user messages to avoid duplicates (they're already shown immediately)
-        if (isUserMessage(message)) {
-          return;
+      // Task output is delivered exclusively through artifact updates. Status
+      // messages are reserved for progress (WORKING), errors, and auth
+      // challenges (INPUT_REQUIRED was handled above).
+      const state = statusUpdate.status?.state;
+      if (isTerminalTaskState(state)) {
+        // Some producers close a run with status only. Commit any artifacts
+        // that never received a content-bearing lastChunk before resetting.
+        commitArtifactText();
+        if (statusUpdate.taskId) {
+          handlers.onTerminalTask?.(statusUpdate.taskId, pts.current ?? turnStats);
         }
-
-        for (const part of message.parts) {
-
-          if (isTextPart(part)) {
-            const textContent = part.text || "";
-            const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-
-            if (statusUpdate.final) {
-              const displayMessage = createMessage(
-                textContent,
-                source,
-                {
-                  originalType: "TextMessage",
-                  contextId: statusUpdate.contextId,
-                  taskId: statusUpdate.taskId,
-                  additionalMetadata: { ...(turnStats && { tokenStats: turnStats }) }
-                }
-              );
-              handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
-              if (handlers.setChatStatus) {
-                handlers.setChatStatus("ready");
-              }
-            } else {
-              handlers.setIsStreaming(true);
-              handlers.setStreamingContent(prevContent => prevContent + textContent);
-              if (handlers.setChatStatus) {
-                handlers.setChatStatus("generating_response");
-              }
-            }
-          } else if (isDataPart(part)) {
-            const data = part.data;
-            const partMetadata = part.metadata as ADKMetadata | undefined;
-
-            const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
-            if (partType === "function_call") {
-              // Skip ADK internal confirmation/auth function calls
-              const fcName = (data as Record<string, unknown>)?.name as string | undefined;
-              if (fcName === "adk_request_confirmation" || fcName === "adk_request_credential") {
-                continue;
-              }
-              const toolData = data as unknown as ToolCallData;
-              const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-
-              // Extract subagent_session_id from DataPart metadata for agent tools
-              let subagentSessionId: string | undefined;
-              if (fcName && isAgentToolName(fcName)) {
-                subagentSessionId = getMetadataValue<string>(partMetadata as Record<string, unknown>, "subagent_session_id");
-              }
-
-              // Don't stamp AgentCall cards with the parent invocation's stats —
-              // those belong on the confirmation dialog. The AgentCall card gets
-              // its own stats from the child agent's function_response.
-              processFunctionCallPart(toolData, statusUpdate.contextId, statusUpdate.taskId, source, { setProcessingStatus: true, tokenStats: isAgentToolName(toolData.name) ? undefined : turnStats, subagentSessionId });
-
-            } else if (partType === "function_response") {
-              // Skip internal HITL markers: the before_tool_callback stub and
-              // the ask_user first-invocation pending stub.
-              const responseData = (data as { response?: Record<string, unknown> })?.response;
-              const responseStatus = responseData?.status as string | undefined;
-              if (responseStatus === "confirmation_requested" || responseStatus === "pending") {
-                continue;
-              }
-              const toolData = data as unknown as ToolResponseData;
-              const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-              processFunctionResponsePart(toolData, statusUpdate.contextId, statusUpdate.taskId, source);
-            }
-          }
-        }
-      } else {
-        if (handlers.setChatStatus) {
-          const uiStatus = mapA2AStateToStatus(statusUpdate.status.state);
-          handlers.setChatStatus(uiStatus);
+      }
+      const isFailureOrAuth =
+        state === TaskState.TASK_STATE_FAILED ||
+        state === TaskState.TASK_STATE_AUTH_REQUIRED;
+      const statusMessage = statusUpdate.status?.message;
+      if (isFailureOrAuth && statusMessage && !isUserMessage(statusMessage)) {
+        const content = aggregatePartsToDisplayText(statusMessage.parts);
+        if (content) {
+          appendMessage(createMessage(content, getSourceFromMetadata(adkMetadata, defaultAgentSource), {
+            originalType: "TextMessage",
+            contextId: statusUpdate.contextId,
+            taskId: statusUpdate.taskId,
+          }));
         }
       }
 
-      if (statusUpdate.final) {
+      if (state === TaskState.TASK_STATE_WORKING && statusMessage && !isUserMessage(statusMessage)) {
+        const progress = aggregatePartsToDisplayText(statusMessage.parts).trim();
+        handlers.setStatusMessage?.(progress || undefined);
+      } else if (isTerminalTaskState(state) || isFailureOrAuth) {
+        handlers.setStatusMessage?.(undefined);
+      }
+
+      if (isTerminalTaskState(statusUpdate.status?.state)) {
         finalizeStreaming();
+      }
+      if (handlers.setChatStatus) {
+        handlers.setChatStatus(mapA2AStateToStatus(state));
       }
     } catch (error) {
       console.error("❌ Error in handleA2ATaskStatusUpdate:", error);
@@ -972,66 +988,97 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
       adkMetadata = getADKMetadata(artifactUpdate.artifact);
     }
 
-    // Usage metadata arrives on status-update events, not artifact events.
-    const turnStats = pts.current;
+    // Built-in ADK executors attach per-event usage to artifact metadata. Some
+    // other producers repeat it on status, so applyTurnStats de-duplicates the
+    // adjacent equal values.
+    const artifactStats = getTokenStatsFromMetadata(adkMetadata);
+    applyTurnStats(artifactStats);
+    const turnStats = pts.current ?? artifactStats;
 
-    // Add artifact content and convert tool parts to messages
+    // Every artifact update may contain output. Preserve wire order: flush
+    // buffered text before emitting a tool part from the same update.
+    const artifactId = artifactUpdate.artifact?.artifactId || `${artifactUpdate.contextId}:${artifactUpdate.taskId}:artifact`;
     let artifactText = "";
-    const convertedMessages: Message[] = [];
-    for (const part of artifactUpdate.artifact.parts) {
+    let append = Boolean(artifactUpdate.append);
+
+    const bufferArtifactText = (chunk: string) => {
+      if (!chunk) return;
+      const existing = artifactTextBuffers.get(artifactId);
+      artifactTextBuffers.set(artifactId, {
+        text: append && existing ? existing.text + chunk : chunk,
+        source: getSourceFromMetadata(adkMetadata, defaultAgentSource),
+        contextId: artifactUpdate.contextId,
+        taskId: artifactUpdate.taskId,
+      });
+      // Later chunks in this update extend rather than replace.
+      append = true;
+      updateStreamingArtifactText();
+      if (handlers.setChatStatus) {
+        handlers.setChatStatus("generating_response");
+      }
+    };
+
+    const flushBufferedText = () => {
+      if (artifactText) {
+        bufferArtifactText(artifactText);
+        artifactText = "";
+      }
+      if (artifactTextBuffers.has(artifactId)) {
+        commitArtifactText(undefined, artifactId);
+      }
+    };
+
+    for (const part of artifactUpdate.artifact?.parts ?? []) {
       if (isTextPart(part)) {
-        artifactText += part.text || "";
+        artifactText += part.content.value || "";
         continue;
       }
       if (isDataPart(part)) {
         const partMetadata = part.metadata as ADKMetadata | undefined;
-        const data = part.data;
+        const data = part.content.value;
         const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
 
         const partType = getMetadataValue<string>(partMetadata as Record<string, unknown>, "type");
         if (partType === "function_call") {
           const toolData = data as unknown as ToolCallData;
-          // Extract subagent_session_id from DataPart metadata for agent tools
-          let artifactFcSubagentSessionId: string | undefined;
-          if (isAgentToolName(toolData.name)) {
-            artifactFcSubagentSessionId = getMetadataValue<string>(partMetadata as Record<string, unknown>, "subagent_session_id");
+          if (toolData.name === "adk_request_credential") {
+            continue;
           }
-          const toolCallContent: ProcessedToolCallData[] = [{
-            id: toolData.id,
-            name: toolData.name,
-            args: toolData.args || {},
-            ...(artifactFcSubagentSessionId ? { subagent_session_id: artifactFcSubagentSessionId } : {}),
-          }];
-          const convertedMessage = createMessage("", source, { originalType: "ToolCallRequestEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolCallData: toolCallContent, ...(turnStats && { tokenStats: turnStats }) } });
-          convertedMessages.push(convertedMessage);
+          flushBufferedText();
+          processFunctionCallPart(toolData, artifactUpdate.contextId, artifactUpdate.taskId, source, {
+            setProcessingStatus: true,
+            tokenStats: isAgentToolName(toolData.name) ? undefined : turnStats,
+          });
           continue;
         }
 
         if (partType === "function_response") {
           const toolData = data as unknown as ToolResponseData;
-          const textContent = normalizeToolResultToText(toolData);
-          let artifactSubagentSessionId: string | undefined;
-          if (isAgentToolName(toolData.name)) {
-            const responseObj = toolData.response as Record<string, unknown> | undefined;
-            if (responseObj && typeof responseObj.subagent_session_id === "string") {
-              artifactSubagentSessionId = responseObj.subagent_session_id;
-            }
+          const responseData = toolData.response as Record<string, unknown> | undefined;
+          const responseStatus = responseData?.status as string | undefined;
+          const isPendingAgentSession =
+            responseStatus === "pending" &&
+            isAgentToolName(toolData.name) &&
+            typeof responseData?.subagent_session_id === "string";
+          if (
+            (responseStatus === "confirmation_requested" || responseStatus === "pending") &&
+            !isPendingAgentSession
+          ) {
+            continue;
           }
-          const toolResultContent: ProcessedToolResultData[] = [{
-            call_id: toolData.id,
-            name: toolData.name,
-            content: textContent,
-            is_error: toolData.response?.isError || false,
-            raw_result: getRawToolResult(toolData),
-            ...(artifactSubagentSessionId ? { subagent_session_id: artifactSubagentSessionId } : {}),
-          }];
-          const convertedMessage = createMessage("", source, { originalType: "ToolCallExecutionEvent", contextId: artifactUpdate.contextId, taskId: artifactUpdate.taskId, additionalMetadata: { toolResultData: toolResultContent } });
-          convertedMessages.push(convertedMessage);
+          flushBufferedText();
+          processFunctionResponsePart(toolData, artifactUpdate.contextId, artifactUpdate.taskId, source);
           continue;
         }
 
-        // Skip empty data parts (e.g. the lastChunk sentinel emitted by the Go ADK executor).
+        // Empty data parts do not contribute displayable text.
         if (!data || (typeof data === "object" && Object.keys(data).length === 0)) {
+          continue;
+        }
+
+        // Skip model-internal parts (e.g. Gemini's thoughtSignature), which are
+        // protocol state rather than content.
+        if (isModelInternalDataPart(data)) {
           continue;
         }
 
@@ -1042,108 +1089,33 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         }
         continue;
       }
-      if (part.kind === "file") {
-        artifactText += `[File: ${(part as { file?: { name?: string } }).file?.name || "unknown"}]`;
+      if (part.content?.$case === "raw" || part.content?.$case === "url") {
+        artifactText += `[File: ${part.filename || "unknown"}]`;
         continue;
       }
       artifactText += String(part);
     }
 
+    if (artifactText) {
+      bufferArtifactText(artifactText);
+    }
+
     if (artifactUpdate.lastChunk) {
-      handlers.setIsStreaming(false);
-      handlers.setStreamingContent(() => "");
-      // Do NOT accumulate pts.current here — the final status update that always
-      // follows a completed artifact will call finalizeStreaming(), which does
-      // the single accumulation.  Accumulating here AND in finalizeStreaming()
-      // would double-count the last turn's stats.
-
-      const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-      if (artifactText) {
-        const displayMessage = createMessage(
-          artifactText,
-          source,
-          {
-            originalType: "TextMessage",
-            contextId: artifactUpdate.contextId,
-            taskId: artifactUpdate.taskId,
-            additionalMetadata: { ...(turnStats && { tokenStats: turnStats }) }
-          }
-        );
-        handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
-      }
-
-      if (convertedMessages.length > 0) {
-        handlers.setMessages(prevMessages => [...prevMessages, ...convertedMessages]);
-      }
-
-      // Add a tool call summary message to mark any pending tool calls as completed
-      const summarySource = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-      const toolSummaryMessage = createMessage(
-        "Tool execution completed",
-        summarySource,
-        {
-          originalType: "ToolCallSummaryMessage",
-          contextId: artifactUpdate.contextId,
-          taskId: artifactUpdate.taskId
-        }
-      );
-      handlers.setMessages(prevMessages => [...prevMessages, toolSummaryMessage]);
-
-      if (handlers.setChatStatus) {
-        handlers.setChatStatus("ready");
+      if (artifactTextBuffers.has(artifactId)) {
+        // Intermediate text commits have no feedback chrome; terminal status
+        // marks the finished reply.
+        commitArtifactText(undefined, artifactId);
+      } else {
+        updateStreamingArtifactText();
       }
       return;
     }
-
-    // Non-lastChunk artifact updates: the Go ADK executor streams responses as
-    // artifact-update events stamped with adk_partial (true for token chunks,
-    // false for the complete message), with lastChunk only on a final empty sentinel.
-    const partialFlag = getMetadataValue<boolean>(adkMetadata as Record<string, unknown>, "partial");
-
-    if (partialFlag === true) {
-      // Streaming token chunk — accumulate into the live streaming view.
-      if (artifactText) {
-        handlers.setIsStreaming(true);
-        handlers.setStreamingContent(prevContent => prevContent + artifactText);
-        if (handlers.setChatStatus) {
-          handlers.setChatStatus("generating_response");
-        }
-      }
-      return;
-    }
-
-    if (partialFlag === false) {
-      // Complete (non-partial) artifact — emit it as the final message.
-      handlers.setIsStreaming(false);
-      handlers.setStreamingContent(() => "");
-
-      const source = getSourceFromMetadata(adkMetadata, defaultAgentSource);
-      if (artifactText) {
-        const displayMessage = createMessage(
-          artifactText,
-          source,
-          {
-            originalType: "TextMessage",
-            contextId: artifactUpdate.contextId,
-            taskId: artifactUpdate.taskId,
-            additionalMetadata: { ...(turnStats && { tokenStats: turnStats }) }
-          }
-        );
-        handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);
-      }
-
-      if (convertedMessages.length > 0) {
-        handlers.setMessages(prevMessages => [...prevMessages, ...convertedMessages]);
-      }
-    }
-    // partialFlag === undefined: no partial stamping (Python executor flow) — only
-    // lastChunk artifacts carry final content there, so nothing to do here.
   };
 
   const handleA2AMessage = (message: Message) => {
-    const content = aggregatePartsToText(message.parts);
+    const content = aggregatePartsToDisplayText(message.parts);
 
-    if (message.role !== "user") {
+    if (!isUserRole(message.role)) {
       const source = getSourceFromMetadata(message.metadata as ADKMetadata, defaultAgentSource);
       const displayMessage = createMessage(
         content,
@@ -1158,35 +1130,27 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
     }
   };
 
-  const handleOtherMessage = (message: Message) => {
-    finalizeStreaming();
-    appendMessage(message);
-  };
+  const handleMessageEvent = (streamEvent: StreamResponse) => {
+    const payload = streamEvent.payload;
+    if (!payload) return;
 
-  const handleMessageEvent = (message: Message) => {
-    if (messageUtils.isA2ATask(message)) {
-      handlers.setIsStreaming(true);
-      return;
+    switch (payload.$case) {
+      case "task":
+        handlers.setIsStreaming(true);
+        return;
+      case "statusUpdate":
+        handleA2ATaskStatusUpdate(payload.value);
+        return;
+      case "artifactUpdate":
+        handleA2ATaskArtifactUpdate(payload.value);
+        return;
+      case "message":
+        handleA2AMessage(payload.value);
+        return;
+      default:
+        console.warn("Unknown A2A stream payload:", payload);
+        return;
     }
-
-    if (messageUtils.isA2ATaskStatusUpdate(message)) {
-      handleA2ATaskStatusUpdate(message);
-      return;
-    }
-
-    if (messageUtils.isA2ATaskArtifactUpdate(message)) {
-      handleA2ATaskArtifactUpdate(message);
-      return;
-    }
-
-    if (messageUtils.isA2AMessage(message)) {
-      handleA2AMessage(message);
-      return;
-    }
-
-    // If we get here, it's an unknown message type from the A2A stream
-    console.warn("🤔 Unknown message type from A2A stream:", message);
-    handleOtherMessage(message);
   };
 
   return {

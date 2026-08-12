@@ -16,11 +16,14 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 import boto3
+from botocore.config import Config as BotocoreConfig
 from google.adk.models import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+from pydantic import Field
 
 from ._ssl import KAgentTLSMixin
+from ._utils import function_declaration_schema
 
 if TYPE_CHECKING:
     from google.adk.models.llm_request import LlmRequest
@@ -85,9 +88,23 @@ def _get_bedrock_client(
     tls_disable_verify: Optional[bool] = None,
     tls_ca_cert_path: Optional[str] = None,
     tls_disable_system_cas: Optional[bool] = None,
+    read_timeout: Optional[int] = None,
+    connect_timeout: Optional[int] = None,
 ):
     region = os.environ.get("AWS_DEFAULT_REGION") or os.environ.get("AWS_REGION") or "us-east-1"
     kwargs: dict[str, Any] = {"region_name": region}
+
+    # botocore defaults to a 60s read timeout, which aborts long Bedrock
+    # completions (large tool-augmented turns, extended reasoning) with a
+    # ReadTimeoutError. Allow callers to raise it. Only build a Config when an
+    # override is set so we keep botocore's defaults otherwise.
+    timeout_config: dict[str, Any] = {}
+    if read_timeout is not None:
+        timeout_config["read_timeout"] = read_timeout
+    if connect_timeout is not None:
+        timeout_config["connect_timeout"] = connect_timeout
+    if timeout_config:
+        kwargs["config"] = BotocoreConfig(**timeout_config)
 
     if extra_headers:
         # boto3 doesn't support custom headers natively; log and ignore
@@ -207,13 +224,7 @@ def _convert_tools_to_converse(
     converse_tools = []
     for tool in tools:
         for func_decl in tool.function_declarations or []:
-            properties = {}
-            required = []
-            if func_decl.parameters:
-                for prop_name, prop_schema in (func_decl.parameters.properties or {}).items():
-                    raw = prop_schema.model_dump(exclude_none=True, by_alias=True, mode="json")
-                    properties[prop_name] = _normalize_schema(raw)
-                required = func_decl.parameters.required or []
+            schema = _normalize_schema(function_declaration_schema(func_decl))
 
             sanitized_name = _sanitize_tool_name(func_decl.name or "", name_map, counter)
             converse_tools.append(
@@ -221,13 +232,7 @@ def _convert_tools_to_converse(
                     "toolSpec": {
                         "name": sanitized_name,
                         "description": func_decl.description or "",
-                        "inputSchema": {
-                            "json": {
-                                "type": "object",
-                                "properties": properties,
-                                "required": required,
-                            }
-                        },
+                        "inputSchema": {"json": schema},
                     }
                 }
             )
@@ -279,6 +284,12 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
     # "5m"/None (Bedrock's default 5-minute cache) or "1h" (extended-TTL,
     # narrower model support and higher cache-write cost). See _cache_point_block.
     cache_ttl: Optional[str] = None
+    # Bedrock HTTP client timeouts in seconds. read_timeout overrides botocore's
+    # ~60s default, which otherwise aborts long completions with a
+    # ReadTimeoutError. None keeps botocore's defaults. Constrained to >= 1 so
+    # invalid values can't reach the boto3 client (matches the CRD contract).
+    read_timeout: Optional[int] = Field(default=None, ge=1)
+    connect_timeout: Optional[int] = Field(default=None, ge=1)
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -289,6 +300,8 @@ class KAgentBedrockLlm(KAgentTLSMixin, BaseLlm):
             tls_disable_verify=self.tls_disable_verify,
             tls_ca_cert_path=self.tls_ca_cert_path,
             tls_disable_system_cas=self.tls_disable_system_cas,
+            read_timeout=self.read_timeout,
+            connect_timeout=self.connect_timeout,
         )
 
     @classmethod

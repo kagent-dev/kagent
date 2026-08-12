@@ -159,7 +159,6 @@ export default function ChatLayoutUI({
             <ChatAgentProvider
               currentAgent={currentAgent}
               agentType={currentAgent.agent.spec.type}
-              runInSandbox={currentAgent.workloadMode === "sandbox"}
               substrateSandbox={isSubstrateSandboxAgent(currentAgent)}
             >
               {children}

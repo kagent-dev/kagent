@@ -1,10 +1,18 @@
-import type { Task, TaskState } from "@a2a-js/sdk";
+import { TaskState, taskStateFromJSON } from "@a2a-js/sdk";
+import type { Task } from "@a2a-js/sdk";
 import { getSessionTasks } from "@/app/actions/sessions";
 import type { ChatStatus } from "@/types";
 import { mapA2AStateToStatus } from "@/lib/statusUtils";
 
-export const RESUBSCRIBE_TASK_STATES: TaskState[] = ["submitted", "working"];
-const ACTIVE_TASK_STATES: TaskState[] = ["submitted", "working", "input-required"];
+export const RESUBSCRIBE_TASK_STATES: TaskState[] = [
+  TaskState.TASK_STATE_SUBMITTED,
+  TaskState.TASK_STATE_WORKING,
+];
+const ACTIVE_TASK_STATES: TaskState[] = [
+  TaskState.TASK_STATE_SUBMITTED,
+  TaskState.TASK_STATE_WORKING,
+  TaskState.TASK_STATE_INPUT_REQUIRED,
+];
 
 export const countServerMessages = (tasks: Task[]): number =>
   tasks.reduce((sum, task) => sum + (task.history?.length ?? 0), 0);
@@ -45,13 +53,13 @@ export async function checkAndSyncChatSession({
 
   if (options.expectedTaskId) {
     const expectedTask = tasksResponse.data.findLast((task) => task.id === options.expectedTaskId);
-    if ((expectedTask?.status?.state as TaskState | undefined) !== "input-required") {
+    if (taskStateFromJSON(expectedTask?.status?.state) !== TaskState.TASK_STATE_INPUT_REQUIRED) {
       const inFlightTask = tasksResponse.data.findLast((task) =>
-        RESUBSCRIBE_TASK_STATES.includes(task.status?.state as TaskState),
+        RESUBSCRIBE_TASK_STATES.includes(taskStateFromJSON(task.status?.state)),
       );
       if (inFlightTask) {
         notify(options.messages.inFlight);
-        setStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
+        setStatus(mapA2AStateToStatus(inFlightTask.status?.state));
         await resubscribeTask(inFlightTask.id);
       } else {
         await reloadSession();
@@ -63,15 +71,15 @@ export async function checkAndSyncChatSession({
   }
 
   const inFlightTask = tasksResponse.data.findLast((task) =>
-    ACTIVE_TASK_STATES.includes(task.status?.state as TaskState),
+    ACTIVE_TASK_STATES.includes(taskStateFromJSON(task.status?.state)),
   );
   if (inFlightTask) {
-    if ((inFlightTask.status?.state as TaskState) === "input-required") {
+    if (taskStateFromJSON(inFlightTask.status?.state) === TaskState.TASK_STATE_INPUT_REQUIRED) {
       await reloadSession();
       notify(options.messages.inputRequired ?? options.messages.staleOrChanged);
     } else {
       notify(options.messages.inFlight);
-      setStatus(mapA2AStateToStatus(inFlightTask.status?.state as TaskState));
+      setStatus(mapA2AStateToStatus(inFlightTask.status?.state));
       await resubscribeTask(inFlightTask.id);
     }
     return "blocked";

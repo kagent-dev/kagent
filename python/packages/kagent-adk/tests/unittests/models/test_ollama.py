@@ -6,7 +6,35 @@ from unittest import mock
 import pytest
 from google.genai import types
 
-from kagent.adk.models._ollama import KAgentOllamaLlm, _convert_content_to_ollama_messages, create_ollama_llm
+from kagent.adk.models._ollama import (
+    KAgentOllamaLlm,
+    _convert_content_to_ollama_messages,
+    _convert_tools_to_ollama,
+    create_ollama_llm,
+)
+
+
+def test_convert_tools_uses_adk2_json_schema():
+    tool = types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name="list_pods",
+                parameters_json_schema={
+                    "type": "object",
+                    "properties": {"namespace": {"type": "string", "enum": ["default", "kube-system"]}},
+                    "required": ["namespace"],
+                },
+            )
+        ]
+    )
+
+    result = _convert_tools_to_ollama([tool])
+
+    parameters = result[0].function.parameters
+    assert parameters is not None
+    assert parameters.required == ["namespace"]
+    assert parameters.properties is not None
+    assert parameters.properties["namespace"].enum == ["default", "kube-system"]
 
 
 class TestKAgentOllamaLlm:

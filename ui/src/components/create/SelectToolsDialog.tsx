@@ -80,7 +80,7 @@ const getItemDisplayInfo = (
       displayName,
       description: agentResp.agent.spec.description,
       identifier: `agent-${displayName}`,
-      providerText: agentResp.agent.kind || "Agent",
+      providerText: agentResp.agent.kind || "SandboxAgent",
       Icon: KagentLogo,
       iconColor: "text-green-500",
       isAgent: true,
@@ -318,7 +318,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({
         agent: {
           name: agentName,
           namespace: agentNamespace,
-          kind: agentResp.agent.kind || "Agent",
+          kind: agentResp.agent.kind || "SandboxAgent",
           apiGroup: "kagent.dev",
         },
       };
@@ -393,6 +393,26 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({
               ? { requireApproval: next }
               : { requireApproval: undefined }),
           },
+        };
+      }),
+    );
+  };
+
+  const setIsolateSessionsForAgentTool = (
+    target: Tool,
+    isolateSessions: boolean,
+  ) => {
+    const targetId = getToolIdentifier(target);
+    setLocalSelectedTools((prev) =>
+      prev.map((t) => {
+        if (getToolIdentifier(t) !== targetId || !isAgentTool(t)) {
+          return t;
+        }
+        return {
+          ...t,
+          ...(isolateSessions
+            ? { isolateSessions: true }
+            : { isolateSessions: undefined }),
         };
       }),
     );
@@ -912,41 +932,68 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({
                           (matchedAgent as AgentResponse) ||
                             (matchedTool as ToolsResponse),
                         );
+                      const isolateFieldId =
+                        `dialog-isolate-${getToolIdentifier(tool)}`.replace(
+                          /[^a-zA-Z0-9_-]/g,
+                          "_",
+                        );
 
                       return [
                         <div
                           key={displayName}
-                          className="flex w-full min-w-0 max-w-full items-start gap-2 rounded-md border bg-muted/30 px-2.5 py-2"
+                          className="w-full min-w-0 max-w-full space-y-1.5 rounded-md border bg-muted/30 px-2.5 py-2"
                         >
-                          <Icon
-                            className={`mt-0.5 h-4 w-4 shrink-0 ${iconColor}`}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p
-                              className="text-sm font-medium leading-tight"
-                              title={displayName}
-                            >
-                              <span className="line-clamp-2 break-words">
-                                {displayName}
-                              </span>
-                            </p>
-                            {description && (
+                          <div className="flex w-full min-w-0 items-start gap-2">
+                            <Icon
+                              className={`mt-0.5 h-4 w-4 shrink-0 ${iconColor}`}
+                            />
+                            <div className="min-w-0 flex-1">
                               <p
-                                className="mt-0.5 text-xs leading-snug text-muted-foreground line-clamp-1 break-words"
-                                title={description}
+                                className="text-sm font-medium leading-tight"
+                                title={displayName}
                               >
-                                {description}
+                                <span className="line-clamp-2 break-words">
+                                  {displayName}
+                                </span>
                               </p>
-                            )}
+                              {description && (
+                                <p
+                                  className="mt-0.5 text-xs leading-snug text-muted-foreground line-clamp-1 break-words"
+                                  title={description}
+                                >
+                                  {description}
+                                </p>
+                              )}
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0 -mr-1 -mt-0.5"
+                              onClick={() => handleRemoveTool(tool)}
+                            >
+                              <XCircle className="h-4 w-4" />
+                            </Button>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 shrink-0 -mr-1 -mt-0.5"
-                            onClick={() => handleRemoveTool(tool)}
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </Button>
+                          {isAgentTool(tool) && (
+                            <div className="flex min-w-0 items-center gap-2 border-t border-border/50 pt-1.5">
+                              <Switch
+                                id={isolateFieldId}
+                                checked={!!tool.isolateSessions}
+                                onCheckedChange={(checked) =>
+                                  setIsolateSessionsForAgentTool(tool, checked)
+                                }
+                              />
+                              <Label
+                                htmlFor={isolateFieldId}
+                                className="min-w-0 cursor-pointer text-xs font-normal leading-snug"
+                                title="Each call gets a fresh sub-agent session. Enable for parallel fan-out to the same agent."
+                              >
+                                <span className="line-clamp-2 sm:line-clamp-1">
+                                  Isolate sessions (new session each call)
+                                </span>
+                              </Label>
+                            </div>
+                          )}
                         </div>,
                       ];
                     }

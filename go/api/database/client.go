@@ -6,7 +6,7 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
 )
 
@@ -65,7 +65,7 @@ type Client interface {
 	ListPushNotifications(ctx context.Context, taskID string) ([]*a2a.PushConfig, error)
 
 	// Helper methods
-	RefreshToolsForServer(ctx context.Context, serverName string, groupKind string, tools ...*v1alpha2.MCPTool) error
+	RefreshToolsForServer(ctx context.Context, serverName string, groupKind string, tools ...*v1alpha3.MCPTool) error
 
 	// LangGraph Checkpoint methods
 	StoreCheckpoint(ctx context.Context, checkpoint *LangGraphCheckpoint) error
@@ -94,4 +94,9 @@ type Client interface {
 	ListAgentMemories(ctx context.Context, agentName, userID string) ([]Memory, error)
 	DeleteAgentMemory(ctx context.Context, agentName, userID string) error
 	PruneExpiredMemories(ctx context.Context) error
+
+	// PruneExpiredSessions hard-deletes idle sessions older than retentionDays
+	// (sliding window on updated_at) and cascaded conversation state. No-op when
+	// retentionDays <= 0. Returns the number of sessions deleted.
+	PruneExpiredSessions(ctx context.Context, retentionDays int) (int64, error)
 }

@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // a2aTracingMiddleware is an A2A server middleware that creates an invoke_agent
@@ -46,7 +46,7 @@ func (m *a2aTracingMiddleware) Wrap(next http.Handler) http.Handler {
 // resolveProviderName looks up the ModelConfig for a declarative agent and
 // returns the corresponding gen_ai.provider.name attribute. Falls back to "kagent"
 // for BYO agents or if the ModelConfig cannot be fetched.
-func resolveProviderName(ctx context.Context, cache crcache.Cache, agent v1alpha2.AgentObject) attribute.KeyValue {
+func resolveProviderName(ctx context.Context, cache crcache.Cache, agent *v1alpha3.SandboxAgent) attribute.KeyValue {
 	spec := agent.GetAgentSpec()
 	if spec.Declarative == nil {
 		return semconv.GenAIProviderNameKey.String("kagent")
@@ -55,7 +55,7 @@ func resolveProviderName(ctx context.Context, cache crcache.Cache, agent v1alpha
 	if mcName == "" {
 		mcName = "default-model-config"
 	}
-	mc := &v1alpha2.ModelConfig{}
+	mc := &v1alpha3.ModelConfig{}
 	if err := cache.Get(ctx, types.NamespacedName{Namespace: agent.GetNamespace(), Name: mcName}, mc); err != nil {
 		return semconv.GenAIProviderNameKey.String("kagent")
 	}
@@ -65,23 +65,23 @@ func resolveProviderName(ctx context.Context, cache crcache.Cache, agent v1alpha
 // genAIProviderName maps kagent's ModelProvider values to the standard
 // gen_ai.provider.name attributes defined by the OpenTelemetry GenAI semantic
 // conventions. Custom values are used for providers not in the standard list.
-func genAIProviderName(p v1alpha2.ModelProvider) attribute.KeyValue {
+func genAIProviderName(p v1alpha3.ModelProvider) attribute.KeyValue {
 	switch p {
-	case v1alpha2.ModelProviderOpenAI:
+	case v1alpha3.ModelProviderOpenAI:
 		return semconv.GenAIProviderNameOpenAI
-	case v1alpha2.ModelProviderAzureOpenAI:
+	case v1alpha3.ModelProviderAzureOpenAI:
 		return semconv.GenAIProviderNameAzureAIOpenAI
-	case v1alpha2.ModelProviderAnthropic:
+	case v1alpha3.ModelProviderAnthropic:
 		return semconv.GenAIProviderNameAnthropic
-	case v1alpha2.ModelProviderGemini:
+	case v1alpha3.ModelProviderGemini:
 		return semconv.GenAIProviderNameGCPGemini
-	case v1alpha2.ModelProviderGeminiVertexAI:
+	case v1alpha3.ModelProviderGeminiVertexAI:
 		return semconv.GenAIProviderNameGCPVertexAI
-	case v1alpha2.ModelProviderAnthropicVertexAI:
+	case v1alpha3.ModelProviderAnthropicVertexAI:
 		return semconv.GenAIProviderNameKey.String("anthropic.vertex_ai")
-	case v1alpha2.ModelProviderBedrock:
+	case v1alpha3.ModelProviderBedrock:
 		return semconv.GenAIProviderNameAWSBedrock
-	case v1alpha2.ModelProviderOllama:
+	case v1alpha3.ModelProviderOllama:
 		return semconv.GenAIProviderNameKey.String("ollama")
 	default:
 		return semconv.GenAIProviderNameKey.String("kagent")

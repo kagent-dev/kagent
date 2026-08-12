@@ -59,6 +59,13 @@ var (
 		ComponentAgentRuntime,
 	)
 
+	KagentGRPCURL = RegisterStringVar(
+		"KAGENT_GRPC_URL",
+		"",
+		"Native gRPC target for kagent controller API calls.",
+		ComponentAgentRuntime,
+	)
+
 	KagentUIURL = RegisterStringVar(
 		"KAGENT_UI_URL",
 		"",
@@ -92,6 +99,20 @@ var (
 		"STS_WELL_KNOWN_URI",
 		"",
 		"Well-known endpoint for the Security Token Service (STS) used for token exchange.",
+		ComponentAgentRuntime,
+	)
+
+	KagentSTSResource = RegisterStringVar(
+		"KAGENT_STS_RESOURCE",
+		"",
+		"RFC 8707 resource indicator sent on STS token-exchange requests to scope the issued token to a target backend.",
+		ComponentAgentRuntime,
+	)
+
+	KagentSTSAudience = RegisterStringVar(
+		"KAGENT_STS_AUDIENCE",
+		"",
+		"RFC 8693 audience sent on STS token-exchange requests. Alternate to KAGENT_STS_RESOURCE for servers that key on audience.",
 		ComponentAgentRuntime,
 	)
 )

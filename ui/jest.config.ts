@@ -25,7 +25,7 @@ const config: Config = {
   ],
   // Transform ESM modules that Jest can't handle by default
   transformIgnorePatterns: [
-    '/node_modules/(?!(uuid|@a2a-js)/)',
+    '/node_modules/(?!(uuid|@a2a-js|jose)/)',
   ],
 };
 

@@ -47,7 +47,7 @@ class KAgentTokenService:
         if self.update_task:
             self.update_task.cancel()
 
-    async def _get_token(self) -> str | None:
+    async def get_token(self) -> str | None:
         async with self.update_lock:
             return self.token
 
@@ -57,13 +57,18 @@ class KAgentTokenService:
     async def _refresh_token(self):
         while True:
             await asyncio.sleep(60)  # Wait for 60 seconds before refreshing
-            token = await self._read_kagent_token()
-            if token is not None and token != self.token:
-                async with self.update_lock:
-                    self.token = token
+            try:
+                token = await self._read_kagent_token()
+                if token is not None and token != self.token:
+                    async with self.update_lock:
+                        self.token = token
+            except Exception:
+                # A single failed read must not kill the loop, or the token
+                # would never refresh again for the life of the process.
+                logger.exception("Error refreshing kagent token, will retry next cycle")
 
     async def _add_headers(self, request: httpx.Request):
-        token = await self._get_token()
+        token = await self.get_token()
         headers = {"X-Agent-Name": self.app_name}
         if token:
             headers["Authorization"] = f"Bearer {token}"

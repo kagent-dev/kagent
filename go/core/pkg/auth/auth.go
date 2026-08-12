@@ -76,8 +76,8 @@ func AuthSessionTo(ctx context.Context, session Session) context.Context {
 func AuthnMiddleware(authn AuthProvider) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip authentication for health and version endpoints (used by probes)
-			if r.URL.Path == "/health" || r.URL.Path == "/version" {
+			// Skip authentication for the health endpoint used by probes.
+			if r.URL.Path == "/health" {
 				next.ServeHTTP(w, r)
 				return
 			}

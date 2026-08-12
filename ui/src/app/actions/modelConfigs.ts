@@ -1,8 +1,9 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { fetchApi, createErrorResponse } from "./utils";
+import { createErrorResponse } from "./utils";
 import { BaseResponse, ModelConfig, CreateModelConfigRequest, UpdateModelConfigPayload } from "@/types";
 import { k8sRefUtils } from "@/lib/k8sUtils";
+import { getModelGrpcGateway } from "@/lib/grpc/client";
 
 /**
  * Gets all available models
@@ -10,18 +11,15 @@ import { k8sRefUtils } from "@/lib/k8sUtils";
  */
 export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
   try {
-    const response = await fetchApi<BaseResponse<ModelConfig[]>>("/modelconfigs");
-
-    if (!response) {
-      throw new Error("Failed to get model configs");
-    }
+    const gateway = await getModelGrpcGateway();
+    const models = await gateway.listModelConfigs();
 
     // Sort models by name
-    response.data?.sort((a, b) => a.ref.localeCompare(b.ref));
+    models.sort((a, b) => a.ref.localeCompare(b.ref));
 
     return {
       message: "Models fetched successfully",
-      data: response.data,
+      data: models,
     };
   } catch (error) {
     return createErrorResponse<ModelConfig[]>(error, "Error getting model configs");
@@ -35,15 +33,13 @@ export async function getModelConfigs(): Promise<BaseResponse<ModelConfig[]>> {
  */
 export async function getModelConfig(configRef: string): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<BaseResponse<ModelConfig>>(`/modelconfigs/${configRef}`);
-
-    if (!response) {
-      throw new Error("Failed to get model config");
-    }
+    const ref = k8sRefUtils.fromRef(configRef);
+    const gateway = await getModelGrpcGateway();
+    const modelConfig = await gateway.getModelConfig(ref.namespace, ref.name);
 
     return {
       message: "Model config fetched successfully",
-      data: response.data,
+      data: modelConfig,
     };
   } catch (error) {
     return createErrorResponse<ModelConfig>(error, "Error getting model");
@@ -57,18 +53,12 @@ export async function getModelConfig(configRef: string): Promise<BaseResponse<Mo
  */
 export async function createModelConfig(config: CreateModelConfigRequest): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<BaseResponse<ModelConfig>>("/modelconfigs", {
-      method: "POST",
-      body: JSON.stringify(config),
-    });
-
-    if (!response) {
-      throw new Error("Failed to create model config");
-    }
+    const gateway = await getModelGrpcGateway();
+    const modelConfig = await gateway.createModelConfig(config);
 
     return {
       message: "Model config created successfully",
-      data: response.data,
+      data: modelConfig,
     };
   } catch (error) {
     return createErrorResponse<ModelConfig>(error, "Error creating model configuration");
@@ -86,26 +76,16 @@ export async function updateModelConfig(
   config: UpdateModelConfigPayload
 ): Promise<BaseResponse<ModelConfig>> {
   try {
-    const response = await fetchApi<BaseResponse<ModelConfig>>(`/modelconfigs/${configRef}`, {
-      method: "PUT", // Or PATCH depending on backend implementation
-      body: JSON.stringify(config),
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response) {
-      throw new Error("Failed to update model config");
-    }
-    
-    revalidatePath("/models"); // Revalidate list page
-
     const ref = k8sRefUtils.fromRef(configRef);
-    revalidatePath(`/models/new?edit=true&name=${ref.name}&namespace=${ref.namespace}`); // Revalidate edit page if needed
+    const gateway = await getModelGrpcGateway();
+    const modelConfig = await gateway.updateModelConfig(ref.namespace, ref.name, config);
+
+    revalidatePath("/models");
+    revalidatePath(`/models/new?edit=true&name=${ref.name}&namespace=${ref.namespace}`);
 
     return {
       message: "Model config updated successfully",
-      data: response.data,
+      data: modelConfig,
     };
   } catch (error) {
     return createErrorResponse<ModelConfig>(error, "Error updating model configuration");
@@ -119,13 +99,10 @@ export async function updateModelConfig(
  */
 export async function deleteModelConfig(configRef: string): Promise<BaseResponse<void>> {
   try {
-    await fetchApi(`/modelconfigs/${configRef}`, {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-    
+    const ref = k8sRefUtils.fromRef(configRef);
+    const gateway = await getModelGrpcGateway();
+    await gateway.deleteModelConfig(ref.namespace, ref.name);
+
     revalidatePath("/models");
     return { message: "Model config deleted successfully" };
   } catch (error) {

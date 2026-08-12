@@ -61,6 +61,14 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.controller.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: controller
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
@@ -107,6 +115,20 @@ spec:
             - name: METRICS_SECURE
               value: {{ .Values.controller.metrics.secureServing | quote }}
             {{- end }}
+            - name: GRPC_BIND_ADDRESS
+              value: {{ .Values.controller.grpc.bindAddress | quote }}
+            - name: GRPC_MAX_MESSAGE_BYTES
+              value: {{ printf "%.0f" (.Values.controller.grpc.maxMessageBytes | float64) | quote }}
+            - name: GRPC_REFLECTION
+              value: {{ .Values.controller.grpc.reflection | quote }}
+            {{- with .Values.controller.grpc.tlsCertFile }}
+            - name: GRPC_TLS_CERT_FILE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.grpc.tlsKeyFile }}
+            - name: GRPC_TLS_KEY_FILE
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -143,6 +165,9 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.controller.service.ports.grpc }}
               protocol: TCP
             {{- if .Values.controller.metrics.enabled }}
             - name: metrics

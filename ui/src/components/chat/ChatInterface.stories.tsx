@@ -1,19 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { Role } from "@a2a-js/sdk";
+import { mocked } from "storybook/test";
 import ChatInterface from "./ChatInterface";
 import { ChatAgentProvider } from "./ChatAgentContext";
-import { worker } from "@/mocks/browser";
+import { checkSessionExists, getSessionTasks } from "@/app/actions/sessions";
 import type { AgentResponse } from "@/types";
 import {
+  createMockTextMessage,
   createMockSession,
   createMockTask,
   createMockToolCallTask,
-  sessionExistsHandler,
-  sessionNotFoundHandler,
-  sessionTasksHandler,
-  emptySessionTasksHandler,
-  slowSessionExistsHandler,
-  slowSessionTasksHandler,
-} from "@/mocks/handlers";
+} from "@/mocks/factories";
 
 // ---------------------------------------------------------------------------
 // Shared mock data
@@ -31,40 +28,31 @@ const mockAgent: AgentResponse = {
   modelProvider: "openai",
   modelConfigRef: "default/test-model",
   tools: [],
-  deploymentReady: true,
+  ready: true,
   accepted: true,
 };
 
 const singleExchangeTask = createMockTask("task-1", "session-123", [
-  {
-    role: "user",
-    text: "Hello, can you help me with Kubernetes?",
-  },
-  {
-    role: "agent",
-    text: "Of course! I'd be happy to help you with Kubernetes. What would you like to know? I can assist with deployments, services, pods, configmaps, secrets, and much more.",
-  },
+  createMockTextMessage("task-1-user", Role.ROLE_USER, "Hello, can you help me with Kubernetes?"),
+  createMockTextMessage(
+    "task-1-agent",
+    Role.ROLE_AGENT,
+    "Of course! I'd be happy to help you with Kubernetes. What would you like to know? I can assist with deployments, services, pods, configmaps, secrets, and much more.",
+  ),
 ]);
 
 const multiExchangeTasks = [
   createMockTask("task-1", "session-456", [
-    {
-      role: "user",
-      text: "What is a Kubernetes Pod?",
-    },
-    {
-      role: "agent",
-      text: "A **Pod** is the smallest deployable unit in Kubernetes. It represents a single instance of a running process in your cluster.\n\nKey characteristics:\n- A Pod can contain one or more containers\n- Containers in a Pod share the same network namespace (IP address and port space)\n- They can communicate via `localhost`\n- Pods are ephemeral — they are not designed to run forever",
-    },
+    createMockTextMessage("task-1-user", Role.ROLE_USER, "What is a Kubernetes Pod?"),
+    createMockTextMessage(
+      "task-1-agent",
+      Role.ROLE_AGENT,
+      "A **Pod** is the smallest deployable unit in Kubernetes. It represents a single instance of a running process in your cluster.\n\nKey characteristics:\n- A Pod can contain one or more containers\n- Containers in a Pod share the same network namespace (IP address and port space)\n- They can communicate via `localhost`\n- Pods are ephemeral — they are not designed to run forever",
+    ),
   ]),
   createMockTask("task-2", "session-456", [
-    {
-      role: "user",
-      text: "How do I create a deployment?",
-    },
-    {
-      role: "agent",
-      text: `Here's how to create a Kubernetes Deployment:
+    createMockTextMessage("task-2-user", Role.ROLE_USER, "How do I create a deployment?"),
+    createMockTextMessage("task-2-agent", Role.ROLE_AGENT, `Here's how to create a Kubernetes Deployment:
 
 \`\`\`yaml
 apiVersion: apps/v1
@@ -97,16 +85,11 @@ kubectl apply -f deployment.yaml
 \`\`\`
 
 This creates a Deployment that maintains 3 replicas of your application.`,
-    },
+    ),
   ]),
   createMockTask("task-3", "session-456", [
-    {
-      role: "user",
-      text: "Can you explain Services?",
-    },
-    {
-      role: "agent",
-      text: `A **Service** is an abstraction that defines a logical set of Pods and a policy to access them.
+    createMockTextMessage("task-3-user", Role.ROLE_USER, "Can you explain Services?"),
+    createMockTextMessage("task-3-agent", Role.ROLE_AGENT, `A **Service** is an abstraction that defines a logical set of Pods and a policy to access them.
 
 | Type | Description |
 |------|-------------|
@@ -116,7 +99,7 @@ This creates a Deployment that maintains 3 replicas of your application.`,
 | ExternalName | Maps to a DNS name |
 
 Services use **label selectors** to find their target Pods and automatically load-balance traffic across them.`,
-    },
+    ),
   ]),
 ];
 
@@ -127,16 +110,6 @@ const toolCallTask = createMockToolCallTask(
   { namespace: "default", labelSelector: "app=nginx" },
   "NAME            READY   STATUS    RESTARTS   AGE\nnginx-abc123    1/1     Running   0          2d\nnginx-def456    1/1     Running   0          2d",
 );
-
-const multiExchangeSession = createMockSession({
-  id: "session-456",
-  name: "Kubernetes Q&A",
-});
-
-const toolCallSession = createMockSession({
-  id: "session-789",
-  name: "Tool call demo",
-});
 
 // ---------------------------------------------------------------------------
 // Meta
@@ -166,9 +139,10 @@ const meta = {
       </div>
     ),
   ],
-  /** Reset MSW handlers between stories to prevent leakage. */
+  /** Reset server-action mocks between stories to prevent leakage. */
   beforeEach: () => {
-    worker.resetHandlers();
+    mocked(checkSessionExists).mockReset();
+    mocked(getSessionTasks).mockReset();
   },
   tags: ["autodocs"],
 } satisfies Meta<typeof ChatInterface>;
@@ -183,7 +157,7 @@ type Story = StoryObj<typeof meta>;
 /**
  * A brand-new chat with no session yet.
  * Shows the "Start a conversation" welcome prompt.
- * No MSW handlers needed — no API calls are made.
+ * No action mocks are needed because no API calls are made.
  */
 export const NewChat: Story = {
   args: {
@@ -194,8 +168,7 @@ export const NewChat: Story = {
 
 /**
  * An existing session loaded via its `sessionId`.
- * MSW intercepts `checkSessionExists` and `getSessionTasks` to return
- * a single user→agent exchange.
+ * The session actions return a single user→agent exchange.
  */
 export const ExistingSessionWithMessages: Story = {
   args: {
@@ -204,10 +177,8 @@ export const ExistingSessionWithMessages: Story = {
     sessionId: "session-123",
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(mockSession),
-      sessionTasksHandler([singleExchangeTask]),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: [singleExchangeTask] });
   },
 };
 
@@ -228,10 +199,8 @@ export const LongConversation: Story = {
     },
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(multiExchangeSession),
-      sessionTasksHandler(multiExchangeTasks),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: multiExchangeTasks });
   },
 };
 
@@ -253,10 +222,8 @@ export const WithToolCalls: Story = {
     },
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(toolCallSession),
-      sessionTasksHandler([toolCallTask]),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: [toolCallTask] });
   },
 };
 
@@ -278,7 +245,7 @@ export const SessionNotFound: Story = {
     },
   },
   beforeEach: () => {
-    worker.use(sessionNotFoundHandler());
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session does not exist", data: false });
   },
 };
 
@@ -293,10 +260,8 @@ export const EmptySession: Story = {
     sessionId: "session-123",
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(mockSession),
-      emptySessionTasksHandler(),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: [] });
   },
 };
 
@@ -311,17 +276,18 @@ export const Loading: Story = {
     sessionId: "session-123",
   },
   beforeEach: () => {
-    worker.use(
-      slowSessionExistsHandler(mockSession, 2000),
-      slowSessionTasksHandler([singleExchangeTask], 2000),
-    );
+    mocked(checkSessionExists).mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve({ message: "Session exists", data: true }), 2000);
+    }));
+    mocked(getSessionTasks).mockImplementation(() => new Promise((resolve) => {
+      setTimeout(() => resolve({ message: "Tasks fetched", data: [singleExchangeTask] }), 2000);
+    }));
   },
 };
 
 /**
  * Session is pre-loaded via the `selectedSession` prop, but the component
- * still calls `checkSessionExists` when `sessionId` is present, so MSW
- * handlers are required for both the session check and task history.
+ * still calls `checkSessionExists` when `sessionId` is present.
  */
 export const PreLoadedSession: Story = {
   args: {
@@ -331,9 +297,7 @@ export const PreLoadedSession: Story = {
     sessionId: "session-123",
   },
   beforeEach: () => {
-    worker.use(
-      sessionExistsHandler(mockSession),
-      sessionTasksHandler([singleExchangeTask]),
-    );
+    mocked(checkSessionExists).mockResolvedValue({ message: "Session exists", data: true });
+    mocked(getSessionTasks).mockResolvedValue({ message: "Tasks fetched", data: [singleExchangeTask] });
   },
 };

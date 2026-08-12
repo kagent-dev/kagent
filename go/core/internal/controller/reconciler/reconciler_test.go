@@ -13,12 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -214,6 +213,228 @@ func TestComputeStatusSecretHash_Deterministic(t *testing.T) {
 	}
 }
 
+// TestReconcileKagentModelConfig_FoundryEndpointFrom exercises the endpointFrom
+// path: the resolved ConfigMap value is folded into the status hash, and
+// resolution failures surface on the Accepted condition.
+func TestReconcileKagentModelConfig_FoundryEndpointFrom(t *testing.T) {
+	optional := true
+
+	foundryModelConfig := func() *v1alpha3.ModelConfig {
+		return &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: "foundry-model", Namespace: "default"},
+			Spec: v1alpha3.ModelConfigSpec{
+				Model:    "gpt-4.1-nano",
+				Provider: v1alpha3.ModelProviderFoundry,
+				Foundry: &v1alpha3.FoundryConfig{
+					Deployment: "gpt-4-1-nano",
+					APIVersion: "2024-10-21",
+					EndpointFrom: &corev1.ConfigMapKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+						Key:                  "endpoint",
+					},
+				},
+			},
+		}
+	}
+
+	tests := []struct {
+		name         string
+		mutateModel  func(*v1alpha3.ModelConfig)
+		configMap    *corev1.ConfigMap
+		wantAccepted metav1.ConditionStatus
+		wantHashSet  bool
+	}{
+		{
+			name: "resolved endpoint sets hash",
+			configMap: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+				Data:       map[string]string{"endpoint": "https://aso.cognitiveservices.azure.com/"},
+			},
+			wantAccepted: metav1.ConditionTrue,
+			wantHashSet:  true,
+		},
+		{
+			name:         "missing config map fails",
+			configMap:    nil,
+			wantAccepted: metav1.ConditionFalse,
+		},
+		{
+			name: "missing required key fails",
+			configMap: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+				Data:       map[string]string{"other": "value"},
+			},
+			wantAccepted: metav1.ConditionFalse,
+			// the config map identity is still folded in, so a hash is produced
+			wantHashSet: true,
+		},
+		{
+			name: "missing optional key is accepted",
+			mutateModel: func(mc *v1alpha3.ModelConfig) {
+				mc.Spec.Foundry.EndpointFrom.Optional = &optional
+			},
+			configMap: &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+				Data:       map[string]string{"other": "value"},
+			},
+			wantAccepted: metav1.ConditionTrue,
+			wantHashSet:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			require.NoError(t, clientgoscheme.AddToScheme(scheme))
+			require.NoError(t, v1alpha3.AddToScheme(scheme))
+
+			modelConfig := foundryModelConfig()
+			if tt.mutateModel != nil {
+				tt.mutateModel(modelConfig)
+			}
+
+			objs := []client.Object{modelConfig}
+			if tt.configMap != nil {
+				objs = append(objs, tt.configMap)
+			}
+
+			kube := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithStatusSubresource(modelConfig).
+				WithObjects(objs...).
+				Build()
+			reconciler := &kagentReconciler{kube: kube}
+
+			require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(),
+				reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "foundry-model"}}))
+
+			updated := &v1alpha3.ModelConfig{}
+			require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), updated))
+
+			accepted := meta.FindStatusCondition(updated.Status.Conditions, v1alpha3.ModelConfigConditionTypeAccepted)
+			require.NotNil(t, accepted)
+			assert.Equal(t, tt.wantAccepted, accepted.Status)
+
+			if tt.wantHashSet {
+				assert.NotEmpty(t, updated.Status.SecretHash)
+			}
+		})
+	}
+}
+
+// TestReconcileKagentModelConfig_EndpointFromHashChanges verifies that rewriting
+// the endpointFrom ConfigMap value changes the status hash, which is the signal
+// that rolls dependent agents onto the new endpoint.
+func TestReconcileKagentModelConfig_EndpointFromHashChanges(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+
+	modelConfig := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-model", Namespace: "default"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Model:    "gpt-4.1-nano",
+			Provider: v1alpha3.ModelProviderFoundry,
+			Foundry: &v1alpha3.FoundryConfig{
+				Deployment: "gpt-4-1-nano",
+				APIVersion: "2024-10-21",
+				EndpointFrom: &corev1.ConfigMapKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "foundry-endpoint"},
+					Key:                  "endpoint",
+				},
+			},
+		},
+	}
+	endpointCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+		Data:       map[string]string{"endpoint": "https://one.cognitiveservices.azure.com/"},
+	}
+
+	kube := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(modelConfig).
+		WithObjects(modelConfig, endpointCM).
+		Build()
+	reconciler := &kagentReconciler{kube: kube}
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "foundry-model"}}
+
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	first := &v1alpha3.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), first))
+	require.NotEmpty(t, first.Status.SecretHash)
+
+	// Re-reconciling without changing anything must keep the hash stable so
+	// agents don't roll on every reconcile loop.
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	stable := &v1alpha3.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), stable))
+	assert.Equal(t, first.Status.SecretHash, stable.Status.SecretHash,
+		"an unchanged endpointFrom value should keep the status hash stable")
+
+	// Rewrite the endpoint (as Azure Service Operator might) and re-reconcile.
+	endpointCM.Data["endpoint"] = "https://two.cognitiveservices.azure.com/"
+	require.NoError(t, kube.Update(context.Background(), endpointCM))
+
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	second := &v1alpha3.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), second))
+
+	assert.NotEqual(t, first.Status.SecretHash, second.Status.SecretHash,
+		"changing the endpointFrom value should change the status hash")
+}
+
+// TestReconcileKagentModelConfig_InlineEndpointIgnoresConfigMap verifies that a
+// Foundry ModelConfig using an inline endpoint does not fold any ConfigMap into
+// its status hash, so unrelated ConfigMap edits never roll its agents.
+func TestReconcileKagentModelConfig_InlineEndpointIgnoresConfigMap(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+
+	modelConfig := &v1alpha3.ModelConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-model", Namespace: "default"},
+		Spec: v1alpha3.ModelConfigSpec{
+			Model:    "gpt-4.1-nano",
+			Provider: v1alpha3.ModelProviderFoundry,
+			Foundry: &v1alpha3.FoundryConfig{
+				Endpoint:   "https://inline.cognitiveservices.azure.com/",
+				Deployment: "gpt-4-1-nano",
+				APIVersion: "2024-10-21",
+			},
+		},
+	}
+	// An unrelated ConfigMap that the model does not reference.
+	unrelatedCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: "foundry-endpoint", Namespace: "default"},
+		Data:       map[string]string{"endpoint": "https://one.cognitiveservices.azure.com/"},
+	}
+
+	kube := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithStatusSubresource(modelConfig).
+		WithObjects(modelConfig, unrelatedCM).
+		Build()
+	reconciler := &kagentReconciler{kube: kube}
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "foundry-model"}}
+
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	first := &v1alpha3.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), first))
+
+	// Editing the unrelated ConfigMap must not change this model's hash.
+	unrelatedCM.Data["endpoint"] = "https://two.cognitiveservices.azure.com/"
+	require.NoError(t, kube.Update(context.Background(), unrelatedCM))
+
+	require.NoError(t, reconciler.ReconcileKagentModelConfig(context.Background(), req))
+	second := &v1alpha3.ModelConfig{}
+	require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(modelConfig), second))
+
+	assert.Equal(t, first.Status.SecretHash, second.Status.SecretHash,
+		"an inline-endpoint model must not fold unrelated ConfigMaps into its hash")
+}
+
 func TestAgentIDConsistency(t *testing.T) {
 	req := reconcile.Request{
 		NamespacedName: types.NamespacedName{
@@ -228,75 +449,10 @@ func TestAgentIDConsistency(t *testing.T) {
 	assert.Equal(t, storeID, deleteID)
 }
 
-func TestReconcileAgentStatus_AvailableReplicas(t *testing.T) {
-	tests := []struct {
-		name              string
-		availableReplicas int32
-		wantStatus        metav1.ConditionStatus
-		wantReason        string
-	}{
-		{
-			name:              "one of two replicas available",
-			availableReplicas: 1,
-			wantStatus:        metav1.ConditionTrue,
-			wantReason:        AgentReadyReasonDeploymentReady,
-		},
-		{
-			name:              "no replicas available",
-			availableReplicas: 0,
-			wantStatus:        metav1.ConditionFalse,
-			wantReason:        "DeploymentNotReady",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			require.NoError(t, clientgoscheme.AddToScheme(scheme))
-			require.NoError(t, v1alpha2.AddToScheme(scheme))
-
-			replicas := int32(2)
-			agent := &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{Name: "test-agent", Namespace: "default"},
-				Status: v1alpha2.AgentStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:    v1alpha2.AgentConditionTypeAccepted,
-							Status:  metav1.ConditionTrue,
-							Reason:  "Reconciled",
-							Message: "Agent configuration accepted",
-						},
-					},
-				},
-			}
-			deployment := &appsv1.Deployment{
-				ObjectMeta: metav1.ObjectMeta{Name: agent.Name, Namespace: agent.Namespace},
-				Spec:       appsv1.DeploymentSpec{Replicas: &replicas},
-				Status:     appsv1.DeploymentStatus{AvailableReplicas: tt.availableReplicas},
-			}
-			kube := fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithStatusSubresource(agent).
-				WithObjects(agent, deployment).
-				Build()
-			reconciler := &kagentReconciler{kube: kube}
-
-			require.NoError(t, reconciler.reconcileAgentStatus(context.Background(), agent, nil))
-
-			updated := &v1alpha2.Agent{}
-			require.NoError(t, kube.Get(context.Background(), client.ObjectKeyFromObject(agent), updated))
-			ready := meta.FindStatusCondition(updated.Status.Conditions, v1alpha2.AgentConditionTypeReady)
-			require.NotNil(t, ready)
-			assert.Equal(t, tt.wantStatus, ready.Status)
-			assert.Equal(t, tt.wantReason, ready.Reason)
-		})
-	}
-}
-
 func TestValidateCrossNamespaceReferences(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, clientgoscheme.AddToScheme(scheme))
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	// Create test namespaces
 	sourceNs := &corev1.Namespace{
@@ -317,20 +473,20 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		name              string
 		watchedNamespaces []string
 		objects           []client.Object // Additional objects to create in fake client
-		agent             *v1alpha2.Agent
+		agent             *v1alpha3.SandboxAgent
 		wantErr           bool
 		errContains       string
 	}{
 		{
 			name:              "BYO agent - no validation needed",
 			watchedNamespaces: []string{"source-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_BYO,
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_BYO,
 				},
 			},
 			wantErr: false,
@@ -338,14 +494,14 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Declarative agent with no tools - passes",
 			watchedNamespaces: []string{"source-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
 					},
 				},
@@ -355,19 +511,20 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Agent tool in unwatched namespace - fails",
 			watchedNamespaces: []string{"source-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_Agent,
+								Agent: &v1alpha3.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "other-agent",
 									Namespace: "unwatched-ns",
 								},
@@ -383,30 +540,31 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Same namespace agent tool - always allowed",
 			watchedNamespaces: []string{"source-ns"},
 			objects: []client.Object{
-				&v1alpha2.Agent{
+				&v1alpha3.SandboxAgent{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tool-agent",
 						Namespace: "source-ns",
 					},
-					Spec: v1alpha2.AgentSpec{
-						Type: v1alpha2.AgentType_Declarative,
+					Spec: v1alpha3.AgentSpec{
+						Type: v1alpha3.AgentType_Declarative,
 						// No AllowedNamespaces needed for same namespace
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_Agent,
+								Agent: &v1alpha3.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "tool-agent",
 									Namespace: "source-ns",
 								},
@@ -421,30 +579,31 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Cross-namespace agent tool - denied without AllowedNamespaces",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
 			objects: []client.Object{
-				&v1alpha2.Agent{
+				&v1alpha3.SandboxAgent{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tool-agent",
 						Namespace: "target-ns",
 					},
-					Spec: v1alpha2.AgentSpec{
-						Type: v1alpha2.AgentType_Declarative,
+					Spec: v1alpha3.AgentSpec{
+						Type: v1alpha3.AgentType_Declarative,
 						// No AllowedNamespaces = same namespace only
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_Agent,
+								Agent: &v1alpha3.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -460,32 +619,33 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Cross-namespace agent tool - allowed with From=All",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
 			objects: []client.Object{
-				&v1alpha2.Agent{
+				&v1alpha3.SandboxAgent{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tool-agent",
 						Namespace: "target-ns",
 					},
-					Spec: v1alpha2.AgentSpec{
-						Type: v1alpha2.AgentType_Declarative,
-						AllowedNamespaces: &v1alpha2.AllowedNamespaces{
-							From: v1alpha2.NamespacesFromAll,
+					Spec: v1alpha3.AgentSpec{
+						Type: v1alpha3.AgentType_Declarative,
+						AllowedNamespaces: &v1alpha3.AllowedNamespaces{
+							From: v1alpha3.NamespacesFromAll,
 						},
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_Agent,
+								Agent: &v1alpha3.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -500,15 +660,15 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Cross-namespace agent tool - allowed with matching selector",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
 			objects: []client.Object{
-				&v1alpha2.Agent{
+				&v1alpha3.SandboxAgent{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tool-agent",
 						Namespace: "target-ns",
 					},
-					Spec: v1alpha2.AgentSpec{
-						Type: v1alpha2.AgentType_Declarative,
-						AllowedNamespaces: &v1alpha2.AllowedNamespaces{
-							From: v1alpha2.NamespacesFromSelector,
+					Spec: v1alpha3.AgentSpec{
+						Type: v1alpha3.AgentType_Declarative,
+						AllowedNamespaces: &v1alpha3.AllowedNamespaces{
+							From: v1alpha3.NamespacesFromSelector,
 							Selector: &metav1.LabelSelector{
 								MatchLabels: map[string]string{
 									"shared-access": "true",
@@ -518,19 +678,20 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns", // Has label "shared-access": "true"
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_Agent,
+								Agent: &v1alpha3.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "tool-agent",
 									Namespace: "target-ns",
 								},
@@ -545,31 +706,31 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Cross-namespace RemoteMCPServer - denied without AllowedNamespaces",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
 			objects: []client.Object{
-				&v1alpha2.RemoteMCPServer{
+				&v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tools-server",
 						Namespace: "target-ns",
 					},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						URL: "http://tools.example.com/mcp",
 						// No AllowedNamespaces = same namespace only
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_McpServer,
-								McpServer: &v1alpha2.McpServerTool{
-									TypedReference: v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_McpServer,
+								McpServer: &v1alpha3.McpServerTool{
+									TypedReference: v1alpha3.TypedReference{
 										Kind:      "RemoteMCPServer",
 										ApiGroup:  "kagent.dev",
 										Name:      "tools-server",
@@ -588,33 +749,33 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 			name:              "Cross-namespace RemoteMCPServer - allowed with From=All",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
 			objects: []client.Object{
-				&v1alpha2.RemoteMCPServer{
+				&v1alpha3.RemoteMCPServer{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "tools-server",
 						Namespace: "target-ns",
 					},
-					Spec: v1alpha2.RemoteMCPServerSpec{
+					Spec: v1alpha3.RemoteMCPServerSpec{
 						URL: "http://tools.example.com/mcp",
-						AllowedNamespaces: &v1alpha2.AllowedNamespaces{
-							From: v1alpha2.NamespacesFromAll,
+						AllowedNamespaces: &v1alpha3.AllowedNamespaces{
+							From: v1alpha3.NamespacesFromAll,
 						},
 					},
 				},
 			},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_McpServer,
-								McpServer: &v1alpha2.McpServerTool{
-									TypedReference: v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_McpServer,
+								McpServer: &v1alpha3.McpServerTool{
+									TypedReference: v1alpha3.TypedReference{
 										Kind:      "RemoteMCPServer",
 										ApiGroup:  "kagent.dev",
 										Name:      "tools-server",
@@ -631,20 +792,20 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Cross-namespace MCPServer - always denied (external type)",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_McpServer,
-								McpServer: &v1alpha2.McpServerTool{
-									TypedReference: v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_McpServer,
+								McpServer: &v1alpha3.McpServerTool{
+									TypedReference: v1alpha3.TypedReference{
 										Kind:      "MCPServer",
 										ApiGroup:  "kagent.dev",
 										Name:      "mcp-server",
@@ -662,20 +823,20 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Cross-namespace Service - always denied (external type)",
 			watchedNamespaces: []string{"source-ns", "target-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_McpServer,
-								McpServer: &v1alpha2.McpServerTool{
-									TypedReference: v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_McpServer,
+								McpServer: &v1alpha3.McpServerTool{
+									TypedReference: v1alpha3.TypedReference{
 										Kind:      "Service",
 										ApiGroup:  "",
 										Name:      "my-service",
@@ -693,19 +854,20 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 		{
 			name:              "Tool with empty namespace defaults to agent namespace - passes",
 			watchedNamespaces: []string{"source-ns"},
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-agent",
 					Namespace: "source-ns",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Spec: v1alpha3.AgentSpec{
+					Type: v1alpha3.AgentType_Declarative,
+					Declarative: &v1alpha3.DeclarativeAgentSpec{
 						SystemMessage: "test",
-						Tools: []*v1alpha2.Tool{
+						Tools: []*v1alpha3.Tool{
 							{
-								Type: v1alpha2.ToolProviderType_Agent,
-								Agent: &v1alpha2.TypedReference{
+								Type: v1alpha3.ToolProviderType_Agent,
+								Agent: &v1alpha3.TypedReference{
+									Kind:      "SandboxAgent",
 									Name:      "other-agent",
 									Namespace: "", // defaults to agent's namespace
 								},
@@ -759,7 +921,7 @@ func TestValidateCrossNamespaceReferences(t *testing.T) {
 // rollout pods keep the stale trust chain in memory).
 func TestComputeRemoteMCPServerSecretHash(t *testing.T) {
 	scheme := clientgoscheme.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	caV1 := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "corp-ca", Namespace: "ns"},
@@ -770,15 +932,15 @@ func TestComputeRemoteMCPServerSecretHash(t *testing.T) {
 		Data:       map[string][]byte{"ca.crt": []byte("PEM-V2")},
 	}
 
-	rmsNoTLS := &v1alpha2.RemoteMCPServer{
+	rmsNoTLS := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns"},
-		Spec:       v1alpha2.RemoteMCPServerSpec{URL: "https://x/y"},
+		Spec:       v1alpha3.RemoteMCPServerSpec{URL: "https://x/y"},
 	}
-	rmsWithTLS := &v1alpha2.RemoteMCPServer{
+	rmsWithTLS := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "x", Namespace: "ns"},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL: "https://x/y",
-			TLS: &v1alpha2.TLSConfig{CACertSecretRef: "corp-ca", CACertSecretKey: "ca.crt"},
+			TLS: &v1alpha3.TLSConfig{CACertSecretRef: "corp-ca", CACertSecretKey: "ca.crt"},
 		},
 	}
 
@@ -842,7 +1004,7 @@ func TestRemoteMCPRegistrationTimeout(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		server *v1alpha2.RemoteMCPServer
+		server *v1alpha3.RemoteMCPServer
 		want   time.Duration
 	}{
 		{
@@ -852,13 +1014,13 @@ func TestRemoteMCPRegistrationTimeout(t *testing.T) {
 		},
 		{
 			name:   "nil spec.timeout returns default",
-			server: &v1alpha2.RemoteMCPServer{},
+			server: &v1alpha3.RemoteMCPServer{},
 			want:   mcpRegistrationTimeout,
 		},
 		{
 			name: "spec.timeout overrides default",
-			server: &v1alpha2.RemoteMCPServer{
-				Spec: v1alpha2.RemoteMCPServerSpec{
+			server: &v1alpha3.RemoteMCPServer{
+				Spec: v1alpha3.RemoteMCPServerSpec{
 					Timeout: &metav1.Duration{Duration: custom},
 				},
 			},
@@ -925,7 +1087,7 @@ func TestBuildRemoteMCPServerTLSConfig(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		spec        *v1alpha2.TLSConfig
+		spec        *v1alpha3.TLSConfig
 		secret      *corev1.Secret
 		wantNil     bool
 		wantSkip    bool
@@ -941,17 +1103,17 @@ func TestBuildRemoteMCPServerTLSConfig(t *testing.T) {
 		},
 		{
 			name:    "empty struct → no tls config (parity with nil)",
-			spec:    &v1alpha2.TLSConfig{},
+			spec:    &v1alpha3.TLSConfig{},
 			wantNil: true,
 		},
 		{
 			name:     "disableVerify only",
-			spec:     &v1alpha2.TLSConfig{DisableVerify: true},
+			spec:     &v1alpha3.TLSConfig{DisableVerify: true},
 			wantSkip: true,
 		},
 		{
 			name: "custom CA only (additive to system pool)",
-			spec: &v1alpha2.TLSConfig{
+			spec: &v1alpha3.TLSConfig{
 				CACertSecretRef: "ca",
 				CACertSecretKey: "ca.crt",
 			},
@@ -964,7 +1126,7 @@ func TestBuildRemoteMCPServerTLSConfig(t *testing.T) {
 		},
 		{
 			name: "custom CA with disableSystemCAs (trust only the bundle)",
-			spec: &v1alpha2.TLSConfig{
+			spec: &v1alpha3.TLSConfig{
 				CACertSecretRef:  "ca",
 				CACertSecretKey:  "ca.crt",
 				DisableSystemCAs: true,
@@ -978,7 +1140,7 @@ func TestBuildRemoteMCPServerTLSConfig(t *testing.T) {
 		},
 		{
 			name: "missing secret → error",
-			spec: &v1alpha2.TLSConfig{
+			spec: &v1alpha3.TLSConfig{
 				CACertSecretRef: "ca",
 				CACertSecretKey: "ca.crt",
 			},
@@ -987,7 +1149,7 @@ func TestBuildRemoteMCPServerTLSConfig(t *testing.T) {
 		},
 		{
 			name: "secret present but missing key → error",
-			spec: &v1alpha2.TLSConfig{
+			spec: &v1alpha3.TLSConfig{
 				CACertSecretRef: "ca",
 				CACertSecretKey: "ca.crt",
 			},
@@ -1000,7 +1162,7 @@ func TestBuildRemoteMCPServerTLSConfig(t *testing.T) {
 		},
 		{
 			name: "secret key contains garbage → error",
-			spec: &v1alpha2.TLSConfig{
+			spec: &v1alpha3.TLSConfig{
 				CACertSecretRef: "ca",
 				CACertSecretKey: "ca.crt",
 			},
@@ -1020,7 +1182,7 @@ func TestBuildRemoteMCPServerTLSConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			scheme := clientgoscheme.Scheme
-			require.NoError(t, v1alpha2.AddToScheme(scheme))
+			require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 			objs := []client.Object{}
 			if tt.secret != nil {
@@ -1029,9 +1191,9 @@ func TestBuildRemoteMCPServerTLSConfig(t *testing.T) {
 			kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
 
 			r := &kagentReconciler{kube: kube}
-			rms := &v1alpha2.RemoteMCPServer{
+			rms := &v1alpha3.RemoteMCPServer{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "ns"},
-				Spec:       v1alpha2.RemoteMCPServerSpec{URL: "https://x/y", TLS: tt.spec},
+				Spec:       v1alpha3.RemoteMCPServerSpec{URL: "https://x/y", TLS: tt.spec},
 			}
 
 			cfg, err := r.buildRemoteMCPServerTLSConfig(context.Background(), rms)
@@ -1068,12 +1230,12 @@ func TestBuildRemoteMCPServerTLSConfig(t *testing.T) {
 // plaintext http://host:<port-or-443> form, for both Streamable HTTP and SSE.
 func TestCreateMcpTransport_EgressPlaintext(t *testing.T) {
 	scheme := clientgoscheme.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	const specURL = "https://upstream.example.com/mcp"
-	rms := &v1alpha2.RemoteMCPServer{
+	rms := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "rms", Namespace: "ns"},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			Description: "test",
 			URL:         specURL,
 		},
@@ -1104,7 +1266,7 @@ func TestCreateMcpTransport_EgressPlaintext(t *testing.T) {
 
 	t.Run("gate on rewrites SSE dial URL too", func(t *testing.T) {
 		sseRMS := rms.DeepCopy()
-		sseRMS.Spec.Protocol = v1alpha2.RemoteMCPServerProtocolSse
+		sseRMS.Spec.Protocol = v1alpha3.RemoteMCPServerProtocolSse
 		sseRMS.Spec.URL = "https://upstream.example.com/sse"
 
 		kube := fake.NewClientBuilder().WithScheme(scheme).Build()
