@@ -52,7 +52,7 @@ ARG VERSION
 RUN --mount=type=cache,target=/.kagent/cache,rw                               \
     echo "Creating virtual environment and installing dependencies..."        \
     && uv venv --python=python$TOOLS_PYTHON_VERSION                           \
-    && uv lock && uv sync --package kagent-adk --no-editable                  \
+    && uv sync --frozen --package kagent-adk --no-editable                    \
     && uv cache prune                                                         \
     # The standalone CPython build bundles pip (with vendored msgpack /
     # pkg_resources) in its own site-packages. The runtime only uses the venv,
@@ -62,6 +62,9 @@ RUN --mount=type=cache,target=/.kagent/cache,rw                               \
               /python/cpython-*/lib/python*/site-packages/setuptools          \
               /python/cpython-*/lib/python*/site-packages/setuptools-*.dist-info \
               /python/cpython-*/lib/python*/site-packages/pkg_resources      \
+    # Fail the build if pip survived (rm -rf on a non-matching glob exits 0,
+    # e.g. after a Python minor bump moves site-packages).
+    && ! "$(uv python find)" -c "import pip" 2>/dev/null                      \
     && echo "Installation complete."
 
 # Pre-create the config dir owned by the runtime user. On Agent Substrate the config is

@@ -97,7 +97,7 @@ ARG VERSION
 RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     echo "Creating virtual environment and installing dependencies..."        \
     && uv venv --python=python$TOOLS_PYTHON_VERSION                           \
-    && uv lock && uv sync --package kagent-adk                                \
+    && uv sync --frozen --package kagent-adk                                  \
     && uv cache prune                                                         \
     && echo "Installation complete."
 
