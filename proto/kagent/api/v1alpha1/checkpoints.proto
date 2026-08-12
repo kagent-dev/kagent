@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package kagent.api.v1alpha1;
 
-import "google/longrunning/operations.proto";
 import "google/protobuf/timestamp.proto";
 import "kagent/api/v1alpha1/agent_instances.proto";
 import "kagent/api/v1alpha1/common.proto";
@@ -10,25 +9,11 @@ import "kagent/api/v1alpha1/common.proto";
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
 
 service CheckpointService {
-  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Standard long-running operations share the Operation response type.
-  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Standard long-running operations return google.longrunning.Operation.
-  rpc CreateCheckpoint(CreateCheckpointRequest) returns (google.longrunning.Operation) {
-    option (google.longrunning.operation_info) = {
-      response_type: "Checkpoint"
-      metadata_type: "CreateCheckpointOperationMetadata"
-    };
-  }
+  rpc CreateCheckpoint(CreateCheckpointRequest) returns (CreateCheckpointResponse);
   rpc GetCheckpoint(GetCheckpointRequest) returns (GetCheckpointResponse);
   rpc ListCheckpoints(ListCheckpointsRequest) returns (ListCheckpointsResponse);
   rpc DeleteCheckpoint(DeleteCheckpointRequest) returns (DeleteCheckpointResponse);
-  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Standard long-running operations share the Operation response type.
-  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Standard long-running operations return google.longrunning.Operation.
-  rpc ForkAgentInstance(ForkAgentInstanceRequest) returns (google.longrunning.Operation) {
-    option (google.longrunning.operation_info) = {
-      response_type: "AgentInstance"
-      metadata_type: "ForkAgentInstanceOperationMetadata"
-    };
-  }
+  rpc ForkAgentInstance(ForkAgentInstanceRequest) returns (ForkAgentInstanceResponse);
 }
 
 enum CheckpointState {
@@ -56,10 +41,8 @@ message CreateCheckpointRequest {
   string request_id = 3;
 }
 
-message CreateCheckpointOperationMetadata {
-  string namespace = 1;
-  string agent_instance_id = 2;
-  string checkpoint_id = 3;
+message CreateCheckpointResponse {
+  Checkpoint checkpoint = 1;
 }
 
 message GetCheckpointRequest {
@@ -95,8 +78,6 @@ message ForkAgentInstanceRequest {
   string request_id = 3;
 }
 
-message ForkAgentInstanceOperationMetadata {
-  string namespace = 1;
-  string checkpoint_id = 2;
-  string agent_instance_id = 3;
+message ForkAgentInstanceResponse {
+  AgentInstance agent_instance = 1;
 }

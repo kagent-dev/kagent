@@ -7,7 +7,6 @@
 package apiv1alpha1
 
 import (
-	longrunningpb "cloud.google.com/go/longrunning/autogen/longrunningpb"
 	context "context"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -31,15 +30,11 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CheckpointServiceClient interface {
-	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Standard long-running operations share the Operation response type.
-	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Standard long-running operations return google.longrunning.Operation.
-	CreateCheckpoint(ctx context.Context, in *CreateCheckpointRequest, opts ...grpc.CallOption) (*longrunningpb.Operation, error)
+	CreateCheckpoint(ctx context.Context, in *CreateCheckpointRequest, opts ...grpc.CallOption) (*CreateCheckpointResponse, error)
 	GetCheckpoint(ctx context.Context, in *GetCheckpointRequest, opts ...grpc.CallOption) (*GetCheckpointResponse, error)
 	ListCheckpoints(ctx context.Context, in *ListCheckpointsRequest, opts ...grpc.CallOption) (*ListCheckpointsResponse, error)
 	DeleteCheckpoint(ctx context.Context, in *DeleteCheckpointRequest, opts ...grpc.CallOption) (*DeleteCheckpointResponse, error)
-	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Standard long-running operations share the Operation response type.
-	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Standard long-running operations return google.longrunning.Operation.
-	ForkAgentInstance(ctx context.Context, in *ForkAgentInstanceRequest, opts ...grpc.CallOption) (*longrunningpb.Operation, error)
+	ForkAgentInstance(ctx context.Context, in *ForkAgentInstanceRequest, opts ...grpc.CallOption) (*ForkAgentInstanceResponse, error)
 }
 
 type checkpointServiceClient struct {
@@ -50,9 +45,9 @@ func NewCheckpointServiceClient(cc grpc.ClientConnInterface) CheckpointServiceCl
 	return &checkpointServiceClient{cc}
 }
 
-func (c *checkpointServiceClient) CreateCheckpoint(ctx context.Context, in *CreateCheckpointRequest, opts ...grpc.CallOption) (*longrunningpb.Operation, error) {
+func (c *checkpointServiceClient) CreateCheckpoint(ctx context.Context, in *CreateCheckpointRequest, opts ...grpc.CallOption) (*CreateCheckpointResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(longrunningpb.Operation)
+	out := new(CreateCheckpointResponse)
 	err := c.cc.Invoke(ctx, CheckpointService_CreateCheckpoint_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -90,9 +85,9 @@ func (c *checkpointServiceClient) DeleteCheckpoint(ctx context.Context, in *Dele
 	return out, nil
 }
 
-func (c *checkpointServiceClient) ForkAgentInstance(ctx context.Context, in *ForkAgentInstanceRequest, opts ...grpc.CallOption) (*longrunningpb.Operation, error) {
+func (c *checkpointServiceClient) ForkAgentInstance(ctx context.Context, in *ForkAgentInstanceRequest, opts ...grpc.CallOption) (*ForkAgentInstanceResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(longrunningpb.Operation)
+	out := new(ForkAgentInstanceResponse)
 	err := c.cc.Invoke(ctx, CheckpointService_ForkAgentInstance_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -104,15 +99,11 @@ func (c *checkpointServiceClient) ForkAgentInstance(ctx context.Context, in *For
 // All implementations must embed UnimplementedCheckpointServiceServer
 // for forward compatibility.
 type CheckpointServiceServer interface {
-	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Standard long-running operations share the Operation response type.
-	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Standard long-running operations return google.longrunning.Operation.
-	CreateCheckpoint(context.Context, *CreateCheckpointRequest) (*longrunningpb.Operation, error)
+	CreateCheckpoint(context.Context, *CreateCheckpointRequest) (*CreateCheckpointResponse, error)
 	GetCheckpoint(context.Context, *GetCheckpointRequest) (*GetCheckpointResponse, error)
 	ListCheckpoints(context.Context, *ListCheckpointsRequest) (*ListCheckpointsResponse, error)
 	DeleteCheckpoint(context.Context, *DeleteCheckpointRequest) (*DeleteCheckpointResponse, error)
-	// buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE Standard long-running operations share the Operation response type.
-	// buf:lint:ignore RPC_RESPONSE_STANDARD_NAME Standard long-running operations return google.longrunning.Operation.
-	ForkAgentInstance(context.Context, *ForkAgentInstanceRequest) (*longrunningpb.Operation, error)
+	ForkAgentInstance(context.Context, *ForkAgentInstanceRequest) (*ForkAgentInstanceResponse, error)
 	mustEmbedUnimplementedCheckpointServiceServer()
 }
 
@@ -123,7 +114,7 @@ type CheckpointServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedCheckpointServiceServer struct{}
 
-func (UnimplementedCheckpointServiceServer) CreateCheckpoint(context.Context, *CreateCheckpointRequest) (*longrunningpb.Operation, error) {
+func (UnimplementedCheckpointServiceServer) CreateCheckpoint(context.Context, *CreateCheckpointRequest) (*CreateCheckpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateCheckpoint not implemented")
 }
 func (UnimplementedCheckpointServiceServer) GetCheckpoint(context.Context, *GetCheckpointRequest) (*GetCheckpointResponse, error) {
@@ -135,7 +126,7 @@ func (UnimplementedCheckpointServiceServer) ListCheckpoints(context.Context, *Li
 func (UnimplementedCheckpointServiceServer) DeleteCheckpoint(context.Context, *DeleteCheckpointRequest) (*DeleteCheckpointResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method DeleteCheckpoint not implemented")
 }
-func (UnimplementedCheckpointServiceServer) ForkAgentInstance(context.Context, *ForkAgentInstanceRequest) (*longrunningpb.Operation, error) {
+func (UnimplementedCheckpointServiceServer) ForkAgentInstance(context.Context, *ForkAgentInstanceRequest) (*ForkAgentInstanceResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ForkAgentInstance not implemented")
 }
 func (UnimplementedCheckpointServiceServer) mustEmbedUnimplementedCheckpointServiceServer() {}
