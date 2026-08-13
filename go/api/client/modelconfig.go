@@ -2,9 +2,11 @@ package client
 
 import (
 	"context"
-	"fmt"
 
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ModelConfigInterface defines the model configuration operations
@@ -28,69 +30,129 @@ func NewModelConfigClient(client *BaseClient) ModelConfigInterface {
 
 // ListModelConfigs lists all model configurations
 func (c *ModelConfigClient) ListModelConfigs(ctx context.Context) (*api.StandardResponse[[]api.ModelConfigResource], error) {
-	resp, err := c.client.Get(ctx, "/api/modelconfigs", "")
+	client, err := c.client.modelServiceClient()
+	if err != nil {
+		return nil, err
+	}
+	callContext, cancel := c.client.grpcCallContext(ctx)
+	defer cancel()
+	response, err := client.ListModelConfigs(callContext, &apiv1alpha1.ListModelConfigsRequest{})
 	if err != nil {
 		return nil, err
 	}
 
-	var response api.StandardResponse[[]api.ModelConfigResource]
-	if err := DecodeResponse(resp, &response); err != nil {
-		return nil, err
+	modelConfigs := make([]api.ModelConfigResource, 0, len(response.GetModelConfigs()))
+	for _, modelConfig := range response.GetModelConfigs() {
+		resource, err := c.client.decodeModelConfig(modelConfig)
+		if err != nil {
+			return nil, err
+		}
+		modelConfigs = append(modelConfigs, *resource)
 	}
-
-	return &response, nil
+	result := api.NewResponse(modelConfigs, "Successfully listed ModelConfigs", false)
+	return &result, nil
 }
 
 // GetModelConfig retrieves a specific model configuration
 func (c *ModelConfigClient) GetModelConfig(ctx context.Context, namespace, name string) (*api.StandardResponse[*api.ModelConfigResource], error) {
-	path := fmt.Sprintf("/api/modelconfigs/%s/%s", namespace, name)
-	resp, err := c.client.Get(ctx, path, "")
+	client, err := c.client.modelServiceClient()
 	if err != nil {
 		return nil, err
 	}
-
-	var config api.StandardResponse[*api.ModelConfigResource]
-	if err := DecodeResponse(resp, &config); err != nil {
+	callContext, cancel := c.client.grpcCallContext(ctx)
+	defer cancel()
+	response, err := client.GetModelConfig(callContext, &apiv1alpha1.GetModelConfigRequest{
+		Ref: namespacedModelConfigRef(namespace, name),
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	return &config, nil
+	resource, err := c.client.decodeModelConfig(response.GetModelConfig())
+	if err != nil {
+		return nil, err
+	}
+	result := api.NewResponse(resource, "Successfully retrieved ModelConfig", false)
+	return &result, nil
 }
 
 // CreateModelConfig creates a new model configuration
 func (c *ModelConfigClient) CreateModelConfig(ctx context.Context, request *api.CreateModelConfigRequest) (*api.StandardResponse[*api.ModelConfigResource], error) {
-	resp, err := c.client.Post(ctx, "/api/modelconfigs", request, "")
+	if request == nil {
+		return nil, status.Error(codes.InvalidArgument, "ModelConfig request is required")
+	}
+	ref, err := createModelConfigRef(request.Ref)
 	if err != nil {
 		return nil, err
 	}
-
-	var config api.StandardResponse[*api.ModelConfigResource]
-	if err := DecodeResponse(resp, &config); err != nil {
+	resource, err := c.client.encodeModelConfig(request.Spec)
+	if err != nil {
 		return nil, err
 	}
-
-	return &config, nil
+	client, err := c.client.modelServiceClient()
+	if err != nil {
+		return nil, err
+	}
+	callContext, cancel := c.client.grpcCallContext(ctx)
+	defer cancel()
+	response, err := client.CreateModelConfig(callContext, &apiv1alpha1.CreateModelConfigRequest{
+		Ref:      ref,
+		Resource: resource,
+		ApiKey:   request.APIKey,
+		Secrets:  modelConfigSecrets(request.Secrets),
+	})
+	if err != nil {
+		return nil, err
+	}
+	created, err := c.client.decodeModelConfig(response.GetModelConfig())
+	if err != nil {
+		return nil, err
+	}
+	result := api.NewResponse(created, "Successfully created ModelConfig", false)
+	return &result, nil
 }
 
 // UpdateModelConfig updates an existing model configuration
 func (c *ModelConfigClient) UpdateModelConfig(ctx context.Context, namespace, configName string, request *api.UpdateModelConfigRequest) (*api.StandardResponse[*api.ModelConfigResource], error) {
-	path := fmt.Sprintf("/api/modelconfigs/%s/%s", namespace, configName)
-	resp, err := c.client.Put(ctx, path, request, "")
+	if request == nil {
+		return nil, status.Error(codes.InvalidArgument, "ModelConfig request is required")
+	}
+	resource, err := c.client.encodeModelConfig(request.Spec)
 	if err != nil {
 		return nil, err
 	}
-
-	var config api.StandardResponse[*api.ModelConfigResource]
-	if err := DecodeResponse(resp, &config); err != nil {
+	client, err := c.client.modelServiceClient()
+	if err != nil {
 		return nil, err
 	}
-
-	return &config, nil
+	callContext, cancel := c.client.grpcCallContext(ctx)
+	defer cancel()
+	response, err := client.UpdateModelConfig(callContext, &apiv1alpha1.UpdateModelConfigRequest{
+		Ref:      namespacedModelConfigRef(namespace, configName),
+		Resource: resource,
+		ApiKey:   request.APIKey,
+		Secrets:  modelConfigSecrets(request.Secrets),
+	})
+	if err != nil {
+		return nil, err
+	}
+	updated, err := c.client.decodeModelConfig(response.GetModelConfig())
+	if err != nil {
+		return nil, err
+	}
+	result := api.NewResponse(updated, "Successfully updated ModelConfig", false)
+	return &result, nil
 }
 
 // DeleteModelConfig deletes a model configuration
 func (c *ModelConfigClient) DeleteModelConfig(ctx context.Context, namespace, configName string) error {
-	path := fmt.Sprintf("/api/modelconfigs/%s/%s", namespace, configName)
-	_, err := c.client.Delete(ctx, path, "")
+	client, err := c.client.modelServiceClient()
+	if err != nil {
+		return err
+	}
+	callContext, cancel := c.client.grpcCallContext(ctx)
+	defer cancel()
+	_, err = client.DeleteModelConfig(callContext, &apiv1alpha1.DeleteModelConfigRequest{
+		Ref: namespacedModelConfigRef(namespace, configName),
+	})
 	return err
 }

@@ -6,7 +6,7 @@
 {{- end }}
 {{- $model := index .Values.providers $defaultProvider }}
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: {{ include "kagent.defaultModelConfigName" $dot | quote }}

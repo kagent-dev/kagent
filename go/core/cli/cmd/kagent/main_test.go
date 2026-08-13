@@ -24,6 +24,10 @@ func TestLoadConfigReadsConfigFileValues(t *testing.T) {
 	require.NoError(t, os.MkdirAll(configDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(`
 kagent_url: http://kagent.example.test
+kagent_grpc_url: grpc.kagent.example.test:443
+kagent_grpc_tls: true
+kagent_grpc_ca_file: /tmp/kagent-ca.pem
+kagent_grpc_server_name: grpc.kagent.example.test
 namespace: configured-ns
 output_format: json
 verbose: true
@@ -34,6 +38,10 @@ timeout: 45s
 	require.NoError(t, err)
 
 	assert.Equal(t, "http://kagent.example.test", cfg.KAgentURL)
+	assert.Equal(t, "grpc.kagent.example.test:443", cfg.KAgentGRPCURL)
+	assert.True(t, cfg.KAgentGRPCTLS)
+	assert.Equal(t, "/tmp/kagent-ca.pem", cfg.KAgentGRPCCAFile)
+	assert.Equal(t, "grpc.kagent.example.test", cfg.KAgentGRPCServerName)
 	assert.Equal(t, "configured-ns", cfg.Namespace)
 	assert.Equal(t, "json", cfg.OutputFormat)
 	assert.True(t, cfg.Verbose)
@@ -42,16 +50,24 @@ timeout: 45s
 
 func TestRootCommandUsesConfigValuesAsFlagDefaults(t *testing.T) {
 	cfg := &config.Config{
-		KAgentURL:    "http://kagent.example.test",
-		Namespace:    "configured-ns",
-		OutputFormat: "json",
-		Verbose:      true,
-		Timeout:      45 * time.Second,
+		KAgentURL:            "http://kagent.example.test",
+		KAgentGRPCURL:        "grpc.kagent.example.test:443",
+		KAgentGRPCTLS:        true,
+		KAgentGRPCCAFile:     "/tmp/kagent-ca.pem",
+		KAgentGRPCServerName: "grpc.kagent.example.test",
+		Namespace:            "configured-ns",
+		OutputFormat:         "json",
+		Verbose:              true,
+		Timeout:              45 * time.Second,
 	}
 
 	rootCmd := newRootCommand(context.Background(), cfg)
 
 	assert.Equal(t, "http://kagent.example.test", rootCmd.PersistentFlags().Lookup("kagent-url").DefValue)
+	assert.Equal(t, "grpc.kagent.example.test:443", rootCmd.PersistentFlags().Lookup("kagent-grpc-url").DefValue)
+	assert.Equal(t, "true", rootCmd.PersistentFlags().Lookup("kagent-grpc-tls").DefValue)
+	assert.Equal(t, "/tmp/kagent-ca.pem", rootCmd.PersistentFlags().Lookup("kagent-grpc-ca-file").DefValue)
+	assert.Equal(t, "grpc.kagent.example.test", rootCmd.PersistentFlags().Lookup("kagent-grpc-server-name").DefValue)
 	assert.Equal(t, "configured-ns", rootCmd.PersistentFlags().Lookup("namespace").DefValue)
 	assert.Equal(t, "json", rootCmd.PersistentFlags().Lookup("output-format").DefValue)
 	assert.Equal(t, "true", rootCmd.PersistentFlags().Lookup("verbose").DefValue)
@@ -67,16 +83,21 @@ func TestRootCommandUsesConfigValuesAsFlagDefaults(t *testing.T) {
 
 func TestRootCommandFlagsOverrideConfigValues(t *testing.T) {
 	cfg := &config.Config{
-		KAgentURL:    "http://kagent.example.test",
-		Namespace:    "configured-ns",
-		OutputFormat: "json",
-		Verbose:      false,
-		Timeout:      45 * time.Second,
+		KAgentURL:     "http://kagent.example.test",
+		KAgentGRPCURL: "grpc.kagent.example.test:443",
+		Namespace:     "configured-ns",
+		OutputFormat:  "json",
+		Verbose:       false,
+		Timeout:       45 * time.Second,
 	}
 
 	rootCmd := newRootCommand(context.Background(), cfg)
 	require.NoError(t, rootCmd.ParseFlags([]string{
 		"--kagent-url", "http://flag.example.test",
+		"--kagent-grpc-url", "grpc.flag.example.test:8443",
+		"--kagent-grpc-tls",
+		"--kagent-grpc-ca-file", "/tmp/flag-ca.pem",
+		"--kagent-grpc-server-name", "grpc.flag.example.test",
 		"--namespace", "flag-ns",
 		"--output-format", "yaml",
 		"--verbose",
@@ -84,6 +105,10 @@ func TestRootCommandFlagsOverrideConfigValues(t *testing.T) {
 	}))
 
 	assert.Equal(t, "http://flag.example.test", cfg.KAgentURL)
+	assert.Equal(t, "grpc.flag.example.test:8443", cfg.KAgentGRPCURL)
+	assert.True(t, cfg.KAgentGRPCTLS)
+	assert.Equal(t, "/tmp/flag-ca.pem", cfg.KAgentGRPCCAFile)
+	assert.Equal(t, "grpc.flag.example.test", cfg.KAgentGRPCServerName)
 	assert.Equal(t, "flag-ns", cfg.Namespace)
 	assert.Equal(t, "yaml", cfg.OutputFormat)
 	assert.True(t, cfg.Verbose)

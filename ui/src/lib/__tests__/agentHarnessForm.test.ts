@@ -86,7 +86,7 @@ describe("agentHarnessForm build", () => {
       });
       expect("error" in draft).toBe(false);
       if ("error" in draft) return;
-      expect(draft.apiVersion).toBe("kagent.dev/v1alpha2");
+      expect(draft.apiVersion).toBe("kagent.dev/v1alpha3");
       expect(draft.kind).toBe("AgentHarness");
       expect(draft.spec.backend).toBe("openclaw");
     });

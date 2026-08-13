@@ -5,13 +5,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPServer, error) {
+func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha3.RemoteMCPServer, error) {
 	// Check wellknown annotations
 	port := int64(0)
 	protocol := string(MCPServiceProtocolDefault)
@@ -25,9 +25,9 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 			}
 		}
 		if protocolStr, ok := svc.Annotations[MCPServiceProtocolAnnotation]; ok {
-			if protocolStr != string(v1alpha2.RemoteMCPServerProtocolSse) && protocolStr != string(v1alpha2.RemoteMCPServerProtocolStreamableHttp) {
+			if protocolStr != string(v1alpha3.RemoteMCPServerProtocolSse) && protocolStr != string(v1alpha3.RemoteMCPServerProtocolStreamableHttp) {
 				// default to streamable http
-				protocol = string(v1alpha2.RemoteMCPServerProtocolStreamableHttp)
+				protocol = string(v1alpha3.RemoteMCPServerProtocolStreamableHttp)
 			} else {
 				protocol = protocolStr
 			}
@@ -52,31 +52,31 @@ func ConvertServiceToRemoteMCPServer(svc *corev1.Service) (*v1alpha2.RemoteMCPSe
 	if port == 0 {
 		return nil, NewValidationError("no port found for service %s with protocol %s", svc.Name, protocol)
 	}
-	return &v1alpha2.RemoteMCPServer{
+	return &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      svc.Name,
 			Namespace: svc.Namespace,
 		},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL:      fmt.Sprintf("http://%s.%s:%d%s", svc.Name, svc.Namespace, port, path),
-			Protocol: v1alpha2.RemoteMCPServerProtocol(protocol),
+			Protocol: v1alpha3.RemoteMCPServerProtocol(protocol),
 		},
 	}, nil
 }
 
-func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha2.RemoteMCPServer, error) {
+func ConvertMCPServerToRemoteMCPServer(mcpServer *v1alpha1.MCPServer) (*v1alpha3.RemoteMCPServer, error) {
 	if mcpServer.Spec.Deployment.Port == 0 {
 		return nil, NewValidationError("cannot determine port for MCP server %s", mcpServer.Name)
 	}
 
-	remoteMCP := &v1alpha2.RemoteMCPServer{
+	remoteMCP := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mcpServer.Name,
 			Namespace: mcpServer.Namespace,
 		},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			URL:      fmt.Sprintf("http://%s.%s:%d/mcp", mcpServer.Name, mcpServer.Namespace, mcpServer.Spec.Deployment.Port),
-			Protocol: v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			Protocol: v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 		},
 	}
 

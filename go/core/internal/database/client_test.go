@@ -10,7 +10,7 @@ import (
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,7 +123,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 		go func(goroutineID int) {
 			defer wg.Done()
 			// Each goroutine refreshes with a different set of tools
-			tools := []*v1alpha2.MCPTool{
+			tools := []*v1alpha3.MCPTool{
 				{Name: fmt.Sprintf("tool-a-%d", goroutineID), Description: "Tool A"},
 				{Name: fmt.Sprintf("tool-b-%d", goroutineID), Description: "Tool B"},
 			}
@@ -618,7 +618,8 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 		TRUNCATE TABLE
 			agent, session, event, task, push_notification, feedback,
 			tool, toolserver, lg_checkpoint, lg_checkpoint_write,
-			crewai_agent_memory, crewai_flow_state, memory
+			crewai_agent_memory, crewai_flow_state, memory,
+			session_share, session_share_access
 		RESTART IDENTITY CASCADE
 	`)
 	require.NoError(t, err, "Failed to truncate test tables")
@@ -947,6 +948,120 @@ func TestPruneExpiredMemories(t *testing.T) {
 	assert.NotContains(t, ids, coldMem.ID, "Expired unpopular memory should be pruned")
 	assert.Contains(t, ids, hotMem.ID, "Expired popular memory should have TTL extended and be retained")
 	assert.Contains(t, ids, liveMem.ID, "Non-expired memory should be retained")
+}
+
+func countRows(t *testing.T, db *pgxpool.Pool, query string, args ...any) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, db.QueryRow(context.Background(), query, args...).Scan(&n))
+	return n
+}
+
+func ageSession(t *testing.T, db *pgxpool.Pool, sessionID, userID string, updatedAt time.Time) {
+	t.Helper()
+	_, err := db.Exec(context.Background(),
+		`UPDATE session SET updated_at = $1 WHERE id = $2 AND user_id = $3`,
+		updatedAt, sessionID, userID)
+	require.NoError(t, err)
+}
+
+// TestPruneExpiredSessions verifies sliding-window hard-delete of idle sessions
+// and cascaded conversation state.
+func TestPruneExpiredSessions(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	const (
+		userID     = "prune-sess-user"
+		oldSessID  = "old-session"
+		liveSessID = "live-session"
+		softSessID = "soft-deleted-session"
+	)
+
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: oldSessID, UserID: userID, Name: new("old")}))
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: liveSessID, UserID: userID, Name: new("live")}))
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: softSessID, UserID: userID, Name: new("soft")}))
+
+	require.NoError(t, client.StoreEvents(ctx, &dbpkg.Event{
+		ID: "ev-old", UserID: userID, SessionID: oldSessID, Data: `{"role":"user"}`,
+	}))
+	require.NoError(t, client.StoreEvents(ctx, &dbpkg.Event{
+		ID: "ev-live", UserID: userID, SessionID: liveSessID, Data: `{"role":"user"}`,
+	}))
+
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "task-old", ContextID: oldSessID}, userID))
+	require.NoError(t, client.StoreTask(ctx, &a2a.Task{ID: "task-live", ContextID: liveSessID}, userID))
+
+	_, err := db.Exec(ctx, `
+		INSERT INTO push_notification (id, task_id, data, created_at, updated_at)
+		VALUES ('push-old', 'task-old', '{}', NOW(), NOW()),
+		       ('push-live', 'task-live', '{}', NOW(), NOW())`)
+	require.NoError(t, err)
+
+	require.NoError(t, client.StoreCheckpoint(ctx, &dbpkg.LangGraphCheckpoint{
+		UserID: userID, ThreadID: oldSessID, CheckpointNS: "", CheckpointID: "cp-old",
+		Metadata: "{}", Checkpoint: "{}", CheckpointType: "json", Version: 1,
+	}))
+	require.NoError(t, client.StoreCheckpointWrites(ctx, []*dbpkg.LangGraphCheckpointWrite{{
+		UserID: userID, ThreadID: oldSessID, CheckpointNS: "", CheckpointID: "cp-old",
+		WriteIdx: 0, Value: "{}", ValueType: "json", Channel: "ch", TaskID: "t",
+	}}))
+	require.NoError(t, client.StoreCheckpoint(ctx, &dbpkg.LangGraphCheckpoint{
+		UserID: userID, ThreadID: liveSessID, CheckpointNS: "", CheckpointID: "cp-live",
+		Metadata: "{}", Checkpoint: "{}", CheckpointType: "json", Version: 1,
+	}))
+
+	require.NoError(t, client.StoreCrewAIMemory(ctx, &dbpkg.CrewAIAgentMemory{
+		UserID: userID, ThreadID: oldSessID, MemoryData: `{"task_description":"old"}`,
+	}))
+	require.NoError(t, client.StoreCrewAIFlowState(ctx, &dbpkg.CrewAIFlowState{
+		UserID: userID, ThreadID: oldSessID, MethodName: "start", StateData: `{}`,
+	}))
+
+	_, err = client.CreateSessionShare(ctx, &dbpkg.SessionShare{
+		Token: "share-old", SessionID: oldSessID, UserID: userID, ReadOnly: true,
+	})
+	require.NoError(t, err)
+
+	// Soft-delete one aged session — prune should still hard-delete it.
+	require.NoError(t, client.DeleteSession(ctx, softSessID, userID))
+
+	stale := time.Now().Add(-48 * time.Hour)
+	ageSession(t, db, oldSessID, userID, stale)
+	ageSession(t, db, softSessID, userID, stale)
+	// live session keeps a fresh updated_at from StoreEvents/StoreTask above
+
+	// retentionDays == 0 is a no-op
+	deleted, err := client.PruneExpiredSessions(ctx, 0)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), deleted)
+	assert.Equal(t, int64(1), countRows(t, db, `SELECT COUNT(*) FROM session WHERE id = $1`, oldSessID))
+
+	deleted, err = client.PruneExpiredSessions(ctx, 1)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), deleted, "old + soft-deleted sessions should be pruned")
+
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM session WHERE id = $1`, oldSessID))
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM session WHERE id = $1`, softSessID))
+	assert.Equal(t, int64(1), countRows(t, db, `SELECT COUNT(*) FROM session WHERE id = $1`, liveSessID))
+
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM event WHERE session_id = $1`, oldSessID))
+	assert.Equal(t, int64(1), countRows(t, db, `SELECT COUNT(*) FROM event WHERE session_id = $1`, liveSessID))
+
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM task WHERE id = $1`, "task-old"))
+	assert.Equal(t, int64(1), countRows(t, db, `SELECT COUNT(*) FROM task WHERE id = $1`, "task-live"))
+
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM push_notification WHERE id = $1`, "push-old"))
+	assert.Equal(t, int64(1), countRows(t, db, `SELECT COUNT(*) FROM push_notification WHERE id = $1`, "push-live"))
+
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM lg_checkpoint WHERE thread_id = $1`, oldSessID))
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM lg_checkpoint_write WHERE thread_id = $1`, oldSessID))
+	assert.Equal(t, int64(1), countRows(t, db, `SELECT COUNT(*) FROM lg_checkpoint WHERE thread_id = $1`, liveSessID))
+
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM crewai_agent_memory WHERE thread_id = $1`, oldSessID))
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM crewai_flow_state WHERE thread_id = $1`, oldSessID))
+	assert.Equal(t, int64(0), countRows(t, db, `SELECT COUNT(*) FROM session_share WHERE session_id = $1`, oldSessID))
 }
 
 // TestSearchAgentMemoryConcurrentAccessCount verifies concurrent searches over

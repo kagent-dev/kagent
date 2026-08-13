@@ -1,5 +1,0 @@
-apiVersion: v2
-name: cilium-policy-agent
-description: A Cilium policy agent for kagent
-type: application
-version: ${VERSION}

@@ -37,7 +37,7 @@ from ._hitl import (
     require_tool_approval_response,
 )
 from ._request_size import A2ARequestSizeLimitMiddleware
-from ._requests import KAgentRequestContextBuilder
+from ._requests import KAgentGrpcServerCallContextBuilder, KAgentRequestContextBuilder
 from ._task_store import KAgentTaskStore
 from ._time import now_timestamp
 
@@ -47,6 +47,7 @@ __all__ = [
     "get_request_user_id",
     "set_request_user_id",
     "KAgentRequestContextBuilder",
+    "KAgentGrpcServerCallContextBuilder",
     "KAgentTaskStore",
     "now_timestamp",
     "get_kagent_metadata_key",

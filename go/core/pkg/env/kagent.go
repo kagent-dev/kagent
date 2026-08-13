@@ -59,6 +59,13 @@ var (
 		ComponentAgentRuntime,
 	)
 
+	KagentGRPCURL = RegisterStringVar(
+		"KAGENT_GRPC_URL",
+		"",
+		"Native gRPC target for kagent controller API calls.",
+		ComponentAgentRuntime,
+	)
+
 	KagentUIURL = RegisterStringVar(
 		"KAGENT_UI_URL",
 		"",
