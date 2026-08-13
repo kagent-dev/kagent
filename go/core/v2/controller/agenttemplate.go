@@ -59,7 +59,7 @@ type runtimeRevisionStore interface {
 	RetireAgentTemplateHarnessPairs(context.Context, string, string) error
 	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
 	RetireOtherAgentTemplateHarnessPairs(context.Context, string, string, []string) error
-	ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevisionRef, error)
+	ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevision, error)
 	DeleteUnreferencedRuntimeRevision(context.Context, string) error
 }
 

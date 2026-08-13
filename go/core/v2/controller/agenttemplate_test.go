@@ -44,7 +44,7 @@ func (*revisionStore) RetireAgentTemplateHarnessPair(context.Context, string, st
 func (*revisionStore) RetireOtherAgentTemplateHarnessPairs(context.Context, string, string, []string) error {
 	return nil
 }
-func (*revisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevisionRef, error) {
+func (*revisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevision, error) {
 	return nil, nil
 }
 func (*revisionStore) DeleteUnreferencedRuntimeRevision(context.Context, string) error { return nil }

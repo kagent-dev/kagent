@@ -267,12 +267,3 @@ type RuntimeRevision struct {
 	Phase                  string
 	GoldenSnapshot         string
 }
-
-type RuntimeRevisionRef struct {
-	Revision               string
-	ActorTemplateNamespace string
-	ActorTemplateName      string
-	ActorTemplateUID       string
-	Phase                  string
-	GoldenSnapshot         string
-}

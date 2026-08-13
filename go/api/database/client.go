@@ -107,6 +107,6 @@ type Client interface {
 	RetireAgentTemplateHarnessPairs(context.Context, string, string) error
 	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
 	RetireOtherAgentTemplateHarnessPairs(context.Context, string, string, []string) error
-	ListUnreferencedRuntimeRevisions(context.Context) ([]RuntimeRevisionRef, error)
+	ListUnreferencedRuntimeRevisions(context.Context) ([]RuntimeRevision, error)
 	DeleteUnreferencedRuntimeRevision(context.Context, string) error
 }

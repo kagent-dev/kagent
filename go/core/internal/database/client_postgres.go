@@ -399,17 +399,20 @@ func (c *postgresClient) RetireOtherAgentTemplateHarnessPairs(ctx context.Contex
 	})
 }
 
-func (c *postgresClient) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]dbpkg.RuntimeRevisionRef, error) {
+func (c *postgresClient) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]dbpkg.RuntimeRevision, error) {
 	rows, err := c.q.ListUnreferencedRuntimeRevisions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list unreferenced runtime revisions: %w", err)
 	}
-	result := make([]dbpkg.RuntimeRevisionRef, 0, len(rows))
+	result := make([]dbpkg.RuntimeRevision, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, dbpkg.RuntimeRevisionRef{
-			Revision: row.Revision, ActorTemplateNamespace: row.ActorTemplateNamespace,
-			ActorTemplateName: row.ActorTemplateName, ActorTemplateUID: row.ActorTemplateUid,
-			Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
+		result = append(result, dbpkg.RuntimeRevision{
+			Revision: row.Revision, Namespace: row.Namespace,
+			AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
+			HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
+			SourceSnapshot: row.SourceSnapshot, EgressDestinations: row.EgressDestinations,
+			ActorTemplateNamespace: row.ActorTemplateNamespace, ActorTemplateName: row.ActorTemplateName,
+			ActorTemplateUID: row.ActorTemplateUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
 		})
 	}
 	return result, nil
