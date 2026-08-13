@@ -23,7 +23,7 @@ func TestActorWorkflowCreatesAndDeletesActor(t *testing.T) {
 		},
 	}
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-	workflow := NewActorWorkflow(store, actors, func(context.Context) error { return nil })
+	workflow := NewActorWorkflow(store, actors)
 
 	created, err := workflow.Create(context.Background(), instance)
 	if err != nil {

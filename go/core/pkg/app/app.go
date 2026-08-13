@@ -573,10 +573,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 			setupLog.Error(runtimeErr, "unable to initialize AgentTemplate preparation")
 			os.Exit(1)
 		}
-		instanceWorkflow := agentinstance.NewActorWorkflow(
-			dbClient, substrateAteClient,
-			preparationReconciler.CleanupUnreferencedRevisions,
-		)
+		instanceWorkflow := agentinstance.NewActorWorkflow(dbClient, substrateAteClient)
 		if runtimeErr := mgr.Add(v2Runtime); runtimeErr != nil {
 			setupLog.Error(runtimeErr, "unable to register v2 KRT runtime")
 			os.Exit(1)

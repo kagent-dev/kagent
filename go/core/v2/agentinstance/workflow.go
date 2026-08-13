@@ -33,13 +33,12 @@ type actorClient interface {
 // create and delete RPCs. It returns only when the requested operation finishes
 // or the RPC context is canceled.
 type ActorWorkflow struct {
-	store   workflowStore
-	actors  actorClient
-	cleanup func(context.Context) error
+	store  workflowStore
+	actors actorClient
 }
 
-func NewActorWorkflow(store workflowStore, actors actorClient, cleanup func(context.Context) error) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors, cleanup: cleanup}
+func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
+	return &ActorWorkflow{store: store, actors: actors}
 }
 
 func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
@@ -103,9 +102,6 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 
 func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
-		if err := w.cleanup(ctx); err != nil {
-			return nil, fmt.Errorf("clean up runtime revisions: %w", err)
-		}
 		return instance, nil
 	}
 	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
@@ -153,9 +149,7 @@ func (w *ActorWorkflow) finishDelete(ctx context.Context, instance *apiv1alpha1.
 	if err != nil {
 		return nil, fmt.Errorf("mark AgentInstance deleted: %w", err)
 	}
-	if err := w.cleanup(ctx); err != nil {
-		return nil, fmt.Errorf("clean up runtime revisions: %w", err)
-	}
+	// TODO: Trigger runtime revision garbage collection outside the AgentInstance delete workflow.
 	return instance, nil
 }
 
