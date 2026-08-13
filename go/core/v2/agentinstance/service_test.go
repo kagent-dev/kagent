@@ -57,10 +57,6 @@ func (s *serviceTestStore) ListAgentInstances(_ context.Context, _ string, userI
 	return s.instances, nil
 }
 
-func (*serviceTestStore) MarkAgentInstanceDeleting(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error) {
-	return nil, nil
-}
-
 func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
 	s.share = share
 	return &s.share, nil

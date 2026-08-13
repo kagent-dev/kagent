@@ -26,7 +26,6 @@ type Store interface {
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
-	MarkAgentInstanceDeleting(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string) ([]dbpkg.AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
@@ -156,12 +155,12 @@ func (s *Service) Delete(ctx context.Context, namespace, id string) (*apiv1alpha
 	if err != nil {
 		return nil, err
 	}
-	instance, err := s.store.MarkAgentInstanceDeleting(ctx, namespace, id, creator)
+	instance, err := s.store.GetAgentInstance(ctx, namespace, id, creator)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
 	}
 	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to fence AgentInstance deletion", err)
+		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Delete(ctx, instance)
 	if err != nil {

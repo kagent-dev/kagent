@@ -39,7 +39,6 @@ func TestActorWorkflowCreatesAndDeletesActor(t *testing.T) {
 		t.Fatalf("created Actor status = %s", actor.GetStatus())
 	}
 
-	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETING
 	deleted, err := workflow.Delete(context.Background(), instance)
 	if err != nil {
 		t.Fatal(err)

@@ -108,10 +108,6 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 		}
 		return instance, nil
 	}
-	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETING {
-		return nil, fmt.Errorf("AgentInstance %s is not deleting", instance.GetId())
-	}
-
 	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
 	if err != nil {
 		return nil, fmt.Errorf("load prepared revision: %w", err)

@@ -347,7 +347,7 @@ func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstances
 const markAgentInstanceDeleted = `-- name: MarkAgentInstanceDeleted :one
 UPDATE agent_instance
 SET state = 'DELETED', prepared_revision = NULL, data = $2
-WHERE id = $1 AND state = 'DELETING'
+WHERE id = $1 AND state <> 'DELETED'
 RETURNING id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data
 `
 
@@ -358,42 +358,6 @@ type MarkAgentInstanceDeletedParams struct {
 
 func (q *Queries) MarkAgentInstanceDeleted(ctx context.Context, arg MarkAgentInstanceDeletedParams) (AgentInstance, error) {
 	row := q.db.QueryRow(ctx, markAgentInstanceDeleted, arg.ID, arg.Data)
-	var i AgentInstance
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.UserID,
-		&i.RequestID,
-		&i.PreparedRevision,
-		&i.ActorUid,
-		&i.State,
-		&i.Labels,
-		&i.Data,
-	)
-	return i, err
-}
-
-const markAgentInstanceDeleting = `-- name: MarkAgentInstanceDeleting :one
-UPDATE agent_instance
-SET state = 'DELETING', data = $4
-WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state <> 'DELETED'
-RETURNING id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data
-`
-
-type MarkAgentInstanceDeletingParams struct {
-	Namespace string
-	ID        string
-	UserID    string
-	Data      []byte
-}
-
-func (q *Queries) MarkAgentInstanceDeleting(ctx context.Context, arg MarkAgentInstanceDeletingParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, markAgentInstanceDeleting,
-		arg.Namespace,
-		arg.ID,
-		arg.UserID,
-		arg.Data,
-	)
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,

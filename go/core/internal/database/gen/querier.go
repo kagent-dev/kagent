@@ -82,7 +82,6 @@ type Querier interface {
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
 	MarkAgentInstanceDeleted(ctx context.Context, arg MarkAgentInstanceDeletedParams) (AgentInstance, error)
-	MarkAgentInstanceDeleting(ctx context.Context, arg MarkAgentInstanceDeletingParams) (AgentInstance, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RecordAgentInstanceActorUID(ctx context.Context, arg RecordAgentInstanceActorUIDParams) (string, error)
