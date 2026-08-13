@@ -37,8 +37,8 @@ func newAgentTemplateStatuses(templates krt.Collection[*kagentv1alpha3.AgentTemp
 }
 
 func statusForPair(state PairReconciliation, generation int64, latestSuccessful string) kagentv1alpha3.AgentTemplateHarnessStatus {
-	desired := state.RevisionID
-	if desired == "" {
+	desired := state.RevisionID.String()
+	if state.RevisionID.IsZero() {
 		desired = requestedRevision(state.Pair.AgentTemplate, state.Pair.Harness.Name)
 	}
 	status := kagentv1alpha3.AgentTemplateHarnessStatus{
@@ -61,7 +61,7 @@ func statusForPair(state PairReconciliation, generation int64, latestSuccessful 
 		setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionReady, metav1.ConditionFalse, "ActorTemplatePending", "waiting for the ActorTemplate golden snapshot")
 		return status
 	}
-	status.LatestSuccessfulRevision = state.RevisionID
+	status.LatestSuccessfulRevision = state.RevisionID.String()
 	setPairCondition(&status, generation, kagentv1alpha3.AgentTemplateConditionReady, metav1.ConditionTrue, "Ready", "ActorTemplate golden snapshot is ready")
 	return status
 }

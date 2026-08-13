@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,8 +10,11 @@ import (
 	ateclient "github.com/agent-substrate/substrate/pkg/client/clientset/versioned/typed/api/v1alpha1"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/v2/substrate"
+	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -19,6 +23,99 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 )
+
+// CollectionConfig contains the controller settings that affect compiled
+// desired state. They are inputs to KRT rather than hidden global state.
+type CollectionConfig struct {
+	PauseImage         string
+	MCPEgressPlaintext bool
+}
+
+// PairReconciliation is the complete desired and observed state for one
+// AgentTemplate/Harness pair. Failure is data so invalid pairs still produce
+// status instead of disappearing from the graph.
+type PairReconciliation struct {
+	Pair                  AgentTemplateHarnessPair
+	Revision              *v2translator.Revision
+	RevisionID            v2translator.RevisionID
+	DesiredActorTemplate  *atev1alpha1.ActorTemplate
+	ObservedActorTemplate *atev1alpha1.ActorTemplate
+	Failure               *ReconciliationFailure
+}
+
+func (r PairReconciliation) ResourceName() string { return r.Pair.ResourceName() }
+
+// ReconciliationFailure identifies the condition stage blocked by a pair.
+type ReconciliationFailure struct {
+	Condition string
+	Reason    string
+	Message   string
+}
+
+func newPairReconciliations(
+	pairs krt.Collection[AgentTemplateHarnessPair],
+	modelConfigs krt.Collection[*kagentv1alpha3.ModelConfig],
+	remoteMCPServers krt.Collection[*kagentv1alpha3.RemoteMCPServer],
+	configMaps krt.Collection[*corev1.ConfigMap],
+	secrets krt.Collection[*corev1.Secret],
+	workerPools krt.Collection[*atev1alpha1.WorkerPool],
+	actorTemplates krt.Collection[*atev1alpha1.ActorTemplate],
+	config CollectionConfig,
+	opts krt.OptionsBuilder,
+) krt.Collection[PairReconciliation] {
+	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
+		state := &PairReconciliation{Pair: pair}
+		reader := collectionReader{
+			ctx: ctx, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
+			configMaps: configMaps, secrets: secrets, workerPools: workerPools,
+		}
+		revision, err := v2translator.NewCompiler(reader, config.MCPEgressPlaintext).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
+		if err != nil {
+			condition, reason := kagentv1alpha3.AgentTemplateConditionResolvedRefs, "ReferenceResolutionFailed"
+			var validation *v2translator.ValidationError
+			if errors.As(err, &validation) {
+				condition, reason = kagentv1alpha3.AgentTemplateConditionCompatible, "UnsupportedConfiguration"
+			}
+			state.Failure = &ReconciliationFailure{Condition: condition, Reason: reason, Message: err.Error()}
+			return state
+		}
+		state.Revision = revision
+		state.RevisionID, err = revision.Digest()
+		if err != nil {
+			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionCompatible, Reason: "RevisionInvalid", Message: err.Error()}
+			return state
+		}
+
+		workerPool := &atev1alpha1.WorkerPool{}
+		workerKey := types.NamespacedName{Namespace: revision.Namespace, Name: revision.WorkerPoolName}
+		if err := reader.Get(context.Background(), workerKey, workerPool); err != nil {
+			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionResolvedRefs, Reason: "WorkerPoolNotFound", Message: err.Error()}
+			return state
+		}
+		state.DesiredActorTemplate, err = substrate.ActorTemplateForRevision(revision, state.RevisionID, config.PauseImage)
+		if err != nil {
+			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
+			return state
+		}
+
+		observed := krt.FetchOne(ctx, actorTemplates, krt.FilterObjectName(types.NamespacedName{
+			Namespace: state.DesiredActorTemplate.Namespace,
+			Name:      state.DesiredActorTemplate.Name,
+		}))
+		if observed == nil {
+			return state
+		}
+		state.ObservedActorTemplate = (*observed).DeepCopy()
+		if !apiequality.Semantic.DeepEqual(state.ObservedActorTemplate.Spec, state.DesiredActorTemplate.Spec) {
+			state.Failure = &ReconciliationFailure{
+				Condition: kagentv1alpha3.AgentTemplateConditionReady,
+				Reason:    "ActorTemplateConflict",
+				Message:   "existing immutable ActorTemplate differs from the compiled revision",
+			}
+		}
+		return state
+	}, opts.WithName("PairReconciliations")...)
+}
 
 // runtimeRevisionStore is the controller's narrow view of the shared database.
 // Kubernetes owns ActorTemplates; the database retains revisions while a pair
@@ -121,14 +218,14 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	if err := r.store.RetireAgentTemplateHarnessPair(ctx, state.Pair.AgentTemplate.Namespace, state.Pair.AgentTemplate.Name, state.Pair.Harness.Name); err != nil {
 		return fmt.Errorf("retire replaced AgentTemplate/Harness pair %s: %w", key, err)
 	}
-	if state.Revision == nil || state.RevisionID == "" {
+	if state.Revision == nil || state.RevisionID.IsZero() {
 		return r.cleanupUnreferencedRevisions(ctx)
 	}
 
 	pair := dbpkg.AgentTemplateHarnessPair{
 		Namespace: state.Pair.AgentTemplate.Namespace, AgentTemplateName: state.Pair.AgentTemplate.Name,
 		AgentTemplateUID: string(state.Pair.AgentTemplate.UID), HarnessName: state.Pair.Harness.Name,
-		HarnessUID: string(state.Pair.Harness.UID), DesiredRevision: state.RevisionID,
+		HarnessUID: string(state.Pair.Harness.UID), DesiredRevision: state.RevisionID.String(),
 	}
 	// Store the desired edge before creating compute so a concurrent collector
 	// cannot mistake the revision for abandoned state.
@@ -148,7 +245,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 
 	observed := state.ObservedActorTemplate
 	revision := dbpkg.RuntimeRevision{
-		Revision: state.RevisionID, Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
+		Revision: state.RevisionID.String(), Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
 		AgentTemplateUID: pair.AgentTemplateUID, HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID,
 		SourceSnapshot: state.Revision.SourceSnapshot, EgressDestinations: state.Revision.EgressDestinations,
 		ActorTemplateNamespace: observed.Namespace, ActorTemplateName: observed.Name, ActorTemplateUID: string(observed.UID),

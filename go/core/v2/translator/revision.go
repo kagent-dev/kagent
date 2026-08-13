@@ -9,6 +9,21 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+const shortRevisionBytes = 6
+
+// RevisionID is the SHA-256 identity of a compiled runtime revision. Keeping
+// the digest as a fixed-size value makes invalid lengths unrepresentable.
+type RevisionID [sha256.Size]byte
+
+// String returns the full database identity.
+func (id RevisionID) String() string { return hex.EncodeToString(id[:]) }
+
+// Short returns the readable prefix used in Kubernetes names and labels.
+func (id RevisionID) Short() string { return hex.EncodeToString(id[:shortRevisionBytes]) }
+
+// IsZero reports whether compilation has not produced an identity.
+func (id RevisionID) IsZero() bool { return id == RevisionID{} }
+
 // Revision is the resolved runtime configuration for one immutable revision.
 type Revision struct {
 	// These fields identify the public attachment that produced the revision.
@@ -40,10 +55,7 @@ type Revision struct {
 // Digest returns the immutable identity of every input that affects runtime
 // behavior. The full digest is the database key; Kubernetes names use a short
 // prefix only for readability.
-func (r *Revision) Digest() (string, error) {
-	if r == nil {
-		return "", fmt.Errorf("runtime revision is required")
-	}
+func (r *Revision) Digest() (RevisionID, error) {
 	raw, err := json.Marshal(struct {
 		Namespace          string          `json:"namespace"`
 		AgentTemplateName  string          `json:"agentTemplateName"`
@@ -64,8 +76,7 @@ func (r *Revision) Digest() (string, error) {
 		SecretHashes: hex.EncodeToString(r.SecretHashes), EgressDestinations: r.EgressDestinations,
 	})
 	if err != nil {
-		return "", fmt.Errorf("marshal runtime revision inputs: %w", err)
+		return RevisionID{}, fmt.Errorf("marshal runtime revision inputs: %w", err)
 	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:]), nil
+	return RevisionID(sha256.Sum256(raw)), nil
 }

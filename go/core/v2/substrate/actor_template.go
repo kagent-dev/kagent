@@ -29,9 +29,9 @@ const (
 // ActorTemplateForRevision constructs the immutable Kubernetes object for a
 // compiled revision. It performs no reads or writes, which makes it safe to use
 // inside a KRT transformation.
-func ActorTemplateForRevision(spec *translator.Revision, revisionID, pauseImage string) (*atev1alpha1.ActorTemplate, error) {
-	if len(revisionID) < 12 {
-		return nil, fmt.Errorf("runtime revision is invalid")
+func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID, pauseImage string) (*atev1alpha1.ActorTemplate, error) {
+	if revisionID.IsZero() {
+		return nil, fmt.Errorf("runtime revision ID is required")
 	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
 	name := revisionActorTemplateName(spec.AgentTemplateName, spec.HarnessName, revisionID)
@@ -56,7 +56,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID, pauseImage 
 				"app.kubernetes.io/managed-by": "kagent",
 				RevisionAgentTemplateLabel:     spec.AgentTemplateName,
 				RevisionHarnessLabel:           spec.HarnessName,
-				RevisionLabel:                  revisionID[:12],
+				RevisionLabel:                  revisionID.Short(),
 			},
 		},
 		Spec: atev1alpha1.ActorTemplateSpec{
@@ -88,12 +88,12 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID, pauseImage 
 	return template, nil
 }
 
-func revisionActorTemplateName(agentTemplate, harness, revision string) string {
+func revisionActorTemplateName(agentTemplate, harness string, revision translator.RevisionID) string {
 	// Twelve digest characters keep names readable while the full digest remains
 	// the database identity and immutable-content check.
 	base := truncateDNS1123(agentTemplate + "-" + harness)
 	base = truncateDNS1123To(base, 50)
-	return base + "-" + revision[:12]
+	return base + "-" + revision.Short()
 }
 
 func workerSelectorForPool(pool types.NamespacedName) *metav1.LabelSelector {

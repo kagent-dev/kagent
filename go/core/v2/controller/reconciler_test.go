@@ -20,9 +20,14 @@ func TestReconcilerPersistsPairInOrder(t *testing.T) {
 	template := &kagentv1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid"}}
 	harness := &kagentv1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "kagent", UID: "harness-uid"}}
 	desiredActor := &atev1alpha1.ActorTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant-kagent-revision"}}
+	revision := &v2translator.Revision{}
+	revisionID, err := revision.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
 	state := PairReconciliation{
 		Pair:     AgentTemplateHarnessPair{AgentTemplate: template, Harness: harness},
-		Revision: &v2translator.Revision{}, RevisionID: "revision", DesiredActorTemplate: desiredActor,
+		Revision: revision, RevisionID: revisionID, DesiredActorTemplate: desiredActor,
 	}
 	reconciliations := krt.NewStaticCollection(nil, []PairReconciliation{state}, opts.WithName("Reconciliations")...)
 	status := kagentv1alpha3.AgentTemplateStatus{ObservedGeneration: 1, Harnesses: []kagentv1alpha3.AgentTemplateHarnessStatus{{

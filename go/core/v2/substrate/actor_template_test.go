@@ -18,12 +18,15 @@ func TestActorTemplateForRevision(t *testing.T) {
 			LocalObjectReference: corev1.LocalObjectReference{Name: "credentials"}, Key: "key",
 		}}}},
 	}
-	revision := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	template, err := ActorTemplateForRevision(spec, revision, "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	revisionID, err := spec.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if template.Name != "helper-kagent-0123456789ab" {
+	template, err := ActorTemplateForRevision(spec, revisionID, "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if template.Name != "helper-kagent-"+revisionID.Short() {
 		t.Fatalf("ActorTemplate = %+v", template)
 	}
 	container := template.Spec.Containers[0]

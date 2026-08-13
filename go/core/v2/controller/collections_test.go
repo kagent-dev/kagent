@@ -74,7 +74,12 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 		ActorTemplates:   krt.NewStaticCollection[*atev1alpha1.ActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
 	}
 	collections.Pairs = newPairCollection(collections.AgentTemplates, collections.Harnesses, opts)
-	newReconciliationCollections(&collections, CollectionConfig{PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, opts)
+	collections.Reconciliations = newPairReconciliations(
+		collections.Pairs, collections.ModelConfigs, collections.RemoteMCPServers,
+		collections.ConfigMaps, collections.Secrets, collections.WorkerPools, collections.ActorTemplates,
+		CollectionConfig{PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, opts,
+	)
+	collections.AgentTemplateStatuses = newAgentTemplateStatuses(collections.AgentTemplates, collections.Reconciliations, opts)
 
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
@@ -105,7 +110,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 			return false
 		}
 		ready := apimeta.FindStatusCondition(updates[0].Status.Harnesses[0].Conditions, kagentv1alpha3.AgentTemplateConditionReady)
-		return ready != nil && ready.Status == metav1.ConditionTrue && updates[0].Status.Harnesses[0].LatestSuccessfulRevision == state.RevisionID
+		return ready != nil && ready.Status == metav1.ConditionTrue && updates[0].Status.Harnesses[0].LatestSuccessfulRevision == state.RevisionID.String()
 	})
 
 	modelConfigs.UpdateObject(&kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.1"}})

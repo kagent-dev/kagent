@@ -60,20 +60,29 @@ func NewCollections(client kube.Client, watchNamespaces []string, config Collect
 
 	agentTemplates := typedCollection[*kagentv1alpha3.AgentTemplate](client, watchNamespaces, "AgentTemplates", opts)
 	harnesses := typedCollection[*kagentv1alpha3.Harness](client, watchNamespaces, "Harnesses", opts)
+	modelConfigs := typedCollection[*kagentv1alpha3.ModelConfig](client, watchNamespaces, "ModelConfigs", opts)
+	remoteMCPServers := typedCollection[*kagentv1alpha3.RemoteMCPServer](client, watchNamespaces, "RemoteMCPServers", opts)
+	configMaps := typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts)
+	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
+	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
+	actorTemplates := typedCollection[*atev1alpha1.ActorTemplate](client, watchNamespaces, "ActorTemplates", opts)
+	pairs := newPairCollection(agentTemplates, harnesses, opts)
+	reconciliations := newPairReconciliations(pairs, modelConfigs, remoteMCPServers, configMaps, secrets, workerPools, actorTemplates, config, opts)
+	statuses := newAgentTemplateStatuses(agentTemplates, reconciliations, opts)
 
-	collections := Collections{
-		AgentTemplates:   agentTemplates,
-		Harnesses:        harnesses,
-		ModelConfigs:     typedCollection[*kagentv1alpha3.ModelConfig](client, watchNamespaces, "ModelConfigs", opts),
-		RemoteMCPServers: typedCollection[*kagentv1alpha3.RemoteMCPServer](client, watchNamespaces, "RemoteMCPServers", opts),
-		ConfigMaps:       typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts),
-		Secrets:          typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts),
-		WorkerPools:      typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts),
-		ActorTemplates:   typedCollection[*atev1alpha1.ActorTemplate](client, watchNamespaces, "ActorTemplates", opts),
-	}
-	collections.Pairs = newPairCollection(agentTemplates, harnesses, opts)
-	newReconciliationCollections(&collections, config, opts)
-	return collections, nil
+	return Collections{
+		AgentTemplates:        agentTemplates,
+		Harnesses:             harnesses,
+		ModelConfigs:          modelConfigs,
+		RemoteMCPServers:      remoteMCPServers,
+		ConfigMaps:            configMaps,
+		Secrets:               secrets,
+		WorkerPools:           workerPools,
+		ActorTemplates:        actorTemplates,
+		Pairs:                 pairs,
+		Reconciliations:       reconciliations,
+		AgentTemplateStatuses: statuses,
+	}, nil
 }
 
 func typedCollection[T controllers.ComparableObject](client kube.Client, namespaces []string, name string, opts krt.OptionsBuilder) krt.Collection[T] {
