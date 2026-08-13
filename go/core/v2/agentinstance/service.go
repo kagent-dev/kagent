@@ -23,7 +23,7 @@ const (
 )
 
 type Store interface {
-	CreateAgentInstance(context.Context, dbpkg.AgentInstanceCreateParams) (*apiv1alpha1.AgentInstance, bool, error)
+	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, string, string, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceDeleting(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
@@ -73,10 +73,11 @@ func (s *Service) Create(ctx context.Context, namespace, harness, template, requ
 	if err != nil {
 		return nil, err
 	}
-	instance, _, err := s.store.CreateAgentInstance(ctx, dbpkg.AgentInstanceCreateParams{
-		ID: uuid.NewString(), Namespace: namespace, Creator: creator,
-		HarnessName: harness, AgentTemplateName: template, RequestID: requestID,
-	})
+	instance, _, err := s.store.CreateAgentInstance(ctx, &apiv1alpha1.AgentInstance{
+		Id: uuid.NewString(), Namespace: namespace, Creator: creator,
+		Harness:       &apiv1alpha1.ResourceReference{Namespace: namespace, Name: harness},
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: namespace, Name: template},
+	}, requestID)
 	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
 	}

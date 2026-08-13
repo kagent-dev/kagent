@@ -115,7 +115,7 @@ type Client interface {
 	DeleteUnreferencedRuntimeRevision(context.Context, string) error
 
 	// AgentInstance lifecycle methods
-	CreateAgentInstance(context.Context, AgentInstanceCreateParams) (*apiv1alpha1.AgentInstance, bool, error)
+	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, string, string, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)

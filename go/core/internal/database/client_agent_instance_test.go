@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
 
 func TestCreateAgentInstanceIsIdempotent(t *testing.T) {
@@ -34,16 +35,17 @@ func TestCreateAgentInstanceIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	request := dbpkg.AgentInstanceCreateParams{
-		ID: "instance-1", Namespace: "team-a", Creator: "alice",
-		HarnessName: "kagent", AgentTemplateName: "assistant", RequestID: "request-1",
+	request := &apiv1alpha1.AgentInstance{
+		Id: "instance-1", Namespace: "team-a", Creator: "alice",
+		Harness:       &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "kagent"},
+		AgentTemplate: &apiv1alpha1.ResourceReference{Namespace: "team-a", Name: "assistant"},
 	}
-	created, wasCreated, err := client.CreateAgentInstance(ctx, request)
+	created, wasCreated, err := client.CreateAgentInstance(ctx, request, "request-1")
 	if err != nil || !wasCreated {
 		t.Fatalf("first CreateAgentInstance() = created %v, error %v", wasCreated, err)
 	}
-	request.ID = "instance-2"
-	replayed, wasCreated, err := client.CreateAgentInstance(ctx, request)
+	request.Id = "instance-2"
+	replayed, wasCreated, err := client.CreateAgentInstance(ctx, request, "request-1")
 	if err != nil || wasCreated {
 		t.Fatalf("replayed CreateAgentInstance() = created %v, error %v", wasCreated, err)
 	}
@@ -54,8 +56,8 @@ func TestCreateAgentInstanceIsIdempotent(t *testing.T) {
 		t.Fatalf("labels = %v", replayed.GetLabels())
 	}
 
-	request.AgentTemplateName = "different"
-	if _, _, err := client.CreateAgentInstance(ctx, request); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	request.AgentTemplate.Name = "different"
+	if _, _, err := client.CreateAgentInstance(ctx, request, "request-1"); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting request error = %v", err)
 	}
 }

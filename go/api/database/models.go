@@ -269,15 +269,6 @@ type RuntimeRevision struct {
 	GoldenSnapshot         string
 }
 
-type AgentInstanceCreateParams struct {
-	ID                string
-	Namespace         string
-	Creator           string
-	HarnessName       string
-	AgentTemplateName string
-	RequestID         string
-}
-
 type AgentInstanceShare struct {
 	ID         string
 	Namespace  string

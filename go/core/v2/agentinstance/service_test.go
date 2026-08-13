@@ -27,24 +27,24 @@ func (a serviceTestAuthorizer) Check(context.Context, auth.Principal, auth.Verb,
 }
 
 type serviceTestStore struct {
-	createParams dbpkg.AgentInstanceCreateParams
-	createErr    error
-	instances    []*apiv1alpha1.AgentInstance
-	listCreator  string
-	listAfterID  string
-	listLimit    int
-	share        dbpkg.AgentInstanceShare
+	createInput *apiv1alpha1.AgentInstance
+	requestID   string
+	createErr   error
+	instances   []*apiv1alpha1.AgentInstance
+	listCreator string
+	listAfterID string
+	listLimit   int
+	share       dbpkg.AgentInstanceShare
 }
 
-func (s *serviceTestStore) CreateAgentInstance(_ context.Context, params dbpkg.AgentInstanceCreateParams) (*apiv1alpha1.AgentInstance, bool, error) {
-	s.createParams = params
+func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
+	s.createInput = instance
+	s.requestID = requestID
 	if s.createErr != nil {
 		return nil, false, s.createErr
 	}
-	return &apiv1alpha1.AgentInstance{
-		Id: params.ID, Namespace: params.Namespace, Creator: params.Creator,
-		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
-	}, true, nil
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
+	return instance, true, nil
 }
 
 func (s *serviceTestStore) GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error) {
@@ -98,8 +98,8 @@ func TestServiceCreateUsesAuthenticatedOwnerAndGeneratedUUID(t *testing.T) {
 	if _, err := uuid.Parse(instance.GetId()); err != nil {
 		t.Fatalf("generated id %q is not a UUID: %v", instance.GetId(), err)
 	}
-	if store.createParams.Creator != "alice" || store.createParams.ID != instance.GetId() {
-		t.Fatalf("create params = %+v", store.createParams)
+	if store.createInput.GetCreator() != "alice" || store.createInput.GetId() != instance.GetId() || store.requestID != "request-1" {
+		t.Fatalf("create input = %+v, request ID = %q", store.createInput, store.requestID)
 	}
 }
 

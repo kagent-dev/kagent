@@ -463,13 +463,13 @@ func marshalAgentInstance(instance *apiv1alpha1.AgentInstance) ([]byte, error) {
 	return data, nil
 }
 
-func sameAgentInstanceRequest(instance *apiv1alpha1.AgentInstance, request dbpkg.AgentInstanceCreateParams) bool {
-	return instance.GetHarness().GetName() == request.HarnessName && instance.GetAgentTemplate().GetName() == request.AgentTemplateName
+func sameAgentInstanceRequest(instance, request *apiv1alpha1.AgentInstance) bool {
+	return instance.GetHarness().GetName() == request.GetHarness().GetName() && instance.GetAgentTemplate().GetName() == request.GetAgentTemplate().GetName()
 }
 
-func (c *postgresClient) CreateAgentInstance(ctx context.Context, request dbpkg.AgentInstanceCreateParams) (*apiv1alpha1.AgentInstance, bool, error) {
+func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	requestKey := dbgen.GetAgentInstanceByRequestParams{
-		Creator: request.Creator, Namespace: request.Namespace, RequestID: request.RequestID,
+		Creator: request.GetCreator(), Namespace: request.GetNamespace(), RequestID: requestID,
 	}
 	existing, err := c.q.GetAgentInstanceByRequest(ctx, requestKey)
 	if err == nil {
@@ -484,7 +484,7 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request dbpkg.
 	}
 
 	revision, err := c.q.GetLatestRuntimeRevisionForInstance(ctx, dbgen.GetLatestRuntimeRevisionForInstanceParams{
-		Namespace: request.Namespace, AgentTemplateName: request.AgentTemplateName, HarnessName: request.HarnessName,
+		Namespace: request.GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
@@ -495,21 +495,19 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request dbpkg.
 	}
 
 	now := timestamppb.Now()
-	instance := &apiv1alpha1.AgentInstance{
-		Id: request.ID, Namespace: request.Namespace, Creator: request.Creator,
-		Harness:          &apiv1alpha1.ResourceReference{Namespace: request.Namespace, Name: request.HarnessName},
-		AgentTemplate:    &apiv1alpha1.ResourceReference{Namespace: request.Namespace, Name: request.AgentTemplateName},
-		PreparedRevision: revision.Revision,
-		State:            apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
-		Operation:        apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE,
-		Labels:           labels, CreatedAt: now, UpdatedAt: now,
-	}
+	instance := proto.Clone(request).(*apiv1alpha1.AgentInstance)
+	instance.PreparedRevision = revision.Revision
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
+	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
+	instance.Labels = labels
+	instance.CreatedAt = now
+	instance.UpdatedAt = now
 	data, err := marshalAgentInstance(instance)
 	if err != nil {
 		return nil, false, err
 	}
 	row, err := c.q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
-		ID: request.ID, Namespace: request.Namespace, Creator: request.Creator, RequestID: request.RequestID,
+		ID: request.GetId(), Namespace: request.GetNamespace(), Creator: request.GetCreator(), RequestID: requestID,
 		PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels, Data: data,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
