@@ -2,12 +2,15 @@
 import faulthandler
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any, Callable, List, Optional
 
+import grpc
 from a2a.server.request_handlers import DefaultRequestHandlerV2
+from a2a.server.request_handlers.grpc_handler import GrpcHandler
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
-from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCard
+from a2a.server.tasks import InMemoryTaskStore, TaskStore
+from a2a.types import AgentCard, a2a_pb2, a2a_pb2_grpc
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
@@ -18,9 +21,11 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService, InMemorySessionService
 from google.genai import types
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from kagent.core import AsyncControllerClient
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
+    KAgentGrpcServerCallContextBuilder,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
     attach_hitl_agent_extension,
@@ -62,6 +67,7 @@ class KAgentApp:
         stream: bool = False,
         agent_config: Optional[AgentConfig] = None,
         kagent_grpc_url: Optional[str] = None,
+        a2a_grpc_address: Optional[str] = None,
     ):
         """Initialize the KAgent application.
 
@@ -74,10 +80,12 @@ class KAgentApp:
             plugins: Optional list of plugins
             stream: Whether to stream the response
             agent_config: Optional agent configuration
+            a2a_grpc_address: Address for the A2A gRPC listener
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_url = kagent_url
         self.kagent_grpc_url = kagent_grpc_url or os.getenv("KAGENT_GRPC_URL")
+        self.a2a_grpc_address = a2a_grpc_address or os.getenv("KAGENT_A2A_GRPC_ADDRESS", "[::]:80")
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan
@@ -154,7 +162,7 @@ class KAgentApp:
                 memory_service=memory_service,
             )
 
-        task_store: InMemoryTaskStore | KAgentTaskStore = InMemoryTaskStore()
+        task_store: TaskStore = InMemoryTaskStore()
         if not local and controller_client is not None:
             task_store = KAgentTaskStore(controller_client)
 
@@ -175,6 +183,7 @@ class KAgentApp:
 
         lifespan_manager = LifespanManager()
         lifespan_manager.add(self._lifespan)
+        lifespan_manager.add(self._grpc_lifespan(request_handler))
         if not local:
             lifespan_manager.add(token_service.lifespan())
             lifespan_manager.add(controller_client.lifespan())
@@ -195,6 +204,33 @@ class KAgentApp:
         )
 
         return app
+
+    def _grpc_lifespan(self, request_handler: DefaultRequestHandlerV2):
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            server = grpc.aio.server()
+            context_builder = KAgentGrpcServerCallContextBuilder()
+            a2a_pb2_grpc.add_A2AServiceServicer_to_server(
+                GrpcHandler(request_handler, context_builder=context_builder), server
+            )
+
+            health_service = health.aio.HealthServicer()
+            service_name = a2a_pb2.DESCRIPTOR.services_by_name["A2AService"].full_name
+            await health_service.set(service_name, health_pb2.HealthCheckResponse.SERVING)
+            health_pb2_grpc.add_HealthServicer_to_server(health_service, server)
+
+            port = server.add_insecure_port(self.a2a_grpc_address)
+            if port == 0:
+                raise RuntimeError(f"failed to bind A2A gRPC server to {self.a2a_grpc_address}")
+            app.state.a2a_grpc_port = port
+            await server.start()
+            try:
+                yield
+            finally:
+                await health_service.enter_graceful_shutdown()
+                await server.stop(grace=5)
+
+        return lifespan
 
     async def test(self, task: str):
         session_service = InMemorySessionService()
