@@ -246,7 +246,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	revision := dbpkg.RuntimeRevision{
 		Revision: state.RevisionID.String(), Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
 		AgentTemplateUID: pair.AgentTemplateUID, HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID,
-		SourceSnapshot: state.Revision.SourceSnapshot, EgressDestinations: state.Revision.EgressDestinations,
+		SourceSnapshot: state.Revision.Provenance, EgressDestinations: state.Revision.EgressDestinations,
 		ActorTemplateNamespace: observed.Namespace, ActorTemplateName: observed.Name, ActorTemplateUID: string(observed.UID),
 		Phase: string(observed.Status.Phase), GoldenSnapshot: observed.Status.GoldenSnapshot,
 	}

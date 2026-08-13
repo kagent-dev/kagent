@@ -96,8 +96,11 @@ func TestCompileAgentTemplateKeepsCredentialsOutOfRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Contains(spec.ConfigJSON, secret.Data["token"]) || bytes.Contains(spec.SourceSnapshot, secret.Data["token"]) {
+	if bytes.Contains(spec.ConfigJSON, secret.Data["token"]) || bytes.Contains(spec.Provenance, secret.Data["token"]) {
 		t.Fatal("runtime revision contains credential value")
+	}
+	if count := bytes.Count(spec.Provenance, []byte(`"kind":"Secret"`)); count != 2 {
+		t.Fatalf("provenance contains %d Secret entries, want 2: %s", count, spec.Provenance)
 	}
 	if !bytes.Contains(spec.ConfigJSON, []byte("__KAGENT_ENV[KAGENT_CREDENTIAL_")) {
 		t.Fatalf("config does not contain credential placeholder: %s", spec.ConfigJSON)

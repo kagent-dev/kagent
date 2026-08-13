@@ -18,9 +18,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// revisionSource is safe provenance for a resolved revision. It records object
-// identity and content hashes, never Secret values.
-type revisionSource struct {
+// provenanceEntry records one Kubernetes input to a compiled revision. Secret
+// entries identify a single key and hash its value; secret values are never stored.
+type provenanceEntry struct {
 	APIVersion string    `json:"apiVersion"`
 	Kind       string    `json:"kind"`
 	Name       string    `json:"name"`
@@ -89,9 +89,6 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		Stream:      &stream,
 	}
 
-	// Secret values stay in Kubernetes. Their hashes participate in the revision
-	// identity so rotating a credential creates a new immutable revision.
-	secretHashes := append([]byte(nil), modelRuntime.SecretHash...)
 	for _, binding := range template.Spec.Tools {
 		if binding.MCP == nil {
 			return nil, newValidationError("tool binding must select an MCP server")
@@ -104,7 +101,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 			},
 			ToolNames: append([]string(nil), binding.MCP.Tools...),
 		}
-		server, headers, credentialEnv, hash, err := c.resolveAgentTemplateMCPServer(ctx, template.Namespace, binding.MCP.Server)
+		server, headers, credentialEnv, err := c.resolveAgentTemplateMCPServer(ctx, template.Namespace, binding.MCP.Server)
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
 		}
@@ -112,7 +109,6 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 			return nil, fmt.Errorf("compile %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
 		}
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
-		secretHashes = append(secretHashes, hash...)
 	}
 	if modelRuntime.HasUnsupportedVolumes {
 		return nil, newValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
@@ -164,11 +160,6 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 			envVar.Value = *value.Value
 		} else {
 			envVar.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: value.CredentialRef.DeepCopy()}
-			hash, err := hashSecretKey(ctx, c.kube, template.Namespace, value.CredentialRef)
-			if err != nil {
-				return nil, fmt.Errorf("resolve Harness credential env %q: %w", value.Name, err)
-			}
-			secretHashes = append(secretHashes, hash...)
 		}
 		environment = append(environment, envVar)
 	}
@@ -182,11 +173,11 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
 
-	// Capture provenance separately from runtime config so operators can explain
-	// why two revisions differ without exposing credential contents.
-	sources, err := c.revisionSourceSnapshot(ctx, harness, template, modelConfig, environment)
+	// One provenance list covers every Kubernetes input, including hashed Secret
+	// keys, so it both explains and participates in revision identity.
+	provenance, err := c.buildProvenance(ctx, harness, template, modelConfig, environment)
 	if err != nil {
-		return nil, fmt.Errorf("marshal revision sources: %w", err)
+		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
 
 	return &Revision{
@@ -199,19 +190,18 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		AgentCardJSON:      cardJSON,
 		WorkerPoolName:     harness.Spec.Substrate.WorkerPoolRef.Name,
 		SnapshotLocation:   harness.Spec.Substrate.SnapshotPolicy.Location,
-		SourceSnapshot:     sources,
-		SecretHashes:       secretHashes,
+		Provenance:         provenance,
 		EgressDestinations: agentConfigDestinations(cfg, modelConfig, modelRuntime.Model),
 	}, nil
 }
 
-// revisionSourceSnapshot records every Kubernetes input that can change the
-// compiled runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Compiler) revisionSourceSnapshot(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate, model *v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
-	sources := []revisionSource{
-		objectRevisionSource(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec),
-		objectRevisionSource(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec),
-		objectRevisionSource(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec),
+// buildProvenance records every Kubernetes input that can change the compiled
+// runtime. Sorting makes the JSON stable across map iteration order.
+func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate, model *v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+	entries := []provenanceEntry{
+		objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec),
+		objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec),
+		objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec),
 	}
 	configMaps := map[string]struct{}{}
 	if template.Spec.SystemPromptFrom != nil {
@@ -227,7 +217,7 @@ func (c *Compiler) revisionSourceSnapshot(ctx context.Context, harness *v1alpha3
 		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: name}, configMap); err != nil {
 			return nil, err
 		}
-		sources = append(sources, objectRevisionSource("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
+		entries = append(entries, objectProvenance("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
 	}
 	for _, binding := range template.Spec.Tools {
 		if binding.MCP == nil {
@@ -239,7 +229,7 @@ func (c *Compiler) revisionSourceSnapshot(ctx context.Context, harness *v1alpha3
 			if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}, server); err != nil {
 				return nil, err
 			}
-			sources = append(sources, objectRevisionSource(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
+			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
 		}
 	}
 	// Secret provenance contains only UID and value hash. Name+key deduplication
@@ -264,72 +254,66 @@ func (c *Compiler) revisionSourceSnapshot(ctx context.Context, harness *v1alpha3
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
 		}
 		hash := sha256.Sum256(value)
-		sources = append(sources, revisionSource{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
+		entries = append(entries, provenanceEntry{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
 	}
-	slices.SortFunc(sources, func(a, b revisionSource) int {
+	slices.SortFunc(entries, func(a, b provenanceEntry) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)
 	})
-	return json.Marshal(sources)
+	return json.Marshal(entries)
 }
 
-// objectRevisionSource hashes the relevant object content rather than relying
+// objectProvenance hashes the relevant object content rather than relying
 // on generation alone, which is not available or meaningful for every input.
-func objectRevisionSource(apiVersion, kind, name string, uid types.UID, generation int64, content any) revisionSource {
+func objectProvenance(apiVersion, kind, name string, uid types.UID, generation int64, content any) provenanceEntry {
 	raw, _ := json.Marshal(content)
 	hash := sha256.Sum256(raw)
-	return revisionSource{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
+	return provenanceEntry{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
 }
 
 // resolveAgentTemplateMCPServer separates public server configuration from
 // credentials. The returned copy has HeadersFrom cleared because the runtime
 // receives resolved header placeholders and Secret-backed environment entries.
-func (c *Compiler) resolveAgentTemplateMCPServer(ctx context.Context, namespace string, ref v1alpha3.AgentTemplateTypedLocalReference) (*v1alpha3.RemoteMCPServer, map[string]string, []corev1.EnvVar, []byte, error) {
+func (c *Compiler) resolveAgentTemplateMCPServer(ctx context.Context, namespace string, ref v1alpha3.AgentTemplateTypedLocalReference) (*v1alpha3.RemoteMCPServer, map[string]string, []corev1.EnvVar, error) {
 	switch ref.Kind {
 	case "RemoteMCPServer":
 		server := &v1alpha3.RemoteMCPServer{}
 		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, server); err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
-		headers, environment, hashes, err := c.resolveAgentTemplateHeaders(ctx, namespace, server.Spec.HeadersFrom)
+		headers, environment, err := c.resolveAgentTemplateHeaders(ctx, namespace, server.Spec.HeadersFrom)
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 		server = server.DeepCopy()
 		server.Spec.HeadersFrom = nil
-		return server, headers, environment, hashes, nil
+		return server, headers, environment, nil
 	default:
-		return nil, nil, nil, nil, newValidationError("unsupported MCP server kind %q", ref.Kind)
+		return nil, nil, nil, newValidationError("unsupported MCP server kind %q", ref.Kind)
 	}
 }
 
 // resolveAgentTemplateHeaders keeps Secret values out of serialized agent
 // config. The runtime expands __KAGENT_ENV[...]__ from the corresponding
 // Secret-backed environment variable when it constructs the MCP request.
-func (c *Compiler) resolveAgentTemplateHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, []byte, error) {
+func (c *Compiler) resolveAgentTemplateHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {
 	headers := make(map[string]string, len(refs))
 	var environment []corev1.EnvVar
-	var hashes []byte
 	for _, ref := range refs {
 		if ref.ValueFrom == nil || ref.ValueFrom.Type != v1alpha3.SecretValueSource {
 			name, value, err := c.resolveValueRef(ctx, namespace, ref)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
 			headers[name] = value
 			continue
 		}
 		selector := &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.ValueFrom.Name}, Key: ref.ValueFrom.Key}
-		hash, err := hashSecretKey(ctx, c.kube, namespace, selector)
-		if err != nil {
-			return nil, nil, nil, err
-		}
 		sum := sha256.Sum256([]byte(namespace + "\x00" + selector.Name + "\x00" + selector.Key))
 		envName := "KAGENT_CREDENTIAL_" + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
 		headers[ref.Name] = "__KAGENT_ENV[" + envName + "]__"
 		environment = append(environment, corev1.EnvVar{Name: envName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: selector}})
-		hashes = append(hashes, hash...)
 	}
-	return headers, environment, hashes, nil
+	return headers, environment, nil
 }
 
 func (c *Compiler) resolveValueRef(ctx context.Context, namespace string, ref v1alpha3.ValueRef) (string, string, error) {
@@ -364,27 +348,6 @@ func (c *Compiler) resolveAgentTemplatePrompt(ctx context.Context, template *v1a
 		return value, nil
 	}
 	return template.Spec.SystemPrompt, nil
-}
-
-// hashSecretKey makes credential rotation part of revision identity without
-// copying the credential into the database or source snapshot.
-func hashSecretKey(ctx context.Context, kube Reader, namespace string, selector *corev1.SecretKeySelector) ([]byte, error) {
-	if selector == nil {
-		return nil, fmt.Errorf("secretKeyRef is required")
-	}
-	secret := &corev1.Secret{}
-	if err := kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: selector.Name}, secret); err != nil {
-		return nil, err
-	}
-	value, ok := secret.Data[selector.Key]
-	if !ok {
-		if selector.Optional != nil && *selector.Optional {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("secret %q does not contain key %q", selector.Name, selector.Key)
-	}
-	sum := sha256.Sum256(value)
-	return sum[:], nil
 }
 
 // agentTemplateCard describes the runtime-local A2A server. Substrate routes

@@ -42,12 +42,9 @@ type Revision struct {
 	WorkerPoolName   string
 	SnapshotLocation string
 
-	// SourceSnapshot is provenance safe to persist for debugging. Secret values
-	// are represented only by hashes.
-	SourceSnapshot json.RawMessage
-	// SecretHashes makes credential rotation produce a new revision without
-	// embedding credential values in the revision.
-	SecretHashes []byte
+	// Provenance identifies every Kubernetes input to this revision. Secret
+	// values are represented only by hashes.
+	Provenance json.RawMessage
 	// EgressDestinations is the hostname allowlist required by this revision.
 	EgressDestinations []string
 }
@@ -66,14 +63,13 @@ func (r *Revision) Digest() (RevisionID, error) {
 		AgentCardJSON      json.RawMessage `json:"agentCard"`
 		WorkerPoolName     string          `json:"workerPoolName"`
 		SnapshotLocation   string          `json:"snapshotLocation"`
-		SourceSnapshot     json.RawMessage `json:"sourceSnapshot"`
-		SecretHashes       string          `json:"secretHashes"`
+		Provenance         json.RawMessage `json:"provenance"`
 		EgressDestinations []string        `json:"egressDestinations"`
 	}{
 		Namespace: r.Namespace, AgentTemplateName: r.AgentTemplateName, HarnessName: r.HarnessName,
 		Image: r.Image, Environment: r.Environment, ConfigJSON: r.ConfigJSON, AgentCardJSON: r.AgentCardJSON,
-		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, SourceSnapshot: r.SourceSnapshot,
-		SecretHashes: hex.EncodeToString(r.SecretHashes), EgressDestinations: r.EgressDestinations,
+		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation, Provenance: r.Provenance,
+		EgressDestinations: r.EgressDestinations,
 	})
 	if err != nil {
 		return RevisionID{}, fmt.Errorf("marshal runtime revision inputs: %w", err)

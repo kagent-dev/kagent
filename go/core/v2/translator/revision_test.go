@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-func TestRevisionDigestIncludesSecretHashes(t *testing.T) {
-	revision := &Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent", SecretHashes: []byte("first")}
+func TestRevisionDigestIncludesProvenance(t *testing.T) {
+	revision := &Revision{Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent", Provenance: []byte(`[{"kind":"Secret","hash":"first"}]`)}
 	first, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	revision.SecretHashes = []byte("second")
+	revision.Provenance = []byte(`[{"kind":"Secret","hash":"second"}]`)
 	second, err := revision.Digest()
 	if err != nil {
 		t.Fatal(err)
