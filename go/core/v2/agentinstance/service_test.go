@@ -36,6 +36,9 @@ type serviceTestStore struct {
 	listAfterID  string
 	listLimit    int
 	share        dbpkg.AgentInstanceShare
+	shares       []dbpkg.AgentInstanceShare
+	shareAfterID string
+	shareLimit   int
 }
 
 func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
@@ -62,8 +65,9 @@ func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share dbp
 	return &s.share, nil
 }
 
-func (*serviceTestStore) ListAgentInstanceShares(context.Context, string, string, string) ([]dbpkg.AgentInstanceShare, error) {
-	return nil, nil
+func (s *serviceTestStore) ListAgentInstanceShares(_ context.Context, _, _, _, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
+	s.shareAfterID, s.shareLimit = afterID, limit
+	return s.shares, nil
 }
 
 func (*serviceTestStore) DeleteAgentInstanceShare(context.Context, string, string, string) error {
@@ -185,5 +189,27 @@ func TestServiceCreateShareGeneratesTokenAndUUID(t *testing.T) {
 	digest := sha256.Sum256([]byte(token))
 	if !bytes.Equal(store.share.TokenHash, digest[:]) {
 		t.Fatal("stored token hash does not match returned token")
+	}
+}
+
+func TestServiceListSharesPaginatesInStore(t *testing.T) {
+	ids := []string{
+		"11111111-1111-4111-8111-111111111111",
+		"22222222-2222-4222-8222-222222222222",
+		"33333333-3333-4333-8333-333333333333",
+		"44444444-4444-4444-8444-444444444444",
+	}
+	store := &serviceTestStore{shares: []dbpkg.AgentInstanceShare{{ID: ids[1]}, {ID: ids[2]}, {ID: ids[3]}}}
+	service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
+	result, err := service.ListShares(serviceTestContext("alice"), "team-a", ids[0], 2, encodePageToken(ids[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Shares) != 2 || store.shareAfterID != ids[0] || store.shareLimit != 3 {
+		t.Fatalf("ListShares() = %+v, after ID = %q, limit = %d", result, store.shareAfterID, store.shareLimit)
+	}
+	afterID, err := decodePageToken(result.NextPageToken)
+	if err != nil || afterID != ids[2] {
+		t.Fatalf("next page token = %q (%v), want %q", afterID, err, ids[2])
 	}
 }

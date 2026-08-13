@@ -122,6 +122,6 @@ type Client interface {
 	DeleteAgentInstance(context.Context, string) error
 	RecordAgentInstanceActorUID(context.Context, string, string) (string, error)
 	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
-	ListAgentInstanceShares(context.Context, string, string, string) ([]AgentInstanceShare, error)
+	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
 }

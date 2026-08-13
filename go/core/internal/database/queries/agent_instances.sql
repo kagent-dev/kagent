@@ -58,7 +58,9 @@ RETURNING *;
 SELECT s.* FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
 WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
-ORDER BY s.id;
+  AND s.id > sqlc.arg(after_id)
+ORDER BY s.id
+LIMIT sqlc.arg(page_size);
 
 -- name: DeleteAgentInstanceShare :execrows
 DELETE FROM agent_instance_share s

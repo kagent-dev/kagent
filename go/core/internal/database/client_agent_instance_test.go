@@ -26,7 +26,6 @@ func TestCreateAgentInstanceIsIdempotent(t *testing.T) {
 	pair := dbpkg.AgentTemplateHarnessPair{
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision,
-		AgentTemplateLabels: map[string]string{"team": "platform"},
 	}
 	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
 		t.Fatal(err)
@@ -52,8 +51,12 @@ func TestCreateAgentInstanceIsIdempotent(t *testing.T) {
 	if replayed.GetId() != created.GetId() || replayed.GetPreparedRevision() != revision.Revision {
 		t.Fatalf("replayed instance = %+v, want id %q revision %q", replayed, created.GetId(), revision.Revision)
 	}
-	if replayed.GetLabels()["team"] != "platform" {
+	if len(replayed.GetLabels()) != 0 {
 		t.Fatalf("labels = %v", replayed.GetLabels())
+	}
+	instances, err := client.ListAgentInstances(ctx, "team-a", "alice", false, nil, "", 10)
+	if err != nil || len(instances) != 1 {
+		t.Fatalf("ListAgentInstances() = %v, error %v", instances, err)
 	}
 
 	request.AgentTemplate.Name = "different"

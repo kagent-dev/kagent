@@ -359,6 +359,9 @@ func (c *postgresClient) DeleteTask(ctx context.Context, taskID, userID string) 
 // ── AgentTemplate runtime revisions ──────────────────────────────────────────
 
 func (c *postgresClient) UpsertAgentTemplateHarnessPair(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+	if pair.AgentTemplateLabels == nil {
+		pair.AgentTemplateLabels = map[string]string{}
+	}
 	labels, err := json.Marshal(pair.AgentTemplateLabels)
 	if err != nil {
 		return fmt.Errorf("marshal AgentTemplate labels: %w", err)
@@ -537,6 +540,9 @@ func (c *postgresClient) GetAgentInstance(ctx context.Context, namespace, id, us
 }
 
 func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, userID string, allUsers bool, matchLabels map[string]string, afterID string, limit int) ([]*apiv1alpha1.AgentInstance, error) {
+	if matchLabels == nil {
+		matchLabels = map[string]string{}
+	}
 	labels, err := json.Marshal(matchLabels)
 	if err != nil {
 		return nil, fmt.Errorf("marshal AgentInstance label selector: %w", err)
@@ -622,9 +628,10 @@ func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbp
 	return &result, nil
 }
 
-func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, creator string) ([]dbpkg.AgentInstanceShare, error) {
+func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, creator, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
 	rows, err := c.q.ListAgentInstanceShares(ctx, dbgen.ListAgentInstanceSharesParams{
 		Namespace: namespace, InstanceID: instanceID, UserID: creator,
+		AfterID: afterID, PageSize: int32(limit),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstance shares: %w", err)

@@ -27,7 +27,7 @@ type store interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
 	CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error)
-	ListAgentInstanceShares(context.Context, string, string, string) ([]dbpkg.AgentInstanceShare, error)
+	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
 }
 
@@ -174,7 +174,7 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 		return nil, "", err
 	}
 	if permission != "READ_ONLY" && permission != "READ_WRITE" {
-		return nil, "", serviceerrors.NewInvalidArgument("share permission is required", nil)
+		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
 	}
 	creator, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+instanceID+"/shares")
 	if err != nil {
@@ -219,15 +219,10 @@ func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, 
 	if err != nil {
 		return ShareListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	shares, err := s.store.ListAgentInstanceShares(ctx, namespace, instanceID, creator)
+	shares, err := s.store.ListAgentInstanceShares(ctx, namespace, instanceID, creator, afterID, pageSize+1)
 	if err != nil {
 		return ShareListResult{}, serviceerrors.NewInternal("Failed to list AgentInstance shares", err)
 	}
-	start := 0
-	for start < len(shares) && shares[start].ID <= afterID {
-		start++
-	}
-	shares = shares[start:]
 	result := ShareListResult{Shares: shares}
 	if len(result.Shares) > pageSize {
 		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID)
@@ -273,10 +268,11 @@ func validateCreate(namespace, harness, template, requestID string) error {
 	if err := validateNamespace(namespace); err != nil {
 		return err
 	}
-	for name, value := range map[string]string{"harness": harness, "agent_template": template} {
-		if problems := utilvalidation.IsDNS1123Subdomain(value); len(problems) > 0 {
-			return serviceerrors.NewInvalidArgument(fmt.Sprintf("%s is invalid: %s", name, strings.Join(problems, "; ")), nil)
-		}
+	if problems := utilvalidation.IsDNS1123Subdomain(harness); len(problems) > 0 {
+		return serviceerrors.NewInvalidArgument("harness is invalid: "+strings.Join(problems, "; "), nil)
+	}
+	if problems := utilvalidation.IsDNS1123Subdomain(template); len(problems) > 0 {
+		return serviceerrors.NewInvalidArgument("agent_template is invalid: "+strings.Join(problems, "; "), nil)
 	}
 	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
 		return serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)

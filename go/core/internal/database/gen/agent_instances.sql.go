@@ -260,17 +260,27 @@ const listAgentInstanceShares = `-- name: ListAgentInstanceShares :many
 SELECT s.id, s.namespace, s.instance_id, s.creator, s.permission, s.token_hash, s.created_at FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
 WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
+  AND s.id > $4
 ORDER BY s.id
+LIMIT $5
 `
 
 type ListAgentInstanceSharesParams struct {
 	Namespace  string
 	InstanceID string
 	UserID     string
+	AfterID    string
+	PageSize   int32
 }
 
 func (q *Queries) ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error) {
-	rows, err := q.db.Query(ctx, listAgentInstanceShares, arg.Namespace, arg.InstanceID, arg.UserID)
+	rows, err := q.db.Query(ctx, listAgentInstanceShares,
+		arg.Namespace,
+		arg.InstanceID,
+		arg.UserID,
+		arg.AfterID,
+		arg.PageSize,
+	)
 	if err != nil {
 		return nil, err
 	}
