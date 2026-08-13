@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
+import { ArrowBigUp, X, Loader2, Mic, Square, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -54,7 +54,7 @@ import { formatA2AClientError } from "@/lib/a2aErrors";
 import { useChatSubstrateSandbox, useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
-import { taskStateFromJSON, type Message, type StreamResponse, type Task } from "@a2a-js/sdk";
+import { taskStateFromJSON, type Message, type Part, type StreamResponse, type Task } from "@a2a-js/sdk";
 import { useChatMcpApps } from "@/components/chat/ChatMcpAppsContext";
 import {
   checkAndSyncChatSession,
@@ -62,6 +62,7 @@ import {
   RESUBSCRIBE_TASK_STATES,
   type SessionGuardOptions,
 } from "@/lib/chatSessionGuard";
+import { FILE_ACCEPT, fileToFilePart, validateFile } from "@/lib/fileUpload";
 
 interface ChatInterfaceProps {
   selectedAgentName: string;
@@ -78,6 +79,8 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const substrateSandbox = useChatSubstrateSandbox();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
@@ -342,6 +345,20 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   }, [storedMessages, streamingMessages, streamingContent]);
 
+  const handleFilesSelected = (files: FileList | null) => {
+    if (!files) return;
+    const accepted: File[] = [];
+    for (const file of Array.from(files)) {
+      const error = validateFile(file);
+      if (error) {
+        toast.error(error);
+      } else {
+        accepted.push(file);
+      }
+    }
+    if (accepted.length > 0) setPendingFiles((current) => [...current, ...accepted]);
+  };
+
   const sendChatMessageText = async (
     userMessageText: string,
     options: {
@@ -349,9 +366,11 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       restoreInputOnError?: boolean;
       errorLabel?: string;
       rethrowOnError?: boolean;
+      fileParts?: Part[];
     } = {},
   ) => {
-    if (!userMessageText.trim() || !selectedAgentName || !selectedNamespace) {
+    const fileParts = options.fileParts ?? [];
+    if ((!userMessageText.trim() && fileParts.length === 0) || !selectedAgentName || !selectedNamespace) {
       return;
     }
     if (chatStatus !== "ready") {
@@ -384,6 +403,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
 
     setCurrentInputMessage("");
+    setPendingFiles([]);
     setChatStatus("thinking");
     setStatusMessage(undefined);
     setStoredMessages(prev => [...prev, ...streamingMessages]);
@@ -401,6 +421,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       messageId,
       contextId: guardSessionId,
       additionalMetadata: { timestamp: Date.now() },
+      fileParts,
     });
 
     // Add user message to streaming messages to show immediately
@@ -425,7 +446,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           isCreatingSessionRef.current = true;
           setIsFirstMessage(true);
 
-          const sessionName = deriveSessionTitle(userMessageText);
+          const sessionName = userMessageText.trim()
+            ? deriveSessionTitle(userMessageText)
+            : (fileParts[0]?.filename || "File upload");
           const newSessionResponse = await createSession({
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
             name: sessionName,
@@ -472,7 +495,9 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         storedMessages.length === 0 &&
         isPlaceholderSessionTitle(session?.name)
       ) {
-        const title = deriveSessionTitle(userMessageText);
+        const title = userMessageText.trim()
+          ? deriveSessionTitle(userMessageText)
+          : (fileParts[0]?.filename || "File upload");
         if (title) {
           try {
             const renameResponse = await createSession({
@@ -501,6 +526,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       const a2aMessage = createMessage(userMessageText, "user", {
         messageId,
         contextId: currentSessionId,
+        fileParts,
       });
 
       await streamA2AMessage(a2aMessage, {
@@ -526,11 +552,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     if (isListening) {
       stopListening();
     }
-    if (!currentInputMessage.trim()) {
+    if (!currentInputMessage.trim() && pendingFiles.length === 0) {
       return;
     }
 
-    await sendChatMessageText(currentInputMessage);
+    try {
+      const fileParts = await Promise.all(pendingFiles.map(fileToFilePart));
+      await sendChatMessageText(currentInputMessage, { fileParts });
+    } catch {
+      toast.error("Failed to read attached file");
+    }
   };
 
   // An MCP App pushed a message into the conversation via the ui/message
@@ -905,7 +936,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
+      if ((currentInputMessage.trim() || pendingFiles.length > 0) && selectedAgentName && selectedNamespace && chatStatus === "ready") {
         handleSendMessage(e);
       }
     }
@@ -1022,6 +1053,29 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             </div>
 
             <form onSubmit={handleSendMessage}>
+              {pendingFiles.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {pendingFiles.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-sm">
+                      <span className="max-w-48 truncate">{file.name}</span>
+                      <button type="button" onClick={() => setPendingFiles((files) => files.filter((_, i) => i !== index))} aria-label={`Remove ${file.name}`}>
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={FILE_ACCEPT}
+                className="hidden"
+                onChange={(event) => {
+                  handleFilesSelected(event.target.files);
+                  event.target.value = "";
+                }}
+              />
               <Textarea
                 data-testid="chat-input"
                 value={currentInputMessage}
@@ -1033,6 +1087,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               />
 
               <div className="flex items-center justify-end gap-2 mt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={chatStatus !== "ready"}
+                  aria-label="Attach files"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
                 {isVoiceSupported && (
                   <TooltipProvider>
                     <Tooltip>
@@ -1063,7 +1127,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     </Tooltip>
                   </TooltipProvider>
                 )}
-                <Button type="submit" data-testid="chat-send" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
+                <Button type="submit" data-testid="chat-send" className={""} disabled={(!currentInputMessage.trim() && pendingFiles.length === 0) || chatStatus !== "ready"}>
                   Send
                   <ArrowBigUp className="h-4 w-4 ml-2" />
                 </Button>

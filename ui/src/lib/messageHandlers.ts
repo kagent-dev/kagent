@@ -31,7 +31,6 @@ import {
   isHitlResponse,
   relatedHitlCallIds,
   responseMatchesRequest,
-  visibleHitlTools,
 } from "@/lib/hitl";
 
 function isInputRequiredState(state: TaskState | undefined): boolean {
@@ -102,6 +101,7 @@ export function isFinishedAssistantReply(
 export function extractMessagesFromTasks(tasks: Task[]): Message[] {
   const messages: Message[] = [];
   const seenMessageIds = new Set<string>();
+  const seenArtifactFiles = new Set<string>();
 
   for (const task of tasks) {
     const history = task.history ?? [];
@@ -130,7 +130,7 @@ export function extractMessagesFromTasks(tasks: Task[]): Message[] {
     // the server-assembled artifacts in their stored order using the same
     // text/tool representation as the live artifact-update path.
     for (const artifact of task.artifacts ?? []) {
-      appendArtifactMessages(messages, task, artifact, historicalHitlByCallId, emittedHistoricalHitl);
+      appendArtifactMessages(messages, task, artifact, historicalHitlByCallId, emittedHistoricalHitl, seenArtifactFiles);
     }
 
     // Status messages are control-plane explanations, never task results.
@@ -162,6 +162,7 @@ function appendArtifactMessages(
   artifact: Artifact,
   historicalHitlByCallId: ReadonlyMap<string, HistoricalHitl>,
   emittedHistoricalHitl: Set<HistoricalHitl>,
+  seenArtifactFiles: Set<string>,
 ): void {
   const metadata = artifact.metadata as ADKMetadata | undefined;
   const source = getSourceFromMetadata(metadata, "assistant");
@@ -204,6 +205,22 @@ function appendArtifactMessages(
   for (const part of artifact.parts ?? []) {
     if (isTextPart(part)) {
       text += part.content.value || "";
+      continue;
+    }
+
+    if (isFilePart(part)) {
+      flushText();
+      const identity = part.content.$case === "raw" ? part.content.value.length : part.content.value;
+      const key = `${artifact.artifactId}|${part.filename}|${identity}`;
+      if (!seenArtifactFiles.has(key)) {
+        seenArtifactFiles.add(key);
+        messages.push(createMessage("", source, {
+          originalType: "TextMessage",
+          contextId: task.contextId,
+          taskId: task.id,
+          fileParts: [part],
+        }));
+      }
       continue;
     }
 
@@ -309,9 +326,6 @@ function appendArtifactMessages(
       continue;
     }
 
-    if (part.content?.$case === "raw" || part.content?.$case === "url") {
-      text += `[File: ${part.filename || "unknown"}]`;
-    }
   }
 
   flushText();
@@ -332,11 +346,22 @@ function aggregatePartsToDisplayText(parts: Part[]): string {
         return String(part.content.value);
       }
     }
-    if (part.content?.$case === "raw" || part.content?.$case === "url") {
-      return `[File: ${part.filename || "unknown"}]`;
-    }
+    if (isFilePart(part)) return "";
     return String(part);
   }).join("");
+}
+
+type FilePart = Part & {
+  content: Extract<NonNullable<Part["content"]>, { $case: "raw" } | { $case: "url" }>;
+};
+
+/** True for A2A inline-byte and URL file parts. */
+export function isFilePart(part: Part): part is FilePart {
+  return part.content?.$case === "raw" || part.content?.$case === "url";
+}
+
+export function extractFileParts(parts: Part[] | undefined): Part[] {
+  return parts?.filter(isFilePart) ?? [];
 }
 
 /** Returns true if the message is a user HITL decision (approve/reject) or ask-user answer. */
@@ -661,6 +686,7 @@ export function createMessage(
     contextId?: string;
     taskId?: string;
     additionalMetadata?: Record<string, unknown>;
+    fileParts?: Part[];
   } = {}
 ): Message {
   const {
@@ -669,17 +695,21 @@ export function createMessage(
     contextId,
     taskId,
     additionalMetadata = {},
+    fileParts = [],
   } = options;
 
   const message: Message = {
     messageId,
     role: source === "user" ? Role.ROLE_USER : Role.ROLE_AGENT,
-    parts: [{
-      content: { $case: "text", value: content },
-      metadata: undefined,
-      filename: "",
-      mediaType: "text/plain",
-    }],
+    parts: [
+      {
+        content: { $case: "text", value: content },
+        metadata: undefined,
+        filename: "",
+        mediaType: "text/plain",
+      },
+      ...fileParts,
+    ],
     contextId: contextId ?? "",
     taskId: taskId ?? "",
     metadata: {
@@ -1089,8 +1119,14 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         }
         continue;
       }
-      if (part.content?.$case === "raw" || part.content?.$case === "url") {
-        artifactText += `[File: ${part.filename || "unknown"}]`;
+      if (isFilePart(part)) {
+        flushBufferedText();
+        appendMessage(createMessage("", getSourceFromMetadata(adkMetadata, defaultAgentSource), {
+          originalType: "TextMessage",
+          contextId: artifactUpdate.contextId,
+          taskId: artifactUpdate.taskId,
+          fileParts: [part],
+        }));
         continue;
       }
       artifactText += String(part);
@@ -1123,7 +1159,8 @@ export const createMessageHandlers = (handlers: MessageHandlers) => {
         {
           originalType: "TextMessage",
           contextId: message.contextId,
-          taskId: message.taskId
+          taskId: message.taskId,
+          fileParts: extractFileParts(message.parts),
         }
       );
       handlers.setMessages(prevMessages => [...prevMessages, displayMessage]);

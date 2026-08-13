@@ -9,6 +9,7 @@ import (
 	"maps"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
@@ -107,12 +108,16 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
-			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				imageURLs = append(imageURLs, fmt.Sprintf(
-					"data:%s;base64,%s",
-					part.InlineData.MIMEType,
-					base64.StdEncoding.EncodeToString(part.InlineData.Data),
-				))
+			} else if part.InlineData != nil {
+				if strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+					imageURLs = append(imageURLs, fmt.Sprintf(
+						"data:%s;base64,%s",
+						part.InlineData.MIMEType,
+						base64.StdEncoding.EncodeToString(part.InlineData.Data),
+					))
+				} else if text := fileextract.InlineFileToText(part.InlineData); text != "" {
+					textParts = append(textParts, text)
+				}
 			}
 		}
 

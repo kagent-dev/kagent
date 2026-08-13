@@ -64,6 +64,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 	if cfg.Stream {
 		runConfig.StreamingMode = adkagent.StreamingModeSSE
 	}
+	runConfig.SaveInputBlobsAsArtifacts = true
 	runnerConfig := cfg.RunnerConfig
 	if cfg.SessionService != nil {
 		runnerConfig.SessionService = cfg.SessionService
@@ -73,10 +74,20 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 		RunConfig:          runConfig,
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: genAIPartConverter,
-		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, _ *a2atype.TaskArtifactUpdateEvent) error {
+		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, update *a2atype.TaskArtifactUpdateEvent) error {
 			if event.InvocationID != "" {
 				trace.SpanFromContext(ctx).SetAttributes(attribute.String("gcp.vertex.agent.invocation_id", event.InvocationID))
 			}
+			appendSavedArtifacts(
+				ctx,
+				runnerConfig.ArtifactService,
+				runnerConfig.AppName,
+				ctx.UserID(),
+				ctx.SessionID(),
+				event,
+				update,
+				cfg.Logger,
+			)
 			return nil
 		},
 		OutputMode: adka2a.OutputArtifactPerEvent,
@@ -161,6 +172,12 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				e.logger.V(1).Info("Skills session path init failed (continuing)",
 					"error", err, "sessionID", sessionID)
 			}
+		}
+
+		if err := checkInboundFileSizes(reqCtx.Message, MaxArtifactBytes()); err != nil {
+			message := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(err.Error()))
+			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
+			return
 		}
 
 		// Run our own session management before upstream executor runs its prepareSession function.

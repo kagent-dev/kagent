@@ -1,5 +1,7 @@
 import { type Message } from "@a2a-js/sdk";
 import { TruncatableText } from "@/components/chat/TruncatableText";
+import FileAttachment from "@/components/chat/FileAttachment";
+import { ADKMetadata, extractFileParts, getMetadataValue } from "@/lib/messageHandlers";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
@@ -10,7 +12,6 @@ import { useState } from "react";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { toast } from "sonner";
 import { convertToUserFriendlyName, isDataPart, isTextPart, isUserRole } from "@/lib/utils";
-import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
 import { ToolDecision } from "@/types";
 import { getHitlCard } from "@/lib/hitl";
 import type { ChatMcpAppTool } from "@/components/chat/ChatMcpAppsContext";
@@ -52,6 +53,7 @@ export default function ChatMessage({
   if (!message) return null;
 
   const content = message.parts?.filter(isTextPart).map((part) => part.content.value).join("") || "";
+  const fileParts = extractFileParts(message.parts);
 
   const source = isUserRole(message.role) ? "user" : "assistant";
   const messageId = message.messageId;
@@ -158,7 +160,7 @@ export default function ChatMessage({
   }
 
   // Skip empty messages
-  if (!content) {
+  if (!content && fileParts.length === 0) {
     return null;
   }
 
@@ -187,7 +189,14 @@ export default function ChatMessage({
         `overflow-wrap: anywhere` only breaks a word that cannot fit on a line
         of its own, which is what long tool-call ids and URLs need.
       */}
-      <TruncatableText content={String(content)} className="[overflow-wrap:anywhere] text-primary-foreground" />
+      {content && <TruncatableText content={String(content)} className="[overflow-wrap:anywhere] text-primary-foreground" />}
+      {fileParts.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-2">
+          {fileParts.map((part, index) => (
+            <FileAttachment key={`file-${index}`} part={part} />
+          ))}
+        </div>
+      )}
       {source !== "user" && showReplyActions && (
         <div className="flex mt-2 justify-end items-center gap-2">
           {replyTokenStats && <TokenStatsTooltip stats={replyTokenStats} />}

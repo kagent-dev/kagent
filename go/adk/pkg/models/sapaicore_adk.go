@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -204,6 +205,10 @@ func genaiContentsToOrchTemplate(contents []*genai.Content, config *genai.Genera
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
+			} else if part.InlineData != nil && !strings.HasPrefix(part.InlineData.MIMEType, "image/") {
+				if text := fileextract.InlineFileToText(part.InlineData); text != "" {
+					textParts = append(textParts, text)
+				}
 			}
 		}
 

@@ -1,6 +1,6 @@
 import { describe, test, expect } from '@jest/globals';
 import { v4 as uuidv4 } from 'uuid';
-import { Role, TaskState, type Artifact, type Message, type Part, type StreamResponse, type Task } from '@a2a-js/sdk';
+import { Part, Role, TaskState, type Artifact, type Message, type StreamResponse, type Task } from '@a2a-js/sdk';
 import {
   extractMessagesFromTasks,
   extractApprovalMessagesFromTasks,
@@ -9,6 +9,8 @@ import {
   collectTaskTokenStats,
   isFinishedAssistantReply,
   createMessage,
+  extractFileParts,
+  isFilePart,
   normalizeToolResultToText,
   getMetadataValue,
   type ToolResponseData,
@@ -169,6 +171,29 @@ describe('messageHandlers helpers', () => {
     expect((msg.metadata as ADKMetadata).originalType).toBe('TextMessage');
     expect(msg.contextId).toBe('ctx');
     expect(msg.taskId).toBe('task');
+  });
+
+  test('createMessage preserves file parts', () => {
+    const file = Part.fromJSON({
+      raw: 'aGVsbG8=',
+      filename: 'note.txt',
+      mediaType: 'text/plain',
+    });
+    const msg = createMessage('', 'user', { fileParts: [file] });
+    expect(extractFileParts(msg.parts)).toEqual([file]);
+    expect(msg.parts.some(isFilePart)).toBe(true);
+  });
+
+  test('extractMessagesFromTasks restores artifact files', () => {
+    const file = Part.fromJSON({
+      raw: 'YSxiCg==',
+      filename: 'report.csv',
+      mediaType: 'text/csv',
+    });
+    const messages = extractMessagesFromTasks([
+      sdkTask([], { artifacts: [sdkArtifact('artifact-1', [file])] }),
+    ]);
+    expect(messages.some((message) => message.parts.some(isFilePart))).toBe(true);
   });
 
   test('extractMessagesFromTasks deduplicates messageIds', () => {
