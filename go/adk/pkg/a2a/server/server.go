@@ -40,6 +40,7 @@ type ServerConfig struct {
 // A2AServer wraps the A2A server with health endpoints and graceful shutdown.
 type A2AServer struct {
 	httpServer   *http.Server
+	readyServer  *http.Server
 	grpcServer   *grpc.Server
 	healthServer *health.Server
 	logger       logr.Logger
@@ -129,6 +130,13 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 			Handler:   handler,
 			Protocols: protocols,
 		},
+		readyServer: &http.Server{Addr: ":8081", Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/readyz" {
+				http.NotFound(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		})},
 		grpcServer:   grpcServer,
 		healthServer: healthServer,
 		logger:       logger,
@@ -183,6 +191,11 @@ func (s *A2AServer) Start() error {
 			s.listenErr <- err
 		}
 	}()
+	go func() {
+		if err := s.readyServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			s.listenErr <- err
+		}
+	}()
 
 	return nil
 }
@@ -214,6 +227,11 @@ func (s *A2AServer) WaitForShutdown() error {
 		s.grpcServer.Stop()
 		<-grpcStopped
 		return fmt.Errorf("error shutting down server: %w", err)
+	}
+	if err := s.readyServer.Shutdown(ctx); err != nil {
+		s.grpcServer.Stop()
+		<-grpcStopped
+		return fmt.Errorf("error shutting down readiness server: %w", err)
 	}
 	<-grpcStopped
 

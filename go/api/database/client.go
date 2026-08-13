@@ -99,4 +99,14 @@ type Client interface {
 	// (sliding window on updated_at) and cascaded conversation state. No-op when
 	// retentionDays <= 0. Returns the number of sessions deleted.
 	PruneExpiredSessions(ctx context.Context, retentionDays int) (int64, error)
+
+	// AgentTemplate runtime revision methods
+	UpsertAgentTemplateHarnessPair(context.Context, AgentTemplateHarnessPair) error
+	UpsertRuntimeRevision(context.Context, RuntimeRevision) error
+	MarkRuntimeRevisionSuccessful(context.Context, AgentTemplateHarnessPair) error
+	RetireAgentTemplateHarnessPairs(context.Context, string, string) error
+	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
+	RetireOtherAgentTemplateHarnessPairs(context.Context, string, string, []string) error
+	ListUnreferencedRuntimeRevisions(context.Context) ([]RuntimeRevision, error)
+	DeleteUnreferencedRuntimeRevision(context.Context, string) error
 }

@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+import asyncio
 import faulthandler
 import logging
 import os
@@ -184,6 +185,7 @@ class KAgentApp:
         lifespan_manager = LifespanManager()
         lifespan_manager.add(self._lifespan)
         lifespan_manager.add(self._grpc_lifespan(request_handler))
+        lifespan_manager.add(self._readiness_lifespan())
         if not local:
             lifespan_manager.add(token_service.lifespan())
             lifespan_manager.add(controller_client.lifespan())
@@ -204,6 +206,26 @@ class KAgentApp:
         )
 
         return app
+
+    def _readiness_lifespan(self):
+        async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+            request = await reader.readline()
+            status = b"200 OK" if request.startswith(b"GET /readyz ") else b"404 Not Found"
+            writer.write(b"HTTP/1.1 " + status + b"\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK")
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            server = await asyncio.start_server(handle, host="::", port=8081)
+            try:
+                yield
+            finally:
+                server.close()
+                await server.wait_closed()
+
+        return lifespan
 
     def _grpc_lifespan(self, request_handler: DefaultRequestHandlerV2):
         @asynccontextmanager
