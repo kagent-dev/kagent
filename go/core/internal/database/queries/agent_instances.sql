@@ -39,11 +39,8 @@ SET state = 'READY', data = $2
 WHERE id = $1 AND state = 'CREATING'
 RETURNING *;
 
--- name: MarkAgentInstanceDeleted :one
-UPDATE agent_instance
-SET state = 'DELETED', prepared_revision = NULL, data = $2
-WHERE id = $1 AND state <> 'DELETED'
-RETURNING *;
+-- name: DeleteAgentInstance :exec
+DELETE FROM agent_instance WHERE id = $1;
 
 -- name: RecordAgentInstanceActorUID :one
 UPDATE agent_instance

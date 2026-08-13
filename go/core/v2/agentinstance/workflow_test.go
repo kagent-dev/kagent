@@ -43,7 +43,7 @@ func TestActorWorkflowCreatesAndDeletesActor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deleted.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED || len(actors.actors) != 0 {
+	if deleted.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED || store.instance != nil || len(actors.actors) != 0 {
 		t.Fatalf("deleted instance = %+v, actors = %v", deleted, actors.actors)
 	}
 }
@@ -64,10 +64,9 @@ func (s *lifecycleTestStore) MarkAgentInstanceReady(_ context.Context, _ string,
 	return s.instance, nil
 }
 
-func (s *lifecycleTestStore) MarkAgentInstanceDeleted(context.Context, string) (*apiv1alpha1.AgentInstance, error) {
-	s.instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED
-	s.instance.PreparedRevision = ""
-	return s.instance, nil
+func (s *lifecycleTestStore) DeleteAgentInstance(context.Context, string) error {
+	s.instance = nil
+	return nil
 }
 
 func (s *lifecycleTestStore) RecordAgentInstanceActorUID(_ context.Context, _ string, uid string) (string, error) {

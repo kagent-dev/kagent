@@ -11,6 +11,7 @@ import (
 type Querier interface {
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
 	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
+	DeleteAgentInstance(ctx context.Context, id string) error
 	DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error)
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
@@ -81,7 +82,6 @@ type Querier interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
-	MarkAgentInstanceDeleted(ctx context.Context, arg MarkAgentInstanceDeletedParams) (AgentInstance, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RecordAgentInstanceActorUID(ctx context.Context, arg RecordAgentInstanceActorUIDParams) (string, error)

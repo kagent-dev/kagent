@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS agent_instance (
     state TEXT NOT NULL,
     labels JSONB NOT NULL DEFAULT '{}',
     data BYTEA NOT NULL,
-    CHECK (state IN ('CREATING', 'READY', 'SUSPENDED', 'FAILED', 'DELETING', 'DELETED')),
+    CHECK (state IN ('CREATING', 'READY', 'SUSPENDED', 'FAILED')),
     UNIQUE (user_id, namespace, request_id)
 );
 
@@ -21,7 +21,7 @@ CREATE INDEX IF NOT EXISTS agent_instance_namespace_user_id_id_idx
 CREATE TABLE IF NOT EXISTS agent_instance_share (
     id TEXT PRIMARY KEY,
     namespace TEXT NOT NULL,
-    instance_id TEXT NOT NULL REFERENCES agent_instance(id) ON DELETE RESTRICT,
+    instance_id TEXT NOT NULL REFERENCES agent_instance(id) ON DELETE CASCADE,
     creator TEXT NOT NULL,
     permission TEXT NOT NULL,
     token_hash BYTEA NOT NULL UNIQUE,

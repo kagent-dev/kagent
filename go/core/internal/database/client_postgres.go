@@ -587,32 +587,11 @@ func (c *postgresClient) MarkAgentInstanceReady(ctx context.Context, id, authori
 	return toAgentInstance(row)
 }
 
-func (c *postgresClient) MarkAgentInstanceDeleted(ctx context.Context, id string) (*apiv1alpha1.AgentInstance, error) {
-	row, err := c.q.GetAgentInstanceByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("get AgentInstance %s before deleted: %w", id, notFoundOr(err))
+func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) error {
+	if err := c.q.DeleteAgentInstance(ctx, id); err != nil {
+		return fmt.Errorf("delete AgentInstance %s: %w", id, err)
 	}
-	instance, err := toAgentInstance(row)
-	if err != nil || instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
-		return instance, err
-	}
-	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED
-	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
-	instance.PreparedRevision = ""
-	instance.A2AAuthority = ""
-	instance.UpdatedAt = timestamppb.Now()
-	data, err := marshalAgentInstance(instance)
-	if err != nil {
-		return nil, err
-	}
-	row, err = c.q.MarkAgentInstanceDeleted(ctx, dbgen.MarkAgentInstanceDeletedParams{ID: id, Data: data})
-	if errors.Is(err, pgx.ErrNoRows) {
-		row, err = c.q.GetAgentInstanceByID(ctx, id)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("mark AgentInstance %s deleted: %w", id, notFoundOr(err))
-	}
-	return toAgentInstance(row)
+	return nil
 }
 
 func (c *postgresClient) RecordAgentInstanceActorUID(ctx context.Context, instanceID, actorUID string) (string, error) {

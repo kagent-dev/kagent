@@ -180,16 +180,12 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 	if err != nil {
 		return nil, "", err
 	}
-	instance, err := s.store.GetAgentInstance(ctx, namespace, instanceID, creator)
+	_, err = s.store.GetAgentInstance(ctx, namespace, instanceID, creator)
 	if err != nil {
 		if errors.Is(err, dbpkg.ErrNotFound) {
 			return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
 		}
 		return nil, "", serviceerrors.NewInternal("Failed to get AgentInstance", err)
-	}
-	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETING ||
-		instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
-		return nil, "", serviceerrors.NewFailedPrecondition("Deleted AgentInstances cannot be shared", nil)
 	}
 	token, tokenHash, err := generateShareToken()
 	if err != nil {

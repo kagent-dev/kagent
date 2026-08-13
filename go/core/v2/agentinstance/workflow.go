@@ -16,7 +16,7 @@ import (
 type workflowStore interface {
 	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
-	MarkAgentInstanceDeleted(context.Context, string) (*apiv1alpha1.AgentInstance, error)
+	DeleteAgentInstance(context.Context, string) error
 	RecordAgentInstanceActorUID(context.Context, string, string) (string, error)
 }
 
@@ -101,9 +101,6 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 }
 
 func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
-		return instance, nil
-	}
 	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
 	if err != nil {
 		return nil, fmt.Errorf("load prepared revision: %w", err)
@@ -145,10 +142,13 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 }
 
 func (w *ActorWorkflow) finishDelete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	instance, err := w.store.MarkAgentInstanceDeleted(ctx, instance.GetId())
-	if err != nil {
-		return nil, fmt.Errorf("mark AgentInstance deleted: %w", err)
+	if err := w.store.DeleteAgentInstance(ctx, instance.GetId()); err != nil {
+		return nil, fmt.Errorf("delete AgentInstance: %w", err)
 	}
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED
+	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
+	instance.PreparedRevision = ""
+	instance.A2AAuthority = ""
 	// TODO: Trigger runtime revision garbage collection outside the AgentInstance delete workflow.
 	return instance, nil
 }

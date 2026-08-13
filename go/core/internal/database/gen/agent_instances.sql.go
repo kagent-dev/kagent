@@ -48,6 +48,15 @@ func (q *Queries) CreateAgentInstanceShare(ctx context.Context, arg CreateAgentI
 	return i, err
 }
 
+const deleteAgentInstance = `-- name: DeleteAgentInstance :exec
+DELETE FROM agent_instance WHERE id = $1
+`
+
+func (q *Queries) DeleteAgentInstance(ctx context.Context, id string) error {
+	_, err := q.db.Exec(ctx, deleteAgentInstance, id)
+	return err
+}
+
 const deleteAgentInstanceShare = `-- name: DeleteAgentInstanceShare :execrows
 DELETE FROM agent_instance_share s
 USING agent_instance i
@@ -342,35 +351,6 @@ func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstances
 		return nil, err
 	}
 	return items, nil
-}
-
-const markAgentInstanceDeleted = `-- name: MarkAgentInstanceDeleted :one
-UPDATE agent_instance
-SET state = 'DELETED', prepared_revision = NULL, data = $2
-WHERE id = $1 AND state <> 'DELETED'
-RETURNING id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data
-`
-
-type MarkAgentInstanceDeletedParams struct {
-	ID   string
-	Data []byte
-}
-
-func (q *Queries) MarkAgentInstanceDeleted(ctx context.Context, arg MarkAgentInstanceDeletedParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, markAgentInstanceDeleted, arg.ID, arg.Data)
-	var i AgentInstance
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.UserID,
-		&i.RequestID,
-		&i.PreparedRevision,
-		&i.ActorUid,
-		&i.State,
-		&i.Labels,
-		&i.Data,
-	)
-	return i, err
 }
 
 const markAgentInstanceReady = `-- name: MarkAgentInstanceReady :one
