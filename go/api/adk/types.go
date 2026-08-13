@@ -266,10 +266,10 @@ type Bedrock struct {
 	// PromptCaching enables Bedrock prompt caching by appending a CachePoint
 	// block to the end of the system content array and the end of the
 	// toolConfig.tools array in the Converse request. See the
-	// v1alpha2.BedrockConfig CRD doc for context.
+	// v1alpha3.BedrockConfig CRD doc for context.
 	PromptCaching bool `json:"prompt_caching,omitempty"`
 	// CacheTTL selects the cache retention window when PromptCaching is on:
-	// "5m" (default) or "1h". See the v1alpha2.BedrockConfig CRD doc for the
+	// "5m" (default) or "1h". See the v1alpha3.BedrockConfig CRD doc for the
 	// cost/compatibility trade-offs of "1h".
 	CacheTTL  string            `json:"cache_ttl,omitempty"`
 	Guardrail *BedrockGuardrail `json:"guardrail,omitempty"`

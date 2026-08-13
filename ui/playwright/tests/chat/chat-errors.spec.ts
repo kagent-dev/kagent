@@ -10,8 +10,8 @@ import { firstReadyAgent } from "../../helpers/resources";
 const USER_MESSAGE = "List the pods please";
 const AGENT_REPLY = "Hello from the agent";
 
-test("chat: stream error and missing session", async ({ page, request }) => {
-  const agent = await firstReadyAgent(request);
+test("chat: stream error and missing session", async ({ page }) => {
+  const agent = await firstReadyAgent();
 
   // region Sending — a broken stream surfaces an error toast, no reply
   await test.step("surfaces an error when the stream fails", async () => {

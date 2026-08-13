@@ -32,7 +32,7 @@ export function AgentSwitcher({ currentAgent, allAgents }: AgentSwitcherProps) {
   );
 
   const filteredAgentResponses = agentResponses.filter(
-    ({ deploymentReady, accepted }) => accepted && deploymentReady
+    ({ ready, accepted }) => accepted && ready
   );
 
   return (

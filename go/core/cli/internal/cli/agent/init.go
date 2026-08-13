@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
@@ -95,10 +95,10 @@ func InitCmd(cfg *InitCfg) error {
 
 // validateModelProvider checks if the provided model provider is supported
 func validateModelProvider(provider string) error {
-	switch v1alpha2.ModelProvider(provider) {
-	case v1alpha2.ModelProviderOpenAI,
-		v1alpha2.ModelProviderAnthropic,
-		v1alpha2.ModelProviderGemini:
+	switch v1alpha3.ModelProvider(provider) {
+	case v1alpha3.ModelProviderOpenAI,
+		v1alpha3.ModelProviderAnthropic,
+		v1alpha3.ModelProviderGemini:
 		return nil
 	default:
 		return fmt.Errorf("unsupported model provider: %s. Supported providers: OpenAI, Anthropic, Gemini", provider)

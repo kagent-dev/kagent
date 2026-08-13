@@ -15,7 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
@@ -29,12 +29,12 @@ type fakeSubstrateLifecycle struct {
 	cleanupCalls int
 }
 
-func (f *fakeSubstrateLifecycle) EnsureGeneratedTemplate(_ context.Context, _ *v1alpha2.AgentHarness) (substrate.LifecycleState, error) {
+func (f *fakeSubstrateLifecycle) EnsureGeneratedTemplate(_ context.Context, _ *v1alpha3.AgentHarness) (substrate.LifecycleState, error) {
 	f.ensureCalls++
 	return f.state, f.ensureErr
 }
 
-func (f *fakeSubstrateLifecycle) CleanupGeneratedTemplate(_ context.Context, _ *v1alpha2.AgentHarness) (bool, error) {
+func (f *fakeSubstrateLifecycle) CleanupGeneratedTemplate(_ context.Context, _ *v1alpha3.AgentHarness) (bool, error) {
 	f.cleanupCalls++
 	return f.cleanupDone, f.cleanupErr
 }
@@ -45,7 +45,7 @@ type fakeSessionActorCleaner struct {
 	calls int
 }
 
-func (f *fakeSessionActorCleaner) DeleteAllAgentHarnessActors(_ context.Context, _ *v1alpha2.AgentHarness) (bool, error) {
+func (f *fakeSessionActorCleaner) DeleteAllAgentHarnessActors(_ context.Context, _ *v1alpha3.AgentHarness) (bool, error) {
 	f.calls++
 	return f.done, f.err
 }
@@ -66,11 +66,11 @@ type fakeAgentHarnessBackend struct {
 	readyErr   error
 }
 
-func (f *fakeAgentHarnessBackend) Name() v1alpha2.AgentHarnessBackendType {
-	return v1alpha2.AgentHarnessBackendOpenClaw
+func (f *fakeAgentHarnessBackend) Name() v1alpha3.AgentHarnessBackendType {
+	return v1alpha3.AgentHarnessBackendOpenClaw
 }
 
-func (f *fakeAgentHarnessBackend) EnsureAgentHarness(context.Context, *v1alpha2.AgentHarness) (sandboxbackend.EnsureResult, error) {
+func (f *fakeAgentHarnessBackend) EnsureAgentHarness(context.Context, *v1alpha3.AgentHarness) (sandboxbackend.EnsureResult, error) {
 	f.ensureCalls++
 	id := f.ensureHandle
 	if id == "" {
@@ -99,7 +99,7 @@ func (f *fakeAgentHarnessBackend) DeleteAgentHarness(context.Context, sandboxbac
 	return f.deleteDone, f.deleteErr
 }
 
-func (f *fakeAgentHarnessBackend) OnAgentHarnessReady(context.Context, *v1alpha2.AgentHarness, sandboxbackend.Handle) error {
+func (f *fakeAgentHarnessBackend) OnAgentHarnessReady(context.Context, *v1alpha3.AgentHarness, sandboxbackend.Handle) error {
 	f.readyCalls++
 	return f.readyErr
 }
@@ -120,10 +120,10 @@ func TestAgentHarnessController_SubstrateWaitsForGeneratedTemplate(t *testing.T)
 	require.Zero(t, backend.ensureCalls, "actor backend must not run before ActorTemplate is ready")
 
 	latest := getAgentHarness(t, controller.Client, ah)
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue, "SubstrateLifecyclePending")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorTemplateReady, metav1.ConditionFalse, "NotReady")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionFalse, "ActorNotCreated")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse, "ActorTemplateNotReady")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue, "SubstrateLifecyclePending")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeActorTemplateReady, metav1.ConditionFalse, "NotReady")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeActorReady, metav1.ConditionFalse, "ActorNotCreated")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeReady, metav1.ConditionFalse, "ActorTemplateNotReady")
 }
 
 func TestAgentHarnessController_SubstrateLifecycleErrorSetsStatus(t *testing.T) {
@@ -141,8 +141,8 @@ func TestAgentHarnessController_SubstrateLifecycleErrorSetsStatus(t *testing.T) 
 	require.Zero(t, backend.ensureCalls)
 
 	latest := getAgentHarness(t, controller.Client, ah)
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse, "SubstrateLifecycleFailed")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse, "SubstrateLifecycleFailed")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse, "SubstrateLifecycleFailed")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeReady, metav1.ConditionFalse, "SubstrateLifecycleFailed")
 }
 
 func TestAgentHarnessController_SubstrateReadyMarksTemplateReady(t *testing.T) {
@@ -163,10 +163,10 @@ func TestAgentHarnessController_SubstrateReadyMarksTemplateReady(t *testing.T) {
 
 	latest := getAgentHarness(t, controller.Client, ah)
 	require.Nil(t, latest.Status.BackendRef, "template harness has no persistent actor backend ref")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue, "AgentHarnessAccepted")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorTemplateReady, metav1.ConditionTrue, "Ready")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue, "TemplateReady")
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionTrue, "TemplateReady")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue, "AgentHarnessAccepted")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeActorTemplateReady, metav1.ConditionTrue, "Ready")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue, "TemplateReady")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeReady, metav1.ConditionTrue, "TemplateReady")
 
 	result, err = controller.Reconcile(ctx, ctrl.Request{NamespacedName: client.ObjectKeyFromObject(ah)})
 	require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestAgentHarnessController_SubstrateReadyMarksTemplateReady(t *testing.T) {
 func TestAgentHarnessController_SubstrateDeleteWaitsForActorBeforeTemplateCleanup(t *testing.T) {
 	ctx := context.Background()
 	ah := newDeletingSubstrateHarness("kagent", "claw")
-	ah.Status.BackendRef = &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenClaw, ID: "actor-1"}
+	ah.Status.BackendRef = &v1alpha3.AgentHarnessStatusRef{Backend: v1alpha3.AgentHarnessBackendOpenClaw, ID: "actor-1"}
 	controller := newAgentHarnessTestController(t, ah)
 	lifecycle := &fakeSubstrateLifecycle{cleanupDone: true}
 	cleaner := &fakeSessionActorCleaner{done: false}
@@ -192,14 +192,14 @@ func TestAgentHarnessController_SubstrateDeleteWaitsForActorBeforeTemplateCleanu
 
 	latest := getAgentHarness(t, controller.Client, ah)
 	require.NotNil(t, latest.Status.BackendRef)
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionFalse, "ActorDeleting")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeActorReady, metav1.ConditionFalse, "ActorDeleting")
 	require.Contains(t, latest.Finalizers, agentHarnessFinalizer)
 }
 
 func TestAgentHarnessController_SubstrateDeleteWaitsForGeneratedTemplateCleanup(t *testing.T) {
 	ctx := context.Background()
 	ah := newDeletingSubstrateHarness("kagent", "claw")
-	ah.Status.BackendRef = &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenClaw, ID: "actor-1"}
+	ah.Status.BackendRef = &v1alpha3.AgentHarnessStatusRef{Backend: v1alpha3.AgentHarnessBackendOpenClaw, ID: "actor-1"}
 	controller := newAgentHarnessTestController(t, ah)
 	lifecycle := &fakeSubstrateLifecycle{cleanupDone: false}
 	cleaner := &fakeSessionActorCleaner{done: true}
@@ -214,14 +214,14 @@ func TestAgentHarnessController_SubstrateDeleteWaitsForGeneratedTemplateCleanup(
 
 	latest := getAgentHarness(t, controller.Client, ah)
 	require.Nil(t, latest.Status.BackendRef)
-	requireCondition(t, latest, v1alpha2.AgentHarnessConditionTypeActorTemplateReady, metav1.ConditionFalse, "GoldenActorDeleting")
+	requireCondition(t, latest, v1alpha3.AgentHarnessConditionTypeActorTemplateReady, metav1.ConditionFalse, "GoldenActorDeleting")
 	require.Contains(t, latest.Finalizers, agentHarnessFinalizer)
 }
 
 func TestAgentHarnessController_SubstrateDeleteRemovesFinalizerAfterCleanup(t *testing.T) {
 	ctx := context.Background()
 	ah := newDeletingSubstrateHarness("kagent", "claw")
-	ah.Status.BackendRef = &v1alpha2.AgentHarnessStatusRef{Backend: v1alpha2.AgentHarnessBackendOpenClaw, ID: "actor-1"}
+	ah.Status.BackendRef = &v1alpha3.AgentHarnessStatusRef{Backend: v1alpha3.AgentHarnessBackendOpenClaw, ID: "actor-1"}
 	controller := newAgentHarnessTestController(t, ah)
 	lifecycle := &fakeSubstrateLifecycle{cleanupDone: true}
 	cleaner := &fakeSessionActorCleaner{done: true}
@@ -234,7 +234,7 @@ func TestAgentHarnessController_SubstrateDeleteRemovesFinalizerAfterCleanup(t *t
 	require.Equal(t, 1, cleaner.calls)
 	require.Equal(t, 1, lifecycle.cleanupCalls)
 
-	var latest v1alpha2.AgentHarness
+	var latest v1alpha3.AgentHarness
 	err = controller.Client.Get(ctx, client.ObjectKeyFromObject(ah), &latest)
 	require.True(t, apierrors.IsNotFound(err), "fake client should complete deletion after finalizer removal")
 }
@@ -242,47 +242,47 @@ func TestAgentHarnessController_SubstrateDeleteRemovesFinalizerAfterCleanup(t *t
 func newAgentHarnessTestController(t *testing.T, objects ...client.Object) *SubstrateAgentHarnessController {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	kube := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithObjects(objects...).
-		WithStatusSubresource(&v1alpha2.AgentHarness{}).
+		WithStatusSubresource(&v1alpha3.AgentHarness{}).
 		Build()
 	return &SubstrateAgentHarnessController{Client: kube}
 }
 
 func setSubstrateTestBackend(c *SubstrateAgentHarnessController, b sandboxbackend.AsyncBackend) {
-	c.Backends = map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
-		v1alpha2.AgentHarnessBackendOpenClaw: b,
+	c.Backends = map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend{
+		v1alpha3.AgentHarnessBackendOpenClaw: b,
 	}
 }
 
-func newSubstrateHarness(namespace, name string) *v1alpha2.AgentHarness {
-	return &v1alpha2.AgentHarness{
-		TypeMeta: metav1.TypeMeta{APIVersion: v1alpha2.GroupVersion.String(), Kind: "AgentHarness"},
+func newSubstrateHarness(namespace, name string) *v1alpha3.AgentHarness {
+	return &v1alpha3.AgentHarness{
+		TypeMeta: metav1.TypeMeta{APIVersion: v1alpha3.GroupVersion.String(), Kind: "AgentHarness"},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       name,
 			Namespace:  namespace,
 			Generation: 1,
 			Finalizers: []string{agentHarnessFinalizer},
 		},
-		Spec: v1alpha2.AgentHarnessSpec{
-			Backend:   v1alpha2.AgentHarnessBackendOpenClaw,
-			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{},
+		Spec: v1alpha3.AgentHarnessSpec{
+			Backend:   v1alpha3.AgentHarnessBackendOpenClaw,
+			Substrate: &v1alpha3.AgentHarnessSubstrateSpec{},
 		},
 	}
 }
 
-func newDeletingSubstrateHarness(namespace, name string) *v1alpha2.AgentHarness {
+func newDeletingSubstrateHarness(namespace, name string) *v1alpha3.AgentHarness {
 	ah := newSubstrateHarness(namespace, name)
 	now := metav1.Now()
 	ah.DeletionTimestamp = &now
 	return ah
 }
 
-func getAgentHarness(t *testing.T, kube client.Client, ah *v1alpha2.AgentHarness) *v1alpha2.AgentHarness {
+func getAgentHarness(t *testing.T, kube client.Client, ah *v1alpha3.AgentHarness) *v1alpha3.AgentHarness {
 	t.Helper()
-	var latest v1alpha2.AgentHarness
+	var latest v1alpha3.AgentHarness
 	err := kube.Get(context.Background(), client.ObjectKeyFromObject(ah), &latest)
 	if apierrors.IsNotFound(err) {
 		t.Fatalf("AgentHarness %s unexpectedly not found", client.ObjectKeyFromObject(ah))
@@ -291,7 +291,7 @@ func getAgentHarness(t *testing.T, kube client.Client, ah *v1alpha2.AgentHarness
 	return &latest
 }
 
-func requireCondition(t *testing.T, ah *v1alpha2.AgentHarness, conditionType string, status metav1.ConditionStatus, reason string) {
+func requireCondition(t *testing.T, ah *v1alpha3.AgentHarness, conditionType string, status metav1.ConditionStatus, reason string) {
 	t.Helper()
 	condition := meta.FindStatusCondition(ah.Status.Conditions, conditionType)
 	require.NotNil(t, condition, "missing condition %s", conditionType)

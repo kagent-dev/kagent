@@ -146,13 +146,13 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
 
   const renderSelectedTools = () => (
     <div className="space-y-2">
-      {selectedTools.flatMap((agentTool: Tool) => {
+      {selectedTools.flatMap((agentTool: Tool, toolIndex: number) => {
         const parentToolIdentifier = getToolIdentifier(agentTool);
 
         if (isMcpTool(agentTool)) {
           const mcpTool = agentTool as Tool;
           return mcpTool.mcpServer?.toolNames.map((mcpToolName: string) => {
-            const toolIdentifierForDisplay = `${parentToolIdentifier}::${mcpToolName}`;
+            const toolIdentifierForDisplay = `${toolIndex}::${parentToolIdentifier}::${mcpToolName}`;
             
             // Show server name with namespace for consistency
             const serverName = mcpTool.mcpServer?.name || "";
@@ -236,7 +236,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
           const displayName = getToolDisplayName(agentTool, currentAgentNamespace);
           const displayDescription = getToolDescription(agentTool, availableTools);
           const isAgent = isAgentTool(agentTool);
-          const isolateFieldId = `isolate-sessions-${parentToolIdentifier}`.replace(
+          const isolateFieldId = `isolate-sessions-${toolIndex}-${parentToolIdentifier}`.replace(
             /[^a-zA-Z0-9_-]/g,
             "_",
           );
@@ -253,7 +253,7 @@ export const ToolsSection = ({ selectedTools, setSelectedTools, isSubmitting, on
           }
 
           return [( // flatMap expects an array
-            <Card key={parentToolIdentifier}>
+            <Card key={`${toolIndex}-${parentToolIdentifier}`}>
               <CardContent className="space-y-1.5 p-3">
                 <div className="flex min-w-0 items-start gap-2">
                   <CurrentIcon className={`mt-0.5 h-4 w-4 shrink-0 ${currentIconColor}`} />

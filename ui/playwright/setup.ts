@@ -16,6 +16,7 @@ const PID_FILE = path.join(__dirname, ".e2e-pids.json");
 const KUBE_CONTEXT = process.env.KUBE_CONTEXT || "kind-kagent";
 const NAMESPACE = process.env.KUBE_NAMESPACE || "kagent";
 const CONTROLLER_SERVICE = "kagent-controller";
+const GRPC_PORT = 8084;
 
 const READY_TIMEOUT_MS = 60_000;
 const PROBE_INTERVAL_MS = 2_000;
@@ -73,7 +74,11 @@ function waitForBackend(
 
 export default async function globalSetup() {
   console.log("\n=== E2E: port-forward kagent-controller ===");
-  console.log(`context=${KUBE_CONTEXT} ns=${NAMESPACE} ${LOCAL_PORT} -> ${CONTROLLER_SERVICE}:${CONTROLLER_PORT}`);
+  console.log(
+    `context=${KUBE_CONTEXT} ns=${NAMESPACE} ` +
+      `${LOCAL_PORT} -> ${CONTROLLER_SERVICE}:${CONTROLLER_PORT}, ` +
+      `${GRPC_PORT} -> ${CONTROLLER_SERVICE}:${GRPC_PORT}`,
+  );
 
   const pf = spawn(
     "kubectl",
@@ -85,6 +90,7 @@ export default async function globalSetup() {
       "--context",
       KUBE_CONTEXT,
       `${LOCAL_PORT}:${CONTROLLER_PORT}`,
+      `${GRPC_PORT}:${GRPC_PORT}`,
     ],
     { stdio: "pipe", detached: true },
   );

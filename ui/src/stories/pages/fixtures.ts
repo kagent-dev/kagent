@@ -41,7 +41,7 @@ export const storyAgentResponses: AgentResponse[] = [
         mcpServer: { name: "cluster-tools", namespace: "kagent", toolNames: ["kubectl_get"] },
       },
     ],
-    deploymentReady: true,
+    ready: true,
     accepted: true,
   },
   {
@@ -57,7 +57,7 @@ export const storyAgentResponses: AgentResponse[] = [
     modelProvider: "anthropic",
     modelConfigRef: "team-a/anthropic",
     tools: [],
-    deploymentReady: false,
+    ready: false,
     accepted: true,
   },
 ];

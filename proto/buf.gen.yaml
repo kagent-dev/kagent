@@ -1,0 +1,41 @@
+version: v2
+# Keep the hand-written a2a_pb2 compatibility shim in the shared Python output.
+clean: false
+inputs:
+  - directory: .
+    exclude_paths:
+      - a2a.proto
+plugins:
+  - remote: buf.build/protocolbuffers/go:v1.36.11
+    out: ../go/api/gen
+    opt:
+      - paths=source_relative
+      - Ma2a.proto=github.com/a2aproject/a2a-go/v2/a2apb/v1
+  - remote: buf.build/grpc/go:v1.6.2
+    out: ../go/api/gen
+    opt:
+      - paths=source_relative
+      - Ma2a.proto=github.com/a2aproject/a2a-go/v2/a2apb/v1
+  - remote: buf.build/bufbuild/es:v2.13.0
+    out: ../ui/src/generated
+    opt:
+      - target=ts
+    include_imports: true
+  - remote: buf.build/protocolbuffers/python:v33.5
+    out: ../python/packages/kagent-proto/src
+    types:
+      - kagent.api.v1alpha1.MemoryService
+      - kagent.api.v1alpha1.SessionService
+      - kagent.api.v1alpha1.TaskStoreService
+  - remote: buf.build/protocolbuffers/pyi:v33.5
+    out: ../python/packages/kagent-proto/src
+    types:
+      - kagent.api.v1alpha1.MemoryService
+      - kagent.api.v1alpha1.SessionService
+      - kagent.api.v1alpha1.TaskStoreService
+  - remote: buf.build/grpc/python:v1.83.0
+    out: ../python/packages/kagent-proto/src
+    types:
+      - kagent.api.v1alpha1.MemoryService
+      - kagent.api.v1alpha1.SessionService
+      - kagent.api.v1alpha1.TaskStoreService

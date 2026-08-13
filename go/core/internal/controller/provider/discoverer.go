@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	v1alpha2 "github.com/kagent-dev/kagent/go/api/v1alpha2"
+	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -59,11 +59,11 @@ type openAIModelsResponse struct {
 
 // DiscoverModels calls the provider's models endpoint and returns available model IDs.
 // Most providers use OpenAI-compatible /v1/models, but auth headers vary by provider.
-func (d *ModelDiscoverer) DiscoverModels(ctx context.Context, providerType v1alpha2.ModelProvider, endpoint, apiKey string) ([]string, error) {
+func (d *ModelDiscoverer) DiscoverModels(ctx context.Context, providerType v1alpha3.ModelProvider, endpoint, apiKey string) ([]string, error) {
 	logger := log.FromContext(ctx).WithName("model-discoverer")
 
 	// Ollama has a completely different API - delegate to specialized function
-	if providerType == v1alpha2.ModelProviderOllama {
+	if providerType == v1alpha3.ModelProviderOllama {
 		logger.V(1).Info("Discovering models from Ollama", "endpoint", endpoint)
 		return d.discoverOllamaModels(ctx, endpoint)
 	}
@@ -103,13 +103,13 @@ func (d *ModelDiscoverer) DiscoverModels(ctx context.Context, providerType v1alp
 }
 
 // setAuthHeaders sets the appropriate authentication headers based on provider type.
-func (d *ModelDiscoverer) setAuthHeaders(req *http.Request, providerType v1alpha2.ModelProvider, apiKey string) {
+func (d *ModelDiscoverer) setAuthHeaders(req *http.Request, providerType v1alpha3.ModelProvider, apiKey string) {
 	switch providerType {
-	case v1alpha2.ModelProviderAnthropic, v1alpha2.ModelProviderAnthropicVertexAI:
+	case v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderAnthropicVertexAI:
 		// Anthropic uses x-api-key header
 		req.Header.Set("x-api-key", apiKey)
 		req.Header.Set("anthropic-version", "2023-06-01")
-	case v1alpha2.ModelProviderGemini, v1alpha2.ModelProviderGeminiVertexAI:
+	case v1alpha3.ModelProviderGemini, v1alpha3.ModelProviderGeminiVertexAI:
 		// Google uses query parameter for API key (handled in URL) or Bearer token
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	default:
@@ -143,25 +143,25 @@ func (d *ModelDiscoverer) parseModelsResponse(resp *http.Response) ([]string, er
 
 // buildModelsURL constructs the models endpoint URL based on provider type.
 // Note: Ollama is handled separately via DiscoverOllamaModels.
-func buildModelsURL(endpoint string, providerType v1alpha2.ModelProvider) string {
+func buildModelsURL(endpoint string, providerType v1alpha3.ModelProvider) string {
 	endpoint = strings.TrimSuffix(endpoint, "/")
 
 	switch providerType {
-	case v1alpha2.ModelProviderAnthropic:
+	case v1alpha3.ModelProviderAnthropic:
 		// Anthropic: https://api.anthropic.com/v1/models
 		if strings.HasSuffix(endpoint, "/v1") {
 			return endpoint + "/models"
 		}
 		return endpoint + "/v1/models"
 
-	case v1alpha2.ModelProviderGemini:
+	case v1alpha3.ModelProviderGemini:
 		// Google AI: https://generativelanguage.googleapis.com/v1beta/models
 		if strings.Contains(endpoint, "generativelanguage.googleapis.com") {
 			return endpoint + "/v1beta/models"
 		}
 		return endpoint + "/v1/models"
 
-	case v1alpha2.ModelProviderGeminiVertexAI, v1alpha2.ModelProviderAnthropicVertexAI:
+	case v1alpha3.ModelProviderGeminiVertexAI, v1alpha3.ModelProviderAnthropicVertexAI:
 		// Vertex AI has different discovery patterns - may not be supported
 		return endpoint + "/v1/models"
 

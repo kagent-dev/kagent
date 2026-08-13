@@ -9,11 +9,11 @@ const base: AgentResponse = {
   modelProvider: "openai",
   modelConfigRef: "",
   tools: [],
-  deploymentReady: true,
+  ready: true,
   accepted: true,
 };
 
-function toolMcp(names?: string[]): Tool {
+function toolMcp(names: string[] = []): Tool {
   return {
     type: "McpServer",
     mcpServer: { name: "srv", namespace: "ns", toolNames: names, kind: "ToolServer" },

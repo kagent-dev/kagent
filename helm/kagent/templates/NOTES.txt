@@ -11,10 +11,14 @@ ACCESSING THE UI:
   2. Open your browser and visit:
      http://localhost:8080
 
-ACCESSING THE CONTROLLER API:
-  kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ include "kagent.fullname" . }}-controller {{ .Values.controller.service.ports.port }}:{{ .Values.controller.service.ports.port }}
+ACCESSING THE CONTROLLER APPLICATION API (gRPC):
+  kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ include "kagent.fullname" . }}-controller {{ .Values.controller.service.ports.grpc }}:{{ .Values.controller.service.ports.grpc }}
 
-  API endpoint: http://localhost:{{ .Values.controller.service.ports.port }}/api
+  gRPC endpoint: localhost:{{ .Values.controller.service.ports.grpc }}
+
+The controller HTTP port {{ .Values.controller.service.ports.port }} remains for A2A, MCP, ACP,
+health, and other protocol-native or operational endpoints. It does not expose
+the kagent application REST API.
 
 DEPLOYED COMPONENTS:
   - Controller: {{ include "kagent.fullname" . }}-controller (manages Kubernetes resources)
@@ -28,20 +32,11 @@ ENABLED TOOLS:
 {{- if index .Values "kagent-tools" "enabled" }}
   - Tool Server: Kagent's Built-in tools
 {{- end }}
-{{- if and (index .Values "grafana-mcp" "enabled") (index .Values "observability-agent" "enabled") }}
+{{- if index .Values "grafana-mcp" "enabled" }}
   - Tool Server: Grafana MCP
 {{- end }}
 {{- if .Values.querydoc.enabled }}
   - Tool Server: QueryDoc
-{{- end }}
-
-ENABLED AGENTS:
-{{- $agents := list "k8s-agent" "kgateway-agent" "istio-agent" "promql-agent" "observability-agent" "argo-rollouts-agent" "helm-agent" "cilium-policy-agent" "cilium-manager-agent" "cilium-debug-agent" }}
-{{- range $agent := $agents }}
-{{- $config := index $.Values $agent }}
-{{- if and $config (ne ($config.enabled | toString) "false") }}
-  - {{ $agent }}
-{{- end }}
 {{- end }}
 
 USEFUL COMMANDS:
@@ -102,6 +97,24 @@ DOCUMENTATION:
   to start if it is not.
 
   Ensure migrations are applied out-of-band before installing or upgrading.
+{{- end }}
+{{- range $component := (list "controller" "ui") }}
+{{- $cfg := index $.Values $component }}
+{{- $pdb := $cfg.pdb | default dict }}
+{{- if and $pdb.enabled (include "kagent.pdb.isSet" $pdb.minAvailable) (le (int $cfg.replicas) (int $pdb.minAvailable)) }}
+################################################################################
+{{ printf "# WARNING: %s PODDISRUPTIONBUDGET WILL BLOCK NODE DRAINS" (upper $component) | printf "%-79s" }}#
+################################################################################
+  {{ $component }}.pdb.minAvailable is {{ $pdb.minAvailable }} but {{ $component }}.replicas is {{ $cfg.replicas }}.
+  The budget can never be satisfied while a pod is evicted, so every voluntary
+  eviction is refused and node drains and cluster upgrades will hang.
+
+  Either raise the replica count:
+    {{ $component }}.replicas={{ add (int $pdb.minAvailable) 1 }}
+  or switch to maxUnavailable:
+    {{ $component }}.pdb.minAvailable=null {{ $component }}.pdb.maxUnavailable=1
+
+{{ end }}
 {{- end }}
 {{- if .Values.substrate.enabled }}
 ################################################################################

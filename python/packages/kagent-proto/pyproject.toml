@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kagent-proto"
+version = "0.1.0"
+description = "Generated protobuf and gRPC contracts used by kagent Python runtimes"
+requires-python = ">=3.11"
+dependencies = [
+  "a2a-sdk>=1.1.0,<2",
+  "grpcio>=1.83.0",
+  "protobuf>=6.33.5,<7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kagent"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/a2a_pb2.py" = "a2a_pb2.py"
+"src/a2a_pb2.pyi" = "a2a_pb2.pyi"

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"iter"
 	"net/http"
 	"net/http/httptest"
@@ -11,11 +12,16 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 )
@@ -47,6 +53,116 @@ func (substrateExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 
 func (substrateExecutor) Cancel(context.Context, *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {}
+}
+
+func startTestServer(t *testing.T) (*httptest.Server, *grpc.ClientConn) {
+	t.Helper()
+
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, logr.Discard(), ServerConfig{Port: "0"})
+	if err != nil {
+		t.Fatalf("NewA2AServer: %v", err)
+	}
+
+	testServer := httptest.NewUnstartedServer(srv.httpServer.Handler)
+	testServer.Config.Protocols = srv.httpServer.Protocols
+	testServer.Start()
+	conn, err := grpc.NewClient(testServer.Listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("create gRPC client: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close()
+		srv.grpcServer.Stop()
+		testServer.Close()
+	})
+	return testServer, conn
+}
+
+func TestHTTPAndGRPCHealthSharePort(t *testing.T) {
+	testServer, conn := startTestServer(t)
+
+	resp, err := testServer.Client().Get(testServer.URL + "/healthz")
+	if err != nil {
+		t.Fatalf("GET /healthz: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /healthz status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	health, err := grpc_health_v1.NewHealthClient(conn).Check(t.Context(), &grpc_health_v1.HealthCheckRequest{
+		Service: a2apb.A2AService_ServiceDesc.ServiceName,
+	})
+	if err != nil {
+		t.Fatalf("gRPC health check: %v", err)
+	}
+	if health.GetStatus() != grpc_health_v1.HealthCheckResponse_SERVING {
+		t.Errorf("gRPC health status = %s, want SERVING", health.GetStatus())
+	}
+}
+
+func TestGRPCAndJSONRPCShareRequestHandler(t *testing.T) {
+	testServer, conn := startTestServer(t)
+	client := a2apb.NewA2AServiceClient(conn)
+
+	pbReq, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{
+		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi")),
+	})
+	if err != nil {
+		t.Fatalf("convert request: %v", err)
+	}
+	result, err := client.SendMessage(t.Context(), pbReq)
+	if err != nil {
+		t.Fatalf("gRPC SendMessage: %v", err)
+	}
+	task := result.GetTask()
+	if task == nil {
+		t.Fatal("gRPC SendMessage did not return a task")
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      "1",
+		"method":  "GetTask",
+		"params":  &a2atype.GetTaskRequest{ID: a2atype.TaskID(task.GetId())},
+	})
+	if err != nil {
+		t.Fatalf("marshal GetTask: %v", err)
+	}
+	httpResp, err := testServer.Client().Post(testServer.URL, "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("JSON-RPC GetTask: %v", err)
+	}
+	defer httpResp.Body.Close()
+	var getTaskResp struct {
+		Result a2atype.Task `json:"result"`
+	}
+	if err := json.NewDecoder(httpResp.Body).Decode(&getTaskResp); err != nil {
+		t.Fatalf("decode GetTask response: %v", err)
+	}
+	if getTaskResp.Result.ID != a2atype.TaskID(task.GetId()) {
+		t.Errorf("JSON-RPC task ID = %q, want %q", getTaskResp.Result.ID, task.GetId())
+	}
+
+	stream, err := client.SendStreamingMessage(t.Context(), pbReq)
+	if err != nil {
+		t.Fatalf("gRPC SendStreamingMessage: %v", err)
+	}
+	var sawTask, sawStatus bool
+	for {
+		event, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("receive streaming response: %v", err)
+		}
+		sawTask = sawTask || event.GetTask() != nil
+		sawStatus = sawStatus || event.GetStatusUpdate() != nil
+	}
+	if !sawTask || !sawStatus {
+		t.Errorf("stream responses missing task or status update: sawTask=%t sawStatus=%t", sawTask, sawStatus)
+	}
 }
 
 // runA2ARequest builds a server against an in-memory batch exporter, serves
