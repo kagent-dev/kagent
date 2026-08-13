@@ -311,8 +311,11 @@ func (s *KagentMemoryService) extractSessionContent(session adksession.Session) 
 			// Get text content
 			text := part.Text
 			if text == "" && part.FunctionResponse != nil {
-				// TODO: Extract content from function response if needed
-				continue
+				responseJSON, err := json.Marshal(part.FunctionResponse.Response)
+				if err != nil || len(responseJSON) == 0 {
+					continue
+				}
+				text = fmt.Sprintf("[tool result from %s]: %s", part.FunctionResponse.Name, responseJSON)
 			}
 
 			if text != "" {

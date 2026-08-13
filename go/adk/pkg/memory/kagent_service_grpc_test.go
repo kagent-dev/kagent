@@ -268,6 +268,13 @@ func TestKagentMemoryServiceExtractSessionContent(t *testing.T) {
 			name:   "function call only",
 			events: []*adksession.Event{newMockEventWithFunctionCall("agent", "get_weather")},
 		},
+		{
+			name: "function response is extracted",
+			events: []*adksession.Event{
+				newMockEventWithFunctionResponse("agent", "get_weather", map[string]any{"temperature": 72, "condition": "sunny"}),
+			},
+			wantContent: `"condition":"sunny"`,
+		},
 	}
 
 	for _, test := range tests {
@@ -376,5 +383,16 @@ func newMockEvent(author, text string) *adksession.Event {
 func newMockEventWithFunctionCall(author, functionName string) *adksession.Event {
 	event := newMockEvent(author, "")
 	event.Content = &genai.Content{Role: author, Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: functionName}}}}
+	return event
+}
+
+func newMockEventWithFunctionResponse(author, functionName string, response map[string]any) *adksession.Event {
+	event := newMockEvent(author, "")
+	event.Content = &genai.Content{
+		Role: author,
+		Parts: []*genai.Part{{
+			FunctionResponse: &genai.FunctionResponse{Name: functionName, Response: response},
+		}},
+	}
 	return event
 }
