@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	ateclient "github.com/agent-substrate/substrate/pkg/client/clientset/versioned/typed/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/config/schema/kubeclient"
 	"istio.io/istio/pkg/kube"
@@ -25,15 +26,17 @@ import (
 // Collections contains the Kubernetes inputs used to resolve an AgentTemplate
 // and the template/harness pairs derived from Harness admission selectors.
 type Collections struct {
-	AgentTemplates   krt.Collection[*kagentv1alpha3.AgentTemplate]
-	Harnesses        krt.Collection[*kagentv1alpha3.Harness]
-	ModelConfigs     krt.Collection[*kagentv1alpha3.ModelConfig]
-	RemoteMCPServers krt.Collection[*kagentv1alpha3.RemoteMCPServer]
-	ConfigMaps       krt.Collection[*corev1.ConfigMap]
-	Secrets          krt.Collection[*corev1.Secret]
-	WorkerPools      krt.Collection[*atev1alpha1.WorkerPool]
-	ActorTemplates   krt.Collection[*atev1alpha1.ActorTemplate]
-	Pairs            krt.Collection[AgentTemplateHarnessPair]
+	AgentTemplates        krt.Collection[*kagentv1alpha3.AgentTemplate]
+	Harnesses             krt.Collection[*kagentv1alpha3.Harness]
+	ModelConfigs          krt.Collection[*kagentv1alpha3.ModelConfig]
+	RemoteMCPServers      krt.Collection[*kagentv1alpha3.RemoteMCPServer]
+	ConfigMaps            krt.Collection[*corev1.ConfigMap]
+	Secrets               krt.Collection[*corev1.Secret]
+	WorkerPools           krt.Collection[*atev1alpha1.WorkerPool]
+	ActorTemplates        krt.Collection[*atev1alpha1.ActorTemplate]
+	Pairs                 krt.Collection[AgentTemplateHarnessPair]
+	Reconciliations       krt.Collection[PairReconciliation]
+	AgentTemplateStatuses krt.StatusCollection[*kagentv1alpha3.AgentTemplate, kagentv1alpha3.AgentTemplateStatus]
 }
 
 // AgentTemplateHarnessPair is one same-namespace combination selected by a
@@ -50,7 +53,7 @@ func (p AgentTemplateHarnessPair) ResourceName() string {
 
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
-func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder) (Collections, error) {
+func NewCollections(client kube.Client, watchNamespaces []string, config CollectionConfig, opts krt.OptionsBuilder) (Collections, error) {
 	if err := registerCustomResources(client.RESTConfig()); err != nil {
 		return Collections{}, err
 	}
@@ -69,6 +72,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		ActorTemplates:   typedCollection[*atev1alpha1.ActorTemplate](client, watchNamespaces, "ActorTemplates", opts),
 	}
 	collections.Pairs = newPairCollection(agentTemplates, harnesses, opts)
+	newReconciliationCollections(&collections, config, opts)
 	return collections, nil
 }
 
@@ -92,25 +96,25 @@ func registerCustomResources(config *rest.Config) error {
 	if err := kagentv1alpha3.AddToScheme(scheme); err != nil {
 		return fmt.Errorf("register kagent API types: %w", err)
 	}
-	if err := atev1alpha1.AddToScheme(scheme); err != nil {
-		return fmt.Errorf("register Substrate API types: %w", err)
-	}
-
 	kagentClient, err := restClient(config, kagentv1alpha3.GroupVersion, scheme)
 	if err != nil {
 		return fmt.Errorf("create kagent REST client: %w", err)
 	}
-	ateClient, err := restClient(config, atev1alpha1.GroupVersion, scheme)
+	ateClient, err := ateclient.NewForConfig(config)
 	if err != nil {
-		return fmt.Errorf("create Substrate REST client: %w", err)
+		return fmt.Errorf("create Substrate client: %w", err)
 	}
 
 	registerResource[*kagentv1alpha3.AgentTemplate](kagentClient, kagentv1alpha3.GroupVersion, "AgentTemplate", "agenttemplates", func() runtime.Object { return &kagentv1alpha3.AgentTemplateList{} })
 	registerResource[*kagentv1alpha3.Harness](kagentClient, kagentv1alpha3.GroupVersion, "Harness", "harnesses", func() runtime.Object { return &kagentv1alpha3.HarnessList{} })
 	registerResource[*kagentv1alpha3.ModelConfig](kagentClient, kagentv1alpha3.GroupVersion, "ModelConfig", "modelconfigs", func() runtime.Object { return &kagentv1alpha3.ModelConfigList{} })
 	registerResource[*kagentv1alpha3.RemoteMCPServer](kagentClient, kagentv1alpha3.GroupVersion, "RemoteMCPServer", "remotemcpservers", func() runtime.Object { return &kagentv1alpha3.RemoteMCPServerList{} })
-	registerResource[*atev1alpha1.WorkerPool](ateClient, atev1alpha1.GroupVersion, "WorkerPool", "workerpools", func() runtime.Object { return &atev1alpha1.WorkerPoolList{} })
-	registerResource[*atev1alpha1.ActorTemplate](ateClient, atev1alpha1.GroupVersion, "ActorTemplate", "actortemplates", func() runtime.Object { return &atev1alpha1.ActorTemplateList{} })
+	registerGeneratedResource[*atev1alpha1.WorkerPool, *atev1alpha1.WorkerPoolList](atev1alpha1.GroupVersion, "WorkerPool", "workerpools", func(namespace string) kubetypes.ReadWriteAPI[*atev1alpha1.WorkerPool, *atev1alpha1.WorkerPoolList] {
+		return ateClient.WorkerPools(namespace)
+	})
+	registerGeneratedResource[*atev1alpha1.ActorTemplate, *atev1alpha1.ActorTemplateList](atev1alpha1.GroupVersion, "ActorTemplate", "actortemplates", func(namespace string) kubetypes.ReadWriteAPI[*atev1alpha1.ActorTemplate, *atev1alpha1.ActorTemplateList] {
+		return ateClient.ActorTemplates(namespace)
+	})
 	return nil
 }
 
@@ -136,6 +140,22 @@ func registerResource[T controllers.ComparableObject](client rest.Interface, gro
 			return client.Get().Namespace(namespace).Resource(resource).VersionedParams(&options, metav1.ParameterCodec).Watch(context.Background())
 		},
 		func(kubeclient.ClientGetter, string) kubetypes.WriteAPI[T] { return nil },
+	)
+}
+
+// registerGeneratedResource adapts Substrate's generated clients to KRT's
+// registry. The generated API remains the implementation of every operation.
+func registerGeneratedResource[T controllers.ComparableObject, TL runtime.Object](groupVersion schema.GroupVersion, kind, resource string, clientFor func(string) kubetypes.ReadWriteAPI[T, TL]) {
+	kubeclient.Register[T](groupVersion.WithResource(resource), groupVersion.WithKind(kind),
+		func(_ kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (runtime.Object, error) {
+			return clientFor(namespace).List(context.Background(), options)
+		},
+		func(_ kubeclient.ClientGetter, namespace string, options metav1.ListOptions) (watch.Interface, error) {
+			return clientFor(namespace).Watch(context.Background(), options)
+		},
+		func(_ kubeclient.ClientGetter, namespace string) kubetypes.WriteAPI[T] {
+			return clientFor(namespace)
+		},
 	)
 }
 

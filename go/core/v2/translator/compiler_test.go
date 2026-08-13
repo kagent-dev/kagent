@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	schemev1 "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -32,7 +34,13 @@ func compiler(t *testing.T, objects ...client.Object) *v2translator.Compiler {
 	t.Helper()
 	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
 	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(objects...).Build()
-	return v2translator.NewCompiler(kube, false)
+	return v2translator.NewCompiler(testReader{kube}, false)
+}
+
+type testReader struct{ client.Client }
+
+func (r testReader) Get(ctx context.Context, key types.NamespacedName, object runtime.Object) error {
+	return r.Client.Get(ctx, key, object.(client.Object))
 }
 
 func TestCompileAgentTemplateKeepsCredentialsOutOfRevision(t *testing.T) {

@@ -7,9 +7,8 @@ import (
 	"slices"
 	"text/template"
 
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // PromptTemplateContext holds the v2 AgentTemplate values available to system
@@ -35,18 +34,18 @@ type promptSourceRef struct {
 
 // resolvePromptSourceRefs flattens ConfigMap keys into "source/key" identifiers
 // and rejects collisions before template execution.
-func resolvePromptSourceRefs(ctx context.Context, kube client.Client, namespace string, sources []promptSourceRef) (map[string]string, error) {
+func resolvePromptSourceRefs(ctx context.Context, kube Reader, namespace string, sources []promptSourceRef) (map[string]string, error) {
 	lookup := make(map[string]string)
 	for _, source := range sources {
 		identifier := source.Name
 		if source.Alias != "" {
 			identifier = source.Alias
 		}
-		data, err := utils.GetConfigMapData(ctx, kube, types.NamespacedName{Namespace: namespace, Name: source.Name})
-		if err != nil {
+		configMap := &corev1.ConfigMap{}
+		if err := kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: source.Name}, configMap); err != nil {
 			return nil, fmt.Errorf("resolve prompt source %q: %w", source.Name, err)
 		}
-		for key, value := range data {
+		for key, value := range configMap.Data {
 			lookupKey := identifier + "/" + key
 			if _, exists := lookup[lookupKey]; exists {
 				return nil, fmt.Errorf("duplicate prompt template identifier %q", lookupKey)

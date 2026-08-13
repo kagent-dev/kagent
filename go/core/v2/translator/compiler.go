@@ -16,7 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // revisionSource is safe provenance for a resolved revision. It records object
@@ -35,12 +34,12 @@ type revisionSource struct {
 // revision. It owns the v2 translation boundary rather than delegating to an
 // earlier API translator.
 type Compiler struct {
-	kube               client.Client
+	kube               Reader
 	mcpEgressPlaintext bool
 }
 
 // NewCompiler constructs the v2 runtime compiler.
-func NewCompiler(kube client.Client, mcpEgressPlaintext bool) *Compiler {
+func NewCompiler(kube Reader, mcpEgressPlaintext bool) *Compiler {
 	return &Compiler{kube: kube, mcpEgressPlaintext: mcpEgressPlaintext}
 }
 
@@ -313,7 +312,7 @@ func (c *Compiler) resolveAgentTemplateHeaders(ctx context.Context, namespace st
 	var hashes []byte
 	for _, ref := range refs {
 		if ref.ValueFrom == nil || ref.ValueFrom.Type != v1alpha3.SecretValueSource {
-			name, value, err := ref.Resolve(ctx, c.kube, namespace)
+			name, value, err := c.resolveValueRef(ctx, namespace, ref)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -334,12 +333,34 @@ func (c *Compiler) resolveAgentTemplateHeaders(ctx context.Context, namespace st
 	return headers, environment, hashes, nil
 }
 
+func (c *Compiler) resolveValueRef(ctx context.Context, namespace string, ref v1alpha3.ValueRef) (string, string, error) {
+	if ref.ValueFrom == nil {
+		return ref.Name, ref.Value, nil
+	}
+	if ref.ValueFrom.Type != v1alpha3.ConfigMapValueSource {
+		return "", "", fmt.Errorf("unsupported value source type %q", ref.ValueFrom.Type)
+	}
+	configMap := &corev1.ConfigMap{}
+	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}, configMap); err != nil {
+		return "", "", err
+	}
+	value, found := configMap.Data[ref.ValueFrom.Key]
+	if !found {
+		return "", "", fmt.Errorf("ConfigMap %q does not contain key %q", ref.ValueFrom.Name, ref.ValueFrom.Key)
+	}
+	return ref.Name, value, nil
+}
+
 func (c *Compiler) resolveAgentTemplatePrompt(ctx context.Context, template *v1alpha3.AgentTemplate) (string, error) {
 	if template.Spec.SystemPromptFrom != nil {
 		ref := template.Spec.SystemPromptFrom
-		value, err := utils.GetConfigMapValue(ctx, c.kube, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, ref.Key)
-		if err != nil {
+		configMap := &corev1.ConfigMap{}
+		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, configMap); err != nil {
 			return "", fmt.Errorf("resolve systemPromptFrom: %w", err)
+		}
+		value, found := configMap.Data[ref.Key]
+		if !found {
+			return "", fmt.Errorf("resolve systemPromptFrom: ConfigMap %q does not contain key %q", ref.Name, ref.Key)
 		}
 		return value, nil
 	}
@@ -348,7 +369,7 @@ func (c *Compiler) resolveAgentTemplatePrompt(ctx context.Context, template *v1a
 
 // hashSecretKey makes credential rotation part of revision identity without
 // copying the credential into the database or source snapshot.
-func hashSecretKey(ctx context.Context, kube client.Client, namespace string, selector *corev1.SecretKeySelector) ([]byte, error) {
+func hashSecretKey(ctx context.Context, kube Reader, namespace string, selector *corev1.SecretKeySelector) ([]byte, error) {
 	if selector == nil {
 		return nil, fmt.Errorf("secretKeyRef is required")
 	}

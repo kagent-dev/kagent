@@ -1,29 +1,14 @@
 package substrate
 
 import (
-	"context"
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestEnsureActorTemplateCreatesOnlyActorTemplate(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
-	if err := atev1alpha1.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
-	workerPool := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "agents"}}
-	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(workerPool).Build()
-	lifecycle := &Lifecycle{Client: kube, PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+func TestActorTemplateForRevision(t *testing.T) {
 	spec := &translator.Revision{
 		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
 		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -34,16 +19,12 @@ func TestEnsureActorTemplateCreatesOnlyActorTemplate(t *testing.T) {
 		}}}},
 	}
 	revision := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	templateRef, err := lifecycle.EnsureActorTemplate(context.Background(), spec, revision)
+	template, err := ActorTemplateForRevision(spec, revision, "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if templateRef.Name != "helper-kagent-0123456789ab" {
-		t.Fatalf("ActorTemplate ref = %+v", templateRef)
-	}
-	template := &atev1alpha1.ActorTemplate{}
-	if err := kube.Get(context.Background(), client.ObjectKey{Namespace: "agents", Name: templateRef.Name}, template); err != nil {
-		t.Fatal(err)
+	if template.Name != "helper-kagent-0123456789ab" {
+		t.Fatalf("ActorTemplate = %+v", template)
 	}
 	container := template.Spec.Containers[0]
 	if template.Spec.SandboxClass != atev1alpha1.SandboxClassGvisor || container.Readyz.HTTPGet.Path != "/readyz" || container.Readyz.HTTPGet.Port != 8081 {
@@ -58,12 +39,5 @@ func TestEnsureActorTemplateCreatesOnlyActorTemplate(t *testing.T) {
 	}
 	if environment["API_KEY"].ValueFrom.SecretKeyRef.Name != "credentials" {
 		t.Fatal("credential SecretKeyRef was not preserved")
-	}
-	secrets := &corev1.SecretList{}
-	if err := kube.List(context.Background(), secrets, client.InNamespace("agents")); err != nil {
-		t.Fatal(err)
-	}
-	if len(secrets.Items) != 0 {
-		t.Fatalf("created %d config Secrets", len(secrets.Items))
 	}
 }

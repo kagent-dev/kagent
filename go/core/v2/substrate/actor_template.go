@@ -1,18 +1,14 @@
 package substrate
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
-	apiequality "k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -22,25 +18,6 @@ const (
 	durableDataMount     = "/data"
 )
 
-// Lifecycle is the temporary Kubernetes implementation of runtime revision
-// provisioning. Its callers deal only in translator.Revision and
-// ActorTemplateRef so this can move to Substrate's API-owned ActorTemplate
-// lifecycle without changing the controller contract.
-type Lifecycle struct {
-	Client     client.Client
-	PauseImage string
-}
-
-// ActorTemplateRef is the durable subset of ActorTemplate identity and status
-// stored with a runtime revision. UID fences deletion against name reuse.
-type ActorTemplateRef struct {
-	Namespace      string
-	Name           string
-	UID            string
-	Phase          string
-	GoldenSnapshot string
-}
-
 const (
 	// Revision labels connect the temporary Kubernetes ActorTemplate back to the
 	// public kagent resources and let controller watches find their owner.
@@ -49,17 +26,14 @@ const (
 	RevisionLabel              = "kagent.dev/revision"
 )
 
-// EnsureActorTemplate materializes one immutable Kubernetes ActorTemplate revision.
-func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *translator.Revision, revisionID string) (*ActorTemplateRef, error) {
+// ActorTemplateForRevision constructs the immutable Kubernetes object for a
+// compiled revision. It performs no reads or writes, which makes it safe to use
+// inside a KRT transformation.
+func ActorTemplateForRevision(spec *translator.Revision, revisionID, pauseImage string) (*atev1alpha1.ActorTemplate, error) {
 	if len(revisionID) < 12 {
 		return nil, fmt.Errorf("runtime revision is invalid")
 	}
-	workerPool := &atev1alpha1.WorkerPool{}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
-	if err := p.Client.Get(ctx, workerKey, workerPool); err != nil {
-		return nil, fmt.Errorf("get WorkerPool %s: %w", workerKey, err)
-	}
-
 	name := revisionActorTemplateName(spec.AgentTemplateName, spec.HarnessName, revisionID)
 	// Config is passed inline because Substrate ActorTemplates support literal
 	// and Secret-backed environment variables but not generated ConfigMaps or
@@ -87,7 +61,7 @@ func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *translator.Re
 		},
 		Spec: atev1alpha1.ActorTemplateSpec{
 			// The v2 API intentionally has one default sandbox policy for now.
-			PauseImage:   p.PauseImage,
+			PauseImage:   pauseImage,
 			SandboxClass: atev1alpha1.SandboxClassGvisor,
 			Containers: []atev1alpha1.Container{{
 				Name:  defaultContainerName,
@@ -111,39 +85,7 @@ func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *translator.Re
 			}},
 		},
 	}
-	if err := createImmutableObject(ctx, p.Client, template); err != nil {
-		return nil, err
-	}
-	return p.GetActorTemplate(ctx, template.Namespace, template.Name)
-}
-
-// GetActorTemplate reads the lifecycle state needed by reconciliation without
-// exposing the temporary Kubernetes type outside this package.
-func (p *Lifecycle) GetActorTemplate(ctx context.Context, namespace, name string) (*ActorTemplateRef, error) {
-	template := &atev1alpha1.ActorTemplate{}
-	if err := p.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, template); err != nil {
-		return nil, fmt.Errorf("get runtime ActorTemplate %s/%s: %w", namespace, name, err)
-	}
-	return actorTemplateRef(template), nil
-}
-
-// DeleteActorTemplate deletes only the exact object previously recorded for a
-// revision. A mismatched UID means the name was reused and must not be deleted.
-func (p *Lifecycle) DeleteActorTemplate(ctx context.Context, templateRef ActorTemplateRef) error {
-	template := &atev1alpha1.ActorTemplate{}
-	key := types.NamespacedName{Namespace: templateRef.Namespace, Name: templateRef.Name}
-	if err := p.Client.Get(ctx, key, template); apierrors.IsNotFound(err) {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("get runtime ActorTemplate %s: %w", key, err)
-	}
-	if templateRef.UID != "" && string(template.UID) != templateRef.UID {
-		return fmt.Errorf("runtime ActorTemplate %s UID changed", key)
-	}
-	if err := p.Client.Delete(ctx, template); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("delete runtime ActorTemplate %s: %w", key, err)
-	}
-	return nil
+	return template, nil
 }
 
 func revisionActorTemplateName(agentTemplate, harness, revision string) string {
@@ -198,39 +140,4 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) []atev1alpha1.EnvVa
 		result = append(result, converted)
 	}
 	return result
-}
-
-func createImmutableObject(ctx context.Context, kube client.Client, desired client.Object) error {
-	// A digest-derived name makes create idempotent. Finding different content at
-	// that name indicates a digest/input bug, so never update it in place.
-	existing := desired.DeepCopyObject().(client.Object)
-	err := kube.Get(ctx, client.ObjectKeyFromObject(desired), existing)
-	if apierrors.IsNotFound(err) {
-		if err := kube.Create(ctx, desired); err != nil {
-			return fmt.Errorf("create %T %s: %w", desired, client.ObjectKeyFromObject(desired), err)
-		}
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("get %T %s: %w", desired, client.ObjectKeyFromObject(desired), err)
-	}
-	switch current := existing.(type) {
-	case *atev1alpha1.ActorTemplate:
-		if !apiequality.Semantic.DeepEqual(current.Spec, desired.(*atev1alpha1.ActorTemplate).Spec) {
-			return fmt.Errorf("immutable ActorTemplate %s differs from runtime revision", client.ObjectKeyFromObject(desired))
-		}
-	default:
-		return fmt.Errorf("unsupported immutable object %T", desired)
-	}
-	return nil
-}
-
-func actorTemplateRef(template *atev1alpha1.ActorTemplate) *ActorTemplateRef {
-	return &ActorTemplateRef{
-		Namespace:      template.Namespace,
-		Name:           template.Name,
-		UID:            string(template.UID),
-		Phase:          string(template.Status.Phase),
-		GoldenSnapshot: strings.TrimSpace(template.Status.GoldenSnapshot),
-	}
 }

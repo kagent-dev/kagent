@@ -21,13 +21,13 @@ type Runtime struct {
 
 // NewRuntime creates the shared KRT client and collection graph. Handlers are
 // deliberately registered separately at the eventual application boundary.
-func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struct{}) (*Runtime, error) {
+func NewRuntime(config *rest.Config, watchNamespaces []string, collectionConfig CollectionConfig, stop <-chan struct{}) (*Runtime, error) {
 	client, err := kube.NewClient(kube.NewClientConfigForRestConfig(config), cluster.ID("kagent"))
 	if err != nil {
 		return nil, fmt.Errorf("create KRT Kubernetes client: %w", err)
 	}
 	options := krt.NewOptionsBuilder(stop, "kagent", krt.GlobalDebugHandler)
-	collections, err := NewCollections(client, watchNamespaces, options)
+	collections, err := NewCollections(client, watchNamespaces, collectionConfig, options)
 	if err != nil {
 		return nil, fmt.Errorf("create KRT collections: %w", err)
 	}
@@ -38,15 +38,13 @@ func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struc
 // them alive until the application shuts down. The v2 API uses installed CRDs
 // directly, so it does not start Istio's cluster-wide delayed-CRD watcher.
 func (r *Runtime) Start(ctx context.Context) error {
-	factory := r.Client.Informers()
-	factory.Start(ctx.Done())
-	if !factory.WaitForCacheSync(ctx.Done()) {
+	defer r.Client.Shutdown()
+	if !r.Client.RunAndWait(ctx.Done()) {
 		if ctx.Err() != nil {
 			return nil
 		}
 		return fmt.Errorf("sync KRT Kubernetes client")
 	}
 	<-ctx.Done()
-	r.Client.Shutdown()
 	return nil
 }

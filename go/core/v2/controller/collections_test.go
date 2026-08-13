@@ -4,8 +4,11 @@ import (
 	"testing"
 	"time"
 
+	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -38,6 +41,80 @@ func TestAgentTemplateHarnessPairs(t *testing.T) {
 	waitForPairs(t, pairs, "team-a/assistant/matching")
 }
 
+func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	opts := krt.NewOptionsBuilder(stop, "test", nil)
+
+	template := &kagentv1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "assistant", UID: "template-uid", Labels: map[string]string{"runtime": "python"}},
+		Spec: kagentv1alpha3.AgentTemplateSpec{
+			ModelConfig:  kagentv1alpha3.AgentTemplateLocalReference{Name: "model"},
+			SystemPrompt: "help",
+		},
+	}
+	matchingHarness := harness("team-a", "kagent", map[string]string{"runtime": "python"})
+	matchingHarness.UID = "harness-uid"
+	matchingHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
+	matchingHarness.Spec.Workload.Image = "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	matchingHarness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{
+		WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
+		SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"},
+	}
+	modelConfigs := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5"}}}, opts.WithName("ModelConfigs")...)
+
+	collections := Collections{
+		AgentTemplates:   krt.NewStaticCollection(nil, []*kagentv1alpha3.AgentTemplate{template}, opts.WithName("AgentTemplates")...),
+		Harnesses:        krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{matchingHarness}, opts.WithName("Harnesses")...),
+		ModelConfigs:     modelConfigs,
+		RemoteMCPServers: krt.NewStaticCollection[*kagentv1alpha3.RemoteMCPServer](nil, nil, opts.WithName("RemoteMCPServers")...),
+		ConfigMaps:       krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...),
+		Secrets:          krt.NewStaticCollection[*corev1.Secret](nil, nil, opts.WithName("Secrets")...),
+		WorkerPools:      krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}}, opts.WithName("WorkerPools")...),
+		ActorTemplates:   krt.NewStaticCollection[*atev1alpha1.ActorTemplate](nil, nil, opts.WithName("ActorTemplates")...),
+	}
+	collections.Pairs = newPairCollection(collections.AgentTemplates, collections.Harnesses, opts)
+	newReconciliationCollections(&collections, CollectionConfig{PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, opts)
+
+	waitFor(t, func() bool {
+		states := collections.Reconciliations.List()
+		return len(states) == 1 && states[0].Failure == nil && states[0].DesiredActorTemplate != nil
+	})
+	state := collections.Reconciliations.List()[0]
+	if state.ObservedActorTemplate != nil {
+		t.Fatal("ActorTemplate was observed before it existed")
+	}
+	waitFor(t, func() bool {
+		updates := collections.AgentTemplateStatuses.List()
+		if len(updates) != 1 || len(updates[0].Status.Harnesses) != 1 {
+			return false
+		}
+		ready := apimeta.FindStatusCondition(updates[0].Status.Harnesses[0].Conditions, kagentv1alpha3.AgentTemplateConditionReady)
+		return ready != nil && ready.Status == metav1.ConditionFalse
+	})
+
+	observed := state.DesiredActorTemplate.DeepCopy()
+	observed.UID = "actor-template-uid"
+	observed.Status.Phase = atev1alpha1.PhaseReady
+	observed.Status.GoldenSnapshot = "golden"
+	collections.ActorTemplates.(krt.StaticCollection[*atev1alpha1.ActorTemplate]).UpdateObject(observed)
+	waitFor(t, func() bool {
+		states := collections.Reconciliations.List()
+		updates := collections.AgentTemplateStatuses.List()
+		if len(states) != 1 || states[0].ObservedActorTemplate == nil || len(updates) != 1 || len(updates[0].Status.Harnesses) != 1 {
+			return false
+		}
+		ready := apimeta.FindStatusCondition(updates[0].Status.Harnesses[0].Conditions, kagentv1alpha3.AgentTemplateConditionReady)
+		return ready != nil && ready.Status == metav1.ConditionTrue && updates[0].Status.Harnesses[0].LatestSuccessfulRevision == state.RevisionID
+	})
+
+	modelConfigs.UpdateObject(&kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.1"}})
+	waitFor(t, func() bool {
+		states := collections.Reconciliations.List()
+		return len(states) == 1 && states[0].RevisionID != state.RevisionID && states[0].ObservedActorTemplate == nil
+	})
+}
+
 func harness(namespace, name string, matchLabels map[string]string) *kagentv1alpha3.Harness {
 	return &kagentv1alpha3.Harness{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
@@ -66,4 +143,16 @@ func waitForPairs(t *testing.T, pairs krt.Collection[AgentTemplateHarnessPair], 
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatalf("pairs = %v, want %v", pairs.List(), want)
+}
+
+func waitFor(t *testing.T, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("condition did not become true")
 }
