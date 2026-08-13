@@ -353,6 +353,75 @@ func (c *postgresClient) DeleteTask(ctx context.Context, taskID, userID string) 
 	return c.checkTaskOwner(ctx, taskID, userID)
 }
 
+// ── AgentTemplate runtime revisions ──────────────────────────────────────────
+
+func (c *postgresClient) UpsertAgentTemplateHarnessPair(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+	return c.q.UpsertAgentTemplateHarnessPair(ctx, dbgen.UpsertAgentTemplateHarnessPairParams{
+		Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
+		AgentTemplateUid: pair.AgentTemplateUID, HarnessName: pair.HarnessName,
+		HarnessUid: pair.HarnessUID, DesiredRevision: pair.DesiredRevision,
+	})
+}
+
+func (c *postgresClient) UpsertRuntimeRevision(ctx context.Context, revision dbpkg.RuntimeRevision) error {
+	if err := c.q.UpsertRuntimeRevision(ctx, dbgen.UpsertRuntimeRevisionParams{
+		Revision: revision.Revision, Namespace: revision.Namespace,
+		AgentTemplateName: revision.AgentTemplateName, AgentTemplateUid: revision.AgentTemplateUID,
+		HarnessName: revision.HarnessName, HarnessUid: revision.HarnessUID,
+		SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations,
+		ActorTemplateNamespace: revision.ActorTemplateNamespace, ActorTemplateName: revision.ActorTemplateName,
+		ActorTemplateUid: revision.ActorTemplateUID, Phase: revision.Phase, GoldenSnapshot: revision.GoldenSnapshot,
+	}); err != nil {
+		return fmt.Errorf("upsert runtime revision %s: %w", revision.Revision, err)
+	}
+	return nil
+}
+
+func (c *postgresClient) MarkRuntimeRevisionSuccessful(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+	revision := pair.DesiredRevision
+	return c.q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{
+		Revision: &revision, Namespace: pair.Namespace,
+		AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
+	})
+}
+
+func (c *postgresClient) RetireAgentTemplateHarnessPairs(ctx context.Context, namespace, name string) error {
+	return c.q.RetireAgentTemplateHarnessPairs(ctx, dbgen.RetireAgentTemplateHarnessPairsParams{Namespace: namespace, AgentTemplateName: name})
+}
+
+func (c *postgresClient) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, template, harness string) error {
+	return c.q.RetireAgentTemplateHarnessPair(ctx, dbgen.RetireAgentTemplateHarnessPairParams{Namespace: namespace, AgentTemplateName: template, HarnessName: harness})
+}
+
+func (c *postgresClient) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, namespace, templateUID string, harnesses []string) error {
+	return c.q.RetireOtherAgentTemplateHarnessPairs(ctx, dbgen.RetireOtherAgentTemplateHarnessPairsParams{
+		Namespace: namespace, AgentTemplateUid: templateUID, HarnessNames: harnesses,
+	})
+}
+
+func (c *postgresClient) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]dbpkg.RuntimeRevision, error) {
+	rows, err := c.q.ListUnreferencedRuntimeRevisions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list unreferenced runtime revisions: %w", err)
+	}
+	result := make([]dbpkg.RuntimeRevision, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, dbpkg.RuntimeRevision{
+			Revision: row.Revision, Namespace: row.Namespace,
+			AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
+			HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
+			SourceSnapshot: row.SourceSnapshot, EgressDestinations: row.EgressDestinations,
+			ActorTemplateNamespace: row.ActorTemplateNamespace, ActorTemplateName: row.ActorTemplateName,
+			ActorTemplateUID: row.ActorTemplateUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
+		})
+	}
+	return result, nil
+}
+
+func (c *postgresClient) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error {
+	return c.q.DeleteUnreferencedRuntimeRevision(ctx, revision)
+}
+
 // ── Push Notifications ────────────────────────────────────────────────────────
 
 func (c *postgresClient) StorePushNotification(ctx context.Context, config *a2a.PushConfig) error {

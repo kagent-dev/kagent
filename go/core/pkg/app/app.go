@@ -483,7 +483,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		setupLog.Error(err, "unable to create manager")
 		os.Exit(1)
 	}
-
 	// Resolve the database URL once so both the migration runner and the pool
 	// connection use exactly the same value.
 	dbURL, err := database.ResolveURL(cfg.Database.Url, cfg.Database.UrlFile)
@@ -566,7 +565,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		extensionCfg.SandboxBackend,
 		cfg.MCPEgressPlaintext,
 	)
-
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
 		mgr.GetClient(),

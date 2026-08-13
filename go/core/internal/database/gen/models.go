@@ -23,6 +23,19 @@ type Agent struct {
 	WorkloadType string
 }
 
+type AgentTemplateHarnessPair struct {
+	Namespace                string
+	AgentTemplateName        string
+	AgentTemplateUid         string
+	HarnessName              string
+	HarnessUid               string
+	DesiredRevision          string
+	LatestSuccessfulRevision *string
+	RetiredAt                *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
 type CrewaiAgentMemory struct {
 	UserID     string
 	ThreadID   string
@@ -114,6 +127,24 @@ type PushNotification struct {
 	DeletedAt       *time.Time
 	Data            string
 	ProtocolVersion *string
+}
+
+type RuntimeRevision struct {
+	Revision               string
+	Namespace              string
+	AgentTemplateName      string
+	AgentTemplateUid       string
+	HarnessName            string
+	HarnessUid             string
+	SourceSnapshot         []byte
+	EgressDestinations     []string
+	ActorTemplateNamespace string
+	ActorTemplateName      string
+	ActorTemplateUid       string
+	Phase                  string
+	GoldenSnapshot         string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type Session struct {

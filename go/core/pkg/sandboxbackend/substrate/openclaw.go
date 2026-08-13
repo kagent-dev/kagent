@@ -168,7 +168,7 @@ func actorStatusToCondition(actor *ateapipb.Actor) (metav1.ConditionStatus, stri
 	}
 	switch actor.GetStatus() {
 	case ateapipb.Actor_STATUS_RUNNING:
-		if ip := actor.GetAteomPodIp(); ip != "" {
+		if ip := actor.GetWorkerAssignment().GetWorkerPodIp(); ip != "" {
 			return metav1.ConditionTrue, "ActorRunning", fmt.Sprintf("actor running on %s", ip)
 		}
 		return metav1.ConditionTrue, "ActorRunning", "actor is running"
