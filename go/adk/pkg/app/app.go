@@ -123,12 +123,15 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 		sessionSvc := session.NewKAgentSessionService(controllerClient)
 		app.sessionService = sessionSvc
 		log.Info("Using KAgent gRPC session service", "target", cfg.KAgentGRPCURL)
+	} else {
+		log.Info("No KAgent gRPC target configured, using in-memory session")
+	}
 
-		taskStore := taskstore.NewKAgentTaskStore(controllerClient)
-		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskStore))
+	if controllerClient != nil {
+		handlerOpts = append(handlerOpts, a2asrv.WithTaskStore(taskstore.NewKAgentTaskStore(controllerClient)))
 		log.Info("Using KAgent gRPC task store", "target", cfg.KAgentGRPCURL)
 	} else {
-		log.Info("No KAgent gRPC target configured, using in-memory session and no task persistence")
+		log.Info("No task store configured, using in-memory task storage")
 	}
 
 	// Activate the optional HITL extension and resolve the authenticated user.

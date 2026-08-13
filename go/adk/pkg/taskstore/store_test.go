@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
@@ -24,6 +25,7 @@ type taskTestServer struct {
 	apiv1alpha1.UnimplementedTaskStoreServiceServer
 	upsert func(context.Context, *apiv1alpha1.UpsertTaskRequest) (*apiv1alpha1.UpsertTaskResponse, error)
 	get    func(context.Context, *apiv1alpha1.GetTaskRequest) (*apiv1alpha1.GetTaskResponse, error)
+	list   func(context.Context, *apiv1alpha1.ListTasksRequest) (*apiv1alpha1.ListTasksResponse, error)
 }
 
 func (server *taskTestServer) UpsertTask(ctx context.Context, request *apiv1alpha1.UpsertTaskRequest) (*apiv1alpha1.UpsertTaskResponse, error) {
@@ -32,6 +34,10 @@ func (server *taskTestServer) UpsertTask(ctx context.Context, request *apiv1alph
 
 func (server *taskTestServer) GetTask(ctx context.Context, request *apiv1alpha1.GetTaskRequest) (*apiv1alpha1.GetTaskResponse, error) {
 	return server.get(ctx, request)
+}
+
+func (server *taskTestServer) ListTasks(ctx context.Context, request *apiv1alpha1.ListTasksRequest) (*apiv1alpha1.ListTasksResponse, error) {
+	return server.list(ctx, request)
 }
 
 func newTaskStore(t *testing.T, service *taskTestServer) *KAgentTaskStore {
@@ -126,6 +132,26 @@ func TestGetMapsNotFound(t *testing.T) {
 	stored, err := service.Get(t.Context(), a2a.TaskID("missing"))
 	require.ErrorIs(t, err, a2a.ErrTaskNotFound)
 	assert.Nil(t, stored)
+}
+
+func TestListUsesContextID(t *testing.T) {
+	encoded, err := pbconv.ToProtoTask(&a2a.Task{
+		ID:        a2a.TaskID("task-3"),
+		ContextID: "session-3",
+		Status:    a2a.TaskStatus{State: a2a.TaskStateCompleted},
+	})
+	require.NoError(t, err)
+	service := newTaskStore(t, &taskTestServer{list: func(_ context.Context, request *apiv1alpha1.ListTasksRequest) (*apiv1alpha1.ListTasksResponse, error) {
+		assert.Equal(t, "session-3", request.GetSessionId())
+		return &apiv1alpha1.ListTasksResponse{Tasks: []*a2apb.Task{encoded}}, nil
+	}})
+
+	response, err := service.List(t.Context(), &a2a.ListTasksRequest{ContextID: "session-3"})
+	require.NoError(t, err)
+	require.Len(t, response.Tasks, 1)
+	assert.Equal(t, a2a.TaskID("task-3"), response.Tasks[0].ID)
+	assert.Equal(t, 1, response.TotalSize)
+	assert.Equal(t, 50, response.PageSize)
 }
 
 func TestSaveRejectsNilTask(t *testing.T) {

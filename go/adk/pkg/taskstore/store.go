@@ -3,6 +3,7 @@ package taskstore
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
@@ -104,7 +105,61 @@ func isPartial(metadata map[string]any) bool {
 	return false
 }
 
-// List implements a2asrv.TaskStore. Listing is not supported against the KAgent task API.
+// List implements a2asrv.TaskStore.
 func (s *KAgentTaskStore) List(ctx context.Context, req *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
-	return nil, fmt.Errorf("task listing is not supported by the KAgent task store")
+	const defaultPageSize = 50
+	pageSize := req.PageSize
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	} else if pageSize < 1 || pageSize > 100 {
+		return nil, fmt.Errorf("page size must be between 1 and 100 inclusive, got %d: %w", pageSize, a2atype.ErrInvalidRequest)
+	}
+	if req.ContextID == "" {
+		return &a2atype.ListTasksResponse{Tasks: []*a2atype.Task{}, PageSize: pageSize}, nil
+	}
+
+	callContext, cancel := s.client.CallContext(ctx, "")
+	defer cancel()
+	response, err := s.client.TaskService().ListTasks(callContext, &apiv1alpha1.ListTasksRequest{SessionId: req.ContextID})
+	if err != nil {
+		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+
+	tasks := make([]*a2atype.Task, 0, len(response.GetTasks()))
+	for _, encoded := range response.GetTasks() {
+		task, err := pbconv.FromProtoTask(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("decode listed task: %w", err)
+		}
+		if req.Status != a2atype.TaskStateUnspecified && task.Status.State != req.Status {
+			continue
+		}
+		if req.StatusTimestampAfter != nil && (task.Status.Timestamp == nil || task.Status.Timestamp.Before(*req.StatusTimestampAfter)) {
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+
+	start := 0
+	if req.PageToken != "" {
+		start, err = strconv.Atoi(req.PageToken)
+		if err != nil || start < 0 {
+			return nil, fmt.Errorf("invalid page token %q: %w", req.PageToken, a2atype.ErrInvalidRequest)
+		}
+	}
+	totalSize := len(tasks)
+	if start > totalSize {
+		start = totalSize
+	}
+	end := min(start+pageSize, totalSize)
+	nextPageToken := ""
+	if end < totalSize {
+		nextPageToken = strconv.Itoa(end)
+	}
+	return &a2atype.ListTasksResponse{
+		Tasks:         tasks[start:end],
+		TotalSize:     totalSize,
+		PageSize:      pageSize,
+		NextPageToken: nextPageToken,
+	}, nil
 }
