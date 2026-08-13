@@ -7,7 +7,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/stretchr/testify/require"
@@ -30,7 +30,7 @@ func TestShortConfigHash(t *testing.T) {
 
 func TestSandboxAgentActorTemplateNameWithHash(t *testing.T) {
 	t.Parallel()
-	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
+	sa := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
 
 	// Distinct configs → distinct template names → distinct golden snapshots.
 	n1 := sandboxAgentActorTemplateName(sa, "abc123")
@@ -43,13 +43,13 @@ func TestSandboxAgentActorTemplateNameWithHash(t *testing.T) {
 	require.Equal(t, "my-agent", sandboxAgentActorTemplateName(sa, ""))
 
 	// Long agent names stay within the DNS-1123 budget once the hash suffix is added.
-	long := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("a", 80)}}
+	long := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("a", 80)}}
 	require.LessOrEqual(t, len(sandboxAgentActorTemplateName(long, "deadbeefdeadbeef")), 63)
 }
 
 func TestSandboxAgentSessionActorIDIsSessionStable(t *testing.T) {
 	t.Parallel()
-	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
+	sa := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
 
 	// One session ⇔ one actor: the id is derived from the session alone, so it survives config
 	// AND shape rollouts (the actor's template binding lives on the actor record, not in the id).
@@ -72,11 +72,9 @@ func TestSandboxAgentSessionActorIDIsSessionStable(t *testing.T) {
 func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	t.Parallel()
 	p := newTestLifecycle(t)
-	sa := &v1alpha2.SandboxAgent{
+	sa := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
-		},
+		Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{Runtime: v1alpha3.DeclarativeRuntime_Python}},
 	}
 	podFor := func(configHash, image string) corev1.PodTemplateSpec {
 		return corev1.PodTemplateSpec{
@@ -115,7 +113,7 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	wp := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Name: "kagent-default", Namespace: "kagent"}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wp).Build()
@@ -124,11 +122,9 @@ func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 		Defaults: LifecycleDefaults{PauseImage: "gcr.io/test/pause@sha256:deadbeef", DefaultWorkerPool: types.NamespacedName{Name: "kagent-default", Namespace: "kagent"}},
 	}
 	b := NewAgentsBackend(p, nil)
-	sa := &v1alpha2.SandboxAgent{
+	sa := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
-		},
+		Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{Runtime: v1alpha3.DeclarativeRuntime_Python}},
 	}
 	pod := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{consts.ConfigHashAnnotation: "255"}},
@@ -230,7 +226,7 @@ func TestResolveCurrentActorTemplatePrefersDesiredGeneration(t *testing.T) {
 
 func TestActorBelongsToSandboxAgent(t *testing.T) {
 	t.Parallel()
-	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
+	sa := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
 	prefix := sandboxAgentActorPrefix(sa)
 	owned := map[string]struct{}{"my-agent-abc123": {}, "my-agent": {}}
 

@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestExecuteSystemMessageTemplate(t *testing.T) {
@@ -180,24 +180,24 @@ Available tools: get-pods, apply-manifest, `,
 func TestBuildTemplateContext(t *testing.T) {
 	tests := []struct {
 		name    string
-		agent   *v1alpha2.Agent
+		agent   *v1alpha3.SandboxAgent
 		cfg     *adk.AgentConfig
 		wantCtx PromptTemplateContext
 	}{
 		{
 			name: "tool names from config, skill names from spec",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-agent",
 					Namespace: "production",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
+				Spec: v1alpha3.AgentSpec{
+					Type:        v1alpha3.AgentType_Declarative,
 					Description: "A helpful agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{},
-					Skills: &v1alpha2.SkillForAgent{
+					Declarative: &v1alpha3.DeclarativeAgentSpec{},
+					Skills: &v1alpha3.SkillForAgent{
 						Refs: []string{"ghcr.io/org/skill-k8s:v1", "ghcr.io/org/skill-helm"},
-						GitRefs: []v1alpha2.GitRepo{
+						GitRefs: []v1alpha3.GitRepo{
 							{URL: "https://github.com/org/my-skills.git", Name: "custom-skills"},
 							{URL: "https://github.com/org/other-repo.git"},
 						},
@@ -220,21 +220,21 @@ func TestBuildTemplateContext(t *testing.T) {
 		},
 		{
 			name: "skills with OCI digests and git URLs with query/fragment",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-agent",
 					Namespace: "production",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
+				Spec: v1alpha3.AgentSpec{
+					Type:        v1alpha3.AgentType_Declarative,
 					Description: "A helpful agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{},
-					Skills: &v1alpha2.SkillForAgent{
+					Declarative: &v1alpha3.DeclarativeAgentSpec{},
+					Skills: &v1alpha3.SkillForAgent{
 						Refs: []string{
 							"ghcr.io/org/skill-k8s@sha256:abcdef0123456789",
 							"ghcr.io/org/skill-helm:v1@sha256:0123456789abcdef",
 						},
-						GitRefs: []v1alpha2.GitRepo{
+						GitRefs: []v1alpha3.GitRepo{
 							{
 								URL:  "https://github.com/org/my-skills.git?ref=main#subdir",
 								Name: "custom-skills",
@@ -262,15 +262,15 @@ func TestBuildTemplateContext(t *testing.T) {
 		},
 		{
 			name: "SSE tools included",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "sse-agent",
 					Namespace: "default",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
+				Spec: v1alpha3.AgentSpec{
+					Type:        v1alpha3.AgentType_Declarative,
 					Description: "SSE agent",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{},
+					Declarative: &v1alpha3.DeclarativeAgentSpec{},
 				},
 			},
 			cfg: &adk.AgentConfig{
@@ -288,15 +288,15 @@ func TestBuildTemplateContext(t *testing.T) {
 		},
 		{
 			name: "empty config",
-			agent: &v1alpha2.Agent{
+			agent: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "simple-agent",
 					Namespace: "default",
 				},
-				Spec: v1alpha2.AgentSpec{
-					Type:        v1alpha2.AgentType_Declarative,
+				Spec: v1alpha3.AgentSpec{
+					Type:        v1alpha3.AgentType_Declarative,
 					Description: "Simple",
-					Declarative: &v1alpha2.DeclarativeAgentSpec{},
+					Declarative: &v1alpha3.DeclarativeAgentSpec{},
 				},
 			},
 			cfg: &adk.AgentConfig{},
@@ -331,9 +331,9 @@ func TestResolvePromptSources_AliasUsesAliasOnlyInLookup(t *testing.T) {
 	}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
 
-	sources := []v1alpha2.PromptSource{
+	sources := []v1alpha3.PromptSource{
 		{
-			TypedLocalReference: v1alpha2.TypedLocalReference{
+			TypedLocalReference: v1alpha3.TypedLocalReference{
 				Kind:     "ConfigMap",
 				ApiGroup: "",
 				Name:     "kagent-builtin-prompts",
@@ -365,9 +365,9 @@ func TestResolvePromptSources_NoAliasUsesConfigMapNameInLookup(t *testing.T) {
 	}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build()
 
-	lookup, err := resolvePromptSources(ctx, cl, "ns", []v1alpha2.PromptSource{
+	lookup, err := resolvePromptSources(ctx, cl, "ns", []v1alpha3.PromptSource{
 		{
-			TypedLocalReference: v1alpha2.TypedLocalReference{Kind: "ConfigMap", ApiGroup: "", Name: "my-lib"},
+			TypedLocalReference: v1alpha3.TypedLocalReference{Kind: "ConfigMap", ApiGroup: "", Name: "my-lib"},
 		},
 	})
 	require.NoError(t, err)

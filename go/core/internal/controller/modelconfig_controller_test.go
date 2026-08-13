@@ -13,15 +13,15 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
-func foundryModelWithEndpointFrom(name, namespace, cmName string) *v1alpha2.ModelConfig {
-	return &v1alpha2.ModelConfig{
+func foundryModelWithEndpointFrom(name, namespace, cmName string) *v1alpha3.ModelConfig {
+	return &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec: v1alpha2.ModelConfigSpec{
-			Provider: v1alpha2.ModelProviderFoundry,
-			Foundry: &v1alpha2.FoundryConfig{
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderFoundry,
+			Foundry: &v1alpha3.FoundryConfig{
 				Deployment: "gpt-4-1-nano",
 				EndpointFrom: &corev1.ConfigMapKeySelector{
 					LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
@@ -35,7 +35,7 @@ func foundryModelWithEndpointFrom(name, namespace, cmName string) *v1alpha2.Mode
 func TestModelReferencesConfigMap(t *testing.T) {
 	tests := []struct {
 		name  string
-		model *v1alpha2.ModelConfig
+		model *v1alpha3.ModelConfig
 		cm    types.NamespacedName
 		want  bool
 	}{
@@ -59,11 +59,11 @@ func TestModelReferencesConfigMap(t *testing.T) {
 		},
 		{
 			name: "inline endpoint does not reference a config map",
-			model: &v1alpha2.ModelConfig{
+			model: &v1alpha3.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: "default"},
-				Spec: v1alpha2.ModelConfigSpec{
-					Provider: v1alpha2.ModelProviderFoundry,
-					Foundry: &v1alpha2.FoundryConfig{
+				Spec: v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderFoundry,
+					Foundry: &v1alpha3.FoundryConfig{
 						Endpoint:   "https://example.cognitiveservices.azure.com/",
 						Deployment: "gpt-4-1-nano",
 					},
@@ -74,11 +74,11 @@ func TestModelReferencesConfigMap(t *testing.T) {
 		},
 		{
 			name: "non-foundry model does not reference a config map",
-			model: &v1alpha2.ModelConfig{
+			model: &v1alpha3.ModelConfig{
 				ObjectMeta: metav1.ObjectMeta{Name: "m", Namespace: "default"},
-				Spec: v1alpha2.ModelConfigSpec{
-					Provider: v1alpha2.ModelProviderOpenAI,
-					OpenAI:   &v1alpha2.OpenAIConfig{},
+				Spec: v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderOpenAI,
+					OpenAI:   &v1alpha3.OpenAIConfig{},
 				},
 			},
 			cm:   types.NamespacedName{Namespace: "default", Name: "foundry-endpoint"},
@@ -96,7 +96,7 @@ func TestModelReferencesConfigMap(t *testing.T) {
 func TestFindModelsUsingConfigMap(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, clientgoscheme.AddToScheme(scheme))
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	referencing := foundryModelWithEndpointFrom("uses-cm", "default", "foundry-endpoint")
 	referencingToo := foundryModelWithEndpointFrom("also-uses-cm", "default", "foundry-endpoint")

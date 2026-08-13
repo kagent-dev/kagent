@@ -184,7 +184,7 @@ If/when the upstream Streamable HTTP transport stabilizes and agents adopt it, a
 ACP exposure is opt-in via a new optional field on `AgentHarnessSpec`:
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: AgentHarness
 spec:
   backend: openclaw

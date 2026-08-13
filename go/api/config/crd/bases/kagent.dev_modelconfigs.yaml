@@ -997,3 +997,656 @@ spec:
     storage: true
     subresources:
       status: {}
+  - additionalPrinterColumns:
+    - jsonPath: .spec.provider
+      name: Provider
+      type: string
+    - jsonPath: .spec.model
+      name: Model
+      type: string
+    name: v1alpha3
+    schema:
+      openAPIV3Schema:
+        description: ModelConfig is the Schema for the modelconfigs API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ModelConfigSpec defines the desired state of ModelConfig.
+            properties:
+              anthropic:
+                description: Anthropic-specific configuration
+                properties:
+                  baseUrl:
+                    description: Base URL for the Anthropic API (overrides default)
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: integer
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                type: object
+              anthropicVertexAI:
+                description: Anthropic-specific configuration
+                properties:
+                  location:
+                    description: The project location
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  projectID:
+                    description: The project ID
+                    type: string
+                  stopSequences:
+                    description: Stop sequences
+                    items:
+                      type: string
+                    type: array
+                  temperature:
+                    description: Temperature
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: string
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                required:
+                - location
+                - projectID
+                type: object
+              apiKeyPassthrough:
+                description: |-
+                  APIKeyPassthrough enables forwarding the Bearer token from incoming A2A requests
+                  directly to the LLM provider as the API key. This is useful for organizations
+                  with federated identity that want to avoid separate secret management.
+                  Mutually exclusive with apiKeySecret.
+                type: boolean
+              apiKeySecret:
+                description: |-
+                  The name of the secret that contains the API key. Must be a reference to the name of a secret in the same namespace as the referencing ModelConfig.
+                  For the SAPAICore provider, the secret must contain two keys: "client_id" and "client_secret"
+                  (the OAuth2 client credentials for SAP AI Core). The apiKeySecretKey field is not used for SAPAICore.
+                type: string
+              apiKeySecretKey:
+                description: |-
+                  The key in the secret that contains the API key.
+                  Not used for the SAPAICore provider (which always reads "client_id" and "client_secret" from the secret).
+                type: string
+              azureOpenAI:
+                description: Azure OpenAI-specific configuration
+                properties:
+                  apiVersion:
+                    description: API version for the Azure OpenAI API
+                    type: string
+                  azureAdToken:
+                    description: Azure AD token for authentication
+                    type: string
+                  azureDeployment:
+                    description: Deployment name for the Azure OpenAI API
+                    type: string
+                  azureEndpoint:
+                    description: Endpoint for the Azure OpenAI API
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    type: integer
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                required:
+                - apiVersion
+                - azureEndpoint
+                type: object
+              bedrock:
+                description: AWS Bedrock-specific configuration
+                properties:
+                  additionalModelRequestFields:
+                    description: |-
+                      AdditionalModelRequestFields passes model-specific parameters to Bedrock's
+                      additionalModelRequestFields in the Converse API. Use this for provider-specific
+                      options that are not part of the standard InferenceConfiguration block, such as
+                      Claude extended thinking or top_k. Values are forwarded as-is to the API.
+                      Example: {"top_k": 5, "thinking": {"type": "enabled", "budget_tokens": 16000}}
+                    x-kubernetes-preserve-unknown-fields: true
+                  cacheTTL:
+                    default: 5m
+                    description: |-
+                      CacheTTL controls how long Bedrock retains a cached prefix when
+                      PromptCaching is enabled. Only meaningful when PromptCaching is true.
+
+                        - "5m" (default): Bedrock's standard 5-minute sliding cache. Each cache
+                          hit refreshes the window. Supported by all prompt-caching models.
+                        - "1h": extended-TTL caching, useful for tasks whose Converse calls are
+                          spaced more than 5 minutes apart.
+
+                      NOTE: "1h" is NOT strictly better than "5m". Extended-TTL cache writes are
+                      billed at a higher per-token rate than 5-minute writes, and 1h is supported
+                      on a narrower set of models. Only choose "1h" when calls are spaced far
+                      enough apart that a 5-minute cache would expire between them; otherwise the
+                      higher write cost is wasted. See the AWS prompt-caching docs above.
+                    enum:
+                    - 5m
+                    - 1h
+                    type: string
+                  connectTimeout:
+                    description: |-
+                      ConnectTimeout is the Bedrock HTTP client connection-establishment timeout
+                      in seconds, applied by both the Python and Go ADK runtimes. It bounds
+                      connection setup only, not the response read. When unset, each runtime's
+                      default is used (Python ADK: botocore; Go ADK: net dialer).
+                    minimum: 1
+                    type: integer
+                  guardrail:
+                    properties:
+                      identifier:
+                        description: |-
+                          Identifier is the guardrail ID or full ARN. AWS accepts either a bare
+                          guardrail ID or an arn:aws:bedrock:...:guardrail/... ARN, so the value is
+                          only length-bounded here (AWS caps guardrailIdentifier at 2048 chars).
+                        maxLength: 2048
+                        minLength: 1
+                        type: string
+                      trace:
+                        default: disabled
+                        enum:
+                        - disabled
+                        - enabled
+                        - enabled_full
+                        type: string
+                      version:
+                        description: 'Version is the guardrail version: a numeric
+                          version (e.g. "1") or "DRAFT".'
+                        maxLength: 8
+                        minLength: 1
+                        type: string
+                    required:
+                    - identifier
+                    - version
+                    type: object
+                  promptCaching:
+                    default: false
+                    description: |-
+                      PromptCaching enables Bedrock prompt caching by appending a CachePoint
+                      block at the end of the Converse request's `system` content array and
+                      the end of the `toolConfig.tools` array. Bedrock will cache the prefix up to and
+                      including those cache points across requests in the same region for
+                      roughly 5 minutes after first use, billing the cached portion at a
+                      reduced rate on cache hits.
+
+                      Recommended for tool-using agents that make many Converse calls per
+                      task with a stable system prompt and tool set — the per-call input
+                      token count can drop by 70-90% on hit. Has no effect on models that
+                      don't support caching; the marker is ignored by Bedrock for those.
+
+                      See https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
+                      for the current list of supported models and minimum prefix sizes.
+                    type: boolean
+                  readTimeout:
+                    description: |-
+                      ReadTimeout is the Bedrock HTTP client read timeout in seconds, applied by
+                      both the Python and Go ADK runtimes. Raise this for agents that make long
+                      Converse calls (large tool-augmented turns, extended reasoning). On the
+                      Python ADK it overrides botocore's ~60s read timeout, which otherwise
+                      aborts long completions with a ReadTimeoutError; on the Go ADK it bounds
+                      the whole Converse request (default 30m). When unset, each runtime's
+                      default is used.
+                    minimum: 1
+                    type: integer
+                  region:
+                    description: AWS region where the Bedrock model is available (e.g.,
+                      us-east-1, us-west-2)
+                    type: string
+                required:
+                - region
+                type: object
+              defaultHeaders:
+                additionalProperties:
+                  type: string
+                type: object
+              foundry:
+                description: Azure AI Foundry-specific configuration
+                properties:
+                  apiVersion:
+                    default: "2024-10-21"
+                    description: APIVersion is the Foundry OpenAI-compatible data-plane
+                      API version.
+                    type: string
+                  deployment:
+                    description: Deployment is the Foundry model deployment name.
+                    type: string
+                  endpoint:
+                    description: |-
+                      Endpoint is the Foundry or Azure AI Services account endpoint
+                      (e.g., https://my-account.cognitiveservices.azure.com/).
+                      Mutually exclusive with EndpointFrom.
+                    type: string
+                  endpointFrom:
+                    description: |-
+                      EndpointFrom resolves the Foundry endpoint from a ConfigMap key, such as
+                      one written by Azure Service Operator. Mutually exclusive with Endpoint.
+
+                      The selector's optional flag only controls how a missing key is handled: when
+                      set to true, the missing key is ignored while reading the ConfigMap, but a
+                      Foundry endpoint must always be supplied, so an unresolved endpointFrom still
+                      leaves the model unusable and the agent fails to start.
+                    properties:
+                      key:
+                        description: The key to select.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the ConfigMap or its key must
+                          be defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                required:
+                - deployment
+                type: object
+                x-kubernetes-validations:
+                - message: foundry.endpoint and foundry.endpointFrom are mutually
+                    exclusive
+                  rule: '!(has(self.endpoint) && size(self.endpoint) > 0 && has(self.endpointFrom))'
+                - message: foundry.endpoint or foundry.endpointFrom is required
+                  rule: (has(self.endpoint) && size(self.endpoint) > 0) || has(self.endpointFrom)
+              gemini:
+                description: Gemini-specific configuration
+                properties:
+                  maxOutputTokens:
+                    description: Maximum output tokens to generate for a single response
+                    minimum: 1
+                    type: integer
+                type: object
+              geminiVertexAI:
+                description: Gemini Vertex AI-specific configuration
+                properties:
+                  candidateCount:
+                    description: Candidate count
+                    type: integer
+                  location:
+                    description: The project location
+                    type: string
+                  maxOutputTokens:
+                    description: Maximum output tokens
+                    minimum: 1
+                    type: integer
+                  projectID:
+                    description: The project ID
+                    type: string
+                  responseMimeType:
+                    description: Response mime type
+                    type: string
+                  stopSequences:
+                    description: Stop sequences
+                    items:
+                      type: string
+                    type: array
+                  temperature:
+                    description: Temperature
+                    type: string
+                  topK:
+                    description: Top-k sampling parameter
+                    type: string
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                required:
+                - location
+                - projectID
+                type: object
+              model:
+                type: string
+              ollama:
+                description: Ollama-specific configuration
+                properties:
+                  host:
+                    description: Host for the Ollama API
+                    type: string
+                  options:
+                    additionalProperties:
+                      type: string
+                    description: Options for the Ollama API
+                    type: object
+                type: object
+              openAI:
+                description: OpenAI-specific configuration
+                properties:
+                  apiFormat:
+                    default: chatCompletions
+                    description: |-
+                      APIFormat selects which OpenAI HTTP API the runtime uses for this model.
+                      chatCompletions (default) posts to /v1/chat/completions.
+                      responses posts to /v1/responses. Use responses for OpenAI-compatible
+                      gateways or models that require the Responses API.
+                    enum:
+                    - chatCompletions
+                    - responses
+                    type: string
+                  baseUrl:
+                    description: Base URL for the OpenAI API (overrides default)
+                    type: string
+                  frequencyPenalty:
+                    description: Frequency penalty
+                    type: string
+                  maxCompletionTokens:
+                    description: |-
+                      Maximum completion tokens to generate. Sent as the OpenAI
+                      `max_completion_tokens` request parameter (an upper bound on visible
+                      output plus reasoning tokens). This is the parameter reasoning models
+                      (GPT-5 / o-series) require in place of the deprecated maxTokens.
+                      Mutually exclusive with maxTokens.
+                    minimum: 1
+                    type: integer
+                  maxTokens:
+                    description: |-
+                      Maximum tokens to generate. Sent as the OpenAI `max_tokens` request
+                      parameter, which is deprecated and rejected by reasoning models
+                      (GPT-5 / o-series). For those models set maxCompletionTokens instead.
+                      Mutually exclusive with maxCompletionTokens.
+                    minimum: 1
+                    type: integer
+                  "n":
+                    description: N value
+                    type: integer
+                  organization:
+                    description: Organization ID for the OpenAI API
+                    type: string
+                  presencePenalty:
+                    description: Presence penalty
+                    type: string
+                  reasoningEffort:
+                    description: Reasoning effort
+                    enum:
+                    - none
+                    - minimal
+                    - low
+                    - medium
+                    - high
+                    - xhigh
+                    type: string
+                  seed:
+                    description: Seed value
+                    type: integer
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  timeout:
+                    description: Timeout
+                    type: integer
+                  tokenExchange:
+                    description: |-
+                      TokenExchange configures dynamic bearer token acquisition via credential exchange.
+                      Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
+                    properties:
+                      gdchServiceAccount:
+                        description: GDCHServiceAccountConfig holds GDCH-specific
+                          token exchange parameters.
+                        properties:
+                          audience:
+                            description: Audience is the token exchange audience URL
+                              (the GDC inference gateway base URL)
+                            type: string
+                        required:
+                        - audience
+                        type: object
+                      type:
+                        description: TokenExchangeType identifies the token exchange
+                          mechanism
+                        enum:
+                        - GDCHServiceAccount
+                        type: string
+                    required:
+                    - type
+                    type: object
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: maxTokens and maxCompletionTokens are mutually exclusive
+                  rule: '!(has(self.maxTokens) && has(self.maxCompletionTokens))'
+              provider:
+                default: OpenAI
+                description: The provider of the model
+                enum:
+                - Anthropic
+                - OpenAI
+                - AzureOpenAI
+                - Ollama
+                - Gemini
+                - GeminiVertexAI
+                - AnthropicVertexAI
+                - Bedrock
+                - SAPAICore
+                - Foundry
+                type: string
+              sapAICore:
+                description: SAP AI Core-specific configuration
+                properties:
+                  authUrl:
+                    description: OAuth2 token endpoint URL (e.g., https://tenant.authentication.eu10.hana.ondemand.com)
+                    type: string
+                  baseUrl:
+                    description: Base URL for the SAP AI Core API (e.g., https://api.ai.prod.eu-central-1.aws.ml.hana.ondemand.com)
+                    type: string
+                  resourceGroup:
+                    default: default
+                    description: Resource group in SAP AI Core
+                    type: string
+                required:
+                - baseUrl
+                type: object
+              tls:
+                description: |-
+                  TLS configuration for provider connections.
+                  Enables agents to connect to internal LiteLLM gateways or other providers
+                  that use self-signed certificates or custom certificate authorities.
+                properties:
+                  caCertSecretKey:
+                    description: |-
+                      CACertSecretKey is the key within the Secret that contains the
+                      CA certificate data (PEM-encoded). Required when CACertSecretRef
+                      is set — admission rejects ref-without-key regardless of
+                      DisableVerify (see the TLSConfig-level XValidation rules).
+                    type: string
+                  caCertSecretRef:
+                    description: |-
+                      CACertSecretRef is a reference to a Kubernetes Secret containing
+                      CA certificate(s) in PEM format. The Secret must be in the same
+                      namespace as the resource referencing it (ModelConfig,
+                      RemoteMCPServer, or any future consumer of TLSConfig).
+                      When set, the certificate will be used to verify the upstream's
+                      SSL certificate.
+                    type: string
+                  disableSystemCAs:
+                    default: false
+                    description: |-
+                      DisableSystemCAs disables the use of system CA certificates.
+                      When false (default), system CA certificates are used for verification (safe behavior).
+                      When true, only the custom CA from CACertSecretRef is trusted.
+                      This allows strict security policies where only corporate CAs should be trusted.
+                    type: boolean
+                  disableVerify:
+                    default: false
+                    description: |-
+                      DisableVerify disables SSL certificate verification entirely.
+                      When false (default), SSL certificates are verified.
+                      When true, SSL certificate verification is disabled.
+                      WARNING: This should ONLY be used in development/testing environments.
+                      Production deployments MUST use proper certificates.
+                    type: boolean
+                type: object
+                x-kubernetes-validations:
+                - message: caCertSecretKey requires caCertSecretRef
+                  rule: '!(has(self.caCertSecretKey) && size(self.caCertSecretKey)
+                    > 0 && (!has(self.caCertSecretRef) || size(self.caCertSecretRef)
+                    == 0))'
+                - message: caCertSecretRef requires caCertSecretKey
+                  rule: '!(has(self.caCertSecretRef) && size(self.caCertSecretRef)
+                    > 0 && (!has(self.caCertSecretKey) || size(self.caCertSecretKey)
+                    == 0))'
+                - message: disableSystemCAs requires caCertSecretRef or disableVerify
+                    (trust-nothing config rejects every upstream)
+                  rule: '!(has(self.disableSystemCAs) && self.disableSystemCAs &&
+                    (!has(self.disableVerify) || !self.disableVerify) && (!has(self.caCertSecretRef)
+                    || size(self.caCertSecretRef) == 0))'
+            required:
+            - model
+            type: object
+            x-kubernetes-validations:
+            - message: provider.openAI must be nil if the provider is not OpenAI
+              rule: '!(has(self.openAI) && self.provider != ''OpenAI'')'
+            - message: provider.anthropic must be nil if the provider is not Anthropic
+              rule: '!(has(self.anthropic) && self.provider != ''Anthropic'')'
+            - message: provider.azureOpenAI must be nil if the provider is not AzureOpenAI
+              rule: '!(has(self.azureOpenAI) && self.provider != ''AzureOpenAI'')'
+            - message: provider.ollama must be nil if the provider is not Ollama
+              rule: '!(has(self.ollama) && self.provider != ''Ollama'')'
+            - message: provider.gemini must be nil if the provider is not Gemini
+              rule: '!(has(self.gemini) && self.provider != ''Gemini'')'
+            - message: provider.geminiVertexAI must be nil if the provider is not
+                GeminiVertexAI
+              rule: '!(has(self.geminiVertexAI) && self.provider != ''GeminiVertexAI'')'
+            - message: provider.anthropicVertexAI must be nil if the provider is not
+                AnthropicVertexAI
+              rule: '!(has(self.anthropicVertexAI) && self.provider != ''AnthropicVertexAI'')'
+            - message: provider.bedrock must be nil if the provider is not Bedrock
+              rule: '!(has(self.bedrock) && self.provider != ''Bedrock'')'
+            - message: provider.sapAICore must be nil if the provider is not SAPAICore
+              rule: '!(has(self.sapAICore) && self.provider != ''SAPAICore'')'
+            - message: provider.foundry must be nil if the provider is not Foundry
+              rule: '!(has(self.foundry) && self.provider != ''Foundry'')'
+            - message: apiKeySecret must be set if apiKeySecretKey is set
+              rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
+            - message: apiKeySecretKey must be set if apiKeySecret is set (except
+                for Bedrock and SAPAICore providers)
+              rule: '!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider
+                != ''Bedrock'' && self.provider != ''SAPAICore'')'
+            - message: apiKeyPassthrough and apiKeySecret are mutually exclusive
+              rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret)
+                && size(self.apiKeySecret) > 0)'
+            - message: apiKeyPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI
+              rule: '!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && (self.provider
+                == ''Gemini'' || self.provider == ''GeminiVertexAI'' || self.provider
+                == ''AnthropicVertexAI''))'
+            - message: openAI.tokenExchange requires apiKeySecret (the service account
+                secret)
+              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && (!has(self.apiKeySecret)
+                || size(self.apiKeySecret) == 0))'
+            - message: openAI.tokenExchange and apiKeyPassthrough are mutually exclusive
+              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && has(self.apiKeyPassthrough)
+                && self.apiKeyPassthrough)'
+            - message: openAI.tokenExchange type GDCHServiceAccount requires openAI.tokenExchange.gdchServiceAccount
+              rule: '!(has(self.openAI) && has(self.openAI.tokenExchange) && self.openAI.tokenExchange.type
+                == ''GDCHServiceAccount'' && !has(self.openAI.tokenExchange.gdchServiceAccount))'
+          status:
+            description: ModelConfigStatus defines the observed state of ModelConfig.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                format: int64
+                type: integer
+              secretHash:
+                description: The secret hash stores a hash of any secrets required
+                  by the model config (i.e. api key, tls cert) to ensure agents referencing
+                  this model config detect changes to these secrets and restart if
+                  necessary.
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: false
+    subresources:
+      status: {}

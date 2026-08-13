@@ -1,10 +1,11 @@
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
+apiVersion: kagent.dev/v1alpha3
+kind: SandboxAgent
 metadata:
   name: langgraph-kebab
 spec:
   description: LangGraph kebab sample (fake make_kebab tool; use with mock LLM in E2E).
   type: BYO
   byo:
-    deployment:
-      image: localhost:5001/langgraph-kebab:latest
+    image: localhost:5001/langgraph-kebab:latest
+    cmd: uv
+    args: [run, samples/langgraph/kebab/kebab/cli.py]

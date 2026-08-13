@@ -40,7 +40,7 @@ const longNameAgent: AgentResponse = {
   model: "vllm/Qwen/Qwen2.5-7B-Instruct",
   modelProvider: "openai",
   modelConfigRef: "ak-poc-testing/qwen7b",
-  deploymentReady: true,
+  ready: true,
   accepted: true,
   tools: [
     {

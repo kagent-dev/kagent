@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,29 +21,29 @@ func TestBuildOpenClawActorStartup_WithModelConfig(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 
 	ns := "kagent"
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "openai-key", Namespace: ns},
 		Data:       map[string][]byte{"OPENAI_API_KEY": []byte("sk-test")},
 	}
-	mc := &v1alpha2.ModelConfig{
+	mc := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "default-model-config", Namespace: ns},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Model:           "gpt-4o",
-			Provider:        v1alpha2.ModelProviderOpenAI,
+			Provider:        v1alpha3.ModelProviderOpenAI,
 			APIKeySecret:    "openai-key",
 			APIKeySecretKey: "OPENAI_API_KEY",
-			OpenAI:          &v1alpha2.OpenAIConfig{},
+			OpenAI:          &v1alpha3.OpenAIConfig{},
 		},
 	}
-	ah := &v1alpha2.AgentHarness{
+	ah := &v1alpha3.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "peterj-claw", Namespace: ns},
-		Spec: v1alpha2.AgentHarnessSpec{
+		Spec: v1alpha3.AgentHarnessSpec{
 			ModelConfigRef: "default-model-config",
-			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				SnapshotsConfig: &v1alpha2.AgentHarnessSubstrateSnapshotsConfig{
+			Substrate: &v1alpha3.AgentHarnessSubstrateSpec{
+				SnapshotsConfig: &v1alpha3.AgentHarnessSubstrateSnapshotsConfig{
 					Location: "gs://bucket/prefix/",
 				},
 			},
@@ -121,29 +121,29 @@ func TestBuildOpenClawActorStartup_WithExplicitBaseURL(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 
 	ns := "kagent"
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "openai-key", Namespace: ns},
 		Data:       map[string][]byte{"OPENAI_API_KEY": []byte("sk-test")},
 	}
-	mc := &v1alpha2.ModelConfig{
+	mc := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mc", Namespace: ns},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Model:           "gpt-4o",
-			Provider:        v1alpha2.ModelProviderOpenAI,
+			Provider:        v1alpha3.ModelProviderOpenAI,
 			APIKeySecret:    "openai-key",
 			APIKeySecretKey: "OPENAI_API_KEY",
-			OpenAI:          &v1alpha2.OpenAIConfig{BaseURL: "https://api.example/v1"},
+			OpenAI:          &v1alpha3.OpenAIConfig{BaseURL: "https://api.example/v1"},
 		},
 	}
-	ah := &v1alpha2.AgentHarness{
+	ah := &v1alpha3.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "claw", Namespace: ns},
-		Spec: v1alpha2.AgentHarnessSpec{
+		Spec: v1alpha3.AgentHarnessSpec{
 			ModelConfigRef: "mc",
-			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
-				SnapshotsConfig: &v1alpha2.AgentHarnessSubstrateSnapshotsConfig{
+			Substrate: &v1alpha3.AgentHarnessSubstrateSpec{
+				SnapshotsConfig: &v1alpha3.AgentHarnessSubstrateSnapshotsConfig{
 					Location: "gs://bucket/prefix/",
 				},
 			},

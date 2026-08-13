@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
@@ -79,7 +79,7 @@ func main() {
 		configDir = "/config"
 	}
 
-	kagentURL := os.Getenv("KAGENT_URL")
+	kagentGRPCURL := os.Getenv("KAGENT_GRPC_URL")
 
 	if err := config.MaterializeFromEnv(configDir); err != nil {
 		logger.Error(err, "Failed to materialize agent config from environment", "configDir", configDir)
@@ -132,12 +132,10 @@ func main() {
 		logger.Info("ADK telemetry disabled (set OTEL_TRACING_ENABLED or OTEL_LOGGING_ENABLED to true)")
 	}
 
-	// Create authenticated HTTP client when kagent persistence is enabled.
-	// This client is shared between the executor's session service and
-	// app.New's task store, avoiding duplicate token services.
-	var httpClient *http.Client
+	// Create one authenticated controller channel for all kagent persistence.
+	var controllerClient *controllerclient.Client
 	var tokenService *auth.KAgentTokenService
-	if kagentURL != "" {
+	if kagentGRPCURL != "" {
 		tokenService = auth.NewKAgentTokenService(appName)
 		if err := tokenService.Start(context.Background()); err != nil {
 			logger.Error(err, "Failed to start token service")
@@ -145,14 +143,27 @@ func main() {
 			logger.Info("Token service started")
 		}
 		defer tokenService.Stop()
-		httpClient = auth.NewHTTPClientWithToken(tokenService)
+		controllerClient, err = controllerclient.New(controllerclient.Config{
+			Target:        kagentGRPCURL,
+			AgentName:     appName,
+			TokenProvider: tokenService,
+		})
+		if err != nil {
+			logger.Error(err, "Failed to create controller gRPC client", "target", kagentGRPCURL)
+			os.Exit(1)
+		}
+		defer func() {
+			if err := controllerClient.Close(); err != nil {
+				logger.Error(err, "Failed to close controller gRPC client")
+			}
+		}()
 	}
 
 	// The executor needs a session service for its BeforeExecute callback
 	// (session creation/lookup). This must be created before the executor.
 	// AgentConfig.session_db_url (set by the controller for durable-dir substrate sandbox
 	// agents) selects the local store; otherwise sessions live in the controller database.
-	sessionService, err := session.NewService(agentConfig.SessionDBURL, kagentURL, httpClient)
+	sessionService, err := session.NewService(agentConfig.SessionDBURL, controllerClient)
 	if err != nil {
 		logger.Error(err, "Failed to open local session store", "url", agentConfig.SessionDBURL)
 		os.Exit(1)
@@ -161,22 +172,21 @@ func main() {
 	case *session.LocalSessionService:
 		logger.Info("Using local durable-dir session store", "url", agentConfig.SessionDBURL)
 	case *session.KAgentSessionService:
-		logger.Info("Using KAgent session service", "url", kagentURL)
+		logger.Info("Using KAgent gRPC session service", "target", kagentGRPCURL)
 	default:
-		logger.Info("No KAGENT_URL set, using in-memory session and no task persistence")
+		logger.Info("No KAGENT_GRPC_URL set, using in-memory session and no task persistence")
 	}
 
 	ctx := logr.NewContext(context.Background(), logger)
 
 	// Build memory service if configured.
 	var memoryService *kagentmemory.KagentMemoryService
-	if agentConfig.Memory != nil && kagentURL != "" {
+	if agentConfig.Memory != nil && controllerClient != nil {
 		memSvc, err := kagentmemory.New(kagentmemory.Config{
-			AgentName:       appName,
-			APIURL:          kagentURL,
-			HTTPClient:      httpClient,
-			TTLDays:         agentConfig.Memory.TTLDays,
-			EmbeddingConfig: agentConfig.Memory.Embedding,
+			AgentName:        appName,
+			ControllerClient: controllerClient,
+			TTLDays:          agentConfig.Memory.TTLDays,
+			EmbeddingConfig:  agentConfig.Memory.Embedding,
 		})
 		if err != nil {
 			logger.Error(err, "Failed to create memory service")
@@ -186,7 +196,7 @@ func main() {
 		logger.Info("Memory service enabled", "appName", appName)
 	}
 
-	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, kagentURL, httpClient)
+	runnerConfig, err := runnerpkg.CreateRunnerConfig(ctx, agentConfig, sessionService, appName, memoryService, controllerClient)
 	if err != nil {
 		logger.Error(err, "Failed to create Google ADK Runner config")
 		os.Exit(1)
@@ -217,17 +227,16 @@ func main() {
 	}
 
 	// Delegate server, task store, and remaining infrastructure to app.New.
-	// Passing HTTPClient prevents app.New from creating a second token service.
 	kagentApp, err := app.New(app.AppConfig{
-		AgentCard:       *agentCard,
-		Host:            *host,
-		Port:            port,
-		KAgentURL:       kagentURL,
-		AppName:         appName,
-		ShutdownTimeout: 5 * time.Second,
-		Logger:          logger,
-		HTTPClient:      httpClient,
-		Agent:           runnerConfig.Agent,
+		AgentCard:        *agentCard,
+		Host:             *host,
+		Port:             port,
+		KAgentGRPCURL:    kagentGRPCURL,
+		AppName:          appName,
+		ShutdownTimeout:  5 * time.Second,
+		Logger:           logger,
+		ControllerClient: controllerClient,
+		Agent:            runnerConfig.Agent,
 	}, executor)
 	if err != nil {
 		logger.Error(err, "Failed to create app")

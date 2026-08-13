@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,14 +20,14 @@ import (
 // and memory embeddings can build through the shared azureai client.
 func TestTranslateModelAzureOpenAISettings(t *testing.T) {
 	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
-	modelConfig := &v1alpha2.ModelConfig{
+	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "azure-model", Namespace: "default"},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Model:    "gpt-4o",
-			Provider: v1alpha2.ModelProviderAzureOpenAI,
-			AzureOpenAI: &v1alpha2.AzureOpenAIConfig{
+			Provider: v1alpha3.ModelProviderAzureOpenAI,
+			AzureOpenAI: &v1alpha3.AzureOpenAIConfig{
 				Endpoint:       "https://example.openai.azure.com/",
 				DeploymentName: "gpt-4o-deploy",
 				APIVersion:     "2024-06-01",

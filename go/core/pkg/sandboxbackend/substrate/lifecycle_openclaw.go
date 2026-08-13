@@ -10,7 +10,7 @@ import (
 	"text/template"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	corev1 "k8s.io/api/core/v1"
@@ -38,7 +38,7 @@ type openClawStartupScriptData struct {
 
 // buildOpenClawActorStartup returns the ateom workload startup script and container env for OpenClaw on Substrate.
 // When spec.modelConfigRef is set, openclaw.json includes models/agents/channels.
-func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.AgentHarness) (script string, env []atev1alpha1.EnvVar, err error) {
+func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha3.AgentHarness) (script string, env []atev1alpha1.EnvVar, err error) {
 	if ah == nil {
 		return "", nil, fmt.Errorf("AgentHarness is required")
 	}
@@ -57,7 +57,7 @@ func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.
 		if parseErr != nil {
 			return "", nil, fmt.Errorf("parse modelConfigRef %q: %w", ref, parseErr)
 		}
-		mc := &v1alpha2.ModelConfig{}
+		mc := &v1alpha3.ModelConfig{}
 		if getErr := p.Client.Get(ctx, mcRef, mc); getErr != nil {
 			return "", nil, fmt.Errorf("get ModelConfig %s: %w", mcRef, getErr)
 		}
@@ -83,7 +83,7 @@ func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha2.
 // acpShimEnv returns the env vars the image's
 // openclaw-gateway-ensure.sh/openclaw-acp-child.sh scripts read. The shim no
 // longer authenticates the WebSocket handshake, so no bearer token is passed.
-func acpShimEnv(ah *v1alpha2.AgentHarness, gatewayPort int) []corev1.EnvVar {
+func acpShimEnv(ah *v1alpha3.AgentHarness, gatewayPort int) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		{Name: "OPENCLAW_GATEWAY_PORT", Value: fmt.Sprintf("%d", gatewayPort)},
 	}

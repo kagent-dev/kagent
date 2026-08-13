@@ -1,5 +1,0 @@
-apiVersion: v2
-name: kgateway-agent
-description: A kgateway Agent for kagent
-type: application
-version: ${VERSION}

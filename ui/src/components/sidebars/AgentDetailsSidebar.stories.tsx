@@ -44,7 +44,7 @@ const mockAgent: AgentResponse = {
   model: "gpt-4",
   modelProvider: "openai",
   modelConfigRef: "openai-config",
-  deploymentReady: true,
+  ready: true,
   accepted: true,
   tools: [
     {
@@ -79,7 +79,7 @@ const mockAgentNoTools: AgentResponse = {
   model: "gpt-3.5-turbo",
   modelProvider: "openai",
   modelConfigRef: "openai-config",
-  deploymentReady: true,
+  ready: true,
   accepted: true,
   tools: [],
 };
@@ -99,7 +99,7 @@ const mockBYOAgent: AgentResponse = {
   model: "custom-model",
   modelProvider: "custom",
   modelConfigRef: "custom-config",
-  deploymentReady: true,
+  ready: true,
   accepted: true,
   tools: [],
 };

@@ -38,9 +38,8 @@ export class KagentA2AClient {
   /**
    * Get the A2A URL for a specific agent
    */
-  getAgentUrl(namespace: string, agentName: string, runInSandbox = false): string {
-    const prefix = runInSandbox ? "a2a-sandboxes" : "a2a";
-    return `${this.baseUrl}/${prefix}/${namespace}/${agentName}`;
+  getAgentUrl(namespace: string, agentName: string): string {
+    return `${this.baseUrl}/a2a-sandboxes/${namespace}/${agentName}`;
   }
 
   /**
@@ -64,13 +63,10 @@ export class KagentA2AClient {
     agentName: string,
     params: A2ASendMessageRequest,
     signal?: AbortSignal,
-    runInSandbox = false,
     shareToken?: string
   ): Promise<AsyncIterable<A2AStreamResponse>> {
     const request = this.createStreamingRequest(params);
-    const proxyUrl = runInSandbox
-      ? `/a2a-sandboxes/${namespace}/${agentName}`
-      : `/a2a/${namespace}/${agentName}`;
+    const proxyUrl = `/a2a-sandboxes/${namespace}/${agentName}`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -107,7 +103,6 @@ export class KagentA2AClient {
     agentName: string,
     taskId: string,
     signal?: AbortSignal,
-    runInSandbox = false,
     shareToken?: string
   ): Promise<AsyncIterable<A2AStreamResponse>> {
     const request: A2AJsonRpcRequest = {
@@ -120,9 +115,7 @@ export class KagentA2AClient {
       id: uuidv4(),
     };
 
-    const proxyUrl = runInSandbox
-      ? `/a2a-sandboxes/${namespace}/${agentName}`
-      : `/a2a/${namespace}/${agentName}`;
+    const proxyUrl = `/a2a-sandboxes/${namespace}/${agentName}`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

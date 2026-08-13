@@ -1,19 +1,21 @@
 # KAgent LangGraph Integration
 
-This package provides LangGraph integration for KAgent with A2A (Agent-to-Agent) server support. It implements a custom checkpointer that persists LangGraph state to the KAgent REST API, enabling distributed agent execution with session persistence.
+This package provides LangGraph integration for KAgent with A2A (Agent-to-Agent) server support.
 
 ## Features
 
-- **Custom Checkpointer**: Persists LangGraph checkpoints to KAgent via REST API
 - **A2A Server Integration**: Compatible with KAgent's Agent-to-Agent protocol
-- **Session Management**: Automatic session creation and state persistence
 - **Event Streaming**: Real-time streaming of graph execution events
 - **FastAPI Integration**: Ready-to-deploy web server for agent execution
 
 ## Quick Start
 
 ```python
+from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig
 from kagent.langgraph import KAgentApp
+import os
+import sqlite3
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph
 from langchain_core.messages import BaseMessage
 from typing import TypedDict, Annotated, Sequence
@@ -21,13 +23,25 @@ from typing import TypedDict, Annotated, Sequence
 class State(TypedDict):
     messages: Annotated[Sequence[BaseMessage], "The conversation history"]
 
-# Define your graph
+config = KAgentConfig()
+controller_client = AsyncControllerClient(
+    config.grpc_url,
+    agent_name=config.app_name,
+    token_provider=AsyncFileTokenProvider(),
+)
+
+# Define and compile your graph
 builder = StateGraph(State)
 # Add nodes and edges...
+checkpointer = SqliteSaver(sqlite3.connect(
+    os.getenv("KAGENT_CHECKPOINT_DB", "/tmp/langgraph-checkpoints.sqlite"),
+    check_same_thread=False,
+))
+graph = builder.compile(checkpointer=checkpointer)
 
 # Create KAgent app
 app = KAgentApp(
-    graph_builder=builder,
+    graph=graph,
     agent_card={
         "name": "my-langgraph-agent",
         "description": "A LangGraph agent with KAgent integration",
@@ -36,8 +50,8 @@ app = KAgentApp(
         "defaultInputModes": ["text"],
         "defaultOutputModes": ["text"]
     },
-    kagent_url="http://localhost:8083",
-    app_name="my-agent"
+    config=config,
+    controller_client=controller_client,
 )
 
 # Build FastAPI application
@@ -48,19 +62,20 @@ fastapi_app = app.build()
 
 The package mirrors the structure of `kagent-adk` but uses LangGraph instead of Google's ADK:
 
-- **KAgentCheckpointer**: Custom checkpointer that stores graph state in KAgent sessions
 - **LangGraphAgentExecutor**: Executes LangGraph workflows within A2A protocol
 - **KAgentApp**: FastAPI application builder with A2A integration
-- **Session Management**: Automatic session lifecycle management via KAgent REST API
+- **Task Management**: Automatic A2A task persistence through one shared authenticated gRPC channel
 
 ## Configuration
 
-The system uses the same REST API endpoints as the ADK integration:
+Set both controller endpoints when running locally. `KAGENT_URL` remains the HTTP base URL for protocol traffic, while application persistence uses `KAGENT_GRPC_URL` independently.
 
-- `POST /api/sessions` - Create new sessions
-- `GET /api/sessions/{id}` - Retrieve session and events
-- `POST /api/sessions/{id}/events` - Append checkpoint events
-- `POST /api/tasks` - Task management
+```bash
+export KAGENT_URL=http://localhost:8083
+export KAGENT_GRPC_URL=localhost:8084
+export KAGENT_NAME=my-agent
+export KAGENT_NAMESPACE=default
+```
 
 ## Deployment
 

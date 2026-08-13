@@ -16,6 +16,7 @@ This package supports both CrewAI Crews and Flows. To get started, define your C
 
 ```python
 from kagent.crewai import KAgentApp
+from kagent.core import KAgentConfig
 # This is the crew or flow you defined
 from research_crew.crew import ResearchCrew
 
@@ -26,7 +27,7 @@ app = KAgentApp(crew=ResearchCrew().crew(), agent_card={
     "capabilities": {"streaming": True},
     "defaultInputModes": ["text"],
     "defaultOutputModes": ["text"]
-})
+}, config=KAgentConfig())
 
 fastapi_app = app.build()
 uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
@@ -74,6 +75,15 @@ The package mirrors the structure of `kagent-adk` and `kagent-langgraph` but use
 - **KAgentApp**: FastAPI application builder with A2A integration
 - **Event Converters**: Translates CrewAI events into A2A events for streaming.
 - **Session-aware Memory**: Custom persistence backend scoped by session ID and user ID, works with Crew and Flow mode by leveraging memory and state persistence.
+
+Task, memory, and flow-state persistence use one shared authenticated generated gRPC channel. For local development, configure the HTTP endpoint used by protocol traffic and the independent gRPC controller endpoint:
+
+```bash
+export KAGENT_URL=http://localhost:8083
+export KAGENT_GRPC_URL=localhost:8084
+export KAGENT_NAME=my-agent
+export KAGENT_NAMESPACE=default
+```
 
 ## Deployment
 

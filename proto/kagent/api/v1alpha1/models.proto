@@ -1,0 +1,130 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "kagent/api/v1alpha1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+service ModelService {
+  rpc ListModelConfigs(ListModelConfigsRequest) returns (ListModelConfigsResponse);
+  rpc GetModelConfig(GetModelConfigRequest) returns (GetModelConfigResponse);
+  rpc CreateModelConfig(CreateModelConfigRequest) returns (CreateModelConfigResponse);
+  rpc UpdateModelConfig(UpdateModelConfigRequest) returns (UpdateModelConfigResponse);
+  rpc DeleteModelConfig(DeleteModelConfigRequest) returns (DeleteModelConfigResponse);
+  rpc ListSupportedModelProviders(ListSupportedModelProvidersRequest) returns (ListSupportedModelProvidersResponse);
+  rpc ListSupportedMemoryProviders(ListSupportedMemoryProvidersRequest) returns (ListSupportedMemoryProvidersResponse);
+  rpc ListConfiguredProviders(ListConfiguredProvidersRequest) returns (ListConfiguredProvidersResponse);
+  rpc ListProviderModels(ListProviderModelsRequest) returns (ListProviderModelsResponse);
+  rpc ListSupportedModels(ListSupportedModelsRequest) returns (ListSupportedModelsResponse);
+}
+
+message SecretMaterial {
+  string name = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message ListModelConfigsRequest {}
+
+message ModelConfig {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+}
+
+message ListModelConfigsResponse {
+  repeated ModelConfig model_configs = 1;
+}
+
+message GetModelConfigRequest {
+  ResourceReference ref = 1;
+}
+
+message GetModelConfigResponse {
+  ModelConfig model_config = 1;
+}
+
+message CreateModelConfigRequest {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+  string api_key = 3;
+  repeated SecretMaterial secrets = 4;
+}
+
+message CreateModelConfigResponse {
+  ModelConfig model_config = 1;
+}
+
+message UpdateModelConfigRequest {
+  ResourceReference ref = 1;
+  StructuredObject resource = 2;
+  optional string api_key = 3;
+  repeated SecretMaterial secrets = 4;
+}
+
+message UpdateModelConfigResponse {
+  ModelConfig model_config = 1;
+}
+
+message DeleteModelConfigRequest {
+  ResourceReference ref = 1;
+}
+
+message DeleteModelConfigResponse {}
+
+message ProviderDefinition {
+  string name = 1;
+  string type = 2;
+  repeated string required_params = 3;
+  repeated string optional_params = 4;
+}
+
+message ListSupportedModelProvidersRequest {}
+
+message ListSupportedModelProvidersResponse {
+  repeated ProviderDefinition providers = 1;
+}
+
+message ListSupportedMemoryProvidersRequest {}
+
+message ListSupportedMemoryProvidersResponse {
+  repeated ProviderDefinition providers = 1;
+}
+
+message ConfiguredProvider {
+  string name = 1;
+  string type = 2;
+  string endpoint = 3;
+}
+
+message ListConfiguredProvidersRequest {}
+
+message ListConfiguredProvidersResponse {
+  repeated ConfiguredProvider providers = 1;
+}
+
+message ListProviderModelsRequest {
+  string provider_name = 1;
+  bool refresh = 2;
+}
+
+message ListProviderModelsResponse {
+  string provider = 1;
+  repeated string models = 2;
+}
+
+message ModelInfo {
+  string name = 1;
+  bool function_calling = 2;
+}
+
+message ProviderModels {
+  string provider = 1;
+  repeated ModelInfo models = 2;
+}
+
+message ListSupportedModelsRequest {}
+
+message ListSupportedModelsResponse {
+  repeated ProviderModels providers = 1;
+}

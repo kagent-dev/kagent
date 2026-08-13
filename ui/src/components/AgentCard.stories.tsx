@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { AgentCard } from "./AgentCard";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { AgentResponse } from "@/types";
 
 const meta = {
@@ -8,6 +9,7 @@ const meta = {
   parameters: {
     layout: "centered",
   },
+  decorators: [(Story) => <TooltipProvider><Story /></TooltipProvider>],
 } satisfies Meta<typeof AgentCard>;
 
 export default meta;
@@ -29,7 +31,7 @@ const baseAgentResponse: AgentResponse = {
   modelProvider: "openai",
   modelConfigRef: "openai-config",
   tools: [],
-  deploymentReady: true,
+  ready: true,
   accepted: true,
 };
 
@@ -43,7 +45,7 @@ export const NotReady: Story = {
   args: {
     agentResponse: {
       ...baseAgentResponse,
-      deploymentReady: false,
+      ready: false,
     },
   },
 };
@@ -67,9 +69,7 @@ export const BYOAgent: Story = {
           ...baseAgentResponse.agent.spec,
           type: "BYO",
           byo: {
-            deployment: {
-              image: "my-registry.azurecr.io/my-agent:v1.0.0",
-            },
+            image: "my-registry.azurecr.io/my-agent:v1.0.0",
           },
         },
       },
