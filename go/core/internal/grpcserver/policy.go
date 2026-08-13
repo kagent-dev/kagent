@@ -18,7 +18,7 @@ const (
 type MethodPolicies map[string]AccessMode
 
 func DefaultMethodPolicies() MethodPolicies {
-	return MethodPolicies{
+	policies := MethodPolicies{
 		apiv1alpha1.SystemService_GetVersion_FullMethodName:                     AccessPublic,
 		apiv1alpha1.SystemService_GetCurrentUser_FullMethodName:                 AccessRead,
 		apiv1alpha1.SystemService_ListNamespaces_FullMethodName:                 AccessRead,
@@ -84,4 +84,14 @@ func DefaultMethodPolicies() MethodPolicies {
 		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo":             AccessPublic,
 		"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo":        AccessPublic,
 	}
+	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName] = AccessCreate
+	policies[apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName] = AccessRead
+	policies[apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName] = AccessRead
+	policies[apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName] = AccessUpdate
+	policies[apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName] = AccessUpdate
+	policies[apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName] = AccessDelete
+	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName] = AccessCreate
+	policies[apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName] = AccessRead
+	policies[apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName] = AccessDelete
+	return policies
 }

@@ -244,12 +244,13 @@ type SessionShare struct {
 }
 
 type AgentTemplateHarnessPair struct {
-	Namespace         string
-	AgentTemplateName string
-	AgentTemplateUID  string
-	HarnessName       string
-	HarnessUID        string
-	DesiredRevision   string
+	Namespace           string
+	AgentTemplateName   string
+	AgentTemplateUID    string
+	HarnessName         string
+	HarnessUID          string
+	DesiredRevision     string
+	AgentTemplateLabels map[string]string
 }
 
 type RuntimeRevision struct {
@@ -266,4 +267,14 @@ type RuntimeRevision struct {
 	ActorTemplateUID       string
 	Phase                  string
 	GoldenSnapshot         string
+}
+
+type AgentInstanceShare struct {
+	ID         string
+	Namespace  string
+	InstanceID string
+	Creator    string
+	Permission string
+	TokenHash  []byte
+	CreatedAt  time.Time
 }

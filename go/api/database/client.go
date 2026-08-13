@@ -6,6 +6,7 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
 )
@@ -13,6 +14,8 @@ import (
 // ErrTaskOwnedByAnotherUser means a task with this id already belongs to a
 // different user.
 var ErrTaskOwnedByAnotherUser = errors.New("task id owned by another user")
+
+var ErrIdempotencyConflict = errors.New("request id was already used with different parameters")
 
 type QueryOptions struct {
 	Limit    int
@@ -103,10 +106,21 @@ type Client interface {
 	// AgentTemplate runtime revision methods
 	UpsertAgentTemplateHarnessPair(context.Context, AgentTemplateHarnessPair) error
 	UpsertRuntimeRevision(context.Context, RuntimeRevision) error
+	GetRuntimeRevision(context.Context, string) (*RuntimeRevision, error)
 	MarkRuntimeRevisionSuccessful(context.Context, AgentTemplateHarnessPair) error
 	RetireAgentTemplateHarnessPairs(context.Context, string, string) error
 	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
 	RetireOtherAgentTemplateHarnessPairs(context.Context, string, string, []string) error
 	ListUnreferencedRuntimeRevisions(context.Context) ([]RuntimeRevision, error)
 	DeleteUnreferencedRuntimeRevision(context.Context, string) error
+
+	// AgentInstance lifecycle methods
+	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
+	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
+	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
+	DeleteAgentInstance(context.Context, string) error
+	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
+	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)
+	DeleteAgentInstanceShare(context.Context, string, string, string) error
 }
