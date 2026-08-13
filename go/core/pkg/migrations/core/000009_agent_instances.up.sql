@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS agent_instance (
     user_id TEXT NOT NULL CHECK (user_id <> ''),
     request_id TEXT NOT NULL,
     prepared_revision TEXT REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
-    actor_uid TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL,
     labels JSONB NOT NULL DEFAULT '{}',
     data BYTEA NOT NULL,

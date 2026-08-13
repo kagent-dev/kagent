@@ -42,12 +42,6 @@ RETURNING *;
 -- name: DeleteAgentInstance :exec
 DELETE FROM agent_instance WHERE id = $1;
 
--- name: RecordAgentInstanceActorUID :one
-UPDATE agent_instance
-SET actor_uid = COALESCE(NULLIF(actor_uid, ''), sqlc.arg(actor_uid))
-WHERE id = sqlc.arg(id)
-RETURNING actor_uid;
-
 -- name: CreateAgentInstanceShare :one
 INSERT INTO agent_instance_share (
     id, namespace, instance_id, creator, permission, token_hash

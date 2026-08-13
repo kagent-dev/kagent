@@ -120,7 +120,6 @@ type Client interface {
 	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error
-	RecordAgentInstanceActorUID(context.Context, string, string) (string, error)
 	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error

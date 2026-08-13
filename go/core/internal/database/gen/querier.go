@@ -84,7 +84,6 @@ type Querier interface {
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
-	RecordAgentInstanceActorUID(ctx context.Context, arg RecordAgentInstanceActorUIDParams) (string, error)
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error
 	RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error
 	RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg RetireOtherAgentTemplateHarnessPairsParams) error

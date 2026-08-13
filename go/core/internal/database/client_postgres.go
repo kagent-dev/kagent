@@ -600,14 +600,6 @@ func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) err
 	return nil
 }
 
-func (c *postgresClient) RecordAgentInstanceActorUID(ctx context.Context, instanceID, actorUID string) (string, error) {
-	uid, err := c.q.RecordAgentInstanceActorUID(ctx, dbgen.RecordAgentInstanceActorUIDParams{ID: instanceID, ActorUid: actorUID})
-	if err != nil {
-		return "", fmt.Errorf("record AgentInstance %s Actor UID: %w", instanceID, notFoundOr(err))
-	}
-	return uid, nil
-}
-
 func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare {
 	return dbpkg.AgentInstanceShare{
 		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,

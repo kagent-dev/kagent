@@ -17,7 +17,6 @@ type workflowStore interface {
 	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error
-	RecordAgentInstanceActorUID(context.Context, string, string) (string, error)
 }
 
 type actorClient interface {
@@ -69,18 +68,6 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	if actor.GetActorTemplateNamespace() != revision.ActorTemplateNamespace || actor.GetActorTemplateName() != revision.ActorTemplateName {
 		return nil, fmt.Errorf("Actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplateNamespace(), actor.GetActorTemplateName())
 	}
-	actorUID := actor.GetMetadata().GetUid()
-	if actorUID == "" {
-		return nil, fmt.Errorf("Actor %s/%s has no UID", atespace, name)
-	}
-	storedUID, err := w.store.RecordAgentInstanceActorUID(ctx, instance.GetId(), actorUID)
-	if err != nil {
-		return nil, err
-	}
-	if storedUID != actorUID {
-		return nil, fmt.Errorf("Actor %s/%s UID changed", atespace, name)
-	}
-
 	// Substrate's resume RPC is an imperative workflow and returns only after
 	// the Actor is running.
 	if actor.GetStatus() != ateapipb.Actor_STATUS_RUNNING {
@@ -117,15 +104,6 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 	if actor.GetActorTemplateNamespace() != revision.ActorTemplateNamespace || actor.GetActorTemplateName() != revision.ActorTemplateName {
 		return nil, fmt.Errorf("refuse to delete Actor %s/%s: ActorTemplate changed", atespace, name)
 	}
-	actorUID := actor.GetMetadata().GetUid()
-	storedUID, err := w.store.RecordAgentInstanceActorUID(ctx, instance.GetId(), actorUID)
-	if err != nil {
-		return nil, err
-	}
-	if actorUID == "" || storedUID != actorUID {
-		return nil, fmt.Errorf("refuse to delete Actor %s/%s: UID changed", atespace, name)
-	}
-
 	// Substrate's suspend and delete RPCs each run their workflows to
 	// completion, so no local status polling is needed between them.
 	switch actor.GetStatus() {

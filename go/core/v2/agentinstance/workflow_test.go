@@ -32,8 +32,8 @@ func TestActorWorkflowCreatesAndDeletesActor(t *testing.T) {
 	if created.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || created.GetA2AAuthority() == "" {
 		t.Fatalf("created instance = %+v", created)
 	}
-	if store.actorUID != "actor-uid" || len(actors.actors) != 1 {
-		t.Fatalf("actor UID = %q, actors = %v", store.actorUID, actors.actors)
+	if len(actors.actors) != 1 {
+		t.Fatalf("actors = %v", actors.actors)
 	}
 	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus() != ateapipb.Actor_STATUS_RUNNING {
 		t.Fatalf("created Actor status = %s", actor.GetStatus())
@@ -51,7 +51,6 @@ func TestActorWorkflowCreatesAndDeletesActor(t *testing.T) {
 type lifecycleTestStore struct {
 	instance *apiv1alpha1.AgentInstance
 	revision *dbpkg.RuntimeRevision
-	actorUID string
 }
 
 func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error) {
@@ -67,13 +66,6 @@ func (s *lifecycleTestStore) MarkAgentInstanceReady(_ context.Context, _ string,
 func (s *lifecycleTestStore) DeleteAgentInstance(context.Context, string) error {
 	s.instance = nil
 	return nil
-}
-
-func (s *lifecycleTestStore) RecordAgentInstanceActorUID(_ context.Context, _ string, uid string) (string, error) {
-	if s.actorUID == "" {
-		s.actorUID = uid
-	}
-	return s.actorUID, nil
 }
 
 type lifecycleTestActors struct {

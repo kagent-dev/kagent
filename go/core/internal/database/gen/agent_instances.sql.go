@@ -79,7 +79,7 @@ func (q *Queries) DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentI
 }
 
 const getAgentInstanceByID = `-- name: GetAgentInstanceByID :one
-SELECT id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance WHERE id = $1
+SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data FROM agent_instance WHERE id = $1
 `
 
 func (q *Queries) GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error) {
@@ -91,7 +91,6 @@ func (q *Queries) GetAgentInstanceByID(ctx context.Context, id string) (AgentIns
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
-		&i.ActorUid,
 		&i.State,
 		&i.Labels,
 		&i.Data,
@@ -100,7 +99,7 @@ func (q *Queries) GetAgentInstanceByID(ctx context.Context, id string) (AgentIns
 }
 
 const getAgentInstanceByRequest = `-- name: GetAgentInstanceByRequest :one
-SELECT id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance
+SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data FROM agent_instance
 WHERE user_id = $1 AND namespace = $2 AND request_id = $3
 `
 
@@ -119,7 +118,6 @@ func (q *Queries) GetAgentInstanceByRequest(ctx context.Context, arg GetAgentIns
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
-		&i.ActorUid,
 		&i.State,
 		&i.Labels,
 		&i.Data,
@@ -128,7 +126,7 @@ func (q *Queries) GetAgentInstanceByRequest(ctx context.Context, arg GetAgentIns
 }
 
 const getAgentInstanceForUser = `-- name: GetAgentInstanceForUser :one
-SELECT id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3
+SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3
 `
 
 type GetAgentInstanceForUserParams struct {
@@ -146,7 +144,6 @@ func (q *Queries) GetAgentInstanceForUser(ctx context.Context, arg GetAgentInsta
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
-		&i.ActorUid,
 		&i.State,
 		&i.Labels,
 		&i.Data,
@@ -218,7 +215,7 @@ INSERT INTO agent_instance (
     id, namespace, user_id, request_id, prepared_revision, state, labels, data
 ) VALUES ($1, $2, $3, $4, $5, 'CREATING', $6, $7)
 ON CONFLICT (user_id, namespace, request_id) DO NOTHING
-RETURNING id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data
+RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data
 `
 
 type InsertAgentInstanceParams struct {
@@ -248,7 +245,6 @@ func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstan
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
-		&i.ActorUid,
 		&i.State,
 		&i.Labels,
 		&i.Data,
@@ -308,7 +304,7 @@ func (q *Queries) ListAgentInstanceShares(ctx context.Context, arg ListAgentInst
 }
 
 const listAgentInstances = `-- name: ListAgentInstances :many
-SELECT id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance
+SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data FROM agent_instance
 WHERE namespace = $1
   AND ($2::boolean OR user_id = $3)
   AND id > $4
@@ -348,7 +344,6 @@ func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstances
 			&i.UserID,
 			&i.RequestID,
 			&i.PreparedRevision,
-			&i.ActorUid,
 			&i.State,
 			&i.Labels,
 			&i.Data,
@@ -367,7 +362,7 @@ const markAgentInstanceReady = `-- name: MarkAgentInstanceReady :one
 UPDATE agent_instance
 SET state = 'READY', data = $2
 WHERE id = $1 AND state = 'CREATING'
-RETURNING id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data
+RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data
 `
 
 type MarkAgentInstanceReadyParams struct {
@@ -384,29 +379,9 @@ func (q *Queries) MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInsta
 		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
-		&i.ActorUid,
 		&i.State,
 		&i.Labels,
 		&i.Data,
 	)
 	return i, err
-}
-
-const recordAgentInstanceActorUID = `-- name: RecordAgentInstanceActorUID :one
-UPDATE agent_instance
-SET actor_uid = COALESCE(NULLIF(actor_uid, ''), $1)
-WHERE id = $2
-RETURNING actor_uid
-`
-
-type RecordAgentInstanceActorUIDParams struct {
-	ActorUid string
-	ID       string
-}
-
-func (q *Queries) RecordAgentInstanceActorUID(ctx context.Context, arg RecordAgentInstanceActorUIDParams) (string, error) {
-	row := q.db.QueryRow(ctx, recordAgentInstanceActorUID, arg.ActorUid, arg.ID)
-	var actor_uid string
-	err := row.Scan(&actor_uid)
-	return actor_uid, err
 }

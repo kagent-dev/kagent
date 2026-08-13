@@ -29,7 +29,6 @@ type AgentInstance struct {
 	UserID           string
 	RequestID        string
 	PreparedRevision *string
-	ActorUid         string
 	State            string
 	Labels           []byte
 	Data             []byte
