@@ -10,8 +10,8 @@
 // The app builder automatically wires kagent infrastructure based on
 // environment variables:
 //
-//   - KAGENT_URL: when set, enables remote session and task persistence via
-//     the kagent controller API. Token auth is handled automatically.
+//   - KAGENT_GRPC_URL: when set, enables remote session and task persistence via
+//     the kagent controller gRPC API. Token auth is handled automatically.
 //   - KAGENT_NAMESPACE / KAGENT_NAME: used to derive the app name for session
 //     scoping. Falls back to the agent card name.
 //   - PORT: the port to listen on (default "8080").
@@ -30,7 +30,7 @@
 //
 // Run with kagent persistence:
 //
-//	KAGENT_URL=http://kagent-controller:8080 OPENAI_API_KEY=sk-... go run ./examples/byo/
+//	KAGENT_GRPC_URL=kagent-controller:8084 OPENAI_API_KEY=sk-... go run ./examples/byo/
 //
 // Test with curl:
 //
@@ -41,7 +41,7 @@ import (
 	"log"
 	"os"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
@@ -50,7 +50,7 @@ import (
 	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/agent/workflowagents/parallelagent"
 	"google.golang.org/adk/v2/runner"
-	"google.golang.org/adk/v2/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
+	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 )
 
@@ -127,10 +127,11 @@ func main() {
 			Name:        "byo-parallel-agent",
 			Description: "A BYO agent that runs creative and technical writers in parallel",
 			Version:     "1.0.0",
-			URL:         "http://localhost:8082",
+			SupportedInterfaces: []*a2atype.AgentInterface{
+				a2atype.NewAgentInterface("http://localhost:8082", a2atype.TransportProtocolJSONRPC),
+			},
 			Capabilities: a2atype.AgentCapabilities{
-				Streaming:              stream,
-				StateTransitionHistory: true,
+				Streaming: stream,
 			},
 			DefaultInputModes:  []string{"text/plain"},
 			DefaultOutputModes: []string{"text/plain"},

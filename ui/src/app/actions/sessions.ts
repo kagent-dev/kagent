@@ -2,8 +2,9 @@
 
 import { BaseResponse, CreateSessionRequest } from "@/types";
 import { Session } from "@/types";
+import { getSessionGrpcGateway } from "@/lib/grpc/client";
 import { revalidatePath } from "next/cache";
-import { fetchApi, createErrorResponse } from "./utils";
+import { createErrorResponse } from "./utils";
 import { Task } from "@a2a-js/sdk";
 
 export interface SessionWithEvents {
@@ -19,9 +20,8 @@ export interface SessionWithEvents {
  */
 export async function deleteSession(sessionId: string): Promise<BaseResponse<void>> {
   try {
-    await fetchApi(`/sessions/${sessionId}`, {
-      method: "DELETE",
-    });
+    const gateway = await getSessionGrpcGateway();
+    await gateway.deleteSession(sessionId);
 
     revalidatePath("/");
     return { message: "Session deleted successfully" };
@@ -38,13 +38,9 @@ export async function deleteSession(sessionId: string): Promise<BaseResponse<voi
  */
 export async function getSession(sessionId: string, shareToken?: string): Promise<BaseResponse<Session>> {
   try {
-    // GET /sessions/{id} responds with an envelope whose data nests the session
-    // under `session` (alongside `events`): { data: { session, events } }.
-    // Unwrap both layers so callers get the Session directly.
-    const response = await fetchApi<BaseResponse<{ session: Session; events: unknown[] }>>(`/sessions/${sessionId}`, {
-      headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
-    });
-    return { message: "Session fetched successfully", data: response.data?.session };
+    const gateway = await getSessionGrpcGateway();
+    const session = await gateway.getSession(sessionId, shareToken);
+    return { message: "Session fetched successfully", data: session };
   } catch (error) {
     return createErrorResponse<Session>(error, "Error getting session");
   }
@@ -56,8 +52,9 @@ export async function getSession(sessionId: string, shareToken?: string): Promis
  */
 export async function getSessionsForAgent(namespace: string, agentName: string): Promise<BaseResponse<Session[]>> {
   try {
-    const data = await fetchApi<BaseResponse<Session[]>> (`/sessions/agent/${namespace}/${agentName}`);
-    return { message: "Sessions fetched successfully", data: data.data || [] };
+    const gateway = await getSessionGrpcGateway();
+    const sessions = await gateway.listSessionsByAgent(namespace, agentName);
+    return { message: "Sessions fetched successfully", data: sessions };
   } catch (error) {
     return createErrorResponse<Session[]>(error, "Error getting sessions");
   }
@@ -70,19 +67,9 @@ export async function getSessionsForAgent(namespace: string, agentName: string):
  */
 export async function createSession(session: CreateSessionRequest): Promise<BaseResponse<Session>> {
   try {
-    const response = await fetchApi<BaseResponse<Session>>(`/sessions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(session),
-    });
-
-    if (!response) {
-      throw new Error("Failed to create session");
-    }
-
-    return { message: "Session created successfully", data: response.data };
+    const gateway = await getSessionGrpcGateway();
+    const created = await gateway.createSession(session);
+    return { message: "Session created successfully", data: created };
   } catch (error) {
     return createErrorResponse<Session>(error, "Error creating session");
   }
@@ -96,14 +83,9 @@ export async function createSession(session: CreateSessionRequest): Promise<Base
  */
 export async function renameSession(sessionId: string, name: string): Promise<BaseResponse<Session>> {
   try {
-    const response = await fetchApi<BaseResponse<Session>>(`/sessions/${sessionId}`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ name }),
-    });
-    return { message: "Session renamed successfully", data: response.data };
+    const gateway = await getSessionGrpcGateway();
+    const session = await gateway.renameSession(sessionId, name);
+    return { message: "Session renamed successfully", data: session };
   } catch (error) {
     return createErrorResponse<Session>(error, "Error renaming session");
   }
@@ -117,10 +99,9 @@ export async function renameSession(sessionId: string, name: string): Promise<Ba
  */
 export async function getSessionTasks(sessionId: string, shareToken?: string): Promise<BaseResponse<Task[]>> {
   try {
-    const data = await fetchApi<BaseResponse<Task[]>>(`/sessions/${sessionId}/tasks`, {
-      headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
-    });
-    return data;
+    const gateway = await getSessionGrpcGateway();
+    const tasks = await gateway.listTasks(sessionId, shareToken);
+    return { message: "Session tasks fetched successfully", data: tasks };
   } catch (error) {
     return createErrorResponse<Task[]>(error, "Error getting session tasks");
   }
@@ -135,19 +116,14 @@ export async function getSubagentSessionWithEvents(
   sessionId: string
 ): Promise<BaseResponse<{ session: Session; tasks: Task[] }>> {
   try {
-    // fetchApi appends user_id=admin@kagent.dev automatically.
-    const [sessionResp, tasksResp] = await Promise.all([
-      fetchApi<BaseResponse<{ session: Session; events: unknown[] }>>(`/sessions/${sessionId}`),
-      fetchApi<BaseResponse<Task[]>>(`/sessions/${sessionId}/tasks`),
+    const gateway = await getSessionGrpcGateway();
+    const [session, tasks] = await Promise.all([
+      gateway.getSession(sessionId),
+      gateway.listTasks(sessionId),
     ]);
-
-    const session = sessionResp.data?.session;
-    if (!session) {
-      return { message: "Subagent session not found", error: "Subagent session not found" };
-    }
     return {
       message: "Session with events fetched successfully",
-      data: { session, tasks: tasksResp.data ?? [] },
+      data: { session, tasks },
     };
   } catch (error) {
     return createErrorResponse<{ session: Session; tasks: Task[] }>(error, "Error fetching session with events");
@@ -161,11 +137,9 @@ export async function getSubagentSessionWithEvents(
  */
 export async function getSessionWithEvents(sessionId: string, shareToken?: string): Promise<BaseResponse<SessionWithEvents>> {
   try {
-    const opts = {
-      headers: shareToken ? { "X-Share-Token": shareToken } : undefined,
-    };
-    const data = await fetchApi<BaseResponse<SessionWithEvents>>(`/sessions/${sessionId}`, opts);
-    return data;
+    const gateway = await getSessionGrpcGateway();
+    const result = await gateway.getSessionWithEvents(sessionId, shareToken);
+    return { message: "Session fetched successfully", data: result };
   } catch (error) {
     return createErrorResponse<SessionWithEvents>(error, "Error getting session");
   }
@@ -178,8 +152,9 @@ export async function getSessionWithEvents(sessionId: string, shareToken?: strin
  */
 export async function checkSessionExists(sessionId: string): Promise<BaseResponse<boolean>> {
   try {
-    const response = await fetchApi<BaseResponse<Session>>(`/sessions/${sessionId}`);
-    return { message: "Session exists successfully", data: !!response.data };
+    const gateway = await getSessionGrpcGateway();
+    await gateway.getSession(sessionId);
+    return { message: "Session exists successfully", data: true };
   } catch (error: unknown) {
     // If we get a 404, return success: true but data: false
     if (typeof error === "object" && error !== null && "status" in error && (error as { status: unknown }).status === 404) {

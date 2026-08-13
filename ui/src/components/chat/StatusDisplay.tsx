@@ -7,9 +7,11 @@ import type { ChatStatus } from "@/types";
 interface StatusDisplayProps {
   chatStatus: ChatStatus;
   errorMessage?: string;
+  /** Optional progress text from WORKING status updates (e.g. CrewAI task/flow). */
+  statusMessage?: string;
 }
 
-export default function StatusDisplay({ chatStatus, errorMessage }: StatusDisplayProps) {
+export default function StatusDisplay({ chatStatus, errorMessage, statusMessage }: StatusDisplayProps) {
   if (chatStatus === "ready") {
     return (
       <div className="text-xs justify-center items-center flex">
@@ -31,7 +33,7 @@ export default function StatusDisplay({ chatStatus, errorMessage }: StatusDispla
   return (
     <div className="text-xs justify-center items-center flex animate-pulse">
       <KagentLogo className="mr-2 w-4 h-4" />
-      {getStatusText(chatStatus)}
+      {statusMessage || getStatusText(chatStatus)}
     </div>
   );
 }

@@ -4,28 +4,35 @@ import (
 	"context"
 	"testing"
 
-	a2atype "github.com/a2aproject/a2a-go/a2a"
-	"google.golang.org/adk/v2/server/adka2a" //nolint:staticcheck // kagent still uses a2a-go v1; this ADK package is the compatibility adapter.
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"google.golang.org/adk/v2/server/adka2a/v2"
+	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
+
+func convDataPart(data map[string]any, metadata map[string]any) *a2atype.Part {
+	p := a2atype.NewDataPart(data)
+	if metadata != nil {
+		p.Metadata = metadata
+	}
+	return p
+}
 
 // ---------------------------------------------------------------------------
 // convertDataPartToGenAI
 // ---------------------------------------------------------------------------
 
 func TestConvertDataPartToGenAI_FunctionCall_KagentPrefix(t *testing.T) {
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			"name": "my_func",
-			"args": map[string]any{"key": "value"},
-			"id":   "call_1",
-		},
-		Metadata: map[string]any{
-			GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
-		},
+	data := map[string]any{
+		"name": "my_func",
+		"args": map[string]any{"key": "value"},
+		"id":   "call_1",
+	}
+	meta := map[string]any{
+		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
 	}
 
-	part, err := convertDataPartToGenAI(dp, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	part, err := convertDataPartToGenAI(data, meta, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -41,18 +48,16 @@ func TestConvertDataPartToGenAI_FunctionCall_KagentPrefix(t *testing.T) {
 }
 
 func TestConvertDataPartToGenAI_FunctionCall_AdkPrefix(t *testing.T) {
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			"name": "my_func",
-			"args": map[string]any{"key": "value"},
-			"id":   "call_1",
-		},
-		Metadata: map[string]any{
-			adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
-		},
+	data := map[string]any{
+		"name": "my_func",
+		"args": map[string]any{"key": "value"},
+		"id":   "call_1",
+	}
+	meta := map[string]any{
+		adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall,
 	}
 
-	part, err := convertDataPartToGenAI(dp, adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey))
+	part, err := convertDataPartToGenAI(data, meta, adka2a.ToA2AMetaKey(A2ADataPartMetadataTypeKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,18 +70,16 @@ func TestConvertDataPartToGenAI_FunctionCall_AdkPrefix(t *testing.T) {
 }
 
 func TestConvertDataPartToGenAI_FunctionResponse(t *testing.T) {
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			"name":     "my_func",
-			"response": map[string]any{"result": "ok"},
-			"id":       "call_2",
-		},
-		Metadata: map[string]any{
-			GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
-		},
+	data := map[string]any{
+		"name":     "my_func",
+		"response": map[string]any{"result": "ok"},
+		"id":       "call_2",
+	}
+	meta := map[string]any{
+		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
 	}
 
-	part, err := convertDataPartToGenAI(dp, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	part, err := convertDataPartToGenAI(data, meta, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -92,7 +95,7 @@ func TestConvertDataPartToGenAI_FunctionResponse(t *testing.T) {
 }
 
 func TestConvertDataPartToGenAI_Nil(t *testing.T) {
-	part, err := convertDataPartToGenAI(nil, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
+	part, err := convertDataPartToGenAI(nil, nil, GetKAgentMetadataKey(A2ADataPartMetadataTypeKey))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,137 +105,84 @@ func TestConvertDataPartToGenAI_Nil(t *testing.T) {
 }
 
 func TestConvertDataPartToGenAI_UnknownType(t *testing.T) {
-	dp := &a2atype.DataPart{
-		Data:     map[string]any{"foo": "bar"},
-		Metadata: map[string]any{"kagent_type": "unknown_type"},
-	}
-
-	part, err := convertDataPartToGenAI(dp, "kagent_type")
+	part, err := convertDataPartToGenAI(
+		map[string]any{"foo": "bar"},
+		map[string]any{"kagent_type": "unknown_type"},
+		"kagent_type",
+	)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("unexpected error for unknown part type: %v", err)
 	}
-	if part == nil || part.InlineData == nil {
-		t.Fatalf("expected unknown DataPart to fall back to InlineData, got %#v", part)
-	}
-	if part.InlineData.MIMEType != "text/plain" {
-		t.Errorf("mime type = %q, want text/plain", part.InlineData.MIMEType)
+	if part == nil {
+		t.Fatal("expected fallback GenAI part for unknown type")
 	}
 }
 
 // ---------------------------------------------------------------------------
-// messageToGenAIContent
+// a2aPartConverter
 // ---------------------------------------------------------------------------
 
-func TestMessageToGenAIContent_TextPart(t *testing.T) {
-	msg := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.TextPart{Text: "hello"})
-	content, err := messageToGenAIContent(context.Background(), msg)
+func TestA2APartConverter_TextPart(t *testing.T) {
+	part, err := a2aPartConverter(context.Background(), nil, a2atype.NewTextPart("hello"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if content == nil {
-		t.Fatal("expected non-nil content")
-		return
-	}
-	if len(content.Parts) != 1 {
-		t.Fatalf("expected 1 part, got %d", len(content.Parts))
-	}
-	if content.Parts[0].Text != "hello" {
-		t.Errorf("text = %q, want %q", content.Parts[0].Text, "hello")
+	if part == nil || part.Text != "hello" {
+		t.Fatalf("converted part = %#v, want text hello", part)
 	}
 }
 
-func TestMessageToGenAIContent_DropsUnrecognisedDataPart(t *testing.T) {
+func TestA2APartConverter_DropsUnrecognisedDataPart(t *testing.T) {
 	// A DataPart with no recognised kagent_type metadata (e.g. a HITL decision
 	// payload like {decision_type: "approve"}) should be dropped silently.
-	msg := a2atype.NewMessage(a2atype.MessageRoleUser,
-		a2atype.TextPart{Text: "approving"},
-		&a2atype.DataPart{Data: map[string]any{"decision_type": "approve"}},
+	part, err := a2aPartConverter(
+		context.Background(), nil,
+		convDataPart(map[string]any{"decision_type": "approve"}, nil),
 	)
-	content, err := messageToGenAIContent(context.Background(), msg)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Only the TextPart should survive; the unrecognised DataPart is dropped.
-	if len(content.Parts) != 1 {
-		t.Fatalf("expected 1 part (DataPart dropped), got %d", len(content.Parts))
-	}
-	if content.Parts[0].Text != "approving" {
-		t.Errorf("remaining part text = %q, want %q", content.Parts[0].Text, "approving")
+	if part != nil {
+		t.Fatalf("converted part = %#v, want nil", part)
 	}
 }
 
-func TestMessageToGenAIContent_KagentTypeFunctionResponse(t *testing.T) {
+func TestA2APartConverter_KagentTypeFunctionResponse(t *testing.T) {
 	// A DataPart with kagent_type=function_response should be converted to GenAI.
-	dp := &a2atype.DataPart{
-		Data: map[string]any{
-			"name":     "my_func",
-			"id":       "call_1",
-			"response": map[string]any{"result": "ok"},
-		},
-		Metadata: map[string]any{
-			GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
-		},
-	}
-	msg := a2atype.NewMessage(a2atype.MessageRoleUser, dp)
-	content, err := messageToGenAIContent(context.Background(), msg)
+	dp := convDataPart(map[string]any{
+		"name":     "my_func",
+		"id":       "call_1",
+		"response": map[string]any{"result": "ok"},
+	}, map[string]any{
+		GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionResponse,
+	})
+	part, err := a2aPartConverter(context.Background(), nil, dp)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(content.Parts) != 1 {
-		t.Fatalf("expected 1 part, got %d", len(content.Parts))
-	}
-	if content.Parts[0].FunctionResponse == nil {
+	if part == nil || part.FunctionResponse == nil {
 		t.Fatal("expected FunctionResponse, got nil")
 	}
-	if content.Parts[0].FunctionResponse.Name != "my_func" {
-		t.Errorf("name = %q, want my_func", content.Parts[0].FunctionResponse.Name)
+	if part.FunctionResponse.Name != "my_func" {
+		t.Errorf("name = %q, want my_func", part.FunctionResponse.Name)
 	}
 }
 
-func TestMessageToGenAIContent_NilMessage(t *testing.T) {
-	content, err := messageToGenAIContent(context.Background(), nil)
+func TestGenAIPartConverter_PreservesLongRunningMetadata(t *testing.T) {
+	call := genai.NewPartFromFunctionCall("dangerous_tool", map[string]any{"path": "/tmp/x"})
+	call.FunctionCall.ID = "call-1"
+	part, err := genAIPartConverter(
+		context.Background(),
+		&adksession.Event{LongRunningToolIDs: []string{"call-1"}},
+		call,
+	)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("genAIPartConverter() error = %v", err)
 	}
-	if content != nil {
-		t.Errorf("expected nil content for nil message, got %v", content)
+	if part == nil {
+		t.Fatal("genAIPartConverter() returned nil")
 	}
-}
-
-// ---------------------------------------------------------------------------
-// toA2AMetadataMap
-// ---------------------------------------------------------------------------
-
-func TestToA2AMetadataMap(t *testing.T) {
-	t.Parallel()
-	um := &genai.GenerateContentResponseUsageMetadata{
-		PromptTokenCount:     10,
-		CandidatesTokenCount: 20,
-	}
-	m, err := toA2AMetadataMap(um)
-	if err != nil {
-		t.Fatalf("toA2AMetadataMap: %v", err)
-	}
-	if m == nil {
-		t.Fatal("expected non-nil map")
-	}
-	pt, ok := m["promptTokenCount"].(float64)
-	if !ok || pt != 10 {
-		t.Fatalf("promptTokenCount: got %v (%T), want float64 10", m["promptTokenCount"], m["promptTokenCount"])
-	}
-	ct, ok := m["candidatesTokenCount"].(float64)
-	if !ok || ct != 20 {
-		t.Fatalf("candidatesTokenCount: got %v (%T), want float64 20", m["candidatesTokenCount"], m["candidatesTokenCount"])
-	}
-}
-
-func TestToA2AMetadataMap_nil(t *testing.T) {
-	t.Parallel()
-	m, err := toA2AMetadataMap(nil)
-	if err != nil {
-		t.Fatalf("toA2AMetadataMap(nil): %v", err)
-	}
-	if m != nil {
-		t.Fatalf("expected nil map, got %#v", m)
+	if got, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataIsLongRunningKey); got != true {
+		t.Fatalf("long-running metadata = %#v, want true", got)
 	}
 }

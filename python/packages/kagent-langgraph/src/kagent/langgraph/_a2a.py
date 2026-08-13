@@ -7,16 +7,18 @@ with A2A protocol support for LangGraph workflows.
 import faulthandler
 import logging
 
-import httpx
-from a2a.server.apps import A2AStarletteApplication
-from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.request_handlers import DefaultRequestHandlerV2
+from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
-from kagent.core import KAgentConfig, configure_tracing
+from google.protobuf.json_format import ParseDict
+from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig, configure_tracing
 from kagent.core.a2a import (
+    A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
+    attach_hitl_agent_extension,
     get_a2a_max_content_length,
 )
 
@@ -54,9 +56,10 @@ class KAgentApp:
         self,
         *,
         graph: CompiledStateGraph,
-        agent_card: AgentCard,
+        agent_card: AgentCard | dict,
         config: KAgentConfig,
         executor_config: LangGraphAgentExecutorConfig | None = None,
+        controller_client: AsyncControllerClient | None = None,
         tracing: bool = True,
     ):
         """Initialize the KAgent application.
@@ -70,20 +73,25 @@ class KAgentApp:
 
         """
         self._graph = graph
-        self.agent_card = AgentCard.model_validate(agent_card)
+        self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
         self.config = config
 
         self.executor_config = executor_config or LangGraphAgentExecutorConfig()
+        self._controller_client = controller_client
         self._enable_tracing = tracing
 
     def build(self) -> FastAPI:
+        attach_hitl_agent_extension(self.agent_card)
         """Build the FastAPI application with A2A integration.
 
         Returns:
             Configured FastAPI application ready for deployment
         """
-        # Create HTTP client for KAgent API
-        http_client = httpx.AsyncClient(base_url=self.config.url)
+        controller_client = self._controller_client or AsyncControllerClient(
+            self.config.grpc_url,
+            agent_name=self.config.app_name,
+            token_provider=AsyncFileTokenProvider(),
+        )
 
         # Create agent executor
         agent_executor = LangGraphAgentExecutor(
@@ -93,24 +101,17 @@ class KAgentApp:
         )
 
         # Create task store
-        task_store = KAgentTaskStore(http_client)
+        task_store = KAgentTaskStore(controller_client)
 
         # Create request context builder
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
 
         # Create request handler
-        request_handler = DefaultRequestHandler(
+        request_handler = DefaultRequestHandlerV2(
             agent_executor=agent_executor,
             task_store=task_store,
-            request_context_builder=request_context_builder,
-        )
-
-        # Create A2A application
-        max_content_length = get_a2a_max_content_length()
-        a2a_app = A2AStarletteApplication(
             agent_card=self.agent_card,
-            http_handler=request_handler,
-            max_content_length=max_content_length,
+            request_context_builder=request_context_builder,
         )
 
         # Enable fault handler for debugging
@@ -121,6 +122,11 @@ class KAgentApp:
             title=f"KAgent LangGraph: {self.config.app_name}",
             description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
+            lifespan=controller_client.lifespan(),
+        )
+        app.add_middleware(
+            A2ARequestSizeLimitMiddleware,
+            max_content_length=get_a2a_max_content_length(),
         )
 
         # Configure tracing/instrumentation if enabled
@@ -136,6 +142,10 @@ class KAgentApp:
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
 
         # Add A2A routes
-        a2a_app.add_routes_to_app(app)
+        add_a2a_routes_to_fastapi(
+            app,
+            agent_card_routes=create_agent_card_routes(self.agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+        )
 
         return app

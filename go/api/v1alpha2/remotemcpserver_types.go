@@ -134,6 +134,7 @@ type MCPTool struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:shortName=rmcps,categories=kagent
 // +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 // +kubebuilder:printcolumn:name="Protocol",type="string",JSONPath=".spec.protocol"
 // +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".spec.url"
 // +kubebuilder:printcolumn:name="Accepted",type="string",JSONPath=".status.conditions[?(@.type=='Accepted')].status"

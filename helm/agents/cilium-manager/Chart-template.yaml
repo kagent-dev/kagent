@@ -1,5 +1,0 @@
-apiVersion: v2
-name: cilium-manager-agent
-description: An Agent to manage Cilium for kagent
-type: application
-version: ${VERSION}

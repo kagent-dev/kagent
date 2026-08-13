@@ -77,6 +77,12 @@ export interface BedrockConfig {
   region: string;
 }
 
+export interface FoundryConfig {
+  endpoint?: string;
+  deployment: string;
+  apiVersion?: string;
+}
+
 export interface TLSConfig {
   disableVerify?: boolean;
   caCertSecretRef?: string;
@@ -101,6 +107,7 @@ export interface ModelConfigSpec {
   anthropicVertexAI?: AnthropicVertexAIConfig;
   bedrock?: BedrockConfig;
   sapAICore?: SAPAICoreConfigPayload;
+  foundry?: FoundryConfig;
 }
 
 export interface ModelConfig {
@@ -248,6 +255,12 @@ export interface Tool {
   type: ToolProviderType;
   mcpServer?: McpServerTool;
   agent?: TypedLocalReference;
+  /**
+   * Agent tools only. When true, each call to the sub-agent gets a fresh
+   * A2A context_id (isolated session). Default/false reuses one session.
+   * Required for parallel fan-out to the same sub-agent.
+   */
+  isolateSessions?: boolean;
 }
 
 export interface TypedLocalReference {
@@ -265,7 +278,7 @@ export interface McpServerTool extends TypedLocalReference {
 export type AgentType = "Declarative" | "BYO" | "AgentHarness";
 
 /**
- * AgentHarness.spec.backend (go/api/v1alpha2/agentharness_types.go).
+ * AgentHarness.spec.backend (go/api/v1alpha3/agentharness_types.go).
  * Single source of truth for backend strings — forms, API payloads, and helpers should use this.
  */
 export type AgentHarnessCrBackend =
@@ -295,14 +308,27 @@ export interface GitRepo {
   name?: string;
 }
 
+/** Single S3 skill source (prefix or .zip/.tgz archive). */
+export interface S3SkillRef {
+  uri: string;
+  region?: string;
+  name?: string;
+}
+
+export interface SkillsInitContainer {
+  env?: EnvVar[];
+}
+
 export interface SkillForAgent {
   insecureSkipVerify?: boolean;
   refs?: string[];
   gitAuthSecretRef?: { name: string };
   gitRefs?: GitRepo[];
+  s3Refs?: S3SkillRef[];
+  initContainer?: SkillsInitContainer;
 }
 
-/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). */
+/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha3). */
 export interface SandboxAgent {
   apiVersion?: string;
   kind?: string;
@@ -327,10 +353,6 @@ export interface AgentSpec {
   skills?: SkillForAgent;
   substrate?: SandboxSubstrateSpec;
   sandbox?: SandboxConfig;
-}
-
-export interface DeclarativeDeploymentSpec {
-  serviceAccountName?: string;
 }
 
 /** Prompt library sources referenced for {{include "alias/key"}} in system messages. */
@@ -372,7 +394,6 @@ export interface DeclarativeAgentSpec {
   stream?: boolean;
   a2aConfig?: A2AConfig;
   context?: ContextConfig;
-  deployment?: DeclarativeDeploymentSpec;
   /** Long-term memory (same shape as Kubernetes declarative spec). */
   memory?: MemorySpec;
   /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
@@ -404,26 +425,10 @@ export interface MemorySpec {
 }
 
 export interface BYOAgentSpec {
-  deployment: BYODeploymentSpec;
-}
-
-export interface BYODeploymentSpec {
   image: string;
   cmd?: string;
   args?: string[];
-
-  // Items from the SharedDeploymentSpec
-  replicas?: number;
-  imagePullSecrets?: Array<{ name: string }>;
-  volumes?: unknown[];
-  volumeMounts?: unknown[];
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
-  deploymentAnnotations?: Record<string, string>;
   env?: EnvVar[];
-  envFrom?: EnvFromSource[];
-  imagePullPolicy?: string;
-  serviceAccountName?: string;
 }
 
 export interface A2AConfig {
@@ -459,7 +464,7 @@ export interface Agent {
   };
 }
 
-/** Merged into GET /api/agents for an AgentHarness backed by Agent Substrate. */
+/** Merged into an AgentHarness list result when Agent Substrate provides the backend. */
 export interface AgentHarnessListEntry {
   backend: string;
   actorId?: string;
@@ -470,7 +475,7 @@ export interface AgentHarnessListEntry {
   endpoint?: string;
 }
 
-/** GET /api/substrate/status — WorkerPools, ActorTemplates, and ate-api actors/workers. */
+/** WorkerPools, ActorTemplates, and ate-api actors/workers returned by GetSubstrateStatus. */
 export interface SubstrateStatusResponse {
   enabled: boolean;
   ateApiError?: string;
@@ -531,9 +536,8 @@ export interface AgentResponse {
   modelProvider: string;
   modelConfigRef: string;
   tools: Tool[];
-  deploymentReady: boolean;
+  ready: boolean;
   accepted: boolean;
-  workloadMode?: "deployment" | "sandbox";
   substrateAgentHarness?: AgentHarnessListEntry;
 }
 
@@ -673,70 +677,59 @@ export interface AgentMemory {
 // ---------------------------------------------------------------------------
 // HITL (Human-in-the-Loop) types
 //
-// These mirror the Python models in kagent-core/a2a/_hitl_utils.py and describe the
-// A2A - UI wire format for request and decision paths in HITL flow.
+// These mirror the framework-neutral models in kagent-core/a2a/_hitl.py.
 // ---------------------------------------------------------------------------
 
 /** A single tool approval decision value. */
 export type ToolDecision = "approve" | "reject";
 
-/**
- * The resolved approval decision stored on a ToolApprovalRequest message.
- * - A single ToolDecision string for uniform decisions (all approve or all reject).
- * - A per-tool map (keyed by tool call ID) for batch/mixed decisions.
- */
-export type ApprovalDecision = ToolDecision | Record<string, ToolDecision>;
+export const HITL_EXTENSION_URI = "https://kagent.dev/extensions/hitl/v1";
 
-// The original tool function call that requires human approval.
-export interface HitlOriginalFunctionCall {
+export interface HitlTool {
+  id: string;
+  call_id: string;
   name: string;
   args: Record<string, unknown>;
-  id?: string;
 }
 
-// Payload stored inside the toolConfirmation field of an adk_request_confirmation DataPart.
-export interface HitlToolConfirmationPayload {
-  /**
-   * For subagent HITL: serialized HitlPartInfo[] from the subagent's own
-   * input_required DataParts (see KAgentRemoteA2ATool._handle_input_required).
-   * Each entry has the same shape as AdkRequestConfirmationData (without
-   * toolConfirmation, since those are leaf-level tool calls).
-   */
-  hitl_parts?: HitlPartInfo[];
-  // The subagent name, set by KAgentRemoteA2ATool.
+export interface NestedHitlRequest {
   subagent_name?: string;
-  // Subagent task_id stored for the resume path.
   task_id?: string;
-  // Subagent context_id stored for the resume path.
   context_id?: string;
+  tools: HitlTool[];
 }
 
-// The toolConfirmation field of an adk_request_confirmation DataPart.
-export interface HitlToolConfirmation {
+export interface ToolApprovalRequestPayload {
+  type: "tool_approval_request";
   hint?: string;
-  confirmed?: boolean;
-  payload?: HitlToolConfirmationPayload;
+  tools: HitlTool[];
+  nested?: NestedHitlRequest | null;
 }
 
-// Args of the adk_request_confirmation FunctionCall.
-export interface HitlRequestConfirmationArgs {
-  originalFunctionCall: HitlOriginalFunctionCall;
-  toolConfirmation?: HitlToolConfirmation;
-}
-
-// A single serialized HitlPartInfo — the data dict of an adk_request_confirmation DataPart.
-export interface HitlPartInfo {
-  // Always "adk_request_confirmation".
-  name: string;
-  // The confirmation function-call ID (distinct from the original FC ID).
-  id?: string;
-  // The original tool call that requires approval.
-  originalFunctionCall: HitlOriginalFunctionCall;
-}
-
-// The full data payload of an adk_request_confirmation DataPart, as produced by the ADK event converter and read by the UI.
-export interface AdkRequestConfirmationData {
-  name: string;
+export interface AskUserRequestPayload {
+  type: "ask_user_request";
   id: string;
-  args: HitlRequestConfirmationArgs;
+  questions: Array<{ question: string; choices?: string[]; multiple?: boolean }>;
+  nested?: NestedHitlRequest | null;
 }
+
+export interface ToolApprovalResult {
+  id: string;
+  approved: boolean;
+  rejection_reason?: string;
+}
+
+export interface ToolApprovalResponsePayload {
+  type: "tool_approval_response";
+  approvals: ToolApprovalResult[];
+}
+
+export interface AskUserResponsePayload {
+  type: "ask_user_response";
+  id: string;
+  answers?: Array<{ answer: string[] }> | null;
+}
+
+export type HitlRequestPayload = ToolApprovalRequestPayload | AskUserRequestPayload;
+export type HitlResponsePayload = ToolApprovalResponsePayload | AskUserResponsePayload;
+export type HitlExtensionPayload = HitlRequestPayload | HitlResponsePayload;

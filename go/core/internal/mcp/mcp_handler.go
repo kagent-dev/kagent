@@ -9,7 +9,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/jsonschema-go/jsonschema"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -83,7 +83,7 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 		server,
 		&mcpsdk.Tool{
 			Name:        "list_agents",
-			Description: "List invokable kagent agents (accepted + deploymentReady)",
+			Description: "List invokable kagent agents (accepted + ready)",
 			InputSchema: &jsonschema.Schema{
 				Type:                 "object",
 				Properties:           map[string]*jsonschema.Schema{},
@@ -108,7 +108,7 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 		&mcpsdk.Resource{
 			URI:         "kagent://agents",
 			Name:        "agents",
-			Description: "List of invokable kagent agents (accepted + deploymentReady)",
+			Description: "List of invokable kagent agents (accepted + ready)",
 			MIMEType:    "application/json",
 		},
 		handler.readAgentsResource,
@@ -129,25 +129,25 @@ func NewMCPHandler(kubeClient client.Client, agentClients *a2a.AgentClientRegist
 	return handler, nil
 }
 
-// listReadyAgents returns agents that are accepted and deployment-ready.
+// listReadyAgents returns SandboxAgents that are accepted and ready.
 func (h *MCPHandler) listReadyAgents(ctx context.Context) ([]AgentSummary, error) {
-	agentList := &v1alpha2.AgentList{}
+	agentList := &v1alpha3.SandboxAgentList{}
 	if err := h.kubeClient.List(ctx, agentList); err != nil {
 		return nil, err
 	}
 	agents := make([]AgentSummary, 0, len(agentList.Items))
 	for _, agent := range agentList.Items {
-		deploymentReady := false
+		ready := false
 		accepted := false
 		for _, condition := range agent.Status.Conditions {
-			if condition.Type == "Ready" && condition.Reason == "DeploymentReady" && condition.Status == "True" {
-				deploymentReady = true
+			if condition.Type == "Ready" && condition.Reason == "WorkloadReady" && condition.Status == "True" {
+				ready = true
 			}
 			if condition.Type == "Accepted" && condition.Status == "True" {
 				accepted = true
 			}
 		}
-		if !accepted || !deploymentReady {
+		if !accepted || !ready {
 			continue
 		}
 		agents = append(agents, AgentSummary{

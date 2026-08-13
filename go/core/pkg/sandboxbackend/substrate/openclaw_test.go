@@ -5,11 +5,11 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestActorID(t *testing.T) {
-	ah := &v1alpha2.AgentHarness{
+	ah := &v1alpha3.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "kagent",
 			Name:      "my-claw",
@@ -34,7 +34,7 @@ func TestActorHost(t *testing.T) {
 
 func TestGeneratedActorTemplateKey(t *testing.T) {
 	t.Parallel()
-	ah := &v1alpha2.AgentHarness{
+	ah := &v1alpha3.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "kagent",
 			Name:      "peterj-claw",

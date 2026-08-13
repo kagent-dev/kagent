@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
@@ -27,7 +27,7 @@ func (r *SandboxAgentController) substrateConfigured() bool {
 // reconcileSubstrateSandboxAgent is only reached when substrateConfigured() is true (see
 // Reconcile), so SubstrateLifecycle and SubstrateActorBackend are guaranteed non-nil here and in
 // the helpers it calls.
-func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Context, sa *v1alpha2.SandboxAgent) (ctrl.Result, error) {
+func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Context, sa *v1alpha3.SandboxAgent) (ctrl.Result, error) {
 	if !sa.DeletionTimestamp.IsZero() {
 		return r.reconcileSubstrateSandboxAgentDelete(ctx, sa)
 	}
@@ -41,7 +41,7 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Cont
 	return ctrl.Result{}, nil
 }
 
-func (r *SandboxAgentController) reconcileSubstrateSandboxAgentDelete(ctx context.Context, sa *v1alpha2.SandboxAgent) (ctrl.Result, error) {
+func (r *SandboxAgentController) reconcileSubstrateSandboxAgentDelete(ctx context.Context, sa *v1alpha3.SandboxAgent) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(sa, sandboxAgentSubstrateFinalizer) {
 		return ctrl.Result{}, nil
 	}
@@ -68,7 +68,7 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgentDelete(ctx contex
 	return r.removeSubstrateSandboxAgentFinalizer(ctx, sa)
 }
 
-func (r *SandboxAgentController) removeSubstrateSandboxAgentFinalizer(ctx context.Context, sa *v1alpha2.SandboxAgent) (ctrl.Result, error) {
+func (r *SandboxAgentController) removeSubstrateSandboxAgentFinalizer(ctx context.Context, sa *v1alpha3.SandboxAgent) (ctrl.Result, error) {
 	controllerutil.RemoveFinalizer(sa, sandboxAgentSubstrateFinalizer)
 	if err := r.Client.Update(ctx, sa); err != nil {
 		return ctrl.Result{}, fmt.Errorf("remove substrate finalizer: %w", err)
@@ -76,7 +76,7 @@ func (r *SandboxAgentController) removeSubstrateSandboxAgentFinalizer(ctx contex
 	return ctrl.Result{}, nil
 }
 
-func substrateSandboxAgentDeleteTimedOut(sa *v1alpha2.SandboxAgent) bool {
+func substrateSandboxAgentDeleteTimedOut(sa *v1alpha3.SandboxAgent) bool {
 	if sa == nil || sa.DeletionTimestamp.IsZero() {
 		return false
 	}

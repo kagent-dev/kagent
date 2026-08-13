@@ -1,13 +1,8 @@
 package handlers
 
 import (
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
-	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
@@ -19,90 +14,19 @@ type Handlers struct {
 	// that back each AgentHarness chat session.
 	AgentHarnessSessionActor *substrate.AgentHarnessSessionActorBackend
 
-	Health              *HealthHandler
-	ModelConfig         *ModelConfigHandler
-	Model               *ModelHandler
-	ModelProviderConfig *ModelProviderConfigHandler
-	Sessions            *SessionsHandler
-	SessionShares       *SessionSharesHandler
-	Agents              *AgentsHandler
-	Tools               *ToolsHandler
-	ToolServers         *ToolServersHandler
-	MCPApps             *MCPAppsHandler
-	ToolServerTypes     *ToolServerTypesHandler
-	Memory              *MemoryHandler
-	Feedback            *FeedbackHandler
-	Namespaces          *NamespacesHandler
-	PromptTemplates     *PromptTemplatesHandler
-	Tasks               *TasksHandler
-	Checkpoints         *CheckpointsHandler
-	CrewAI              *CrewAIHandler
-	CurrentUser         *CurrentUserHandler
-	Substrate           *SubstrateHandler
-}
-
-// Base holds common dependencies for all handlers
-type Base struct {
-	KubeClient         client.Client
-	DefaultModelConfig types.NamespacedName
-	DatabaseService    database.Client
-	Authorizer         auth.Authorizer // Interface for authorization checks
-	ProxyURL           string
-	WatchedNamespaces  []string
-	SandboxBackend     sandboxbackend.Backend
-	MCPEgressPlaintext bool
+	Health *HealthHandler
 }
 
 // NewHandlers creates a new Handlers instance with all handler components.
 func NewHandlers(
 	kubeClient client.Client,
-	defaultModelConfig types.NamespacedName,
-	dbService database.Client,
-	watchedNamespaces []string,
-	authorizer auth.Authorizer,
-	proxyURL string,
-	rcnclr reconciler.KagentReconciler,
-	sandboxBackend sandboxbackend.Backend,
 	agentHarnessGateway *AgentHarnessGatewayConfig,
-	substrateAteClient *substrate.Client,
-	mcpEgressPlaintext bool,
-	substrateSandboxActorBackend *substrate.SandboxAgentActorBackend,
 	agentHarnessSessionActorBackend *substrate.AgentHarnessSessionActorBackend,
 ) *Handlers {
-	base := &Base{
-		KubeClient:         kubeClient,
-		DefaultModelConfig: defaultModelConfig,
-		DatabaseService:    dbService,
-		Authorizer:         authorizer,
-		ProxyURL:           proxyURL,
-		WatchedNamespaces:  watchedNamespaces,
-		SandboxBackend:     sandboxBackend,
-		MCPEgressPlaintext: mcpEgressPlaintext,
-	}
-
 	return &Handlers{
 		KubeClient:               kubeClient,
 		AgentHarnessGateway:      agentHarnessGateway,
 		AgentHarnessSessionActor: agentHarnessSessionActorBackend,
 		Health:                   NewHealthHandler(),
-		ModelConfig:              NewModelConfigHandler(base),
-		Model:                    NewModelHandler(base),
-		ModelProviderConfig:      NewModelProviderConfigHandler(base, rcnclr),
-		Sessions:                 NewSessionsHandler(base, substrateSandboxActorBackend),
-		SessionShares:            NewSessionSharesHandler(base),
-		Agents:                   NewAgentsHandler(base),
-		Tools:                    NewToolsHandler(base),
-		ToolServers:              NewToolServersHandler(base),
-		MCPApps:                  NewMCPAppsHandler(base),
-		ToolServerTypes:          NewToolServerTypesHandler(base),
-		Memory:                   NewMemoryHandler(base),
-		Feedback:                 NewFeedbackHandler(base),
-		Namespaces:               NewNamespacesHandler(base),
-		PromptTemplates:          NewPromptTemplatesHandler(base),
-		Tasks:                    NewTasksHandler(base),
-		Checkpoints:              NewCheckpointsHandler(base),
-		CrewAI:                   NewCrewAIHandler(base),
-		CurrentUser:              NewCurrentUserHandler(),
-		Substrate:                NewSubstrateHandler(base, substrateAteClient),
 	}
 }

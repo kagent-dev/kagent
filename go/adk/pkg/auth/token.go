@@ -18,7 +18,8 @@ func WithUserID(ctx context.Context, userID string) context.Context {
 	return context.WithValue(ctx, userIDKey, userID)
 }
 
-func userIDFromContext(ctx context.Context) string {
+// UserIDFromContext returns the user ID attached by WithUserID.
+func UserIDFromContext(ctx context.Context) string {
 	id, _ := ctx.Value(userIDKey).(string)
 	return id
 }
@@ -76,7 +77,7 @@ func (s *KAgentTokenService) AddHeaders(req *http.Request) {
 	if token := s.GetToken(); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if userID := userIDFromContext(req.Context()); userID != "" {
+	if userID := UserIDFromContext(req.Context()); userID != "" {
 		req.Header.Set("X-User-Id", userID)
 	}
 }

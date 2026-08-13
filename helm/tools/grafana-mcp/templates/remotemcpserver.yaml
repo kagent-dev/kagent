@@ -1,4 +1,4 @@
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: RemoteMCPServer
 metadata:
   name: {{ include "grafana-mcp.fullname" . }}

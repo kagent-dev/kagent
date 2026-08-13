@@ -1,9 +1,13 @@
 import { describe, test, expect } from '@jest/globals';
 import { v4 as uuidv4 } from 'uuid';
-import { Message, Task } from '@a2a-js/sdk';
+import { Role, TaskState, type Artifact, type Message, type Part, type StreamResponse, type Task } from '@a2a-js/sdk';
 import {
   extractMessagesFromTasks,
+  extractApprovalMessagesFromTasks,
   extractTokenStatsFromTasks,
+  collectTerminalTaskIds,
+  collectTaskTokenStats,
+  isFinishedAssistantReply,
   createMessage,
   normalizeToolResultToText,
   getMetadataValue,
@@ -11,7 +15,132 @@ import {
   type ADKMetadata,
   createMessageHandlers,
 } from '@/lib/messageHandlers';
-import type { TokenStats } from '@/types';
+import { createDataPart, createMockMessage, createTextPart } from '@/mocks/factories';
+import { HITL_EXTENSION_URI, type TokenStats } from '@/types';
+
+type MessageUpdate = Message[] | ((messages: Message[]) => Message[]);
+type StringUpdate = string | ((value: string) => string);
+type TokenStatsUpdate = TokenStats | ((stats: TokenStats) => TokenStats);
+
+function applyMessageUpdate(update: MessageUpdate, current: Message[]): Message[] {
+  return typeof update === 'function' ? update(current) : update;
+}
+
+function applyStringUpdate(update: StringUpdate, current: string): string {
+  return typeof update === 'function' ? update(current) : update;
+}
+
+function applyTokenStatsUpdate(update: TokenStatsUpdate, current: TokenStats): TokenStats {
+  return typeof update === 'function' ? update(current) : update;
+}
+
+/** Test defaults for context/task ids; Part/Message shape comes from mocks/factories. */
+function sdkMessage(overrides: Partial<Message> & Pick<Message, 'messageId'>): Message {
+  return createMockMessage({
+    role: Role.ROLE_AGENT,
+    contextId: 'ctx',
+    taskId: 'task',
+    ...overrides,
+  });
+}
+
+/** Minimal task fixture — unlike createMockTask, does not rewrite history metadata. */
+function sdkTask(history: Message[], overrides: Partial<Task> = {}): Task {
+  return {
+    id: overrides.id ?? 'task',
+    contextId: overrides.contextId ?? 'ctx',
+    status: overrides.status,
+    history,
+    artifacts: overrides.artifacts ?? [],
+    metadata: overrides.metadata,
+  };
+}
+
+function sdkArtifact(
+  artifactId: string,
+  parts: Part[],
+  metadata?: Record<string, unknown>,
+): Artifact {
+  return {
+    artifactId,
+    name: '',
+    description: '',
+    parts,
+    metadata,
+    extensions: [],
+  };
+}
+
+function statusUpdateEvent({
+  contextId = 'ctx',
+  taskId = 'task',
+  state = TaskState.TASK_STATE_WORKING,
+  message,
+  metadata,
+}: {
+  contextId?: string;
+  taskId?: string;
+  state?: TaskState;
+  message?: Message;
+  metadata?: Record<string, unknown>;
+}): StreamResponse {
+  return {
+    payload: {
+      $case: 'statusUpdate',
+      value: {
+        contextId,
+        taskId,
+        status: {
+          state,
+          message,
+          timestamp: new Date().toISOString(),
+        },
+        metadata,
+      },
+    },
+  } as StreamResponse;
+}
+
+function artifactUpdateEvent({
+  contextId = 'ctx',
+  taskId = 'task',
+  parts,
+  metadata,
+  artifactMetadata,
+  lastChunk,
+  append = false,
+  artifactId = 'artifact-1',
+}: {
+  contextId?: string;
+  taskId?: string;
+  parts: Part[];
+  metadata?: Record<string, unknown>;
+  artifactMetadata?: Record<string, unknown>;
+  lastChunk?: boolean;
+  append?: boolean;
+  artifactId?: string;
+}): StreamResponse {
+  return {
+    payload: {
+      $case: 'artifactUpdate',
+      value: {
+        contextId,
+        taskId,
+        metadata,
+        artifact: {
+          artifactId,
+          name: 'artifact',
+          description: '',
+          parts,
+          metadata: artifactMetadata,
+          extensions: [],
+        },
+        append,
+        ...(lastChunk !== undefined ? { lastChunk } : {}),
+      },
+    },
+  } as unknown as StreamResponse;
+}
 
 describe('messageHandlers helpers', () => {
   test('normalizeToolResultToText handles string result', () => {
@@ -20,87 +149,263 @@ describe('messageHandlers helpers', () => {
   });
 
   test('normalizeToolResultToText handles content array', () => {
-    const data: ToolResponseData = { id: '1', name: 'tool', response: { result: { content: [{ text: 'a' }, { text: 'b' }] } } } as any;
+    const data = {
+      id: '1',
+      name: 'tool',
+      response: { result: { content: [{ text: 'a' }, { text: 'b' }] } },
+    } as ToolResponseData;
     expect(normalizeToolResultToText(data)).toBe('ab');
   });
 
   test('normalizeToolResultToText handles object fallback', () => {
-    const data: ToolResponseData = { id: '1', name: 'tool', response: { result: { foo: 'bar' } } } as any;
+    const data = { id: '1', name: 'tool', response: { result: { foo: 'bar' } } } as ToolResponseData;
     expect(normalizeToolResultToText(data)).toContain('foo');
   });
 
   test('createMessage builds a message with metadata', () => {
     const msg = createMessage('hi', 'assistant', { originalType: 'TextMessage', contextId: 'ctx', taskId: 'task' });
-    expect(msg.kind).toBe('message');
-    expect(msg.parts[0]).toEqual({ kind: 'text', text: 'hi' });
-    expect((msg.metadata as any).originalType).toBe('TextMessage');
+    expect(msg.messageId).toBeTruthy();
+    expect(msg.parts[0]?.content).toEqual({ $case: 'text', value: 'hi' });
+    expect((msg.metadata as ADKMetadata).originalType).toBe('TextMessage');
     expect(msg.contextId).toBe('ctx');
     expect(msg.taskId).toBe('task');
   });
 
   test('extractMessagesFromTasks deduplicates messageIds', () => {
     const mId = uuidv4();
-    const tasks: any = [
-      { history: [{ kind: 'message', messageId: mId }, { kind: 'message', messageId: mId }] },
-    ];
-    const out = extractMessagesFromTasks(tasks);
+    const out = extractMessagesFromTasks([
+      sdkTask([
+        sdkMessage({ messageId: mId, role: Role.ROLE_USER }),
+        sdkMessage({ messageId: mId, role: Role.ROLE_USER }),
+      ]),
+    ]);
     expect(out.length).toBe(1);
     expect(out[0].messageId).toBe(mId);
   });
 
-  test('extractMessagesFromTasks injects tokenStats into non-user agent messages only', () => {
-    const tasks = [
-      {
-        history: [
-          { kind: 'message', messageId: 'a1', role: 'agent', parts: [],
-            metadata: { kagent_usage_metadata: { totalTokenCount: 10, promptTokenCount: 3, candidatesTokenCount: 7 } } },
-          { kind: 'message', messageId: 'u1', role: 'user', parts: [],
-            metadata: { kagent_usage_metadata: { totalTokenCount: 5, promptTokenCount: 2, candidatesTokenCount: 3 } } },
-          { kind: 'message', messageId: 'a2', role: 'agent', parts: [], metadata: {} },
+  test('extractMessagesFromTasks reconstructs text and tool output from persisted artifacts', () => {
+    const messages = extractMessagesFromTasks([
+      sdkTask([
+        sdkMessage({ messageId: 'u1', role: Role.ROLE_USER, parts: [createTextPart('calculate')] }),
+      ], {
+        status: { state: TaskState.TASK_STATE_COMPLETED, timestamp: new Date().toISOString(), message: undefined },
+        artifacts: [
+          sdkArtifact('tool-call', [
+            createDataPart({ id: 'call-1', name: 'calculator', args: { expression: '2+2' } }, { adk_type: 'function_call' }),
+          ]),
+          sdkArtifact('tool-result', [
+            createDataPart({ id: 'call-1', name: 'calculator', response: { result: 4 } }, { adk_type: 'function_response' }),
+          ]),
+          sdkArtifact('answer', [createTextPart('The answer is 4.')], {
+            adk_author: 'calculator-agent',
+            adk_usage_metadata: { totalTokenCount: 17, promptTokenCount: 12, candidatesTokenCount: 5 },
+          }),
         ],
+      }),
+    ]);
+
+    expect(messages).toHaveLength(4);
+    expect((messages[1].metadata as ADKMetadata).originalType).toBe('ToolCallRequestEvent');
+    expect((messages[2].metadata as ADKMetadata).originalType).toBe('ToolCallExecutionEvent');
+    expect((messages[3].metadata as ADKMetadata).originalType).toBe('TextMessage');
+    expect(messages[3].parts[0]?.content?.value).toBe('The answer is 4.');
+
+    const task = sdkTask([], {
+      id: 'task',
+      status: { state: TaskState.TASK_STATE_COMPLETED, timestamp: new Date().toISOString(), message: undefined },
+      artifacts: [
+        sdkArtifact('answer', [createTextPart('The answer is 4.')], {
+          adk_usage_metadata: { totalTokenCount: 17, promptTokenCount: 12, candidatesTokenCount: 5 },
+        }),
+      ],
+    });
+    const terminalIds = collectTerminalTaskIds([task]);
+    const tokenStats = collectTaskTokenStats([task]);
+    expect(isFinishedAssistantReply(messages[3], messages, terminalIds)).toBe(true);
+    expect(isFinishedAssistantReply(messages[1], messages, terminalIds)).toBe(false);
+    expect(tokenStats.get('task')).toEqual({ total: 17, prompt: 12, completion: 5 });
+  });
+
+  test('reloaded input-required task renders user input, artifacts, then the current approval', () => {
+    const task = sdkTask([
+      sdkMessage({ messageId: 'u1', role: Role.ROLE_USER, parts: [createTextPart('logs')] }),
+    ], {
+      status: {
+        state: TaskState.TASK_STATE_INPUT_REQUIRED,
+        timestamp: new Date().toISOString(),
+        message: sdkMessage({
+          messageId: 'c1',
+          role: Role.ROLE_AGENT,
+          parts: [createTextPart('Approval required')],
+          extensions: [HITL_EXTENSION_URI],
+          metadata: {
+            [HITL_EXTENSION_URI]: {
+              type: 'tool_approval_request',
+              tools: [{ id: 'confirm-1', call_id: 'call-logs', name: 'k8s_get_pod_logs', args: { pod: 'x' } }],
+            },
+          },
+        }),
       },
-    ] as unknown as Task[];
-    const messages = extractMessagesFromTasks(tasks);
-    // Agent message with usage metadata gets tokenStats injected
-    expect((messages[0].metadata as ADKMetadata & { tokenStats?: TokenStats })?.tokenStats)
-      .toEqual({ total: 10, prompt: 3, completion: 7 });
-    // User message is NOT enriched even if it carries usage metadata
-    expect((messages[1].metadata as ADKMetadata & { tokenStats?: TokenStats })?.tokenStats)
-      .toBeUndefined();
-    // Agent message without usage metadata is passed through unchanged
-    expect((messages[2].metadata as ADKMetadata & { tokenStats?: TokenStats })?.tokenStats)
-      .toBeUndefined();
+      artifacts: [
+        sdkArtifact('mixed', [
+          createTextPart('Fetching logs now.'),
+          createDataPart({ id: 'call-logs', name: 'k8s_get_pod_logs', args: { pod: 'x' } }, { adk_type: 'function_call' }),
+        ], { adk_usage_metadata: { promptTokenCount: 10, candidatesTokenCount: 2 } }),
+        sdkArtifact('final', [createTextPart('Done.')], {
+          adk_usage_metadata: { promptTokenCount: 20, candidatesTokenCount: 4 },
+        }),
+      ],
+    });
+    const artifactMessages = extractMessagesFromTasks([task]);
+    const { messages: approvalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks([task]);
+    const messages = [...artifactMessages, ...approvalMessages];
+
+    const kinds = messages.map(m => {
+      const meta = m.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType ?? m.role;
+    });
+    expect(kinds).toEqual([
+      Role.ROLE_USER,
+      'TextMessage',
+      'ToolCallRequestEvent',
+      'TextMessage',
+      'tool_approval',
+    ]);
+    expect(messages[1].parts[0]?.content?.value).toBe('Fetching logs now.');
+    expect(hasPendingApproval).toBe(true);
+    expect(collectTaskTokenStats([task]).get('task')).toEqual({ total: 24, prompt: 20, completion: 4 });
   });
 
-  test('extractTokenStatsFromTasks sums usage across all history messages', () => {
-    const tasks: any = [
-      { history: [{ kind: 'message', metadata: { kagent_usage_metadata: { totalTokenCount: 10, promptTokenCount: 3, candidatesTokenCount: 7 } } }] },
-      { history: [{ kind: 'message', metadata: { kagent_usage_metadata: { totalTokenCount: 12, promptTokenCount: 1, candidatesTokenCount: 9 } } }] },
-    ];
-    const stats = extractTokenStatsFromTasks(tasks);
-    expect(stats.total).toBe(22);
-    expect(stats.prompt).toBe(4);
-    expect(stats.completion).toBe(16);
+  test('reloaded input-required task renders approval for a no-argument tool', () => {
+    const task = sdkTask([], {
+      status: {
+        state: TaskState.TASK_STATE_INPUT_REQUIRED,
+        timestamp: new Date().toISOString(),
+        message: sdkMessage({
+          messageId: 'approval-message',
+          extensions: [HITL_EXTENSION_URI],
+          metadata: {
+            [HITL_EXTENSION_URI]: {
+              type: 'tool_approval_request',
+              tools: [{ id: 'approval-1', call_id: 'call-1', name: 'k8s_get_cluster_configuration', args: null }],
+            },
+          },
+        }),
+      },
+    });
+
+    const { messages, hasPendingApproval } = extractApprovalMessagesFromTasks([task]);
+
+    expect(hasPendingApproval).toBe(true);
+    expect(messages).toHaveLength(1);
+    const card = (messages[0].metadata as ADKMetadata).hitlCard;
+    expect(card?.kind).toBe('tool_approval');
+    if (card?.kind === 'tool_approval') {
+      expect(card.calls[0].args).toEqual({});
+    }
   });
 
-  test('extractTokenStatsFromTasks skips history items without usage metadata', () => {
-    const tasks = [
-      { history: [{ kind: 'message', messageId: uuidv4(), role: 'agent', parts: [], metadata: { kagent_usage_metadata: { totalTokenCount: 10, promptTokenCount: 3, candidatesTokenCount: 7 } } }] },
-      { history: [{ kind: 'message', messageId: uuidv4(), role: 'agent', parts: [], metadata: {} }] },
-    ] as unknown as Task[];
-    const stats = extractTokenStatsFromTasks(tasks);
-    expect(stats.total).toBe(10);
-    expect(stats.prompt).toBe(3);
-    expect(stats.completion).toBe(7);
+  test('reloaded completed task anchors resolved HITL before its artifact response', () => {
+    const task = sdkTask([
+      sdkMessage({ messageId: 'u1', role: Role.ROLE_USER, parts: [createTextPart('delete pod x')] }),
+      sdkMessage({
+        messageId: 'c1',
+        role: Role.ROLE_AGENT,
+        parts: [createTextPart('Approval required')],
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'tool_approval_request',
+            tools: [{ id: 'confirm-1', call_id: 'call-delete', name: 'delete_pod', args: { pod: 'x' } }],
+          },
+        },
+      }),
+      sdkMessage({
+        messageId: 'd1',
+        role: Role.ROLE_USER,
+        parts: [createTextPart('Approved')],
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'tool_approval_response',
+            approvals: [{ id: 'confirm-1', approved: true }],
+          },
+        },
+      }),
+    ], {
+      status: { state: TaskState.TASK_STATE_COMPLETED, timestamp: new Date().toISOString(), message: undefined },
+      artifacts: [
+        sdkArtifact('before-hitl', [createTextPart('Pod x needs approval.')]),
+        sdkArtifact('tool-result', [
+          createDataPart(
+            { id: 'call-delete', name: 'delete_pod', response: { result: 'deleted' } },
+            { adk_type: 'function_response' },
+          ),
+        ]),
+        sdkArtifact('answer', [createTextPart('Pod x was deleted.')]),
+      ],
+    });
+
+    const messages = extractMessagesFromTasks([task]);
+    expect(messages.map(message => {
+      const meta = message.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType ?? message.role;
+    })).toEqual([
+      Role.ROLE_USER,
+      'TextMessage',
+      'tool_approval',
+      'ToolCallExecutionEvent',
+      'TextMessage',
+    ]);
+    const card = (messages[2].metadata as ADKMetadata).hitlCard;
+    expect(card?.kind).toBe('tool_approval');
+    if (card?.kind === 'tool_approval') {
+      expect(card.response).toEqual({
+        type: 'tool_approval_response',
+        approvals: [{ id: 'confirm-1', approved: true }],
+      });
+    }
+  });
+
+  test('extractTokenStatsFromTasks uses last usage per task and falls back total', () => {
+    const stats = extractTokenStatsFromTasks([
+      sdkTask([], { artifacts: [
+        sdkArtifact('a1', [], {
+          kagent_usage_metadata: { promptTokenCount: 3, candidatesTokenCount: 7 },
+        }),
+        sdkArtifact('a2', [], {
+          kagent_usage_metadata: { promptTokenCount: 10, candidatesTokenCount: 9 },
+        }),
+      ] }),
+      sdkTask([], { artifacts: [sdkArtifact('b1', [], {
+        kagent_usage_metadata: { totalTokenCount: 12, promptTokenCount: 1, candidatesTokenCount: 9 },
+      })] }),
+    ]);
+    // task1 last=19 (10+9 fallback), task2=12
+    expect(stats.total).toBe(31);
+    expect(stats.prompt).toBe(11);
+    expect(stats.completion).toBe(18);
+  });
+
+  test('extractTokenStatsFromTasks includes usage stored on artifacts', () => {
+    const stats = extractTokenStatsFromTasks([
+      sdkTask([], {
+        artifacts: [sdkArtifact('answer', [createTextPart('answer')], {
+          adk_usage_metadata: { totalTokenCount: 17, promptTokenCount: 12, candidatesTokenCount: 5 },
+        })],
+      }),
+    ]);
+
+    expect(stats).toEqual({ total: 17, prompt: 12, completion: 5 });
   });
 });
 
 describe('createMessageHandlers test', () => {
-  test('emits ToolCallRequestEvent + ToolCallExecutionEvent for non-agent tool', () => {
+  test('emits ToolCallRequestEvent + ToolCallExecutionEvent for agent tool', () => {
     const emitted: Message[] = [];
     const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
         emitted.length = 0;
         emitted.push(...next);
       },
@@ -110,62 +415,30 @@ describe('createMessageHandlers test', () => {
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
-    // Simulate status-update with function_call to an agent tool
-    const statusUpdateCall: any = {
-      kind: 'status-update',
-      contextId: 'ctx',
-      taskId: 'task',
-      final: false,
-      status: {
-        state: 'working',
-        message: {
-          role: 'agent',
-          parts: [
-            {
-              kind: 'data',
-              data: { id: 'call_1', name: 'kagent__NS__k8s_agent', args: { request: 'list' } },
-              metadata: { kagent_type: 'function_call' },
-            },
-          ],
-        },
-      },
-    };
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [createDataPart(
+          { id: 'call_1', name: 'kagent__NS__k8s_agent', args: { request: 'list' } },
+          { kagent_type: 'function_call' },
+        )],
+    }));
 
-    handlers.handleMessageEvent(statusUpdateCall);
-
-    // Simulate status-update with function_response from agent
-    const statusUpdateResp: any = {
-      kind: 'status-update',
-      contextId: 'ctx',
-      taskId: 'task',
-      final: false,
-      status: {
-        state: 'working',
-        message: {
-          role: 'agent',
-          parts: [
-            {
-              kind: 'data',
-              data: { id: 'call_1', name: 'kagent__NS__k8s_agent', response: { result: 'ok' } },
-              metadata: { kagent_type: 'function_response' },
-            },
-          ],
-        },
-      },
-    };
-
-    handlers.handleMessageEvent(statusUpdateResp);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [createDataPart(
+          { id: 'call_1', name: 'kagent__NS__k8s_agent', response: { result: 'ok' } },
+          { kagent_type: 'function_response' },
+        )],
+    }));
 
     expect(emitted.length).toBe(2);
-    expect((emitted[0].metadata as any).originalType).toBe('ToolCallRequestEvent');
-    expect((emitted[1].metadata as any).originalType).toBe('ToolCallExecutionEvent');
+    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('ToolCallRequestEvent');
+    expect((emitted[1].metadata as ADKMetadata).originalType).toBe('ToolCallExecutionEvent');
   });
 
   test('emits ToolCallRequestEvent + ToolCallExecutionEvent for non-agent tool', () => {
     const emitted: Message[] = [];
     const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
         emitted.length = 0;
         emitted.push(...next);
       },
@@ -174,28 +447,30 @@ describe('createMessageHandlers test', () => {
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
-    const statusUpdateCall: any = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
-      status: { state: 'working', message: { role: 'agent', parts: [{ kind: 'data', data: { id: 'call_2', name: 'some_tool', args: { a: 1 } }, metadata: { kagent_type: 'function_call' } }] } }
-    };
-    handlers.handleMessageEvent(statusUpdateCall);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [createDataPart(
+          { id: 'call_2', name: 'some_tool', args: { a: 1 } },
+          { kagent_type: 'function_call' },
+        )],
+    }));
 
-    const statusUpdateResp: any = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
-      status: { state: 'working', message: { role: 'agent', parts: [{ kind: 'data', data: { id: 'call_2', name: 'some_tool', response: { result: 'tool ok' } }, metadata: { kagent_type: 'function_response' } }] } }
-    };
-    handlers.handleMessageEvent(statusUpdateResp);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [createDataPart(
+          { id: 'call_2', name: 'some_tool', response: { result: 'tool ok' } },
+          { kagent_type: 'function_response' },
+        )],
+    }));
 
     expect(emitted.length).toBe(2);
-    expect((emitted[0].metadata as any).originalType).toBe('ToolCallRequestEvent');
-    expect((emitted[1].metadata as any).originalType).toBe('ToolCallExecutionEvent');
+    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('ToolCallRequestEvent');
+    expect((emitted[1].metadata as ADKMetadata).originalType).toBe('ToolCallExecutionEvent');
   });
 
-  test('final text message on status-update with text part', () => {
+  test('non-final artifact-update converts tool parts immediately', () => {
     const emitted: Message[] = [];
     const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
         emitted.length = 0;
         emitted.push(...next);
       },
@@ -204,22 +479,23 @@ describe('createMessageHandlers test', () => {
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
-    const statusWithText: any = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: true,
-      status: { state: 'working', message: { role: 'agent', parts: [{ kind: 'text', text: 'hello' }] } }
-    };
-    handlers.handleMessageEvent(statusWithText);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [
+        createDataPart({ id: 'call_3', name: 'some_tool', args: { q: 1 } }, { kagent_type: 'function_call' }),
+        createDataPart({ id: 'call_3', name: 'some_tool', response: { result: 'out' } }, { kagent_type: 'function_response' }),
+      ],
+    }));
 
-    expect(emitted.length).toBe(1);
-    expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
-    expect((emitted[0].parts[0] as any).text).toBe('hello');
+    expect(emitted.length).toBe(2);
+    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('ToolCallRequestEvent');
+    expect((emitted[1].metadata as ADKMetadata).originalType).toBe('ToolCallExecutionEvent');
   });
 
-  test('artifact-update converts tool parts and appends summary', () => {
+  test('artifact-update drops a model-internal thoughtSignature data part', () => {
     const emitted: Message[] = [];
     const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
         emitted.length = 0;
         emitted.push(...next);
       },
@@ -228,186 +504,206 @@ describe('createMessageHandlers test', () => {
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
-    const artifactEvent: any = {
-      kind: 'artifact-update', contextId: 'ctx', taskId: 'task', lastChunk: true,
-      artifact: {
-        parts: [
-          { kind: 'data', data: { id: 'call_3', name: 'some_tool', args: { q: 1 } }, metadata: { kagent_type: 'function_call' } },
-          { kind: 'data', data: { id: 'call_3', name: 'some_tool', response: { result: 'out' } }, metadata: { kagent_type: 'function_response' } },
-        ]
-      }
-    };
-    handlers.handleMessageEvent(artifactEvent);
+    // Gemini returns the answer text and its encrypted reasoning handle as two
+    // parts. The signature part is unlabeled, so it used to fall through to the
+    // JSON.stringify fallback and get concatenated onto the answer.
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      lastChunk: true,
+      parts: [
+        createTextPart('Cilium is on v1.19.5.'),
+        createDataPart({ thoughtSignature: 'EjQKMgERTTIPW1Dx9s3NlDDSMzmWhbt5' }),
+      ],
+    }));
 
-    // Expect: request, execution, summary (no text message since no text part)
-    expect(emitted.length).toBe(3);
-    expect((emitted[0].metadata as any).originalType).toBe('ToolCallRequestEvent');
-    expect((emitted[1].metadata as any).originalType).toBe('ToolCallExecutionEvent');
-    expect((emitted[2].metadata as any).originalType).toBe('ToolCallSummaryMessage');
+    expect(emitted).toHaveLength(1);
+    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('TextMessage');
+    expect(emitted[0].parts[0]?.content?.value).toBe('Cilium is on v1.19.5.');
   });
 
-  test('Go ADK streaming flow: partial chunks stream, non-partial artifact emits message, empty sentinel ignored', () => {
+
+  test('artifact-update keeps unlabeled data parts that are not model-internal', () => {
+    const emitted: Message[] = [];
+    const handlers = createMessageHandlers({
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: () => {},
+      agentContext: { namespace: 'kagent', agentName: 'testagent' },
+    });
+
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      lastChunk: true,
+      parts: [
+        createTextPart('result: '),
+        createDataPart({ rows: 2 }),
+      ],
+    }));
+
+    expect(emitted).toHaveLength(1);
+    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('TextMessage');
+    expect(emitted[0].parts[0]?.content?.value).toBe('result: {"rows":2}');
+  });
+
+  test('content-bearing lastChunk replaces partials and commits the final artifact text', () => {
     const emitted: Message[] = [];
     let streamingContent = '';
     const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
         emitted.length = 0;
         emitted.push(...next);
       },
       setIsStreaming: () => {},
-      setStreamingContent: (updater) => { streamingContent = updater(streamingContent); },
+      setStreamingContent: (updater: StringUpdate) => { streamingContent = applyStringUpdate(updater, streamingContent); },
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
-    // Partial token chunks (adk_partial: true, no lastChunk) accumulate streaming content
-    for (const text of ['I am', ' a simple agent.']) {
-      handlers.handleMessageEvent({
-        kind: 'artifact-update', contextId: 'ctx', taskId: 'task',
-        metadata: { adk_partial: true },
-        artifact: { metadata: { adk_partial: true }, parts: [{ kind: 'text', text, metadata: { adk_partial: true } }] }
-      } as any);
-    }
+    handlers.handleMessageEvent(artifactUpdateEvent({ parts: [createTextPart('I am')] }));
+    handlers.handleMessageEvent(artifactUpdateEvent({ append: true, parts: [createTextPart(' a simple agent.')] }));
     expect(streamingContent).toBe('I am a simple agent.');
     expect(emitted.length).toBe(0);
 
-    // Complete non-partial artifact (adk_partial: false, no lastChunk) emits the final message
-    handlers.handleMessageEvent({
-      kind: 'artifact-update', contextId: 'ctx', taskId: 'task',
-      metadata: { adk_partial: false },
-      artifact: { parts: [{ kind: 'text', text: 'I am a simple agent.' }] }
-    } as any);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      lastChunk: true,
+      parts: [createTextPart('I am a simple agent.')],
+    }));
     expect(streamingContent).toBe('');
-    expect(emitted.length).toBe(1);
-    expect((emitted[0].metadata as any).originalType).toBe('TextMessage');
-    expect((emitted[0].parts[0] as any).text).toBe('I am a simple agent.');
-
-    // Empty data-part sentinel with lastChunk must not render "{}"
-    handlers.handleMessageEvent({
-      kind: 'artifact-update', contextId: 'ctx', taskId: 'task', lastChunk: true,
-      metadata: { adk_partial: true },
-      artifact: { metadata: { adk_partial: true }, parts: [{ kind: 'data', data: {}, metadata: { adk_partial: true } }] }
-    } as any);
-    const textMessages = emitted.filter(m => (m.metadata as any).originalType === 'TextMessage');
-    expect(textMessages.length).toBe(1);
-    expect(textMessages.some(m => (m.parts[0] as any).text === '{}')).toBe(false);
+    expect(emitted).toHaveLength(1);
+    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('TextMessage');
+    expect(emitted[0].parts[0]?.content?.value).toBe('I am a simple agent.');
   });
 
-  test('each invocation keeps its own token stats and session total accumulates correctly', () => {
+  test('latest task usage wins for session total; terminal task is reported without writing message metadata', () => {
     const emitted: Message[] = [];
     let capturedSessionTotal = { total: 0, prompt: 0, completion: 0 };
+    const terminalTasks: Array<{ taskId: string; stats?: TokenStats }> = [];
     const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
         emitted.length = 0;
         emitted.push(...next);
       },
       setIsStreaming: () => {},
       setStreamingContent: () => {},
-      setSessionStats: (updater) => { capturedSessionTotal = updater(capturedSessionTotal); },
+      setSessionStats: (updater: TokenStatsUpdate) => { capturedSessionTotal = applyTokenStatsUpdate(updater, capturedSessionTotal); },
+      onTerminalTask: (taskId, tokenStats) => { terminalTasks.push({ taskId, stats: tokenStats }); },
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
-    // Invocation 1: LLM decides to call a tool (usage arrives with the function_call)
-    const toolCallUpdate = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
+    handlers.handleMessageEvent(statusUpdateEvent({
       metadata: { kagent_usage_metadata: { totalTokenCount: 5, promptTokenCount: 3, candidatesTokenCount: 2 } },
-      status: {
-        state: 'working',
-        message: {
-          role: 'agent',
-          parts: [{ kind: 'data', data: { id: 'call_1', name: 'my_tool', args: {} }, metadata: { kagent_type: 'function_call' } }]
-        }
-      }
-    } as unknown as Message;
-    handlers.handleMessageEvent(toolCallUpdate);
+    }));
 
-    // Tool executes and returns a result
-    const toolResponseUpdate = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
-      status: {
-        state: 'working',
-        message: {
-          role: 'agent',
-          parts: [{ kind: 'data', data: { id: 'call_1', name: 'my_tool', response: { result: 'ok' } }, metadata: { kagent_type: 'function_response' } }]
-        }
-      }
-    } as unknown as Message;
-    handlers.handleMessageEvent(toolResponseUpdate);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [createDataPart({ id: 'call_1', name: 'my_tool', args: {} }, { kagent_type: 'function_call' })],
+    }));
 
-    // Invocation 2: LLM generates the final text response
-    const finalUpdate = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: true,
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [createDataPart({ id: 'call_1', name: 'my_tool', response: { result: 'ok' } }, { kagent_type: 'function_response' })],
+    }));
+
+    handlers.handleMessageEvent(statusUpdateEvent({
       metadata: { kagent_usage_metadata: { totalTokenCount: 10, promptTokenCount: 7, candidatesTokenCount: 3 } },
-      status: {
-        state: 'completed',
-        message: { role: 'agent', parts: [{ kind: 'text', text: 'done' }] }
-      }
-    } as unknown as Message;
-    handlers.handleMessageEvent(finalUpdate);
+    }));
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      lastChunk: true,
+      parts: [createTextPart('done')],
+    }));
+    handlers.handleMessageEvent(statusUpdateEvent({
+      state: TaskState.TASK_STATE_COMPLETED,
+    }));
 
-    const toolCallMsg = emitted.find(m => (m.metadata as ADKMetadata)?.originalType === 'ToolCallRequestEvent');
-    const textMsg = emitted.find(m => (m.metadata as ADKMetadata)?.originalType === 'TextMessage');
-    // Each invocation keeps its own stats — the tool call is not overwritten by the text response
-    expect((toolCallMsg?.metadata as ADKMetadata & { tokenStats?: TokenStats })?.tokenStats).toEqual({ total: 5, prompt: 3, completion: 2 });
-    expect((textMsg?.metadata as ADKMetadata & { tokenStats?: TokenStats })?.tokenStats).toEqual({ total: 10, prompt: 7, completion: 3 });
-    // Session total accumulates both invocations
-    expect(capturedSessionTotal).toEqual({ total: 15, prompt: 10, completion: 5 });
+    const toolCallMsg = emitted.find((message) => (message.metadata as ADKMetadata)?.originalType === 'ToolCallRequestEvent');
+    const textMsg = emitted.find((message) => (message.metadata as ADKMetadata)?.originalType === 'TextMessage');
+    expect((toolCallMsg?.metadata as ADKMetadata & { tokenStats?: TokenStats })?.tokenStats).toEqual({ total: 10, prompt: 7, completion: 3 });
+    expect((textMsg?.metadata as ADKMetadata & { tokenStats?: TokenStats })?.tokenStats).toBeUndefined();
+    expect(terminalTasks).toEqual([{ taskId: 'task', stats: { total: 10, prompt: 7, completion: 3 } }]);
+    expect(isFinishedAssistantReply(textMsg!, emitted, new Set(['task']))).toBe(true);
+    expect(capturedSessionTotal).toEqual({ total: 10, prompt: 7, completion: 3 });
+  });
+
+  test('mixed text+tool artifact preserves text-before-tool order', () => {
+    const emitted: Message[] = [];
+    const handlers = createMessageHandlers({
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
+        emitted.length = 0;
+        emitted.push(...next);
+      },
+      setIsStreaming: () => {},
+      setStreamingContent: () => {},
+    });
+
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      lastChunk: true,
+      parts: [
+        createTextPart('Fetching logs now.'),
+        createDataPart({ id: 'call_1', name: 'k8s_get_pod_logs', args: {} }, { kagent_type: 'function_call' }),
+      ],
+    }));
+
+    expect(emitted).toHaveLength(2);
+    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('TextMessage');
+    expect(emitted[0].parts[0]?.content?.value).toBe('Fetching logs now.');
+    expect((emitted[1].metadata as ADKMetadata).originalType).toBe('ToolCallRequestEvent');
   });
 
   test('HITL interrupt accumulates pending turn stats and clears them', () => {
     const emitted: Message[] = [];
     let capturedSessionTotal: TokenStats = { total: 0, prompt: 0, completion: 0 };
     const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
         emitted.length = 0;
         emitted.push(...next);
       },
       setIsStreaming: () => {},
       setStreamingContent: () => {},
       setChatStatus: () => {},
-      setSessionStats: (updater) => { capturedSessionTotal = updater(capturedSessionTotal); },
+      setSessionStats: (updater: TokenStatsUpdate) => { capturedSessionTotal = applyTokenStatsUpdate(updater, capturedSessionTotal); },
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
-    // Status update: LLM decides to call a confirmation tool (HITL), usage arrives here
-    const hitlUpdate = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
-      metadata: { kagent_usage_metadata: { totalTokenCount: 8, promptTokenCount: 5, candidatesTokenCount: 3 } },
-      status: {
-        state: 'input-required',
-        message: {
-          role: 'agent',
-          parts: [{
-            kind: 'data',
-            data: {
-              name: 'adk_request_confirmation',
-              id: 'confirm_1',
-              args: { originalFunctionCall: { name: 'my_tool', args: { x: 1 }, id: 'call_1' } },
-            },
-            metadata: { kagent_type: 'function_call', kagent_is_long_running: true },
-          }],
-        },
-      },
-    } as unknown as Message;
-    handlers.handleMessageEvent(hitlUpdate);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      lastChunk: true,
+      parts: [createDataPart(
+        { id: 'call_1', name: 'my_tool', args: { x: 1 } },
+        { kagent_type: 'function_call' },
+      )],
+    }));
 
-    // Session stats should be accumulated at the HITL boundary (not at stream end)
+    handlers.handleMessageEvent(statusUpdateEvent({
+      state: TaskState.TASK_STATE_INPUT_REQUIRED,
+      metadata: { kagent_usage_metadata: { totalTokenCount: 8, promptTokenCount: 5, candidatesTokenCount: 3 } },
+      message: sdkMessage({
+        messageId: 'hitl-msg',
+        parts: [createTextPart('Approval required')],
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'tool_approval_request',
+            tools: [{ id: 'confirm_1', call_id: 'call_1', name: 'my_tool', args: { x: 1 } }],
+          },
+        },
+      }),
+    }));
+
     expect(capturedSessionTotal).toEqual({ total: 8, prompt: 5, completion: 3 });
-    // A ToolApprovalRequest message should have been emitted
-    const approvalMsg = emitted.find(m => (m.metadata as ADKMetadata)?.originalType === 'ToolApprovalRequest');
+    const approvalMsg = emitted.find((message) => (message.metadata as ADKMetadata)?.hitlCard?.kind === 'tool_approval');
     expect(approvalMsg).toBeDefined();
+    expect(emitted.some((message) => (message.metadata as ADKMetadata)?.originalType === 'ToolCallRequestEvent')).toBe(false);
   });
 });
 
 describe('subagent_session_id propagation', () => {
-  // Shared handler factory for status-update / artifact-update tests
   function makeHandlers() {
     const emitted: Message[] = [];
     const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
         emitted.length = 0;
         emitted.push(...next);
       },
@@ -419,114 +715,202 @@ describe('subagent_session_id propagation', () => {
     return { emitted, handlers };
   }
 
-  test('status-update: agent function_call with kagent_subagent_session_id in DataPart metadata emits toolCallData with subagent_session_id', () => {
+  test('nested HITL extension emits an AgentCall card linked to the paused child session', () => {
     const { emitted, handlers } = makeHandlers();
 
-    const statusUpdateCall: any = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
-      status: {
-        state: 'working',
-        message: {
-          role: 'agent',
-          parts: [{
-            kind: 'data',
-            data: { id: 'agent_call_1', name: 'kagent__NS__k8s_agent', args: { request: 'list pods' } },
-            metadata: { kagent_type: 'function_call', kagent_subagent_session_id: 'sess-abc-123' },
-          }],
-        },
-      },
-    };
-    handlers.handleMessageEvent(statusUpdateCall);
-
-    expect(emitted.length).toBe(1);
-    const meta = emitted[0].metadata as ADKMetadata;
-    expect(meta.originalType).toBe('ToolCallRequestEvent');
-    expect(meta.toolCallData).toHaveLength(1);
-    expect(meta.toolCallData![0].subagent_session_id).toBe('sess-abc-123');
-  });
-
-  test('status-update: agent function_response with subagent_session_id in response dict emits toolResultData with subagent_session_id', () => {
-    const { emitted, handlers } = makeHandlers();
-
-    const statusUpdateResp: any = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
-      status: {
-        state: 'working',
-        message: {
-          role: 'agent',
-          parts: [{
-            kind: 'data',
-            data: {
-              id: 'agent_call_1',
-              name: 'kagent__NS__k8s_agent',
-              response: { result: 'done', subagent_session_id: 'sess-abc-123' },
+    handlers.handleMessageEvent(statusUpdateEvent({
+      state: TaskState.TASK_STATE_INPUT_REQUIRED,
+      message: sdkMessage({
+        messageId: 'nested-hitl',
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'tool_approval_request',
+            tools: [{ id: 'parent-confirm', call_id: 'parent-call', name: 'kagent__NS__child_agent', args: { request: 'delete pod' } }],
+            nested: {
+              subagent_name: 'kagent__NS__child_agent',
+              task_id: 'child-task',
+              context_id: 'child-session',
+              tools: [{ id: 'child-confirm', call_id: 'child-call', name: 'delete_pod', args: { name: 'old' } }],
             },
-            metadata: { kagent_type: 'function_response' },
-          }],
-        },
-      },
-    };
-    handlers.handleMessageEvent(statusUpdateResp);
-
-    const execMsg = emitted.find(m => (m.metadata as ADKMetadata)?.originalType === 'ToolCallExecutionEvent');
-    expect(execMsg).toBeDefined();
-    const resultData = (execMsg!.metadata as ADKMetadata).toolResultData!;
-    expect(resultData).toHaveLength(1);
-    expect(resultData[0].subagent_session_id).toBe('sess-abc-123');
-  });
-
-  test('extractMessagesFromTasks: agent function_call DataPart with kagent_subagent_session_id emits toolCallData with subagent_session_id', () => {
-    const tasks = [{
-      contextId: 'ctx',
-      id: 'task',
-      history: [{
-        kind: 'message',
-        messageId: 'msg-1',
-        role: 'agent',
-        parts: [{
-          kind: 'data',
-          data: { id: 'agent_call_3', name: 'kagent__NS__k8s_agent', args: { request: 'list nodes' } },
-          metadata: { kagent_type: 'function_call', kagent_subagent_session_id: 'sess-history-456' },
-        }],
-        metadata: {},
-      }],
-    }] as unknown as Task[];
-
-    const messages = extractMessagesFromTasks(tasks);
-    expect(messages).toHaveLength(1);
-    const meta = messages[0].metadata as ADKMetadata;
-    expect(meta.originalType).toBe('ToolCallRequestEvent');
-    expect(meta.toolCallData).toHaveLength(1);
-    expect(meta.toolCallData![0].subagent_session_id).toBe('sess-history-456');
-  });
-
-  test('extractMessagesFromTasks: agent function_response DataPart with subagent_session_id in response dict emits toolResultData with subagent_session_id', () => {
-    const tasks = [{
-      contextId: 'ctx',
-      id: 'task',
-      history: [{
-        kind: 'message',
-        messageId: 'msg-3',
-        role: 'agent',
-        parts: [{
-          kind: 'data',
-          data: {
-            id: 'agent_call_3',
-            name: 'kagent__NS__k8s_agent',
-            response: { result: 'nodes listed', subagent_session_id: 'sess-history-456' },
           },
-          metadata: { kagent_type: 'function_response' },
-        }],
-        metadata: {},
-      }],
-    }] as unknown as Task[];
+        },
+      }),
+    }));
 
-    const messages = extractMessagesFromTasks(tasks);
+    expect(emitted.map(message => {
+      const meta = message.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType;
+    })).toEqual([
+      'ToolCallRequestEvent',
+      'tool_approval',
+    ]);
+    expect((emitted[0].metadata as ADKMetadata).toolCallData).toEqual([{
+      id: 'parent-call',
+      name: 'kagent__NS__child_agent',
+      args: { request: 'delete pod' },
+      subagent_session_id: 'child-session',
+    }]);
+    const card = (emitted[1].metadata as ADKMetadata).hitlCard;
+    expect(card?.kind).toBe('tool_approval');
+    if (card?.kind === 'tool_approval') {
+      expect(card.calls[0]?.id).toBe('child-call');
+    }
+  });
+
+  test('nested ask_user does not emit a synthetic AgentCall card (parent call stays in transcript)', () => {
+    const { emitted, handlers } = makeHandlers();
+
+    handlers.handleMessageEvent(statusUpdateEvent({
+      state: TaskState.TASK_STATE_INPUT_REQUIRED,
+      message: sdkMessage({
+        messageId: 'nested-ask',
+        extensions: [HITL_EXTENSION_URI],
+        metadata: {
+          [HITL_EXTENSION_URI]: {
+            type: 'ask_user_request',
+            id: 'adk-synthetic-would-have-been-this',
+            questions: [{ question: 'Which resource?' }],
+            nested: {
+              subagent_name: 'kagent__NS__test_hitl_python',
+              task_id: 'child-task',
+              context_id: 'child-session',
+              tools: [{ id: 'ask-1', call_id: 'ask-1', name: 'ask_user', args: { questions: [{ question: 'Which resource?' }] } }],
+            },
+          },
+        },
+      }),
+    }));
+
+    expect(emitted.map(message => {
+      const meta = message.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType;
+    })).toEqual(['ask_user']);
+    expect(emitted.some(message =>
+      (message.metadata as ADKMetadata)?.originalType === 'ToolCallRequestEvent',
+    )).toBe(false);
+  });
+
+  test('reloaded nested ask_user appends only the ask card beside the artifact parent call', () => {
+    const task = sdkTask([
+      sdkMessage({
+        messageId: 'u1',
+        role: Role.ROLE_USER,
+        parts: [createTextPart('ask the hitl agent')],
+      }),
+    ], {
+      status: {
+        state: TaskState.TASK_STATE_INPUT_REQUIRED,
+        timestamp: new Date().toISOString(),
+        message: sdkMessage({
+          messageId: 'status-ask',
+          extensions: [HITL_EXTENSION_URI],
+          metadata: {
+            [HITL_EXTENSION_URI]: {
+              type: 'ask_user_request',
+              id: 'adk-hitl-id',
+              questions: [{ question: 'Which resource?' }],
+              nested: {
+                subagent_name: 'kagent__NS__test_hitl_python',
+                task_id: 'child-task',
+                context_id: '019fd37c-e622-7d23-a4b6-b7598a2f39b8',
+                tools: [{
+                  id: 'ask-1',
+                  call_id: 'ask-1',
+                  name: 'ask_user',
+                  args: { questions: [{ question: 'Which resource?' }] },
+                }],
+              },
+            },
+          },
+        }),
+      },
+      artifacts: [
+        sdkArtifact('call', [createDataPart(
+          {
+            id: 'call_parent',
+            name: 'kagent__NS__test_hitl_python',
+            args: { request: 'Ask the user what resources they want to list' },
+          },
+          { adk_type: 'function_call' },
+        )]),
+        sdkArtifact('resp', [createDataPart(
+          {
+            id: 'call_parent',
+            name: 'kagent__NS__test_hitl_python',
+            response: {
+              status: 'pending',
+              subagent: 'kagent__NS__test_hitl_python',
+              subagent_session_id: '019fd37c-e622-7d23-a4b6-b7598a2f39b8',
+              waiting_for: 'subagent_approval',
+            },
+          },
+          { adk_type: 'function_response' },
+        )]),
+      ],
+    });
+
+    const artifactMessages = extractMessagesFromTasks([task]);
+    const { messages: approvalMessages, hasPendingApproval } = extractApprovalMessagesFromTasks([task]);
+    const messages = [...artifactMessages, ...approvalMessages];
+
+    expect(hasPendingApproval).toBe(true);
+    const kinds = messages.map(m => {
+      const meta = m.metadata as ADKMetadata;
+      return meta?.hitlCard?.kind ?? meta?.originalType ?? m.role;
+    });
+    expect(kinds).toEqual([
+      Role.ROLE_USER,
+      'ToolCallRequestEvent',
+      'ToolCallExecutionEvent',
+      'ask_user',
+    ]);
+    // One parent agent call — no synthetic Delegating duplicate.
+    expect(messages.filter(m =>
+      (m.metadata as ADKMetadata)?.originalType === 'ToolCallRequestEvent',
+    )).toHaveLength(1);
+  });
+
+  test('artifact-update: agent function_response with subagent_session_id in response dict emits toolResultData with subagent_session_id', () => {
+    const { emitted, handlers } = makeHandlers();
+
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [createDataPart(
+          {
+            id: 'agent_call_1',
+            name: 'kagent__NS__k8s_agent',
+            response: { result: 'done', subagent_session_id: 'sess-abc-123' },
+          },
+          { kagent_type: 'function_response' },
+        )],
+    }));
+
+    const execMsg = emitted.find((message) => (message.metadata as ADKMetadata)?.originalType === 'ToolCallExecutionEvent');
+    expect(execMsg).toBeDefined();
+    const resultData = (execMsg?.metadata as ADKMetadata).toolResultData ?? [];
+    expect(resultData).toHaveLength(1);
+    expect(resultData[0]?.subagent_session_id).toBe('sess-abc-123');
+  });
+
+  test('extractMessagesFromTasks: artifact function_response preserves subagent_session_id', () => {
+    const messages = extractMessagesFromTasks([
+      sdkTask([], {
+        artifacts: [sdkArtifact('agent-response', [createDataPart(
+            {
+              id: 'agent_call_3',
+              name: 'kagent__NS__k8s_agent',
+              response: { result: 'nodes listed', subagent_session_id: 'sess-history-456' },
+            },
+            { kagent_type: 'function_response' },
+          )])],
+      }),
+    ]);
+
     expect(messages).toHaveLength(1);
     const meta = messages[0].metadata as ADKMetadata;
     expect(meta.originalType).toBe('ToolCallExecutionEvent');
     expect(meta.toolResultData).toHaveLength(1);
-    expect(meta.toolResultData![0].subagent_session_id).toBe('sess-history-456');
+    expect(meta.toolResultData?.[0]?.subagent_session_id).toBe('sess-history-456');
   });
 });
 
@@ -561,20 +945,23 @@ describe('getMetadataValue', () => {
 
 describe('dual-prefix integration', () => {
   test('extractTokenStatsFromTasks works with adk_usage_metadata', () => {
-    const tasks: any = [
-      { history: [{ kind: 'message', metadata: { adk_usage_metadata: { totalTokenCount: 20, promptTokenCount: 8, candidatesTokenCount: 12 } } }] },
-    ];
-    const stats = extractTokenStatsFromTasks(tasks);
+    const stats = extractTokenStatsFromTasks([
+      sdkTask([], {
+        artifacts: [sdkArtifact('adk-usage-artifact', [], {
+          adk_usage_metadata: { totalTokenCount: 20, promptTokenCount: 8, candidatesTokenCount: 12 },
+        })],
+      }),
+    ]);
     expect(stats.total).toBe(20);
     expect(stats.prompt).toBe(8);
     expect(stats.completion).toBe(12);
   });
 
-  test('status-update handler works with adk_type metadata on parts', () => {
+  test('artifact-update handler works with adk_type metadata on parts', () => {
     const emitted: Message[] = [];
     const handlers = createMessageHandlers({
-      setMessages: (updater) => {
-        const next = updater(emitted);
+      setMessages: (updater: MessageUpdate) => {
+        const next = applyMessageUpdate(updater, emitted);
         emitted.length = 0;
         emitted.push(...next);
       },
@@ -584,36 +971,16 @@ describe('dual-prefix integration', () => {
       agentContext: { namespace: 'kagent', agentName: 'testagent' },
     });
 
-    const statusUpdateCall: any = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
-      status: {
-        state: 'working',
-        message: {
-          role: 'agent',
-          parts: [
-            { kind: 'data', data: { id: 'call_adk', name: 'my_tool', args: { x: 1 } }, metadata: { adk_type: 'function_call' } },
-          ],
-        },
-      },
-    };
-    handlers.handleMessageEvent(statusUpdateCall);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [createDataPart({ id: 'call_adk', name: 'my_tool', args: { x: 1 } }, { adk_type: 'function_call' })],
+    }));
 
-    const statusUpdateResp: any = {
-      kind: 'status-update', contextId: 'ctx', taskId: 'task', final: false,
-      status: {
-        state: 'working',
-        message: {
-          role: 'agent',
-          parts: [
-            { kind: 'data', data: { id: 'call_adk', name: 'my_tool', response: { result: 'done' } }, metadata: { adk_type: 'function_response' } },
-          ],
-        },
-      },
-    };
-    handlers.handleMessageEvent(statusUpdateResp);
+    handlers.handleMessageEvent(artifactUpdateEvent({
+      parts: [createDataPart({ id: 'call_adk', name: 'my_tool', response: { result: 'done' } }, { adk_type: 'function_response' })],
+    }));
 
     expect(emitted.length).toBe(2);
-    expect((emitted[0].metadata as any).originalType).toBe('ToolCallRequestEvent');
-    expect((emitted[1].metadata as any).originalType).toBe('ToolCallExecutionEvent');
+    expect((emitted[0].metadata as ADKMetadata).originalType).toBe('ToolCallRequestEvent');
+    expect((emitted[1].metadata as ADKMetadata).originalType).toBe('ToolCallExecutionEvent');
   });
 });

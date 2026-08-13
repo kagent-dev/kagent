@@ -1,7 +1,8 @@
 "use server";
 
 import { BaseResponse } from "@/types";
-import { fetchApi, createErrorResponse } from "./utils";
+import { getAgentGrpcGateway } from "@/lib/grpc/client";
+import { createErrorResponse } from "./utils";
 
 export interface AgentHarnessSessionActor {
   namespace: string;
@@ -25,13 +26,9 @@ export async function ensureAgentHarnessSession(
   sessionId: string
 ): Promise<BaseResponse<AgentHarnessSessionActor>> {
   try {
-    const response = await fetchApi<BaseResponse<AgentHarnessSessionActor>>(
-      `/agentharnesses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/sessions/${encodeURIComponent(
-        sessionId
-      )}/ensure`,
-      { method: "POST" }
-    );
-    return { message: "Session actor ready", data: response.data };
+    const gateway = await getAgentGrpcGateway();
+    const actor = await gateway.ensureAgentHarnessSessionActor(namespace, name, sessionId);
+    return { message: "Session actor ready", data: actor };
   } catch (error) {
     return createErrorResponse<AgentHarnessSessionActor>(error, "Error provisioning session actor");
   }
@@ -47,13 +44,9 @@ export async function suspendAgentHarnessSession(
   sessionId: string
 ): Promise<BaseResponse<AgentHarnessSessionActor>> {
   try {
-    const response = await fetchApi<BaseResponse<AgentHarnessSessionActor>>(
-      `/agentharnesses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/sessions/${encodeURIComponent(
-        sessionId
-      )}/suspend`,
-      { method: "POST" }
-    );
-    return { message: "Session actor suspended", data: response.data };
+    const gateway = await getAgentGrpcGateway();
+    const actor = await gateway.suspendAgentHarnessSessionActor(namespace, name, sessionId);
+    return { message: "Session actor suspended", data: actor };
   } catch (error) {
     return createErrorResponse<AgentHarnessSessionActor>(error, "Error suspending session actor");
   }
@@ -69,12 +62,9 @@ export async function getAgentHarnessSessionStatus(
   sessionId: string
 ): Promise<BaseResponse<AgentHarnessSessionActor>> {
   try {
-    const response = await fetchApi<BaseResponse<AgentHarnessSessionActor>>(
-      `/agentharnesses/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}/sessions/${encodeURIComponent(
-        sessionId
-      )}/status`
-    );
-    return { message: "Session actor state", data: response.data };
+    const gateway = await getAgentGrpcGateway();
+    const actor = await gateway.getAgentHarnessSessionActor(namespace, name, sessionId);
+    return { message: "Session actor state", data: actor };
   } catch (error) {
     return createErrorResponse<AgentHarnessSessionActor>(error, "Error reading session actor state");
   }
