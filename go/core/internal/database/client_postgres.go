@@ -469,7 +469,7 @@ func sameAgentInstanceRequest(instance, request *apiv1alpha1.AgentInstance) bool
 
 func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
 	requestKey := dbgen.GetAgentInstanceByRequestParams{
-		Creator: request.GetCreator(), Namespace: request.GetNamespace(), RequestID: requestID,
+		UserID: request.GetCreator(), Namespace: request.GetNamespace(), RequestID: requestID,
 	}
 	existing, err := c.q.GetAgentInstanceByRequest(ctx, requestKey)
 	if err == nil {
@@ -507,7 +507,7 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 		return nil, false, err
 	}
 	row, err := c.q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
-		ID: request.GetId(), Namespace: request.GetNamespace(), Creator: request.GetCreator(), RequestID: requestID,
+		ID: request.GetId(), Namespace: request.GetNamespace(), UserID: request.GetCreator(), RequestID: requestID,
 		PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels, Data: data,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -528,35 +528,23 @@ func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1
 	return instance, err == nil, err
 }
 
-func (c *postgresClient) GetAgentInstance(ctx context.Context, namespace, id, creator string) (*apiv1alpha1.AgentInstance, error) {
-	var row dbgen.AgentInstance
-	var err error
-	if creator == "" {
-		row, err = c.q.GetAgentInstance(ctx, dbgen.GetAgentInstanceParams{Namespace: namespace, ID: id})
-	} else {
-		row, err = c.q.GetOwnedAgentInstance(ctx, dbgen.GetOwnedAgentInstanceParams{Namespace: namespace, ID: id, Creator: creator})
-	}
+func (c *postgresClient) GetAgentInstance(ctx context.Context, namespace, id, userID string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := c.q.GetAgentInstanceForUser(ctx, dbgen.GetAgentInstanceForUserParams{Namespace: namespace, ID: id, UserID: userID})
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance %s/%s: %w", namespace, id, notFoundOr(err))
 	}
 	return toAgentInstance(row)
 }
 
-func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, creator string, matchLabels map[string]string, afterID string, limit int) ([]*apiv1alpha1.AgentInstance, error) {
+func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, userID string, allUsers bool, matchLabels map[string]string, afterID string, limit int) ([]*apiv1alpha1.AgentInstance, error) {
 	labels, err := json.Marshal(matchLabels)
 	if err != nil {
 		return nil, fmt.Errorf("marshal AgentInstance label selector: %w", err)
 	}
-	var rows []dbgen.AgentInstance
-	if creator == "" {
-		rows, err = c.q.ListAllAgentInstances(ctx, dbgen.ListAllAgentInstancesParams{
-			Namespace: namespace, AfterID: afterID, MatchLabels: labels, PageSize: int32(limit),
-		})
-	} else {
-		rows, err = c.q.ListOwnedAgentInstances(ctx, dbgen.ListOwnedAgentInstancesParams{
-			Namespace: namespace, Creator: creator, AfterID: afterID, MatchLabels: labels, PageSize: int32(limit),
-		})
-	}
+	rows, err := c.q.ListAgentInstances(ctx, dbgen.ListAgentInstancesParams{
+		Namespace: namespace, UserID: userID, AllUsers: allUsers,
+		AfterID: afterID, MatchLabels: labels, PageSize: int32(limit),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstances: %w", err)
 	}
@@ -599,8 +587,8 @@ func (c *postgresClient) MarkAgentInstanceReady(ctx context.Context, id, authori
 	return toAgentInstance(row)
 }
 
-func (c *postgresClient) MarkAgentInstanceDeleting(ctx context.Context, namespace, id, creator string) (*apiv1alpha1.AgentInstance, error) {
-	row, err := c.q.GetOwnedAgentInstance(ctx, dbgen.GetOwnedAgentInstanceParams{Namespace: namespace, ID: id, Creator: creator})
+func (c *postgresClient) MarkAgentInstanceDeleting(ctx context.Context, namespace, id, userID string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := c.q.GetAgentInstanceForUser(ctx, dbgen.GetAgentInstanceForUserParams{Namespace: namespace, ID: id, UserID: userID})
 	if err != nil {
 		return nil, fmt.Errorf("get AgentInstance %s/%s before deletion: %w", namespace, id, notFoundOr(err))
 	}
@@ -615,9 +603,9 @@ func (c *postgresClient) MarkAgentInstanceDeleting(ctx context.Context, namespac
 	if err != nil {
 		return nil, err
 	}
-	row, err = c.q.MarkAgentInstanceDeleting(ctx, dbgen.MarkAgentInstanceDeletingParams{Namespace: namespace, ID: id, Creator: creator, Data: data})
+	row, err = c.q.MarkAgentInstanceDeleting(ctx, dbgen.MarkAgentInstanceDeletingParams{Namespace: namespace, ID: id, UserID: userID, Data: data})
 	if errors.Is(err, pgx.ErrNoRows) {
-		row, err = c.q.GetOwnedAgentInstance(ctx, dbgen.GetOwnedAgentInstanceParams{Namespace: namespace, ID: id, Creator: creator})
+		row, err = c.q.GetAgentInstanceForUser(ctx, dbgen.GetAgentInstanceForUserParams{Namespace: namespace, ID: id, UserID: userID})
 	}
 	if err != nil {
 		return nil, fmt.Errorf("mark AgentInstance %s/%s deleting: %w", namespace, id, notFoundOr(err))
@@ -683,7 +671,7 @@ func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbp
 
 func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, creator string) ([]dbpkg.AgentInstanceShare, error) {
 	rows, err := c.q.ListAgentInstanceShares(ctx, dbgen.ListAgentInstanceSharesParams{
-		Namespace: namespace, InstanceID: instanceID, Creator: creator,
+		Namespace: namespace, InstanceID: instanceID, UserID: creator,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list AgentInstance shares: %w", err)
@@ -696,7 +684,7 @@ func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace,
 }
 
 func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, creator string) error {
-	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: id, Creator: creator})
+	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: id, UserID: creator})
 	if err != nil {
 		return fmt.Errorf("delete AgentInstance share %s/%s: %w", namespace, id, err)
 	}

@@ -52,51 +52,25 @@ const deleteAgentInstanceShare = `-- name: DeleteAgentInstanceShare :execrows
 DELETE FROM agent_instance_share s
 USING agent_instance i
 WHERE s.namespace = $1 AND s.id = $2
-  AND i.id = s.instance_id AND i.creator = $3
+  AND i.id = s.instance_id AND i.user_id = $3
 `
 
 type DeleteAgentInstanceShareParams struct {
 	Namespace string
 	ID        string
-	Creator   string
+	UserID    string
 }
 
 func (q *Queries) DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteAgentInstanceShare, arg.Namespace, arg.ID, arg.Creator)
+	result, err := q.db.Exec(ctx, deleteAgentInstanceShare, arg.Namespace, arg.ID, arg.UserID)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
 }
 
-const getAgentInstance = `-- name: GetAgentInstance :one
-SELECT id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance WHERE namespace = $1 AND id = $2
-`
-
-type GetAgentInstanceParams struct {
-	Namespace string
-	ID        string
-}
-
-func (q *Queries) GetAgentInstance(ctx context.Context, arg GetAgentInstanceParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, getAgentInstance, arg.Namespace, arg.ID)
-	var i AgentInstance
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.Creator,
-		&i.RequestID,
-		&i.PreparedRevision,
-		&i.ActorUid,
-		&i.State,
-		&i.Labels,
-		&i.Data,
-	)
-	return i, err
-}
-
 const getAgentInstanceByID = `-- name: GetAgentInstanceByID :one
-SELECT id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance WHERE id = $1
+SELECT id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance WHERE id = $1
 `
 
 func (q *Queries) GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error) {
@@ -105,7 +79,7 @@ func (q *Queries) GetAgentInstanceByID(ctx context.Context, id string) (AgentIns
 	err := row.Scan(
 		&i.ID,
 		&i.Namespace,
-		&i.Creator,
+		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
 		&i.ActorUid,
@@ -117,23 +91,50 @@ func (q *Queries) GetAgentInstanceByID(ctx context.Context, id string) (AgentIns
 }
 
 const getAgentInstanceByRequest = `-- name: GetAgentInstanceByRequest :one
-SELECT id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance
-WHERE creator = $1 AND namespace = $2 AND request_id = $3
+SELECT id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance
+WHERE user_id = $1 AND namespace = $2 AND request_id = $3
 `
 
 type GetAgentInstanceByRequestParams struct {
-	Creator   string
+	UserID    string
 	Namespace string
 	RequestID string
 }
 
 func (q *Queries) GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, getAgentInstanceByRequest, arg.Creator, arg.Namespace, arg.RequestID)
+	row := q.db.QueryRow(ctx, getAgentInstanceByRequest, arg.UserID, arg.Namespace, arg.RequestID)
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
 		&i.Namespace,
-		&i.Creator,
+		&i.UserID,
+		&i.RequestID,
+		&i.PreparedRevision,
+		&i.ActorUid,
+		&i.State,
+		&i.Labels,
+		&i.Data,
+	)
+	return i, err
+}
+
+const getAgentInstanceForUser = `-- name: GetAgentInstanceForUser :one
+SELECT id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3
+`
+
+type GetAgentInstanceForUserParams struct {
+	Namespace string
+	ID        string
+	UserID    string
+}
+
+func (q *Queries) GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error) {
+	row := q.db.QueryRow(ctx, getAgentInstanceForUser, arg.Namespace, arg.ID, arg.UserID)
+	var i AgentInstance
+	err := row.Scan(
+		&i.ID,
+		&i.Namespace,
+		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
 		&i.ActorUid,
@@ -203,45 +204,18 @@ func (q *Queries) GetLatestRuntimeRevisionForInstance(ctx context.Context, arg G
 	return i, err
 }
 
-const getOwnedAgentInstance = `-- name: GetOwnedAgentInstance :one
-SELECT id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance WHERE namespace = $1 AND id = $2 AND creator = $3
-`
-
-type GetOwnedAgentInstanceParams struct {
-	Namespace string
-	ID        string
-	Creator   string
-}
-
-func (q *Queries) GetOwnedAgentInstance(ctx context.Context, arg GetOwnedAgentInstanceParams) (AgentInstance, error) {
-	row := q.db.QueryRow(ctx, getOwnedAgentInstance, arg.Namespace, arg.ID, arg.Creator)
-	var i AgentInstance
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.Creator,
-		&i.RequestID,
-		&i.PreparedRevision,
-		&i.ActorUid,
-		&i.State,
-		&i.Labels,
-		&i.Data,
-	)
-	return i, err
-}
-
 const insertAgentInstance = `-- name: InsertAgentInstance :one
 INSERT INTO agent_instance (
-    id, namespace, creator, request_id, prepared_revision, state, labels, data
+    id, namespace, user_id, request_id, prepared_revision, state, labels, data
 ) VALUES ($1, $2, $3, $4, $5, 'CREATING', $6, $7)
-ON CONFLICT (creator, namespace, request_id) DO NOTHING
-RETURNING id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data
+ON CONFLICT (user_id, namespace, request_id) DO NOTHING
+RETURNING id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data
 `
 
 type InsertAgentInstanceParams struct {
 	ID               string
 	Namespace        string
-	Creator          string
+	UserID           string
 	RequestID        string
 	PreparedRevision *string
 	Labels           []byte
@@ -252,7 +226,7 @@ func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstan
 	row := q.db.QueryRow(ctx, insertAgentInstance,
 		arg.ID,
 		arg.Namespace,
-		arg.Creator,
+		arg.UserID,
 		arg.RequestID,
 		arg.PreparedRevision,
 		arg.Labels,
@@ -262,7 +236,7 @@ func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstan
 	err := row.Scan(
 		&i.ID,
 		&i.Namespace,
-		&i.Creator,
+		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
 		&i.ActorUid,
@@ -276,18 +250,18 @@ func (q *Queries) InsertAgentInstance(ctx context.Context, arg InsertAgentInstan
 const listAgentInstanceShares = `-- name: ListAgentInstanceShares :many
 SELECT s.id, s.namespace, s.instance_id, s.creator, s.permission, s.token_hash, s.created_at FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
-WHERE s.namespace = $1 AND s.instance_id = $2 AND i.creator = $3
+WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
 ORDER BY s.id
 `
 
 type ListAgentInstanceSharesParams struct {
 	Namespace  string
 	InstanceID string
-	Creator    string
+	UserID     string
 }
 
 func (q *Queries) ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error) {
-	rows, err := q.db.Query(ctx, listAgentInstanceShares, arg.Namespace, arg.InstanceID, arg.Creator)
+	rows, err := q.db.Query(ctx, listAgentInstanceShares, arg.Namespace, arg.InstanceID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -314,25 +288,30 @@ func (q *Queries) ListAgentInstanceShares(ctx context.Context, arg ListAgentInst
 	return items, nil
 }
 
-const listAllAgentInstances = `-- name: ListAllAgentInstances :many
-SELECT id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance
+const listAgentInstances = `-- name: ListAgentInstances :many
+SELECT id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance
 WHERE namespace = $1
-  AND id > $2
-  AND labels @> $3::jsonb
+  AND ($2::boolean OR user_id = $3)
+  AND id > $4
+  AND labels @> $5::jsonb
 ORDER BY id
-LIMIT $4
+LIMIT $6
 `
 
-type ListAllAgentInstancesParams struct {
+type ListAgentInstancesParams struct {
 	Namespace   string
+	AllUsers    bool
+	UserID      string
 	AfterID     string
 	MatchLabels []byte
 	PageSize    int32
 }
 
-func (q *Queries) ListAllAgentInstances(ctx context.Context, arg ListAllAgentInstancesParams) ([]AgentInstance, error) {
-	rows, err := q.db.Query(ctx, listAllAgentInstances,
+func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error) {
+	rows, err := q.db.Query(ctx, listAgentInstances,
 		arg.Namespace,
+		arg.AllUsers,
+		arg.UserID,
 		arg.AfterID,
 		arg.MatchLabels,
 		arg.PageSize,
@@ -347,61 +326,7 @@ func (q *Queries) ListAllAgentInstances(ctx context.Context, arg ListAllAgentIns
 		if err := rows.Scan(
 			&i.ID,
 			&i.Namespace,
-			&i.Creator,
-			&i.RequestID,
-			&i.PreparedRevision,
-			&i.ActorUid,
-			&i.State,
-			&i.Labels,
-			&i.Data,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listOwnedAgentInstances = `-- name: ListOwnedAgentInstances :many
-SELECT id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data FROM agent_instance
-WHERE namespace = $1
-  AND creator = $2
-  AND id > $3
-  AND labels @> $4::jsonb
-ORDER BY id
-LIMIT $5
-`
-
-type ListOwnedAgentInstancesParams struct {
-	Namespace   string
-	Creator     string
-	AfterID     string
-	MatchLabels []byte
-	PageSize    int32
-}
-
-func (q *Queries) ListOwnedAgentInstances(ctx context.Context, arg ListOwnedAgentInstancesParams) ([]AgentInstance, error) {
-	rows, err := q.db.Query(ctx, listOwnedAgentInstances,
-		arg.Namespace,
-		arg.Creator,
-		arg.AfterID,
-		arg.MatchLabels,
-		arg.PageSize,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []AgentInstance
-	for rows.Next() {
-		var i AgentInstance
-		if err := rows.Scan(
-			&i.ID,
-			&i.Namespace,
-			&i.Creator,
+			&i.UserID,
 			&i.RequestID,
 			&i.PreparedRevision,
 			&i.ActorUid,
@@ -423,7 +348,7 @@ const markAgentInstanceDeleted = `-- name: MarkAgentInstanceDeleted :one
 UPDATE agent_instance
 SET state = 'DELETED', prepared_revision = NULL, data = $2
 WHERE id = $1 AND state = 'DELETING'
-RETURNING id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data
+RETURNING id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data
 `
 
 type MarkAgentInstanceDeletedParams struct {
@@ -437,7 +362,7 @@ func (q *Queries) MarkAgentInstanceDeleted(ctx context.Context, arg MarkAgentIns
 	err := row.Scan(
 		&i.ID,
 		&i.Namespace,
-		&i.Creator,
+		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
 		&i.ActorUid,
@@ -451,14 +376,14 @@ func (q *Queries) MarkAgentInstanceDeleted(ctx context.Context, arg MarkAgentIns
 const markAgentInstanceDeleting = `-- name: MarkAgentInstanceDeleting :one
 UPDATE agent_instance
 SET state = 'DELETING', data = $4
-WHERE namespace = $1 AND id = $2 AND creator = $3 AND state <> 'DELETED'
-RETURNING id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data
+WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state <> 'DELETED'
+RETURNING id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data
 `
 
 type MarkAgentInstanceDeletingParams struct {
 	Namespace string
 	ID        string
-	Creator   string
+	UserID    string
 	Data      []byte
 }
 
@@ -466,14 +391,14 @@ func (q *Queries) MarkAgentInstanceDeleting(ctx context.Context, arg MarkAgentIn
 	row := q.db.QueryRow(ctx, markAgentInstanceDeleting,
 		arg.Namespace,
 		arg.ID,
-		arg.Creator,
+		arg.UserID,
 		arg.Data,
 	)
 	var i AgentInstance
 	err := row.Scan(
 		&i.ID,
 		&i.Namespace,
-		&i.Creator,
+		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
 		&i.ActorUid,
@@ -488,7 +413,7 @@ const markAgentInstanceReady = `-- name: MarkAgentInstanceReady :one
 UPDATE agent_instance
 SET state = 'READY', data = $2
 WHERE id = $1 AND state = 'CREATING'
-RETURNING id, namespace, creator, request_id, prepared_revision, actor_uid, state, labels, data
+RETURNING id, namespace, user_id, request_id, prepared_revision, actor_uid, state, labels, data
 `
 
 type MarkAgentInstanceReadyParams struct {
@@ -502,7 +427,7 @@ func (q *Queries) MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInsta
 	err := row.Scan(
 		&i.ID,
 		&i.Namespace,
-		&i.Creator,
+		&i.UserID,
 		&i.RequestID,
 		&i.PreparedRevision,
 		&i.ActorUid,

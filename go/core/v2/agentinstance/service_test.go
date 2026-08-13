@@ -27,14 +27,15 @@ func (a serviceTestAuthorizer) Check(context.Context, auth.Principal, auth.Verb,
 }
 
 type serviceTestStore struct {
-	createInput *apiv1alpha1.AgentInstance
-	requestID   string
-	createErr   error
-	instances   []*apiv1alpha1.AgentInstance
-	listCreator string
-	listAfterID string
-	listLimit   int
-	share       dbpkg.AgentInstanceShare
+	createInput  *apiv1alpha1.AgentInstance
+	requestID    string
+	createErr    error
+	instances    []*apiv1alpha1.AgentInstance
+	listUserID   string
+	listAllUsers bool
+	listAfterID  string
+	listLimit    int
+	share        dbpkg.AgentInstanceShare
 }
 
 func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
@@ -51,8 +52,8 @@ func (s *serviceTestStore) GetAgentInstance(context.Context, string, string, str
 	return &apiv1alpha1.AgentInstance{State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY}, nil
 }
 
-func (s *serviceTestStore) ListAgentInstances(_ context.Context, _ string, creator string, _ map[string]string, afterID string, limit int) ([]*apiv1alpha1.AgentInstance, error) {
-	s.listCreator, s.listAfterID, s.listLimit = creator, afterID, limit
+func (s *serviceTestStore) ListAgentInstances(_ context.Context, _ string, userID string, allUsers bool, _ map[string]string, afterID string, limit int) ([]*apiv1alpha1.AgentInstance, error) {
+	s.listUserID, s.listAllUsers, s.listAfterID, s.listLimit = userID, allUsers, afterID, limit
 	return s.instances, nil
 }
 
@@ -158,12 +159,18 @@ func TestServiceListPaginatesByInstanceID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Instances) != 2 || store.listCreator != "alice" || store.listLimit != 3 {
-		t.Fatalf("List() = %+v, creator = %q, limit = %d", result, store.listCreator, store.listLimit)
+	if len(result.Instances) != 2 || store.listUserID != "alice" || store.listAllUsers || store.listLimit != 3 {
+		t.Fatalf("List() = %+v, user ID = %q, all users = %t, limit = %d", result, store.listUserID, store.listAllUsers, store.listLimit)
 	}
 	afterID, err := decodePageToken(result.NextPageToken)
 	if err != nil || afterID != ids[1] {
 		t.Fatalf("next page token = %q (%v), want %q", afterID, err, ids[1])
+	}
+	if _, err := service.List(serviceTestContext("alice"), ListRequest{Namespace: "team-a", AllCreators: true}); err != nil {
+		t.Fatal(err)
+	}
+	if store.listUserID != "alice" || !store.listAllUsers {
+		t.Fatalf("operator list user ID = %q, all users = %t", store.listUserID, store.listAllUsers)
 	}
 }
 

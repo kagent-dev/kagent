@@ -25,7 +25,7 @@ const (
 type Store interface {
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
-	ListAgentInstances(context.Context, string, string, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
+	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceDeleting(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string) ([]dbpkg.AgentInstanceShare, error)
@@ -116,7 +116,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err := validateNamespace(request.Namespace); err != nil {
 		return ListResult{}, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbGet, request.Namespace)
+	userID, err := s.authorize(ctx, auth.VerbGet, request.Namespace)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -124,7 +124,6 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 		if _, err := s.authorizeType(ctx, auth.VerbGet, "AgentInstanceAllCreators", request.Namespace); err != nil {
 			return ListResult{}, err
 		}
-		creator = ""
 	}
 	pageSize := request.PageSize
 	if pageSize == 0 {
@@ -137,7 +136,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	instances, err := s.store.ListAgentInstances(ctx, request.Namespace, creator, request.MatchLabels, afterID, pageSize+1)
+	instances, err := s.store.ListAgentInstances(ctx, request.Namespace, userID, request.AllCreators, request.MatchLabels, afterID, pageSize+1)
 	if err != nil {
 		return ListResult{}, serviceerrors.NewInternal("Failed to list AgentInstances", err)
 	}

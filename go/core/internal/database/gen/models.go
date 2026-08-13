@@ -26,7 +26,7 @@ type Agent struct {
 type AgentInstance struct {
 	ID               string
 	Namespace        string
-	Creator          string
+	UserID           string
 	RequestID        string
 	PreparedRevision *string
 	ActorUid         string

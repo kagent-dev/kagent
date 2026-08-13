@@ -1,6 +1,6 @@
 -- name: GetAgentInstanceByRequest :one
 SELECT * FROM agent_instance
-WHERE creator = $1 AND namespace = $2 AND request_id = $3;
+WHERE user_id = $1 AND namespace = $2 AND request_id = $3;
 
 -- name: GetLatestRuntimeRevisionForInstance :one
 SELECT r.*, p.agent_template_labels
@@ -13,32 +13,21 @@ WHERE p.namespace = $1
 
 -- name: InsertAgentInstance :one
 INSERT INTO agent_instance (
-    id, namespace, creator, request_id, prepared_revision, state, labels, data
+    id, namespace, user_id, request_id, prepared_revision, state, labels, data
 ) VALUES ($1, $2, $3, $4, $5, 'CREATING', $6, $7)
-ON CONFLICT (creator, namespace, request_id) DO NOTHING
+ON CONFLICT (user_id, namespace, request_id) DO NOTHING
 RETURNING *;
-
--- name: GetAgentInstance :one
-SELECT * FROM agent_instance WHERE namespace = $1 AND id = $2;
 
 -- name: GetAgentInstanceByID :one
 SELECT * FROM agent_instance WHERE id = $1;
 
--- name: GetOwnedAgentInstance :one
-SELECT * FROM agent_instance WHERE namespace = $1 AND id = $2 AND creator = $3;
+-- name: GetAgentInstanceForUser :one
+SELECT * FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3;
 
--- name: ListOwnedAgentInstances :many
+-- name: ListAgentInstances :many
 SELECT * FROM agent_instance
 WHERE namespace = sqlc.arg(namespace)
-  AND creator = sqlc.arg(creator)
-  AND id > sqlc.arg(after_id)
-  AND labels @> sqlc.arg(match_labels)::jsonb
-ORDER BY id
-LIMIT sqlc.arg(page_size);
-
--- name: ListAllAgentInstances :many
-SELECT * FROM agent_instance
-WHERE namespace = sqlc.arg(namespace)
+  AND (sqlc.arg(all_users)::boolean OR user_id = sqlc.arg(user_id))
   AND id > sqlc.arg(after_id)
   AND labels @> sqlc.arg(match_labels)::jsonb
 ORDER BY id
@@ -53,7 +42,7 @@ RETURNING *;
 -- name: MarkAgentInstanceDeleting :one
 UPDATE agent_instance
 SET state = 'DELETING', data = $4
-WHERE namespace = $1 AND id = $2 AND creator = $3 AND state <> 'DELETED'
+WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state <> 'DELETED'
 RETURNING *;
 
 -- name: MarkAgentInstanceDeleted :one
@@ -77,11 +66,11 @@ RETURNING *;
 -- name: ListAgentInstanceShares :many
 SELECT s.* FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
-WHERE s.namespace = $1 AND s.instance_id = $2 AND i.creator = $3
+WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
 ORDER BY s.id;
 
 -- name: DeleteAgentInstanceShare :execrows
 DELETE FROM agent_instance_share s
 USING agent_instance i
 WHERE s.namespace = $1 AND s.id = $2
-  AND i.id = s.instance_id AND i.creator = $3;
+  AND i.id = s.instance_id AND i.user_id = $3;
