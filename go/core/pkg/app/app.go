@@ -242,7 +242,7 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Repository, "go-image-repository", agent_translator.DefaultGoImageConfig.Repository, "The repository to use for the Go (ADK) runtime agent image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Tag, "go-image-tag", agent_translator.DefaultGoImageConfig.Tag, "The tag to use for the Go (ADK) runtime agent image.")
 
-	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
+	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443).")
 	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
 	commandLine.StringVar(&cfg.Substrate.AtenetRouterURL, "substrate-atenet-router-url", "", "HTTP URL for Substrate atenet-router (Envoy). Defaults to http://atenet-router.ate-system.svc:80 when unset.")
 	commandLine.BoolVar(&cfg.Substrate.Insecure, "substrate-ate-api-insecure", false, "Dial ate-api without TLS (local dev only).")
@@ -536,54 +536,43 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	var substrateAteClient *substrate.Client
-	var substrateLifecycle *substrate.Lifecycle
-	var substrateSandboxActorBackend *substrate.SandboxAgentActorBackend
-	var agentHarnessSessionActorBackend *substrate.AgentHarnessSessionActorBackend
-	if cfg.Substrate.AteAPIEndpoint != "" {
-		var dialErr error
-		substrateAteClient, dialErr = substrate.Dial(ctx, substrateAppConfig(&cfg))
-		if dialErr != nil {
-			setupLog.Error(dialErr, "unable to dial substrate ate-api for sandbox agents")
-			os.Exit(1)
-		}
-		substrateLifecycle = substrateLifecycleFromConfig(mgr.GetClient(), &cfg, substrateAteClient)
-		atenetRouterURL := cfg.Substrate.AtenetRouterURL
-		if atenetRouterURL == "" {
-			atenetRouterURL = substrate.DefaultAtenetRouterURL
-		}
-		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient, mgr.GetClient(), atenetRouterURL)
-		agentHarnessSessionActorBackend = substrate.NewAgentHarnessSessionActorBackend(substrateAteClient, atenetRouterURL)
-		agentsSubstrate := substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
-		extensionCfg.SandboxBackend = agentsSubstrate
+	substrateAteClient, err := substrate.Dial(ctx, substrateAppConfig(&cfg))
+	if err != nil {
+		setupLog.Error(err, "unable to dial substrate ate-api for sandbox agents")
+		os.Exit(1)
 	}
+	substrateLifecycle := substrateLifecycleFromConfig(mgr.GetClient(), &cfg, substrateAteClient)
+	atenetRouterURL := cfg.Substrate.AtenetRouterURL
+	if atenetRouterURL == "" {
+		atenetRouterURL = substrate.DefaultAtenetRouterURL
+	}
+	substrateSandboxActorBackend := substrate.NewSandboxAgentActorBackend(substrateAteClient, mgr.GetClient(), atenetRouterURL)
+	agentHarnessSessionActorBackend := substrate.NewAgentHarnessSessionActorBackend(substrateAteClient, atenetRouterURL)
+	extensionCfg.SandboxBackend = substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
 
-	var agentInstanceService *agentinstance.Service
-	if substrateAteClient != nil {
-		v2Runtime, runtimeErr := v2controller.NewRuntime(
-			mgr.GetConfig(), watchNamespacesList,
-			v2controller.CollectionConfig{PauseImage: cfg.Substrate.PauseImage}, ctx.Done(),
-		)
-		if runtimeErr != nil {
-			setupLog.Error(runtimeErr, "unable to initialize v2 KRT runtime")
-			os.Exit(1)
-		}
-		preparationReconciler, runtimeErr := v2controller.NewReconciler(mgr.GetConfig(), v2Runtime.Collections, dbClient)
-		if runtimeErr != nil {
-			setupLog.Error(runtimeErr, "unable to initialize AgentTemplate preparation")
-			os.Exit(1)
-		}
-		instanceWorkflow := agentinstance.NewActorWorkflow(dbClient, substrateAteClient)
-		if runtimeErr := mgr.Add(v2Runtime); runtimeErr != nil {
-			setupLog.Error(runtimeErr, "unable to register v2 KRT runtime")
-			os.Exit(1)
-		}
-		if runtimeErr := mgr.Add(preparationReconciler); runtimeErr != nil {
-			setupLog.Error(runtimeErr, "unable to register AgentTemplate preparation")
-			os.Exit(1)
-		}
-		agentInstanceService = agentinstance.NewService(dbClient, extensionCfg.Authorizer, instanceWorkflow)
+	v2Runtime, err := v2controller.NewRuntime(
+		mgr.GetConfig(), watchNamespacesList,
+		v2controller.CollectionConfig{PauseImage: cfg.Substrate.PauseImage}, ctx.Done(),
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to initialize v2 KRT runtime")
+		os.Exit(1)
 	}
+	preparationReconciler, err := v2controller.NewReconciler(mgr.GetConfig(), v2Runtime.Collections, dbClient)
+	if err != nil {
+		setupLog.Error(err, "unable to initialize AgentTemplate preparation")
+		os.Exit(1)
+	}
+	instanceWorkflow := agentinstance.NewActorWorkflow(dbClient, substrateAteClient)
+	if err := mgr.Add(v2Runtime); err != nil {
+		setupLog.Error(err, "unable to register v2 KRT runtime")
+		os.Exit(1)
+	}
+	if err := mgr.Add(preparationReconciler); err != nil {
+		setupLog.Error(err, "unable to register AgentTemplate preparation")
+		os.Exit(1)
+	}
+	agentInstanceService := agentinstance.NewService(dbClient, extensionCfg.Authorizer, instanceWorkflow)
 
 	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
 		mgr.GetClient(),
@@ -621,15 +610,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	kubeClient := mgr.GetClient()
-	var substrateHarnessBackends map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend
-	if cfg.Substrate.AteAPIEndpoint != "" {
-		var err error
-		substrateHarnessBackends, err = buildSubstrateHarnessBackends(ctx, &cfg, substrateAteClient)
-		if err != nil {
-			setupLog.Error(err, "unable to build substrate harness backends")
-			os.Exit(1)
-		}
-	}
+	substrateHarnessBackends := buildSubstrateHarnessBackends(substrateAteClient)
 
 	if err = (&controller.SandboxAgentController{
 		Client:                mgr.GetClient(),
@@ -642,21 +623,16 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		setupLog.Error(err, "unable to create controller", "controller", "SandboxAgent")
 		os.Exit(1)
 	}
-	if len(substrateHarnessBackends) > 0 {
-		if err := (&controller.SubstrateAgentHarnessController{
-			Client:              kubeClient,
-			Recorder:            mgr.GetEventRecorder("agentharness-substrate-controller"),
-			Backends:            substrateHarnessBackends,
-			SubstrateLifecycle:  substrateLifecycle,
-			SessionActorBackend: agentHarnessSessionActorBackend,
-			DbClient:            dbClient,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
-			os.Exit(1)
-		}
-	}
-	if len(substrateHarnessBackends) == 0 {
-		setupLog.Info("AgentHarness controller disabled: set --substrate-ate-api-endpoint")
+	if err := (&controller.SubstrateAgentHarnessController{
+		Client:              kubeClient,
+		Recorder:            mgr.GetEventRecorder("agentharness-substrate-controller"),
+		Backends:            substrateHarnessBackends,
+		SubstrateLifecycle:  substrateLifecycle,
+		SessionActorBackend: agentHarnessSessionActorBackend,
+		DbClient:            dbClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
+		os.Exit(1)
 	}
 
 	if err = (&controller.ModelConfigController{
@@ -759,11 +735,8 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	var agentHarnessGateway *handlers.AgentHarnessGatewayConfig
-	if cfg.Substrate.AteAPIEndpoint != "" {
-		agentHarnessGateway = &handlers.AgentHarnessGatewayConfig{
-			AtenetRouterURL: cfg.Substrate.AtenetRouterURL,
-		}
+	agentHarnessGateway := &handlers.AgentHarnessGatewayConfig{
+		AtenetRouterURL: cfg.Substrate.AtenetRouterURL,
 	}
 	modelConfigService := modelservice.NewService(
 		mgr.GetClient(),
@@ -782,9 +755,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 			MCPEgressPlaintext: cfg.MCPEgressPlaintext,
 		})),
 	}
-	if agentHarnessSessionActorBackend != nil {
-		agentServiceOptions = append(agentServiceOptions, agentservice.WithActorLifecycle(agentHarnessSessionActorBackend))
-	}
+	agentServiceOptions = append(agentServiceOptions, agentservice.WithActorLifecycle(agentHarnessSessionActorBackend))
 	agentService := agentservice.NewService(
 		mgr.GetClient(),
 		extensionCfg.Authorizer,
@@ -799,15 +770,11 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		nil,
 	)
 	promptTemplateService := prompttemplateservice.NewService(mgr.GetClient(), extensionCfg.Authorizer)
-	var inventoryClient systemservice.ATEClient
-	if substrateAteClient != nil {
-		inventoryClient = substrateAteClient
-	}
 	systemService := systemservice.NewService(systemservice.WithInventory(
 		mgr.GetClient(),
 		watchNamespacesList,
 		extensionCfg.Authorizer,
-		inventoryClient,
+		substrateAteClient,
 	))
 	feedbackService := feedbackservice.NewService(dbClient)
 	memoryService := memoryservice.NewService(dbClient)
@@ -880,12 +847,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 }
 
-func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
-	if client == nil {
-		return nil, fmt.Errorf("substrate ate-api client is required")
-	}
-	_ = ctx
-	_ = cfg
+func buildSubstrateHarnessBackends(client *substrate.Client) map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend {
 	backends := make(map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend)
 	for _, b := range []v1alpha3.AgentHarnessBackendType{
 		v1alpha3.AgentHarnessBackendOpenClaw,
@@ -893,7 +855,7 @@ func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *sub
 	} {
 		backends[b] = substrate.NewOpenClawBackend(client, b, nil)
 	}
-	return backends, nil
+	return backends
 }
 
 func substrateAppConfig(cfg *Config) substrate.Config {
