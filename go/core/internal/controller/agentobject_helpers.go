@@ -78,6 +78,14 @@ func usesModelConfig(agent *v1alpha3.SandboxAgent, obj types.NamespacedName) boo
 		spec.Declarative.ModelConfig == obj.Name
 }
 
+func valueRefsReferenceSecret(refs []v1alpha3.ValueRef, name string) bool {
+	return slices.ContainsFunc(refs, func(ref v1alpha3.ValueRef) bool {
+		return ref.ValueFrom != nil &&
+			ref.ValueFrom.Type == v1alpha3.SecretValueSource &&
+			ref.ValueFrom.Name == name
+	})
+}
+
 func referencesConfigMap(agent *v1alpha3.SandboxAgent, obj types.NamespacedName) bool {
 	spec := agent.GetAgentSpec()
 	if agent.GetNamespace() != obj.Namespace || spec.Type != v1alpha3.AgentType_Declarative || spec.Declarative == nil {
