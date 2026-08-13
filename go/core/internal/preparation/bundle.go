@@ -65,10 +65,8 @@ func (b *Bundle) Revision() (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// BackingResource identifies the concrete resource provisioned for a revision.
-type BackingResource struct {
-	APIVersion     string
-	Kind           string
+// ActorTemplateRef identifies the Kubernetes ActorTemplate provisioned for a revision.
+type ActorTemplateRef struct {
 	Namespace      string
 	Name           string
 	UID            string

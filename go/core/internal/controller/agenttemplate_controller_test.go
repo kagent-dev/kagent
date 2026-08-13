@@ -99,13 +99,13 @@ func TestAgentTemplateControllerKeepsLastSuccessUntilActorTemplateReady(t *testi
 	if current.Status.Preparations[0].LatestSuccessfulRevision != "" {
 		t.Fatal("pending revision replaced latest successful revision")
 	}
-	backing := &atev1alpha1.ActorTemplate{}
-	if err := kube.Get(context.Background(), types.NamespacedName{Namespace: "agents", Name: store.revision.BackingResource.Name}, backing); err != nil {
+	preparedTemplate := &atev1alpha1.ActorTemplate{}
+	if err := kube.Get(context.Background(), types.NamespacedName{Namespace: "agents", Name: store.revision.ActorTemplate.Name}, preparedTemplate); err != nil {
 		t.Fatal(err)
 	}
-	backing.Status.Phase = atev1alpha1.PhaseReady
-	backing.Status.GoldenSnapshot = "golden"
-	if err := kube.Status().Update(context.Background(), backing); err != nil {
+	preparedTemplate.Status.Phase = atev1alpha1.PhaseReady
+	preparedTemplate.Status.GoldenSnapshot = "golden"
+	if err := kube.Status().Update(context.Background(), preparedTemplate); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := controller.Reconcile(context.Background(), request); err != nil {

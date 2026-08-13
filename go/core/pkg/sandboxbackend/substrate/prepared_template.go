@@ -22,7 +22,7 @@ const (
 )
 
 // EnsurePreparedTemplate materializes one immutable Kubernetes ActorTemplate revision.
-func (p *Lifecycle) EnsurePreparedTemplate(ctx context.Context, bundle *preparation.Bundle, revision string) (*preparation.BackingResource, error) {
+func (p *Lifecycle) EnsurePreparedTemplate(ctx context.Context, bundle *preparation.Bundle, revision string) (*preparation.ActorTemplateRef, error) {
 	if p == nil || p.Client == nil || bundle == nil {
 		return nil, fmt.Errorf("substrate lifecycle, Kubernetes client, and preparation bundle are required")
 	}
@@ -88,26 +88,23 @@ func (p *Lifecycle) EnsurePreparedTemplate(ctx context.Context, bundle *preparat
 	return p.GetPreparedTemplate(ctx, template.Namespace, template.Name)
 }
 
-func (p *Lifecycle) GetPreparedTemplate(ctx context.Context, namespace, name string) (*preparation.BackingResource, error) {
+func (p *Lifecycle) GetPreparedTemplate(ctx context.Context, namespace, name string) (*preparation.ActorTemplateRef, error) {
 	template := &atev1alpha1.ActorTemplate{}
 	if err := p.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, template); err != nil {
 		return nil, fmt.Errorf("get prepared ActorTemplate %s/%s: %w", namespace, name, err)
 	}
-	return backingResource(template), nil
+	return actorTemplateRef(template), nil
 }
 
-func (p *Lifecycle) DeletePreparedTemplate(ctx context.Context, backing preparation.BackingResource) error {
-	if backing.APIVersion != atev1alpha1.GroupVersion.String() || backing.Kind != "ActorTemplate" {
-		return fmt.Errorf("unsupported prepared backing resource %s %s", backing.APIVersion, backing.Kind)
-	}
+func (p *Lifecycle) DeletePreparedTemplate(ctx context.Context, templateRef preparation.ActorTemplateRef) error {
 	template := &atev1alpha1.ActorTemplate{}
-	key := types.NamespacedName{Namespace: backing.Namespace, Name: backing.Name}
+	key := types.NamespacedName{Namespace: templateRef.Namespace, Name: templateRef.Name}
 	if err := p.Client.Get(ctx, key, template); apierrors.IsNotFound(err) {
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("get prepared ActorTemplate %s: %w", key, err)
 	}
-	if backing.UID != "" && string(template.UID) != backing.UID {
+	if templateRef.UID != "" && string(template.UID) != templateRef.UID {
 		return fmt.Errorf("prepared ActorTemplate %s UID changed", key)
 	}
 	if err := p.Client.Delete(ctx, template); err != nil && !apierrors.IsNotFound(err) {
@@ -145,10 +142,8 @@ func createImmutableObject(ctx context.Context, kube client.Client, desired clie
 	return nil
 }
 
-func backingResource(template *atev1alpha1.ActorTemplate) *preparation.BackingResource {
-	return &preparation.BackingResource{
-		APIVersion:     atev1alpha1.GroupVersion.String(),
-		Kind:           "ActorTemplate",
+func actorTemplateRef(template *atev1alpha1.ActorTemplate) *preparation.ActorTemplateRef {
+	return &preparation.ActorTemplateRef{
 		Namespace:      template.Namespace,
 		Name:           template.Name,
 		UID:            string(template.UID),

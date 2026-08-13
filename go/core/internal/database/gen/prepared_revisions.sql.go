@@ -25,7 +25,7 @@ func (q *Queries) DeleteUnreferencedPreparedRevision(ctx context.Context, revisi
 }
 
 const getPreparedRevision = `-- name: GetPreparedRevision :one
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, backing_api_version, backing_kind, backing_namespace, backing_name, backing_uid, phase, golden_snapshot, created_at, updated_at FROM prepared_revision WHERE revision = $1
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_namespace, actor_template_name, actor_template_uid, phase, golden_snapshot, created_at, updated_at FROM prepared_revision WHERE revision = $1
 `
 
 func (q *Queries) GetPreparedRevision(ctx context.Context, revision string) (PreparedRevision, error) {
@@ -40,11 +40,9 @@ func (q *Queries) GetPreparedRevision(ctx context.Context, revision string) (Pre
 		&i.HarnessUid,
 		&i.SourceSnapshot,
 		&i.EgressDestinations,
-		&i.BackingApiVersion,
-		&i.BackingKind,
-		&i.BackingNamespace,
-		&i.BackingName,
-		&i.BackingUid,
+		&i.ActorTemplateNamespace,
+		&i.ActorTemplateName,
+		&i.ActorTemplateUid,
 		&i.Phase,
 		&i.GoldenSnapshot,
 		&i.CreatedAt,
@@ -54,7 +52,7 @@ func (q *Queries) GetPreparedRevision(ctx context.Context, revision string) (Pre
 }
 
 const listUnreferencedPreparedRevisions = `-- name: ListUnreferencedPreparedRevisions :many
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, backing_api_version, backing_kind, backing_namespace, backing_name, backing_uid, phase, golden_snapshot, created_at, updated_at FROM prepared_revision r
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_namespace, actor_template_name, actor_template_uid, phase, golden_snapshot, created_at, updated_at FROM prepared_revision r
 WHERE NOT EXISTS (
     SELECT 1 FROM agent_template_attachment a
     WHERE a.retired_at IS NULL
@@ -80,11 +78,9 @@ func (q *Queries) ListUnreferencedPreparedRevisions(ctx context.Context) ([]Prep
 			&i.HarnessUid,
 			&i.SourceSnapshot,
 			&i.EgressDestinations,
-			&i.BackingApiVersion,
-			&i.BackingKind,
-			&i.BackingNamespace,
-			&i.BackingName,
-			&i.BackingUid,
+			&i.ActorTemplateNamespace,
+			&i.ActorTemplateName,
+			&i.ActorTemplateUid,
 			&i.Phase,
 			&i.GoldenSnapshot,
 			&i.CreatedAt,
@@ -217,35 +213,33 @@ const upsertPreparedRevision = `-- name: UpsertPreparedRevision :exec
 INSERT INTO prepared_revision (
     revision, namespace, agent_template_name, agent_template_uid,
     harness_name, harness_uid, source_snapshot, egress_destinations,
-    backing_api_version, backing_kind, backing_namespace, backing_name,
-    backing_uid, phase, golden_snapshot
+    actor_template_namespace, actor_template_name, actor_template_uid,
+    phase, golden_snapshot
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8,
-    $9, $10, $11, $12, $13, $14, $15
+    $9, $10, $11, $12, $13
 )
 ON CONFLICT (revision) DO UPDATE SET
-    backing_uid = EXCLUDED.backing_uid,
+    actor_template_uid = EXCLUDED.actor_template_uid,
     phase = EXCLUDED.phase,
     golden_snapshot = EXCLUDED.golden_snapshot,
     updated_at = NOW()
 `
 
 type UpsertPreparedRevisionParams struct {
-	Revision           string
-	Namespace          string
-	AgentTemplateName  string
-	AgentTemplateUid   string
-	HarnessName        string
-	HarnessUid         string
-	SourceSnapshot     []byte
-	EgressDestinations []string
-	BackingApiVersion  string
-	BackingKind        string
-	BackingNamespace   string
-	BackingName        string
-	BackingUid         string
-	Phase              string
-	GoldenSnapshot     string
+	Revision               string
+	Namespace              string
+	AgentTemplateName      string
+	AgentTemplateUid       string
+	HarnessName            string
+	HarnessUid             string
+	SourceSnapshot         []byte
+	EgressDestinations     []string
+	ActorTemplateNamespace string
+	ActorTemplateName      string
+	ActorTemplateUid       string
+	Phase                  string
+	GoldenSnapshot         string
 }
 
 func (q *Queries) UpsertPreparedRevision(ctx context.Context, arg UpsertPreparedRevisionParams) error {
@@ -258,11 +252,9 @@ func (q *Queries) UpsertPreparedRevision(ctx context.Context, arg UpsertPrepared
 		arg.HarnessUid,
 		arg.SourceSnapshot,
 		arg.EgressDestinations,
-		arg.BackingApiVersion,
-		arg.BackingKind,
-		arg.BackingNamespace,
-		arg.BackingName,
-		arg.BackingUid,
+		arg.ActorTemplateNamespace,
+		arg.ActorTemplateName,
+		arg.ActorTemplateUid,
 		arg.Phase,
 		arg.GoldenSnapshot,
 	)

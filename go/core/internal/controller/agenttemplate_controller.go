@@ -109,7 +109,7 @@ func (r *AgentTemplateController) cleanupUnreferencedRevisions(ctx context.Conte
 		return err
 	}
 	for _, revision := range revisions {
-		if err := r.Lifecycle.DeletePreparedTemplate(ctx, revision.BackingResource); err != nil {
+		if err := r.Lifecycle.DeletePreparedTemplate(ctx, revision.ActorTemplate); err != nil {
 			return err
 		}
 		if err := r.Store.DeleteUnreferencedPreparedRevision(ctx, revision.Revision); err != nil {
@@ -169,7 +169,7 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 		return status, false, fmt.Errorf("store prepared attachment: %w", err)
 	}
 
-	backing, err := r.Lifecycle.EnsurePreparedTemplate(ctx, bundle, revision)
+	templateRef, err := r.Lifecycle.EnsurePreparedTemplate(ctx, bundle, revision)
 	if err != nil {
 		setPreparationFailure(&status, "ProvisioningFailed", err.Error(), v1alpha3.AgentTemplateConditionPrepared)
 		return status, false, err
@@ -177,13 +177,13 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 	if err := r.Store.UpsertPreparedRevision(ctx, database.PreparedRevision{
 		Revision: revision, Namespace: template.Namespace, AgentTemplateName: template.Name,
 		AgentTemplateUID: string(template.UID), HarnessName: harness.Name, HarnessUID: string(harness.UID),
-		SourceSnapshot: bundle.SourceSnapshot, EgressDestinations: bundle.EgressDestinations, BackingResource: *backing,
+		SourceSnapshot: bundle.SourceSnapshot, EgressDestinations: bundle.EgressDestinations, ActorTemplate: *templateRef,
 	}); err != nil {
 		return status, false, err
 	}
 	setPreparationCondition(&status, v1alpha3.AgentTemplateConditionResolvedRefs, metav1.ConditionTrue, "Resolved", "All preparation references resolved")
 	setPreparationCondition(&status, v1alpha3.AgentTemplateConditionCompatible, metav1.ConditionTrue, "Compatible", "Resolved configuration is compatible with the Harness")
-	if backing.Phase != string(atev1alpha1.PhaseReady) {
+	if templateRef.Phase != string(atev1alpha1.PhaseReady) {
 		setPreparationCondition(&status, v1alpha3.AgentTemplateConditionPrepared, metav1.ConditionFalse, "ActorTemplatePending", "waiting for the ActorTemplate golden snapshot")
 		return status, true, nil
 	}

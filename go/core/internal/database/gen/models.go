@@ -120,23 +120,21 @@ type Memory struct {
 }
 
 type PreparedRevision struct {
-	Revision           string
-	Namespace          string
-	AgentTemplateName  string
-	AgentTemplateUid   string
-	HarnessName        string
-	HarnessUid         string
-	SourceSnapshot     []byte
-	EgressDestinations []string
-	BackingApiVersion  string
-	BackingKind        string
-	BackingNamespace   string
-	BackingName        string
-	BackingUid         string
-	Phase              string
-	GoldenSnapshot     string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
+	Revision               string
+	Namespace              string
+	AgentTemplateName      string
+	AgentTemplateUid       string
+	HarnessName            string
+	HarnessUid             string
+	SourceSnapshot         []byte
+	EgressDestinations     []string
+	ActorTemplateNamespace string
+	ActorTemplateName      string
+	ActorTemplateUid       string
+	Phase                  string
+	GoldenSnapshot         string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
 }
 
 type PushNotification struct {

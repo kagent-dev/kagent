@@ -34,15 +34,15 @@ func TestEnsurePreparedTemplateCreatesOnlyActorTemplate(t *testing.T) {
 		}}}},
 	}
 	revision := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	backing, err := lifecycle.EnsurePreparedTemplate(context.Background(), bundle, revision)
+	templateRef, err := lifecycle.EnsurePreparedTemplate(context.Background(), bundle, revision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if backing.Kind != "ActorTemplate" || backing.Name != "helper-kagent-0123456789ab" {
-		t.Fatalf("backing = %+v", backing)
+	if templateRef.Name != "helper-kagent-0123456789ab" {
+		t.Fatalf("ActorTemplate ref = %+v", templateRef)
 	}
 	template := &atev1alpha1.ActorTemplate{}
-	if err := kube.Get(context.Background(), client.ObjectKey{Namespace: "agents", Name: backing.Name}, template); err != nil {
+	if err := kube.Get(context.Background(), client.ObjectKey{Namespace: "agents", Name: templateRef.Name}, template); err != nil {
 		t.Fatal(err)
 	}
 	container := template.Spec.Containers[0]

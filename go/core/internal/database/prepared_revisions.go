@@ -27,12 +27,12 @@ type PreparedRevision struct {
 	HarnessUID         string
 	SourceSnapshot     json.RawMessage
 	EgressDestinations []string
-	BackingResource    preparation.BackingResource
+	ActorTemplate      preparation.ActorTemplateRef
 }
 
 type PreparedRevisionRef struct {
-	Revision        string
-	BackingResource preparation.BackingResource
+	Revision      string
+	ActorTemplate preparation.ActorTemplateRef
 }
 
 type PreparedRevisionStore interface {
@@ -55,14 +55,14 @@ func (c *postgresClient) UpsertPreparedAttachment(ctx context.Context, attachmen
 }
 
 func (c *postgresClient) UpsertPreparedRevision(ctx context.Context, revision PreparedRevision) error {
-	r := revision.BackingResource
+	t := revision.ActorTemplate
 	if err := c.q.UpsertPreparedRevision(ctx, dbgen.UpsertPreparedRevisionParams{
 		Revision: revision.Revision, Namespace: revision.Namespace,
 		AgentTemplateName: revision.AgentTemplateName, AgentTemplateUid: revision.AgentTemplateUID,
 		HarnessName: revision.HarnessName, HarnessUid: revision.HarnessUID,
 		SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations,
-		BackingApiVersion: r.APIVersion, BackingKind: r.Kind, BackingNamespace: r.Namespace,
-		BackingName: r.Name, BackingUid: r.UID, Phase: r.Phase, GoldenSnapshot: r.GoldenSnapshot,
+		ActorTemplateNamespace: t.Namespace, ActorTemplateName: t.Name,
+		ActorTemplateUid: t.UID, Phase: t.Phase, GoldenSnapshot: t.GoldenSnapshot,
 	}); err != nil {
 		return fmt.Errorf("upsert prepared revision %s: %w", revision.Revision, err)
 	}
@@ -98,9 +98,9 @@ func (c *postgresClient) ListUnreferencedPreparedRevisions(ctx context.Context) 
 	}
 	result := make([]PreparedRevisionRef, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, PreparedRevisionRef{Revision: row.Revision, BackingResource: preparation.BackingResource{
-			APIVersion: row.BackingApiVersion, Kind: row.BackingKind, Namespace: row.BackingNamespace,
-			Name: row.BackingName, UID: row.BackingUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
+		result = append(result, PreparedRevisionRef{Revision: row.Revision, ActorTemplate: preparation.ActorTemplateRef{
+			Namespace: row.ActorTemplateNamespace, Name: row.ActorTemplateName,
+			UID: row.ActorTemplateUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
 		}})
 	}
 	return result, nil

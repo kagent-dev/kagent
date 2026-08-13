@@ -7,16 +7,14 @@ CREATE TABLE IF NOT EXISTS prepared_revision (
     harness_uid TEXT NOT NULL,
     source_snapshot JSONB NOT NULL,
     egress_destinations TEXT[] NOT NULL DEFAULT '{}',
-    backing_api_version TEXT NOT NULL,
-    backing_kind TEXT NOT NULL,
-    backing_namespace TEXT NOT NULL,
-    backing_name TEXT NOT NULL,
-    backing_uid TEXT NOT NULL DEFAULT '',
+    actor_template_namespace TEXT NOT NULL,
+    actor_template_name TEXT NOT NULL,
+    actor_template_uid TEXT NOT NULL DEFAULT '',
     phase TEXT NOT NULL,
     golden_snapshot TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (backing_api_version, backing_kind, backing_namespace, backing_name)
+    UNIQUE (actor_template_namespace, actor_template_name)
 );
 
 CREATE TABLE IF NOT EXISTS agent_template_attachment (
