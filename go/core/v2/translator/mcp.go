@@ -3,17 +3,12 @@ package translator
 import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/pkg/egress"
 )
 
 // addRemoteMCPServer translates the two remote protocols supported by the ADK.
-// This path intentionally has no proxy URL indirection; plaintext egress mode
-// rewrites only the actual destination through the egress gateway.
+// This path intentionally has no proxy URL or egress-gateway indirection.
 func (c *Compiler) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRuntime, server *v1alpha3.RemoteMCPServer, tool *v1alpha3.McpServerTool, headers map[string]string) error {
 	targetURL := server.Spec.URL
-	if c.mcpEgressPlaintext {
-		targetURL = egress.RewriteURL(server)
-	}
 
 	switch server.Spec.Protocol {
 	case v1alpha3.RemoteMCPServerProtocolSse:

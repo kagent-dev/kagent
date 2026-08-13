@@ -34,13 +34,12 @@ type revisionSource struct {
 // revision. It owns the v2 translation boundary rather than delegating to an
 // earlier API translator.
 type Compiler struct {
-	kube               Reader
-	mcpEgressPlaintext bool
+	kube Reader
 }
 
 // NewCompiler constructs the v2 runtime compiler.
-func NewCompiler(kube Reader, mcpEgressPlaintext bool) *Compiler {
-	return &Compiler{kube: kube, mcpEgressPlaintext: mcpEgressPlaintext}
+func NewCompiler(kube Reader) *Compiler {
+	return &Compiler{kube: kube}
 }
 
 // CompileAgentTemplate resolves an API v2 attachment into an immutable runtime

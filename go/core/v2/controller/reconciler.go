@@ -27,8 +27,7 @@ import (
 // CollectionConfig contains the controller settings that affect compiled
 // desired state. They are inputs to KRT rather than hidden global state.
 type CollectionConfig struct {
-	PauseImage         string
-	MCPEgressPlaintext bool
+	PauseImage string
 }
 
 // PairReconciliation is the complete desired and observed state for one
@@ -69,7 +68,7 @@ func newPairReconciliations(
 			ctx: ctx, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
 			configMaps: configMaps, secrets: secrets, workerPools: workerPools,
 		}
-		revision, err := v2translator.NewCompiler(reader, config.MCPEgressPlaintext).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
+		revision, err := v2translator.NewCompiler(reader).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
 		if err != nil {
 			condition, reason := kagentv1alpha3.AgentTemplateConditionResolvedRefs, "ReferenceResolutionFailed"
 			var validation *v2translator.ValidationError

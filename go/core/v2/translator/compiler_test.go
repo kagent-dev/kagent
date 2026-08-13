@@ -34,7 +34,7 @@ func compiler(t *testing.T, objects ...client.Object) *v2translator.Compiler {
 	t.Helper()
 	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
 	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(objects...).Build()
-	return v2translator.NewCompiler(testReader{kube}, false)
+	return v2translator.NewCompiler(testReader{kube})
 }
 
 type testReader struct{ client.Client }
