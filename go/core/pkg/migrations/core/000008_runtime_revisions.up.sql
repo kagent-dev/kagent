@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS prepared_revision (
+CREATE TABLE IF NOT EXISTS runtime_revision (
     revision TEXT PRIMARY KEY,
     namespace TEXT NOT NULL,
     agent_template_name TEXT NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS agent_template_attachment (
     harness_name TEXT NOT NULL,
     harness_uid TEXT NOT NULL,
     desired_revision TEXT NOT NULL,
-    latest_successful_revision TEXT REFERENCES prepared_revision(revision) ON DELETE RESTRICT,
+    latest_successful_revision TEXT REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
     retired_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

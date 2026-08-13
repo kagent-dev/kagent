@@ -119,7 +119,17 @@ type Memory struct {
 	AccessCount *int64
 }
 
-type PreparedRevision struct {
+type PushNotification struct {
+	ID              string
+	TaskID          string
+	CreatedAt       *time.Time
+	UpdatedAt       *time.Time
+	DeletedAt       *time.Time
+	Data            string
+	ProtocolVersion *string
+}
+
+type RuntimeRevision struct {
 	Revision               string
 	Namespace              string
 	AgentTemplateName      string
@@ -135,16 +145,6 @@ type PreparedRevision struct {
 	GoldenSnapshot         string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
-}
-
-type PushNotification struct {
-	ID              string
-	TaskID          string
-	CreatedAt       *time.Time
-	UpdatedAt       *time.Time
-	DeletedAt       *time.Time
-	Data            string
-	ProtocolVersion *string
 }
 
 type Session struct {

@@ -30,7 +30,7 @@ type AgentTemplateLocalReference struct {
 
 // AgentTemplateTypedLocalReference identifies a typed resource in the AgentTemplate's namespace.
 type AgentTemplateTypedLocalReference struct {
-	// +kubebuilder:validation:Enum=ToolServer;RemoteMCPServer
+	// +kubebuilder:validation:Enum=RemoteMCPServer
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Kind string `json:"kind"`
@@ -184,7 +184,7 @@ type PluginBundle struct {
 	Skills []string `json:"skills,omitempty"`
 }
 
-// HarnessAttachments lists the Harnesses permitted to prepare this AgentTemplate.
+// HarnessAttachments lists the Harnesses permitted to run this AgentTemplate.
 type HarnessAttachments struct {
 	// +kubebuilder:validation:MaxItems=32
 	// +listType=map
@@ -226,11 +226,11 @@ const (
 	AgentTemplateConditionAccepted     = "Accepted"
 	AgentTemplateConditionResolvedRefs = "ResolvedRefs"
 	AgentTemplateConditionCompatible   = "Compatible"
-	AgentTemplateConditionPrepared     = "Prepared"
+	AgentTemplateConditionReady        = "Ready"
 )
 
-// AgentTemplatePreparationStatus reports preparation for one explicitly requested Harness.
-type AgentTemplatePreparationStatus struct {
+// AgentTemplateHarnessStatus reports runtime revision state for one explicitly requested Harness.
+type AgentTemplateHarnessStatus struct {
 	// Harness names an entry in spec.harnesses.include.
 	// +kubebuilder:validation:MinLength=1
 	// +required
@@ -248,16 +248,16 @@ type AgentTemplatePreparationStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// AgentTemplateStatus is the controller-observed preparation state.
+// AgentTemplateStatus is the controller-observed state for each requested Harness.
 type AgentTemplateStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Preparations has at most one entry for each explicitly requested Harness.
+	// Harnesses has at most one entry for each explicitly requested Harness.
 	// +kubebuilder:validation:MaxItems=32
 	// +listType=map
 	// +listMapKey=harness
 	// +optional
-	Preparations []AgentTemplatePreparationStatus `json:"preparations,omitempty"`
+	Harnesses []AgentTemplateHarnessStatus `json:"harnesses,omitempty"`
 }
 
 // +kubebuilder:object:root=true

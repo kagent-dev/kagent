@@ -1,4 +1,4 @@
-package preparation
+package revision
 
 import (
 	"crypto/sha256"
@@ -9,9 +9,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-// Bundle is the resolved, in-memory runtime input for one prepared revision.
-// Provisioning-specific code translates it to the current Substrate resource.
-type Bundle struct {
+// Spec is the resolved runtime configuration for one immutable revision.
+type Spec struct {
 	Namespace          string
 	AgentTemplateName  string
 	HarnessName        string
@@ -26,10 +25,10 @@ type Bundle struct {
 	EgressDestinations []string
 }
 
-// Revision returns the immutable identity of every input that affects runtime behavior.
-func (b *Bundle) Revision() (string, error) {
-	if b == nil {
-		return "", fmt.Errorf("preparation bundle is required")
+// Digest returns the immutable identity of every input that affects runtime behavior.
+func (s *Spec) Digest() (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("runtime revision spec is required")
 	}
 	raw, err := json.Marshal(struct {
 		Namespace          string          `json:"namespace"`
@@ -45,21 +44,13 @@ func (b *Bundle) Revision() (string, error) {
 		SecretHashes       string          `json:"secretHashes"`
 		EgressDestinations []string        `json:"egressDestinations"`
 	}{
-		Namespace:          b.Namespace,
-		AgentTemplateName:  b.AgentTemplateName,
-		HarnessName:        b.HarnessName,
-		Image:              b.Image,
-		Environment:        b.Environment,
-		ConfigJSON:         b.ConfigJSON,
-		AgentCardJSON:      b.AgentCardJSON,
-		WorkerPoolName:     b.WorkerPoolName,
-		SnapshotLocation:   b.SnapshotLocation,
-		SourceSnapshot:     b.SourceSnapshot,
-		SecretHashes:       hex.EncodeToString(b.SecretHashes),
-		EgressDestinations: b.EgressDestinations,
+		Namespace: s.Namespace, AgentTemplateName: s.AgentTemplateName, HarnessName: s.HarnessName,
+		Image: s.Image, Environment: s.Environment, ConfigJSON: s.ConfigJSON, AgentCardJSON: s.AgentCardJSON,
+		WorkerPoolName: s.WorkerPoolName, SnapshotLocation: s.SnapshotLocation, SourceSnapshot: s.SourceSnapshot,
+		SecretHashes: hex.EncodeToString(s.SecretHashes), EgressDestinations: s.EgressDestinations,
 	})
 	if err != nil {
-		return "", fmt.Errorf("marshal prepared revision inputs: %w", err)
+		return "", fmt.Errorf("marshal runtime revision inputs: %w", err)
 	}
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:]), nil

@@ -1,4 +1,4 @@
-package agent
+package translator
 
 import (
 	"context"
@@ -12,15 +12,16 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/preparation"
+	legacy "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/core/v2/revision"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type preparedSource struct {
+type revisionSource struct {
 	APIVersion string    `json:"apiVersion"`
 	Kind       string    `json:"kind"`
 	Name       string    `json:"name"`
@@ -30,57 +31,73 @@ type preparedSource struct {
 	Hash       string    `json:"hash"`
 }
 
-// CompileAgentTemplate resolves an API v2 attachment into a backend-neutral runtime bundle.
-func (a *adkApiTranslator) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*preparation.Bundle, error) {
+type agentTemplatePromptContext struct {
+	AgentTemplateName string
+	Description       string
+	ToolNames         []string
+}
+
+type Compiler struct {
+	kube               client.Client
+	legacy             legacy.AdkApiTranslator
+	mcpEgressPlaintext bool
+}
+
+func NewCompiler(kube client.Client, legacyTranslator legacy.AdkApiTranslator, mcpEgressPlaintext bool) *Compiler {
+	return &Compiler{kube: kube, legacy: legacyTranslator, mcpEgressPlaintext: mcpEgressPlaintext}
+}
+
+// CompileAgentTemplate resolves an API v2 attachment into an immutable runtime revision.
+func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*revision.Spec, error) {
 	if harness == nil || template == nil {
-		return nil, NewValidationError("harness and AgentTemplate are required")
+		return nil, legacy.NewValidationError("harness and AgentTemplate are required")
 	}
 	if harness.Namespace != template.Namespace {
-		return nil, NewValidationError("Harness and AgentTemplate must be in the same namespace")
+		return nil, legacy.NewValidationError("Harness and AgentTemplate must be in the same namespace")
 	}
 	if harness.Spec.Kagent == nil {
-		return nil, NewValidationError("Harness runtime is not supported by the K3 kagent adapter")
+		return nil, legacy.NewValidationError("Harness runtime is not supported by the K3 kagent adapter")
 	}
 	if len(template.Spec.Skills) > 0 {
-		return nil, NewValidationError("spec.skills is not supported yet")
+		return nil, legacy.NewValidationError("spec.skills is not supported yet")
 	}
 	if len(template.Spec.Plugins) > 0 {
-		return nil, NewValidationError("spec.plugins is not supported yet")
+		return nil, legacy.NewValidationError("spec.plugins is not supported yet")
 	}
 	for _, tool := range template.Spec.Tools {
 		if tool.Agent != nil {
-			return nil, NewValidationError("AgentTemplate-backed tools are not supported yet")
+			return nil, legacy.NewValidationError("AgentTemplate-backed tools are not supported yet")
 		}
 	}
 
 	modelConfig := &v1alpha3.ModelConfig{}
-	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}, modelConfig); err != nil {
+	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}, modelConfig); err != nil {
 		return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
 	}
-	model, modelRuntime, modelSecretHash, err := a.translateModel(ctx, template.Namespace, template.Spec.ModelConfig.Name)
+	modelRuntime, err := c.legacy.ResolveRuntimeModel(ctx, template.Namespace, template.Spec.ModelConfig.Name)
 	if err != nil {
 		return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
 	}
-	if len(modelRuntime.Volumes) > 0 || len(modelRuntime.VolumeMounts) > 0 {
-		return nil, NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+	if modelRuntime.HasUnsupportedVolumes {
+		return nil, legacy.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 
-	instruction, err := a.resolveAgentTemplatePrompt(ctx, template)
+	instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
 	if err != nil {
 		return nil, err
 	}
 	stream := true
 	cfg := &adk.AgentConfig{
-		Model:       model,
+		Model:       modelRuntime.Model,
 		Description: template.Spec.Description,
 		Instruction: instruction,
 		Stream:      &stream,
 	}
 
-	secretHashes := append([]byte(nil), modelSecretHash...)
+	secretHashes := append([]byte(nil), modelRuntime.SecretHash...)
 	for _, binding := range template.Spec.Tools {
 		if binding.MCP == nil {
-			return nil, NewValidationError("tool binding must select an MCP server")
+			return nil, legacy.NewValidationError("tool binding must select an MCP server")
 		}
 		ref := &v1alpha3.McpServerTool{
 			TypedReference: v1alpha3.TypedReference{
@@ -90,25 +107,18 @@ func (a *adkApiTranslator) CompileAgentTemplate(ctx context.Context, harness *v1
 			},
 			ToolNames: append([]string(nil), binding.MCP.Tools...),
 		}
-		server, headers, credentialEnv, hash, err := a.resolvePreparedMCPServer(ctx, template.Namespace, binding.MCP.Server)
+		server, headers, credentialEnv, hash, err := c.resolveAgentTemplateMCPServer(ctx, template.Namespace, binding.MCP.Server)
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
 		}
-		proxyURL := ""
-		egressRewrite := false
-		if a.globalProxyURL != "" && a.isInternalK8sURL(ctx, server.Spec.URL, template.Namespace) {
-			proxyURL = a.globalProxyURL
-		} else if a.mcpEgressPlaintext {
-			egressRewrite = true
-		}
-		if _, err := a.translateRemoteMCPServerTarget(ctx, cfg, modelRuntime, server, ref, headers, proxyURL, egressRewrite); err != nil {
+		if err := c.legacy.AddRemoteMCPServer(ctx, cfg, modelRuntime, server, ref, headers, c.mcpEgressPlaintext); err != nil {
 			return nil, fmt.Errorf("compile %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
 		}
-		modelRuntime.EnvVars = append(modelRuntime.EnvVars, credentialEnv...)
+		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
 		secretHashes = append(secretHashes, hash...)
 	}
-	if len(modelRuntime.Volumes) > 0 || len(modelRuntime.VolumeMounts) > 0 {
-		return nil, NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
+	if modelRuntime.HasUnsupportedVolumes {
+		return nil, legacy.NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 
 	if template.Spec.PromptTemplate != nil {
@@ -116,7 +126,7 @@ func (a *adkApiTranslator) CompileAgentTemplate(ctx context.Context, harness *v1
 		for _, source := range template.Spec.PromptTemplate.DataSources {
 			refs = append(refs, promptSourceRef{Name: source.Name, Alias: source.Alias})
 		}
-		lookup, err := resolvePromptSourceRefs(ctx, a.kube, template.Namespace, refs)
+		lookup, err := resolvePromptSourceRefs(ctx, c.kube, template.Namespace, refs)
 		if err != nil {
 			return nil, fmt.Errorf("resolve prompt sources: %w", err)
 		}
@@ -126,9 +136,8 @@ func (a *adkApiTranslator) CompileAgentTemplate(ctx context.Context, harness *v1
 				toolNames = append(toolNames, binding.MCP.Tools...)
 			}
 		}
-		cfg.Instruction, err = executeSystemMessageTemplate(cfg.Instruction, lookup, PromptTemplateContext{
+		cfg.Instruction, err = executeSystemMessageTemplate(cfg.Instruction, lookup, agentTemplatePromptContext{
 			AgentTemplateName: template.Name,
-			AgentNamespace:    template.Namespace,
 			Description:       template.Spec.Description,
 			ToolNames:         toolNames,
 		})
@@ -146,14 +155,14 @@ func (a *adkApiTranslator) CompileAgentTemplate(ctx context.Context, harness *v1
 		return nil, fmt.Errorf("marshal agent card: %w", err)
 	}
 
-	environment := append([]corev1.EnvVar(nil), modelRuntime.EnvVars...)
+	environment := append([]corev1.EnvVar(nil), modelRuntime.Environment...)
 	for _, value := range harness.Spec.Env {
 		envVar := corev1.EnvVar{Name: value.Name}
 		if value.Value != nil {
 			envVar.Value = *value.Value
 		} else {
 			envVar.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: value.CredentialRef.DeepCopy()}
-			hash, err := hashSecretKey(ctx, a.kube, template.Namespace, value.CredentialRef)
+			hash, err := hashSecretKey(ctx, c.kube, template.Namespace, value.CredentialRef)
 			if err != nil {
 				return nil, fmt.Errorf("resolve Harness credential env %q: %w", value.Name, err)
 			}
@@ -171,12 +180,12 @@ func (a *adkApiTranslator) CompileAgentTemplate(ctx context.Context, harness *v1
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
 
-	sources, err := a.preparedSourceSnapshot(ctx, harness, template, modelConfig, environment)
+	sources, err := c.revisionSourceSnapshot(ctx, harness, template, modelConfig, environment)
 	if err != nil {
-		return nil, fmt.Errorf("marshal prepared sources: %w", err)
+		return nil, fmt.Errorf("marshal revision sources: %w", err)
 	}
 
-	return &preparation.Bundle{
+	return &revision.Spec{
 		Namespace:          template.Namespace,
 		AgentTemplateName:  template.Name,
 		HarnessName:        harness.Name,
@@ -188,15 +197,15 @@ func (a *adkApiTranslator) CompileAgentTemplate(ctx context.Context, harness *v1
 		SnapshotLocation:   harness.Spec.Substrate.SnapshotPolicy.Location,
 		SourceSnapshot:     sources,
 		SecretHashes:       secretHashes,
-		EgressDestinations: agentConfigDestinations(cfg, modelConfig, model),
+		EgressDestinations: agentConfigDestinations(cfg, modelConfig, modelRuntime.Model),
 	}, nil
 }
 
-func (a *adkApiTranslator) preparedSourceSnapshot(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate, model *v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
-	sources := []preparedSource{
-		preparedObjectSource(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec),
-		preparedObjectSource(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec),
-		preparedObjectSource(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec),
+func (c *Compiler) revisionSourceSnapshot(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate, model *v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+	sources := []revisionSource{
+		objectRevisionSource(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec),
+		objectRevisionSource(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec),
+		objectRevisionSource(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec),
 	}
 	configMaps := map[string]struct{}{}
 	if template.Spec.SystemPromptFrom != nil {
@@ -209,10 +218,10 @@ func (a *adkApiTranslator) preparedSourceSnapshot(ctx context.Context, harness *
 	}
 	for name := range configMaps {
 		configMap := &corev1.ConfigMap{}
-		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: name}, configMap); err != nil {
+		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: name}, configMap); err != nil {
 			return nil, err
 		}
-		sources = append(sources, preparedObjectSource("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
+		sources = append(sources, objectRevisionSource("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
 	}
 	for _, binding := range template.Spec.Tools {
 		if binding.MCP == nil {
@@ -221,10 +230,10 @@ func (a *adkApiTranslator) preparedSourceSnapshot(ctx context.Context, harness *
 		switch binding.MCP.Server.Kind {
 		case "RemoteMCPServer":
 			server := &v1alpha3.RemoteMCPServer{}
-			if err := a.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}, server); err != nil {
+			if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}, server); err != nil {
 				return nil, err
 			}
-			sources = append(sources, preparedObjectSource(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
+			sources = append(sources, objectRevisionSource(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
 		}
 	}
 	seenSecrets := map[string]struct{}{}
@@ -239,7 +248,7 @@ func (a *adkApiTranslator) preparedSourceSnapshot(ctx context.Context, harness *
 		}
 		seenSecrets[identity] = struct{}{}
 		secret := &corev1.Secret{}
-		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, secret); err != nil {
+		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, secret); err != nil {
 			return nil, err
 		}
 		value, ok := secret.Data[ref.Key]
@@ -247,28 +256,28 @@ func (a *adkApiTranslator) preparedSourceSnapshot(ctx context.Context, harness *
 			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
 		}
 		hash := sha256.Sum256(value)
-		sources = append(sources, preparedSource{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
+		sources = append(sources, revisionSource{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
 	}
-	slices.SortFunc(sources, func(a, b preparedSource) int {
+	slices.SortFunc(sources, func(a, b revisionSource) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)
 	})
 	return json.Marshal(sources)
 }
 
-func preparedObjectSource(apiVersion, kind, name string, uid types.UID, generation int64, content any) preparedSource {
+func objectRevisionSource(apiVersion, kind, name string, uid types.UID, generation int64, content any) revisionSource {
 	raw, _ := json.Marshal(content)
 	hash := sha256.Sum256(raw)
-	return preparedSource{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
+	return revisionSource{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
 }
 
-func (a *adkApiTranslator) resolvePreparedMCPServer(ctx context.Context, namespace string, ref v1alpha3.AgentTemplateTypedLocalReference) (*v1alpha3.RemoteMCPServer, map[string]string, []corev1.EnvVar, []byte, error) {
+func (c *Compiler) resolveAgentTemplateMCPServer(ctx context.Context, namespace string, ref v1alpha3.AgentTemplateTypedLocalReference) (*v1alpha3.RemoteMCPServer, map[string]string, []corev1.EnvVar, []byte, error) {
 	switch ref.Kind {
 	case "RemoteMCPServer":
 		server := &v1alpha3.RemoteMCPServer{}
-		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, server); err != nil {
+		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, server); err != nil {
 			return nil, nil, nil, nil, err
 		}
-		headers, environment, hashes, err := a.resolvePreparedHeaders(ctx, namespace, server.Spec.HeadersFrom)
+		headers, environment, hashes, err := c.resolveAgentTemplateHeaders(ctx, namespace, server.Spec.HeadersFrom)
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
@@ -276,17 +285,17 @@ func (a *adkApiTranslator) resolvePreparedMCPServer(ctx context.Context, namespa
 		server.Spec.HeadersFrom = nil
 		return server, headers, environment, hashes, nil
 	default:
-		return nil, nil, nil, nil, NewValidationError("unsupported MCP server kind %q", ref.Kind)
+		return nil, nil, nil, nil, legacy.NewValidationError("unsupported MCP server kind %q", ref.Kind)
 	}
 }
 
-func (a *adkApiTranslator) resolvePreparedHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, []byte, error) {
+func (c *Compiler) resolveAgentTemplateHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, []byte, error) {
 	headers := make(map[string]string, len(refs))
 	var environment []corev1.EnvVar
 	var hashes []byte
 	for _, ref := range refs {
 		if ref.ValueFrom == nil || ref.ValueFrom.Type != v1alpha3.SecretValueSource {
-			name, value, err := ref.Resolve(ctx, a.kube, namespace)
+			name, value, err := ref.Resolve(ctx, c.kube, namespace)
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -294,7 +303,7 @@ func (a *adkApiTranslator) resolvePreparedHeaders(ctx context.Context, namespace
 			continue
 		}
 		selector := &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.ValueFrom.Name}, Key: ref.ValueFrom.Key}
-		hash, err := hashSecretKey(ctx, a.kube, namespace, selector)
+		hash, err := hashSecretKey(ctx, c.kube, namespace, selector)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -307,10 +316,10 @@ func (a *adkApiTranslator) resolvePreparedHeaders(ctx context.Context, namespace
 	return headers, environment, hashes, nil
 }
 
-func (a *adkApiTranslator) resolveAgentTemplatePrompt(ctx context.Context, template *v1alpha3.AgentTemplate) (string, error) {
+func (c *Compiler) resolveAgentTemplatePrompt(ctx context.Context, template *v1alpha3.AgentTemplate) (string, error) {
 	if template.Spec.SystemPromptFrom != nil {
 		ref := template.Spec.SystemPromptFrom
-		value, err := utils.GetConfigMapValue(ctx, a.kube, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, ref.Key)
+		value, err := utils.GetConfigMapValue(ctx, c.kube, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, ref.Key)
 		if err != nil {
 			return "", fmt.Errorf("resolve systemPromptFrom: %w", err)
 		}

@@ -11,9 +11,10 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	legacytranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
+	"github.com/kagent-dev/kagent/go/core/v2/store"
+	"github.com/kagent-dev/kagent/go/core/v2/substrate"
+	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -26,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const preparationPendingRequeue = 2 * time.Second
+const revisionPendingRequeue = 2 * time.Second
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=agenttemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kagent.dev,resources=agenttemplates/status,verbs=get;update;patch
@@ -38,9 +39,9 @@ const preparationPendingRequeue = 2 * time.Second
 
 type AgentTemplateController struct {
 	Client     client.Client
-	Translator agent.AdkApiTranslator
+	Translator *v2translator.Compiler
 	Lifecycle  *substrate.Lifecycle
-	Store      database.PreparedRevisionStore
+	Store      store.RuntimeRevisionStore
 }
 
 func (r *AgentTemplateController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -58,11 +59,11 @@ func (r *AgentTemplateController) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("get AgentTemplate %s: %w", req.NamespacedName, err)
 	}
 
-	existing := make(map[string]v1alpha3.AgentTemplatePreparationStatus, len(template.Status.Preparations))
-	for _, status := range template.Status.Preparations {
+	existing := make(map[string]v1alpha3.AgentTemplateHarnessStatus, len(template.Status.Harnesses))
+	for _, status := range template.Status.Harnesses {
 		existing[status.Harness] = status
 	}
-	statuses := make([]v1alpha3.AgentTemplatePreparationStatus, 0, len(template.Spec.Harnesses.Include))
+	statuses := make([]v1alpha3.AgentTemplateHarnessStatus, 0, len(template.Spec.Harnesses.Include))
 	harnessNames := make([]string, 0, len(template.Spec.Harnesses.Include))
 	pending := false
 	for index, include := range template.Spec.Harnesses.Include {
@@ -98,28 +99,28 @@ func (r *AgentTemplateController) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 	if pending {
-		return ctrl.Result{RequeueAfter: preparationPendingRequeue}, nil
+		return ctrl.Result{RequeueAfter: revisionPendingRequeue}, nil
 	}
 	return ctrl.Result{}, nil
 }
 
 func (r *AgentTemplateController) cleanupUnreferencedRevisions(ctx context.Context) error {
-	revisions, err := r.Store.ListUnreferencedPreparedRevisions(ctx)
+	revisions, err := r.Store.ListUnreferencedRuntimeRevisions(ctx)
 	if err != nil {
 		return err
 	}
 	for _, revision := range revisions {
-		if err := r.Lifecycle.DeletePreparedTemplate(ctx, revision.ActorTemplate); err != nil {
+		if err := r.Lifecycle.DeleteActorTemplate(ctx, revision.ActorTemplate); err != nil {
 			return err
 		}
-		if err := r.Store.DeleteUnreferencedPreparedRevision(ctx, revision.Revision); err != nil {
+		if err := r.Store.DeleteUnreferencedRuntimeRevision(ctx, revision.Revision); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, template *v1alpha3.AgentTemplate, harnessName string, previous v1alpha3.AgentTemplatePreparationStatus) (v1alpha3.AgentTemplatePreparationStatus, bool, error) {
+func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, template *v1alpha3.AgentTemplate, harnessName string, previous v1alpha3.AgentTemplateHarnessStatus) (v1alpha3.AgentTemplateHarnessStatus, bool, error) {
 	status := previous
 	status.Harness = harnessName
 	status.DesiredRevision = requestedRevision(template, harnessName)
@@ -127,7 +128,7 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 	harness := &v1alpha3.Harness{}
 	key := types.NamespacedName{Namespace: template.Namespace, Name: harnessName}
 	if err := r.Client.Get(ctx, key, harness); err != nil {
-		setPreparationFailure(&status, "HarnessNotFound", fmt.Sprintf("resolve Harness %q: %v", harnessName, err), v1alpha3.AgentTemplateConditionResolvedRefs)
+		setHarnessFailure(&status, "HarnessNotFound", fmt.Sprintf("resolve Harness %q: %v", harnessName, err), v1alpha3.AgentTemplateConditionResolvedRefs)
 		if apierrors.IsNotFound(err) && r.Store != nil {
 			if retireErr := r.Store.RetireHarnessAttachment(ctx, template.Namespace, template.Name, harnessName); retireErr != nil {
 				return status, false, retireErr
@@ -138,60 +139,60 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 	}
 
 	if err := admitsAgentTemplate(harness, template); err != nil {
-		setPreparationFailure(&status, "AttachmentRejected", err.Error(), v1alpha3.AgentTemplateConditionAccepted)
+		setHarnessFailure(&status, "AttachmentRejected", err.Error(), v1alpha3.AgentTemplateConditionAccepted)
 		if retireErr := r.Store.RetireHarnessAttachment(ctx, template.Namespace, template.Name, harnessName); retireErr != nil {
 			return status, false, retireErr
 		}
 		return status, false, nil
 	}
-	setPreparationCondition(&status, v1alpha3.AgentTemplateConditionAccepted, metav1.ConditionTrue, "Accepted", "Harness and AgentTemplate admit the attachment")
+	setHarnessCondition(&status, v1alpha3.AgentTemplateConditionAccepted, metav1.ConditionTrue, "Accepted", "Harness and AgentTemplate admit the attachment")
 
-	bundle, err := r.Translator.CompileAgentTemplate(ctx, harness, template)
+	revisionSpec, err := r.Translator.CompileAgentTemplate(ctx, harness, template)
 	if err != nil {
-		var validation *agent.ValidationError
+		var validation *legacytranslator.ValidationError
 		if errors.As(err, &validation) {
-			setPreparationFailure(&status, "UnsupportedConfiguration", err.Error(), v1alpha3.AgentTemplateConditionCompatible)
+			setHarnessFailure(&status, "UnsupportedConfiguration", err.Error(), v1alpha3.AgentTemplateConditionCompatible)
 			return status, false, nil
 		}
-		setPreparationFailure(&status, "ReferenceResolutionFailed", err.Error(), v1alpha3.AgentTemplateConditionResolvedRefs)
+		setHarnessFailure(&status, "ReferenceResolutionFailed", err.Error(), v1alpha3.AgentTemplateConditionResolvedRefs)
 		return status, false, nil
 	}
-	revision, err := bundle.Revision()
+	revisionID, err := revisionSpec.Digest()
 	if err != nil {
 		return status, false, err
 	}
-	status.DesiredRevision = revision
-	attachment := database.PreparedAttachment{
+	status.DesiredRevision = revisionID
+	attachment := store.AgentTemplateAttachment{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, AgentTemplateUID: string(template.UID),
-		HarnessName: harness.Name, HarnessUID: string(harness.UID), DesiredRevision: revision,
+		HarnessName: harness.Name, HarnessUID: string(harness.UID), DesiredRevision: revisionID,
 	}
-	if err := r.Store.UpsertPreparedAttachment(ctx, attachment); err != nil {
-		return status, false, fmt.Errorf("store prepared attachment: %w", err)
+	if err := r.Store.UpsertAgentTemplateAttachment(ctx, attachment); err != nil {
+		return status, false, fmt.Errorf("store AgentTemplate attachment: %w", err)
 	}
 
-	templateRef, err := r.Lifecycle.EnsurePreparedTemplate(ctx, bundle, revision)
+	templateRef, err := r.Lifecycle.EnsureActorTemplate(ctx, revisionSpec, revisionID)
 	if err != nil {
-		setPreparationFailure(&status, "ProvisioningFailed", err.Error(), v1alpha3.AgentTemplateConditionPrepared)
+		setHarnessFailure(&status, "ProvisioningFailed", err.Error(), v1alpha3.AgentTemplateConditionReady)
 		return status, false, err
 	}
-	if err := r.Store.UpsertPreparedRevision(ctx, database.PreparedRevision{
-		Revision: revision, Namespace: template.Namespace, AgentTemplateName: template.Name,
+	if err := r.Store.UpsertRuntimeRevision(ctx, store.RuntimeRevision{
+		Revision: revisionID, Namespace: template.Namespace, AgentTemplateName: template.Name,
 		AgentTemplateUID: string(template.UID), HarnessName: harness.Name, HarnessUID: string(harness.UID),
-		SourceSnapshot: bundle.SourceSnapshot, EgressDestinations: bundle.EgressDestinations, ActorTemplate: *templateRef,
+		SourceSnapshot: revisionSpec.SourceSnapshot, EgressDestinations: revisionSpec.EgressDestinations, ActorTemplate: *templateRef,
 	}); err != nil {
 		return status, false, err
 	}
-	setPreparationCondition(&status, v1alpha3.AgentTemplateConditionResolvedRefs, metav1.ConditionTrue, "Resolved", "All preparation references resolved")
-	setPreparationCondition(&status, v1alpha3.AgentTemplateConditionCompatible, metav1.ConditionTrue, "Compatible", "Resolved configuration is compatible with the Harness")
+	setHarnessCondition(&status, v1alpha3.AgentTemplateConditionResolvedRefs, metav1.ConditionTrue, "Resolved", "All runtime references resolved")
+	setHarnessCondition(&status, v1alpha3.AgentTemplateConditionCompatible, metav1.ConditionTrue, "Compatible", "Resolved configuration is compatible with the Harness")
 	if templateRef.Phase != string(atev1alpha1.PhaseReady) {
-		setPreparationCondition(&status, v1alpha3.AgentTemplateConditionPrepared, metav1.ConditionFalse, "ActorTemplatePending", "waiting for the ActorTemplate golden snapshot")
+		setHarnessCondition(&status, v1alpha3.AgentTemplateConditionReady, metav1.ConditionFalse, "ActorTemplatePending", "waiting for the ActorTemplate golden snapshot")
 		return status, true, nil
 	}
-	if err := r.Store.MarkPreparedRevisionSuccessful(ctx, attachment); err != nil {
-		return status, false, fmt.Errorf("mark prepared revision successful: %w", err)
+	if err := r.Store.MarkRuntimeRevisionSuccessful(ctx, attachment); err != nil {
+		return status, false, fmt.Errorf("mark runtime revision successful: %w", err)
 	}
-	status.LatestSuccessfulRevision = revision
-	setPreparationCondition(&status, v1alpha3.AgentTemplateConditionPrepared, metav1.ConditionTrue, "Prepared", "ActorTemplate golden snapshot is ready")
+	status.LatestSuccessfulRevision = revisionID
+	setHarnessCondition(&status, v1alpha3.AgentTemplateConditionReady, metav1.ConditionTrue, "Ready", "ActorTemplate golden snapshot is ready")
 	return status, false, nil
 }
 
@@ -220,12 +221,12 @@ func requestedRevision(template *v1alpha3.AgentTemplate, harness string) string 
 	return hex.EncodeToString(sum[:])
 }
 
-func setPreparationFailure(status *v1alpha3.AgentTemplatePreparationStatus, reason, message, failedCondition string) {
+func setHarnessFailure(status *v1alpha3.AgentTemplateHarnessStatus, reason, message, failedCondition string) {
 	for _, condition := range []string{
 		v1alpha3.AgentTemplateConditionAccepted,
 		v1alpha3.AgentTemplateConditionResolvedRefs,
 		v1alpha3.AgentTemplateConditionCompatible,
-		v1alpha3.AgentTemplateConditionPrepared,
+		v1alpha3.AgentTemplateConditionReady,
 	} {
 		conditionReason := "Blocked"
 		conditionMessage := "blocked by " + failedCondition
@@ -233,21 +234,21 @@ func setPreparationFailure(status *v1alpha3.AgentTemplatePreparationStatus, reas
 			conditionReason = reason
 			conditionMessage = message
 		}
-		setPreparationCondition(status, condition, metav1.ConditionFalse, conditionReason, conditionMessage)
+		setHarnessCondition(status, condition, metav1.ConditionFalse, conditionReason, conditionMessage)
 	}
 }
 
-func setPreparationCondition(status *v1alpha3.AgentTemplatePreparationStatus, conditionType string, conditionStatus metav1.ConditionStatus, reason, message string) {
+func setHarnessCondition(status *v1alpha3.AgentTemplateHarnessStatus, conditionType string, conditionStatus metav1.ConditionStatus, reason, message string) {
 	apimeta.SetStatusCondition(&status.Conditions, metav1.Condition{
 		Type: conditionType, Status: conditionStatus, Reason: reason, Message: message,
 		ObservedGeneration: 0, LastTransitionTime: metav1.Now(),
 	})
 }
 
-func (r *AgentTemplateController) patchStatus(ctx context.Context, template *v1alpha3.AgentTemplate, statuses []v1alpha3.AgentTemplatePreparationStatus) error {
+func (r *AgentTemplateController) patchStatus(ctx context.Context, template *v1alpha3.AgentTemplate, statuses []v1alpha3.AgentTemplateHarnessStatus) error {
 	base := template.DeepCopy()
 	template.Status.ObservedGeneration = template.Generation
-	template.Status.Preparations = statuses
+	template.Status.Harnesses = statuses
 	if err := r.Client.Status().Patch(ctx, template, client.MergeFrom(base)); err != nil {
 		return fmt.Errorf("patch AgentTemplate status: %w", err)
 	}
@@ -266,8 +267,8 @@ func (r *AgentTemplateController) enqueueAgentTemplatesInNamespace(ctx context.C
 	return requests
 }
 
-func (r *AgentTemplateController) enqueuePreparedActorTemplate(_ context.Context, obj client.Object) []reconcile.Request {
-	name := obj.GetLabels()[substrate.PreparedAgentTemplateLabel]
+func (r *AgentTemplateController) enqueueRevisionActorTemplate(_ context.Context, obj client.Object) []reconcile.Request {
+	name := obj.GetLabels()[substrate.RevisionAgentTemplateLabel]
 	if name == "" {
 		return nil
 	}
@@ -286,6 +287,6 @@ func (r *AgentTemplateController) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&v1alpha3.RemoteMCPServer{}, allInNamespace).
 		Watches(&corev1.ConfigMap{}, allInNamespace).
 		Watches(&corev1.Secret{}, allInNamespace).
-		Watches(&atev1alpha1.ActorTemplate{}, handler.EnqueueRequestsFromMapFunc(r.enqueuePreparedActorTemplate)).
+		Watches(&atev1alpha1.ActorTemplate{}, handler.EnqueueRequestsFromMapFunc(r.enqueueRevisionActorTemplate)).
 		Complete(r)
 }

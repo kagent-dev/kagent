@@ -17,14 +17,14 @@ type Querier interface {
 	// Soft-deleted sessions are included so tombstones still reclaim disk.
 	DeleteExpiredSessionsBatch(ctx context.Context, arg DeleteExpiredSessionsBatchParams) (int64, error)
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
-	DeleteUnreferencedPreparedRevision(ctx context.Context, revision string) error
+	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
 	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
-	GetPreparedRevision(ctx context.Context, revision string) (PreparedRevision, error)
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
+	GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error)
 	GetSession(ctx context.Context, arg GetSessionParams) (Session, error)
 	GetSessionShareByToken(ctx context.Context, token string) (SessionShare, error)
 	// Task ownership: a task belongs to task.user_id. A NULL user_id (row written
@@ -71,8 +71,8 @@ type Querier interface {
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
-	ListUnreferencedPreparedRevisions(ctx context.Context) ([]PreparedRevision, error)
-	MarkPreparedRevisionSuccessful(ctx context.Context, arg MarkPreparedRevisionSuccessfulParams) error
+	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
+	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RetireAgentTemplateAttachments(ctx context.Context, arg RetireAgentTemplateAttachmentsParams) error
 	RetireHarnessAttachment(ctx context.Context, arg RetireHarnessAttachmentParams) error
 	RetireOtherHarnessAttachments(ctx context.Context, arg RetireOtherHarnessAttachmentsParams) error
@@ -97,8 +97,8 @@ type Querier interface {
 	UpsertCheckpointWrite(ctx context.Context, arg UpsertCheckpointWriteParams) error
 	UpsertCrewAIFlowState(ctx context.Context, arg UpsertCrewAIFlowStateParams) error
 	UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error
-	UpsertPreparedRevision(ctx context.Context, arg UpsertPreparedRevisionParams) error
 	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
+	UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) error
 	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
 	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error
 	// UpsertTask returns the upserted id, or no rows when the write was rejected:

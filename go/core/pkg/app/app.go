@@ -69,6 +69,10 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
+	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
+	v2store "github.com/kagent-dev/kagent/go/core/v2/store"
+	v2substrate "github.com/kagent-dev/kagent/go/core/v2/substrate"
+	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -567,14 +571,11 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		cfg.MCPEgressPlaintext,
 	)
 	if substrateLifecycle != nil {
-		preparedStore, ok := dbClient.(database.PreparedRevisionStore)
-		if !ok {
-			setupLog.Error(fmt.Errorf("database does not support prepared revisions"), "unable to create controller", "controller", "AgentTemplate")
-			os.Exit(1)
-		}
-		if err := (&controller.AgentTemplateController{
-			Client: mgr.GetClient(), Translator: apiTranslator,
-			Lifecycle: substrateLifecycle, Store: preparedStore,
+		if err := (&v2controller.AgentTemplateController{
+			Client:     mgr.GetClient(),
+			Translator: v2translator.NewCompiler(mgr.GetClient(), apiTranslator, cfg.MCPEgressPlaintext),
+			Lifecycle:  &v2substrate.Lifecycle{Client: mgr.GetClient(), PauseImage: cfg.Substrate.PauseImage},
+			Store:      v2store.NewPostgres(db),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "AgentTemplate")
 			os.Exit(1)

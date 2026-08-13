@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/internal/preparation"
+	"github.com/kagent-dev/kagent/go/core/v2/revision"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -13,7 +13,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestEnsurePreparedTemplateCreatesOnlyActorTemplate(t *testing.T) {
+func TestEnsureActorTemplateCreatesOnlyActorTemplate(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
@@ -23,8 +23,8 @@ func TestEnsurePreparedTemplateCreatesOnlyActorTemplate(t *testing.T) {
 	}
 	workerPool := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "agents"}}
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(workerPool).Build()
-	lifecycle := &Lifecycle{Client: kube, Defaults: LifecycleDefaults{PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
-	bundle := &preparation.Bundle{
+	lifecycle := &Lifecycle{Client: kube, PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	spec := &revision.Spec{
 		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
 		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		WorkerPoolName: "default", SnapshotLocation: "snapshots",
@@ -34,7 +34,7 @@ func TestEnsurePreparedTemplateCreatesOnlyActorTemplate(t *testing.T) {
 		}}}},
 	}
 	revision := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	templateRef, err := lifecycle.EnsurePreparedTemplate(context.Background(), bundle, revision)
+	templateRef, err := lifecycle.EnsureActorTemplate(context.Background(), spec, revision)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestEnsurePreparedTemplateCreatesOnlyActorTemplate(t *testing.T) {
 	for _, variable := range container.Env {
 		environment[variable.Name] = variable
 	}
-	if environment["KAGENT_CONFIG_JSON"].Value == nil || *environment["KAGENT_CONFIG_JSON"].Value != string(bundle.ConfigJSON) {
+	if environment["KAGENT_CONFIG_JSON"].Value == nil || *environment["KAGENT_CONFIG_JSON"].Value != string(spec.ConfigJSON) {
 		t.Fatal("config was not embedded as a non-secret literal")
 	}
 	if environment["API_KEY"].ValueFrom.SecretKeyRef.Name != "credentials" {

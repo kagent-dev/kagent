@@ -49,7 +49,7 @@ spec:
               description:
                 type: string
               harnesses:
-                description: HarnessAttachments lists the Harnesses permitted to prepare
+                description: HarnessAttachments lists the Harnesses permitted to run
                   this AgentTemplate.
                 properties:
                   include:
@@ -326,7 +326,6 @@ spec:
                           properties:
                             kind:
                               enum:
-                              - ToolServer
                               - RemoteMCPServer
                               minLength: 1
                               type: string
@@ -362,18 +361,15 @@ spec:
             - message: systemPrompt and systemPromptFrom are mutually exclusive
               rule: '!(has(self.systemPrompt) && has(self.systemPromptFrom))'
           status:
-            description: AgentTemplateStatus is the controller-observed preparation
-              state.
+            description: AgentTemplateStatus is the controller-observed state for
+              each requested Harness.
             properties:
-              observedGeneration:
-                format: int64
-                type: integer
-              preparations:
-                description: Preparations has at most one entry for each explicitly
-                  requested Harness.
+              harnesses:
+                description: Harnesses has at most one entry for each explicitly requested
+                  Harness.
                 items:
-                  description: AgentTemplatePreparationStatus reports preparation
-                    for one explicitly requested Harness.
+                  description: AgentTemplateHarnessStatus reports runtime revision
+                    state for one explicitly requested Harness.
                   properties:
                     conditions:
                       items:
@@ -455,6 +451,9 @@ spec:
                 x-kubernetes-list-map-keys:
                 - harness
                 x-kubernetes-list-type: map
+              observedGeneration:
+                format: int64
+                type: integer
             type: object
         required:
         - spec

@@ -10,8 +10,8 @@ ON CONFLICT (namespace, agent_template_uid, harness_uid) DO UPDATE SET
     retired_at = NULL,
     updated_at = NOW();
 
--- name: UpsertPreparedRevision :exec
-INSERT INTO prepared_revision (
+-- name: UpsertRuntimeRevision :exec
+INSERT INTO runtime_revision (
     revision, namespace, agent_template_name, agent_template_uid,
     harness_name, harness_uid, source_snapshot, egress_destinations,
     actor_template_namespace, actor_template_name, actor_template_uid,
@@ -26,7 +26,7 @@ ON CONFLICT (revision) DO UPDATE SET
     golden_snapshot = EXCLUDED.golden_snapshot,
     updated_at = NOW();
 
--- name: MarkPreparedRevisionSuccessful :exec
+-- name: MarkRuntimeRevisionSuccessful :exec
 UPDATE agent_template_attachment
 SET latest_successful_revision = sqlc.arg(revision), updated_at = NOW()
 WHERE namespace = sqlc.arg(namespace)
@@ -52,19 +52,19 @@ WHERE namespace = sqlc.arg(namespace)
   AND agent_template_uid = sqlc.arg(agent_template_uid)
   AND NOT (harness_name = ANY(sqlc.arg(harness_names)::text[]));
 
--- name: GetPreparedRevision :one
-SELECT * FROM prepared_revision WHERE revision = $1;
+-- name: GetRuntimeRevision :one
+SELECT * FROM runtime_revision WHERE revision = $1;
 
--- name: ListUnreferencedPreparedRevisions :many
-SELECT * FROM prepared_revision r
+-- name: ListUnreferencedRuntimeRevisions :many
+SELECT * FROM runtime_revision r
 WHERE NOT EXISTS (
     SELECT 1 FROM agent_template_attachment a
     WHERE a.retired_at IS NULL
       AND (a.desired_revision = r.revision OR a.latest_successful_revision = r.revision)
 );
 
--- name: DeleteUnreferencedPreparedRevision :exec
-DELETE FROM prepared_revision r
+-- name: DeleteUnreferencedRuntimeRevision :exec
+DELETE FROM runtime_revision r
 WHERE r.revision = $1
   AND NOT EXISTS (
       SELECT 1 FROM agent_template_attachment a

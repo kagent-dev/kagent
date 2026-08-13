@@ -20,7 +20,6 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/preparation"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
@@ -153,8 +152,18 @@ type AdkApiTranslator interface {
 		agent *v1alpha3.SandboxAgent,
 		inputs *AgentManifestInputs,
 	) (*AgentOutputs, error)
-	CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*preparation.Bundle, error)
+	ResolveRuntimeModel(ctx context.Context, namespace, name string) (*RuntimeModel, error)
+	AddRemoteMCPServer(ctx context.Context, config *adk.AgentConfig, runtime *RuntimeModel, server *v1alpha3.RemoteMCPServer, tool *v1alpha3.McpServerTool, headers map[string]string, egressRewrite bool) error
 	GetOwnedResourceTypes() []client.Object
+}
+
+// RuntimeModel exposes the model translation output needed by runtime compilers.
+type RuntimeModel struct {
+	Model                 adk.Model
+	Environment           []corev1.EnvVar
+	SecretHash            []byte
+	HasUnsupportedVolumes bool
+	data                  *modelDeploymentData
 }
 
 type TranslatorPlugin = translator.TranslatorPlugin
@@ -188,6 +197,30 @@ type adkApiTranslator struct {
 	// egress.RewriteURL on the same RMS, so the agent and the controller probe
 	// the same endpoint when the egress feature is on.
 	mcpEgressPlaintext bool
+}
+
+func (a *adkApiTranslator) ResolveRuntimeModel(ctx context.Context, namespace, name string) (*RuntimeModel, error) {
+	model, data, secretHash, err := a.translateModel(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	return &RuntimeModel{
+		Model: model, Environment: data.EnvVars, SecretHash: secretHash,
+		HasUnsupportedVolumes: len(data.Volumes) > 0 || len(data.VolumeMounts) > 0,
+		data:                  data,
+	}, nil
+}
+
+func (a *adkApiTranslator) AddRemoteMCPServer(ctx context.Context, config *adk.AgentConfig, runtime *RuntimeModel, server *v1alpha3.RemoteMCPServer, tool *v1alpha3.McpServerTool, headers map[string]string, egressRewrite bool) error {
+	if runtime == nil || runtime.data == nil {
+		return fmt.Errorf("runtime model is required")
+	}
+	if _, err := a.translateRemoteMCPServerTarget(ctx, config, runtime.data, server, tool, headers, "", egressRewrite); err != nil {
+		return err
+	}
+	runtime.Environment = runtime.data.EnvVars
+	runtime.HasUnsupportedVolumes = len(runtime.data.Volumes) > 0 || len(runtime.data.VolumeMounts) > 0
+	return nil
 }
 
 // GetOwnedResourceTypes returns all the resource types that may be created for an agent.
