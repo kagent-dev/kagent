@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -15,7 +15,7 @@ import (
 // CleanupGeneratedTemplate removes external Substrate actors that Kubernetes garbage collection cannot see.
 // The generated ActorTemplate CR is deleted by owner-reference garbage collection after the
 // AgentHarness finalizer is removed. WorkerPools are externally owned and are never deleted here.
-func (p *Lifecycle) CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha2.AgentHarness) (bool, error) {
+func (p *Lifecycle) CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha3.AgentHarness) (bool, error) {
 	if ah == nil {
 		return true, nil
 	}
@@ -74,7 +74,7 @@ func HarnessNameFromLabels(labels map[string]string) string {
 }
 
 // CleanupSandboxAgentTemplate removes external Substrate actors tied to a generated SandboxAgent ActorTemplate.
-func (p *Lifecycle) CleanupSandboxAgentTemplate(ctx context.Context, sa *v1alpha2.SandboxAgent) (bool, error) {
+func (p *Lifecycle) CleanupSandboxAgentTemplate(ctx context.Context, sa *v1alpha3.SandboxAgent) (bool, error) {
 	if sa == nil || p == nil || p.Client == nil {
 		return true, nil
 	}

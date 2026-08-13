@@ -1,5 +1,5 @@
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
+apiVersion: kagent.dev/v1alpha3
+kind: SandboxAgent
 metadata:
   name: research-crew-agent
   namespace: kagent
@@ -7,16 +7,17 @@ spec:
   description: A crew that researches a topic and writes a report.
   type: BYO
   byo:
-    deployment:
-      image: localhost:5001/research-crew:latest
-      env:
-        - name: OPENAI_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: kagent-openai
-              key: OPENAI_API_KEY
-        - name: SERPER_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: kagent-serper
-              key: SERPER_API_KEY
+    image: localhost:5001/research-crew:latest
+    cmd: python
+    args: [samples/crewai/research-crew/src/research_crew/main.py]
+    env:
+      - name: OPENAI_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: kagent-openai
+            key: OPENAI_API_KEY
+      - name: SERPER_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: kagent-serper
+            key: SERPER_API_KEY

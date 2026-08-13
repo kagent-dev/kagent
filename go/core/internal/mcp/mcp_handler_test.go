@@ -11,7 +11,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +26,7 @@ import (
 // Regression test for https://github.com/kagent-dev/kagent/issues/1889.
 func TestListAgentsInputSchemaHasProperties(t *testing.T) {
 	scheme := runtime.NewScheme()
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).Build()
 
 	h, err := NewMCPHandler(kubeClient, nil, nil)

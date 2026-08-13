@@ -16,5 +16,9 @@ spec:
       targetPort: {{ .Values.controller.service.ports.targetPort }}
       protocol: TCP
       name: controller
+    - port: {{ .Values.controller.service.ports.grpc }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
   selector:
     {{- include "kagent.controller.selectorLabels" . | nindent 4 }}

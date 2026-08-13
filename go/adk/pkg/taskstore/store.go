@@ -1,47 +1,33 @@
 package taskstore
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
+	"strconv"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
-	headerContentType = "Content-Type"
-	contentTypeJSON   = "application/json"
+	metadataKeyKagentPartial    = "kagent_partial"
+	metadataKeyKagentAdkPartial = "kagent_adk_partial"
+	metadataKeyAdkPartial       = "adk_partial"
 )
 
-// KAgentTaskStore persists A2A tasks to KAgent via REST API and implements
+// KAgentTaskStore persists A2A tasks to KAgent via gRPC and implements
 // a2asrv.TaskStore.
 type KAgentTaskStore struct {
-	BaseURL string
-	Client  *http.Client
+	client *controllerclient.Client
 }
 
-// NewKAgentTaskStoreWithClient creates a new KAgentTaskStore with a custom HTTP client.
-// If client is nil, http.DefaultClient is used.
-func NewKAgentTaskStoreWithClient(baseURL string, client *http.Client) *KAgentTaskStore {
-	if client == nil {
-		client = http.DefaultClient
-	}
-	return &KAgentTaskStore{
-		BaseURL: baseURL,
-		Client:  client,
-	}
-}
-
-// KAgentTaskResponse wraps KAgent controller API responses
-type KAgentTaskResponse struct {
-	Error   bool          `json:"error"`
-	Data    *a2atype.Task `json:"data,omitempty"`
-	Message string        `json:"message,omitempty"`
+func NewKAgentTaskStore(client *controllerclient.Client) *KAgentTaskStore {
+	return &KAgentTaskStore{client: client}
 }
 
 func (s *KAgentTaskStore) saveTask(ctx context.Context, task *a2atype.Task) (a2ataskstore.TaskVersion, error) {
@@ -49,26 +35,28 @@ func (s *KAgentTaskStore) saveTask(ctx context.Context, task *a2atype.Task) (a2a
 		return a2ataskstore.TaskVersionMissing, fmt.Errorf("task cannot be nil")
 	}
 
-	taskJSON, err := json.Marshal(task)
-	if err != nil {
-		return a2ataskstore.TaskVersionMissing, fmt.Errorf("failed to marshal task: %w", err)
+	taskCopy := *task
+	taskCopy.History = make([]*a2atype.Message, 0, len(task.History))
+	for _, message := range task.History {
+		if message != nil && !isPartial(message.Metadata) {
+			taskCopy.History = append(taskCopy.History, message)
+		}
 	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", s.BaseURL+"/api/tasks", bytes.NewReader(taskJSON))
-	if err != nil {
-		return a2ataskstore.TaskVersionMissing, fmt.Errorf("failed to create save request: %w", err)
+	taskCopy.Artifacts = make([]*a2atype.Artifact, 0, len(task.Artifacts))
+	for _, artifact := range task.Artifacts {
+		if artifact != nil && !isPartial(artifact.Metadata) {
+			taskCopy.Artifacts = append(taskCopy.Artifacts, artifact)
+		}
 	}
-	req.Header.Set(headerContentType, contentTypeJSON)
-
-	resp, err := s.Client.Do(req)
+	encoded, err := pbconv.ToProtoTask(&taskCopy)
 	if err != nil {
-		return a2ataskstore.TaskVersionMissing, fmt.Errorf("failed to execute save task request: %w", err)
+		return a2ataskstore.TaskVersionMissing, fmt.Errorf("encode task: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(resp.Body)
-		return a2ataskstore.TaskVersionMissing, fmt.Errorf("failed to save task: status %d, body: %s", resp.StatusCode, string(body))
+	callContext, cancel := s.client.CallContext(ctx, "")
+	defer cancel()
+	_, err = s.client.TaskService().UpsertTask(callContext, &apiv1alpha1.UpsertTaskRequest{Task: encoded})
+	if err != nil {
+		return a2ataskstore.TaskVersionMissing, fmt.Errorf("save task: %w", err)
 	}
 
 	return a2ataskstore.TaskVersionMissing, nil
@@ -89,40 +77,89 @@ func (s *KAgentTaskStore) Update(ctx context.Context, update *a2ataskstore.Updat
 
 // Get implements taskstore.Store.
 func (s *KAgentTaskStore) Get(ctx context.Context, taskID a2atype.TaskID) (*a2ataskstore.StoredTask, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", s.BaseURL+"/api/tasks/"+url.PathEscape(string(taskID)), nil)
+	callContext, cancel := s.client.CallContext(ctx, "")
+	defer cancel()
+	response, err := s.client.TaskService().GetTask(callContext, &apiv1alpha1.GetTaskRequest{TaskId: string(taskID)})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create get request: %w", err)
+		if status.Code(err) == codes.NotFound {
+			return nil, a2atype.ErrTaskNotFound
+		}
+		return nil, fmt.Errorf("get task: %w", err)
 	}
-
-	resp, err := s.Client.Do(req)
+	task, err := pbconv.FromProtoTask(response.GetTask())
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute get task request: %w", err)
+		return nil, fmt.Errorf("decode task: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, a2atype.ErrTaskNotFound
-	}
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("failed to get task: status %d, body: %s", resp.StatusCode, string(body))
-	}
-
-	var wrapped KAgentTaskResponse
-	if err := json.NewDecoder(resp.Body).Decode(&wrapped); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-	if wrapped.Data == nil {
-		return nil, a2atype.ErrTaskNotFound
-	}
-
 	return &a2ataskstore.StoredTask{
-		Task:    wrapped.Data,
+		Task:    task,
 		Version: a2ataskstore.TaskVersionMissing,
 	}, nil
 }
 
-// List implements a2asrv.TaskStore. Listing is not supported against the KAgent task API.
+func isPartial(metadata map[string]any) bool {
+	for _, key := range []string{metadataKeyKagentPartial, metadataKeyKagentAdkPartial, metadataKeyAdkPartial} {
+		if partial, ok := metadata[key].(bool); ok && partial {
+			return true
+		}
+	}
+	return false
+}
+
+// List implements a2asrv.TaskStore.
 func (s *KAgentTaskStore) List(ctx context.Context, req *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
-	return nil, fmt.Errorf("task listing is not supported by the KAgent task store")
+	const defaultPageSize = 50
+	pageSize := req.PageSize
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	} else if pageSize < 1 || pageSize > 100 {
+		return nil, fmt.Errorf("page size must be between 1 and 100 inclusive, got %d: %w", pageSize, a2atype.ErrInvalidRequest)
+	}
+	if req.ContextID == "" {
+		return &a2atype.ListTasksResponse{Tasks: []*a2atype.Task{}, PageSize: pageSize}, nil
+	}
+
+	callContext, cancel := s.client.CallContext(ctx, "")
+	defer cancel()
+	response, err := s.client.TaskService().ListTasks(callContext, &apiv1alpha1.ListTasksRequest{SessionId: req.ContextID})
+	if err != nil {
+		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+
+	tasks := make([]*a2atype.Task, 0, len(response.GetTasks()))
+	for _, encoded := range response.GetTasks() {
+		task, err := pbconv.FromProtoTask(encoded)
+		if err != nil {
+			return nil, fmt.Errorf("decode listed task: %w", err)
+		}
+		if req.Status != a2atype.TaskStateUnspecified && task.Status.State != req.Status {
+			continue
+		}
+		if req.StatusTimestampAfter != nil && (task.Status.Timestamp == nil || task.Status.Timestamp.Before(*req.StatusTimestampAfter)) {
+			continue
+		}
+		tasks = append(tasks, task)
+	}
+
+	start := 0
+	if req.PageToken != "" {
+		start, err = strconv.Atoi(req.PageToken)
+		if err != nil || start < 0 {
+			return nil, fmt.Errorf("invalid page token %q: %w", req.PageToken, a2atype.ErrInvalidRequest)
+		}
+	}
+	totalSize := len(tasks)
+	if start > totalSize {
+		start = totalSize
+	}
+	end := min(start+pageSize, totalSize)
+	nextPageToken := ""
+	if end < totalSize {
+		nextPageToken = strconv.Itoa(end)
+	}
+	return &a2atype.ListTasksResponse{
+		Tasks:         tasks[start:end],
+		TotalSize:     totalSize,
+		PageSize:      pageSize,
+		NextPageToken: nextPageToken,
+	}, nil
 }

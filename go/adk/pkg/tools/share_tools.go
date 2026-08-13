@@ -2,14 +2,13 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
@@ -17,10 +16,9 @@ import (
 
 // shareClient holds the dependencies for share link tools, captured at construction time.
 type shareClient struct {
-	baseURL    string
-	uiURL      string // KAGENT_UI_URL, used to build full share URLs
-	appName    string
-	httpClient *http.Client
+	controllerClient *controllerclient.Client
+	uiURL            string // KAGENT_UI_URL, used to build full share URLs
+	appName          string
 }
 
 // parseAppName converts a Python-identifier app_name back to (namespace, name).
@@ -44,36 +42,63 @@ func (c *shareClient) shareURL(token, sessionID string) string {
 	return path
 }
 
-func (c *shareClient) do(ctx context.Context, method, path string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, nil)
-	if err != nil {
-		return nil, fmt.Errorf("building request %s %s: %w", method, c.baseURL+path, err)
-	}
-	req.Header.Set("X-Agent-Name", c.appName)
-	return c.httpClient.Do(req)
+func (c *shareClient) callContext(ctx context.Context, userID string) (context.Context, context.CancelFunc) {
+	return c.controllerClient.CallContext(ctx, userID)
 }
 
-func (c *shareClient) doWithJSON(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
-	if err != nil {
-		return nil, fmt.Errorf("building request %s %s: %w", method, c.baseURL+path, err)
+func shareToMap(share *apiv1alpha1.SessionShare) map[string]any {
+	createdAt := time.Time{}
+	if share.GetCreatedAt() != nil {
+		createdAt = share.GetCreatedAt().AsTime()
 	}
-	req.Header.Set("X-Agent-Name", c.appName)
-	req.Header.Set("Content-Type", "application/json")
-	return c.httpClient.Do(req)
+	return map[string]any{
+		"id":         share.GetId(),
+		"token":      share.GetToken(),
+		"session_id": share.GetSessionId(),
+		"user_id":    share.GetUserId(),
+		"read_only":  share.GetReadOnly(),
+		"created_at": createdAt.Format(time.RFC3339Nano),
+	}
 }
 
-func (c *shareClient) readBody(resp *http.Response) (map[string]any, error) {
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+func (c *shareClient) createShare(ctx context.Context, userID, sessionID string, readOnly *bool) (*apiv1alpha1.SessionShare, error) {
+	callContext, cancel := c.callContext(ctx, userID)
+	defer cancel()
+	response, err := c.controllerClient.SessionService().CreateSessionShare(callContext, &apiv1alpha1.CreateSessionShareRequest{
+		SessionId: sessionID,
+		ReadOnly:  readOnly,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
+		return nil, err
 	}
-	var out map[string]any
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, fmt.Errorf("decoding response: %w", err)
+	if response.GetShare() == nil {
+		return nil, fmt.Errorf("response did not include a share")
 	}
-	return out, nil
+	return response.GetShare(), nil
+}
+
+func (c *shareClient) listShares(ctx context.Context, userID, sessionID string) ([]any, error) {
+	callContext, cancel := c.callContext(ctx, userID)
+	defer cancel()
+	response, err := c.controllerClient.SessionService().ListSessionShares(callContext, &apiv1alpha1.ListSessionSharesRequest{SessionId: sessionID})
+	if err != nil {
+		return nil, err
+	}
+	shares := make([]any, 0, len(response.GetShares()))
+	for _, share := range response.GetShares() {
+		shares = append(shares, shareToMap(share))
+	}
+	return shares, nil
+}
+
+func (c *shareClient) deleteShare(ctx context.Context, userID, sessionID, token string) error {
+	callContext, cancel := c.callContext(ctx, userID)
+	defer cancel()
+	_, err := c.controllerClient.SessionService().DeleteSessionShare(callContext, &apiv1alpha1.DeleteSessionShareRequest{
+		SessionId: sessionID,
+		Token:     token,
+	})
+	return err
 }
 
 type createShareInput struct {
@@ -83,12 +108,14 @@ type createShareInput struct {
 }
 
 // NewCreateShareLinkTool creates a tool that generates a share token for the current session.
-func NewCreateShareLinkTool(httpClient *http.Client, baseURL, appName string) (tool.Tool, error) {
+func NewCreateShareLinkTool(controllerClient *controllerclient.Client, appName string) (tool.Tool, error) {
+	if controllerClient == nil {
+		return nil, fmt.Errorf("controller client is required")
+	}
 	c := &shareClient{
-		baseURL:    baseURL,
-		uiURL:      strings.TrimRight(os.Getenv("KAGENT_UI_URL"), "/"),
-		appName:    appName,
-		httpClient: httpClient,
+		controllerClient: controllerClient,
+		uiURL:            strings.TrimRight(os.Getenv("KAGENT_UI_URL"), "/"),
+		appName:          appName,
 	}
 	return functiontool.New(functiontool.Config{
 		Name: "create_share_link",
@@ -102,40 +129,26 @@ func NewCreateShareLinkTool(httpClient *http.Client, baseURL, appName string) (t
 		if sessionID == "" {
 			return nil, fmt.Errorf("create_share_link: no session ID in context")
 		}
-		reqBody, err := json.Marshal(in)
-		if err != nil {
-			return nil, fmt.Errorf("create_share_link: encoding request: %w", err)
-		}
-		resp, err := c.doWithJSON(ctx, http.MethodPost, "/api/sessions/"+url.PathEscape(sessionID)+"/shares", strings.NewReader(string(reqBody)))
-		if err != nil {
-			return nil, fmt.Errorf("create_share_link: request failed: %w", err)
-		}
-		if resp.StatusCode != http.StatusCreated {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
-			return nil, fmt.Errorf("create_share_link: unexpected status %d", resp.StatusCode)
-		}
-		body, err := c.readBody(resp)
+		share, err := c.createShare(ctx, ctx.UserID(), sessionID, in.ReadOnly)
 		if err != nil {
 			return nil, fmt.Errorf("create_share_link: %w", err)
 		}
-		data, _ := body["data"].(map[string]any)
-		token, _ := data["token"].(string)
-		readOnly, _ := data["read_only"].(bool)
 		return map[string]any{
-			"url":       c.shareURL(token, sessionID),
-			"read_only": readOnly,
+			"url":       c.shareURL(share.GetToken(), sessionID),
+			"read_only": share.GetReadOnly(),
 		}, nil
 	})
 }
 
 // NewListShareLinksTool creates a tool that lists active share tokens for the current session.
-func NewListShareLinksTool(httpClient *http.Client, baseURL, appName string) (tool.Tool, error) {
+func NewListShareLinksTool(controllerClient *controllerclient.Client, appName string) (tool.Tool, error) {
+	if controllerClient == nil {
+		return nil, fmt.Errorf("controller client is required")
+	}
 	c := &shareClient{
-		baseURL:    baseURL,
-		uiURL:      strings.TrimRight(os.Getenv("KAGENT_UI_URL"), "/"),
-		appName:    appName,
-		httpClient: httpClient,
+		controllerClient: controllerClient,
+		uiURL:            strings.TrimRight(os.Getenv("KAGENT_UI_URL"), "/"),
+		appName:          appName,
 	}
 	return functiontool.New(functiontool.Config{
 		Name: "list_share_links",
@@ -147,22 +160,9 @@ func NewListShareLinksTool(httpClient *http.Client, baseURL, appName string) (to
 		if sessionID == "" {
 			return nil, fmt.Errorf("list_share_links: no session ID in context")
 		}
-		resp, err := c.do(ctx, http.MethodGet, "/api/sessions/"+url.PathEscape(sessionID)+"/shares")
-		if err != nil {
-			return nil, fmt.Errorf("list_share_links: request failed: %w", err)
-		}
-		if resp.StatusCode != http.StatusOK {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
-			return nil, fmt.Errorf("list_share_links: unexpected status %d", resp.StatusCode)
-		}
-		body, err := c.readBody(resp)
+		shares, err := c.listShares(ctx, ctx.UserID(), sessionID)
 		if err != nil {
 			return nil, fmt.Errorf("list_share_links: %w", err)
-		}
-		shares := body["data"]
-		if shares == nil {
-			shares = []any{}
 		}
 		return map[string]any{"shares": shares}, nil
 	})
@@ -173,12 +173,14 @@ type deleteShareInput struct {
 }
 
 // NewDeleteShareLinkTool creates a tool that revokes a specific share token for the current session.
-func NewDeleteShareLinkTool(httpClient *http.Client, baseURL, appName string) (tool.Tool, error) {
+func NewDeleteShareLinkTool(controllerClient *controllerclient.Client, appName string) (tool.Tool, error) {
+	if controllerClient == nil {
+		return nil, fmt.Errorf("controller client is required")
+	}
 	c := &shareClient{
-		baseURL:    baseURL,
-		uiURL:      strings.TrimRight(os.Getenv("KAGENT_UI_URL"), "/"),
-		appName:    appName,
-		httpClient: httpClient,
+		controllerClient: controllerClient,
+		uiURL:            strings.TrimRight(os.Getenv("KAGENT_UI_URL"), "/"),
+		appName:          appName,
 	}
 	return functiontool.New(functiontool.Config{
 		Name: "delete_share_link",
@@ -192,14 +194,8 @@ func NewDeleteShareLinkTool(httpClient *http.Client, baseURL, appName string) (t
 		if sessionID == "" {
 			return nil, fmt.Errorf("delete_share_link: no session ID in context")
 		}
-		path := "/api/sessions/" + url.PathEscape(sessionID) + "/shares/" + url.PathEscape(in.Token)
-		resp, err := c.do(ctx, http.MethodDelete, path)
-		if err != nil {
-			return nil, fmt.Errorf("delete_share_link: request failed: %w", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("delete_share_link: unexpected status %d", resp.StatusCode)
+		if err := c.deleteShare(ctx, ctx.UserID(), sessionID, in.Token); err != nil {
+			return nil, fmt.Errorf("delete_share_link: %w", err)
 		}
 		return map[string]any{"status": "revoked", "token": in.Token}, nil
 	})
