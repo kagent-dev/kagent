@@ -12,7 +12,6 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	legacytranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
@@ -163,7 +162,7 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 
 	revisionSpec, err := r.Translator.CompileAgentTemplate(ctx, harness, template)
 	if err != nil {
-		var validation *legacytranslator.ValidationError
+		var validation *v2translator.ValidationError
 		if errors.As(err, &validation) {
 			setHarnessFailure(&status, "UnsupportedConfiguration", err.Error(), v1alpha3.AgentTemplateConditionCompatible)
 			return status, false, nil
@@ -292,9 +291,6 @@ func (r *AgentTemplateController) enqueueRevisionActorTemplate(_ context.Context
 }
 
 func (r *AgentTemplateController) SetupWithManager(mgr ctrl.Manager) error {
-	if r.Client == nil || r.Translator == nil || r.Lifecycle == nil || r.Store == nil {
-		return fmt.Errorf("AgentTemplate controller dependencies are required")
-	}
 	allInNamespace := handler.EnqueueRequestsFromMapFunc(r.enqueueAgentTemplatesInNamespace)
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha3.AgentTemplate{}).

@@ -572,7 +572,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	if substrateLifecycle != nil {
 		if err := (&v2controller.AgentTemplateController{
 			Client:     mgr.GetClient(),
-			Translator: v2translator.NewCompiler(mgr.GetClient(), apiTranslator, cfg.MCPEgressPlaintext),
+			Translator: v2translator.NewCompiler(mgr.GetClient(), cfg.MCPEgressPlaintext),
 			Lifecycle:  &v2substrate.Lifecycle{Client: mgr.GetClient(), PauseImage: cfg.Substrate.PauseImage},
 			Store:      dbClient,
 		}).SetupWithManager(mgr); err != nil {

@@ -43,9 +43,6 @@ const (
 
 // EnsureActorTemplate materializes one immutable Kubernetes ActorTemplate revision.
 func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *translator.Revision, revisionID string) (*ActorTemplateRef, error) {
-	if p == nil || p.Client == nil || spec == nil {
-		return nil, fmt.Errorf("substrate lifecycle, Kubernetes client, and runtime revision spec are required")
-	}
 	if len(revisionID) < 12 {
 		return nil, fmt.Errorf("runtime revision is invalid")
 	}

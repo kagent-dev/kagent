@@ -7,7 +7,6 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
@@ -81,8 +80,7 @@ func TestAgentTemplateControllerKeepsLastSuccessUntilActorTemplateReady(t *testi
 	kube := fake.NewClientBuilder().WithScheme(scheme).
 		WithStatusSubresource(&v1alpha3.AgentTemplate{}, &atev1alpha1.ActorTemplate{}).
 		WithObjects(template, harness, model, workerPool).Build()
-	baseTranslator := agenttranslator.NewAdkApiTranslator(kube, types.NamespacedName{Name: model.Name, Namespace: model.Namespace}, nil, "", nil)
-	compiler := v2translator.NewCompiler(kube, baseTranslator, false)
+	compiler := v2translator.NewCompiler(kube, false)
 	lifecycle := &substrate.Lifecycle{Client: kube, PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
 	revisionStore := &revisionStore{}
 	controller := &AgentTemplateController{Client: kube, Translator: compiler, Lifecycle: lifecycle, Store: revisionStore}

@@ -12,7 +12,6 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	legacy "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	corev1 "k8s.io/api/core/v1"
@@ -38,34 +37,30 @@ type agentTemplatePromptContext struct {
 
 type Compiler struct {
 	kube               client.Client
-	legacy             legacy.AdkApiTranslator
 	mcpEgressPlaintext bool
 }
 
-func NewCompiler(kube client.Client, legacyTranslator legacy.AdkApiTranslator, mcpEgressPlaintext bool) *Compiler {
-	return &Compiler{kube: kube, legacy: legacyTranslator, mcpEgressPlaintext: mcpEgressPlaintext}
+func NewCompiler(kube client.Client, mcpEgressPlaintext bool) *Compiler {
+	return &Compiler{kube: kube, mcpEgressPlaintext: mcpEgressPlaintext}
 }
 
 // CompileAgentTemplate resolves an API v2 attachment into an immutable runtime revision.
 func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*Revision, error) {
-	if harness == nil || template == nil {
-		return nil, legacy.NewValidationError("harness and AgentTemplate are required")
-	}
 	if harness.Namespace != template.Namespace {
-		return nil, legacy.NewValidationError("Harness and AgentTemplate must be in the same namespace")
+		return nil, newValidationError("Harness and AgentTemplate must be in the same namespace")
 	}
 	if harness.Spec.Kagent == nil {
-		return nil, legacy.NewValidationError("Harness runtime is not supported by the K3 kagent adapter")
+		return nil, newValidationError("Harness runtime is not supported by the K3 kagent adapter")
 	}
 	if len(template.Spec.Skills) > 0 {
-		return nil, legacy.NewValidationError("spec.skills is not supported yet")
+		return nil, newValidationError("spec.skills is not supported yet")
 	}
 	if len(template.Spec.Plugins) > 0 {
-		return nil, legacy.NewValidationError("spec.plugins is not supported yet")
+		return nil, newValidationError("spec.plugins is not supported yet")
 	}
 	for _, tool := range template.Spec.Tools {
 		if tool.Agent != nil {
-			return nil, legacy.NewValidationError("AgentTemplate-backed tools are not supported yet")
+			return nil, newValidationError("AgentTemplate-backed tools are not supported yet")
 		}
 	}
 
@@ -73,12 +68,12 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}, modelConfig); err != nil {
 		return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
 	}
-	modelRuntime, err := c.legacy.ResolveRuntimeModel(ctx, template.Namespace, template.Spec.ModelConfig.Name)
+	modelRuntime, err := c.resolveModel(ctx, modelConfig)
 	if err != nil {
 		return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
 	}
 	if modelRuntime.HasUnsupportedVolumes {
-		return nil, legacy.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+		return nil, newValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 
 	instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
@@ -96,7 +91,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	secretHashes := append([]byte(nil), modelRuntime.SecretHash...)
 	for _, binding := range template.Spec.Tools {
 		if binding.MCP == nil {
-			return nil, legacy.NewValidationError("tool binding must select an MCP server")
+			return nil, newValidationError("tool binding must select an MCP server")
 		}
 		ref := &v1alpha3.McpServerTool{
 			TypedReference: v1alpha3.TypedReference{
@@ -110,14 +105,14 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
 		}
-		if err := c.legacy.AddRemoteMCPServer(ctx, cfg, modelRuntime, server, ref, headers, c.mcpEgressPlaintext); err != nil {
+		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, ref, headers); err != nil {
 			return nil, fmt.Errorf("compile %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
 		}
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
 		secretHashes = append(secretHashes, hash...)
 	}
 	if modelRuntime.HasUnsupportedVolumes {
-		return nil, legacy.NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
+		return nil, newValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 
 	if template.Spec.PromptTemplate != nil {
@@ -284,7 +279,7 @@ func (c *Compiler) resolveAgentTemplateMCPServer(ctx context.Context, namespace 
 		server.Spec.HeadersFrom = nil
 		return server, headers, environment, hashes, nil
 	default:
-		return nil, nil, nil, nil, legacy.NewValidationError("unsupported MCP server kind %q", ref.Kind)
+		return nil, nil, nil, nil, newValidationError("unsupported MCP server kind %q", ref.Kind)
 	}
 }
 
