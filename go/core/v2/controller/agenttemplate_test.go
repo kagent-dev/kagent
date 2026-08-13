@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	agenttranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	"github.com/kagent-dev/kagent/go/core/v2/store"
 	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
@@ -20,19 +20,19 @@ import (
 )
 
 type revisionStore struct {
-	attachment store.AgentTemplateAttachment
-	revision   store.RuntimeRevision
+	attachment dbpkg.AgentTemplateAttachment
+	revision   dbpkg.RuntimeRevision
 }
 
-func (s *revisionStore) UpsertAgentTemplateAttachment(_ context.Context, value store.AgentTemplateAttachment) error {
+func (s *revisionStore) UpsertAgentTemplateAttachment(_ context.Context, value dbpkg.AgentTemplateAttachment) error {
 	s.attachment = value
 	return nil
 }
-func (s *revisionStore) UpsertRuntimeRevision(_ context.Context, value store.RuntimeRevision) error {
+func (s *revisionStore) UpsertRuntimeRevision(_ context.Context, value dbpkg.RuntimeRevision) error {
 	s.revision = value
 	return nil
 }
-func (s *revisionStore) MarkRuntimeRevisionSuccessful(_ context.Context, value store.AgentTemplateAttachment) error {
+func (s *revisionStore) MarkRuntimeRevisionSuccessful(_ context.Context, value dbpkg.AgentTemplateAttachment) error {
 	s.attachment = value
 	return nil
 }
@@ -45,7 +45,7 @@ func (*revisionStore) RetireHarnessAttachment(context.Context, string, string, s
 func (*revisionStore) RetireOtherHarnessAttachments(context.Context, string, string, []string) error {
 	return nil
 }
-func (*revisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]store.RuntimeRevisionRef, error) {
+func (*revisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevisionRef, error) {
 	return nil, nil
 }
 func (*revisionStore) DeleteUnreferencedRuntimeRevision(context.Context, string) error { return nil }
@@ -102,7 +102,7 @@ func TestAgentTemplateControllerKeepsLastSuccessUntilActorTemplateReady(t *testi
 		t.Fatal("pending revision replaced latest successful revision")
 	}
 	runtimeTemplate := &atev1alpha1.ActorTemplate{}
-	if err := kube.Get(context.Background(), types.NamespacedName{Namespace: "agents", Name: revisionStore.revision.ActorTemplate.Name}, runtimeTemplate); err != nil {
+	if err := kube.Get(context.Background(), types.NamespacedName{Namespace: "agents", Name: revisionStore.revision.ActorTemplateName}, runtimeTemplate); err != nil {
 		t.Fatal(err)
 	}
 	runtimeTemplate.Status.Phase = atev1alpha1.PhaseReady

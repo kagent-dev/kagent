@@ -10,9 +10,10 @@ import (
 	"time"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
+	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	legacytranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	"github.com/kagent-dev/kagent/go/core/v2/store"
+	"github.com/kagent-dev/kagent/go/core/v2/revision"
 	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
@@ -41,7 +42,18 @@ type AgentTemplateController struct {
 	Client     client.Client
 	Translator *v2translator.Compiler
 	Lifecycle  *substrate.Lifecycle
-	Store      store.RuntimeRevisionStore
+	Store      runtimeRevisionStore
+}
+
+type runtimeRevisionStore interface {
+	UpsertAgentTemplateAttachment(context.Context, dbpkg.AgentTemplateAttachment) error
+	UpsertRuntimeRevision(context.Context, dbpkg.RuntimeRevision) error
+	MarkRuntimeRevisionSuccessful(context.Context, dbpkg.AgentTemplateAttachment) error
+	RetireAgentTemplateAttachments(context.Context, string, string) error
+	RetireHarnessAttachment(context.Context, string, string, string) error
+	RetireOtherHarnessAttachments(context.Context, string, string, []string) error
+	ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevisionRef, error)
+	DeleteUnreferencedRuntimeRevision(context.Context, string) error
 }
 
 func (r *AgentTemplateController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -109,11 +121,14 @@ func (r *AgentTemplateController) cleanupUnreferencedRevisions(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	for _, revision := range revisions {
-		if err := r.Lifecycle.DeleteActorTemplate(ctx, revision.ActorTemplate); err != nil {
+	for _, stored := range revisions {
+		if err := r.Lifecycle.DeleteActorTemplate(ctx, revision.ActorTemplateRef{
+			Namespace: stored.ActorTemplateNamespace, Name: stored.ActorTemplateName,
+			UID: stored.ActorTemplateUID, Phase: stored.Phase, GoldenSnapshot: stored.GoldenSnapshot,
+		}); err != nil {
 			return err
 		}
-		if err := r.Store.DeleteUnreferencedRuntimeRevision(ctx, revision.Revision); err != nil {
+		if err := r.Store.DeleteUnreferencedRuntimeRevision(ctx, stored.Revision); err != nil {
 			return err
 		}
 	}
@@ -162,7 +177,7 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 		return status, false, err
 	}
 	status.DesiredRevision = revisionID
-	attachment := store.AgentTemplateAttachment{
+	attachment := dbpkg.AgentTemplateAttachment{
 		Namespace: template.Namespace, AgentTemplateName: template.Name, AgentTemplateUID: string(template.UID),
 		HarnessName: harness.Name, HarnessUID: string(harness.UID), DesiredRevision: revisionID,
 	}
@@ -175,10 +190,12 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 		setHarnessFailure(&status, "ProvisioningFailed", err.Error(), v1alpha3.AgentTemplateConditionReady)
 		return status, false, err
 	}
-	if err := r.Store.UpsertRuntimeRevision(ctx, store.RuntimeRevision{
+	if err := r.Store.UpsertRuntimeRevision(ctx, dbpkg.RuntimeRevision{
 		Revision: revisionID, Namespace: template.Namespace, AgentTemplateName: template.Name,
 		AgentTemplateUID: string(template.UID), HarnessName: harness.Name, HarnessUID: string(harness.UID),
-		SourceSnapshot: revisionSpec.SourceSnapshot, EgressDestinations: revisionSpec.EgressDestinations, ActorTemplate: *templateRef,
+		SourceSnapshot: revisionSpec.SourceSnapshot, EgressDestinations: revisionSpec.EgressDestinations,
+		ActorTemplateNamespace: templateRef.Namespace, ActorTemplateName: templateRef.Name,
+		ActorTemplateUID: templateRef.UID, Phase: templateRef.Phase, GoldenSnapshot: templateRef.GoldenSnapshot,
 	}); err != nil {
 		return status, false, err
 	}

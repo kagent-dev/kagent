@@ -242,3 +242,37 @@ type SessionShare struct {
 	ReadOnly  bool      `json:"read_only"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+type AgentTemplateAttachment struct {
+	Namespace         string
+	AgentTemplateName string
+	AgentTemplateUID  string
+	HarnessName       string
+	HarnessUID        string
+	DesiredRevision   string
+}
+
+type RuntimeRevision struct {
+	Revision               string
+	Namespace              string
+	AgentTemplateName      string
+	AgentTemplateUID       string
+	HarnessName            string
+	HarnessUID             string
+	SourceSnapshot         json.RawMessage
+	EgressDestinations     []string
+	ActorTemplateNamespace string
+	ActorTemplateName      string
+	ActorTemplateUID       string
+	Phase                  string
+	GoldenSnapshot         string
+}
+
+type RuntimeRevisionRef struct {
+	Revision               string
+	ActorTemplateNamespace string
+	ActorTemplateName      string
+	ActorTemplateUID       string
+	Phase                  string
+	GoldenSnapshot         string
+}
