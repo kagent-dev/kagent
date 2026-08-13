@@ -216,7 +216,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		if err := r.store.RetireAgentTemplateHarnessPair(ctx, parts[0], parts[1], parts[2]); err != nil {
 			return fmt.Errorf("retire AgentTemplate/Harness pair %s: %w", key, err)
 		}
-		return r.CleanupUnreferencedRevisions(ctx)
+		return r.cleanupUnreferencedRevisions(ctx)
 	}
 	// Retire every historical identity at this stable name. The upsert below
 	// immediately reactivates the exact current UID pair.
@@ -224,7 +224,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		return fmt.Errorf("retire replaced AgentTemplate/Harness pair %s: %w", key, err)
 	}
 	if state.Revision == nil || state.RevisionID.IsZero() {
-		return r.CleanupUnreferencedRevisions(ctx)
+		return r.cleanupUnreferencedRevisions(ctx)
 	}
 
 	pair := dbpkg.AgentTemplateHarnessPair{
@@ -239,7 +239,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		return fmt.Errorf("store AgentTemplate/Harness pair %s: %w", key, err)
 	}
 	if state.Failure != nil {
-		return r.CleanupUnreferencedRevisions(ctx)
+		return r.cleanupUnreferencedRevisions(ctx)
 	}
 	if state.ObservedActorTemplate == nil {
 		_, err := r.actors.ActorTemplates(state.DesiredActorTemplate.Namespace).Create(ctx, state.DesiredActorTemplate.DeepCopy(), metav1.CreateOptions{})
@@ -264,7 +264,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		if err := r.store.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
 			return fmt.Errorf("mark runtime revision %s successful: %w", state.RevisionID, err)
 		}
-		return r.CleanupUnreferencedRevisions(ctx)
+		return r.cleanupUnreferencedRevisions(ctx)
 	}
 	return nil
 }
@@ -286,9 +286,9 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, key string) error {
 	return nil
 }
 
-// CleanupUnreferencedRevisions removes immutable ActorTemplates after their
+// cleanupUnreferencedRevisions removes immutable ActorTemplates after their
 // final pair or AgentInstance database reference has been released.
-func (r *Reconciler) CleanupUnreferencedRevisions(ctx context.Context) error {
+func (r *Reconciler) cleanupUnreferencedRevisions(ctx context.Context) error {
 	revisions, err := r.store.ListUnreferencedRuntimeRevisions(ctx)
 	if err != nil {
 		return fmt.Errorf("list unreferenced runtime revisions: %w", err)
