@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Agent, AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
 import { MemoriesDialog } from "@/components/MemoriesDialog";
+import { SandboxBadge } from "@/components/SandboxBadge";
 import KagentLogo from "@/components/kagent-logo";
 import HermesLogo from "@/components/hermes-logo";
 import OpenClawLogo from "@/components/openclaw-logo";
@@ -19,7 +20,7 @@ import {
 import { countAgentToolBindings } from "@/lib/countAgentTools";
 import { k8sRefUtils } from "@/lib/k8sUtils";
 import { cn } from "@/lib/utils";
-import { ArrowDown, ArrowUp, Brain, Lock, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Brain, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import {
   agentHarnessTypeLabel,
   getAgentHarnessBackend,
@@ -32,14 +33,15 @@ interface AgentListViewProps {
   onAgentsChanged?: () => Promise<void> | void;
 }
 
-type SortKey = "name" | "type" | "providerModel" | "toolCount" | "skillsCount" | "state";
+type SortKey = "name" | "namespace" | "type" | "providerModel" | "toolCount" | "skillsCount" | "state";
 type SortDir = "asc" | "desc";
 
 function countSkills(agent: Agent): number {
   const s = agent.spec?.skills;
   const refs = s?.refs?.length ?? 0;
   const gits = s?.gitRefs?.length ?? 0;
-  return refs + gits;
+  const s3 = s?.s3Refs?.length ?? 0;
+  return refs + gits + s3;
 }
 
 function compareNumbers(a: number, b: number, dir: SortDir): number {
@@ -57,43 +59,26 @@ function baseTypeLabel(type: string | undefined): string {
   }
 }
 
-function SandboxBadge() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span className="inline-flex items-center" aria-label="Sandbox: Agent Substrate">
-          <Lock className="h-3.5 w-3.5 text-muted-foreground/70 hover:text-muted-foreground transition-colors" />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="top">Agent Substrate</TooltipContent>
-    </Tooltip>
-  );
-}
-
 function RowTypeCell({ item }: { item: AgentResponse }) {
   const harnessBackend = getAgentHarnessBackend(item);
   if (harnessBackend) {
     return <span>{agentHarnessTypeLabel(harnessBackend)}</span>;
   }
-  if (item.workloadMode === "sandbox") {
-    return (
-      <span className="inline-flex items-center gap-1.5">
-        {baseTypeLabel(item.agent.spec?.type)}
-        <SandboxBadge />
-      </span>
-    );
-  }
-  return <span>{baseTypeLabel(item.agent.spec?.type)}</span>;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {baseTypeLabel(item.agent.spec?.type)}
+      <SandboxBadge />
+    </span>
+  );
 }
 
 function rowTypeSortKey(item: AgentResponse): string {
   const harnessBackend = getAgentHarnessBackend(item);
   if (harnessBackend) return agentHarnessTypeLabel(harnessBackend);
-  if (item.workloadMode === "sandbox") return `${baseTypeLabel(item.agent.spec?.type)} (sandbox)`;
-  return baseTypeLabel(item.agent.spec?.type);
+  return `${baseTypeLabel(item.agent.spec?.type)} (sandbox)`;
 }
 
-function getStatusInfo(accepted: boolean, deploymentReady: boolean) {
+function getStatusInfo(accepted: boolean, ready: boolean) {
   if (!accepted) {
     return {
       message: "Not accepted",
@@ -101,7 +86,7 @@ function getStatusInfo(accepted: boolean, deploymentReady: boolean) {
       rank: 0,
     };
   }
-  if (!deploymentReady) {
+  if (!ready) {
     return {
       message: "Not ready",
       className: "bg-amber-500/20 text-amber-900 dark:text-amber-200",
@@ -118,7 +103,7 @@ function getStatusInfo(accepted: boolean, deploymentReady: boolean) {
 function providerModelText(item: AgentResponse): string {
   const { agent, model, modelProvider } = item;
   const isBYO = agent.spec?.type === "BYO";
-  const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
+  const byoImage = isBYO ? agent.spec?.byo?.image : undefined;
   if (isBYO) {
     return byoImage ? byoImage : "—";
   }
@@ -131,7 +116,7 @@ function providerModelText(item: AgentResponse): string {
 function ProviderModelCell({ item }: { item: AgentResponse }) {
   const { agent, model, modelProvider } = item;
   const isBYO = agent.spec?.type === "BYO";
-  const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
+  const byoImage = isBYO ? agent.spec?.byo?.image : undefined;
   if (isBYO) {
     return (
       <div className="flex min-w-0 max-w-xs flex-col gap-1">
@@ -170,6 +155,10 @@ function sortAgents(items: AgentResponse[], key: SortKey, dir: SortDir): AgentRe
         const s = (x: Agent) => x.metadata.name || "";
         return compareStrings(s(a), s(b), dir);
       }
+      case "namespace": {
+        const s = (x: Agent) => x.metadata.namespace || "";
+        return compareStrings(s(a), s(b), dir);
+      }
       case "type": {
         return compareStrings(rowTypeSortKey(A), rowTypeSortKey(B), dir);
       }
@@ -183,8 +172,8 @@ function sortAgents(items: AgentResponse[], key: SortKey, dir: SortDir): AgentRe
         return compareNumbers(countSkills(a), countSkills(b), dir);
       }
       case "state": {
-        const ra = getStatusInfo(A.accepted, A.deploymentReady).rank;
-        const rb = getStatusInfo(B.accepted, B.deploymentReady).rank;
+        const ra = getStatusInfo(A.accepted, A.ready).rank;
+        const rb = getStatusInfo(B.accepted, B.ready).rank;
         if (ra !== rb) {
           return dir === "asc" ? ra - rb : rb - ra;
         }
@@ -245,7 +234,7 @@ function SortableTh({ col, label, className, textAlign = "left", sort, onSort }:
 }
 
 function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgentsChanged?: () => Promise<void> | void }) {
-  const { agent, deploymentReady, accepted } = item;
+  const { agent, ready, accepted } = item;
   const router = useRouter();
   const [memoriesOpen, setMemoriesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -255,8 +244,8 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
 
   const name = agent.metadata.name || "";
   const namespace = agent.metadata.namespace || "";
-  const isReady = accepted && deploymentReady;
-  const status = getStatusInfo(accepted, deploymentReady);
+  const isReady = accepted && ready;
+  const status = getStatusInfo(accepted, ready);
   const providerTitle = providerModelText(item);
   const nTools = countAgentToolBindings(item);
   const nSkills = countSkills(agent);
@@ -330,6 +319,9 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
           ) : null}
         </div>
       </td>
+      <td className="px-3 py-3.5 align-middle text-sm text-muted-foreground [overflow-wrap:anywhere]" title="Namespace">
+        {namespace || "—"}
+      </td>
       <td className="px-3 py-3.5 align-middle text-sm text-foreground" title="Agent type">
         <RowTypeCell item={item} />
       </td>
@@ -358,7 +350,7 @@ function AgentListRow({ item, onAgentsChanged }: { item: AgentResponse; onAgents
           <div className="flex items-center justify-end">
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options">
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" aria-label="Agent options" data-testid={`agent-options-${k8sRefUtils.toRef(namespace, name)}`}>
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -447,6 +439,7 @@ export function AgentListView({ agentResponse, onAgentsChanged }: AgentListViewP
         <thead>
           <tr>
             <SortableTh col="name" label="Name" sort={sort} onSort={onSort} />
+            <SortableTh col="namespace" label="Namespace" sort={sort} onSort={onSort} />
             <SortableTh col="type" label="Type" sort={sort} onSort={onSort} />
             <SortableTh col="providerModel" label="Provider / Model" sort={sort} onSort={onSort} />
             <SortableTh col="toolCount" label="Tools" textAlign="right" sort={sort} onSort={onSort} />

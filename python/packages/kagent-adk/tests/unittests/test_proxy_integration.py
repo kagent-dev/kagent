@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 import pytest
-from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.types import PROXY_HOST_HEADER, AgentConfig, OpenAI, RemoteAgentConfig

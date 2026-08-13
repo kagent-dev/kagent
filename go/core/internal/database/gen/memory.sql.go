@@ -140,16 +140,17 @@ func (q *Queries) ListAgentMemories(ctx context.Context, arg ListAgentMemoriesPa
 const searchAgentMemory = `-- name: SearchAgentMemory :many
 SELECT id, agent_name, user_id, content, embedding, metadata, created_at, expires_at, access_count, COALESCE(1 - (embedding <=> $1), 0) AS score
 FROM memory
-WHERE agent_name = $2 AND user_id = $3
+WHERE (agent_name = $2 OR agent_name = $3) AND user_id = $4
 ORDER BY embedding <=> $1 ASC
-LIMIT $4
+LIMIT $5
 `
 
 type SearchAgentMemoryParams struct {
-	Embedding pgvector_go.Vector
-	AgentName *string
-	UserID    *string
-	Limit     int32
+	Embedding   pgvector_go.Vector
+	AgentName   *string
+	AgentName_2 *string
+	UserID      *string
+	Limit       int32
 }
 
 type SearchAgentMemoryRow struct {
@@ -171,6 +172,7 @@ func (q *Queries) SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryPa
 	rows, err := q.db.Query(ctx, searchAgentMemory,
 		arg.Embedding,
 		arg.AgentName,
+		arg.AgentName_2,
 		arg.UserID,
 		arg.Limit,
 	)

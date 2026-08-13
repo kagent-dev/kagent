@@ -22,6 +22,8 @@ func TestBedrockStopReasonToGenai(t *testing.T) {
 		{name: "end turn", reason: types.StopReasonEndTurn, expected: genai.FinishReasonStop},
 		{name: "stop sequence", reason: types.StopReasonStopSequence, expected: genai.FinishReasonStop},
 		{name: "tool use", reason: types.StopReasonToolUse, expected: genai.FinishReasonStop},
+		{name: "guardrail intervened", reason: types.StopReasonGuardrailIntervened, expected: genai.FinishReasonSafety},
+		{name: "content filtered", reason: types.StopReasonContentFiltered, expected: genai.FinishReasonSafety},
 		{name: "unknown", reason: types.StopReason("unknown"), expected: genai.FinishReasonStop},
 	}
 	for _, tt := range tests {
@@ -184,6 +186,44 @@ func TestConvertGenaiContentsToBedrockMessages(t *testing.T) {
 				tt.checkMsg(t, msgs)
 			}
 		})
+	}
+}
+
+// TestConvertGenaiContentsNoArgToolInput verifies that a tool call with no
+// arguments serializes toolUse.input as an empty JSON object rather than null.
+// A no-argument FunctionCall arrives here with a nil Args map because genai's
+// FunctionCall.Args is `json:"args,omitempty"`, so the empty map is dropped when
+// the event is persisted to the session store and reloaded. Bedrock Converse
+// rejects a null input with "ValidationException: Malformed input request"
+// ("The value at messages.N.content.M.toolUse.input is empty").
+func TestConvertGenaiContentsNoArgToolInput(t *testing.T) {
+	for _, args := range []map[string]any{nil, {}} {
+		contents := []*genai.Content{
+			{
+				Role: "model",
+				Parts: []*genai.Part{
+					{FunctionCall: &genai.FunctionCall{ID: "call_noargs", Name: "datetime_get_current_time", Args: args}},
+				},
+			},
+		}
+		msgs, _ := convertGenaiContentsToBedrockMessages(contents, nil, nil)
+		if len(msgs) != 1 || len(msgs[0].Content) != 1 {
+			t.Fatalf("args=%v: expected 1 message with 1 content block, got %d messages", args, len(msgs))
+		}
+		tu, ok := msgs[0].Content[0].(*types.ContentBlockMemberToolUse)
+		if !ok {
+			t.Fatalf("args=%v: want *ContentBlockMemberToolUse, got %T", args, msgs[0].Content[0])
+		}
+		if tu.Value.Input == nil {
+			t.Fatalf("args=%v: toolUse.Input is nil; Bedrock requires a JSON object", args)
+		}
+		got := documentToMap(tu.Value.Input)
+		if got == nil {
+			t.Fatalf("args=%v: toolUse.Input serialized to null; want an empty JSON object {}", args)
+		}
+		if len(got) != 0 {
+			t.Errorf("args=%v: expected empty input object, got %v", args, got)
+		}
 	}
 }
 
@@ -774,6 +814,75 @@ func TestConvertGenaiToolsToBedrockPromptCaching(t *testing.T) {
 		out, _ := convertGenaiToolsToBedrock(nil, true, "")
 		if len(out) != 0 {
 			t.Fatalf("expected empty slice for no tools, got %d entries", len(out))
+		}
+	})
+}
+
+func TestBedrockGuardrailConfig(t *testing.T) {
+	t.Run("no identifier returns nil", func(t *testing.T) {
+		if got := bedrockGuardrailConfig(&BedrockConfig{}); got != nil {
+			t.Fatalf("expected nil guardrail config, got %+v", got)
+		}
+	})
+
+	t.Run("identifier set builds config", func(t *testing.T) {
+		got := bedrockGuardrailConfig(&BedrockConfig{
+			GuardrailIdentifier: "gr-123",
+			GuardrailVersion:    "2",
+			GuardrailTrace:      "enabled",
+		})
+		if got == nil {
+			t.Fatal("expected non-nil guardrail config")
+		}
+		if got.GuardrailIdentifier == nil || *got.GuardrailIdentifier != "gr-123" {
+			t.Errorf("GuardrailIdentifier = %v, want gr-123", got.GuardrailIdentifier)
+		}
+		if got.GuardrailVersion == nil || *got.GuardrailVersion != "2" {
+			t.Errorf("GuardrailVersion = %v, want 2", got.GuardrailVersion)
+		}
+		if got.Trace != types.GuardrailTraceEnabled {
+			t.Errorf("Trace = %q, want %q", got.Trace, types.GuardrailTraceEnabled)
+		}
+	})
+
+	t.Run("empty trace maps to zero value", func(t *testing.T) {
+		got := bedrockGuardrailConfig(&BedrockConfig{
+			GuardrailIdentifier: "gr-123",
+			GuardrailVersion:    "1",
+		})
+		if got.Trace != types.GuardrailTrace("") {
+			t.Errorf("Trace = %q, want empty", got.Trace)
+		}
+	})
+}
+
+func TestBedrockGuardrailStreamConfig(t *testing.T) {
+	t.Run("no identifier returns nil", func(t *testing.T) {
+		if got := bedrockGuardrailStreamConfig(&BedrockConfig{}); got != nil {
+			t.Fatalf("expected nil guardrail stream config, got %+v", got)
+		}
+	})
+
+	t.Run("identifier set builds sync stream config", func(t *testing.T) {
+		got := bedrockGuardrailStreamConfig(&BedrockConfig{
+			GuardrailIdentifier: "gr-abc",
+			GuardrailVersion:    "DRAFT",
+			GuardrailTrace:      "enabled_full",
+		})
+		if got == nil {
+			t.Fatal("expected non-nil guardrail stream config")
+		}
+		if got.GuardrailIdentifier == nil || *got.GuardrailIdentifier != "gr-abc" {
+			t.Errorf("GuardrailIdentifier = %v, want gr-abc", got.GuardrailIdentifier)
+		}
+		if got.GuardrailVersion == nil || *got.GuardrailVersion != "DRAFT" {
+			t.Errorf("GuardrailVersion = %v, want DRAFT", got.GuardrailVersion)
+		}
+		if got.Trace != types.GuardrailTraceEnabledFull {
+			t.Errorf("Trace = %q, want %q", got.Trace, types.GuardrailTraceEnabledFull)
+		}
+		if got.StreamProcessingMode != types.GuardrailStreamProcessingModeSync {
+			t.Errorf("StreamProcessingMode = %q, want %q", got.StreamProcessingMode, types.GuardrailStreamProcessingModeSync)
 		}
 	})
 }

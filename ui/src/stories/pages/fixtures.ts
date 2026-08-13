@@ -6,9 +6,11 @@ export function createStoryAgentsContext(overrides: Partial<AgentsContextType>):
   const base: AgentsContextType = {
     agents: [],
     models: [],
+    modelsLoaded: true,
     loading: false,
     error: "",
     tools: [],
+    toolsLoaded: true,
     refreshAgents: async () => {},
     refreshModels: async () => {},
     refreshTools: async () => {},
@@ -39,7 +41,7 @@ export const storyAgentResponses: AgentResponse[] = [
         mcpServer: { name: "cluster-tools", namespace: "kagent", toolNames: ["kubectl_get"] },
       },
     ],
-    deploymentReady: true,
+    ready: true,
     accepted: true,
   },
   {
@@ -55,7 +57,7 @@ export const storyAgentResponses: AgentResponse[] = [
     modelProvider: "anthropic",
     modelConfigRef: "team-a/anthropic",
     tools: [],
-    deploymentReady: false,
+    ready: false,
     accepted: true,
   },
 ];

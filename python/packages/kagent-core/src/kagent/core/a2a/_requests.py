@@ -1,10 +1,12 @@
 import logging
 
+import grpc
 from a2a.auth.user import User
 from a2a.server.agent_execution import RequestContext, SimpleRequestContextBuilder
 from a2a.server.context import ServerCallContext
+from a2a.server.request_handlers.grpc_handler import DefaultGrpcServerCallContextBuilder
 from a2a.server.tasks import TaskStore
-from a2a.types import MessageSendParams, Task
+from a2a.types import SendMessageRequest, Task
 
 from ._context import set_request_user_id
 
@@ -27,6 +29,27 @@ class KAgentUser(User):
         return self.user_id
 
 
+def _apply_kagent_headers(context: ServerCallContext) -> None:
+    headers = context.state.get("headers", {})
+    user_id = headers.get("x-user-id")
+    if user_id:
+        context.user = KAgentUser(user_id=user_id)
+        set_request_user_id(user_id)
+    source = headers.get("x-kagent-source")
+    if source:
+        context.state["kagent_source"] = source
+
+
+class KAgentGrpcServerCallContextBuilder(DefaultGrpcServerCallContextBuilder):
+    """Preserve gateway metadata in upstream A2A gRPC call contexts."""
+
+    def build(self, context: grpc.aio.ServicerContext) -> ServerCallContext:
+        call_context = super().build(context)
+        call_context.state["headers"] = {key.lower(): value for key, value in context.invocation_metadata()}
+        _apply_kagent_headers(call_context)
+        return call_context
+
+
 class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
     """
     A request context builder that will be used to hack in the user_id for now.
@@ -37,23 +60,19 @@ class KAgentRequestContextBuilder(SimpleRequestContextBuilder):
 
     async def build(
         self,
-        params: MessageSendParams | None = None,
+        context: ServerCallContext,
+        params: SendMessageRequest | None = None,
         task_id: str | None = None,
         context_id: str | None = None,
         task: Task | None = None,
-        context: ServerCallContext | None = None,
     ) -> RequestContext:
         if context:
-            headers = context.state.get("headers", {})
-            # Extract the authenticated user ID forwarded by the parent agent
-            user_id = headers.get("x-user-id", None)
-            if user_id:
-                context.user = KAgentUser(user_id=user_id)
-                set_request_user_id(user_id)
-            # Propagate x-kagent-source so downstream code (e.g. session
-            # creation) can tag this session as agent-originated.
-            source = headers.get("x-kagent-source", None)
-            if source:
-                context.state["kagent_source"] = source
-        request_context = await super().build(params, task_id, context_id, task, context)
+            _apply_kagent_headers(context)
+        request_context = await super().build(
+            context=context,
+            params=params,
+            task_id=task_id,
+            context_id=context_id,
+            task=task,
+        )
         return request_context

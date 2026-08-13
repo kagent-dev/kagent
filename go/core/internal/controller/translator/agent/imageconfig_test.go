@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestImageConfigImage(t *testing.T) {
@@ -131,8 +131,13 @@ func TestResolvePythonRuntimeImageWithoutDigest(t *testing.T) {
 
 func TestResolveRuntimeImageByTag(t *testing.T) {
 	originalTag := DefaultImageConfig.Tag
-	t.Cleanup(func() { DefaultImageConfig.Tag = originalTag })
+	originalGoTag := DefaultGoImageConfig.Tag
+	t.Cleanup(func() {
+		DefaultImageConfig.Tag = originalTag
+		DefaultGoImageConfig.Tag = originalGoTag
+	})
 	DefaultImageConfig.Tag = "v9.9.9"
+	DefaultGoImageConfig.Tag = "v8.8.8"
 
 	got, err := resolvePythonRuntimeImage("my-registry.example.com", false, false)
 	require.NoError(t, err)
@@ -144,11 +149,11 @@ func TestResolveRuntimeImageByTag(t *testing.T) {
 
 	got, err = resolveGoRuntimeImage("my-registry.example.com", false, false)
 	require.NoError(t, err)
-	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v9.9.9", got)
+	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v8.8.8", got)
 
 	got, err = resolveGoRuntimeImage("my-registry.example.com", true, false)
 	require.NoError(t, err)
-	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v9.9.9-full", got)
+	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v8.8.8-full", got)
 }
 
 func TestResolveRuntimeImageByTagIgnoresMissingDigest(t *testing.T) {
@@ -165,18 +170,12 @@ func TestResolveInlineDeploymentImagePinning(t *testing.T) {
 	t.Cleanup(func() { PythonADKImageDigest = original })
 	PythonADKImageDigest = "sha256:pin-test"
 
-	spec := v1alpha2.AgentSpec{
-		Type:        v1alpha2.AgentType_Declarative,
-		Declarative: &v1alpha2.DeclarativeAgentSpec{SystemMessage: "test", ModelConfig: "test-model"},
+	spec := v1alpha3.AgentSpec{
+		Type:        v1alpha3.AgentType_Declarative,
+		Declarative: &v1alpha3.DeclarativeAgentSpec{SystemMessage: "test", ModelConfig: "test-model"},
 	}
 
-	regular := &v1alpha2.Agent{Spec: spec}
-	dep, err := resolveInlineDeployment(regular, &modelDeploymentData{})
-	require.NoError(t, err)
-	require.NotContains(t, dep.Image, "@sha256:", "regular agents reference images by tag")
-	require.Contains(t, dep.Image, ":"+DefaultImageConfig.Tag)
-
-	sandbox := &v1alpha2.SandboxAgent{Spec: v1alpha2.SandboxAgentSpec{AgentSpec: spec}}
+	sandbox := &v1alpha3.SandboxAgent{Spec: spec}
 	sdep, err := resolveInlineDeployment(sandbox, &modelDeploymentData{})
 	require.NoError(t, err)
 	require.Contains(t, sdep.Image, "@sha256:pin-test", "sandbox agents require digest-pinned images (Substrate rejects tag refs)")

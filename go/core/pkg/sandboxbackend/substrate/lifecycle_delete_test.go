@@ -7,7 +7,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -51,7 +51,7 @@ func TestLifecycleCleanupGeneratedTemplate_DeletesGoldenActor(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 
 	ns := "kagent"
@@ -64,7 +64,7 @@ func TestLifecycleCleanupGeneratedTemplate_DeletesGoldenActor(t *testing.T) {
 			Phase:         atev1alpha1.PhaseReady,
 		},
 	}
-	ah := &v1alpha2.AgentHarness{
+	ah := &v1alpha3.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "peterj-claw",
 			Namespace: ns,

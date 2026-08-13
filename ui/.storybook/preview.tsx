@@ -1,5 +1,4 @@
 import type { Preview } from '@storybook/nextjs-vite'
-import { worker } from '../src/mocks/browser'
 import React, { ReactNode } from 'react'
 import '../src/app/globals.css'
 import { AgentsContext } from '../src/components/AgentsProvider'
@@ -35,9 +34,6 @@ function MockAgentsProvider({ children, value }: MockAgentsProviderProps) {
 }
 
 const preview: Preview = {
-  beforeAll: async () => {
-    await worker.start({ onUnhandledRequest: 'bypass' });
-  },
   parameters: {
     nextjs: {
       appDirectory: true,

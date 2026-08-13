@@ -11,16 +11,17 @@ import logging
 import os
 from collections.abc import Callable
 
-import httpx
-from a2a.server.apps import A2AFastAPIApplication
-from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.request_handlers import DefaultRequestHandlerV2
+from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from agents import Agent, set_default_openai_api, set_default_openai_client, set_tracing_disabled
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
-from kagent.core import KAgentConfig, configure_tracing
+from google.protobuf.json_format import ParseDict
+from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig, configure_tracing
 from kagent.core.a2a import (
+    A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
     get_a2a_max_content_length,
@@ -52,8 +53,6 @@ def thread_dump(request: Request) -> PlainTextResponse:
         return PlainTextResponse(tmp.read())
 
 
-# Environment variables
-kagent_url_override = os.getenv("KAGENT_URL")
 sts_well_known_uri = os.getenv("STS_WELL_KNOWN_URI")
 
 
@@ -78,13 +77,40 @@ def _configure_openai_client() -> None:
         logger.info(f"Configured OpenAI client with base URL: {openai_api_base}")
 
 
+def _configure_openai_agents_tracing() -> None:
+    """Export OpenAI Agents SDK traces through OpenTelemetry only.
+
+    The SDK's built-in processor POSTs to a hardcoded https://api.openai.com/v1/traces/ingest
+    using OPENAI_API_KEY, ignoring OPENAI_API_BASE, so agents behind an OpenAI-compatible
+    gateway (Azure AI Foundry, LiteLLM, ...) send that gateway's key to OpenAI and get 401s.
+    The instrumentor adds its processor alongside that one, and set_tracing_disabled(True)
+    would silence the OpenTelemetry spans too, so drop the built-in processor instead.
+
+    KAGENT_OPENAI_AGENTS_NATIVE_TRACING=true keeps it, for real OpenAI platform keys.
+    """
+    keep_native = os.getenv("KAGENT_OPENAI_AGENTS_NATIVE_TRACING", "false").strip().lower() == "true"
+    if keep_native:
+        logger.info("Keeping the OpenAI Agents SDK native trace exporter alongside OpenTelemetry")
+    else:
+        logger.info("Disabling the OpenAI Agents SDK native trace exporter; traces are exported via OpenTelemetry")
+
+    OpenAIAgentsInstrumentor(replace_existing_processors=not keep_native).instrument()
+
+    if os.getenv("OPENAI_AGENTS_DISABLE_TRACING", "false").strip().lower() in ("true", "1"):
+        logger.warning(
+            "OPENAI_AGENTS_DISABLE_TRACING is set, which switches off the Agents SDK tracing that the "
+            "OpenTelemetry instrumentation feeds on, so no agent spans will be exported. Unset it and rely "
+            "on KAGENT_OPENAI_AGENTS_NATIVE_TRACING=false (the default) to keep traces away from OpenAI."
+        )
+
+
 class KAgentApp:
     """FastAPI application builder for OpenAI Agents SDK with KAgent integration."""
 
     def __init__(
         self,
         agent: Agent | Callable[[], Agent],
-        agent_card: AgentCard,
+        agent_card: AgentCard | dict,
         config: KAgentConfig,
         executor_config: OpenAIAgentExecutorConfig | None = None,
         tracing: bool = True,
@@ -93,13 +119,12 @@ class KAgentApp:
 
         Args:
             agent: OpenAI Agent instance or factory function
-            agent_card: A2A agent card describing the agent's capabilities
-            kagent_url: URL of the KAgent backend server
-            app_name: Application name for identification
-            config: Optional executor configuration
+            agent_card: A2A agent card, either protobuf or plain dict form
+            config: KAgent configuration
+            executor_config: Optional executor configuration
         """
         self.agent = agent
-        self.agent_card = AgentCard.model_validate(agent_card)
+        self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
         self.config = config
         self.executor_config = executor_config or OpenAIAgentExecutorConfig()
         self.tracing = tracing
@@ -109,7 +134,7 @@ class KAgentApp:
 
         This creates an application that:
         - Uses KAgentSessionFactory for session management
-        - Connects to KAgent backend via REST API
+        - Connects to the KAgent backend via generated gRPC clients
         - Implements A2A protocol handlers
         - Includes health check endpoints
 
@@ -118,14 +143,15 @@ class KAgentApp:
         """
         _configure_openai_client()
 
-        # Create HTTP client with KAgent backend
-        http_client = httpx.AsyncClient(
-            base_url=kagent_url_override or self.config.kagent_url,
+        controller_client = AsyncControllerClient(
+            self.config.grpc_url,
+            agent_name=self.config.app_name,
+            token_provider=AsyncFileTokenProvider(),
         )
 
         # Create session factory
         session_factory = KAgentSessionFactory(
-            client=http_client,
+            client=controller_client,
             app_name=self.config.app_name,
         )
 
@@ -138,55 +164,58 @@ class KAgentApp:
         )
 
         # Create KAgent task store
-        kagent_task_store = KAgentTaskStore(http_client)
+        kagent_task_store = KAgentTaskStore(controller_client)
 
         # Create request context builder and handler
         request_context_builder = KAgentRequestContextBuilder(task_store=kagent_task_store)
-        request_handler = DefaultRequestHandler(
+        request_handler = DefaultRequestHandlerV2(
             agent_executor=agent_executor,
             task_store=kagent_task_store,
-            request_context_builder=request_context_builder,
-        )
-
-        # Create A2A FastAPI application
-        max_content_length = get_a2a_max_content_length()
-        a2a_app = A2AFastAPIApplication(
             agent_card=self.agent_card,
-            http_handler=request_handler,
-            max_content_length=max_content_length,
+            request_context_builder=request_context_builder,
         )
 
         # Enable fault handler
         faulthandler.enable()
 
         # Create FastAPI app with lifespan
-        app = FastAPI()
+        app = FastAPI(lifespan=controller_client.lifespan())
+        app.add_middleware(
+            A2ARequestSizeLimitMiddleware,
+            max_content_length=get_a2a_max_content_length(),
+        )
 
         if self.tracing:
             try:
-                # Set OpenAI tracing disabled and set custom OTEL tracing to be enabled
+                # OpenAIAgentsInstrumentor (below) covers OpenAI; skip the low-level
+                # OpenAIInstrumentor, whose SDK monkeypatch breaks Agents SDK streaming.
                 logger.info("Configuring tracing for KAgent OpenAI app")
-                configure_tracing(self.config.name, self.config.namespace, app)
-
-                # Configure tracing for OpenAI Agents SDK
-                tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
-                if tracing_enabled:
-                    logger.info("Enabling OpenAI Agents SDK tracing")
-                    OpenAIAgentsInstrumentor().instrument()
-                else:
-                    logger.info("Disabling OpenAI Agents SDK tracing")
-                    set_tracing_disabled(True)
-
+                configure_tracing(self.config.name, self.config.namespace, app, instrument_openai_client=False)
                 logger.info("Tracing configured for KAgent OpenAI app")
             except Exception as e:
                 logger.error(f"Failed to configure tracing: {e}")
+
+            try:
+                tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
+                if tracing_enabled:
+                    logger.info("Enabling OpenAI Agents SDK tracing")
+                    _configure_openai_agents_tracing()
+                else:
+                    logger.info("Disabling OpenAI Agents SDK tracing")
+                    set_tracing_disabled(True)
+            except Exception as e:
+                logger.error(f"Failed to configure OpenAI Agents SDK tracing: {e}")
 
         # Add health check endpoints
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
 
         # Add A2A routes
-        a2a_app.add_routes_to_app(app)
+        add_a2a_routes_to_fastapi(
+            app,
+            agent_card_routes=create_agent_card_routes(self.agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+        )
 
         return app
 
@@ -215,18 +244,11 @@ class KAgentApp:
 
         # Create request context builder and handler
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandler(
+        request_handler = DefaultRequestHandlerV2(
             agent_executor=agent_executor,
             task_store=task_store,
-            request_context_builder=request_context_builder,
-        )
-
-        # Create A2A FastAPI application
-        max_content_length = get_a2a_max_content_length()
-        a2a_app = A2AFastAPIApplication(
             agent_card=self.agent_card,
-            http_handler=request_handler,
-            max_content_length=max_content_length,
+            request_context_builder=request_context_builder,
         )
 
         # Enable fault handler
@@ -234,13 +256,21 @@ class KAgentApp:
 
         # Create FastAPI app
         app = FastAPI()
+        app.add_middleware(
+            A2ARequestSizeLimitMiddleware,
+            max_content_length=get_a2a_max_content_length(),
+        )
 
         # Add health check endpoints
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
 
         # Add A2A routes
-        a2a_app.add_routes_to_app(app)
+        add_a2a_routes_to_fastapi(
+            app,
+            agent_card_routes=create_agent_card_routes(self.agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+        )
 
         return app
 

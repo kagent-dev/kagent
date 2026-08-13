@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 
@@ -6,7 +7,6 @@ from opentelemetry import _logs, trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
-from opentelemetry.sdk._events import EventLoggerProvider
 from opentelemetry.sdk._logs import LoggerProvider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.resources import Resource
@@ -81,13 +81,13 @@ def _resolve_otlp_timeout_seconds(signal: str) -> float:
     return timeout_millis / 1000.0
 
 
-def _instrument_anthropic(event_logger_provider=None):
+def _instrument_anthropic(logger_provider=None):
     """Instrument Anthropic SDK if available."""
     try:
         from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
 
-        if event_logger_provider:
-            AnthropicInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
+        if logger_provider:
+            AnthropicInstrumentor(use_legacy_attributes=False).instrument(logger_provider=logger_provider)
         else:
             AnthropicInstrumentor().instrument()
     except ImportError:
@@ -95,18 +95,129 @@ def _instrument_anthropic(event_logger_provider=None):
         pass
 
 
-def _instrument_google_generativeai():
+def _instrument_google_generativeai(logger_provider=None):
     """Instrument Google GenerativeAI SDK if available."""
     try:
         from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
 
-        GoogleGenerativeAiInstrumentor().instrument()
+        if logger_provider:
+            GoogleGenerativeAiInstrumentor(use_legacy_attributes=False).instrument(logger_provider=logger_provider)
+        else:
+            GoogleGenerativeAiInstrumentor().instrument()
     except ImportError:
         # Google GenerativeAI SDK is not installed; skipping instrumentation.
         pass
 
 
-def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: FastAPI | None = None):
+def _resolve_flush_timeout_millis() -> int:
+    """Resolve KAGENT_TRACE_FLUSH_TIMEOUT_MS, falling back to 3000ms when unset or invalid."""
+    raw = os.getenv("KAGENT_TRACE_FLUSH_TIMEOUT_MS")
+    if raw is None:
+        return 3000
+    try:
+        timeout_millis = int(raw)
+    except ValueError:
+        timeout_millis = -1
+    if timeout_millis <= 0:
+        logging.warning("Invalid KAGENT_TRACE_FLUSH_TIMEOUT_MS value %r; falling back to 3000ms", raw)
+        return 3000
+    return timeout_millis
+
+
+def force_flush(timeout_millis: int | None = None) -> None:
+    """Export any spans still buffered in the tracer provider's batch processor.
+
+    Call before a response completes when the process may be suspended right
+    afterwards: Agent Substrate checkpoints the actor as soon as the A2A
+    response body closes, so unexported spans stay frozen in the snapshot
+    until the session's next resume (or forever, for a session's last
+    message). No-op when the provider has no force_flush (tracing disabled).
+    The timeout defaults to 3000ms, configurable via
+    KAGENT_TRACE_FLUSH_TIMEOUT_MS.
+    """
+    if timeout_millis is None:
+        timeout_millis = _resolve_flush_timeout_millis()
+    provider = trace.get_tracer_provider()
+    flush = getattr(provider, "force_flush", None)
+    if flush is None:
+        return
+    try:
+        flush(timeout_millis)
+    except Exception:
+        logging.warning("Failed to flush pending spans", exc_info=True)
+
+
+# High-frequency probe endpoints with nothing worth flushing.
+_FLUSH_EXCLUDED_PATHS = frozenset({"/health", "/healthz", "/thread_dump"})
+
+
+def _should_flush(scope) -> bool:
+    if scope.get("type") != "http":
+        return False
+    path = scope.get("path", "")
+    return path not in _FLUSH_EXCLUDED_PATHS and not path.endswith("/.well-known/agent-card.json")
+
+
+def _add_post_response_flush(app: FastAPI) -> None:
+    """Flush buffered spans before each response completes: on Agent Substrate
+    the actor is checkpointed as soon as the response body closes, discarding
+    any unexported spans when the session uses a data-only snapshot.
+
+    Hold the terminal ASGI message outside the OTel middleware. This lets OTel
+    end the inbound server span, then flushes before the client receives the
+    response terminator and triggers suspension.
+    """
+    inner_build = app.build_middleware_stack
+
+    def build_middleware_stack():
+        inner = inner_build()
+
+        async def flushing_app(scope, receive, send):
+            if not _should_flush(scope):
+                await inner(scope, receive, send)
+                return
+
+            terminal_message = None
+            expecting_trailers = False
+
+            async def hold_terminal_message(message):
+                nonlocal expecting_trailers, terminal_message
+                message_type = message.get("type")
+                if message_type == "http.response.start":
+                    expecting_trailers = message.get("trailers", False)
+                is_terminal = (
+                    message_type == "http.response.body"
+                    and not expecting_trailers
+                    and not message.get("more_body", False)
+                ) or (message_type == "http.response.trailers" and not message.get("more_trailers", False))
+                if is_terminal:
+                    terminal_message = message
+                else:
+                    await send(message)
+
+            try:
+                await inner(scope, receive, hold_terminal_message)
+            finally:
+                # Always forward a held terminal message — even when the app
+                # raises after producing it — or the client never receives the
+                # response terminator.
+                if terminal_message is not None:
+                    try:
+                        await asyncio.to_thread(force_flush)
+                    finally:
+                        await send(terminal_message)
+
+        return flushing_app
+
+    app.build_middleware_stack = build_middleware_stack
+
+
+def configure(
+    name: str = "kagent",
+    namespace: str = "kagent",
+    fastapi_app: FastAPI | None = None,
+    instrument_openai_client: bool = True,
+):
     """Configure OpenTelemetry tracing and logging for this service.
 
     This sets up OpenTelemetry providers and exporters for tracing and logging,
@@ -117,11 +228,18 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
         namespace: logical namespace for the service (used as ``service.namespace``). Default is "kagent".
         fastapi_app: Optional FastAPI application instance to instrument. If
             provided and tracing is enabled, FastAPI routes will be instrumented.
+        instrument_openai_client: Install the low-level ``OpenAIInstrumentor``. Set
+            ``False`` when a higher-level instrumentor already covers OpenAI (e.g. the
+            Agents SDK's ``OpenAIAgentsInstrumentor``); double-wrapping the OpenAI SDK
+            breaks the Agents SDK streaming Responses path.
     """
     tracing_enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() == "true"
     logging_enabled = os.getenv("OTEL_LOGGING_ENABLED", "false").lower() == "true"
 
-    resource = Resource({"service.name": name, "service.namespace": namespace})
+    # Resource.create merges in OTEL_RESOURCE_ATTRIBUTES and the telemetry.sdk.*
+    # attributes; the bare constructor drops both, so deployment.environment.name,
+    # service.version and friends never reach the backend.
+    resource = Resource.create({"service.name": name, "service.namespace": namespace})
 
     # Configure tracing if enabled
     if tracing_enabled:
@@ -158,11 +276,21 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
 
         # Exclude agent-card endpoint from traces — this is used as a health
         # check endpoint (high-frequency polling requests) and has little
-        # diagnostic value.
+        # diagnostic value. Inbound only: HTTPXClientInstrumentor accepts no
+        # excluded_urls kwarg (newer releases read OTEL_PYTHON_HTTPX_EXCLUDED_URLS
+        # instead), so passing one here was silently dropped.
         _excluded_urls = ".*/\\.well-known/agent-card\\.json"
-        HTTPXClientInstrumentor().instrument(excluded_urls=_excluded_urls)
+        HTTPXClientInstrumentor().instrument()
         if fastapi_app:
             FastAPIInstrumentor().instrument_app(fastapi_app, excluded_urls=_excluded_urls)
+            # Pre-response flushing is opt-in (the controller sets this on Agent
+            # Substrate actors): a checkpoint/suspend runtime freezes as soon as
+            # the response body closes, making this the only reliable export
+            # window. Everywhere else the batch exporter's timer suffices, and a
+            # per-request flush would only add export churn and, during a
+            # collector outage, response-tail latency.
+            if os.getenv("KAGENT_PRE_RESPONSE_TRACE_FLUSH", "").strip().lower() == "true":
+                _add_post_response_flush(fastapi_app)
     # Configure logging if enabled
     if logging_enabled:
         logging.info("Enabling logging for GenAI events")
@@ -189,13 +317,15 @@ def configure(name: str = "kagent", namespace: str = "kagent", fastapi_app: Fast
         logging.info("Log provider configured with OTLP")
         # When logging is enabled, use new event-based approach (input/output as log events in Body)
         logging.info("OpenAI instrumentation configured with event logging capability")
-        # Create event logger provider using the configured logger provider
-        event_logger_provider = EventLoggerProvider(logger_provider)
-        OpenAIInstrumentor(use_legacy_attributes=False).instrument(event_logger_provider=event_logger_provider)
-        _instrument_anthropic(event_logger_provider)
-    else:
+        if instrument_openai_client:
+            OpenAIInstrumentor(use_legacy_attributes=False).instrument(logger_provider=logger_provider)
+        _instrument_anthropic(logger_provider)
+        _instrument_google_generativeai(logger_provider)
+    elif tracing_enabled:
         # Use legacy attributes (input/output as GenAI span attributes)
         logging.info("OpenAI instrumentation configured with legacy GenAI span attributes")
-        OpenAIInstrumentor().instrument()
+        if instrument_openai_client:
+            OpenAIInstrumentor().instrument()
         _instrument_anthropic()
         _instrument_google_generativeai()
+    # Neither signal enabled: skip GenAI instrumentation so telemetry has no runtime side effects.

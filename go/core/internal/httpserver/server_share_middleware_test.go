@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -67,7 +66,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 			name:     "no token passes through without ShareContext",
 			getShare: nil, // never called
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
 				return withUser(r, "caller-id")
 			},
 			wantStatus:   http.StatusOK,
@@ -77,7 +76,7 @@ func TestShareTokenMiddleware(t *testing.T) {
 			name:     "token without auth session returns 401",
 			getShare: nil, // never called
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "some-token")
 				return r // no auth session
 			},
@@ -87,10 +86,10 @@ func TestShareTokenMiddleware(t *testing.T) {
 		{
 			name: "invalid token returns 403",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return nil, pgx.ErrNoRows
+				return nil, dbpkg.ErrNotFound
 			},
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "bad-token")
 				return withUser(r, "caller-id")
 			},
@@ -98,14 +97,14 @@ func TestShareTokenMiddleware(t *testing.T) {
 			wantShareCtx: false,
 		},
 		{
-			// Revocation deletes the session_share row; subsequent lookups return pgx.ErrNoRows,
+			// Revocation deletes the session_share row; subsequent lookups return database.ErrNotFound,
 			// so revoked tokens are rejected immediately — no grace period.
 			name: "revoked token returns 403",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return nil, pgx.ErrNoRows
+				return nil, dbpkg.ErrNotFound
 			},
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "revoked-token")
 				return withUser(r, "visitor-id")
 			},
@@ -113,12 +112,12 @@ func TestShareTokenMiddleware(t *testing.T) {
 			wantShareCtx: false,
 		},
 		{
-			name: "valid read-only token with GET passes through with ShareContext",
+			name: "valid read-only token passes through with ShareContext",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
 				return okShare, nil
 			},
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodGet, "/api/sessions/sess-1", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2ASandboxes+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "valid-token")
 				return withUser(r, "visitor-id")
 			},
@@ -127,66 +126,12 @@ func TestShareTokenMiddleware(t *testing.T) {
 			wantReadOnly: true,
 		},
 		{
-			name: "valid read-only token with POST to session path returns 403",
-			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return okShare, nil
-			},
-			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, "/api/sessions/sess-1/events", nil)
-				r.Header.Set("X-Share-Token", "valid-token")
-				return withUser(r, "visitor-id")
-			},
-			wantStatus:   http.StatusForbidden,
-			wantShareCtx: false,
-		},
-		{
-			name: "valid read-only token with POST to unrelated path passes through",
-			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return okShare, nil
-			},
-			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, "/api/feedback", nil)
-				r.Header.Set("X-Share-Token", "valid-token")
-				return withUser(r, "visitor-id")
-			},
-			wantStatus:   http.StatusOK,
-			wantShareCtx: true,
-			wantReadOnly: true,
-		},
-		{
-			name: "valid read-write token with POST passes through with ShareContext",
+			name: "valid read-write token passes through with ShareContext",
 			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
 				return rwShare, nil
 			},
 			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, "/api/sessions/sess-1/events", nil)
-				r.Header.Set("X-Share-Token", "rw-token")
-				return withUser(r, "visitor-id")
-			},
-			wantStatus:   http.StatusOK,
-			wantShareCtx: true,
-			wantReadOnly: false,
-		},
-		{
-			name: "valid read-only token with POST to A2A path returns 403",
-			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return okShare, nil
-			},
-			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
-				r.Header.Set("X-Share-Token", "valid-token")
-				return withUser(r, "visitor-id")
-			},
-			wantStatus:   http.StatusForbidden,
-			wantShareCtx: false,
-		},
-		{
-			name: "valid read-write token with POST to A2A path passes through",
-			getShare: func(_ context.Context, _ string) (*dbpkg.SessionShare, error) {
-				return rwShare, nil
-			},
-			buildReq: func() *http.Request {
-				r := httptest.NewRequest(http.MethodPost, APIPathA2A+"/default/my-agent", nil)
+				r := httptest.NewRequest(http.MethodPost, APIPathA2ASandboxes+"/default/my-agent", nil)
 				r.Header.Set("X-Share-Token", "rw-token")
 				return withUser(r, "visitor-id")
 			},

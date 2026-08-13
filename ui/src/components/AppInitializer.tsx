@@ -2,7 +2,12 @@
 
 import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { OnboardingWizard } from "./onboarding/OnboardingWizard";
+import dynamic from "next/dynamic";
+
+const OnboardingWizard = dynamic(
+  () => import("./onboarding/OnboardingWizard").then((module) => module.OnboardingWizard),
+  { ssr: false },
+);
 
 const LOCAL_STORAGE_KEY = "kagent-onboarding";
 
@@ -32,7 +37,7 @@ export function AppInitializer({ children }: { children: React.ReactNode }) {
   };
 
   if (isOnboarding === null) {
-    return null;
+    return <>{children}</>;
   }
 
   // Don't show the wizard on the login page
@@ -43,4 +48,4 @@ export function AppInitializer({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
-} 
+}

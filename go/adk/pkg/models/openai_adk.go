@@ -125,10 +125,16 @@ func (m *OpenAIModel) Name() string {
 	return m.Config.Model
 }
 
+func (m *OpenAIModel) apiFormat() string {
+	if m.Config != nil && m.Config.APIFormat != "" {
+		return m.Config.APIFormat
+	}
+	return OpenAIAPIFormatChatCompletions
+}
+
 // GenerateContent implements model.LLM. Uses only ADK/genai types.
 func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest, stream bool) iter.Seq2[*model.LLMResponse, error] {
 	return func(yield func(*model.LLMResponse, error) bool) {
-		messages, systemInstruction := genaiContentsToOpenAIMessages(req.Contents, req.Config)
 		modelName := req.Model
 		if modelName == "" {
 			modelName = m.Config.Model
@@ -138,29 +144,46 @@ func (m *OpenAIModel) GenerateContent(ctx context.Context, req *model.LLMRequest
 		}
 		telemetry.SetLLMRequestAttributes(ctx, modelName, req)
 
-		params := openai.ChatCompletionNewParams{
-			Model:    shared.ChatModel(modelName),
-			Messages: messages,
+		switch m.apiFormat() {
+		case OpenAIAPIFormatResponses:
+			generateContentResponses(ctx, m, req, modelName, stream, yield)
+		default:
+			generateContentChatCompletions(ctx, m, req, modelName, stream, yield)
 		}
-		if systemInstruction != "" {
-			params.Messages = append([]openai.ChatCompletionMessageParamUnion{
-				openai.SystemMessage(systemInstruction),
-			}, params.Messages...)
-		}
-		applyOpenAIConfig(&params, m.Config)
+	}
+}
 
-		if req.Config != nil && len(req.Config.Tools) > 0 {
-			params.Tools = genaiToolsToOpenAITools(req.Config.Tools)
-			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
-				OfAuto: openai.String("auto"),
-			}
-		}
+func generateContentChatCompletions(
+	ctx context.Context,
+	m *OpenAIModel,
+	req *model.LLMRequest,
+	modelName string,
+	stream bool,
+	yield func(*model.LLMResponse, error) bool,
+) {
+	messages, systemInstruction := genaiContentsToOpenAIMessages(req.Contents, req.Config)
+	params := openai.ChatCompletionNewParams{
+		Model:    shared.ChatModel(modelName),
+		Messages: messages,
+	}
+	if systemInstruction != "" {
+		params.Messages = append([]openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(systemInstruction),
+		}, params.Messages...)
+	}
+	applyOpenAIConfig(&params, m.Config)
 
-		if stream {
-			runStreaming(ctx, m, params, yield)
-		} else {
-			runNonStreaming(ctx, m, params, yield)
+	if req.Config != nil && len(req.Config.Tools) > 0 {
+		params.Tools = genaiToolsToOpenAITools(req.Config.Tools)
+		params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{
+			OfAuto: openai.String("auto"),
 		}
+	}
+
+	if stream {
+		runStreaming(ctx, m, params, yield)
+	} else {
+		runNonStreaming(ctx, m, params, yield)
 	}
 }
 
@@ -171,7 +194,14 @@ func applyOpenAIConfig(params *openai.ChatCompletionNewParams, cfg *OpenAIConfig
 	if cfg.Temperature != nil {
 		params.Temperature = openai.Float(*cfg.Temperature)
 	}
-	if cfg.MaxTokens != nil {
+	// max_tokens and max_completion_tokens are mutually exclusive on the OpenAI
+	// API: reasoning models (GPT-5 / o-series) reject max_tokens, while some
+	// OpenAI-compatible endpoints only accept max_tokens. Never send both;
+	// max_completion_tokens (the modern, superset parameter) takes precedence
+	// when both are configured.
+	if cfg.MaxCompletionTokens != nil {
+		params.MaxCompletionTokens = openai.Int(int64(*cfg.MaxCompletionTokens))
+	} else if cfg.MaxTokens != nil {
 		params.MaxTokens = openai.Int(int64(*cfg.MaxTokens))
 	}
 	if cfg.TopP != nil {
@@ -348,13 +378,14 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	var aggregatedText strings.Builder
 	toolCallsAcc := make(map[int64]map[string]any)
 	var finishReason string
-	var promptTokens, completionTokens int64
+	var promptTokens, completionTokens, totalTokens int64
 
 	for stream.Next() {
 		chunk := stream.Current()
 		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
 			promptTokens = chunk.Usage.PromptTokens
 			completionTokens = chunk.Usage.CompletionTokens
+			totalTokens = chunk.Usage.TotalTokens
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -436,6 +467,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		usage = &genai.GenerateContentResponseUsageMetadata{
 			PromptTokenCount:     int32(promptTokens),
 			CandidatesTokenCount: int32(completionTokens),
+			TotalTokenCount:      int32(totalTokens),
 		}
 	}
 	resp := &model.LLMResponse{
@@ -497,6 +529,7 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 		usage = &genai.GenerateContentResponseUsageMetadata{
 			PromptTokenCount:     int32(completion.Usage.PromptTokens),
 			CandidatesTokenCount: int32(completion.Usage.CompletionTokens),
+			TotalTokenCount:      int32(completion.Usage.TotalTokens),
 		}
 	}
 	return &model.LLMResponse{

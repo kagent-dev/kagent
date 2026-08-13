@@ -77,7 +77,7 @@ Create a harness. If `snapshotsConfig` is omitted, kagent defaults it to `gs://a
 - **Worker pool** — reference an existing pool (`workerPoolRef`) or configure a controller default WorkerPool. The target pool must carry label `kagent.dev/worker-pool: <pool-name>`. The kagent Helm-managed pool gets this label automatically; externally owned pools must add it manually.
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: AgentHarness
 metadata:
   name: peterj-claw

@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -93,8 +92,7 @@ func contentTypeMiddleware(next http.Handler) http.Handler {
 // shareTokenMiddleware validates X-Share-Token headers.
 // It runs after the auth middleware, so the caller is already authenticated.
 // When the header is present and resolves to a valid share record, a ShareContext
-// is stored on the request context so that session handlers can use the owner's
-// user ID for DB lookups while retaining the caller's identity for initiated_by tracking.
+// is stored on the request context for A2A task queries and write enforcement.
 func (s *HTTPServer) shareTokenMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("X-Share-Token")
@@ -111,25 +109,12 @@ func (s *HTTPServer) shareTokenMiddleware(next http.Handler) http.Handler {
 
 		share, err := s.config.DbClient.GetSessionShareByToken(r.Context(), token)
 		if err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, database.ErrNotFound) {
 				http.Error(w, "Invalid or expired share token", http.StatusForbidden)
 			} else {
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 			}
 			return
-		}
-
-		// Enforce read-only on session and A2A paths only. Visitors retain full
-		// authenticated access to all other endpoints (creating their own sessions,
-		// submitting feedback, etc.) — the share token should not restrict unrelated operations.
-		if share.ReadOnly && r.Method != http.MethodGet && r.Method != http.MethodHead {
-			path := r.URL.Path
-			if strings.HasPrefix(path, APIPathSessions+"/") ||
-				strings.HasPrefix(path, APIPathA2A+"/") ||
-				strings.HasPrefix(path, APIPathA2ASandboxes+"/") {
-				http.Error(w, "This share link is read-only", http.StatusForbidden)
-				return
-			}
 		}
 
 		callerSession, _ := auth.AuthSessionFrom(r.Context())

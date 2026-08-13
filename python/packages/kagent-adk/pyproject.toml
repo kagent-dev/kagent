@@ -4,32 +4,35 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kagent-adk"
-version = "0.3.0"
+version = "0.4.0"
 description = "kagent-adk is an sdk for integrating adk agents with kagent"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-  "agentsts-adk>=0.1.0",
+  "agentsts-adk>=0.2.0",
   "agentsts-core>=0.1.0",
-  "kagent-core>=0.1.0",
+  "kagent-core>=0.2.0",
+  "kagent-proto>=0.1.0",
   "kagent-skills>=0.1.0",
   "aiofiles>=24.1.0",
   "anyio>=4.14.2",
-  "typer>=0.15.0",
+  "typer>=0.27.0",
   "uvicorn>=0.34.0",
   "openai>=1.72.0",
-  "mcp>=1.25.0",
+  "mcp>=1.29.0,<2",
   "protobuf>=6.33.5",  # CVE-2026-0994: Denial of Service due to recursion depth bypass
-  "anthropic[vertex]>=0.116.0",
+  "anthropic[vertex]>=0.120.0",
   "fastapi>=0.115.1",
-  "google-adk>=1.28.1,<2",
-  "google-genai>=1.21.1",
+  "google-adk[a2a,db]>=2.6.2,<3",
+  "google-genai>=2.17.0,<3",
   "google-auth>=2.40.2",
   "httpx>=0.25.0",
   "pydantic>=2.5.0",
   "typing-extensions>=4.16.0",
   "jsonref>=1.1.0",
-  "a2a-sdk>=0.3.23",
+  "a2a-sdk>=1.1.0,<2",
+  "grpcio>=1.83.0",
+  "grpcio-health-checking>=1.74.0,<1.75.0",
   # Security: pin minimum versions for CVE fixes in transitive dependencies
   "urllib3>=2.6.3",  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: unbounded decompression DoS
   "filelock>=3.20.3",  # CVE-2025-68146, CVE-2026-22701: TOCTOU symlink race condition
@@ -42,6 +45,7 @@ dependencies = [
 
 [tool.uv.sources]
 kagent-core = {workspace = true}
+kagent-proto = {workspace = true}
 kagent-skills = {workspace = true}
 agentsts-adk = {workspace = true}
 agentsts-core = {workspace = true}

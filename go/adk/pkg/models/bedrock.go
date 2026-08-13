@@ -87,7 +87,33 @@ type BedrockConfig struct {
 	// CacheTTL selects the cache retention window when PromptCaching is on.
 	// "" or "5m" uses Bedrock's default 5-minute cache (broadest model
 	// support); "1h" opts into extended-TTL caching. See bedrockCachePointBlock.
-	CacheTTL string
+	CacheTTL            string
+	GuardrailIdentifier string
+	GuardrailVersion    string
+	GuardrailTrace      string
+}
+
+func bedrockGuardrailConfig(c *BedrockConfig) *types.GuardrailConfiguration {
+	if c.GuardrailIdentifier == "" {
+		return nil
+	}
+	return &types.GuardrailConfiguration{
+		GuardrailIdentifier: aws.String(c.GuardrailIdentifier),
+		GuardrailVersion:    aws.String(c.GuardrailVersion),
+		Trace:               types.GuardrailTrace(c.GuardrailTrace),
+	}
+}
+
+func bedrockGuardrailStreamConfig(c *BedrockConfig) *types.GuardrailStreamConfiguration {
+	if c.GuardrailIdentifier == "" {
+		return nil
+	}
+	return &types.GuardrailStreamConfiguration{
+		GuardrailIdentifier:  aws.String(c.GuardrailIdentifier),
+		GuardrailVersion:     aws.String(c.GuardrailVersion),
+		Trace:                types.GuardrailTrace(c.GuardrailTrace),
+		StreamProcessingMode: types.GuardrailStreamProcessingModeSync,
+	}
 }
 
 // bedrockCachePointBlock builds a Converse CachePoint marker honoring the
@@ -255,6 +281,7 @@ func (m *BedrockModel) generateStreaming(ctx context.Context, modelId string, me
 		InferenceConfig:              inferenceConfig,
 		ToolConfig:                   toolConfig,
 		AdditionalModelRequestFields: additionalFields,
+		GuardrailConfig:              bedrockGuardrailStreamConfig(m.Config),
 	})
 
 	if err != nil {
@@ -448,6 +475,7 @@ func (m *BedrockModel) generateNonStreaming(ctx context.Context, modelId string,
 		InferenceConfig:              inferenceConfig,
 		ToolConfig:                   toolConfig,
 		AdditionalModelRequestFields: additionalFields,
+		GuardrailConfig:              bedrockGuardrailConfig(m.Config),
 	})
 
 	if err != nil {
@@ -647,10 +675,22 @@ func convertGenaiContentsToBedrockMessages(contents []*genai.Content, nameMap ma
 				if sanitized, ok := nameMap[callName]; ok {
 					callName = sanitized
 				}
+				// Bedrock requires toolUse.input to be a JSON object. A tool call
+				// with no arguments arrives here with a nil Args map (genai's
+				// FunctionCall.Args is `json:"args,omitempty"`, so an empty map is
+				// dropped when the event is persisted to the session store and
+				// reloaded as nil). NewLazyDocument(nil) serializes to `null`, which
+				// Bedrock rejects with "ValidationException: Malformed input request"
+				// ("The value at messages.N.content.M.toolUse.input is empty").
+				// Coerce nil to an empty object so no-argument tool calls round-trip.
+				args := part.FunctionCall.Args
+				if args == nil {
+					args = map[string]any{}
+				}
 				toolUse := types.ToolUseBlock{
 					ToolUseId: aws.String(sanitizeBedrockToolID(part.FunctionCall.ID, idMap, &idCounter)),
 					Name:      aws.String(callName),
-					Input:     document.NewLazyDocument(part.FunctionCall.Args),
+					Input:     document.NewLazyDocument(args),
 				}
 				contentBlocks = append(contentBlocks, &types.ContentBlockMemberToolUse{
 					Value: toolUse,
@@ -777,6 +817,8 @@ func bedrockStopReasonToGenai(reason types.StopReason) genai.FinishReason {
 		return genai.FinishReasonStop
 	case types.StopReasonToolUse:
 		return genai.FinishReasonStop // Tool use is handled separately in content
+	case types.StopReasonGuardrailIntervened, types.StopReasonContentFiltered:
+		return genai.FinishReasonSafety
 	default:
 		return genai.FinishReasonStop
 	}

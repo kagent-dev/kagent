@@ -2,14 +2,15 @@
 import faulthandler
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any, Callable, List, Optional
 
-import httpx
-from a2a.server.apps import A2AFastAPIApplication
-from a2a.server.request_handlers import DefaultRequestHandler
-from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCard
-from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
+import grpc
+from a2a.server.request_handlers import DefaultRequestHandlerV2
+from a2a.server.request_handlers.grpc_handler import GrpcHandler
+from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
+from a2a.server.tasks import InMemoryTaskStore, TaskStore
+from a2a.types import AgentCard, a2a_pb2, a2a_pb2_grpc
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
@@ -20,9 +21,14 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import DatabaseSessionService, InMemorySessionService
 from google.genai import types
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
+from kagent.core import AsyncControllerClient
 from kagent.core.a2a import (
+    A2ARequestSizeLimitMiddleware,
+    KAgentGrpcServerCallContextBuilder,
     KAgentRequestContextBuilder,
     KAgentTaskStore,
+    attach_hitl_agent_extension,
     get_a2a_max_content_length,
 )
 
@@ -49,9 +55,6 @@ def thread_dump(request: Request) -> PlainTextResponse:
         return PlainTextResponse(tmp.read())
 
 
-kagent_url_override = os.getenv("KAGENT_URL")
-
-
 class KAgentApp:
     def __init__(
         self,
@@ -63,6 +66,8 @@ class KAgentApp:
         plugins: Optional[List[BasePlugin]] = None,
         stream: bool = False,
         agent_config: Optional[AgentConfig] = None,
+        kagent_grpc_url: Optional[str] = None,
+        a2a_grpc_address: Optional[str] = None,
     ):
         """Initialize the KAgent application.
 
@@ -75,9 +80,12 @@ class KAgentApp:
             plugins: Optional list of plugins
             stream: Whether to stream the response
             agent_config: Optional agent configuration
+            a2a_grpc_address: Address for the A2A gRPC listener
         """
         self.root_agent_factory = root_agent_factory
         self.kagent_url = kagent_url
+        self.kagent_grpc_url = kagent_grpc_url or os.getenv("KAGENT_GRPC_URL")
+        self.a2a_grpc_address = a2a_grpc_address or os.getenv("KAGENT_A2A_GRPC_ADDRESS", "[::]:80")
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan
@@ -86,9 +94,10 @@ class KAgentApp:
         self.agent_config = agent_config
 
     def build(self, local=False) -> FastAPI:
+        attach_hitl_agent_extension(self.agent_card)
         session_service = InMemorySessionService()
         token_service = None
-        http_client: Optional[httpx.AsyncClient] = None
+        controller_client: Optional[AsyncControllerClient] = None
         memory_service = None
         # Substrate sandbox agents with durable-dir session storage keep session state in a
         # local sqlite DB inside the actor's durableDir volume. The URL arrives as
@@ -96,21 +105,23 @@ class KAgentApp:
         session_db_url = self.agent_config.session_db_url if self.agent_config else None
 
         if not local:
+            if not self.kagent_grpc_url:
+                raise ValueError("KAGENT_GRPC_URL environment variable is not set")
             token_service = KAgentTokenService(self.app_name)
-            http_client = httpx.AsyncClient(
-                # TODO: add user  and agent headers
-                base_url=kagent_url_override or self.kagent_url,
-                event_hooks=token_service.event_hooks(),
+            controller_client = AsyncControllerClient(
+                self.kagent_grpc_url,
+                agent_name=self.app_name,
+                token_provider=token_service,
             )
             if session_db_url:
                 session_service = DatabaseSessionService(db_url=session_db_url)
             else:
-                session_service = KAgentSessionService(http_client)
+                session_service = KAgentSessionService(controller_client)
 
             if self.agent_config and self.agent_config.memory is not None:
                 memory_service = KagentMemoryService(
                     agent_name=self.app_name,
-                    http_client=http_client,
+                    controller_client=controller_client,
                     embedding_config=self.agent_config.memory.embedding,
                     ttl_days=self.agent_config.memory.ttl_days,
                 )
@@ -118,14 +129,14 @@ class KAgentApp:
         def create_runner() -> Runner:
             root_agent = self.root_agent_factory()
 
-            if not local and http_client is not None and self.agent_config and self.agent_config.share_tools:
+            if not local and controller_client is not None and self.agent_config and self.agent_config.share_tools:
                 from kagent.adk.tools.share_tools import CreateShareLinkTool, DeleteShareLinkTool, ListShareLinksTool
 
                 root_agent.tools.extend(
                     [
-                        CreateShareLinkTool(http_client),
-                        ListShareLinksTool(http_client),
-                        DeleteShareLinkTool(http_client),
+                        CreateShareLinkTool(controller_client),
+                        ListShareLinksTool(controller_client),
+                        DeleteShareLinkTool(controller_client),
                     ]
                 )
 
@@ -151,45 +162,75 @@ class KAgentApp:
                 memory_service=memory_service,
             )
 
-        task_store: InMemoryTaskStore | KAgentTaskStore = InMemoryTaskStore()
-        if not local and http_client is not None:
-            task_store = KAgentTaskStore(http_client)
+        task_store: TaskStore = InMemoryTaskStore()
+        if not local and controller_client is not None:
+            task_store = KAgentTaskStore(controller_client)
 
         agent_executor = A2aAgentExecutor(
             runner=create_runner,
             config=A2aAgentExecutorConfig(stream=self.stream),
-            task_store=task_store,
         )
 
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = DefaultRequestHandler(
+        request_handler = DefaultRequestHandlerV2(
             agent_executor=agent_executor,
             task_store=task_store,
-            request_context_builder=request_context_builder,
-        )
-
-        max_content_length = get_a2a_max_content_length()
-        a2a_app = A2AFastAPIApplication(
             agent_card=self.agent_card,
-            http_handler=request_handler,
-            max_content_length=max_content_length,
+            request_context_builder=request_context_builder,
         )
 
         faulthandler.enable()
 
         lifespan_manager = LifespanManager()
         lifespan_manager.add(self._lifespan)
+        lifespan_manager.add(self._grpc_lifespan(request_handler))
         if not local:
             lifespan_manager.add(token_service.lifespan())
+            lifespan_manager.add(controller_client.lifespan())
 
         app = FastAPI(lifespan=lifespan_manager)
+        app.add_middleware(
+            A2ARequestSizeLimitMiddleware,
+            max_content_length=get_a2a_max_content_length(),
+        )
 
         # Health check/readiness probe
         app.add_route("/health", methods=["GET"], route=health_check)
         app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-        a2a_app.add_routes_to_app(app)
+        add_a2a_routes_to_fastapi(
+            app,
+            agent_card_routes=create_agent_card_routes(self.agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+        )
 
         return app
+
+    def _grpc_lifespan(self, request_handler: DefaultRequestHandlerV2):
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            server = grpc.aio.server()
+            context_builder = KAgentGrpcServerCallContextBuilder()
+            a2a_pb2_grpc.add_A2AServiceServicer_to_server(
+                GrpcHandler(request_handler, context_builder=context_builder), server
+            )
+
+            health_service = health.aio.HealthServicer()
+            service_name = a2a_pb2.DESCRIPTOR.services_by_name["A2AService"].full_name
+            await health_service.set(service_name, health_pb2.HealthCheckResponse.SERVING)
+            health_pb2_grpc.add_HealthServicer_to_server(health_service, server)
+
+            port = server.add_insecure_port(self.a2a_grpc_address)
+            if port == 0:
+                raise RuntimeError(f"failed to bind A2A gRPC server to {self.a2a_grpc_address}")
+            app.state.a2a_grpc_port = port
+            await server.start()
+            try:
+                yield
+            finally:
+                await health_service.enter_graceful_shutdown()
+                await server.stop(grace=5)
+
+        return lifespan
 
     async def test(self, task: str):
         session_service = InMemorySessionService()

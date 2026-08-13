@@ -99,6 +99,8 @@ LDFLAGS := -X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSI
 TOOLS_UV_VERSION ?= 0.10.4
 TOOLS_NODE_VERSION ?= 24
 TOOLS_PYTHON_VERSION ?= 3.13
+BUF_VERSION ?= v1.72.0
+BUF := go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
@@ -137,6 +139,35 @@ print-tools-versions: ## Print tools versions
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
+
+##@ Protobuf
+
+.PHONY: proto-generate
+proto-generate: ## Generate Go, TypeScript, and Python protobuf clients and servers
+	cd proto && $(BUF) generate
+
+.PHONY: proto-lint
+proto-lint: ## Lint repository-owned protobuf schemas
+	cd proto && $(BUF) lint
+
+.PHONY: proto-breaking
+proto-breaking: ## Check protobuf compatibility against the target branch (default: main)
+	@if git cat-file -e "$(PROTO_BREAKING_BRANCH):proto/buf.yaml" 2>/dev/null; then \
+		$(BUF) breaking proto --against ".git#branch=$(PROTO_BREAKING_BRANCH),subdir=proto"; \
+	else \
+		echo "No protobuf module on $(PROTO_BREAKING_BRANCH); skipping first-release breaking check"; \
+	fi
+
+PROTO_BREAKING_BRANCH ?= main
+PROTO_GENERATED_PATHS := go/api/gen ui/src/generated python/packages/kagent-proto/src/kagent
+
+.PHONY: proto-check
+proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail when committed output drifts
+	@if test -n "$$(git status --porcelain -- $(PROTO_GENERATED_PATHS))"; then \
+		echo "Generated protobuf files are out of date:"; \
+		git status --short -- $(PROTO_GENERATED_PATHS); \
+		exit 1; \
+	fi
 
 ##@ Git
 
@@ -177,9 +208,9 @@ check-api-key: ## Validate required API key for the configured model provider
 			exit 1; \
 		fi; \
 	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "azureOpenAI" ]; then \
-		if [ -z "$(AZUREOPENAI_API_KEY)" ]; then \
-			echo "Error: AZUREOPENAI_API_KEY environment variable is not set for Azure OpenAI provider"; \
-			echo "Please set it with: export AZUREOPENAI_API_KEY=your-api-key"; \
+		if [ -z "$(AZURE_OPENAI_API_KEY)" ]; then \
+			echo "Error: AZURE_OPENAI_API_KEY environment variable is not set for Azure OpenAI provider"; \
+			echo "Please set it with: export AZURE_OPENAI_API_KEY=your-api-key"; \
 			exit 1; \
 		fi; \
 	elif [ "$(KAGENT_DEFAULT_MODEL_PROVIDER)" = "gemini" ]; then \
@@ -207,7 +238,7 @@ endif
 .PHONY: build-all
 build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/null for CI validation)
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
-build-all: buildx-create
+build-all: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile.full ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
@@ -238,10 +269,12 @@ endif
 
 .PHONY: build-cli
 build-cli: ## Build the kagent CLI (cross-compiled via go sub-make)
+build-cli: proto-generate
 	make -C go build
 
 .PHONY: build-cli-local
 build-cli-local: ## Build the kagent CLI binary for the local machine
+build-cli-local: proto-generate
 	make -C go clean
 	make -C go core/bin/kagent-local
 
@@ -268,7 +301,7 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 
 .PHONY: build-controller
 build-controller: ## Build and push the controller image (embeds agent runtime + acp-sandbox digests via scripts/controller-digest-ldflags.sh)
-build-controller: buildx-create controller-manifests build-app build-app-full build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
+build-controller: proto-generate buildx-create controller-manifests build-app build-app-full build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
 	@set -e; \
 	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
 		APP_IMG=$(APP_IMG) \
@@ -286,13 +319,13 @@ build-controller: buildx-create controller-manifests build-app build-app-full bu
 
 .PHONY: build-ui
 build-ui: ## Build and push the UI image
-build-ui: buildx-create
+build-ui: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 	$(DOCKER_PUSH) $(UI_IMG)
 
 .PHONY: build-kagent-adk
 build-kagent-adk: ## Build and push the Python kagent ADK image
-build-kagent-adk: buildx-create
+build-kagent-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
@@ -304,7 +337,7 @@ build-app: buildx-create build-kagent-adk
 
 .PHONY: build-kagent-adk-full
 build-kagent-adk-full: ## Build and push the full Python kagent ADK image (includes sandbox runtime)
-build-kagent-adk-full: buildx-create
+build-kagent-adk-full: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_FULL_IMG) -f python/Dockerfile.full ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_FULL_IMG)
 
@@ -316,13 +349,13 @@ build-app-full: buildx-create build-kagent-adk-full
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
-build-golang-adk: buildx-create
+build-golang-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
 
 .PHONY: build-golang-adk-full
 build-golang-adk-full: ## Build and push the Go ADK full image (with extra tooling)
-build-golang-adk-full: buildx-create
+build-golang-adk-full: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_FULL_IMG)
 
@@ -397,8 +430,8 @@ push-test-skill: buildx-create ## Build and push E2E test skill images to the lo
 .PHONY: create-kind-cluster
 
 create-kind-cluster: ## Create a local kind cluster with MetalLB
-	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-kind.sh
-	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-metallb.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) KIND_IMAGE_VERSION=$(KIND_IMAGE_VERSION) bash ./scripts/kind/setup-kind.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) bash ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
 use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
@@ -430,29 +463,6 @@ helm-test: helm-version
 	helm plugin ls | grep unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git
 	helm unittest helm/kagent
 
-.PHONY: helm-agents
-helm-agents: ## Package all agent Helm charts into the dist folder
-	VERSION=$(VERSION) envsubst < helm/agents/k8s/Chart-template.yaml > helm/agents/k8s/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/k8s
-	VERSION=$(VERSION) envsubst < helm/agents/kgateway/Chart-template.yaml > helm/agents/kgateway/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/kgateway
-	VERSION=$(VERSION) envsubst < helm/agents/istio/Chart-template.yaml > helm/agents/istio/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/istio
-	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/promql
-	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/observability
-	VERSION=$(VERSION) envsubst < helm/agents/helm/Chart-template.yaml > helm/agents/helm/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/helm
-	VERSION=$(VERSION) envsubst < helm/agents/argo-rollouts/Chart-template.yaml > helm/agents/argo-rollouts/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/argo-rollouts
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-policy/Chart-template.yaml > helm/agents/cilium-policy/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-policy
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-debug/Chart-template.yaml > helm/agents/cilium-debug/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-debug
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-manager
-
 .PHONY: helm-tools
 helm-tools: ## Package all tool Helm charts into the dist folder
 	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
@@ -462,7 +472,7 @@ helm-tools: ## Package all tool Helm charts into the dist folder
 
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
-helm-version: helm-cleanup helm-agents helm-tools
+helm-version: helm-cleanup helm-tools
 	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
@@ -497,7 +507,7 @@ helm-install-provider: helm-version check-api-key
 		--set ui.image.pullPolicy=Always \
 		--set controller.service.type=LoadBalancer \
 		--set providers.openAI.apiKey=$(OPENAI_API_KEY) \
-		--set providers.azureOpenAI.apiKey=$(AZUREOPENAI_API_KEY) \
+		--set providers.azureOpenAI.apiKey=$(AZURE_OPENAI_API_KEY) \
 		--set providers.anthropic.apiKey=$(ANTHROPIC_API_KEY) \
 		--set providers.gemini.apiKey=$(GOOGLE_API_KEY) \
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
@@ -531,10 +541,11 @@ helm-uninstall: ## Uninstall kagent and kagent-crds Helm releases from the kind 
 # mutate the cluster (upgrade then reverse-migrate it) and so cannot share the
 # e2e suite's cluster. The Go test performs the actual upgrade to the current
 # build by invoking `make helm-install-provider`. UPGRADE_FROM_VERSION defaults to
-# the latest release reachable from HEAD (scripts/upgrade-from-version.sh); CI runs
-# this against two targets via a matrix — that adjacent release and the previous
-# stable line's latest patch (scripts/prev-stable-version.sh) — and you can pin
-# either locally, e.g. `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
+# the latest version reachable from HEAD (scripts/upgrade-from-version.sh); CI runs
+# this against two targets via a matrix — that adjacent version and the previous
+# release line's latest published version (scripts/prev-stable-version.sh) — and
+# you can pin either locally, e.g.
+# `UPGRADE_FROM_VERSION=$$(./scripts/prev-stable-version.sh)`.
 # The previous install pins the bundled Postgres image to whatever the
 # upgrade-from release's own install target shipped (resolved inside
 # install-previous-release), so the baseline matches how that release actually
@@ -650,15 +661,6 @@ helm-publish: ## Package and push all Helm charts to the OCI registry
 helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
 	helm push ./$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
-	helm push ./$(HELM_DIST_FOLDER)/helm-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/istio-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/promql-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/observability-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/argo-rollouts-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/cilium-policy-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/cilium-manager-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/cilium-debug-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 ##@ Dev
 

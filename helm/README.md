@@ -27,7 +27,7 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 # export your openAI key
 export OPENAI_API_KEY=your-openai-api-key
 export ANTHROPIC_API_KEY=your-anthropic-api-key
-export AZUREOPENAI_API_KEY=your-azure-api-key
+export AZURE_OPENAI_API_KEY=your-azure-api-key
 
 # install the kagent charts with openAI provider 
 make KAGENT_DEFAULT_MODEL_PROVIDER=openAI helm-install
@@ -42,13 +42,18 @@ make KAGENT_DEFAULT_MODEL_PROVIDER=azureOpenAI helm-install
 make KAGENT_DEFAULT_MODEL_PROVIDER=ollama helm-install
 ```
 
+The Make target regenerates protobuf bindings, rebuilds all local images, and
+rolls the controller and UI before installing. The UI uses the controller's
+native gRPC application API on port `8084`; controller port `8083` remains for
+A2A, MCP, ACP, and operational HTTP endpoints.
+
 ### Using kagent cli
 
 ```bash
 ## make sure have env variable with your API_KEY
 export OPENAI_API_KEY=your-openai-api-key
 export ANTHROPIC_API_KEY=your-anthropic-api-key
-export AZURE_API_KEY=your-azure-api-key
+export AZURE_OPENAI_API_KEY=your-azure-api-key
 
 #default provider is openAI but you can select from the list 
 export KAGENT_DEFAULT_MODEL_PROVIDER=ollama

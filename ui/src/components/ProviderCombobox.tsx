@@ -24,6 +24,7 @@ const PROVIDER_ICONS: Record<ModelProviderKey, React.ComponentType<{ className?:
   'AnthropicVertexAI': Anthropic,
   'Bedrock': Bedrock,
   'SAPAICore': SAPAICore,
+  'Foundry': Azure,
 };
 
 function getProviderIcon(providerType: string | undefined): React.ReactNode | null {
@@ -77,6 +78,7 @@ export function ProviderCombobox({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          data-testid="model-provider-select"
           variant="outline"
           role="combobox"
           aria-expanded={open}

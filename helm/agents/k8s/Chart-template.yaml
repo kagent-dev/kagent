@@ -1,5 +1,0 @@
-apiVersion: v2
-name: k8s-agent
-description: A Kubernetes Agent for kagent
-type: application
-version: ${VERSION}

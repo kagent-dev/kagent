@@ -1,0 +1,13 @@
+version: v2
+modules:
+  - path: .
+deps:
+  - buf.build/googleapis/googleapis
+lint:
+  use:
+    - STANDARD
+  ignore:
+    - a2a.proto
+breaking:
+  use:
+    - FILE

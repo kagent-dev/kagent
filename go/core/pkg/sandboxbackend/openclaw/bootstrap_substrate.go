@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -14,7 +14,7 @@ import (
 // BuildSubstrateBootstrapJSON builds openclaw.json and ActorTemplate container env for Agent Substrate.
 // Model and channel credentials use OpenClaw env SecretRefs in openclaw.json ({source:"env",provider:"default",id:"..."})
 // and ActorTemplate container env (literal value or valueFrom secretKeyRef/configMapKeyRef, resolved by ate-api at resume).
-func BuildSubstrateBootstrapJSON(ctx context.Context, kube client.Client, namespace string, sbx *v1alpha2.AgentHarness, mc *v1alpha2.ModelConfig, gw GatewayBootstrapConfig) ([]byte, []corev1.EnvVar, error) {
+func BuildSubstrateBootstrapJSON(ctx context.Context, kube client.Client, namespace string, sbx *v1alpha3.AgentHarness, mc *v1alpha3.ModelConfig, gw GatewayBootstrapConfig) ([]byte, []corev1.EnvVar, error) {
 	if mc == nil {
 		return nil, nil, fmt.Errorf("ModelConfig is required")
 	}

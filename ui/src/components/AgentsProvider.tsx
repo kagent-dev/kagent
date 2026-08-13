@@ -24,9 +24,11 @@ export type ValidationErrors = AgentFormValidationErrors;
 export interface AgentsContextType {
   agents: AgentResponse[];
   models: ModelConfig[];
+  modelsLoaded: boolean;
   loading: boolean;
   error: string;
   tools: ToolsResponse[];
+  toolsLoaded: boolean;
   refreshAgents: () => Promise<void>;
   refreshModels: () => Promise<void>;
   refreshTools: () => Promise<void>;
@@ -38,12 +40,29 @@ export interface AgentsContextType {
 
 export const AgentsContext = createContext<AgentsContextType | undefined>(undefined);
 
-export function useAgents() {
+export function useAgents({
+  loadModels = false,
+  loadTools = false,
+}: { loadModels?: boolean; loadTools?: boolean } = {}) {
   const context = useContext(AgentsContext);
+  const refreshModels = context?.refreshModels;
+  const refreshTools = context?.refreshTools;
+  useEffect(() => {
+    if (loadModels) void refreshModels?.();
+  }, [loadModels, refreshModels]);
+  useEffect(() => {
+    if (loadTools) void refreshTools?.();
+  }, [loadTools, refreshTools]);
   if (context === undefined) {
     throw new Error("useAgents must be used within an AgentsProvider");
   }
-  return context;
+  return {
+    ...context,
+    loading:
+      context.loading ||
+      (loadModels && !context.modelsLoaded) ||
+      (loadTools && !context.toolsLoaded),
+  };
 }
 
 export interface AgentsProviderProps {
@@ -52,14 +71,20 @@ export interface AgentsProviderProps {
 
 export function AgentsProvider({ children }: AgentsProviderProps) {
   const [agents, setAgents] = useState<AgentResponse[]>([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [agentError, setAgentError] = useState("");
+  const [modelError, setModelError] = useState("");
+  const [toolError, setToolError] = useState("");
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [toolsLoading, setToolsLoading] = useState(false);
   const [tools, setTools] = useState<ToolsResponse[]>([]);
   const [models, setModels] = useState<ModelConfig[]>([]);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [toolsLoaded, setToolsLoaded] = useState(false);
 
   const fetchAgents = useCallback(async () => {
     try {
-      setLoading(true);
+      setAgentsLoading(true);
       const agentsResult = await getAgents();
 
       if (!agentsResult.data || agentsResult.error) {
@@ -67,16 +92,17 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       }
 
       setAgents(agentsResult.data);
-      setError("");
+      setAgentError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      setAgentError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
-      setLoading(false);
+      setAgentsLoading(false);
     }
   }, []);
 
   const fetchModels = useCallback(async () => {
     try {
+      setModelsLoading(true);
       const response = await getModelConfigs();
       if (response.error) {
         throw new Error(response.error);
@@ -86,26 +112,28 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       // backend omits `data` for empty collections (json omitempty), so treat
       // missing data as an empty list rather than a fetch failure.
       setModels(response.data ?? []);
-      setError("");
+      setModelError("");
     } catch (err) {
       console.error("Error fetching models:", err);
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      setModelError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
-      setLoading(false);
+      setModelsLoaded(true);
+      setModelsLoading(false);
     }
   }, []);
 
   const fetchTools = useCallback(async () => {
     try {
-      setLoading(true);
+      setToolsLoading(true);
       const response = await getTools();
       setTools(response);
-      setError("");
+      setToolError("");
     } catch (err) {
       console.error("Error fetching tools:", err);
-      setError(err instanceof Error ? err.message : "An unexpected error occurred");
+      setToolError(err instanceof Error ? err.message : "An unexpected error occurred");
     } finally {
-      setLoading(false);
+      setToolsLoaded(true);
+      setToolsLoading(false);
     }
   }, []);
 
@@ -118,7 +146,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       const agentResult = await getAgentWithResolvedKind(name, namespace);
       if (!agentResult.data || agentResult.error) {
         console.error("Failed to get agent:", agentResult.error);
-        setError("Failed to get agent");
+        setAgentError("Failed to get agent");
         return null;
       }
 
@@ -131,7 +159,7 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
       return agent;
     } catch (error) {
       console.error("Error getting agent by name and namespace:", error);
-      setError(error instanceof Error ? error.message : "Failed to get agent");
+      setAgentError(error instanceof Error ? error.message : "Failed to get agent");
       return null;
     }
   }, []);
@@ -179,18 +207,14 @@ export function AgentsProvider({ children }: AgentsProviderProps) {
     }
   }, [validateAgentData]);
 
-  // Initial fetches
-  useEffect(() => {
-    fetchTools();
-    fetchModels();
-  }, [fetchTools, fetchModels]);
-
   const value = {
     agents,
     models,
-    loading,
-    error,
+    modelsLoaded,
+    loading: agentsLoading || modelsLoading || toolsLoading,
+    error: agentError || modelError || toolError,
     tools,
+    toolsLoaded,
     refreshAgents: fetchAgents,
     refreshModels: fetchModels,
     refreshTools: fetchTools,

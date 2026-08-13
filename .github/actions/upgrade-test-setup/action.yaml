@@ -31,7 +31,6 @@ runs:
       id: resolve
       shell: bash
       run: |
-        ADJ="$(./scripts/upgrade-from-version.sh)"
         base_ref="${GITHUB_BASE_REF:-${GITHUB_REF_NAME:-}}"
         is_release_line=false
         if [[ "$base_ref" =~ ^release/v[0-9]+\.[0-9]+\.x$ ]]; then
@@ -39,34 +38,33 @@ runs:
         fi
 
         if [ "${{ inputs.upgrade-from }}" = "prev-stable" ]; then
-          # prev-stable = the previous minor line's latest patch (the rollback
-          # floor). On main this resolves to the newest release line overall
-          # (e.g. the 0.9.x tip); on a release branch, to the line below it
-          # (skipped when none exists).
+          # prev-stable = the previous minor line's latest published version.
+          # Before that line has a final release, use its latest prerelease so
+          # main keeps upgrade coverage after the release branch is cut.
           V="$(./scripts/prev-stable-version.sh)"
           if [ -z "$V" ]; then
-            echo "no stable line below the current line; skipping prev-stable leg."
+            echo "no published version on the previous release line; skipping prev-stable leg."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ "$V" = "$ADJ" ]; then
-            echo "prev-stable ($V) == adjacent; skipping (covered by the adjacent leg)."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          if [ "$is_release_line" = "true" ]; then
+            ADJ="$(./scripts/upgrade-from-version.sh)"
+            if [ "$V" = "$ADJ" ]; then
+              echo "prev-stable ($V) == adjacent; skipping (covered by the adjacent leg)."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
         else
-          # adjacent = the same-line previous patch, i.e. the release just before
-          # the one being built on the SAME line. It is only meaningful when
-          # building a patch on a release branch. On main we are building the next
-          # MINOR, which has no same-line predecessor (git-describe would report a
-          # stale patch nobody upgrades from — the newest patch lives on the
-          # release branch, covered by prev-stable), so skip this leg there.
+          # adjacent = the latest published version on this release line,
+          # including prereleases. On main the latest version lives on the
+          # release branch and is covered by prev-stable, so skip this leg.
           if [ "$is_release_line" != "true" ]; then
             echo "base '$base_ref' is not a release line (building the next minor); skipping the adjacent leg (only prev-stable is meaningful)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          V="$ADJ"
+          V="$(./scripts/upgrade-from-version.sh)"
         fi
         echo "version=$V" >> "$GITHUB_OUTPUT"
         echo "=== Upgrade test (${{ inputs.upgrade-from }} leg): will upgrade FROM v$V TO the current build — building images next ==="
@@ -79,11 +77,6 @@ runs:
       shell: bash
       run: |
         sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-    - name: Set up QEMU
-      if: steps.resolve.outputs.skip != 'true'
-      uses: docker/setup-qemu-action@v4
-      with:
-        platforms: linux/amd64,linux/arm64
     - name: Set up Docker Buildx
       if: steps.resolve.outputs.skip != 'true'
       uses: docker/setup-buildx-action@v4
@@ -92,7 +85,7 @@ runs:
         # workflows (e.g. tag.yaml); kept as literals for consistency.
         name: kagent-builder-v0.23.0
         version: v0.23.0
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64
         use: "true"
         driver-opts: network=host
     - name: Set up Helm

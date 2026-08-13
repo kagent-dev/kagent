@@ -1,18 +1,18 @@
 import logging
+import os
+import sqlite3
 
 import httpx
-from kagent.core import KAgentConfig
-from kagent.langgraph import KAgentCheckpointer
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
-kagent_checkpointer = KAgentCheckpointer(
-    client=httpx.AsyncClient(base_url=KAgentConfig().url),
-    app_name=KAgentConfig().app_name,
+checkpointer = SqliteSaver(
+    sqlite3.connect(os.getenv("KAGENT_CHECKPOINT_DB", "/tmp/currency-checkpoints.sqlite"), check_same_thread=False)
 )
 
 
@@ -36,8 +36,10 @@ def _get_exchange_rate(
     """
     try:
         response = httpx.get(
-            f"https://api.frankfurter.app/{currency_date}",
+            f"https://api.frankfurter.dev/v1/{currency_date}",
             params={"from": currency_from, "to": currency_to},
+            follow_redirects=True,
+            timeout=10.0,
         )
         response.raise_for_status()
 
@@ -68,6 +70,6 @@ FORMAT_INSTRUCTION = (
 graph = create_react_agent(
     model=ChatOpenAI(model="gpt-4o-mini"),
     tools=[get_exchange_rate],
-    checkpointer=kagent_checkpointer,
+    checkpointer=checkpointer,
     prompt=SYSTEM_INSTRUCTION,
 )

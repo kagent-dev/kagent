@@ -1,5 +1,4 @@
 from ._config import get_a2a_max_content_length
-from ._context import get_request_user_id, set_request_user_id
 from ._consts import (
     A2A_DATA_PART_METADATA_IS_LONG_RUNNING_KEY,
     A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT,
@@ -8,36 +7,49 @@ from ._consts import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
     A2A_DATA_PART_METADATA_TYPE_KEY,
     ADK_METADATA_KEY_PREFIX,
-    KAGENT_ASK_USER_ANSWERS_KEY,
-    KAGENT_HITL_DECISION_TYPE_APPROVE,
-    KAGENT_HITL_DECISION_TYPE_BATCH,
-    KAGENT_HITL_DECISION_TYPE_KEY,
-    KAGENT_HITL_DECISION_TYPE_REJECT,
-    KAGENT_HITL_DECISIONS_KEY,
-    KAGENT_HITL_REJECTION_REASONS_KEY,
     get_kagent_metadata_key,
     read_metadata_value,
 )
-from ._hitl_utils import (
-    DecisionType,
-    HitlPartInfo,
-    OriginalFunctionCall,
-    extract_ask_user_answers_from_message,
-    extract_batch_decisions_from_message,
-    extract_decision_from_message,
-    extract_hitl_info_from_task,
-    extract_rejection_reasons_from_message,
+from ._context import get_request_user_id, set_request_user_id
+from ._hitl import (
+    HITL_EXTENSION_HEADER,
+    HITL_EXTENSION_URI,
+    HITL_TYPE_ASK_USER_REQUEST,
+    HITL_TYPE_ASK_USER_RESPONSE,
+    HITL_TYPE_TOOL_APPROVAL_REQUEST,
+    HITL_TYPE_TOOL_APPROVAL_RESPONSE,
+    AskUserRequest,
+    AskUserResponse,
+    HitlTool,
+    NestedHitlRequest,
+    ToolApproval,
+    ToolApprovalRequest,
+    ToolApprovalResponse,
+    attach_hitl_agent_extension,
+    attach_hitl_extension,
+    get_ask_user_request,
+    get_ask_user_response,
+    get_hitl_payload,
+    get_tool_approval_request,
+    get_tool_approval_response,
+    hitl_activated,
+    require_ask_user_response,
+    require_tool_approval_response,
 )
-from ._requests import KAgentRequestContextBuilder
-from ._task_result_aggregator import TaskResultAggregator
+from ._request_size import A2ARequestSizeLimitMiddleware
+from ._requests import KAgentGrpcServerCallContextBuilder, KAgentRequestContextBuilder
 from ._task_store import KAgentTaskStore
+from ._time import now_timestamp
 
 __all__ = [
     "get_a2a_max_content_length",
+    "A2ARequestSizeLimitMiddleware",
     "get_request_user_id",
     "set_request_user_id",
     "KAgentRequestContextBuilder",
+    "KAgentGrpcServerCallContextBuilder",
     "KAgentTaskStore",
+    "now_timestamp",
     "get_kagent_metadata_key",
     "read_metadata_value",
     "ADK_METADATA_KEY_PREFIX",
@@ -47,24 +59,28 @@ __all__ = [
     "A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE",
     "A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT",
     "A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE",
-    "TaskResultAggregator",
-    # HITL constants
-    "KAGENT_HITL_DECISION_TYPE_KEY",
-    "KAGENT_HITL_DECISION_TYPE_APPROVE",
-    "KAGENT_HITL_DECISION_TYPE_REJECT",
-    "KAGENT_HITL_DECISION_TYPE_BATCH",
-    "KAGENT_HITL_DECISIONS_KEY",
-    "KAGENT_HITL_REJECTION_REASONS_KEY",
     # Ask-user constants
-    "KAGENT_ASK_USER_ANSWERS_KEY",
-    # HITL types
-    "DecisionType",
-    "HitlPartInfo",
-    "OriginalFunctionCall",
-    # HITL utilities
-    "extract_decision_from_message",
-    "extract_batch_decisions_from_message",
-    "extract_rejection_reasons_from_message",
-    "extract_ask_user_answers_from_message",
-    "extract_hitl_info_from_task",
+    "HITL_EXTENSION_URI",
+    "HITL_EXTENSION_HEADER",
+    "HITL_TYPE_TOOL_APPROVAL_REQUEST",
+    "HITL_TYPE_ASK_USER_REQUEST",
+    "HITL_TYPE_TOOL_APPROVAL_RESPONSE",
+    "HITL_TYPE_ASK_USER_RESPONSE",
+    "HitlTool",
+    "NestedHitlRequest",
+    "ToolApprovalRequest",
+    "AskUserRequest",
+    "ToolApproval",
+    "ToolApprovalResponse",
+    "AskUserResponse",
+    "hitl_activated",
+    "get_hitl_payload",
+    "get_tool_approval_request",
+    "get_ask_user_request",
+    "get_tool_approval_response",
+    "get_ask_user_response",
+    "require_tool_approval_response",
+    "require_ask_user_response",
+    "attach_hitl_extension",
+    "attach_hitl_agent_extension",
 ]

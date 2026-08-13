@@ -1,0 +1,66 @@
+{
+  "openai": [
+    {
+      "name": "ask_user_request",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "Which database should we use for storage?",
+          "role": "user"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-hitl-ask-1",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "id": "call_ask_1",
+                  "type": "function",
+                  "function": {
+                    "name": "ask_user",
+                    "arguments": "{\"questions\":[{\"question\":\"Which database should we use?\",\"choices\":[\"PostgreSQL\",\"MySQL\"]}]}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ask_user_answered",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "content": "PostgreSQL",
+          "role": "tool"
+        }
+      },
+      "response": {
+        "id": "chatcmpl-hitl-ask-2",
+        "object": "chat.completion",
+        "created": 1677652289,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "Using PostgreSQL for storage."
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

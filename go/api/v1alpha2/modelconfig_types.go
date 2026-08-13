@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha2
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -27,7 +28,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry
 type ModelProvider string
 
 const (
@@ -40,6 +41,7 @@ const (
 	ModelProviderAnthropicVertexAI ModelProvider = "AnthropicVertexAI"
 	ModelProviderBedrock           ModelProvider = "Bedrock"
 	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
+	ModelProviderFoundry           ModelProvider = "Foundry"
 )
 
 type BaseVertexAIConfig struct {
@@ -74,6 +76,7 @@ type GeminiVertexAIConfig struct {
 
 	// Maximum output tokens
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
 
 	// Candidate count
@@ -138,6 +141,8 @@ type TokenExchangeConfig struct {
 }
 
 // OpenAIConfig contains OpenAI-specific configuration options
+//
+// +kubebuilder:validation:XValidation:message="maxTokens and maxCompletionTokens are mutually exclusive",rule="!(has(self.maxTokens) && has(self.maxCompletionTokens))"
 type OpenAIConfig struct {
 	// Base URL for the OpenAI API (overrides default)
 	// +optional
@@ -151,9 +156,22 @@ type OpenAIConfig struct {
 	// +optional
 	Temperature string `json:"temperature,omitempty"`
 
-	// Maximum tokens to generate
+	// Maximum tokens to generate. Sent as the OpenAI `max_tokens` request
+	// parameter, which is deprecated and rejected by reasoning models
+	// (GPT-5 / o-series). For those models set maxCompletionTokens instead.
+	// Mutually exclusive with maxCompletionTokens.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	MaxTokens int `json:"maxTokens,omitempty"`
+
+	// Maximum completion tokens to generate. Sent as the OpenAI
+	// `max_completion_tokens` request parameter (an upper bound on visible
+	// output plus reasoning tokens). This is the parameter reasoning models
+	// (GPT-5 / o-series) require in place of the deprecated maxTokens.
+	// Mutually exclusive with maxTokens.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxCompletionTokens int `json:"maxCompletionTokens,omitempty"`
 
 	// Top-p sampling parameter
 	// +optional
@@ -183,16 +201,33 @@ type OpenAIConfig struct {
 	// +optional
 	ReasoningEffort *OpenAIReasoningEffort `json:"reasoningEffort,omitempty"`
 
+	// APIFormat selects which OpenAI HTTP API the runtime uses for this model.
+	// chatCompletions (default) posts to /v1/chat/completions.
+	// responses posts to /v1/responses. Use responses for OpenAI-compatible
+	// gateways or models that require the Responses API.
+	// +optional
+	// +kubebuilder:default=chatCompletions
+	APIFormat *OpenAIAPIFormat `json:"apiFormat,omitempty"`
+
 	// TokenExchange configures dynamic bearer token acquisition via credential exchange.
 	// Requires apiKeySecret (used as the service account secret) and is mutually exclusive with apiKeyPassthrough.
 	// +optional
 	TokenExchange *TokenExchangeConfig `json:"tokenExchange,omitempty"`
 }
 
+// OpenAIAPIFormat selects the OpenAI HTTP API shape used by the Go ADK runtime.
+// +kubebuilder:validation:Enum=chatCompletions;responses
+type OpenAIAPIFormat string
+
+const (
+	OpenAIAPIFormatChatCompletions OpenAIAPIFormat = "chatCompletions"
+	OpenAIAPIFormatResponses       OpenAIAPIFormat = "responses"
+)
+
 // OpenAIReasoningEffort represents how many reasoning tokens the model generates before producing a response.
-// Set to "none" to disable reasoning; some models (e.g. gpt-5.6-terra) require this to use
-// function tools via the Chat Completions API.
-// +kubebuilder:validation:Enum=none;minimal;low;medium;high
+// Supported values vary by model. Set to "none" to disable reasoning; some models (e.g. gpt-5.6-terra)
+// require this to use function tools via the Chat Completions API.
+// +kubebuilder:validation:Enum=none;minimal;low;medium;high;xhigh
 type OpenAIReasoningEffort string
 
 // AzureOpenAIConfig contains Azure OpenAI-specific configuration options
@@ -242,7 +277,13 @@ type OllamaConfig struct {
 	Options map[string]string `json:"options,omitempty"`
 }
 
-type GeminiConfig struct{}
+// GeminiConfig contains Gemini (AI Studio, API-key) specific configuration options
+type GeminiConfig struct {
+	// Maximum output tokens to generate for a single response
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+}
 
 // BedrockConfig contains AWS Bedrock-specific configuration options.
 type BedrockConfig struct {
@@ -294,6 +335,49 @@ type BedrockConfig struct {
 	// +kubebuilder:validation:Enum="5m";"1h"
 	// +kubebuilder:default="5m"
 	CacheTTL string `json:"cacheTTL,omitempty"`
+
+	// +optional
+	Guardrail *BedrockGuardrailConfig `json:"guardrail,omitempty"`
+
+	// ReadTimeout is the Bedrock HTTP client read timeout in seconds, applied by
+	// both the Python and Go ADK runtimes. Raise this for agents that make long
+	// Converse calls (large tool-augmented turns, extended reasoning). On the
+	// Python ADK it overrides botocore's ~60s read timeout, which otherwise
+	// aborts long completions with a ReadTimeoutError; on the Go ADK it bounds
+	// the whole Converse request (default 30m). When unset, each runtime's
+	// default is used.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ReadTimeout *int `json:"readTimeout,omitempty"`
+
+	// ConnectTimeout is the Bedrock HTTP client connection-establishment timeout
+	// in seconds, applied by both the Python and Go ADK runtimes. It bounds
+	// connection setup only, not the response read. When unset, each runtime's
+	// default is used (Python ADK: botocore; Go ADK: net dialer).
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	ConnectTimeout *int `json:"connectTimeout,omitempty"`
+}
+
+type BedrockGuardrailConfig struct {
+	// Identifier is the guardrail ID or full ARN. AWS accepts either a bare
+	// guardrail ID or an arn:aws:bedrock:...:guardrail/... ARN, so the value is
+	// only length-bounded here (AWS caps guardrailIdentifier at 2048 chars).
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=2048
+	Identifier string `json:"identifier"`
+
+	// Version is the guardrail version: a numeric version (e.g. "1") or "DRAFT".
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=8
+	Version string `json:"version"`
+
+	// +optional
+	// +kubebuilder:validation:Enum="disabled";"enabled";"enabled_full"
+	// +kubebuilder:default="disabled"
+	Trace string `json:"trace,omitempty"`
 }
 
 // SAPAICoreConfig contains SAP AI Core-specific configuration options.
@@ -310,6 +394,42 @@ type SAPAICoreConfig struct {
 	// OAuth2 token endpoint URL (e.g., https://tenant.authentication.eu10.hana.ondemand.com)
 	// +optional
 	AuthURL string `json:"authUrl,omitempty"`
+}
+
+// FoundryConfig contains Azure AI Foundry-specific configuration options.
+//
+// Authentication is implicit and mirrors the other cloud providers: if
+// spec.apiKeySecret is set the API key is used; if it is absent, the Foundry
+// runtime falls back to DefaultAzureCredential (which resolves to Azure
+// Workload Identity in-cluster, or the az CLI in local development). There is
+// no auth-type selector.
+// +kubebuilder:validation:XValidation:message="foundry.endpoint and foundry.endpointFrom are mutually exclusive",rule="!(has(self.endpoint) && size(self.endpoint) > 0 && has(self.endpointFrom))"
+// +kubebuilder:validation:XValidation:message="foundry.endpoint or foundry.endpointFrom is required",rule="(has(self.endpoint) && size(self.endpoint) > 0) || has(self.endpointFrom)"
+type FoundryConfig struct {
+	// Endpoint is the Foundry or Azure AI Services account endpoint
+	// (e.g., https://my-account.cognitiveservices.azure.com/).
+	// Mutually exclusive with EndpointFrom.
+	// +optional
+	Endpoint string `json:"endpoint,omitempty"`
+
+	// EndpointFrom resolves the Foundry endpoint from a ConfigMap key, such as
+	// one written by Azure Service Operator. Mutually exclusive with Endpoint.
+	//
+	// The selector's optional flag only controls how a missing key is handled: when
+	// set to true, the missing key is ignored while reading the ConfigMap, but a
+	// Foundry endpoint must always be supplied, so an unresolved endpointFrom still
+	// leaves the model unusable and the agent fails to start.
+	// +optional
+	EndpointFrom *corev1.ConfigMapKeySelector `json:"endpointFrom,omitempty"`
+
+	// Deployment is the Foundry model deployment name.
+	// +required
+	Deployment string `json:"deployment"`
+
+	// APIVersion is the Foundry OpenAI-compatible data-plane API version.
+	// +kubebuilder:default="2024-10-21"
+	// +optional
+	APIVersion string `json:"apiVersion,omitempty"`
 }
 
 // TLSConfig contains TLS/SSL configuration options for outbound HTTPS
@@ -379,6 +499,7 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.anthropicVertexAI must be nil if the provider is not AnthropicVertexAI",rule="!(has(self.anthropicVertexAI) && self.provider != 'AnthropicVertexAI')"
 // +kubebuilder:validation:XValidation:message="provider.bedrock must be nil if the provider is not Bedrock",rule="!(has(self.bedrock) && self.provider != 'Bedrock')"
 // +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
+// +kubebuilder:validation:XValidation:message="provider.foundry must be nil if the provider is not Foundry",rule="!(has(self.foundry) && self.provider != 'Foundry')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="apiKeyPassthrough and apiKeySecret are mutually exclusive",rule="!(has(self.apiKeyPassthrough) && self.apiKeyPassthrough && has(self.apiKeySecret) && size(self.apiKeySecret) > 0)"
@@ -451,6 +572,10 @@ type ModelConfigSpec struct {
 	// SAP AI Core-specific configuration
 	// +optional
 	SAPAICore *SAPAICoreConfig `json:"sapAICore,omitempty"`
+
+	// Azure AI Foundry-specific configuration
+	// +optional
+	Foundry *FoundryConfig `json:"foundry,omitempty"`
 
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers

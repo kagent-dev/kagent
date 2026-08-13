@@ -12,6 +12,10 @@ type Querier interface {
 	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
+	// DeleteExpiredSessionsBatch hard-deletes up to batch_size idle sessions whose
+	// updated_at is older than retention_days, plus cascaded conversation state.
+	// Soft-deleted sessions are included so tombstones still reclaim disk.
+	DeleteExpiredSessionsBatch(ctx context.Context, arg DeleteExpiredSessionsBatchParams) (int64, error)
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
 	ExtendMemoryTTL(ctx context.Context) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
@@ -21,7 +25,21 @@ type Querier interface {
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
 	GetSession(ctx context.Context, arg GetSessionParams) (Session, error)
 	GetSessionShareByToken(ctx context.Context, token string) (SessionShare, error)
-	GetTask(ctx context.Context, id string) (Task, error)
+	// Task ownership: a task belongs to task.user_id. A NULL user_id (row written
+	// before the owner column existed, or by a pre-upgrade pod during a rolling
+	// upgrade) is only visible to, and claimable by, a caller whose session id
+	// maps to exactly one user across its whole history (deleted sessions
+	// included) and that user is the caller. Anything ambiguous stays hidden
+	// rather than guessed. This mirrors the backfill rule in migration
+	// 000007_task_owner.
+	//
+	// The resolving session must also have existed at or before the task was
+	// written (s.created_at <= task.created_at). Without that bound, a task
+	// whose original session is gone entirely (hard deleted, or never migrated)
+	// would become claimable by whoever is first to create a brand new session
+	// reusing that same id after the fact, handing them a stranger's task.
+	GetTask(ctx context.Context, arg GetTaskParams) (Task, error)
+	GetTaskOwner(ctx context.Context, id string) (*string, error)
 	GetTool(ctx context.Context, id string) (Tool, error)
 	GetToolServer(ctx context.Context, name string) (Toolserver, error)
 	HardDeleteCrewAIMemory(ctx context.Context, arg HardDeleteCrewAIMemoryParams) error
@@ -32,7 +50,7 @@ type Querier interface {
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
-	ListCheckpointWrites(ctx context.Context, arg ListCheckpointWritesParams) ([]LgCheckpointWrite, error)
+	ListCheckpointWritesForCheckpoints(ctx context.Context, arg ListCheckpointWritesForCheckpointsParams) ([]LgCheckpointWrite, error)
 	ListCheckpoints(ctx context.Context, arg ListCheckpointsParams) ([]LgCheckpoint, error)
 	ListCheckpointsLimit(ctx context.Context, arg ListCheckpointsLimitParams) ([]LgCheckpoint, error)
 	ListEventsByContextID(ctx context.Context, sessionID *string) ([]Event, error)
@@ -47,7 +65,7 @@ type Querier interface {
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]ListSessionsForAgentRow, error)
 	ListSessionsForAgentAllUsers(ctx context.Context, agentID *string) ([]Session, error)
-	ListTasksForSession(ctx context.Context, sessionID *string) ([]Task, error)
+	ListTasksForSession(ctx context.Context, arg ListTasksForSessionParams) ([]Task, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
@@ -62,7 +80,7 @@ type Querier interface {
 	SoftDeleteEvent(ctx context.Context, id string) error
 	SoftDeletePushNotification(ctx context.Context, taskID string) error
 	SoftDeleteSession(ctx context.Context, arg SoftDeleteSessionParams) error
-	SoftDeleteTask(ctx context.Context, id string) error
+	SoftDeleteTask(ctx context.Context, arg SoftDeleteTaskParams) error
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)
@@ -74,7 +92,11 @@ type Querier interface {
 	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
 	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
 	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error
-	UpsertTask(ctx context.Context, arg UpsertTaskParams) error
+	// UpsertTask returns the upserted id, or no rows when the write was rejected:
+	// the id belongs to another user, or it belongs to a soft-deleted task (a
+	// deleted id is never updated or resurrected, it stays burned). Callers map
+	// "no rows" to a conflict error.
+	UpsertTask(ctx context.Context, arg UpsertTaskParams) (string, error)
 	UpsertTool(ctx context.Context, arg UpsertToolParams) error
 	UpsertToolServer(ctx context.Context, arg UpsertToolServerParams) (Toolserver, error)
 }

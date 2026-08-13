@@ -64,7 +64,7 @@ export function OnboardingWizard({ onOnboardingComplete, onSkip }: OnboardingWiz
       tools: availableTools,
       loading: loadingTools,
       error: errorTools
-    } = useAgents();
+    } = useAgents({ loadModels: true, loadTools: true });
 
   const handleNextFromWelcome = () => {
       setCurrentStep(1);

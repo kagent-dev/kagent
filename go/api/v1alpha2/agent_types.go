@@ -91,8 +91,8 @@ type AgentSpec struct {
 	// +optional
 	Provider *AgentProvider `json:"provider,omitempty"`
 
-	// Skills to load into the agent. They will be pulled from the specified container images.
-	// and made available to the agent under the `/skills` folder.
+	// Skills to load into the agent. They will be pulled from OCI images, git repos,
+	// and/or S3, and made available to the agent under the `/skills` folder.
 	// +optional
 	Skills *SkillForAgent `json:"skills,omitempty"`
 
@@ -124,7 +124,7 @@ type AgentProvider struct {
 	URL string `json:"url"`
 }
 
-// +kubebuilder:validation:AtLeastOneOf=refs,gitRefs
+// +kubebuilder:validation:AtLeastOneOf=refs;gitRefs;s3Refs
 type SkillForAgent struct {
 	// Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
 	// Meant for development and testing purposes only.
@@ -158,6 +158,14 @@ type SkillForAgent struct {
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	GitRefs []GitRepo `json:"gitRefs,omitempty"`
+
+	// S3 object prefixes or archives to fetch skills from.
+	// Auth uses the AWS SDK default credential chain (typically static keys via
+	// skills.initContainer.env: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION).
+	// +kubebuilder:validation:MaxItems=20
+	// +kubebuilder:validation:MinItems=1
+	// +optional
+	S3Refs []S3SkillRef `json:"s3Refs,omitempty"`
 
 	// Configuration for the skills-init init container.
 	// +optional
@@ -195,6 +203,29 @@ type GitRepo struct {
 	// Name for the skill directory under /skills. If omitted, defaults to the last
 	// segment of Path when Path is set; otherwise defaults to the repo name (last
 	// URL path segment, without .git).
+	// +optional
+	Name string `json:"name,omitempty"`
+}
+
+// S3SkillRef specifies a skill bundle in an S3 bucket.
+//
+// Two bundle shapes are supported:
+//   - Prefix: s3://bucket/path/to/skill/ containing SKILL.md (and siblings); synced recursively
+//   - Archive: a single .zip / .tgz / .tar.gz object; downloaded and extracted
+type S3SkillRef struct {
+	// S3 URI of the skill: s3://bucket/key-or-prefix
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^s3://.+`
+	URI string `json:"uri"`
+
+	// AWS region for the bucket. Optional when AWS_REGION / AWS_DEFAULT_REGION is set
+	// on the skills-init container (e.g. via initContainer.env).
+	// +optional
+	Region string `json:"region,omitempty"`
+
+	// Name for the skill directory under /skills. If omitted, defaults to the last
+	// non-empty path segment of the URI (archive extension stripped).
 	// +optional
 	Name string `json:"name,omitempty"`
 }
@@ -246,13 +277,6 @@ type DeclarativeAgentSpec struct {
 
 	// +optional
 	Deployment *DeclarativeDeploymentSpec `json:"deployment,omitempty"`
-
-	// Allow code execution for python code blocks with this agent.
-	// If true, the agent will automatically execute python code blocks in the LLM responses.
-	// Code will be executed in a sandboxed environment.
-	// +optional
-	// due to a bug in adk (https://github.com/google/adk-python/issues/3921 ), this field is ignored for now.
-	ExecuteCodeBlocks *bool `json:"executeCodeBlocks,omitempty"`
 
 	// Memory configuration for the agent.
 	// +optional
@@ -450,9 +474,20 @@ type SharedDeploymentSpec struct {
 	// Annotations are additional annotations added to the agent pods.
 	// +optional
 	Annotations map[string]string `json:"annotations,omitempty"`
+	// DeploymentAnnotations are additional annotations added to the agent Deployment
+	// object itself. Unlike Annotations, which apply to the agent pods, these apply to
+	// the Deployment metadata. Keys set here take precedence over annotations inherited
+	// from the agent resource metadata. This has no effect when the agent runs with the
+	// Sandbox workload mode, as no Deployment is created in that mode.
+	// +optional
+	DeploymentAnnotations map[string]string `json:"deploymentAnnotations,omitempty"`
 	// Env are additional environment variables set on the agent container.
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
+	// EnvFrom are sources (ConfigMaps/Secrets) used to populate environment variables
+	// on the agent container. Values defined in Env with a duplicate key take precedence.
+	// +optional
+	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
 	// +optional
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +optional
@@ -462,6 +497,10 @@ type SharedDeploymentSpec struct {
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+	// TopologySpreadConstraints describes how a group of pods ought to spread across topology
+	// domains. All topologySpreadConstraints are ANDed.
+	// +optional
+	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
 	// NodeSelector restricts the nodes the agent pods can be scheduled on.
 	// +optional
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
@@ -508,6 +547,7 @@ const (
 // +kubebuilder:validation:XValidation:message="type.mcpServer must be specified for McpServer filter.type",rule="!(!has(self.mcpServer) && self.type == 'McpServer')"
 // +kubebuilder:validation:XValidation:message="type.agent must be nil if the type is not Agent",rule="!(has(self.agent) && self.type != 'Agent')"
 // +kubebuilder:validation:XValidation:message="type.agent must be specified for Agent filter.type",rule="!(!has(self.agent) && self.type == 'Agent')"
+// +kubebuilder:validation:XValidation:message="isolateSessions can only be set when type is Agent",rule="!(has(self.isolateSessions) && self.type != 'Agent')"
 type Tool struct {
 	// +optional
 	Type ToolProviderType `json:"type,omitempty"`
@@ -515,6 +555,26 @@ type Tool struct {
 	McpServer *McpServerTool `json:"mcpServer,omitempty"`
 	// +optional
 	Agent *TypedReference `json:"agent,omitempty"`
+
+	// IsolateSessions controls per-call session isolation for Agent-type tools.
+	// Only valid when Type is Agent.
+	//
+	// When unset or false (default), every call this agent makes to the
+	// referenced sub-agent reuses the same A2A context_id, so all calls land
+	// in one shared sub-agent session (session continuity for stateful
+	// sub-agents).
+	//
+	// When true, each call mints a fresh context_id, so every invocation runs
+	// in its own isolated sub-agent session. This is required for parallel
+	// fan-out to a sub-agent: without it, N parallel calls in one turn
+	// collapse into a single shared sub-agent session instead of N
+	// independent ones.
+	//
+	// Cross-turn/conversation continuity for stateful sub-agents does not
+	// depend on this flag; it rides the x-kagent-root-context-id header,
+	// which stays stable regardless of IsolateSessions.
+	// +optional
+	IsolateSessions *bool `json:"isolateSessions,omitempty"`
 
 	// HeadersFrom specifies a list of configuration values to be added as
 	// headers to requests sent to the Tool from this agent. The value of

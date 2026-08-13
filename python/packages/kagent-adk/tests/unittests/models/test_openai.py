@@ -341,6 +341,30 @@ function_declaration_test_cases = [
 ]
 
 
+def test_function_declaration_uses_adk2_json_schema():
+    schema = {
+        "type": "object",
+        "properties": {
+            "namespace": {"type": "string", "enum": ["default", "kube-system"]},
+            "selector": {
+                "type": "object",
+                "properties": {"labels": {"type": "array", "items": {"type": "string"}}},
+            },
+        },
+        "required": ["namespace"],
+        "additionalProperties": False,
+    }
+    tool = types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(name="list_pods", description="List pods", parameters_json_schema=schema)
+        ]
+    )
+
+    result = _convert_tools_to_openai([tool])
+
+    assert result[0]["function"]["parameters"] == schema
+
+
 @pytest.mark.parametrize(
     "_, function_declaration, expected_tool_param",
     function_declaration_test_cases,
@@ -387,6 +411,48 @@ async def test_generate_content_async_with_max_tokens(llm_request, generate_cont
         mock_client.chat.completions.create.assert_called_once()
         _, kwargs = mock_client.chat.completions.create.call_args
         assert kwargs["max_tokens"] == 4096
+
+
+@pytest.mark.asyncio
+async def test_generate_content_async_with_max_completion_tokens(
+    llm_request, generate_content_response, generate_llm_response
+):
+    # Reasoning models (GPT-5 / o-series) reject max_tokens and require
+    # max_completion_tokens instead; verify it is forwarded verbatim.
+    openai_llm = OpenAI(model="gpt-5", max_completion_tokens=4096, type="openai", api_key="fake")
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+
+        async def mock_coro(*args, **kwargs):
+            return generate_content_response
+
+        mock_client.chat.completions.create.return_value = mock_coro()
+
+        _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+        mock_client.chat.completions.create.assert_called_once()
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert kwargs["max_completion_tokens"] == 4096
+        assert "max_tokens" not in kwargs
+
+
+@pytest.mark.asyncio
+async def test_max_tokens_and_max_completion_tokens_are_mutually_exclusive(
+    llm_request, generate_content_response, generate_llm_response
+):
+    # If both are configured, only max_completion_tokens is sent (it takes
+    # precedence); sending both would 400 on reasoning models.
+    openai_llm = OpenAI(model="gpt-5", max_tokens=1024, max_completion_tokens=4096, type="openai", api_key="fake")
+    with mock.patch.object(openai_llm, "_client") as mock_client:
+
+        async def mock_coro(*args, **kwargs):
+            return generate_content_response
+
+        mock_client.chat.completions.create.return_value = mock_coro()
+
+        _ = [resp async for resp in openai_llm.generate_content_async(llm_request, stream=False)]
+        mock_client.chat.completions.create.assert_called_once()
+        _, kwargs = mock_client.chat.completions.create.call_args
+        assert kwargs["max_completion_tokens"] == 4096
+        assert "max_tokens" not in kwargs
 
 
 @pytest.mark.asyncio

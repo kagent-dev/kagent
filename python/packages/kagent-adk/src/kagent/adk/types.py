@@ -2,35 +2,36 @@ import logging
 from typing import Any, Callable, Literal, Optional, Union
 
 import httpx
+from a2a.utils.constants import AGENT_CARD_WELL_KNOWN_PATH
 from agentsts.adk import ADKTokenPropagationPlugin
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.llm_agent import ToolUnion
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH, DEFAULT_TIMEOUT
 from google.adk.models.anthropic_llm import Claude as ClaudeLLM
 from google.adk.models.google_llm import Gemini as GeminiLLM
 from google.adk.tools.mcp_tool import SseConnectionParams, StreamableHTTPConnectionParams
 from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 
-from kagent.adk._approval import make_approval_callback, strip_confirmation_parts_callback
+from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
 from kagent.adk.models._anthropic import KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
-from kagent.adk.models._gemini import KAgentGeminiLlm
+from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
 from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.models._ssl import create_ssl_context
-from kagent.adk.sandbox_code_executer import SandboxedLocalCodeExecutor
 from kagent.adk.tools.ask_user_tool import AskUserTool
 
 logger = logging.getLogger(__name__)
 
 # Proxy host header used for Gateway API routing when using a proxy
 PROXY_HOST_HEADER = "x-kagent-host"
+
+DEFAULT_TIMEOUT = 30.0
 
 # Key used to store headers in session state
 HEADERS_STATE_KEY = "headers"
@@ -238,6 +239,11 @@ class RemoteAgentConfig(BaseModel):
     headers: dict[str, Any] | None = None
     timeout: float = DEFAULT_TIMEOUT
     description: str = ""
+    # isolate_sessions: accepted for schema parity with the Go declarative
+    # runtime (see go/api/v1alpha3.Tool.IsolateSessions). The Python low-level
+    # tool (KAgentRemoteA2AToolset / _remote_a2a_tool.py) does not yet honor
+    # this flag — it only affects agents running on runtime: go.
+    isolate_sessions: bool = False
 
 
 class BaseLLM(BaseModel):
@@ -270,6 +276,7 @@ class OpenAI(BaseLLM):
     base_url: str | None = None
     frequency_penalty: float | None = None
     max_tokens: int | None = None
+    max_completion_tokens: int | None = Field(default=None, ge=1)
     n: int | None = None
     presence_penalty: float | None = None
     reasoning_effort: str | None = None
@@ -295,6 +302,7 @@ class Anthropic(BaseLLM):
 
 
 class GeminiVertexAI(BaseLLM):
+    max_output_tokens: int | None = Field(default=None, ge=1)
     type: Literal["gemini_vertex_ai"]
 
 
@@ -308,6 +316,7 @@ class Ollama(BaseLLM):
 
 
 class Gemini(BaseLLM):
+    max_output_tokens: int | None = Field(default=None, ge=1)
     type: Literal["gemini"]
 
 
@@ -327,6 +336,12 @@ class Bedrock(BaseLLM):
     # extended-TTL caching. "1h" is supported on fewer models and billed at a
     # higher cache-write rate, so it is not strictly better than "5m".
     cache_ttl: Literal["5m", "1h"] | None = None
+    # Bedrock HTTP client timeouts in seconds. read_timeout overrides botocore's
+    # ~60s default, which otherwise aborts long completions with a
+    # ReadTimeoutError. None keeps botocore's defaults. Constrained to >= 1 to
+    # match the ModelConfig CRD (readTimeout/connectTimeout minimum: 1).
+    read_timeout: int | None = Field(default=None, ge=1)
+    connect_timeout: int | None = Field(default=None, ge=1)
     type: Literal["bedrock"]
 
 
@@ -379,7 +394,6 @@ class AgentConfig(BaseModel):
     http_tools: list[HttpMcpServerConfig] | None = None  # Streamable HTTP MCP tools
     sse_tools: list[SseMcpServerConfig] | None = None  # SSE MCP tools
     remote_agents: list[RemoteAgentConfig] | None = None  # remote agents
-    execute_code: bool | None = None
     stream: bool | None = None  # Refers to LLM response streaming, not A2A streaming
     memory: MemoryConfig | None = None  # Memory configuration
     network: NetworkConfig | None = None
@@ -516,7 +530,6 @@ class AgentConfig(BaseModel):
                     )
                 )
 
-        code_executor = SandboxedLocalCodeExecutor() if self.execute_code else None
         model = _create_llm_from_model_config(self.model)
 
         # Add built-in ask_user tool unconditionally — every agent can ask the user questions.
@@ -524,13 +537,8 @@ class AgentConfig(BaseModel):
 
         # Build before_tool_callback if any tools require approval
         before_tool_callback = make_approval_callback(tools_requiring_approval) if tools_requiring_approval else None
-        # before_model callbacks run in order. Strip synthetic HITL confirmation
-        # parts (when approval is in play), then compact MCP App tool results so
-        # the model treats a rendered widget as terminal instead of re-calling it.
-        before_model_callbacks = []
-        if tools_requiring_approval:
-            before_model_callbacks.append(strip_confirmation_parts_callback)
-        before_model_callbacks.append(make_mcp_app_model_result_callback(mcp_app_tool_names))
+        # ADK 2.x filters its synthetic confirmation events before model calls.
+        before_model_callbacks = [make_mcp_app_model_result_callback(mcp_app_tool_names)]
 
         # static_instruction is sent directly to the model without any placeholder processing
         agent = Agent(
@@ -539,7 +547,6 @@ class AgentConfig(BaseModel):
             description=self.description,
             static_instruction=self.instruction,
             tools=tools,
-            code_executor=code_executor,
             before_tool_callback=before_tool_callback,
             before_model_callback=before_model_callbacks,
         )
@@ -658,6 +665,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             default_headers=extra_headers,
             frequency_penalty=model_config.frequency_penalty,
             max_tokens=model_config.max_tokens,
+            max_completion_tokens=model_config.max_completion_tokens,
             model=model_config.model,
             n=model_config.n,
             presence_penalty=model_config.presence_penalty,
@@ -677,7 +685,10 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             **_transport_kwargs(model_config),
         )
     if model_config.type == "gemini_vertex_ai":
-        return GeminiLLM(model=model_config.model)
+        return KAgentGeminiVertexAILlm(
+            model=model_config.model,
+            max_output_tokens=model_config.max_output_tokens,
+        )
     if model_config.type == "gemini_anthropic":
         return ClaudeLLM(model=model_config.model)
     if model_config.type == "ollama":
@@ -700,6 +711,7 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return KAgentGeminiLlm(
             model=model_config.model,
             extra_headers=extra_headers,
+            max_output_tokens=model_config.max_output_tokens,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "bedrock":
@@ -709,6 +721,8 @@ def _create_llm_from_model_config(model_config: ModelUnion):
             additional_model_request_fields=model_config.additional_model_request_fields,
             prompt_caching=model_config.prompt_caching,
             cache_ttl=model_config.cache_ttl,
+            read_timeout=model_config.read_timeout,
+            connect_timeout=model_config.connect_timeout,
             **_transport_kwargs(model_config),
         )
     if model_config.type == "sap_ai_core":

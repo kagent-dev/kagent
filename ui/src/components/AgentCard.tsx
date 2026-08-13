@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { AgentResponse } from "@/types";
 import { DeleteButton } from "@/components/DeleteAgentButton";
+import { SandboxBadge } from "@/components/SandboxBadge";
 import { MemoriesDialog } from "@/components/MemoriesDialog";
 import KagentLogo from "@/components/kagent-logo";
 import HermesLogo from "@/components/hermes-logo";
@@ -35,7 +36,7 @@ interface AgentCardProps {
 }
 
 export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
-  const { agent, model, modelProvider, deploymentReady, accepted } = agentResponse;
+  const { agent, model, modelProvider, ready, accepted } = agentResponse;
   const router = useRouter();
   const [memoriesOpen, setMemoriesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -50,8 +51,8 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
   );
 
   const isBYO = agent.spec?.type === "BYO";
-  const byoImage = isBYO ? agent.spec?.byo?.deployment?.image : undefined;
-  const isReady = accepted && deploymentReady;
+  const byoImage = isBYO ? agent.spec?.byo?.image : undefined;
+  const isReady = accepted && ready;
 
   const handleEditClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -66,7 +67,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
         className:"bg-red-500/10 text-red-600 dark:text-red-500"
       };
     }
-    if (!deploymentReady) {
+    if (!ready) {
       return {
         message: "Agent not Ready",
         className:"bg-yellow-400/30 text-yellow-800 dark:bg-yellow-500/40 dark:text-yellow-200"
@@ -102,6 +103,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
             <KagentLogo className="h-5 w-5 flex-shrink-0" />
           )}
           <span className="truncate">{agentRef}</span>
+          {!agentHarness && <SandboxBadge />}
         </CardTitle>
         <div className="relative z-30 opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
@@ -110,6 +112,7 @@ export function AgentCard({ agentResponse, onAgentsChanged }: AgentCardProps) {
                 variant="ghost"
                 size="icon"
                 aria-label="Agent options"
+                data-testid={`agent-options-${agentRef}`}
                 className="bg-background/80 hover:bg-background shadow-sm"
               >
                 <MoreHorizontal className="h-4 w-4" />

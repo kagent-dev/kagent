@@ -159,10 +159,8 @@ func SetupOwnerIndexes(mgr ctrl.Manager, ownedTypes []client.Object) error {
 				return nil
 			}
 
-			// This is an optimisation to avoid indexing every owned object,
-			// only those owned by Agent or SandboxAgent will be indexed. It may need to be
-			// adjusted in future if other controllers start owning resources.
-			if owner.Kind != "Agent" && owner.Kind != "SandboxAgent" {
+			// Avoid indexing resources not owned by SandboxAgent.
+			if owner.Kind != "SandboxAgent" {
 				return nil
 			}
 
