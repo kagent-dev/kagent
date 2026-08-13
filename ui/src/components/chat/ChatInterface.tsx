@@ -46,9 +46,10 @@ import {
 } from "@/lib/chatSessionGuard";
 
 // Soft client caps aligned with the strictest common provider (Bedrock Converse):
-// images ≤ 3.75 MB, documents ≤ 4.5 MB, ≤ 5 documents / ≤ 20 images per message.
+// images ≤ 3.75 MB and ≤ 8000×8000 px; documents ≤ 4.5 MB; ≤ 5 files per message.
 const MAX_CHAT_IMAGE_BYTES = Math.floor(3.75 * 1024 * 1024);
 const MAX_CHAT_DOC_BYTES = Math.floor(4.5 * 1024 * 1024);
+const MAX_CHAT_IMAGE_PX = 8000;
 const MAX_CHAT_FILES = 5;
 
 type PendingChatFile = {
@@ -65,6 +66,18 @@ function readFileAsDataURL(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("read failed"));
     reader.readAsDataURL(file);
   });
+}
+
+/** Returns false when dimensions exceed maxPx. Unreadable images pass (provider rejects). */
+async function imageWithinPixelLimit(file: File, maxPx: number): Promise<boolean> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const ok = bmp.width <= maxPx && bmp.height <= maxPx;
+    bmp.close();
+    return ok;
+  } catch {
+    return true;
+  }
 }
 
 /** Build A2A message parts: optional text + FileParts (wire shape a2a-go accepts). */
@@ -549,18 +562,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
   const handleAttachFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
-    const next: PendingChatFile[] = [];
-    let slots = MAX_CHAT_FILES - pendingFiles.length;
-    if (slots <= 0) {
-      toast.error(`You can attach at most ${MAX_CHAT_FILES} files per message`);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
+    // Read first; enforce MAX_CHAT_FILES in the state updater so overlapping
+    // picker/drop ops cannot both append past the cap.
+    const candidates: PendingChatFile[] = [];
     for (const file of Array.from(fileList)) {
-      if (slots <= 0) {
-        toast.error(`You can attach at most ${MAX_CHAT_FILES} files per message`);
-        break;
-      }
       const isImage = file.type.startsWith("image/");
       const maxBytes = isImage ? MAX_CHAT_IMAGE_BYTES : MAX_CHAT_DOC_BYTES;
       if (file.size > maxBytes) {
@@ -568,23 +573,41 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         toast.error(`${file.name} exceeds the ${mb}MB ${isImage ? "image" : "file"} limit`);
         continue;
       }
+      if (isImage && !(await imageWithinPixelLimit(file, MAX_CHAT_IMAGE_PX))) {
+        toast.error(`${file.name} exceeds the ${MAX_CHAT_IMAGE_PX}×${MAX_CHAT_IMAGE_PX}px image limit`);
+        continue;
+      }
       try {
         const dataUrl = await readFileAsDataURL(file);
         const comma = dataUrl.indexOf(",");
         const bytes = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-        next.push({
+        candidates.push({
           id: uuidv4(),
           name: file.name,
           mimeType: file.type || "application/octet-stream",
           bytes,
         });
-        slots -= 1;
       } catch {
         toast.error(`Failed to read ${file.name}`);
       }
     }
-    if (next.length > 0) {
-      setPendingFiles(prev => [...prev, ...next]);
+    if (candidates.length > 0) {
+      let overflow = false;
+      setPendingFiles(prev => {
+        const room = MAX_CHAT_FILES - prev.length;
+        if (room <= 0) {
+          overflow = true;
+          return prev;
+        }
+        if (candidates.length > room) {
+          overflow = true;
+          return [...prev, ...candidates.slice(0, room)];
+        }
+        return [...prev, ...candidates];
+      });
+      if (overflow) {
+        toast.error(`You can attach at most ${MAX_CHAT_FILES} files per message`);
+      }
     }
     if (fileInputRef.current) {
       fileInputRef.current.value = "";

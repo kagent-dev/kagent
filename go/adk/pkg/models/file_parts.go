@@ -213,7 +213,8 @@ func bedrockDocumentFormat(mime, name string) string {
 	return ""
 }
 
-// bedrockSafeDocName keeps only chars Bedrock accepts in DocumentBlock.Name.
+// bedrockSafeDocName keeps only chars Bedrock accepts in DocumentBlock.Name
+// (alphanumeric, single spaces, -()[]; max 200). Neutral renaming is left to callers.
 func bedrockSafeDocName(name string) string {
 	if name == "" {
 		return "document"
@@ -236,6 +237,9 @@ func bedrockSafeDocName(name string) string {
 	out := strings.TrimSpace(b.String())
 	if out == "" {
 		return "document"
+	}
+	if rs := []rune(out); len(rs) > 200 {
+		return string(rs[:200])
 	}
 	return out
 }
