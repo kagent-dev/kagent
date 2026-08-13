@@ -184,15 +184,6 @@ type PluginBundle struct {
 	Skills []string `json:"skills,omitempty"`
 }
 
-// HarnessAttachments lists the Harnesses permitted to run this AgentTemplate.
-type HarnessAttachments struct {
-	// +kubebuilder:validation:MaxItems=32
-	// +listType=map
-	// +listMapKey=name
-	// +optional
-	Include []AgentTemplateLocalReference `json:"include,omitempty"`
-}
-
 // AgentTemplateSpec defines portable agent behavior.
 // +kubebuilder:validation:XValidation:rule="!(has(self.systemPrompt) && has(self.systemPromptFrom))",message="systemPrompt and systemPromptFrom are mutually exclusive"
 type AgentTemplateSpec struct {
@@ -218,8 +209,6 @@ type AgentTemplateSpec struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	Plugins []PluginBundle `json:"plugins,omitempty"`
-	// +optional
-	Harnesses HarnessAttachments `json:"harnesses,omitempty"`
 }
 
 const (
@@ -229,9 +218,10 @@ const (
 	AgentTemplateConditionReady        = "Ready"
 )
 
-// AgentTemplateHarnessStatus reports runtime revision state for one explicitly requested Harness.
+// AgentTemplateHarnessStatus reports runtime revision state for one admitting Harness.
 type AgentTemplateHarnessStatus struct {
-	// Harness names an entry in spec.harnesses.include.
+	// Harness names a same-namespace Harness whose admission selector matches
+	// this AgentTemplate.
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Harness string `json:"harness"`
@@ -248,12 +238,11 @@ type AgentTemplateHarnessStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// AgentTemplateStatus is the controller-observed state for each requested Harness.
+// AgentTemplateStatus is the controller-observed state for each admitting Harness.
 type AgentTemplateStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Harnesses has at most one entry for each explicitly requested Harness.
-	// +kubebuilder:validation:MaxItems=32
+	// Harnesses has at most one entry for each admitting Harness.
 	// +listType=map
 	// +listMapKey=harness
 	// +optional
@@ -265,7 +254,7 @@ type AgentTemplateStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
-// AgentTemplate defines portable agent behavior and its acceptable Harnesses.
+// AgentTemplate defines portable agent behavior.
 type AgentTemplate struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional

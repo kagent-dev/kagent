@@ -70,8 +70,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
-	v2substrate "github.com/kagent-dev/kagent/go/core/v2/substrate"
-	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -460,7 +458,8 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		}
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	restConfig := ctrl.GetConfigOrDie()
+	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: cfg.ProbeAddr,
@@ -484,6 +483,15 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create manager")
+		os.Exit(1)
+	}
+	krtRuntime, err := v2controller.NewRuntime(restConfig, ctx.Done())
+	if err != nil {
+		setupLog.Error(err, "unable to initialize KRT runtime")
+		os.Exit(1)
+	}
+	if err := mgr.Add(krtRuntime); err != nil {
+		setupLog.Error(err, "unable to add KRT runtime")
 		os.Exit(1)
 	}
 
@@ -569,18 +577,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		extensionCfg.SandboxBackend,
 		cfg.MCPEgressPlaintext,
 	)
-	if substrateLifecycle != nil {
-		if err := (&v2controller.AgentTemplateController{
-			Client:     mgr.GetClient(),
-			Translator: v2translator.NewCompiler(mgr.GetClient(), cfg.MCPEgressPlaintext),
-			Lifecycle:  &v2substrate.Lifecycle{Client: mgr.GetClient(), PauseImage: cfg.Substrate.PauseImage},
-			Store:      dbClient,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "AgentTemplate")
-			os.Exit(1)
-		}
-	}
-
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
 		mgr.GetClient(),

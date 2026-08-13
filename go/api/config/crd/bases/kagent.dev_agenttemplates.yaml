@@ -23,8 +23,7 @@ spec:
     name: v1alpha3
     schema:
       openAPIV3Schema:
-        description: AgentTemplate defines portable agent behavior and its acceptable
-          Harnesses.
+        description: AgentTemplate defines portable agent behavior.
         properties:
           apiVersion:
             description: |-
@@ -48,27 +47,6 @@ spec:
             properties:
               description:
                 type: string
-              harnesses:
-                description: HarnessAttachments lists the Harnesses permitted to run
-                  this AgentTemplate.
-                properties:
-                  include:
-                    items:
-                      description: AgentTemplateLocalReference identifies a resource
-                        in the AgentTemplate's namespace.
-                      properties:
-                        name:
-                          minLength: 1
-                          type: string
-                      required:
-                      - name
-                      type: object
-                    maxItems: 32
-                    type: array
-                    x-kubernetes-list-map-keys:
-                    - name
-                    x-kubernetes-list-type: map
-                type: object
               modelConfig:
                 description: AgentTemplateLocalReference identifies a resource in
                   the AgentTemplate's namespace.
@@ -362,14 +340,13 @@ spec:
               rule: '!(has(self.systemPrompt) && has(self.systemPromptFrom))'
           status:
             description: AgentTemplateStatus is the controller-observed state for
-              each requested Harness.
+              each admitting Harness.
             properties:
               harnesses:
-                description: Harnesses has at most one entry for each explicitly requested
-                  Harness.
+                description: Harnesses has at most one entry for each admitting Harness.
                 items:
                   description: AgentTemplateHarnessStatus reports runtime revision
-                    state for one explicitly requested Harness.
+                    state for one admitting Harness.
                   properties:
                     conditions:
                       items:
@@ -436,7 +413,9 @@ spec:
                       minLength: 1
                       type: string
                     harness:
-                      description: Harness names an entry in spec.harnesses.include.
+                      description: |-
+                        Harness names a same-namespace Harness whose admission selector matches
+                        this AgentTemplate.
                       minLength: 1
                       type: string
                     latestSuccessfulRevision:
@@ -446,7 +425,6 @@ spec:
                   - desiredRevision
                   - harness
                   type: object
-                maxItems: 32
                 type: array
                 x-kubernetes-list-map-keys:
                 - harness
