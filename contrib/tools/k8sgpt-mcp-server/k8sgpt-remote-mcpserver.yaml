@@ -1,7 +1,7 @@
 ## Official MCP Server for k8sgpt
 ## https://github.com/k8sgpt-ai/k8sgpt
 ## This file defines a RemoteMCPServer for k8sgpt using the MCP protocol.
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: RemoteMCPServer
 metadata:
   name: k8sgpt-mcp-server

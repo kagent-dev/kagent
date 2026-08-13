@@ -1,0 +1,166 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1alpha1/common.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+service AgentInstanceService {
+  rpc CreateAgentInstance(CreateAgentInstanceRequest) returns (CreateAgentInstanceResponse);
+  rpc GetAgentInstance(GetAgentInstanceRequest) returns (GetAgentInstanceResponse);
+  rpc ListAgentInstances(ListAgentInstancesRequest) returns (ListAgentInstancesResponse);
+  rpc SuspendAgentInstance(SuspendAgentInstanceRequest) returns (SuspendAgentInstanceResponse);
+  rpc ResumeAgentInstance(ResumeAgentInstanceRequest) returns (ResumeAgentInstanceResponse);
+  rpc DeleteAgentInstance(DeleteAgentInstanceRequest) returns (DeleteAgentInstanceResponse);
+  rpc CreateAgentInstanceShare(CreateAgentInstanceShareRequest) returns (CreateAgentInstanceShareResponse);
+  rpc ListAgentInstanceShares(ListAgentInstanceSharesRequest) returns (ListAgentInstanceSharesResponse);
+  rpc RevokeAgentInstanceShare(RevokeAgentInstanceShareRequest) returns (RevokeAgentInstanceShareResponse);
+}
+
+enum AgentInstanceState {
+  AGENT_INSTANCE_STATE_UNSPECIFIED = 0;
+  AGENT_INSTANCE_STATE_CREATING = 1;
+  AGENT_INSTANCE_STATE_READY = 2;
+  AGENT_INSTANCE_STATE_SUSPENDED = 3;
+  AGENT_INSTANCE_STATE_FAILED = 4;
+  AGENT_INSTANCE_STATE_DELETING = 5;
+  AGENT_INSTANCE_STATE_DELETED = 6;
+}
+
+enum AgentInstanceOperation {
+  AGENT_INSTANCE_OPERATION_UNSPECIFIED = 0;
+  AGENT_INSTANCE_OPERATION_CREATE = 1;
+  AGENT_INSTANCE_OPERATION_SUSPEND = 2;
+  AGENT_INSTANCE_OPERATION_RESUME = 3;
+  AGENT_INSTANCE_OPERATION_DELETE = 4;
+}
+
+enum AgentInstanceSharePermission {
+  AGENT_INSTANCE_SHARE_PERMISSION_UNSPECIFIED = 0;
+  // Allows A2A get, list, and subscribe operations.
+  AGENT_INSTANCE_SHARE_PERMISSION_READ_ONLY = 1;
+  // Also allows A2A send and cancel operations.
+  AGENT_INSTANCE_SHARE_PERMISSION_READ_WRITE = 2;
+}
+
+message Failure {
+  string reason = 1;
+  string message = 2;
+}
+
+message AgentInstance {
+  string id = 1;
+  string namespace = 2;
+  string creator = 3;
+  ResourceReference harness = 4;
+  ResourceReference agent_template = 5;
+  string prepared_revision = 6;
+  string a2a_authority = 7;
+  AgentInstanceState state = 8;
+  AgentInstanceOperation operation = 9;
+  Failure failure = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+  map<string, string> labels = 13;
+}
+
+message CreateAgentInstanceRequest {
+  string namespace = 1;
+  string harness = 2;
+  string agent_template = 3;
+  string request_id = 4;
+}
+
+message CreateAgentInstanceResponse {
+  AgentInstance agent_instance = 1;
+}
+
+message GetAgentInstanceRequest {
+  string namespace = 1;
+  string agent_instance_id = 2;
+}
+
+message GetAgentInstanceResponse {
+  AgentInstance agent_instance = 1;
+}
+
+message ListAgentInstancesRequest {
+  string namespace = 1;
+  map<string, string> match_labels = 2;
+  // Includes instances created by other users when authorized.
+  bool all_creators = 3;
+  PageRequest page = 4;
+}
+
+message ListAgentInstancesResponse {
+  repeated AgentInstance agent_instances = 1;
+  PageResponse page = 2;
+}
+
+message SuspendAgentInstanceRequest {
+  string namespace = 1;
+  string agent_instance_id = 2;
+}
+
+message SuspendAgentInstanceResponse {
+  AgentInstance agent_instance = 1;
+}
+
+message ResumeAgentInstanceRequest {
+  string namespace = 1;
+  string agent_instance_id = 2;
+}
+
+message ResumeAgentInstanceResponse {
+  AgentInstance agent_instance = 1;
+}
+
+message DeleteAgentInstanceRequest {
+  string namespace = 1;
+  string agent_instance_id = 2;
+}
+
+message DeleteAgentInstanceResponse {
+  AgentInstance agent_instance = 1;
+}
+
+message AgentInstanceShare {
+  string id = 1;
+  string namespace = 2;
+  string agent_instance_id = 3;
+  string creator = 4;
+  AgentInstanceSharePermission permission = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message CreateAgentInstanceShareRequest {
+  string namespace = 1;
+  string agent_instance_id = 2;
+  AgentInstanceSharePermission permission = 3;
+}
+
+message CreateAgentInstanceShareResponse {
+  AgentInstanceShare share = 1;
+  // Returned only when the share is created.
+  string token = 2;
+}
+
+message ListAgentInstanceSharesRequest {
+  string namespace = 1;
+  string agent_instance_id = 2;
+  PageRequest page = 3;
+}
+
+message ListAgentInstanceSharesResponse {
+  repeated AgentInstanceShare shares = 1;
+  PageResponse page = 2;
+}
+
+message RevokeAgentInstanceShareRequest {
+  string namespace = 1;
+  string share_id = 2;
+}
+
+message RevokeAgentInstanceShareResponse {}

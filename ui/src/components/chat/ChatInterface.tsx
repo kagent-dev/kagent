@@ -51,7 +51,7 @@ import {
 } from "@/lib/hitl";
 import { kagentA2AClient } from "@/lib/a2aClient";
 import { formatA2AClientError } from "@/lib/a2aErrors";
-import { useChatRunInSandbox, useChatSubstrateSandbox, useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
+import { useChatSubstrateSandbox, useCurrentChatAgent } from "@/components/chat/ChatAgentContext";
 import { v4 as uuidv4 } from "uuid";
 import { getStatusPlaceholder, mapA2AStateToStatus } from "@/lib/statusUtils";
 import { taskStateFromJSON, type Message, type StreamResponse, type Task } from "@a2a-js/sdk";
@@ -73,7 +73,6 @@ interface ChatInterfaceProps {
 }
 
 export default function ChatInterface({ selectedAgentName, selectedNamespace, selectedSession, sessionId, shareToken }: ChatInterfaceProps) {
-  const runInSandbox = useChatRunInSandbox();
   const currentAgent = useCurrentChatAgent();
   const { getMcpAppForTool } = useChatMcpApps();
   const substrateSandbox = useChatSubstrateSandbox();
@@ -645,10 +644,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
 
     try {
       const sid = opts?.sessionIdForWait ?? session?.id ?? sessionId;
-      if (runInSandbox && !sid) {
+      if (!sid) {
         throw new Error("Session is required before messaging a Sandbox agent");
       }
-      if (runInSandbox && sid) {
+      if (sid) {
         let loadingToast: string | number | undefined;
         const slowToast = setTimeout(() => {
           loadingToast = toast.loading(
@@ -658,7 +657,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         try {
           if (substrateSandbox) {
             // ActorTemplate readiness only; per-session actors resume on the A2A request.
-            if (!currentAgent.deploymentReady) {
+            if (!currentAgent.ready) {
               throw new Error("Sandbox agent is still starting. Wait a moment and try again.");
             }
           } else {
@@ -687,7 +686,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         selectedAgentName,
         sendParams,
         abortControllerRef.current?.signal,
-        runInSandbox,
         shareToken
       );
 
@@ -731,7 +729,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         selectedAgentName,
         taskId,
         abortControllerRef.current.signal,
-        runInSandbox,
         shareToken
       );
 

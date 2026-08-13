@@ -3,100 +3,103 @@ import {
   callMcpAppTool,
   readMcpAppResource,
 } from "@/app/actions/mcp-apps";
-import { fetchApi } from "@/app/actions/utils";
+import { getToolGrpcGateway } from "@/lib/grpc/client";
 
 jest.mock("@/app/actions/utils", () => ({
-  fetchApi: jest.fn(),
   createErrorResponse: jest.fn((err: unknown, message: string) => ({
     error: true,
     message,
   })),
 }));
 
-const mockedFetchApi = fetchApi as jest.Mock;
+jest.mock("@/lib/grpc/client", () => ({
+  getToolGrpcGateway: jest.fn(),
+}));
+
+const listMcpAppToolsGateway = jest.fn();
+const callMcpAppToolGateway = jest.fn();
+const readMcpAppResourceGateway = jest.fn();
+const mockedGetToolGrpcGateway = getToolGrpcGateway as jest.MockedFunction<typeof getToolGrpcGateway>;
 
 describe("mcp-apps server actions", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockedFetchApi.mockResolvedValue({ error: false, data: [] });
+    listMcpAppToolsGateway.mockResolvedValue([]);
+    callMcpAppToolGateway.mockResolvedValue({ content: [] });
+    readMcpAppResourceGateway.mockResolvedValue({ contents: [] });
+    mockedGetToolGrpcGateway.mockResolvedValue({
+      listMcpAppTools: listMcpAppToolsGateway,
+      callMcpAppTool: callMcpAppToolGateway,
+      readMcpAppResource: readMcpAppResourceGateway,
+    } as never);
   });
 
   it("lists tools for the namespaced server", async () => {
-    await listMcpAppTools("kagent", "kanban-mcp");
+    listMcpAppToolsGateway.mockResolvedValueOnce([{ name: "move_task" }]);
 
-    expect(mockedFetchApi).toHaveBeenCalledWith("/mcp-apps/kagent/kanban-mcp/tools");
+    const result = await listMcpAppTools("kagent", "kanban-mcp");
+
+    expect(listMcpAppToolsGateway).toHaveBeenCalledWith("kagent", "kanban-mcp", undefined);
+    expect(result).toEqual({
+      message: "Successfully listed MCP app tools",
+      data: [{ name: "move_task" }],
+    });
   });
 
-  it("URL-encodes namespace and server names", async () => {
-    await listMcpAppTools("my ns", "weird/name");
+  it("calls tools with arguments and the selected CRD group kind", async () => {
+    callMcpAppToolGateway.mockResolvedValueOnce({ content: [{ type: "text", text: "moved" }] });
 
-    expect(mockedFetchApi).toHaveBeenCalledWith(
-      "/mcp-apps/my%20ns/weird%2Fname/tools"
+    const result = await callMcpAppTool(
+      "kagent",
+      "kanban-mcp",
+      "move_task",
+      { id: "t1", to: "done" },
+      "RemoteMCPServer.kagent.dev",
     );
-  });
 
-  it("POSTs tool calls with a JSON arguments body", async () => {
-    await callMcpAppTool("kagent", "kanban-mcp", "move_task", { id: "t1", to: "done" });
-
-    expect(mockedFetchApi).toHaveBeenCalledWith(
-      "/mcp-apps/kagent/kanban-mcp/tools/move_task/call",
-      {
-        method: "POST",
-        body: JSON.stringify({ arguments: { id: "t1", to: "done" } }),
-      }
+    expect(callMcpAppToolGateway).toHaveBeenCalledWith(
+      "kagent",
+      "kanban-mcp",
+      "move_task",
+      { id: "t1", to: "done" },
+      "RemoteMCPServer.kagent.dev",
     );
+    expect(result.data).toEqual({ content: [{ type: "text", text: "moved" }] });
   });
 
-  it("defaults tool-call arguments to an empty object", async () => {
+  it("passes omitted arguments through for the gateway default", async () => {
     await callMcpAppTool("kagent", "kanban-mcp", "refresh");
 
-    expect(mockedFetchApi).toHaveBeenCalledWith(
-      "/mcp-apps/kagent/kanban-mcp/tools/refresh/call",
-      {
-        method: "POST",
-        body: JSON.stringify({ arguments: {} }),
-      }
+    expect(callMcpAppToolGateway).toHaveBeenCalledWith(
+      "kagent",
+      "kanban-mcp",
+      "refresh",
+      undefined,
+      undefined,
     );
   });
 
-  it("reads a resource by URI (encoded)", async () => {
-    await readMcpAppResource("kagent", "kanban-mcp", "ui://board?x=1");
+  it("reads a resource through the selected CRD", async () => {
+    readMcpAppResourceGateway.mockResolvedValueOnce({ contents: [{ uri: "ui://board" }] });
 
-    expect(mockedFetchApi).toHaveBeenCalledWith(
-      "/mcp-apps/kagent/kanban-mcp/resources?uri=ui%3A%2F%2Fboard%3Fx%3D1"
+    const result = await readMcpAppResource(
+      "kagent",
+      "kanban-mcp",
+      "ui://board?x=1",
+      "MCPServer.kagent.dev",
     );
+
+    expect(readMcpAppResourceGateway).toHaveBeenCalledWith(
+      "kagent",
+      "kanban-mcp",
+      "ui://board?x=1",
+      "MCPServer.kagent.dev",
+    );
+    expect(result.data).toEqual({ contents: [{ uri: "ui://board" }] });
   });
 
-  it("appends groupKind so the backend resolves the right CRD", async () => {
-    await listMcpAppTools("kagent", "kanban-mcp", "MCPServer.kagent.dev");
-
-    expect(mockedFetchApi).toHaveBeenCalledWith(
-      "/mcp-apps/kagent/kanban-mcp/tools?groupKind=MCPServer.kagent.dev"
-    );
-  });
-
-  it("appends groupKind on tool calls", async () => {
-    await callMcpAppTool("kagent", "kanban-mcp", "refresh", undefined, "RemoteMCPServer.kagent.dev");
-
-    expect(mockedFetchApi).toHaveBeenCalledWith(
-      "/mcp-apps/kagent/kanban-mcp/tools/refresh/call?groupKind=RemoteMCPServer.kagent.dev",
-      {
-        method: "POST",
-        body: JSON.stringify({ arguments: {} }),
-      }
-    );
-  });
-
-  it("appends groupKind after the resource uri query", async () => {
-    await readMcpAppResource("kagent", "kanban-mcp", "ui://board", "MCPServer.kagent.dev");
-
-    expect(mockedFetchApi).toHaveBeenCalledWith(
-      "/mcp-apps/kagent/kanban-mcp/resources?uri=ui%3A%2F%2Fboard&groupKind=MCPServer.kagent.dev"
-    );
-  });
-
-  it("returns an error response when fetchApi throws", async () => {
-    mockedFetchApi.mockRejectedValueOnce(new Error("boom"));
+  it("returns an error response when the gRPC gateway throws", async () => {
+    listMcpAppToolsGateway.mockRejectedValueOnce(new Error("boom"));
 
     const result = await listMcpAppTools("kagent", "kanban-mcp");
 

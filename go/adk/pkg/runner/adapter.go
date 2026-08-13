@@ -3,12 +3,12 @@ package runner
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/agent"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	kagentmemory "github.com/kagent-dev/kagent/go/adk/pkg/memory"
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	"github.com/kagent-dev/kagent/go/adk/pkg/tools"
@@ -35,8 +35,7 @@ func CreateRunnerConfig(
 	sessionService adksession.Service,
 	appName string,
 	memoryService *kagentmemory.KagentMemoryService,
-	kagentURL string,
-	httpClient *http.Client,
+	controllerClient *controllerclient.Client,
 ) (runner.Config, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
@@ -49,16 +48,16 @@ func CreateRunnerConfig(
 		extraTools = append(extraTools, saveTool)
 	}
 
-	if agentConfig.ShareTools != nil && *agentConfig.ShareTools && kagentURL != "" && httpClient != nil {
-		createTool, err := tools.NewCreateShareLinkTool(httpClient, kagentURL, appName)
+	if agentConfig.ShareTools != nil && *agentConfig.ShareTools && controllerClient != nil {
+		createTool, err := tools.NewCreateShareLinkTool(controllerClient, appName)
 		if err != nil {
 			return runner.Config{}, fmt.Errorf("failed to create create_share_link tool: %w", err)
 		}
-		listTool, err := tools.NewListShareLinksTool(httpClient, kagentURL, appName)
+		listTool, err := tools.NewListShareLinksTool(controllerClient, appName)
 		if err != nil {
 			return runner.Config{}, fmt.Errorf("failed to create list_share_links tool: %w", err)
 		}
-		deleteTool, err := tools.NewDeleteShareLinkTool(httpClient, kagentURL, appName)
+		deleteTool, err := tools.NewDeleteShareLinkTool(controllerClient, appName)
 		if err != nil {
 			return runner.Config{}, fmt.Errorf("failed to create delete_share_link tool: %w", err)
 		}

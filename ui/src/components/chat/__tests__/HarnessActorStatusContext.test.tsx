@@ -21,7 +21,15 @@ function StatusConsumer({ label }: { label: string }) {
 describe("HarnessActorStatusProvider", () => {
   beforeEach(() => {
     jest.useFakeTimers();
-    mockGetStatus.mockResolvedValue({ data: { state: "running" } });
+    mockGetStatus.mockResolvedValue({
+      message: "Session actor status fetched",
+      data: {
+        namespace: "kagent",
+        name: "harness",
+        sessionId: "session-1",
+        state: "running",
+      },
+    });
   });
 
   afterEach(() => {
@@ -94,13 +102,29 @@ describe("HarnessActorStatusProvider", () => {
     act(() => jest.advanceTimersByTime(0));
 
     await act(async () => {
-      resolveSecond({ data: { state: "running" } });
+      resolveSecond({
+        message: "Session actor status fetched",
+        data: {
+          namespace: "kagent",
+          name: "harness",
+          sessionId: "session-2",
+          state: "running",
+        },
+      });
       await Promise.resolve();
     });
     expect(screen.getByText("status:running")).toBeInTheDocument();
 
     await act(async () => {
-      resolveFirst({ data: { state: "suspended" } });
+      resolveFirst({
+        message: "Session actor status fetched",
+        data: {
+          namespace: "kagent",
+          name: "harness",
+          sessionId: "session-1",
+          state: "suspended",
+        },
+      });
       await Promise.resolve();
     });
     expect(screen.getByText("status:running")).toBeInTheDocument();

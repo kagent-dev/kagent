@@ -78,8 +78,8 @@ Target personas interact with kagent through multiple interfaces:
 
 3. **Kubernetes API**: Direct interaction via `kubectl` and Kubernetes manifests:
    ```yaml
-   apiVersion: kagent.dev/v1alpha2
-   kind: Agent
+   apiVersion: kagent.dev/v1alpha3
+   kind: SandboxAgent
    metadata:
      name: my-agent
    spec:
@@ -191,9 +191,8 @@ Kagent implements a multi-layered IAM approach:
 
 1. **Kubernetes RBAC**:
    - Controller uses ServiceAccount with ClusterRole for CRD management
-   - Agents receive individual ServiceAccounts with configurable RBAC permissions
+   - Standard agents run in isolated Agent Substrate actors; Kubernetes ServiceAccounts are not part of the SandboxAgent API
    - Example roles in [go/config/rbac/role.yaml](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/config/rbac/role.yaml)
-   - Per-agent RBAC templates in [helm/agents/*/templates/rbac.yaml](https://github.com/kagent-dev/kagent/tree/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/helm/agents)
 
 2. **API Authentication** (planned enhancement - [Issue #476](https://github.com/kagent-dev/kagent/issues/476)):
    - Current: UnsecureAuthenticator for development, A2AAuthenticator for agent-to-agent
@@ -284,10 +283,10 @@ Persistent Storage:
 Kagent exposes multiple API surfaces:
 
 1. **Kubernetes API** (CRDs):
-   - `agents.kagent.dev/v1alpha2` - Agent definitions
-   - `modelconfigs.kagent.dev/v1alpha2` - LLM model configurations
+   - `sandboxagents.kagent.dev/v1alpha3` - Agent definitions
+   - `modelconfigs.kagent.dev/v1alpha3` - LLM model configurations
    - `toolservers.kagent.dev/v1alpha1` - MCP tool server definitions
-   - `remotemcpservers.kagent.dev/v1alpha2` - Remote MCP servers
+   - `remotemcpservers.kagent.dev/v1alpha3` - Remote MCP servers
    - `memories.kagent.dev/v1alpha1` - Memory/vector store configurations
    - `mcpservers.kagent.dev` (inherited via KMCP dependency)
 
@@ -299,7 +298,7 @@ Kagent exposes multiple API surfaces:
    - See [go/internal/httpserver/server.go](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/internal/httpserver/server.go)
 
 3. **A2A Protocol** (per-agent):
-   - Path: `/api/a2a/{namespace}/{agent-name}`
+   - Path: `/api/a2a-sandboxes/{namespace}/{agent-name}`
    - Spec: https://github.com/google/A2A
    - Supports streaming and synchronous invocations
 
@@ -348,13 +347,13 @@ These do not modify existing Kubernetes APIs or cloud provider APIs.
 **API Compatibility:**
 
 - **Kubernetes API Server**: Compatible with Kubernetes 1.27+ (uses standard CRD and controller-runtime patterns)
-- **API Versioning**: Currently `v1alpha2` for core types, `v1alpha1` for memory types
+- **API Versioning**: Currently `v1alpha3` for core types, with `v1alpha1` and `v1alpha2` compatibility APIs
 - **Backward Compatibility**: Breaking changes allowed in alpha versions, will stabilize in v1beta1 and v1
 - **Conversion Webhooks**: Planned for v1beta1 to support multiple API versions simultaneously
 
 **API Versioning and Breaking Changes:**
 
-- **Alpha** (`v1alpha1`, `v1alpha2`): Breaking changes allowed between versions, deprecated APIs removed after 1-2 releases
+- **Alpha** (`v1alpha1`, `v1alpha2`, `v1alpha3`): Breaking changes allowed between versions, deprecated APIs removed after 1-2 releases
 - **Beta** (planned `v1beta1`): Breaking changes discouraged, deprecated APIs supported for 2+ releases
 - **Stable** (planned `v1`): Strong backward compatibility guarantees, deprecated APIs supported for 3+ releases
 - **Deprecation Policy**: Follows Kubernetes deprecation policy - announcements in release notes, migration guides provided
@@ -447,7 +446,7 @@ kubectl wait --for=condition=Ready pods --all -n kagent --timeout=120s
 
 ```bash
 kubectl get crds | grep kagent.dev
-# Expected: agents.kagent.dev, modelconfigs.kagent.dev, etc.
+# Expected: sandboxagents.kagent.dev, modelconfigs.kagent.dev, etc.
 ```
 
 **3. Check Agents:**
@@ -537,7 +536,7 @@ Kagent satisfies the [Cloud Native Security Tenets](https://github.com/cncf/tag-
 
 3. **Least Privilege:**
    - Controller runs with minimal RBAC permissions (see [go/config/rbac/role.yaml](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/go/config/rbac/role.yaml))
-   - Each agent gets individual ServiceAccount with scoped permissions
+   - Standard agents are isolated by Agent Substrate
    - No cluster-admin privileges required
    - Agents cannot access secrets in other namespaces
 
@@ -579,12 +578,7 @@ For development or specific use cases, users may need to relax security:
    - Production: Configure proper authentication via [Issue #476](https://github.com/kagent-dev/kagent/issues/476)
    - Documentation: Planned for v1.0 release
 
-2. **Expanded RBAC Permissions:**
-   - Default: Read-only access to most resources
-   - Custom: Edit agent RBAC templates in [helm/agents/*/templates/rbac.yaml](https://github.com/kagent-dev/kagent/tree/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/helm/agents)
-   - Example: Grant write access for agents that need to modify resources
-
-3. **Cross-Namespace Access:**
+2. **Cross-Namespace Access:**
    - Default: Agents can only access resources in their namespace
    - Custom: Use ClusterRole instead of Role for cluster-wide access
    - Warning: Increases security risk, use with caution
@@ -653,7 +647,7 @@ Agents require (configurable per agent):
 
 Reasons for privileges:
 
-- Controller needs write access to create/update agent deployments and services
+- Controller needs write access to create/update agent configuration and Substrate ActorTemplates
 - Agents need read access to perform their operational tasks
 - Write access for agents is optional and scoped to specific use cases
 

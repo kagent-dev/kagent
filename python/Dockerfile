@@ -6,7 +6,7 @@ FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 # Build the uv-managed standalone Python interpreter and the project venv on a full base
 # (debian-slim, digest-pinnable). Nothing from this stage ships except /python and the venv.
 # Digest = multi-arch index resolved via `docker buildx imagetools inspect debian:12-slim`.
-FROM debian:13-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd AS builder
+FROM debian:13-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258 AS builder
 ARG TOOLS_PYTHON_VERSION=3.13
 
 ENV LANG=C.UTF-8
@@ -41,6 +41,7 @@ COPY uv.lock .
 COPY README.md .
 COPY packages/kagent-adk packages/kagent-adk
 COPY packages/kagent-core packages/kagent-core
+COPY packages/kagent-proto packages/kagent-proto
 COPY packages/kagent-skills packages/kagent-skills
 COPY packages/agentsts-adk packages/agentsts-adk
 COPY packages/agentsts-core packages/agentsts-core

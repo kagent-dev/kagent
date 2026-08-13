@@ -278,7 +278,7 @@ export interface McpServerTool extends TypedLocalReference {
 export type AgentType = "Declarative" | "BYO" | "AgentHarness";
 
 /**
- * AgentHarness.spec.backend (go/api/v1alpha2/agentharness_types.go).
+ * AgentHarness.spec.backend (go/api/v1alpha3/agentharness_types.go).
  * Single source of truth for backend strings — forms, API payloads, and helpers should use this.
  */
 export type AgentHarnessCrBackend =
@@ -308,14 +308,27 @@ export interface GitRepo {
   name?: string;
 }
 
+/** Single S3 skill source (prefix or .zip/.tgz archive). */
+export interface S3SkillRef {
+  uri: string;
+  region?: string;
+  name?: string;
+}
+
+export interface SkillsInitContainer {
+  env?: EnvVar[];
+}
+
 export interface SkillForAgent {
   insecureSkipVerify?: boolean;
   refs?: string[];
   gitAuthSecretRef?: { name: string };
   gitRefs?: GitRepo[];
+  s3Refs?: S3SkillRef[];
+  initContainer?: SkillsInitContainer;
 }
 
-/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha2). */
+/** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha3). */
 export interface SandboxAgent {
   apiVersion?: string;
   kind?: string;
@@ -340,10 +353,6 @@ export interface AgentSpec {
   skills?: SkillForAgent;
   substrate?: SandboxSubstrateSpec;
   sandbox?: SandboxConfig;
-}
-
-export interface DeclarativeDeploymentSpec {
-  serviceAccountName?: string;
 }
 
 /** Prompt library sources referenced for {{include "alias/key"}} in system messages. */
@@ -385,7 +394,6 @@ export interface DeclarativeAgentSpec {
   stream?: boolean;
   a2aConfig?: A2AConfig;
   context?: ContextConfig;
-  deployment?: DeclarativeDeploymentSpec;
   /** Long-term memory (same shape as Kubernetes declarative spec). */
   memory?: MemorySpec;
   /** When set, systemMessage is rendered as a Go text/template with includes and variables. */
@@ -417,26 +425,10 @@ export interface MemorySpec {
 }
 
 export interface BYOAgentSpec {
-  deployment: BYODeploymentSpec;
-}
-
-export interface BYODeploymentSpec {
   image: string;
   cmd?: string;
   args?: string[];
-
-  // Items from the SharedDeploymentSpec
-  replicas?: number;
-  imagePullSecrets?: Array<{ name: string }>;
-  volumes?: unknown[];
-  volumeMounts?: unknown[];
-  labels?: Record<string, string>;
-  annotations?: Record<string, string>;
-  deploymentAnnotations?: Record<string, string>;
   env?: EnvVar[];
-  envFrom?: EnvFromSource[];
-  imagePullPolicy?: string;
-  serviceAccountName?: string;
 }
 
 export interface A2AConfig {
@@ -472,7 +464,7 @@ export interface Agent {
   };
 }
 
-/** Merged into GET /api/agents for an AgentHarness backed by Agent Substrate. */
+/** Merged into an AgentHarness list result when Agent Substrate provides the backend. */
 export interface AgentHarnessListEntry {
   backend: string;
   actorId?: string;
@@ -483,7 +475,7 @@ export interface AgentHarnessListEntry {
   endpoint?: string;
 }
 
-/** GET /api/substrate/status — WorkerPools, ActorTemplates, and ate-api actors/workers. */
+/** WorkerPools, ActorTemplates, and ate-api actors/workers returned by GetSubstrateStatus. */
 export interface SubstrateStatusResponse {
   enabled: boolean;
   ateApiError?: string;
@@ -544,9 +536,8 @@ export interface AgentResponse {
   modelProvider: string;
   modelConfigRef: string;
   tools: Tool[];
-  deploymentReady: boolean;
+  ready: boolean;
   accepted: boolean;
-  workloadMode?: "deployment" | "sandbox";
   substrateAgentHarness?: AgentHarnessListEntry;
 }
 

@@ -15,8 +15,8 @@ import { firstReadyAgent } from "../../helpers/resources";
 const USER_MESSAGE = "List the pods please";
 const AGENT_REPLY = "Hello from the agent"; // the proxy's canned reply text
 
-test("chat: send and receive a reply", async ({ page, request }) => {
-  const chatUrl = `/agents/${await firstReadyAgent(request)}/chat`;
+test("chat: send and receive a reply", async ({ page }) => {
+  const chatUrl = `/agents/${await firstReadyAgent()}/chat`;
 
   // region Reading — the empty state before any message
   await test.step("opens on the empty state before any message", async () => {

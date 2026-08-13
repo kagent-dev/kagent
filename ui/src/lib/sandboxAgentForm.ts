@@ -12,10 +12,6 @@ export function sandboxFieldsFromApiSpec(substrate?: SandboxSubstrateSpec): {
 }
 
 export function buildSandboxSubstrateFromForm(agentFormData: AgentFormData): SandboxSubstrateSpec | undefined {
-  if (!agentFormData.runInSandbox) {
-    return undefined;
-  }
-
   const substrate: SandboxSubstrateSpec = {};
   const wp = agentFormData.substrateWorkerPoolRefName?.trim();
   if (wp) {
@@ -39,16 +35,16 @@ export function substrateSupportedForAgentType(agentType: string | undefined): b
 
 /** Sandbox agents run on Agent Substrate with a dedicated actor per chat session. */
 export function isSubstrateSandboxAgent(
-  agent: Pick<AgentResponse, "workloadMode" | "agent"> | null | undefined
+  agent: Pick<AgentResponse, "agent"> | null | undefined
 ): boolean {
-  return agent?.workloadMode === "sandbox";
+  return agent?.agent.kind === "SandboxAgent";
 }
 
 export type SandboxChatMode = "default" | "multi-session";
 
-/** Sidebar chat behavior for sandbox vs deployment agents. */
+/** Sidebar chat behavior for standard agents. */
 export function sandboxChatMode(
-  agent: Pick<AgentResponse, "workloadMode" | "agent"> | null | undefined
+  agent: Pick<AgentResponse, "agent"> | null | undefined
 ): SandboxChatMode {
-  return agent?.workloadMode === "sandbox" ? "multi-session" : "default";
+  return agent ? "multi-session" : "default";
 }
