@@ -1,0 +1,335 @@
+package agentinstance
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/google/uuid"
+	dbpkg "github.com/kagent-dev/kagent/go/api/database"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
+)
+
+const (
+	defaultPageSize = 50
+	maxPageSize     = 100
+)
+
+type Store interface {
+	CreateAgentInstance(context.Context, dbpkg.AgentInstanceCreateParams) (*apiv1alpha1.AgentInstance, bool, error)
+	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	ListAgentInstances(context.Context, string, string, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
+	MarkAgentInstanceDeleting(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error)
+	ListAgentInstanceShares(context.Context, string, string, string) ([]dbpkg.AgentInstanceShare, error)
+	DeleteAgentInstanceShare(context.Context, string, string, string) error
+}
+
+type instanceWorkflow interface {
+	Create(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
+	Delete(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
+}
+
+type ListRequest struct {
+	Namespace   string
+	MatchLabels map[string]string
+	AllCreators bool
+	PageSize    int
+	PageToken   string
+}
+
+type ListResult struct {
+	Instances     []*apiv1alpha1.AgentInstance
+	NextPageToken string
+}
+
+type ShareListResult struct {
+	Shares        []dbpkg.AgentInstanceShare
+	NextPageToken string
+}
+
+type Service struct {
+	store      Store
+	authorizer auth.Authorizer
+	workflow   instanceWorkflow
+}
+
+func NewService(store Store, authorizer auth.Authorizer, workflow instanceWorkflow) *Service {
+	return &Service{store: store, authorizer: authorizer, workflow: workflow}
+}
+
+func (s *Service) Create(ctx context.Context, namespace, harness, template, requestID string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateCreate(namespace, harness, template, requestID); err != nil {
+		return nil, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+template)
+	if err != nil {
+		return nil, err
+	}
+	instance, _, err := s.store.CreateAgentInstance(ctx, dbpkg.AgentInstanceCreateParams{
+		ID: uuid.NewString(), Namespace: namespace, Creator: creator,
+		HarnessName: harness, AgentTemplateName: template, RequestID: requestID,
+	})
+	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
+	}
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, serviceerrors.NewFailedPrecondition("AgentTemplate and Harness do not have a ready prepared revision", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to reserve AgentInstance", err)
+	}
+	instance, err = s.workflow.Create(ctx, instance)
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to create AgentInstance", err)
+	}
+	return instance, nil
+}
+
+func (s *Service) Get(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateIdentity(namespace, id); err != nil {
+		return nil, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbGet, namespace+"/"+id)
+	if err != nil {
+		return nil, err
+	}
+	instance, err := s.store.GetAgentInstance(ctx, namespace, id, creator)
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
+	}
+	return instance, nil
+}
+
+func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
+	if err := validateNamespace(request.Namespace); err != nil {
+		return ListResult{}, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbGet, request.Namespace)
+	if err != nil {
+		return ListResult{}, err
+	}
+	if request.AllCreators {
+		if _, err := s.authorizeType(ctx, auth.VerbGet, "AgentInstanceAllCreators", request.Namespace); err != nil {
+			return ListResult{}, err
+		}
+		creator = ""
+	}
+	pageSize := request.PageSize
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+	if pageSize < 0 || pageSize > maxPageSize {
+		return ListResult{}, serviceerrors.NewInvalidArgument(fmt.Sprintf("page limit must be between 1 and %d", maxPageSize), nil)
+	}
+	afterID, err := decodePageToken(request.PageToken)
+	if err != nil {
+		return ListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
+	}
+	instances, err := s.store.ListAgentInstances(ctx, request.Namespace, creator, request.MatchLabels, afterID, pageSize+1)
+	if err != nil {
+		return ListResult{}, serviceerrors.NewInternal("Failed to list AgentInstances", err)
+	}
+	result := ListResult{Instances: instances}
+	if len(result.Instances) > pageSize {
+		result.NextPageToken = encodePageToken(result.Instances[pageSize-1].GetId())
+		result.Instances = result.Instances[:pageSize]
+	}
+	return result, nil
+}
+
+func (s *Service) Delete(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateIdentity(namespace, id); err != nil {
+		return nil, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbDelete, namespace+"/"+id)
+	if err != nil {
+		return nil, err
+	}
+	instance, err := s.store.MarkAgentInstanceDeleting(ctx, namespace, id, creator)
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to fence AgentInstance deletion", err)
+	}
+	instance, err = s.workflow.Delete(ctx, instance)
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to delete AgentInstance", err)
+	}
+	return instance, nil
+}
+
+func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permission string) (*dbpkg.AgentInstanceShare, string, error) {
+	if err := validateIdentity(namespace, instanceID); err != nil {
+		return nil, "", err
+	}
+	if permission != "READ_ONLY" && permission != "READ_WRITE" {
+		return nil, "", serviceerrors.NewInvalidArgument("share permission is required", nil)
+	}
+	creator, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+instanceID+"/shares")
+	if err != nil {
+		return nil, "", err
+	}
+	instance, err := s.store.GetAgentInstance(ctx, namespace, instanceID, creator)
+	if err != nil {
+		if errors.Is(err, dbpkg.ErrNotFound) {
+			return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
+		}
+		return nil, "", serviceerrors.NewInternal("Failed to get AgentInstance", err)
+	}
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETING ||
+		instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_DELETED {
+		return nil, "", serviceerrors.NewFailedPrecondition("Deleted AgentInstances cannot be shared", nil)
+	}
+	token, tokenHash, err := generateShareToken()
+	if err != nil {
+		return nil, "", serviceerrors.NewInternal("Failed to create share token", err)
+	}
+	share, err := s.store.CreateAgentInstanceShare(ctx, dbpkg.AgentInstanceShare{
+		ID: uuid.NewString(), Namespace: namespace, InstanceID: instanceID,
+		Creator: creator, Permission: permission, TokenHash: tokenHash,
+	})
+	if err != nil {
+		return nil, "", serviceerrors.NewInternal("Failed to create AgentInstance share", err)
+	}
+	return share, token, nil
+}
+
+func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, pageSize int, pageToken string) (ShareListResult, error) {
+	if err := validateIdentity(namespace, instanceID); err != nil {
+		return ShareListResult{}, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbGet, namespace+"/"+instanceID+"/shares")
+	if err != nil {
+		return ShareListResult{}, err
+	}
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+	if pageSize < 0 || pageSize > maxPageSize {
+		return ShareListResult{}, serviceerrors.NewInvalidArgument(fmt.Sprintf("page limit must be between 1 and %d", maxPageSize), nil)
+	}
+	afterID, err := decodePageToken(pageToken)
+	if err != nil {
+		return ShareListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
+	}
+	shares, err := s.store.ListAgentInstanceShares(ctx, namespace, instanceID, creator)
+	if err != nil {
+		return ShareListResult{}, serviceerrors.NewInternal("Failed to list AgentInstance shares", err)
+	}
+	start := 0
+	for start < len(shares) && shares[start].ID <= afterID {
+		start++
+	}
+	shares = shares[start:]
+	result := ShareListResult{Shares: shares}
+	if len(result.Shares) > pageSize {
+		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID)
+		result.Shares = result.Shares[:pageSize]
+	}
+	return result, nil
+}
+
+func (s *Service) RevokeShare(ctx context.Context, namespace, shareID string) error {
+	if err := validateIdentity(namespace, shareID); err != nil {
+		return err
+	}
+	creator, err := s.authorize(ctx, auth.VerbDelete, namespace+"/shares/"+shareID)
+	if err != nil {
+		return err
+	}
+	if err := s.store.DeleteAgentInstanceShare(ctx, namespace, shareID, creator); err != nil {
+		if errors.Is(err, dbpkg.ErrNotFound) {
+			return serviceerrors.NewNotFound("AgentInstance share not found", err)
+		}
+		return serviceerrors.NewInternal("Failed to revoke AgentInstance share", err)
+	}
+	return nil
+}
+
+func (s *Service) authorize(ctx context.Context, verb auth.Verb, name string) (string, error) {
+	return s.authorizeType(ctx, verb, "AgentInstance", name)
+}
+
+func (s *Service) authorizeType(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {
+	session, ok := auth.AuthSessionFrom(ctx)
+	if !ok {
+		return "", serviceerrors.NewUnauthenticated("Failed to get authenticated principal", nil)
+	}
+	principal := session.Principal()
+	if err := s.authorizer.Check(ctx, principal, verb, auth.Resource{Type: resourceType, Name: name}); err != nil {
+		return "", serviceerrors.NewPermissionDenied("Not authorized", err)
+	}
+	return principal.User.ID, nil
+}
+
+func validateCreate(namespace, harness, template, requestID string) error {
+	if err := validateNamespace(namespace); err != nil {
+		return err
+	}
+	for name, value := range map[string]string{"harness": harness, "agent_template": template} {
+		if problems := utilvalidation.IsDNS1123Subdomain(value); len(problems) > 0 {
+			return serviceerrors.NewInvalidArgument(fmt.Sprintf("%s is invalid: %s", name, strings.Join(problems, "; ")), nil)
+		}
+	}
+	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
+		return serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)
+	}
+	return nil
+}
+
+func validateIdentity(namespace, id string) error {
+	if err := validateNamespace(namespace); err != nil {
+		return err
+	}
+	if _, err := uuid.Parse(id); err != nil {
+		return serviceerrors.NewInvalidArgument("AgentInstance identifier is invalid", err)
+	}
+	return nil
+}
+
+func validateNamespace(namespace string) error {
+	if problems := utilvalidation.IsDNS1123Label(namespace); len(problems) > 0 {
+		return serviceerrors.NewInvalidArgument("namespace is invalid: "+strings.Join(problems, "; "), nil)
+	}
+	return nil
+}
+
+func encodePageToken(id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(id))
+}
+
+func decodePageToken(token string) (string, error) {
+	if token == "" {
+		return "", nil
+	}
+	value, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return "", err
+	}
+	if _, err := uuid.Parse(string(value)); err != nil {
+		return "", err
+	}
+	return string(value), nil
+}
+
+func generateShareToken() (string, []byte, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", nil, err
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	digest := sha256.Sum256([]byte(token))
+	return token, digest[:], nil
+}

@@ -56,6 +56,8 @@ import (
 	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
+	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -556,6 +558,36 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		extensionCfg.SandboxBackend = agentsSubstrate
 	}
 
+	var agentInstanceService *agentinstance.Service
+	if substrateAteClient != nil {
+		v2Runtime, runtimeErr := v2controller.NewRuntime(
+			mgr.GetConfig(), watchNamespacesList,
+			v2controller.CollectionConfig{PauseImage: cfg.Substrate.PauseImage}, ctx.Done(),
+		)
+		if runtimeErr != nil {
+			setupLog.Error(runtimeErr, "unable to initialize v2 KRT runtime")
+			os.Exit(1)
+		}
+		preparationReconciler, runtimeErr := v2controller.NewReconciler(mgr.GetConfig(), v2Runtime.Collections, dbClient)
+		if runtimeErr != nil {
+			setupLog.Error(runtimeErr, "unable to initialize AgentTemplate preparation")
+			os.Exit(1)
+		}
+		instanceWorkflow := agentinstance.NewActorWorkflow(
+			dbClient, substrateAteClient,
+			preparationReconciler.CleanupUnreferencedRevisions,
+		)
+		if runtimeErr := mgr.Add(v2Runtime); runtimeErr != nil {
+			setupLog.Error(runtimeErr, "unable to register v2 KRT runtime")
+			os.Exit(1)
+		}
+		if runtimeErr := mgr.Add(preparationReconciler); runtimeErr != nil {
+			setupLog.Error(runtimeErr, "unable to register AgentTemplate preparation")
+			os.Exit(1)
+		}
+		agentInstanceService = agentinstance.NewService(dbClient, extensionCfg.Authorizer, instanceWorkflow)
+	}
+
 	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
 		mgr.GetClient(),
 		watchNamespacesList,
@@ -826,6 +858,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		MemoryService:         memoryService,
 		SessionService:        sessionService,
 		TaskService:           taskService,
+		AgentInstanceService:  agentInstanceService,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create gRPC server")

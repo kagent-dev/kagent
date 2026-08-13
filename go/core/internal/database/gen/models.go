@@ -23,6 +23,28 @@ type Agent struct {
 	WorkloadType string
 }
 
+type AgentInstance struct {
+	ID               string
+	Namespace        string
+	Creator          string
+	RequestID        string
+	PreparedRevision *string
+	ActorUid         string
+	State            string
+	Labels           []byte
+	Data             []byte
+}
+
+type AgentInstanceShare struct {
+	ID         string
+	Namespace  string
+	InstanceID string
+	Creator    string
+	Permission string
+	TokenHash  []byte
+	CreatedAt  time.Time
+}
+
 type AgentTemplateHarnessPair struct {
 	Namespace                string
 	AgentTemplateName        string
@@ -34,6 +56,7 @@ type AgentTemplateHarnessPair struct {
 	RetiredAt                *time.Time
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	AgentTemplateLabels      []byte
 }
 
 type CrewaiAgentMemory struct {

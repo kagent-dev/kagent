@@ -130,7 +130,6 @@ type runtimeRevisionStore interface {
 
 // Reconciler is the side-effect boundary for the pure KRT graph. Collection
 // handlers enqueue stable keys; retries always read the latest derived state.
-// It is intentionally not wired into the application yet.
 type Reconciler struct {
 	collections  Collections
 	actors       ateclient.ApiV1alpha1Interface
@@ -200,6 +199,13 @@ func (r *Reconciler) Run(stop <-chan struct{}) {
 	r.pairs.Run(stop)
 }
 
+func (r *Reconciler) Start(ctx context.Context) error {
+	r.Run(ctx.Done())
+	return nil
+}
+
+func (r *Reconciler) NeedLeaderElection() bool { return true }
+
 func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	state := r.collections.Reconciliations.GetKey(key)
 	if state == nil {
@@ -210,7 +216,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		if err := r.store.RetireAgentTemplateHarnessPair(ctx, parts[0], parts[1], parts[2]); err != nil {
 			return fmt.Errorf("retire AgentTemplate/Harness pair %s: %w", key, err)
 		}
-		return r.cleanupUnreferencedRevisions(ctx)
+		return r.CleanupUnreferencedRevisions(ctx)
 	}
 	// Retire every historical identity at this stable name. The upsert below
 	// immediately reactivates the exact current UID pair.
@@ -218,13 +224,14 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		return fmt.Errorf("retire replaced AgentTemplate/Harness pair %s: %w", key, err)
 	}
 	if state.Revision == nil || state.RevisionID.IsZero() {
-		return r.cleanupUnreferencedRevisions(ctx)
+		return r.CleanupUnreferencedRevisions(ctx)
 	}
 
 	pair := dbpkg.AgentTemplateHarnessPair{
 		Namespace: state.Pair.AgentTemplate.Namespace, AgentTemplateName: state.Pair.AgentTemplate.Name,
 		AgentTemplateUID: string(state.Pair.AgentTemplate.UID), HarnessName: state.Pair.Harness.Name,
 		HarnessUID: string(state.Pair.Harness.UID), DesiredRevision: state.RevisionID.String(),
+		AgentTemplateLabels: state.Pair.AgentTemplate.Labels,
 	}
 	// Store the desired edge before creating compute so a concurrent collector
 	// cannot mistake the revision for abandoned state.
@@ -232,7 +239,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		return fmt.Errorf("store AgentTemplate/Harness pair %s: %w", key, err)
 	}
 	if state.Failure != nil {
-		return r.cleanupUnreferencedRevisions(ctx)
+		return r.CleanupUnreferencedRevisions(ctx)
 	}
 	if state.ObservedActorTemplate == nil {
 		_, err := r.actors.ActorTemplates(state.DesiredActorTemplate.Namespace).Create(ctx, state.DesiredActorTemplate.DeepCopy(), metav1.CreateOptions{})
@@ -257,7 +264,7 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 		if err := r.store.MarkRuntimeRevisionSuccessful(ctx, pair); err != nil {
 			return fmt.Errorf("mark runtime revision %s successful: %w", state.RevisionID, err)
 		}
-		return r.cleanupUnreferencedRevisions(ctx)
+		return r.CleanupUnreferencedRevisions(ctx)
 	}
 	return nil
 }
@@ -279,7 +286,9 @@ func (r *Reconciler) reconcileStatus(ctx context.Context, key string) error {
 	return nil
 }
 
-func (r *Reconciler) cleanupUnreferencedRevisions(ctx context.Context) error {
+// CleanupUnreferencedRevisions removes immutable ActorTemplates after their
+// final pair or AgentInstance database reference has been released.
+func (r *Reconciler) CleanupUnreferencedRevisions(ctx context.Context) error {
 	revisions, err := r.store.ListUnreferencedRuntimeRevisions(ctx)
 	if err != nil {
 		return fmt.Errorf("list unreferenced runtime revisions: %w", err)
