@@ -22,7 +22,7 @@ const (
 	maxPageSize     = 100
 )
 
-type Store interface {
+type store interface {
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
@@ -55,12 +55,12 @@ type ShareListResult struct {
 }
 
 type Service struct {
-	store      Store
+	store      store
 	authorizer auth.Authorizer
 	workflow   instanceWorkflow
 }
 
-func NewService(store Store, authorizer auth.Authorizer, workflow instanceWorkflow) *Service {
+func NewService(store store, authorizer auth.Authorizer, workflow instanceWorkflow) *Service {
 	return &Service{store: store, authorizer: authorizer, workflow: workflow}
 }
 
