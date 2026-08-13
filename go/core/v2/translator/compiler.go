@@ -15,7 +15,6 @@ import (
 	legacy "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/core/v2/revision"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,7 +47,7 @@ func NewCompiler(kube client.Client, legacyTranslator legacy.AdkApiTranslator, m
 }
 
 // CompileAgentTemplate resolves an API v2 attachment into an immutable runtime revision.
-func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*revision.Spec, error) {
+func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*Revision, error) {
 	if harness == nil || template == nil {
 		return nil, legacy.NewValidationError("harness and AgentTemplate are required")
 	}
@@ -185,7 +184,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		return nil, fmt.Errorf("marshal revision sources: %w", err)
 	}
 
-	return &revision.Spec{
+	return &Revision{
 		Namespace:          template.Namespace,
 		AgentTemplateName:  template.Name,
 		HarnessName:        harness.Name,

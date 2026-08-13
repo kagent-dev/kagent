@@ -13,7 +13,6 @@ import (
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	legacytranslator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	"github.com/kagent-dev/kagent/go/core/v2/revision"
 	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
@@ -122,7 +121,7 @@ func (r *AgentTemplateController) cleanupUnreferencedRevisions(ctx context.Conte
 		return err
 	}
 	for _, stored := range revisions {
-		if err := r.Lifecycle.DeleteActorTemplate(ctx, revision.ActorTemplateRef{
+		if err := r.Lifecycle.DeleteActorTemplate(ctx, substrate.ActorTemplateRef{
 			Namespace: stored.ActorTemplateNamespace, Name: stored.ActorTemplateName,
 			UID: stored.ActorTemplateUID, Phase: stored.Phase, GoldenSnapshot: stored.GoldenSnapshot,
 		}); err != nil {

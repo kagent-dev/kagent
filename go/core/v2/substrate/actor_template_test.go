@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/v2/revision"
+	"github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,7 +24,7 @@ func TestEnsureActorTemplateCreatesOnlyActorTemplate(t *testing.T) {
 	workerPool := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Name: "default", Namespace: "agents"}}
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(workerPool).Build()
 	lifecycle := &Lifecycle{Client: kube, PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
-	spec := &revision.Spec{
+	spec := &translator.Revision{
 		Namespace: "agents", AgentTemplateName: "helper", HarnessName: "kagent",
 		Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		WorkerPoolName: "default", SnapshotLocation: "snapshots",

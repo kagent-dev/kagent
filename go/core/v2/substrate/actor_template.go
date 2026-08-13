@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/core/v2/revision"
+	"github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -27,6 +27,14 @@ type Lifecycle struct {
 	PauseImage string
 }
 
+type ActorTemplateRef struct {
+	Namespace      string
+	Name           string
+	UID            string
+	Phase          string
+	GoldenSnapshot string
+}
+
 const (
 	RevisionAgentTemplateLabel = "kagent.dev/agent-template"
 	RevisionHarnessLabel       = "kagent.dev/harness"
@@ -34,7 +42,7 @@ const (
 )
 
 // EnsureActorTemplate materializes one immutable Kubernetes ActorTemplate revision.
-func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *revision.Spec, revisionID string) (*revision.ActorTemplateRef, error) {
+func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *translator.Revision, revisionID string) (*ActorTemplateRef, error) {
 	if p == nil || p.Client == nil || spec == nil {
 		return nil, fmt.Errorf("substrate lifecycle, Kubernetes client, and runtime revision spec are required")
 	}
@@ -100,7 +108,7 @@ func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *revision.Spec
 	return p.GetActorTemplate(ctx, template.Namespace, template.Name)
 }
 
-func (p *Lifecycle) GetActorTemplate(ctx context.Context, namespace, name string) (*revision.ActorTemplateRef, error) {
+func (p *Lifecycle) GetActorTemplate(ctx context.Context, namespace, name string) (*ActorTemplateRef, error) {
 	template := &atev1alpha1.ActorTemplate{}
 	if err := p.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, template); err != nil {
 		return nil, fmt.Errorf("get runtime ActorTemplate %s/%s: %w", namespace, name, err)
@@ -108,7 +116,7 @@ func (p *Lifecycle) GetActorTemplate(ctx context.Context, namespace, name string
 	return actorTemplateRef(template), nil
 }
 
-func (p *Lifecycle) DeleteActorTemplate(ctx context.Context, templateRef revision.ActorTemplateRef) error {
+func (p *Lifecycle) DeleteActorTemplate(ctx context.Context, templateRef ActorTemplateRef) error {
 	template := &atev1alpha1.ActorTemplate{}
 	key := types.NamespacedName{Namespace: templateRef.Namespace, Name: templateRef.Name}
 	if err := p.Client.Get(ctx, key, template); apierrors.IsNotFound(err) {
@@ -198,8 +206,8 @@ func createImmutableObject(ctx context.Context, kube client.Client, desired clie
 	return nil
 }
 
-func actorTemplateRef(template *atev1alpha1.ActorTemplate) *revision.ActorTemplateRef {
-	return &revision.ActorTemplateRef{
+func actorTemplateRef(template *atev1alpha1.ActorTemplate) *ActorTemplateRef {
+	return &ActorTemplateRef{
 		Namespace:      template.Namespace,
 		Name:           template.Name,
 		UID:            string(template.UID),
