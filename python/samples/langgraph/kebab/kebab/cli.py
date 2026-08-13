@@ -5,7 +5,7 @@ import logging
 import os
 
 import uvicorn
-from agent import graph
+from agent import controller_client, graph
 from kagent.core import KAgentConfig
 from kagent.langgraph import KAgentApp
 
@@ -19,7 +19,13 @@ def main():
         agent_card = json.load(f)
 
     config = KAgentConfig()
-    app = KAgentApp(graph=graph, agent_card=agent_card, config=config, tracing=False)
+    app = KAgentApp(
+        graph=graph,
+        agent_card=agent_card,
+        config=config,
+        controller_client=controller_client,
+        tracing=False,
+    )
 
     port = int(os.getenv("PORT", "8080"))
     host = os.getenv("HOST", "0.0.0.0")

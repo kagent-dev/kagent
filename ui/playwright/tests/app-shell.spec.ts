@@ -30,6 +30,7 @@ test("app shell: list and navigation", async ({ page }) => {
 
     await gotoView(page, "MCP & tools", "**/mcp");
     await expect(page.getByRole("heading", { level: 1, name: "MCP & tools" })).toBeVisible();
+    await expect(page.getByLabel("Loading apps")).toHaveCount(0);
   });
 
   await test.step("navigates to create pages via the Create menu", async () => {

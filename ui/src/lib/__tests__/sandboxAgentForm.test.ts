@@ -37,15 +37,10 @@ describe("buildSandboxSubstrateFromForm", () => {
     tools: [],
   };
 
-  it("omits sandbox config when not running in a sandbox", () => {
-    expect(buildSandboxSubstrateFromForm({ ...base, runInSandbox: false })).toBeUndefined();
-  });
-
   it("builds substrate config from form fields", () => {
     expect(
       buildSandboxSubstrateFromForm({
         ...base,
-        runInSandbox: true,
         substrateWorkerPoolRefName: " wp ",
         substrateSnapshotsLocation: " gs://snap ",
       }),
@@ -56,29 +51,22 @@ describe("buildSandboxSubstrateFromForm", () => {
   });
 
   it("includes empty substrate object when optional fields are unset", () => {
-    expect(buildSandboxSubstrateFromForm({ ...base, runInSandbox: true })).toEqual({});
+    expect(buildSandboxSubstrateFromForm(base)).toEqual({});
   });
 });
 
 describe("substrate sandbox chat helpers", () => {
   const substrateSandbox = {
-    workloadMode: "sandbox",
-    agent: { spec: {} },
-  } as AgentResponse;
-
-  const deployment = {
-    workloadMode: "deployment",
-    agent: { spec: {} },
+    agent: { kind: "SandboxAgent", spec: {} },
   } as AgentResponse;
 
   it("detects sandbox agents as substrate agents", () => {
     expect(isSubstrateSandboxAgent(substrateSandbox)).toBe(true);
-    expect(isSubstrateSandboxAgent(deployment)).toBe(false);
   });
 
   it("maps sandbox chat mode", () => {
     expect(sandboxChatMode(substrateSandbox)).toBe("multi-session");
-    expect(sandboxChatMode(deployment)).toBe("default");
+    expect(sandboxChatMode(undefined)).toBe("default");
   });
 });
 

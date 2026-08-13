@@ -179,7 +179,7 @@ spec:
 
 The new `RemoteMCPServer` CRD would look like the following:
 ```
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: RemoteMCPServer
 metadata:
   name: my-remote-mcp-server

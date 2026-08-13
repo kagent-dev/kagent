@@ -53,6 +53,7 @@ test("prompt libraries: create, read, update, delete", async ({ page }, testInfo
     await page.getByLabel("Key 2").fill("tone");
     await page.getByRole("textbox", { name: "Content" }).nth(1).fill("Be kind.");
     await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.locator('[data-sonner-toast][data-type="success"]')).toContainText("Saved");
 
     // The saved fragment shows up as an updated key count on the list — a durable
     // signal, unlike the auto-dismissing "saved" toast.

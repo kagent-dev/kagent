@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -70,26 +70,26 @@ func TestBuildSRTSettingsJSON_DefaultDenyConfig(t *testing.T) {
 }
 
 func TestNeedsSRTSettings(t *testing.T) {
-	declarativeAgent := &v1alpha2.Agent{
+	declarativeAgent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "decl", Namespace: "default"},
-		Spec: v1alpha2.AgentSpec{
-			Type:        v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{},
+		Spec: v1alpha3.AgentSpec{
+			Type:        v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{},
 		},
 	}
-	skillsAgent := &v1alpha2.Agent{
+	skillsAgent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "skills", Namespace: "default"},
-		Spec: v1alpha2.AgentSpec{
-			Type:        v1alpha2.AgentType_Declarative,
-			Declarative: &v1alpha2.DeclarativeAgentSpec{},
-			Skills:      &v1alpha2.SkillForAgent{Refs: []string{"example.com/skill:latest"}},
+		Spec: v1alpha3.AgentSpec{
+			Type:        v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{},
+			Skills:      &v1alpha3.SkillForAgent{Refs: []string{"example.com/skill:latest"}},
 		},
 	}
-	byoAgent := &v1alpha2.Agent{
+	byoAgent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "default"},
-		Spec: v1alpha2.AgentSpec{
-			Type: v1alpha2.AgentType_BYO,
-			BYO:  &v1alpha2.BYOAgentSpec{},
+		Spec: v1alpha3.AgentSpec{
+			Type: v1alpha3.AgentType_BYO,
+			BYO:  &v1alpha3.BYOAgentSpec{},
 		},
 	}
 
@@ -102,7 +102,7 @@ func TestNeedsSRTSettings(t *testing.T) {
 	if needsSRTSettings(byoAgent, nil) {
 		t.Fatal("BYO agents should not get srt settings unless sandbox config is set")
 	}
-	if !needsSRTSettings(byoAgent, &v1alpha2.SandboxConfig{}) {
+	if !needsSRTSettings(byoAgent, &v1alpha3.SandboxConfig{}) {
 		t.Fatal("BYO agents with sandbox config should get srt settings")
 	}
 }

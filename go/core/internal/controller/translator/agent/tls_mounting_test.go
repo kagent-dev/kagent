@@ -4,7 +4,7 @@ import (
 	"path"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +22,7 @@ func Test_addTLSConfiguration_NoTLSConfig(t *testing.T) {
 // Test_addTLSConfiguration_WithDisableVerify verifies no volumes are added when TLS verify is disabled without cert
 func Test_addTLSConfiguration_WithDisableVerify(t *testing.T) {
 	mdd := &modelDeploymentData{}
-	tlsConfig := &v1alpha2.TLSConfig{
+	tlsConfig := &v1alpha3.TLSConfig{
 		DisableVerify:    true,
 		DisableSystemCAs: true,
 	}
@@ -37,7 +37,7 @@ func Test_addTLSConfiguration_WithDisableVerify(t *testing.T) {
 // Test_addTLSConfiguration_WithCACertSecret verifies Secret volume mounting
 func Test_addTLSConfiguration_WithCACertSecret(t *testing.T) {
 	mdd := &modelDeploymentData{}
-	tlsConfig := &v1alpha2.TLSConfig{
+	tlsConfig := &v1alpha3.TLSConfig{
 		DisableVerify:    false,
 		CACertSecretRef:  "internal-ca-cert",
 		CACertSecretKey:  "ca.crt",
@@ -65,7 +65,7 @@ func Test_addTLSConfiguration_WithCACertSecret(t *testing.T) {
 // Test_addTLSConfiguration_MissingCACertKey verifies no volumes are mounted when CACertSecretKey is not set
 func Test_addTLSConfiguration_MissingCACertKey(t *testing.T) {
 	mdd := &modelDeploymentData{}
-	tlsConfig := &v1alpha2.TLSConfig{
+	tlsConfig := &v1alpha3.TLSConfig{
 		CACertSecretRef: "internal-ca-cert",
 		// CACertSecretKey not set - both fields are required
 	}
@@ -80,7 +80,7 @@ func Test_addTLSConfiguration_MissingCACertKey(t *testing.T) {
 // Test_addTLSConfiguration_CustomCertKey verifies volume mounting works with custom key
 func Test_addTLSConfiguration_CustomCertKey(t *testing.T) {
 	mdd := &modelDeploymentData{}
-	tlsConfig := &v1alpha2.TLSConfig{
+	tlsConfig := &v1alpha3.TLSConfig{
 		CACertSecretRef: "internal-ca-cert",
 		CACertSecretKey: "custom-ca.pem",
 	}
@@ -115,7 +115,7 @@ func Test_addTLSConfiguration_DisableSystemCAsFlag(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mdd := &modelDeploymentData{}
-			tlsConfig := &v1alpha2.TLSConfig{
+			tlsConfig := &v1alpha3.TLSConfig{
 				DisableSystemCAs: tt.disableSystemCAs,
 			}
 
@@ -131,7 +131,7 @@ func Test_addTLSConfiguration_DisableSystemCAsFlag(t *testing.T) {
 // Test_addTLSConfiguration_AllFieldsCombined verifies volume mounting works with all fields set
 func Test_addTLSConfiguration_AllFieldsCombined(t *testing.T) {
 	mdd := &modelDeploymentData{}
-	tlsConfig := &v1alpha2.TLSConfig{
+	tlsConfig := &v1alpha3.TLSConfig{
 		DisableVerify:    false,
 		CACertSecretRef:  "my-ca-bundle",
 		CACertSecretKey:  "bundle.crt",
@@ -162,15 +162,15 @@ func Test_addTLSConfiguration_AllFieldsCombined(t *testing.T) {
 func Test_addTLSConfiguration_MultipleSecretsDoNotCollide(t *testing.T) {
 	mdd := &modelDeploymentData{}
 
-	addTLSConfiguration(mdd, &v1alpha2.TLSConfig{
+	addTLSConfiguration(mdd, &v1alpha3.TLSConfig{
 		CACertSecretRef: "chat-ca",
 		CACertSecretKey: "ca.crt",
 	})
-	addTLSConfiguration(mdd, &v1alpha2.TLSConfig{
+	addTLSConfiguration(mdd, &v1alpha3.TLSConfig{
 		CACertSecretRef: "embedding-ca",
 		CACertSecretKey: "ca.crt",
 	})
-	addTLSConfiguration(mdd, &v1alpha2.TLSConfig{
+	addTLSConfiguration(mdd, &v1alpha3.TLSConfig{
 		CACertSecretRef: "rms-corp-ca",
 		CACertSecretKey: "ca.crt",
 	})
@@ -199,11 +199,11 @@ func Test_addTLSConfiguration_SameSecretMergesCleanly(t *testing.T) {
 	a := &modelDeploymentData{}
 	b := &modelDeploymentData{}
 
-	addTLSConfiguration(a, &v1alpha2.TLSConfig{
+	addTLSConfiguration(a, &v1alpha3.TLSConfig{
 		CACertSecretRef: "shared-ca",
 		CACertSecretKey: "ca.crt",
 	})
-	addTLSConfiguration(b, &v1alpha2.TLSConfig{
+	addTLSConfiguration(b, &v1alpha3.TLSConfig{
 		CACertSecretRef: "shared-ca",
 		CACertSecretKey: "ca.crt",
 	})

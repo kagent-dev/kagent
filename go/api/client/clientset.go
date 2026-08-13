@@ -11,7 +11,6 @@ type ClientSet struct {
 	Agent               Agent
 	Tool                Tool
 	ToolServer          ToolServer
-	Memory              Memory
 	ModelProviderConfig ModelProviderConfig
 	Model               Model
 	Namespace           Namespace
@@ -31,10 +30,17 @@ func New(baseURL string, options ...ClientOption) *ClientSet {
 		Agent:               NewAgentClient(baseClient),
 		Tool:                NewToolClient(baseClient),
 		ToolServer:          NewToolServerClient(baseClient),
-		Memory:              NewMemoryClient(baseClient),
 		ModelProviderConfig: NewModelProviderConfigClient(baseClient),
 		Model:               NewModelClient(baseClient),
 		Namespace:           NewNamespaceClient(baseClient),
 		Feedback:            NewFeedbackClient(baseClient),
 	}
+}
+
+// Close releases transport resources owned by the client set.
+func (c *ClientSet) Close() error {
+	if c == nil || c.baseClient == nil {
+		return nil
+	}
+	return c.baseClient.Close()
 }
