@@ -19,29 +19,29 @@ import (
 )
 
 type revisionStore struct {
-	attachment dbpkg.AgentTemplateAttachment
-	revision   dbpkg.RuntimeRevision
+	pair     dbpkg.AgentTemplateHarnessPair
+	revision dbpkg.RuntimeRevision
 }
 
-func (s *revisionStore) UpsertAgentTemplateAttachment(_ context.Context, value dbpkg.AgentTemplateAttachment) error {
-	s.attachment = value
+func (s *revisionStore) UpsertAgentTemplateHarnessPair(_ context.Context, value dbpkg.AgentTemplateHarnessPair) error {
+	s.pair = value
 	return nil
 }
 func (s *revisionStore) UpsertRuntimeRevision(_ context.Context, value dbpkg.RuntimeRevision) error {
 	s.revision = value
 	return nil
 }
-func (s *revisionStore) MarkRuntimeRevisionSuccessful(_ context.Context, value dbpkg.AgentTemplateAttachment) error {
-	s.attachment = value
+func (s *revisionStore) MarkRuntimeRevisionSuccessful(_ context.Context, value dbpkg.AgentTemplateHarnessPair) error {
+	s.pair = value
 	return nil
 }
-func (*revisionStore) RetireAgentTemplateAttachments(context.Context, string, string) error {
+func (*revisionStore) RetireAgentTemplateHarnessPairs(context.Context, string, string) error {
 	return nil
 }
-func (*revisionStore) RetireHarnessAttachment(context.Context, string, string, string) error {
+func (*revisionStore) RetireAgentTemplateHarnessPair(context.Context, string, string, string) error {
 	return nil
 }
-func (*revisionStore) RetireOtherHarnessAttachments(context.Context, string, string, []string) error {
+func (*revisionStore) RetireOtherAgentTemplateHarnessPairs(context.Context, string, string, []string) error {
 	return nil
 }
 func (*revisionStore) ListUnreferencedRuntimeRevisions(context.Context) ([]dbpkg.RuntimeRevisionRef, error) {
@@ -89,8 +89,8 @@ func TestAgentTemplateControllerKeepsLastSuccessUntilActorTemplateReady(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RequeueAfter == 0 || revisionStore.attachment.DesiredRevision == "" {
-		t.Fatalf("pending reconcile = %+v, attachment = %+v", result, revisionStore.attachment)
+	if result.RequeueAfter == 0 || revisionStore.pair.DesiredRevision == "" {
+		t.Fatalf("pending reconcile = %+v, pair = %+v", result, revisionStore.pair)
 	}
 	current := &v1alpha3.AgentTemplate{}
 	if err := kube.Get(context.Background(), request.NamespacedName, current); err != nil {
@@ -114,7 +114,7 @@ func TestAgentTemplateControllerKeepsLastSuccessUntilActorTemplateReady(t *testi
 	if err := kube.Get(context.Background(), request.NamespacedName, current); err != nil {
 		t.Fatal(err)
 	}
-	if current.Status.Harnesses[0].LatestSuccessfulRevision != revisionStore.attachment.DesiredRevision {
+	if current.Status.Harnesses[0].LatestSuccessfulRevision != revisionStore.pair.DesiredRevision {
 		t.Fatalf("harness status = %+v", current.Status.Harnesses[0])
 	}
 }

@@ -355,11 +355,11 @@ func (c *postgresClient) DeleteTask(ctx context.Context, taskID, userID string) 
 
 // ── AgentTemplate runtime revisions ──────────────────────────────────────────
 
-func (c *postgresClient) UpsertAgentTemplateAttachment(ctx context.Context, attachment dbpkg.AgentTemplateAttachment) error {
-	return c.q.UpsertAgentTemplateAttachment(ctx, dbgen.UpsertAgentTemplateAttachmentParams{
-		Namespace: attachment.Namespace, AgentTemplateName: attachment.AgentTemplateName,
-		AgentTemplateUid: attachment.AgentTemplateUID, HarnessName: attachment.HarnessName,
-		HarnessUid: attachment.HarnessUID, DesiredRevision: attachment.DesiredRevision,
+func (c *postgresClient) UpsertAgentTemplateHarnessPair(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+	return c.q.UpsertAgentTemplateHarnessPair(ctx, dbgen.UpsertAgentTemplateHarnessPairParams{
+		Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
+		AgentTemplateUid: pair.AgentTemplateUID, HarnessName: pair.HarnessName,
+		HarnessUid: pair.HarnessUID, DesiredRevision: pair.DesiredRevision,
 	})
 }
 
@@ -377,24 +377,24 @@ func (c *postgresClient) UpsertRuntimeRevision(ctx context.Context, revision dbp
 	return nil
 }
 
-func (c *postgresClient) MarkRuntimeRevisionSuccessful(ctx context.Context, attachment dbpkg.AgentTemplateAttachment) error {
-	revision := attachment.DesiredRevision
+func (c *postgresClient) MarkRuntimeRevisionSuccessful(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+	revision := pair.DesiredRevision
 	return c.q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{
-		Revision: &revision, Namespace: attachment.Namespace,
-		AgentTemplateUid: attachment.AgentTemplateUID, HarnessUid: attachment.HarnessUID,
+		Revision: &revision, Namespace: pair.Namespace,
+		AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
 	})
 }
 
-func (c *postgresClient) RetireAgentTemplateAttachments(ctx context.Context, namespace, name string) error {
-	return c.q.RetireAgentTemplateAttachments(ctx, dbgen.RetireAgentTemplateAttachmentsParams{Namespace: namespace, AgentTemplateName: name})
+func (c *postgresClient) RetireAgentTemplateHarnessPairs(ctx context.Context, namespace, name string) error {
+	return c.q.RetireAgentTemplateHarnessPairs(ctx, dbgen.RetireAgentTemplateHarnessPairsParams{Namespace: namespace, AgentTemplateName: name})
 }
 
-func (c *postgresClient) RetireHarnessAttachment(ctx context.Context, namespace, template, harness string) error {
-	return c.q.RetireHarnessAttachment(ctx, dbgen.RetireHarnessAttachmentParams{Namespace: namespace, AgentTemplateName: template, HarnessName: harness})
+func (c *postgresClient) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, template, harness string) error {
+	return c.q.RetireAgentTemplateHarnessPair(ctx, dbgen.RetireAgentTemplateHarnessPairParams{Namespace: namespace, AgentTemplateName: template, HarnessName: harness})
 }
 
-func (c *postgresClient) RetireOtherHarnessAttachments(ctx context.Context, namespace, templateUID string, harnesses []string) error {
-	return c.q.RetireOtherHarnessAttachments(ctx, dbgen.RetireOtherHarnessAttachmentsParams{
+func (c *postgresClient) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, namespace, templateUID string, harnesses []string) error {
+	return c.q.RetireOtherAgentTemplateHarnessPairs(ctx, dbgen.RetireOtherAgentTemplateHarnessPairsParams{
 		Namespace: namespace, AgentTemplateUid: templateUID, HarnessNames: harnesses,
 	})
 }

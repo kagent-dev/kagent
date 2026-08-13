@@ -73,9 +73,9 @@ type Querier interface {
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
-	RetireAgentTemplateAttachments(ctx context.Context, arg RetireAgentTemplateAttachmentsParams) error
-	RetireHarnessAttachment(ctx context.Context, arg RetireHarnessAttachmentParams) error
-	RetireOtherHarnessAttachments(ctx context.Context, arg RetireOtherHarnessAttachmentsParams) error
+	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error
+	RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error
+	RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg RetireOtherAgentTemplateHarnessPairsParams) error
 	// Memory uses hard DELETE (not soft deletes), so no deleted_at filter is needed.
 	// COALESCE guards against NULL embeddings (score=0 rather than NULL); rows are still ordered last by the ORDER BY clause.
 	SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryParams) ([]SearchAgentMemoryRow, error)
@@ -92,7 +92,7 @@ type Querier interface {
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)
 	UpsertAgent(ctx context.Context, arg UpsertAgentParams) error
-	UpsertAgentTemplateAttachment(ctx context.Context, arg UpsertAgentTemplateAttachmentParams) error
+	UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error
 	UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) error
 	UpsertCheckpointWrite(ctx context.Context, arg UpsertCheckpointWriteParams) error
 	UpsertCrewAIFlowState(ctx context.Context, arg UpsertCrewAIFlowStateParams) error

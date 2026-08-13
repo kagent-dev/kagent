@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS runtime_revision (
     UNIQUE (actor_template_namespace, actor_template_name)
 );
 
-CREATE TABLE IF NOT EXISTS agent_template_attachment (
+CREATE TABLE IF NOT EXISTS agent_template_harness_pair (
     namespace TEXT NOT NULL,
     agent_template_name TEXT NOT NULL,
     agent_template_uid TEXT NOT NULL,
@@ -31,5 +31,5 @@ CREATE TABLE IF NOT EXISTS agent_template_attachment (
     PRIMARY KEY (namespace, agent_template_uid, harness_uid)
 );
 
-CREATE INDEX IF NOT EXISTS agent_template_attachment_name_idx
-    ON agent_template_attachment (namespace, agent_template_name, harness_name);
+CREATE INDEX IF NOT EXISTS agent_template_harness_pair_name_idx
+    ON agent_template_harness_pair (namespace, agent_template_name, harness_name);

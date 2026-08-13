@@ -23,7 +23,7 @@ type Agent struct {
 	WorkloadType string
 }
 
-type AgentTemplateAttachment struct {
+type AgentTemplateHarnessPair struct {
 	Namespace                string
 	AgentTemplateName        string
 	AgentTemplateUid         string

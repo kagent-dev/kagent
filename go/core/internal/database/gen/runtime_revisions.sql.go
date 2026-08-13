@@ -13,9 +13,9 @@ const deleteUnreferencedRuntimeRevision = `-- name: DeleteUnreferencedRuntimeRev
 DELETE FROM runtime_revision r
 WHERE r.revision = $1
   AND NOT EXISTS (
-      SELECT 1 FROM agent_template_attachment a
-      WHERE a.retired_at IS NULL
-        AND (a.desired_revision = r.revision OR a.latest_successful_revision = r.revision)
+      SELECT 1 FROM agent_template_harness_pair p
+      WHERE p.retired_at IS NULL
+        AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
   )
 `
 
@@ -54,9 +54,9 @@ func (q *Queries) GetRuntimeRevision(ctx context.Context, revision string) (Runt
 const listUnreferencedRuntimeRevisions = `-- name: ListUnreferencedRuntimeRevisions :many
 SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_namespace, actor_template_name, actor_template_uid, phase, golden_snapshot, created_at, updated_at FROM runtime_revision r
 WHERE NOT EXISTS (
-    SELECT 1 FROM agent_template_attachment a
-    WHERE a.retired_at IS NULL
-      AND (a.desired_revision = r.revision OR a.latest_successful_revision = r.revision)
+    SELECT 1 FROM agent_template_harness_pair p
+    WHERE p.retired_at IS NULL
+      AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
 )
 `
 
@@ -97,7 +97,7 @@ func (q *Queries) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runti
 }
 
 const markRuntimeRevisionSuccessful = `-- name: MarkRuntimeRevisionSuccessful :exec
-UPDATE agent_template_attachment
+UPDATE agent_template_harness_pair
 SET latest_successful_revision = $1, updated_at = NOW()
 WHERE namespace = $2
   AND agent_template_uid = $3
@@ -123,60 +123,60 @@ func (q *Queries) MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRun
 	return err
 }
 
-const retireAgentTemplateAttachments = `-- name: RetireAgentTemplateAttachments :exec
-UPDATE agent_template_attachment
-SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
-WHERE namespace = $1 AND agent_template_name = $2
-`
-
-type RetireAgentTemplateAttachmentsParams struct {
-	Namespace         string
-	AgentTemplateName string
-}
-
-func (q *Queries) RetireAgentTemplateAttachments(ctx context.Context, arg RetireAgentTemplateAttachmentsParams) error {
-	_, err := q.db.Exec(ctx, retireAgentTemplateAttachments, arg.Namespace, arg.AgentTemplateName)
-	return err
-}
-
-const retireHarnessAttachment = `-- name: RetireHarnessAttachment :exec
-UPDATE agent_template_attachment
+const retireAgentTemplateHarnessPair = `-- name: RetireAgentTemplateHarnessPair :exec
+UPDATE agent_template_harness_pair
 SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
 WHERE namespace = $1 AND agent_template_name = $2 AND harness_name = $3
 `
 
-type RetireHarnessAttachmentParams struct {
+type RetireAgentTemplateHarnessPairParams struct {
 	Namespace         string
 	AgentTemplateName string
 	HarnessName       string
 }
 
-func (q *Queries) RetireHarnessAttachment(ctx context.Context, arg RetireHarnessAttachmentParams) error {
-	_, err := q.db.Exec(ctx, retireHarnessAttachment, arg.Namespace, arg.AgentTemplateName, arg.HarnessName)
+func (q *Queries) RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error {
+	_, err := q.db.Exec(ctx, retireAgentTemplateHarnessPair, arg.Namespace, arg.AgentTemplateName, arg.HarnessName)
 	return err
 }
 
-const retireOtherHarnessAttachments = `-- name: RetireOtherHarnessAttachments :exec
-UPDATE agent_template_attachment
+const retireAgentTemplateHarnessPairs = `-- name: RetireAgentTemplateHarnessPairs :exec
+UPDATE agent_template_harness_pair
+SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
+WHERE namespace = $1 AND agent_template_name = $2
+`
+
+type RetireAgentTemplateHarnessPairsParams struct {
+	Namespace         string
+	AgentTemplateName string
+}
+
+func (q *Queries) RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error {
+	_, err := q.db.Exec(ctx, retireAgentTemplateHarnessPairs, arg.Namespace, arg.AgentTemplateName)
+	return err
+}
+
+const retireOtherAgentTemplateHarnessPairs = `-- name: RetireOtherAgentTemplateHarnessPairs :exec
+UPDATE agent_template_harness_pair
 SET retired_at = COALESCE(retired_at, NOW()), updated_at = NOW()
 WHERE namespace = $1
   AND agent_template_uid = $2
   AND NOT (harness_name = ANY($3::text[]))
 `
 
-type RetireOtherHarnessAttachmentsParams struct {
+type RetireOtherAgentTemplateHarnessPairsParams struct {
 	Namespace        string
 	AgentTemplateUid string
 	HarnessNames     []string
 }
 
-func (q *Queries) RetireOtherHarnessAttachments(ctx context.Context, arg RetireOtherHarnessAttachmentsParams) error {
-	_, err := q.db.Exec(ctx, retireOtherHarnessAttachments, arg.Namespace, arg.AgentTemplateUid, arg.HarnessNames)
+func (q *Queries) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg RetireOtherAgentTemplateHarnessPairsParams) error {
+	_, err := q.db.Exec(ctx, retireOtherAgentTemplateHarnessPairs, arg.Namespace, arg.AgentTemplateUid, arg.HarnessNames)
 	return err
 }
 
-const upsertAgentTemplateAttachment = `-- name: UpsertAgentTemplateAttachment :exec
-INSERT INTO agent_template_attachment (
+const upsertAgentTemplateHarnessPair = `-- name: UpsertAgentTemplateHarnessPair :exec
+INSERT INTO agent_template_harness_pair (
     namespace, agent_template_name, agent_template_uid,
     harness_name, harness_uid, desired_revision, retired_at
 ) VALUES ($1, $2, $3, $4, $5, $6, NULL)
@@ -188,7 +188,7 @@ ON CONFLICT (namespace, agent_template_uid, harness_uid) DO UPDATE SET
     updated_at = NOW()
 `
 
-type UpsertAgentTemplateAttachmentParams struct {
+type UpsertAgentTemplateHarnessPairParams struct {
 	Namespace         string
 	AgentTemplateName string
 	AgentTemplateUid  string
@@ -197,8 +197,8 @@ type UpsertAgentTemplateAttachmentParams struct {
 	DesiredRevision   string
 }
 
-func (q *Queries) UpsertAgentTemplateAttachment(ctx context.Context, arg UpsertAgentTemplateAttachmentParams) error {
-	_, err := q.db.Exec(ctx, upsertAgentTemplateAttachment,
+func (q *Queries) UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error {
+	_, err := q.db.Exec(ctx, upsertAgentTemplateHarnessPair,
 		arg.Namespace,
 		arg.AgentTemplateName,
 		arg.AgentTemplateUid,

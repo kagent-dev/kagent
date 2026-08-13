@@ -101,12 +101,12 @@ type Client interface {
 	PruneExpiredSessions(ctx context.Context, retentionDays int) (int64, error)
 
 	// AgentTemplate runtime revision methods
-	UpsertAgentTemplateAttachment(context.Context, AgentTemplateAttachment) error
+	UpsertAgentTemplateHarnessPair(context.Context, AgentTemplateHarnessPair) error
 	UpsertRuntimeRevision(context.Context, RuntimeRevision) error
-	MarkRuntimeRevisionSuccessful(context.Context, AgentTemplateAttachment) error
-	RetireAgentTemplateAttachments(context.Context, string, string) error
-	RetireHarnessAttachment(context.Context, string, string, string) error
-	RetireOtherHarnessAttachments(context.Context, string, string, []string) error
+	MarkRuntimeRevisionSuccessful(context.Context, AgentTemplateHarnessPair) error
+	RetireAgentTemplateHarnessPairs(context.Context, string, string) error
+	RetireAgentTemplateHarnessPair(context.Context, string, string, string) error
+	RetireOtherAgentTemplateHarnessPairs(context.Context, string, string, []string) error
 	ListUnreferencedRuntimeRevisions(context.Context) ([]RuntimeRevisionRef, error)
 	DeleteUnreferencedRuntimeRevision(context.Context, string) error
 }

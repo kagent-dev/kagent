@@ -243,7 +243,7 @@ type SessionShare struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type AgentTemplateAttachment struct {
+type AgentTemplateHarnessPair struct {
 	Namespace         string
 	AgentTemplateName string
 	AgentTemplateUID  string
