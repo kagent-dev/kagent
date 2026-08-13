@@ -215,21 +215,19 @@ func (a *A2ARegistrar) upsertAgentHandler(ctx context.Context, agent *v1alpha3.S
 	provider := resolveProviderName(ctx, a.cache, agent)
 
 	httpClient := a2aHTTPClient()
-	if a.substrateSandboxActorBackend != nil {
-		routerURL := a.ateneRouterURL
-		if routerURL == "" {
-			routerURL = substrate.DefaultAtenetRouterURL
-		}
-		baseTransport := http.DefaultTransport
-		if httpClient != nil && httpClient.Transport != nil {
-			baseTransport = httpClient.Transport
-		}
-		transport, err := newSubstrateSandboxSessionRoundTripper(routerURL, agent, a.substrateSandboxActorBackend, baseTransport, a.dbService)
-		if err != nil {
-			return fmt.Errorf("substrate sandbox A2A transport for %s: %w", agentRef, err)
-		}
-		httpClient = &http.Client{Transport: transport}
+	routerURL := a.ateneRouterURL
+	if routerURL == "" {
+		routerURL = substrate.DefaultAtenetRouterURL
 	}
+	baseTransport := http.DefaultTransport
+	if httpClient != nil && httpClient.Transport != nil {
+		baseTransport = httpClient.Transport
+	}
+	transport, err := newSubstrateSandboxSessionRoundTripper(routerURL, agent, a.substrateSandboxActorBackend, baseTransport, a.dbService)
+	if err != nil {
+		return fmt.Errorf("substrate sandbox A2A transport for %s: %w", agentRef, err)
+	}
+	httpClient = &http.Client{Transport: transport}
 
 	client, err := a2aclient.NewFromEndpoints(
 		ctx,

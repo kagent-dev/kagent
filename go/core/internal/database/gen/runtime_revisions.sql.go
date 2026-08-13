@@ -17,6 +17,9 @@ WHERE r.revision = $1
       WHERE p.retired_at IS NULL
         AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
   )
+  AND NOT EXISTS (
+      SELECT 1 FROM agent_instance i WHERE i.prepared_revision = r.revision
+  )
 `
 
 func (q *Queries) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error {
@@ -57,6 +60,9 @@ WHERE NOT EXISTS (
     SELECT 1 FROM agent_template_harness_pair p
     WHERE p.retired_at IS NULL
       AND (p.desired_revision = r.revision OR p.latest_successful_revision = r.revision)
+)
+AND NOT EXISTS (
+    SELECT 1 FROM agent_instance i WHERE i.prepared_revision = r.revision
 )
 `
 
@@ -178,23 +184,25 @@ func (q *Queries) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg 
 const upsertAgentTemplateHarnessPair = `-- name: UpsertAgentTemplateHarnessPair :exec
 INSERT INTO agent_template_harness_pair (
     namespace, agent_template_name, agent_template_uid,
-    harness_name, harness_uid, desired_revision, retired_at
-) VALUES ($1, $2, $3, $4, $5, $6, NULL)
+    harness_name, harness_uid, desired_revision, agent_template_labels, retired_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL)
 ON CONFLICT (namespace, agent_template_uid, harness_uid) DO UPDATE SET
     agent_template_name = EXCLUDED.agent_template_name,
     harness_name = EXCLUDED.harness_name,
     desired_revision = EXCLUDED.desired_revision,
+    agent_template_labels = EXCLUDED.agent_template_labels,
     retired_at = NULL,
     updated_at = NOW()
 `
 
 type UpsertAgentTemplateHarnessPairParams struct {
-	Namespace         string
-	AgentTemplateName string
-	AgentTemplateUid  string
-	HarnessName       string
-	HarnessUid        string
-	DesiredRevision   string
+	Namespace           string
+	AgentTemplateName   string
+	AgentTemplateUid    string
+	HarnessName         string
+	HarnessUid          string
+	DesiredRevision     string
+	AgentTemplateLabels []byte
 }
 
 func (q *Queries) UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error {
@@ -205,6 +213,7 @@ func (q *Queries) UpsertAgentTemplateHarnessPair(ctx context.Context, arg Upsert
 		arg.HarnessName,
 		arg.HarnessUid,
 		arg.DesiredRevision,
+		arg.AgentTemplateLabels,
 	)
 	return err
 }
