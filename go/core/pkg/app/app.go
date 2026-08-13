@@ -69,7 +69,6 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
-	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -458,8 +457,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		}
 	}
 
-	restConfig := ctrl.GetConfigOrDie()
-	mgr, err := ctrl.NewManager(restConfig, ctrl.Options{
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: cfg.ProbeAddr,
@@ -485,16 +483,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		setupLog.Error(err, "unable to create manager")
 		os.Exit(1)
 	}
-	krtRuntime, err := v2controller.NewRuntime(restConfig, ctx.Done())
-	if err != nil {
-		setupLog.Error(err, "unable to initialize KRT runtime")
-		os.Exit(1)
-	}
-	if err := mgr.Add(krtRuntime); err != nil {
-		setupLog.Error(err, "unable to add KRT runtime")
-		os.Exit(1)
-	}
-
 	// Resolve the database URL once so both the migration runner and the pool
 	// connection use exactly the same value.
 	dbURL, err := database.ResolveURL(cfg.Database.Url, cfg.Database.UrlFile)

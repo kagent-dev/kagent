@@ -14,21 +14,24 @@ import (
 // collections. Collections must be created before Start so their informers are
 // registered before the client starts.
 type Runtime struct {
-	Client  kube.Client
-	Options krt.OptionsBuilder
+	Client      kube.Client
+	Options     krt.OptionsBuilder
+	Collections Collections
 }
 
-// NewRuntime creates the shared KRT client without registering any controller
-// collections or handlers.
-func NewRuntime(config *rest.Config, stop <-chan struct{}) (*Runtime, error) {
+// NewRuntime creates the shared KRT client and collection graph. Handlers are
+// deliberately registered separately at the eventual application boundary.
+func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struct{}) (*Runtime, error) {
 	client, err := kube.NewClient(kube.NewClientConfigForRestConfig(config), cluster.ID("kagent"))
 	if err != nil {
 		return nil, fmt.Errorf("create KRT Kubernetes client: %w", err)
 	}
-	return &Runtime{
-		Client:  client,
-		Options: krt.NewOptionsBuilder(stop, "kagent", krt.GlobalDebugHandler),
-	}, nil
+	options := krt.NewOptionsBuilder(stop, "kagent", krt.GlobalDebugHandler)
+	collections, err := NewCollections(client, watchNamespaces, options)
+	if err != nil {
+		return nil, fmt.Errorf("create KRT collections: %w", err)
+	}
+	return &Runtime{Client: client, Options: options, Collections: collections}, nil
 }
 
 // Start starts every informer registered by the v2 KRT collections and keeps
