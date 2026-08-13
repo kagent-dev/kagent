@@ -22,11 +22,17 @@ const (
 	durableDataMount     = "/data"
 )
 
+// Lifecycle is the temporary Kubernetes implementation of runtime revision
+// provisioning. Its callers deal only in translator.Revision and
+// ActorTemplateRef so this can move to Substrate's API-owned ActorTemplate
+// lifecycle without changing the controller contract.
 type Lifecycle struct {
 	Client     client.Client
 	PauseImage string
 }
 
+// ActorTemplateRef is the durable subset of ActorTemplate identity and status
+// stored with a runtime revision. UID fences deletion against name reuse.
 type ActorTemplateRef struct {
 	Namespace      string
 	Name           string
@@ -36,6 +42,8 @@ type ActorTemplateRef struct {
 }
 
 const (
+	// Revision labels connect the temporary Kubernetes ActorTemplate back to the
+	// public kagent resources and let controller watches find their owner.
 	RevisionAgentTemplateLabel = "kagent.dev/agent-template"
 	RevisionHarnessLabel       = "kagent.dev/harness"
 	RevisionLabel              = "kagent.dev/revision"
@@ -53,6 +61,9 @@ func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *translator.Re
 	}
 
 	name := revisionActorTemplateName(spec.AgentTemplateName, spec.HarnessName, revisionID)
+	// Config is passed inline because Substrate ActorTemplates support literal
+	// and Secret-backed environment variables but not generated ConfigMaps or
+	// Secrets. The revision digest already covers both JSON documents.
 	environment := append([]corev1.EnvVar(nil), spec.Environment...)
 	environment = append(environment,
 		corev1.EnvVar{Name: "KAGENT_CONFIG_JSON", Value: string(spec.ConfigJSON)},
@@ -75,6 +86,7 @@ func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *translator.Re
 			},
 		},
 		Spec: atev1alpha1.ActorTemplateSpec{
+			// The v2 API intentionally has one default sandbox policy for now.
 			PauseImage:   p.PauseImage,
 			SandboxClass: atev1alpha1.SandboxClassGvisor,
 			Containers: []atev1alpha1.Container{{
@@ -105,6 +117,8 @@ func (p *Lifecycle) EnsureActorTemplate(ctx context.Context, spec *translator.Re
 	return p.GetActorTemplate(ctx, template.Namespace, template.Name)
 }
 
+// GetActorTemplate reads the lifecycle state needed by reconciliation without
+// exposing the temporary Kubernetes type outside this package.
 func (p *Lifecycle) GetActorTemplate(ctx context.Context, namespace, name string) (*ActorTemplateRef, error) {
 	template := &atev1alpha1.ActorTemplate{}
 	if err := p.Client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, template); err != nil {
@@ -113,6 +127,8 @@ func (p *Lifecycle) GetActorTemplate(ctx context.Context, namespace, name string
 	return actorTemplateRef(template), nil
 }
 
+// DeleteActorTemplate deletes only the exact object previously recorded for a
+// revision. A mismatched UID means the name was reused and must not be deleted.
 func (p *Lifecycle) DeleteActorTemplate(ctx context.Context, templateRef ActorTemplateRef) error {
 	template := &atev1alpha1.ActorTemplate{}
 	key := types.NamespacedName{Namespace: templateRef.Namespace, Name: templateRef.Name}
@@ -131,6 +147,8 @@ func (p *Lifecycle) DeleteActorTemplate(ctx context.Context, templateRef ActorTe
 }
 
 func revisionActorTemplateName(agentTemplate, harness, revision string) string {
+	// Twelve digest characters keep names readable while the full digest remains
+	// the database identity and immutable-content check.
 	base := truncateDNS1123(agentTemplate + "-" + harness)
 	base = truncateDNS1123To(base, 50)
 	return base + "-" + revision[:12]
@@ -153,6 +171,8 @@ func truncateDNS1123To(value string, limit int) string {
 }
 
 func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) []atev1alpha1.EnvVar {
+	// The Substrate type supports only literal values and Secret keys. Other Pod
+	// env sources are skipped because they cannot be represented faithfully.
 	result := make([]atev1alpha1.EnvVar, 0, len(environment))
 	seen := make(map[string]struct{}, len(environment))
 	for _, value := range environment {
@@ -181,6 +201,8 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) []atev1alpha1.EnvVa
 }
 
 func createImmutableObject(ctx context.Context, kube client.Client, desired client.Object) error {
+	// A digest-derived name makes create idempotent. Finding different content at
+	// that name indicates a digest/input bug, so never update it in place.
 	existing := desired.DeepCopyObject().(client.Object)
 	err := kube.Get(ctx, client.ObjectKeyFromObject(desired), existing)
 	if apierrors.IsNotFound(err) {

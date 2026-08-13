@@ -11,21 +11,35 @@ import (
 
 // Revision is the resolved runtime configuration for one immutable revision.
 type Revision struct {
-	Namespace          string
-	AgentTemplateName  string
-	HarnessName        string
-	Image              string
-	Environment        []corev1.EnvVar
-	ConfigJSON         []byte
-	AgentCardJSON      []byte
-	WorkerPoolName     string
-	SnapshotLocation   string
-	SourceSnapshot     json.RawMessage
-	SecretHashes       []byte
+	// These fields identify the public attachment that produced the revision.
+	Namespace         string
+	AgentTemplateName string
+	HarnessName       string
+
+	// Image and Environment describe the runtime container.
+	Image       string
+	Environment []corev1.EnvVar
+	// ConfigJSON and AgentCardJSON are injected into that container verbatim.
+	ConfigJSON    []byte
+	AgentCardJSON []byte
+
+	// WorkerPoolName and SnapshotLocation control Substrate placement and state.
+	WorkerPoolName   string
+	SnapshotLocation string
+
+	// SourceSnapshot is provenance safe to persist for debugging. Secret values
+	// are represented only by hashes.
+	SourceSnapshot json.RawMessage
+	// SecretHashes makes credential rotation produce a new revision without
+	// embedding credential values in the revision.
+	SecretHashes []byte
+	// EgressDestinations is the hostname allowlist required by this revision.
 	EgressDestinations []string
 }
 
-// Digest returns the immutable identity of every input that affects runtime behavior.
+// Digest returns the immutable identity of every input that affects runtime
+// behavior. The full digest is the database key; Kubernetes names use a short
+// prefix only for readability.
 func (r *Revision) Digest() (string, error) {
 	if r == nil {
 		return "", fmt.Errorf("runtime revision is required")

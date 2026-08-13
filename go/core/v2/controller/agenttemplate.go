@@ -26,6 +26,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+// revisionPendingRequeue polls Substrate while it builds the golden snapshot.
+// ActorTemplate status changes also trigger reconciliation, but polling covers
+// missed watch events and implementations that update status slowly.
 const revisionPendingRequeue = 2 * time.Second
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=agenttemplates,verbs=get;list;watch
@@ -36,6 +39,9 @@ const revisionPendingRequeue = 2 * time.Second
 // +kubebuilder:rbac:groups=ate.dev,resources=actortemplates,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups=ate.dev,resources=actortemplates/status,verbs=get
 
+// AgentTemplateController reconciles each AgentTemplate/Harness attachment
+// independently. One AgentTemplate may therefore have several runtime
+// revisions and a different readiness result for each Harness.
 type AgentTemplateController struct {
 	Client     client.Client
 	Translator *v2translator.Compiler
@@ -43,6 +49,9 @@ type AgentTemplateController struct {
 	Store      runtimeRevisionStore
 }
 
+// runtimeRevisionStore is the controller's narrow view of the shared database.
+// The database records which immutable runtime revisions are still referenced;
+// Kubernetes remains the source of truth for the ActorTemplates themselves.
 type runtimeRevisionStore interface {
 	UpsertAgentTemplateAttachment(context.Context, dbpkg.AgentTemplateAttachment) error
 	UpsertRuntimeRevision(context.Context, dbpkg.RuntimeRevision) error
@@ -54,10 +63,14 @@ type runtimeRevisionStore interface {
 	DeleteUnreferencedRuntimeRevision(context.Context, string) error
 }
 
+// Reconcile converges all Harness attachments for one AgentTemplate, then
+// retires attachments and immutable revisions no longer referenced by spec.
 func (r *AgentTemplateController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	template := &v1alpha3.AgentTemplate{}
 	if err := r.Client.Get(ctx, req.NamespacedName, template); err != nil {
 		if apierrors.IsNotFound(err) {
+			// A deleted API object can no longer carry finalizers or status. Retire
+			// its database attachments and collect any now-unreferenced revisions.
 			if r.Store == nil {
 				return ctrl.Result{}, nil
 			}
@@ -69,6 +82,8 @@ func (r *AgentTemplateController) Reconcile(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, fmt.Errorf("get AgentTemplate %s: %w", req.NamespacedName, err)
 	}
 
+	// Preserve per-Harness status while rebuilding the ordered status list from
+	// spec. This also drops status entries for Harnesses removed from spec.
 	existing := make(map[string]v1alpha3.AgentTemplateHarnessStatus, len(template.Status.Harnesses))
 	for _, status := range template.Status.Harnesses {
 		existing[status.Harness] = status
@@ -85,6 +100,8 @@ func (r *AgentTemplateController) Reconcile(ctx context.Context, req ctrl.Reques
 		statuses = append(statuses, status)
 		pending = pending || waiting
 		if err != nil {
+			// Keep untouched Harness statuses when one attachment hits a transient
+			// error; otherwise a failed reconcile would erase useful status.
 			for _, remaining := range template.Spec.Harnesses.Include[index+1:] {
 				status := existing[remaining.Name]
 				status.Harness = remaining.Name
@@ -102,6 +119,8 @@ func (r *AgentTemplateController) Reconcile(ctx context.Context, req ctrl.Reques
 	if err := r.patchStatus(ctx, template, statuses); err != nil {
 		return ctrl.Result{}, err
 	}
+	// Status is patched before retiring old attachments so users never observe
+	// database cleanup as a successful spec transition without matching status.
 	if err := r.Store.RetireOtherHarnessAttachments(ctx, template.Namespace, string(template.UID), harnessNames); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -114,12 +133,16 @@ func (r *AgentTemplateController) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
+// cleanupUnreferencedRevisions removes ActorTemplates only after the database
+// proves that no AgentTemplate/Harness attachment references their revision.
 func (r *AgentTemplateController) cleanupUnreferencedRevisions(ctx context.Context) error {
 	revisions, err := r.Store.ListUnreferencedRuntimeRevisions(ctx)
 	if err != nil {
 		return err
 	}
 	for _, stored := range revisions {
+		// Delete compute first. Keeping a failed database row makes cleanup
+		// retryable; deleting the row first could orphan an ActorTemplate.
 		if err := r.Lifecycle.DeleteActorTemplate(ctx, substrate.ActorTemplateRef{
 			Namespace: stored.ActorTemplateNamespace, Name: stored.ActorTemplateName,
 			UID: stored.ActorTemplateUID, Phase: stored.Phase, GoldenSnapshot: stored.GoldenSnapshot,
@@ -133,6 +156,8 @@ func (r *AgentTemplateController) cleanupUnreferencedRevisions(ctx context.Conte
 	return nil
 }
 
+// reconcileAttachment admits, compiles, provisions, and reports one
+// AgentTemplate/Harness pair without coupling its status to sibling Harnesses.
 func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, template *v1alpha3.AgentTemplate, harnessName string, previous v1alpha3.AgentTemplateHarnessStatus) (v1alpha3.AgentTemplateHarnessStatus, bool, error) {
 	status := previous
 	status.Harness = harnessName
@@ -151,6 +176,8 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 		return status, false, err
 	}
 
+	// Harness admission is checked before resolving credentials or creating any
+	// runtime resources for the attachment.
 	if err := admitsAgentTemplate(harness, template); err != nil {
 		setHarnessFailure(&status, "AttachmentRejected", err.Error(), v1alpha3.AgentTemplateConditionAccepted)
 		if retireErr := r.Store.RetireHarnessAttachment(ctx, template.Namespace, template.Name, harnessName); retireErr != nil {
@@ -160,6 +187,8 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 	}
 	setHarnessCondition(&status, v1alpha3.AgentTemplateConditionAccepted, metav1.ConditionTrue, "Accepted", "Harness and AgentTemplate admit the attachment")
 
+	// Compilation resolves every referenced object and credential into the
+	// complete input set whose digest identifies the immutable revision.
 	revisionSpec, err := r.Translator.CompileAgentTemplate(ctx, harness, template)
 	if err != nil {
 		var validation *v2translator.ValidationError
@@ -179,6 +208,8 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 		Namespace: template.Namespace, AgentTemplateName: template.Name, AgentTemplateUID: string(template.UID),
 		HarnessName: harness.Name, HarnessUID: string(harness.UID), DesiredRevision: revisionID,
 	}
+	// Record the desired edge before provisioning so garbage collection cannot
+	// mistake this revision for an unreferenced object during reconciliation.
 	if err := r.Store.UpsertAgentTemplateAttachment(ctx, attachment); err != nil {
 		return status, false, fmt.Errorf("store AgentTemplate attachment: %w", err)
 	}
@@ -188,6 +219,8 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 		setHarnessFailure(&status, "ProvisioningFailed", err.Error(), v1alpha3.AgentTemplateConditionReady)
 		return status, false, err
 	}
+	// Persist the actual Kubernetes identity returned by Substrate. Future
+	// reconciles and garbage collection must use the UID, not only the name.
 	if err := r.Store.UpsertRuntimeRevision(ctx, dbpkg.RuntimeRevision{
 		Revision: revisionID, Namespace: template.Namespace, AgentTemplateName: template.Name,
 		AgentTemplateUID: string(template.UID), HarnessName: harness.Name, HarnessUID: string(harness.UID),
@@ -199,6 +232,8 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 	}
 	setHarnessCondition(&status, v1alpha3.AgentTemplateConditionResolvedRefs, metav1.ConditionTrue, "Resolved", "All runtime references resolved")
 	setHarnessCondition(&status, v1alpha3.AgentTemplateConditionCompatible, metav1.ConditionTrue, "Compatible", "Resolved configuration is compatible with the Harness")
+	// Creation alone is not readiness: Substrate must finish the golden snapshot
+	// from which new Actors will start.
 	if templateRef.Phase != string(atev1alpha1.PhaseReady) {
 		setHarnessCondition(&status, v1alpha3.AgentTemplateConditionReady, metav1.ConditionFalse, "ActorTemplatePending", "waiting for the ActorTemplate golden snapshot")
 		return status, true, nil
@@ -211,6 +246,8 @@ func (r *AgentTemplateController) reconcileAttachment(ctx context.Context, templ
 	return status, false, nil
 }
 
+// admitsAgentTemplate applies the Harness-owned label selector to the candidate
+// AgentTemplate. A nil policy intentionally admits nothing.
 func admitsAgentTemplate(harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) error {
 	if harness.Spec.AllowedAgentTemplates == nil {
 		return fmt.Errorf("harness %q admits no AgentTemplates", harness.Name)
@@ -225,7 +262,12 @@ func admitsAgentTemplate(harness *v1alpha3.Harness, template *v1alpha3.AgentTemp
 	return nil
 }
 
+// requestedRevision returns a provisional identity available before external
+// references can be resolved.
 func requestedRevision(template *v1alpha3.AgentTemplate, harness string) string {
+	// This is only a stable desired-state marker while referenced objects are
+	// unresolved. Once compilation succeeds, Revision.Digest replaces it with
+	// the identity of the complete resolved runtime configuration.
 	raw, _ := json.Marshal(struct {
 		UID        types.UID                  `json:"uid"`
 		Generation int64                      `json:"generation"`
@@ -237,6 +279,8 @@ func requestedRevision(template *v1alpha3.AgentTemplate, harness string) string 
 }
 
 func setHarnessFailure(status *v1alpha3.AgentTemplateHarnessStatus, reason, message, failedCondition string) {
+	// Conditions form an ordered pipeline. A failure marks the failing stage and
+	// makes later stages explicitly blocked instead of leaving stale True values.
 	for _, condition := range []string{
 		v1alpha3.AgentTemplateConditionAccepted,
 		v1alpha3.AgentTemplateConditionResolvedRefs,
@@ -271,6 +315,8 @@ func (r *AgentTemplateController) patchStatus(ctx context.Context, template *v1a
 }
 
 func (r *AgentTemplateController) enqueueAgentTemplatesInNamespace(ctx context.Context, obj client.Object) []reconcile.Request {
+	// References are namespace-local. Requeueing the namespace avoids maintaining
+	// several secondary indexes while the v2 API is still being established.
 	list := &v1alpha3.AgentTemplateList{}
 	if err := r.Client.List(ctx, list, client.InNamespace(obj.GetNamespace())); err != nil {
 		return nil
@@ -283,6 +329,8 @@ func (r *AgentTemplateController) enqueueAgentTemplatesInNamespace(ctx context.C
 }
 
 func (r *AgentTemplateController) enqueueRevisionActorTemplate(_ context.Context, obj client.Object) []reconcile.Request {
+	// Revision ActorTemplates carry their owning public AgentTemplate in a label,
+	// allowing Substrate status changes to drive the public readiness condition.
 	name := obj.GetLabels()[substrate.RevisionAgentTemplateLabel]
 	if name == "" {
 		return nil
@@ -290,6 +338,8 @@ func (r *AgentTemplateController) enqueueRevisionActorTemplate(_ context.Context
 	return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: obj.GetNamespace(), Name: name}}}
 }
 
+// SetupWithManager watches every namespaced input that can affect compilation
+// and the Substrate status that determines revision readiness.
 func (r *AgentTemplateController) SetupWithManager(mgr ctrl.Manager) error {
 	allInNamespace := handler.EnqueueRequestsFromMapFunc(r.enqueueAgentTemplatesInNamespace)
 	return ctrl.NewControllerManagedBy(mgr).

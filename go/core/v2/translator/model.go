@@ -18,12 +18,19 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// modelDeploymentData collects the Kubernetes inputs required by a provider.
+// Volumes are retained even though the current Substrate ActorTemplate path
+// rejects them, so the compiler can report incompatibility instead of silently
+// dropping credentials or custom CAs.
 type modelDeploymentData struct {
 	EnvVars      []corev1.EnvVar
 	Volumes      []corev1.Volume
 	VolumeMounts []corev1.VolumeMount
 }
 
+// modelRuntime is the provider-neutral result consumed by the rest of the v2
+// compiler. data remains attached so MCP TLS requirements can be accumulated
+// before the final Substrate compatibility check.
 type modelRuntime struct {
 	Model                 adk.Model
 	Environment           []corev1.EnvVar
@@ -32,6 +39,8 @@ type modelRuntime struct {
 	data                  *modelDeploymentData
 }
 
+// resolveModel collapses provider-specific translation output into the subset
+// needed to compile a runtime revision.
 func (c *Compiler) resolveModel(ctx context.Context, config *v1alpha3.ModelConfig) (*modelRuntime, error) {
 	model, data, secretHash, err := c.translateModel(ctx, config)
 	if err != nil {
@@ -64,10 +73,9 @@ var dns1123LabelRE = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
 // tlsCAPaths returns deterministic volume name, mount path, and cert file
 // path for the given Secret reference. Per-Secret naming lets multiple TLS
-// sources (chat ModelConfig + embedding ModelConfig + RemoteMCPServers) on
-// the same agent pod coexist without colliding when their
-// modelDeploymentData entries get merged (mergeDeploymentData dedupes by
-// (Name, MountPath) for VolumeMounts and by Name for Volumes).
+// sources (the ModelConfig and RemoteMCPServers) in the same revision coexist
+// without colliding. Repeated references to the same Secret reuse the same
+// deterministic name and path.
 func tlsCAPaths(secretName, key string) (volumeName, mountPath, certPath string) {
 	candidate := tlsCAVolumePrefix + secretName
 	id := secretName
@@ -105,11 +113,9 @@ func deriveTLSFields(tlsConfig *v1alpha3.TLSConfig) (*bool, *string, *bool) {
 }
 
 // populateTLSFields writes the derived TLS fields onto an adk.BaseModel.
-// Used by every model-provider branch in translateBaseModel — each provider
-// embeds BaseModel, so this single call replaces the explicit three-field
-// assignment at each site. The MCP-connection params (StreamableHTTPConnectionParams,
-// SseConnectionParams) carry the same three fields but do not embed BaseModel;
-// those callers assign through deriveTLSFields directly.
+// Each provider embeds BaseModel, so this keeps the three TLS fields consistent
+// across translateModel branches. MCP connection params carry the same fields
+// but do not embed BaseModel, so those callers use deriveTLSFields directly.
 func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha3.TLSConfig) {
 	baseModel.TLSInsecureSkipVerify, baseModel.TLSCACertPath, baseModel.TLSDisableSystemCAs = deriveTLSFields(tlsConfig)
 }
@@ -118,20 +124,12 @@ func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha3.TLSConfig) 
 // modelDeploymentData. Safe to call multiple times for the same agent with
 // the same OR different TLSConfigs:
 //   - different Secrets produce different volume names + paths and accumulate.
-//   - the same Secret referenced from multiple sources (e.g. several RMSs
-//     pointing at one shared corp-CA bundle) is idempotent — we skip the
-//     append if a volume with the same name is already present, because the
-//     RemoteMCPServer path (translateRemoteMCPServerTarget) appends directly to the
-//     already-merged modelDeploymentData rather than through
-//     mergeDeploymentData.
+//   - the same Secret referenced from multiple sources is idempotent because a
+//     volume with the same deterministic name is appended only once.
 //
-// Spec validation (Secret exists, named key present) is the reconciler's
-// job for both ModelConfig and RemoteMCPServer — see the TLS branches of
-// ReconcileKagentModelConfig and ReconcileKagentRemoteMCPServer. The
-// translator trusts that the Status has already surfaced any
-// misconfiguration; mounting an absent key here would crash the agent at
-// startup, but the operator gets the early signal on the resource's own
-// Accepted condition.
+// ModelConfig and RemoteMCPServer reconciliation validate that the Secret and
+// key exist. Translation preserves the requested mount and lets the public
+// resources surface configuration errors through their Accepted conditions.
 func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha3.TLSConfig) {
 	if tlsConfig == nil {
 		return
@@ -232,6 +230,11 @@ func (c *Compiler) resolveFoundryEndpoint(ctx context.Context, namespace string,
 	return value, nil
 }
 
+// translateModel owns the v2 ModelConfig-to-ADK mapping. The provider branches
+// are intentionally local rather than calling the legacy translator: v2 can
+// now evolve and eventually replace that code without a compatibility layer.
+// It returns the ADK wire model, its Kubernetes runtime requirements, and the
+// controller-computed credential hash used in revision identity.
 func (c *Compiler) translateModel(ctx context.Context, model *v1alpha3.ModelConfig) (adk.Model, *modelDeploymentData, []byte, error) {
 	// Decode hex-encoded secret hash to bytes
 	var secretHashBytes []byte

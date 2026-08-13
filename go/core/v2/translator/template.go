@@ -12,11 +12,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// PromptTemplateContext holds the v2 AgentTemplate values available to system
+// prompt templates. It deliberately excludes legacy Agent fields and skills,
+// which the current K3 adapter does not support.
+type PromptTemplateContext struct {
+	// AgentTemplateName is the metadata.name of the AgentTemplate.
+	AgentTemplateName string
+	// AgentTemplateNamespace is the metadata.namespace of the AgentTemplate.
+	AgentTemplateNamespace string
+	// Description is the AgentTemplate's spec.description.
+	Description string
+	// ToolNames contains tools selected from all configured MCP servers.
+	ToolNames []string
+}
+
+// promptSourceRef names one ConfigMap exposed to a prompt template. Alias
+// changes only its template identifier, not the Kubernetes lookup name.
 type promptSourceRef struct {
 	Name  string
 	Alias string
 }
 
+// resolvePromptSourceRefs flattens ConfigMap keys into "source/key" identifiers
+// and rejects collisions before template execution.
 func resolvePromptSourceRefs(ctx context.Context, kube client.Client, namespace string, sources []promptSourceRef) (map[string]string, error) {
 	lookup := make(map[string]string)
 	for _, source := range sources {
@@ -39,7 +57,9 @@ func resolvePromptSourceRefs(ctx context.Context, kube client.Client, namespace 
 	return lookup, nil
 }
 
-func executeSystemMessageTemplate(raw string, lookup map[string]string, data agentTemplatePromptContext) (string, error) {
+// executeSystemMessageTemplate exposes only the include helper and the small
+// PromptTemplateContext; prompt templates cannot access Kubernetes.
+func executeSystemMessageTemplate(raw string, lookup map[string]string, data PromptTemplateContext) (string, error) {
 	functions := template.FuncMap{"include": func(path string) (string, error) {
 		content, ok := lookup[path]
 		if ok {
