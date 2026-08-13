@@ -67,11 +67,11 @@ require (
 	github.com/google/go-containerregistry v0.21.7
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/kagent-dev/mockmcp v0.0.0-20260520211643-dcd475b74085
 	github.com/ollama/ollama v0.32.5
 	github.com/pgvector/pgvector-go/pgx v0.4.1
 	github.com/testcontainers/testcontainers-go v0.43.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.43.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.68.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.20.0
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.20.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0
@@ -399,7 +399,6 @@ require (
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/bridges/prometheus v0.69.0 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.44.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.68.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
@@ -458,4 +457,4 @@ require (
 
 tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 
-replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.9
+replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.11

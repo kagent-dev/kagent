@@ -17,11 +17,13 @@ type Querier interface {
 	// Soft-deleted sessions are included so tombstones still reclaim disk.
 	DeleteExpiredSessionsBatch(ctx context.Context, arg DeleteExpiredSessionsBatchParams) (int64, error)
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
+	DeleteUnreferencedPreparedRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
 	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
+	GetPreparedRevision(ctx context.Context, revision string) (PreparedRevision, error)
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
 	GetSession(ctx context.Context, arg GetSessionParams) (Session, error)
 	GetSessionShareByToken(ctx context.Context, token string) (SessionShare, error)
@@ -69,6 +71,11 @@ type Querier interface {
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
+	ListUnreferencedPreparedRevisions(ctx context.Context) ([]PreparedRevision, error)
+	MarkPreparedRevisionSuccessful(ctx context.Context, arg MarkPreparedRevisionSuccessfulParams) error
+	RetireAgentTemplateAttachments(ctx context.Context, arg RetireAgentTemplateAttachmentsParams) error
+	RetireHarnessAttachment(ctx context.Context, arg RetireHarnessAttachmentParams) error
+	RetireOtherHarnessAttachments(ctx context.Context, arg RetireOtherHarnessAttachmentsParams) error
 	// Memory uses hard DELETE (not soft deletes), so no deleted_at filter is needed.
 	// COALESCE guards against NULL embeddings (score=0 rather than NULL); rows are still ordered last by the ORDER BY clause.
 	SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryParams) ([]SearchAgentMemoryRow, error)
@@ -85,10 +92,12 @@ type Querier interface {
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)
 	UpsertAgent(ctx context.Context, arg UpsertAgentParams) error
+	UpsertAgentTemplateAttachment(ctx context.Context, arg UpsertAgentTemplateAttachmentParams) error
 	UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) error
 	UpsertCheckpointWrite(ctx context.Context, arg UpsertCheckpointWriteParams) error
 	UpsertCrewAIFlowState(ctx context.Context, arg UpsertCrewAIFlowStateParams) error
 	UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error
+	UpsertPreparedRevision(ctx context.Context, arg UpsertPreparedRevisionParams) error
 	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
 	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
 	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error

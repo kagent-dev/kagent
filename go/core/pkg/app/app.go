@@ -566,6 +566,20 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		extensionCfg.SandboxBackend,
 		cfg.MCPEgressPlaintext,
 	)
+	if substrateLifecycle != nil {
+		preparedStore, ok := dbClient.(database.PreparedRevisionStore)
+		if !ok {
+			setupLog.Error(fmt.Errorf("database does not support prepared revisions"), "unable to create controller", "controller", "AgentTemplate")
+			os.Exit(1)
+		}
+		if err := (&controller.AgentTemplateController{
+			Client: mgr.GetClient(), Translator: apiTranslator,
+			Lifecycle: substrateLifecycle, Store: preparedStore,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "AgentTemplate")
+			os.Exit(1)
+		}
+	}
 
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,

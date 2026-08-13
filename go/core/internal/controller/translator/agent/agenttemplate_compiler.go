@@ -1,0 +1,419 @@
+package agent
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"slices"
+	"strings"
+
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/kagent-dev/kagent/go/api/adk"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/preparation"
+	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+type preparedSource struct {
+	APIVersion string    `json:"apiVersion"`
+	Kind       string    `json:"kind"`
+	Name       string    `json:"name"`
+	Key        string    `json:"key,omitempty"`
+	UID        types.UID `json:"uid"`
+	Generation int64     `json:"generation,omitempty"`
+	Hash       string    `json:"hash"`
+}
+
+// CompileAgentTemplate resolves an API v2 attachment into a backend-neutral runtime bundle.
+func (a *adkApiTranslator) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*preparation.Bundle, error) {
+	if harness == nil || template == nil {
+		return nil, NewValidationError("harness and AgentTemplate are required")
+	}
+	if harness.Namespace != template.Namespace {
+		return nil, NewValidationError("Harness and AgentTemplate must be in the same namespace")
+	}
+	if harness.Spec.Kagent == nil {
+		return nil, NewValidationError("Harness runtime is not supported by the K3 kagent adapter")
+	}
+	if len(template.Spec.Skills) > 0 {
+		return nil, NewValidationError("spec.skills is not supported yet")
+	}
+	if len(template.Spec.Plugins) > 0 {
+		return nil, NewValidationError("spec.plugins is not supported yet")
+	}
+	for _, tool := range template.Spec.Tools {
+		if tool.Agent != nil {
+			return nil, NewValidationError("AgentTemplate-backed tools are not supported yet")
+		}
+	}
+
+	modelConfig := &v1alpha3.ModelConfig{}
+	if err := a.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}, modelConfig); err != nil {
+		return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
+	}
+	model, modelRuntime, modelSecretHash, err := a.translateModel(ctx, template.Namespace, template.Spec.ModelConfig.Name)
+	if err != nil {
+		return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
+	}
+	if len(modelRuntime.Volumes) > 0 || len(modelRuntime.VolumeMounts) > 0 {
+		return nil, NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+	}
+
+	instruction, err := a.resolveAgentTemplatePrompt(ctx, template)
+	if err != nil {
+		return nil, err
+	}
+	stream := true
+	cfg := &adk.AgentConfig{
+		Model:       model,
+		Description: template.Spec.Description,
+		Instruction: instruction,
+		Stream:      &stream,
+	}
+
+	secretHashes := append([]byte(nil), modelSecretHash...)
+	for _, binding := range template.Spec.Tools {
+		if binding.MCP == nil {
+			return nil, NewValidationError("tool binding must select an MCP server")
+		}
+		ref := &v1alpha3.McpServerTool{
+			TypedReference: v1alpha3.TypedReference{
+				ApiGroup: "kagent.dev",
+				Kind:     binding.MCP.Server.Kind,
+				Name:     binding.MCP.Server.Name,
+			},
+			ToolNames: append([]string(nil), binding.MCP.Tools...),
+		}
+		server, headers, credentialEnv, hash, err := a.resolvePreparedMCPServer(ctx, template.Namespace, binding.MCP.Server)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
+		}
+		proxyURL := ""
+		egressRewrite := false
+		if a.globalProxyURL != "" && a.isInternalK8sURL(ctx, server.Spec.URL, template.Namespace) {
+			proxyURL = a.globalProxyURL
+		} else if a.mcpEgressPlaintext {
+			egressRewrite = true
+		}
+		if _, err := a.translateRemoteMCPServerTarget(ctx, cfg, modelRuntime, server, ref, headers, proxyURL, egressRewrite); err != nil {
+			return nil, fmt.Errorf("compile %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
+		}
+		modelRuntime.EnvVars = append(modelRuntime.EnvVars, credentialEnv...)
+		secretHashes = append(secretHashes, hash...)
+	}
+	if len(modelRuntime.Volumes) > 0 || len(modelRuntime.VolumeMounts) > 0 {
+		return nil, NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
+	}
+
+	if template.Spec.PromptTemplate != nil {
+		refs := make([]promptSourceRef, 0, len(template.Spec.PromptTemplate.DataSources))
+		for _, source := range template.Spec.PromptTemplate.DataSources {
+			refs = append(refs, promptSourceRef{Name: source.Name, Alias: source.Alias})
+		}
+		lookup, err := resolvePromptSourceRefs(ctx, a.kube, template.Namespace, refs)
+		if err != nil {
+			return nil, fmt.Errorf("resolve prompt sources: %w", err)
+		}
+		toolNames := make([]string, 0)
+		for _, binding := range template.Spec.Tools {
+			if binding.MCP != nil {
+				toolNames = append(toolNames, binding.MCP.Tools...)
+			}
+		}
+		cfg.Instruction, err = executeSystemMessageTemplate(cfg.Instruction, lookup, PromptTemplateContext{
+			AgentTemplateName: template.Name,
+			AgentNamespace:    template.Namespace,
+			Description:       template.Spec.Description,
+			ToolNames:         toolNames,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	configJSON, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal agent config: %w", err)
+	}
+	cardJSON, err := json.Marshal(agentTemplateCard(template))
+	if err != nil {
+		return nil, fmt.Errorf("marshal agent card: %w", err)
+	}
+
+	environment := append([]corev1.EnvVar(nil), modelRuntime.EnvVars...)
+	for _, value := range harness.Spec.Env {
+		envVar := corev1.EnvVar{Name: value.Name}
+		if value.Value != nil {
+			envVar.Value = *value.Value
+		} else {
+			envVar.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: value.CredentialRef.DeepCopy()}
+			hash, err := hashSecretKey(ctx, a.kube, template.Namespace, value.CredentialRef)
+			if err != nil {
+				return nil, fmt.Errorf("resolve Harness credential env %q: %w", value.Name, err)
+			}
+			secretHashes = append(secretHashes, hash...)
+		}
+		environment = append(environment, envVar)
+	}
+	environment = append(environment,
+		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
+		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
+		corev1.EnvVar{Name: env.KagentURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
+		corev1.EnvVar{Name: env.KagentGRPCURL.Name(), Value: fmt.Sprintf("%s.%s:8084", utils.GetControllerName(), utils.GetResourceNamespace())},
+		corev1.EnvVar{Name: "PORT", Value: "80"},
+		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
+		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
+	)
+
+	sources, err := a.preparedSourceSnapshot(ctx, harness, template, modelConfig, environment)
+	if err != nil {
+		return nil, fmt.Errorf("marshal prepared sources: %w", err)
+	}
+
+	return &preparation.Bundle{
+		Namespace:          template.Namespace,
+		AgentTemplateName:  template.Name,
+		HarnessName:        harness.Name,
+		Image:              harness.Spec.Workload.Image,
+		Environment:        dedupeEnv(environment),
+		ConfigJSON:         configJSON,
+		AgentCardJSON:      cardJSON,
+		WorkerPoolName:     harness.Spec.Substrate.WorkerPoolRef.Name,
+		SnapshotLocation:   harness.Spec.Substrate.SnapshotPolicy.Location,
+		SourceSnapshot:     sources,
+		SecretHashes:       secretHashes,
+		EgressDestinations: agentConfigDestinations(cfg, modelConfig, model),
+	}, nil
+}
+
+func (a *adkApiTranslator) preparedSourceSnapshot(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate, model *v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+	sources := []preparedSource{
+		preparedObjectSource(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec),
+		preparedObjectSource(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec),
+		preparedObjectSource(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec),
+	}
+	configMaps := map[string]struct{}{}
+	if template.Spec.SystemPromptFrom != nil {
+		configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
+	}
+	if template.Spec.PromptTemplate != nil {
+		for _, source := range template.Spec.PromptTemplate.DataSources {
+			configMaps[source.Name] = struct{}{}
+		}
+	}
+	for name := range configMaps {
+		configMap := &corev1.ConfigMap{}
+		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: name}, configMap); err != nil {
+			return nil, err
+		}
+		sources = append(sources, preparedObjectSource("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
+	}
+	for _, binding := range template.Spec.Tools {
+		if binding.MCP == nil {
+			continue
+		}
+		switch binding.MCP.Server.Kind {
+		case "RemoteMCPServer":
+			server := &v1alpha3.RemoteMCPServer{}
+			if err := a.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}, server); err != nil {
+				return nil, err
+			}
+			sources = append(sources, preparedObjectSource(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
+		}
+	}
+	seenSecrets := map[string]struct{}{}
+	for _, variable := range environment {
+		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
+			continue
+		}
+		ref := variable.ValueFrom.SecretKeyRef
+		identity := ref.Name + "\x00" + ref.Key
+		if _, ok := seenSecrets[identity]; ok {
+			continue
+		}
+		seenSecrets[identity] = struct{}{}
+		secret := &corev1.Secret{}
+		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, secret); err != nil {
+			return nil, err
+		}
+		value, ok := secret.Data[ref.Key]
+		if !ok {
+			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
+		}
+		hash := sha256.Sum256(value)
+		sources = append(sources, preparedSource{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
+	}
+	slices.SortFunc(sources, func(a, b preparedSource) int {
+		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)
+	})
+	return json.Marshal(sources)
+}
+
+func preparedObjectSource(apiVersion, kind, name string, uid types.UID, generation int64, content any) preparedSource {
+	raw, _ := json.Marshal(content)
+	hash := sha256.Sum256(raw)
+	return preparedSource{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
+}
+
+func (a *adkApiTranslator) resolvePreparedMCPServer(ctx context.Context, namespace string, ref v1alpha3.AgentTemplateTypedLocalReference) (*v1alpha3.RemoteMCPServer, map[string]string, []corev1.EnvVar, []byte, error) {
+	switch ref.Kind {
+	case "RemoteMCPServer":
+		server := &v1alpha3.RemoteMCPServer{}
+		if err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, server); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		headers, environment, hashes, err := a.resolvePreparedHeaders(ctx, namespace, server.Spec.HeadersFrom)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		server = server.DeepCopy()
+		server.Spec.HeadersFrom = nil
+		return server, headers, environment, hashes, nil
+	default:
+		return nil, nil, nil, nil, NewValidationError("unsupported MCP server kind %q", ref.Kind)
+	}
+}
+
+func (a *adkApiTranslator) resolvePreparedHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, []byte, error) {
+	headers := make(map[string]string, len(refs))
+	var environment []corev1.EnvVar
+	var hashes []byte
+	for _, ref := range refs {
+		if ref.ValueFrom == nil || ref.ValueFrom.Type != v1alpha3.SecretValueSource {
+			name, value, err := ref.Resolve(ctx, a.kube, namespace)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			headers[name] = value
+			continue
+		}
+		selector := &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.ValueFrom.Name}, Key: ref.ValueFrom.Key}
+		hash, err := hashSecretKey(ctx, a.kube, namespace, selector)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		sum := sha256.Sum256([]byte(namespace + "\x00" + selector.Name + "\x00" + selector.Key))
+		envName := "KAGENT_CREDENTIAL_" + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
+		headers[ref.Name] = "__KAGENT_ENV[" + envName + "]__"
+		environment = append(environment, corev1.EnvVar{Name: envName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: selector}})
+		hashes = append(hashes, hash...)
+	}
+	return headers, environment, hashes, nil
+}
+
+func (a *adkApiTranslator) resolveAgentTemplatePrompt(ctx context.Context, template *v1alpha3.AgentTemplate) (string, error) {
+	if template.Spec.SystemPromptFrom != nil {
+		ref := template.Spec.SystemPromptFrom
+		value, err := utils.GetConfigMapValue(ctx, a.kube, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, ref.Key)
+		if err != nil {
+			return "", fmt.Errorf("resolve systemPromptFrom: %w", err)
+		}
+		return value, nil
+	}
+	return template.Spec.SystemPrompt, nil
+}
+
+func hashSecretKey(ctx context.Context, kube client.Client, namespace string, selector *corev1.SecretKeySelector) ([]byte, error) {
+	if selector == nil {
+		return nil, fmt.Errorf("secretKeyRef is required")
+	}
+	secret := &corev1.Secret{}
+	if err := kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: selector.Name}, secret); err != nil {
+		return nil, err
+	}
+	value, ok := secret.Data[selector.Key]
+	if !ok {
+		if selector.Optional != nil && *selector.Optional {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("secret %q does not contain key %q", selector.Name, selector.Key)
+	}
+	sum := sha256.Sum256(value)
+	return sum[:], nil
+}
+
+func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
+	return &a2atype.AgentCard{
+		Name:        strings.ReplaceAll(template.Name, "-", "_"),
+		Description: template.Spec.Description,
+		Version:     "v1",
+		SupportedInterfaces: []*a2atype.AgentInterface{{
+			URL:             "http://127.0.0.1:80",
+			ProtocolBinding: a2atype.TransportProtocolGRPC,
+			ProtocolVersion: a2atype.Version,
+		}},
+		Capabilities:       a2atype.AgentCapabilities{Streaming: true},
+		Skills:             []a2atype.AgentSkill{},
+		DefaultInputModes:  []string{"text"},
+		DefaultOutputModes: []string{"text"},
+	}
+}
+
+func dedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
+	result := make([]corev1.EnvVar, 0, len(values))
+	index := map[string]int{}
+	for _, value := range values {
+		if i, ok := index[value.Name]; ok {
+			result[i] = value
+			continue
+		}
+		index[value.Name] = len(result)
+		result = append(result, value)
+	}
+	return result
+}
+
+func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelConfig, model adk.Model) []string {
+	destinations := make([]string, 0, len(cfg.HttpTools)+len(cfg.SseTools)+1)
+	for _, tool := range cfg.HttpTools {
+		destinations = appendURLHost(destinations, tool.Params.Url)
+	}
+	for _, tool := range cfg.SseTools {
+		destinations = appendURLHost(destinations, tool.Params.Url)
+	}
+	modelJSON, _ := json.Marshal(model)
+	var values any
+	if json.Unmarshal(modelJSON, &values) == nil {
+		destinations = appendURLValues(destinations, values)
+	}
+	switch modelConfig.Spec.Provider {
+	case v1alpha3.ModelProviderOpenAI:
+		destinations = append(destinations, "api.openai.com")
+	case v1alpha3.ModelProviderAnthropic:
+		destinations = append(destinations, "api.anthropic.com")
+	case v1alpha3.ModelProviderGemini:
+		destinations = append(destinations, "generativelanguage.googleapis.com")
+	}
+	slices.Sort(destinations)
+	return slices.Compact(destinations)
+}
+
+func appendURLValues(destinations []string, value any) []string {
+	switch value := value.(type) {
+	case string:
+		return appendURLHost(destinations, value)
+	case []any:
+		for _, item := range value {
+			destinations = appendURLValues(destinations, item)
+		}
+	case map[string]any:
+		for _, item := range value {
+			destinations = appendURLValues(destinations, item)
+		}
+	}
+	return destinations
+}
+
+func appendURLHost(destinations []string, raw string) []string {
+	parsed, err := url.Parse(raw)
+	if err == nil && parsed.Hostname() != "" {
+		return append(destinations, parsed.Hostname())
+	}
+	return destinations
+}

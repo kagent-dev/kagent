@@ -20,6 +20,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/internal/preparation"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
@@ -152,6 +153,7 @@ type AdkApiTranslator interface {
 		agent *v1alpha3.SandboxAgent,
 		inputs *AgentManifestInputs,
 	) (*AgentOutputs, error)
+	CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*preparation.Bundle, error)
 	GetOwnedResourceTypes() []client.Object
 }
 

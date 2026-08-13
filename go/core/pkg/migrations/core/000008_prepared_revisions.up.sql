@@ -1,0 +1,37 @@
+CREATE TABLE IF NOT EXISTS prepared_revision (
+    revision TEXT PRIMARY KEY,
+    namespace TEXT NOT NULL,
+    agent_template_name TEXT NOT NULL,
+    agent_template_uid TEXT NOT NULL,
+    harness_name TEXT NOT NULL,
+    harness_uid TEXT NOT NULL,
+    source_snapshot JSONB NOT NULL,
+    egress_destinations TEXT[] NOT NULL DEFAULT '{}',
+    backing_api_version TEXT NOT NULL,
+    backing_kind TEXT NOT NULL,
+    backing_namespace TEXT NOT NULL,
+    backing_name TEXT NOT NULL,
+    backing_uid TEXT NOT NULL DEFAULT '',
+    phase TEXT NOT NULL,
+    golden_snapshot TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (backing_api_version, backing_kind, backing_namespace, backing_name)
+);
+
+CREATE TABLE IF NOT EXISTS agent_template_attachment (
+    namespace TEXT NOT NULL,
+    agent_template_name TEXT NOT NULL,
+    agent_template_uid TEXT NOT NULL,
+    harness_name TEXT NOT NULL,
+    harness_uid TEXT NOT NULL,
+    desired_revision TEXT NOT NULL,
+    latest_successful_revision TEXT REFERENCES prepared_revision(revision) ON DELETE RESTRICT,
+    retired_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (namespace, agent_template_uid, harness_uid)
+);
+
+CREATE INDEX IF NOT EXISTS agent_template_attachment_name_idx
+    ON agent_template_attachment (namespace, agent_template_name, harness_name);

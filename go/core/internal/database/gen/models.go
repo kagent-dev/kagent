@@ -23,6 +23,19 @@ type Agent struct {
 	WorkloadType string
 }
 
+type AgentTemplateAttachment struct {
+	Namespace                string
+	AgentTemplateName        string
+	AgentTemplateUid         string
+	HarnessName              string
+	HarnessUid               string
+	DesiredRevision          string
+	LatestSuccessfulRevision *string
+	RetiredAt                *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
 type CrewaiAgentMemory struct {
 	UserID     string
 	ThreadID   string
@@ -104,6 +117,26 @@ type Memory struct {
 	CreatedAt   *time.Time
 	ExpiresAt   *time.Time
 	AccessCount *int64
+}
+
+type PreparedRevision struct {
+	Revision           string
+	Namespace          string
+	AgentTemplateName  string
+	AgentTemplateUid   string
+	HarnessName        string
+	HarnessUid         string
+	SourceSnapshot     []byte
+	EgressDestinations []string
+	BackingApiVersion  string
+	BackingKind        string
+	BackingNamespace   string
+	BackingName        string
+	BackingUid         string
+	Phase              string
+	GoldenSnapshot     string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type PushNotification struct {

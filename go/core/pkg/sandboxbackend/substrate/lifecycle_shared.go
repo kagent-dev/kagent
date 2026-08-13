@@ -276,7 +276,7 @@ func actorTemplateEnvFromPodEnv(env []corev1.EnvVar) []atev1alpha1.EnvVar {
 }
 
 func sanitizeActorTemplateEnvVar(e corev1.EnvVar) *atev1alpha1.EnvVar {
-	if e.Value != "" {
+	if e.ValueFrom == nil {
 		return &atev1alpha1.EnvVar{
 			Name:      e.Name,
 			ValueFrom: nil,

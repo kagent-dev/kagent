@@ -55,6 +55,16 @@ def test_partial_env_only_writes_present(tmp_path, monkeypatch):
     assert not (config_dir / "srt-settings.json").exists()
 
 
+def test_expands_credential_placeholder(tmp_path, monkeypatch):
+    monkeypatch.setenv("KAGENT_CONFIG_JSON", '{"header":"__KAGENT_ENV[KAGENT_CREDENTIAL_TEST]__"}')
+    monkeypatch.setenv("KAGENT_CREDENTIAL_TEST", "Bearer secret")
+
+    config_dir = tmp_path / "config"
+    materialize_from_env(str(config_dir))
+
+    assert (config_dir / "config.json").read_text() == '{"header":"Bearer secret"}'
+
+
 def test_unwritable_token_path_does_not_crash(tmp_path, monkeypatch):
     # A nonroot runtime may not be able to write the token path; that must degrade gracefully
     # (log + continue), not crash startup, and config files must still be materialized.

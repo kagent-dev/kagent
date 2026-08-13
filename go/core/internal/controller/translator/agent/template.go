@@ -18,6 +18,8 @@ import (
 type PromptTemplateContext struct {
 	// AgentName is the metadata.name of the Agent resource.
 	AgentName string
+	// AgentTemplateName is the metadata.name of an API v2 AgentTemplate.
+	AgentTemplateName string
 	// AgentNamespace is the metadata.namespace of the Agent resource.
 	AgentNamespace string
 	// Description is the spec.description of the Agent resource.
@@ -28,9 +30,22 @@ type PromptTemplateContext struct {
 	SkillNames []string
 }
 
+type promptSourceRef struct {
+	Name  string
+	Alias string
+}
+
 // resolvePromptSources fetches all data from the referenced ConfigMaps and builds
 // a lookup map keyed by "identifier/key" where identifier is the alias (if set) or resource name.
 func resolvePromptSources(ctx context.Context, kube client.Client, namespace string, sources []v1alpha3.PromptSource) (map[string]string, error) {
+	refs := make([]promptSourceRef, 0, len(sources))
+	for _, source := range sources {
+		refs = append(refs, promptSourceRef{Name: source.Name, Alias: source.Alias})
+	}
+	return resolvePromptSourceRefs(ctx, kube, namespace, refs)
+}
+
+func resolvePromptSourceRefs(ctx context.Context, kube client.Client, namespace string, sources []promptSourceRef) (map[string]string, error) {
 	lookup := make(map[string]string)
 
 	for _, src := range sources {
@@ -49,7 +64,7 @@ func resolvePromptSources(ctx context.Context, kube client.Client, namespace str
 		for key, value := range data {
 			lookupKey := identifier + "/" + key
 			if _, exists := lookup[lookupKey]; exists {
-				return nil, fmt.Errorf("duplicate prompt template identifier %q from prompt source %q (kind=%q, apiGroup=%q)", lookupKey, src.Name, src.Kind, src.ApiGroup)
+				return nil, fmt.Errorf("duplicate prompt template identifier %q from prompt source %q", lookupKey, src.Name)
 			}
 			lookup[lookupKey] = value
 		}
