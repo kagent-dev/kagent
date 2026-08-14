@@ -131,6 +131,7 @@ type MCPTool struct {
 	Description string `json:"description"`
 }
 
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:shortName=rmcps,categories=kagent
 // +kubebuilder:subresource:status
