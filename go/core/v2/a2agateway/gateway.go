@@ -19,6 +19,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
 	"google.golang.org/grpc/metadata"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type instanceStore interface {
@@ -71,7 +72,8 @@ func (g *Gateway) runtime(ctx context.Context, verb auth.Verb) (*a2aclient.Clien
 		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "not authorized")
 	}
 	if err != nil {
-		return nil, a2atype.NewError(a2atype.ErrInternalError, fmt.Sprintf("load AgentInstance: %v", err))
+		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance", "namespace", namespace, "id", id)
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load AgentInstance")
 	}
 	if instance.GetA2AAuthority() != agentinstance.Authority(namespace, id) {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "AgentInstance has an invalid A2A authority")
@@ -81,7 +83,8 @@ func (g *Gateway) runtime(ctx context.Context, verb auth.Verb) (*a2aclient.Clien
 	}
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
-		return nil, a2atype.NewError(a2atype.ErrInternalError, fmt.Sprintf("connect to AgentInstance runtime: %v", err))
+		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "namespace", namespace, "id", id)
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime")
 	}
 	return client, nil
 }

@@ -39,10 +39,10 @@ func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*Runti
 		return nil, fmt.Errorf("parse Atenet router URL %q: %w", routerURL, err)
 	}
 	if router.Host == "" {
-		return nil, fmt.Errorf("Atenet router URL %q must include a host", routerURL)
+		return nil, fmt.Errorf("atenet router URL %q must include a host", routerURL)
 	}
 	if authenticator == nil {
-		return nil, fmt.Errorf("Atenet runtime authentication is not configured")
+		return nil, fmt.Errorf("atenet runtime authentication is not configured")
 	}
 	var transport credentials.TransportCredentials
 	switch router.Scheme {
@@ -51,7 +51,7 @@ func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*Runti
 	case "https":
 		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: router.Hostname()})
 	default:
-		return nil, fmt.Errorf("Atenet router URL %q must use http or https", routerURL)
+		return nil, fmt.Errorf("atenet router URL %q must use http or https", routerURL)
 	}
 	return &RuntimeDialer{target: router.Host, transport: transport, authenticator: authenticator}, nil
 }

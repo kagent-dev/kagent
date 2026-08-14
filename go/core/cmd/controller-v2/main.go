@@ -164,7 +164,7 @@ func envBool(name string) bool {
 
 func namespaces(value string) []string {
 	var result []string
-	for _, namespace := range strings.Split(value, ",") {
+	for namespace := range strings.SplitSeq(value, ",") {
 		if namespace = strings.TrimSpace(namespace); namespace != "" {
 			result = append(result, namespace)
 		}

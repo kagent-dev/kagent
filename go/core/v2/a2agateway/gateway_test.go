@@ -2,8 +2,10 @@ package a2agateway
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"net"
+	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -30,12 +32,13 @@ func (gatewayTestSession) Principal() auth.Principal {
 
 type gatewayTestStore struct {
 	instance              *apiv1alpha1.AgentInstance
+	err                   error
 	namespace, id, userID string
 }
 
 func (s *gatewayTestStore) GetAgentInstance(_ context.Context, namespace, id, userID string) (*apiv1alpha1.AgentInstance, error) {
 	s.namespace, s.id, s.userID = namespace, id, userID
-	return s.instance, nil
+	return s.instance, s.err
 }
 
 type gatewayTestAuthorizer struct {
@@ -51,11 +54,12 @@ func (a *gatewayTestAuthorizer) Check(_ context.Context, _ auth.Principal, verb 
 type gatewayTestDialer struct {
 	client   *a2aclient.Client
 	instance *apiv1alpha1.AgentInstance
+	err      error
 }
 
 func (d *gatewayTestDialer) Dial(_ context.Context, instance *apiv1alpha1.AgentInstance) (*a2aclient.Client, error) {
 	d.instance = instance
-	return d.client, nil
+	return d.client, d.err
 }
 
 type gatewayTestRuntime struct {
@@ -154,6 +158,30 @@ func TestGatewayRejectsPrivateActorAuthority(t *testing.T) {
 	gateway := New(&gatewayTestStore{instance: gatewayTestInstance()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{})
 	if _, err := gateway.SendMessage(gatewayTestContext("ai-instance.team-a.actors.resources.substrate.ate.dev"), &a2atype.SendMessageRequest{}); err == nil {
 		t.Fatal("SendMessage() accepted a private Actor authority")
+	}
+}
+
+func TestGatewayHidesInternalErrors(t *testing.T) {
+	instance := gatewayTestInstance()
+	for _, test := range []struct {
+		name    string
+		store   *gatewayTestStore
+		dialer  *gatewayTestDialer
+		message string
+	}{
+		{name: "store", store: &gatewayTestStore{err: errors.New("password=secret")}, dialer: &gatewayTestDialer{}, message: "failed to load AgentInstance"},
+		{name: "dialer", store: &gatewayTestStore{instance: instance}, dialer: &gatewayTestDialer{err: errors.New("internal.host:1234")}, message: "failed to connect to AgentInstance runtime"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gateway := New(test.store, &gatewayTestAuthorizer{}, test.dialer)
+			_, err := gateway.SendMessage(gatewayTestContext(instance.GetA2AAuthority()), &a2atype.SendMessageRequest{})
+			if err == nil || !strings.Contains(err.Error(), test.message) {
+				t.Fatalf("SendMessage() error = %v, want %q", err, test.message)
+			}
+			if strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "internal.host") {
+				t.Fatalf("SendMessage() leaked internal error: %v", err)
+			}
+		})
 	}
 }
 
