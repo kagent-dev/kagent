@@ -8,6 +8,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/grpc/codes"
@@ -28,6 +29,12 @@ type KAgentTaskStore struct {
 
 func NewKAgentTaskStore(client *controllerclient.Client) *KAgentTaskStore {
 	return &KAgentTaskStore{client: client}
+}
+
+// userID resolves the caller for a TaskStore call; auth.WithUserID's value
+// doesn't reach this goroutine.
+func userID(ctx context.Context) string {
+	return a2a.CallerUserID(ctx)
 }
 
 func (s *KAgentTaskStore) saveTask(ctx context.Context, task *a2atype.Task) (a2ataskstore.TaskVersion, error) {
@@ -52,7 +59,7 @@ func (s *KAgentTaskStore) saveTask(ctx context.Context, task *a2atype.Task) (a2a
 	if err != nil {
 		return a2ataskstore.TaskVersionMissing, fmt.Errorf("encode task: %w", err)
 	}
-	callContext, cancel := s.client.CallContext(ctx, "")
+	callContext, cancel := s.client.CallContext(ctx, userID(ctx))
 	defer cancel()
 	_, err = s.client.TaskService().UpsertTask(callContext, &apiv1alpha1.UpsertTaskRequest{Task: encoded})
 	if err != nil {
@@ -77,7 +84,7 @@ func (s *KAgentTaskStore) Update(ctx context.Context, update *a2ataskstore.Updat
 
 // Get implements taskstore.Store.
 func (s *KAgentTaskStore) Get(ctx context.Context, taskID a2atype.TaskID) (*a2ataskstore.StoredTask, error) {
-	callContext, cancel := s.client.CallContext(ctx, "")
+	callContext, cancel := s.client.CallContext(ctx, userID(ctx))
 	defer cancel()
 	response, err := s.client.TaskService().GetTask(callContext, &apiv1alpha1.GetTaskRequest{TaskId: string(taskID)})
 	if err != nil {
@@ -118,7 +125,7 @@ func (s *KAgentTaskStore) List(ctx context.Context, req *a2atype.ListTasksReques
 		return &a2atype.ListTasksResponse{Tasks: []*a2atype.Task{}, PageSize: pageSize}, nil
 	}
 
-	callContext, cancel := s.client.CallContext(ctx, "")
+	callContext, cancel := s.client.CallContext(ctx, userID(ctx))
 	defer cancel()
 	response, err := s.client.TaskService().ListTasks(callContext, &apiv1alpha1.ListTasksRequest{SessionId: req.ContextID})
 	if err != nil {

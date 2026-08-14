@@ -119,6 +119,16 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 	return ctx, nil, nil
 }
 
+// CallerUserID returns the authenticated user name from the a2asrv
+// CallContext attached to ctx, or "" if none is set.
+func CallerUserID(ctx context.Context) string {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok || callCtx.User == nil {
+		return ""
+	}
+	return callCtx.User.Name
+}
+
 // Execute applies kagent-specific request setup and delegates event generation
 // to the upstream ADK executor, which streams output as artifact updates.
 func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
@@ -129,8 +139,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		}
 
 		userID := "A2A_USER_" + reqCtx.ContextID
-		if callCtx, ok := a2asrv.CallContextFrom(ctx); ok && callCtx.User != nil && callCtx.User.Name != "" {
-			userID = callCtx.User.Name
+		if id := CallerUserID(ctx); id != "" {
+			userID = id
 		}
 		sessionID := reqCtx.ContextID
 
