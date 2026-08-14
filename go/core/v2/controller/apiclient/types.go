@@ -2,6 +2,7 @@ package apiclient
 
 import (
 	"context"
+	"sync"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -12,9 +13,15 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 )
 
+var registerTypesOnce sync.Once
+
 // RegisterTypes connects KRT's type registry to the generated Kubernetes
 // clients. This is the same registration boundary used by agentgateway.
 func RegisterTypes() {
+	registerTypesOnce.Do(registerTypes)
+}
+
+func registerTypes() {
 	kubeclient.Register(
 		kagentv1alpha3.GroupVersion.WithResource("agenttemplates"),
 		kagentv1alpha3.GroupVersion.WithKind("AgentTemplate"),
