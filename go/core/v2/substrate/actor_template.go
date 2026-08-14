@@ -70,7 +70,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				Readyz: &atev1alpha1.ContainerReadyz{HTTPGet: &atev1alpha1.HTTPGetAction{
 					Path: "/readyz",
 					Port: 8081,
-				}},
+				}, TimeoutSeconds: 30},
 				VolumeMounts: []atev1alpha1.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}},
 			}},
 			WorkerSelector: workerSelectorForPool(workerKey),
@@ -78,6 +78,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				Location: spec.SnapshotLocation,
 				OnPause:  atev1alpha1.SnapshotScopeFull,
 				OnCommit: atev1alpha1.SnapshotScopeData,
+				OnResume: atev1alpha1.OnResumeConfig{FromData: atev1alpha1.ResumeSourceColdBoot},
 			},
 			Volumes: []atev1alpha1.Volume{{
 				Name:         durableDataVolume,

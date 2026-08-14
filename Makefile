@@ -300,20 +300,10 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
-build-controller: ## Build and push the controller image (embeds agent runtime + acp-sandbox digests via scripts/controller-digest-ldflags.sh)
-build-controller: proto-generate buildx-create controller-manifests build-app build-app-full build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
-	@set -e; \
-	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
-		APP_IMG=$(APP_IMG) \
-		APP_FULL_IMG=$(APP_FULL_IMG) \
-		GOLANG_ADK_IMG=$(GOLANG_ADK_IMG) \
-		GOLANG_ADK_FULL_IMG=$(GOLANG_ADK_FULL_IMG) \
-		ACP_SANDBOX_OPENCLAW_IMG=$(ACP_SANDBOX_OPENCLAW_IMG) \
-		ACP_SANDBOX_HERMES_IMG=$(ACP_SANDBOX_HERMES_IMG) \
-		./scripts/controller-digest-ldflags.sh); \
+build-controller: ## Build and push the API v2 controller image
+build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
-		--build-arg LDFLAGS="$(LDFLAGS)$$DIGEST_LDFLAGS" \
-		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
+		--build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 

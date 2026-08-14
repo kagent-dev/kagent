@@ -30,8 +30,11 @@ func TestActorTemplateForRevision(t *testing.T) {
 		t.Fatalf("ActorTemplate = %+v", template)
 	}
 	container := template.Spec.Containers[0]
-	if template.Spec.SandboxClass != atev1alpha1.SandboxClassGvisor || container.Readyz.HTTPGet.Path != "/readyz" || container.Readyz.HTTPGet.Port != 8081 {
+	if template.Spec.SandboxClass != atev1alpha1.SandboxClassGvisor || container.Readyz.HTTPGet.Path != "/readyz" || container.Readyz.HTTPGet.Port != 8081 || container.Readyz.TimeoutSeconds != 30 {
 		t.Fatalf("unexpected runtime contract: %+v", template.Spec)
+	}
+	if template.Spec.SnapshotsConfig.OnResume.FromData != atev1alpha1.ResumeSourceColdBoot {
+		t.Fatalf("unexpected snapshot resume default: %+v", template.Spec.SnapshotsConfig.OnResume)
 	}
 	environment := map[string]atev1alpha1.EnvVar{}
 	for _, variable := range container.Env {

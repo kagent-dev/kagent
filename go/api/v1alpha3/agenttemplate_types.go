@@ -249,6 +249,7 @@ type AgentTemplateStatus struct {
 	Harnesses []AgentTemplateHarnessStatus `json:"harnesses,omitempty"`
 }
 
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=agenttemplates,singular=agenttemplate,categories=kagent
 // +kubebuilder:subresource:status
