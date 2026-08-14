@@ -39,6 +39,8 @@ import (
 	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/client-go/tools/clientcmd"
+	ctrl "sigs.k8s.io/controller-runtime"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 const defaultPauseImage = "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
@@ -67,6 +69,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("load Kubernetes config: %v", err)
 	}
+	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
+		Metrics:                 metricsserver.Options{BindAddress: "0"},
+		LeaderElection:          envBool("LEADER_ELECT"),
+		LeaderElectionID:        "0e9f6799.kagent.dev",
+		LeaderElectionNamespace: env("KAGENT_NAMESPACE", "kagent"),
+	})
+	if err != nil {
+		log.Fatalf("create controller manager: %v", err)
+	}
 	runtime, err := v2controller.NewRuntime(kubeConfig, namespaces(os.Getenv("WATCH_NAMESPACES")), v2controller.CollectionConfig{
 		PauseImage: env("SUBSTRATE_PAUSE_IMAGE", defaultPauseImage),
 	}, ctx.Done())
@@ -76,6 +87,9 @@ func main() {
 	reconciler, err := v2controller.NewReconciler(kubeConfig, runtime.Collections, store)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if err := manager.Add(reconciler); err != nil {
+		log.Fatalf("add reconciler to controller manager: %v", err)
 	}
 
 	actors, err := legacysubstrate.Dial(ctx, legacysubstrate.Config{
@@ -109,7 +123,7 @@ func main() {
 	})}
 	group, ctx := errgroup.WithContext(ctx)
 	group.Go(func() error { return runtime.Start(ctx) })
-	group.Go(func() error { return reconciler.Start(ctx) })
+	group.Go(func() error { return manager.Start(ctx) })
 	group.Go(func() error { return server.Start(ctx) })
 	group.Go(func() error {
 		go func() {
