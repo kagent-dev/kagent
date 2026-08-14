@@ -168,9 +168,9 @@ type Config struct {
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
-		AteAPITokenFile            string
+		AteAPICAFile               string
+		AteAPIClientCertFile       string
 		AtenetRouterURL            string
-		Insecure                   bool
 		DialTimeout                time.Duration
 		CallTimeout                time.Duration
 		DefaultWorkerPoolNamespace string
@@ -243,9 +243,9 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Tag, "go-image-tag", agent_translator.DefaultGoImageConfig.Tag, "The tag to use for the Go (ADK) runtime agent image.")
 
 	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443).")
-	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
+	commandLine.StringVar(&cfg.Substrate.AteAPICAFile, "substrate-ate-api-ca-file", "", "Path to the CA certificates used to verify ate-api.")
+	commandLine.StringVar(&cfg.Substrate.AteAPIClientCertFile, "substrate-ate-api-client-cert-file", "", "Path to the PEM client certificate and private key used for ate-api mTLS.")
 	commandLine.StringVar(&cfg.Substrate.AtenetRouterURL, "substrate-atenet-router-url", "", "HTTP URL for Substrate atenet-router (Envoy). Defaults to http://atenet-router.ate-system.svc:80 when unset.")
-	commandLine.BoolVar(&cfg.Substrate.Insecure, "substrate-ate-api-insecure", false, "Dial ate-api without TLS (local dev only).")
 	commandLine.DurationVar(&cfg.Substrate.DialTimeout, "substrate-dial-timeout", 10*time.Second, "Timeout for the initial dial to ate-api.")
 	commandLine.DurationVar(&cfg.Substrate.CallTimeout, "substrate-call-timeout", 30*time.Second, "Per-RPC timeout for ate-api calls.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
@@ -861,8 +861,8 @@ func buildSubstrateHarnessBackends(client *substrate.Client) map[v1alpha3.AgentH
 func substrateAppConfig(cfg *Config) substrate.Config {
 	sc := substrate.Config{
 		AteAPIEndpoint: cfg.Substrate.AteAPIEndpoint,
-		TokenFile:      cfg.Substrate.AteAPITokenFile,
-		Insecure:       cfg.Substrate.Insecure,
+		CAFile:         cfg.Substrate.AteAPICAFile,
+		ClientCertFile: cfg.Substrate.AteAPIClientCertFile,
 		DialTimeout:    cfg.Substrate.DialTimeout,
 		CallTimeout:    cfg.Substrate.CallTimeout,
 	}

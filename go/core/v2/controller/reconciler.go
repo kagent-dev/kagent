@@ -8,6 +8,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	ateclient "github.com/agent-substrate/substrate/pkg/client/clientset/versioned/typed/api/v1alpha1"
+	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/v2/substrate"
@@ -19,7 +20,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 )
@@ -149,14 +149,13 @@ func NewReconciler(config *rest.Config, collections Collections, store runtimeRe
 	if err != nil {
 		return nil, fmt.Errorf("create Substrate client: %w", err)
 	}
-	statusClient, err := kagentRESTClient(config)
+	statusClient, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create kagent status client: %w", err)
 	}
 	return newReconciler(collections, actors, store, func(ctx context.Context, template *kagentv1alpha3.AgentTemplate) error {
-		result := &kagentv1alpha3.AgentTemplate{}
-		return statusClient.Put().Namespace(template.Namespace).Resource("agenttemplates").Name(template.Name).
-			SubResource("status").Body(template).Do(ctx).Into(result)
+		_, err := statusClient.AgentTemplates(template.Namespace).UpdateStatus(ctx, template, metav1.UpdateOptions{})
+		return err
 	}), nil
 }
 
@@ -341,12 +340,4 @@ func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentTemplateStat
 		}
 	}
 	return desired
-}
-
-func kagentRESTClient(config *rest.Config) (rest.Interface, error) {
-	scheme := runtime.NewScheme()
-	if err := kagentv1alpha3.AddToScheme(scheme); err != nil {
-		return nil, fmt.Errorf("register kagent API types: %w", err)
-	}
-	return restClient(config, kagentv1alpha3.GroupVersion, scheme)
 }

@@ -455,6 +455,22 @@ func toAgentInstance(row dbgen.AgentInstance) (*apiv1alpha1.AgentInstance, error
 	if err := proto.Unmarshal(row.Data, instance); err != nil {
 		return nil, fmt.Errorf("decode AgentInstance %s: %w", row.ID, err)
 	}
+	state, ok := apiv1alpha1.AgentInstanceState_value["AGENT_INSTANCE_STATE_"+row.State]
+	if !ok {
+		return nil, fmt.Errorf("decode AgentInstance %s state %q", row.ID, row.State)
+	}
+	operation := row.Operation
+	if operation == "NONE" {
+		operation = "UNSPECIFIED"
+	}
+	operationValue, ok := apiv1alpha1.AgentInstanceOperation_value["AGENT_INSTANCE_OPERATION_"+operation]
+	if !ok {
+		return nil, fmt.Errorf("decode AgentInstance %s operation %q", row.ID, row.Operation)
+	}
+	// These indexed columns are the lifecycle source of truth. In particular,
+	// migrations can backfill them without rewriting the protobuf blob.
+	instance.State = apiv1alpha1.AgentInstanceState(state)
+	instance.Operation = apiv1alpha1.AgentInstanceOperation(operationValue)
 	return instance, nil
 }
 
@@ -591,6 +607,52 @@ func (c *postgresClient) MarkAgentInstanceReady(ctx context.Context, id, authori
 		return nil, fmt.Errorf("mark AgentInstance %s ready: %w", id, notFoundOr(err))
 	}
 	return toAgentInstance(row)
+}
+
+func (c *postgresClient) TransitionAgentInstance(
+	ctx context.Context,
+	instance *apiv1alpha1.AgentInstance,
+	expectedState apiv1alpha1.AgentInstanceState,
+	expectedOperation apiv1alpha1.AgentInstanceOperation,
+) (*apiv1alpha1.AgentInstance, error) {
+	data, err := marshalAgentInstance(instance)
+	if err != nil {
+		return nil, err
+	}
+	row, err := c.q.TransitionAgentInstance(ctx, dbgen.TransitionAgentInstanceParams{
+		ID: instance.GetId(), Data: data,
+		ExpectedState: agentInstanceStateName(expectedState), ExpectedOperation: agentInstanceOperationName(expectedOperation),
+		NextState: agentInstanceStateName(instance.GetState()), NextOperation: agentInstanceOperationName(instance.GetOperation()),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		row, err = c.q.GetAgentInstanceByID(ctx, instance.GetId())
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), dbpkg.ErrNotFound)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get conflicting AgentInstance %s: %w", instance.GetId(), err)
+		}
+		current, decodeErr := toAgentInstance(row)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		return current, dbpkg.ErrAgentInstanceConflict
+	}
+	if err != nil {
+		return nil, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), err)
+	}
+	return toAgentInstance(row)
+}
+
+func agentInstanceStateName(state apiv1alpha1.AgentInstanceState) string {
+	return strings.TrimPrefix(state.String(), "AGENT_INSTANCE_STATE_")
+}
+
+func agentInstanceOperationName(operation apiv1alpha1.AgentInstanceOperation) string {
+	if operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+		return "NONE"
+	}
+	return strings.TrimPrefix(operation.String(), "AGENT_INSTANCE_OPERATION_")
 }
 
 func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) error {

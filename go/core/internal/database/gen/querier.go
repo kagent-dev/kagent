@@ -102,6 +102,7 @@ type Querier interface {
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)
+	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
 	UpsertAgent(ctx context.Context, arg UpsertAgentParams) error
 	UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error
 	UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) error
