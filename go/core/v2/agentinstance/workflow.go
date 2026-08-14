@@ -44,6 +44,12 @@ func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
 	return &ActorWorkflow{store: store, actors: actors}
 }
 
+// Create converges a persisted CREATING instance to READY. Retries discover
+// the deterministically named Actor before creating it, then resume it if a
+// previous attempt stopped before the Actor was running. An existing Actor is
+// accepted only when it still references the instance's prepared template;
+// this prevents an ID collision from attaching the instance to another
+// workload.
 func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
 		return instance, nil
@@ -91,6 +97,10 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	return instance, nil
 }
 
+// Suspend completes synchronously: success means both Substrate and the
+// AgentInstance record are suspended. Transitional Actor states are accepted
+// because Substrate's imperative SuspendActor call joins or completes the
+// in-flight operation. The workflow never recreates a missing Actor.
 func (w *ActorWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	instance, claimed, err := w.claim(ctx, instance,
 		apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
@@ -118,6 +128,10 @@ func (w *ActorWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.Agent
 	)
 }
 
+// Resume completes synchronously: success means Substrate reports the Actor
+// running and the AgentInstance record is ready. As with Suspend, retries may
+// join a transitional Actor, but a missing Actor is an error rather than a
+// request to recreate it.
 func (w *ActorWorkflow) Resume(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	instance, claimed, err := w.claim(ctx, instance,
 		apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED,
@@ -148,6 +162,10 @@ func (w *ActorWorkflow) Resume(ctx context.Context, instance *apiv1alpha1.AgentI
 	)
 }
 
+// lifecycleActor is intentionally lookup-only. Lifecycle operations may act
+// only on the Actor created for this prepared revision; a missing Actor or a
+// changed ActorTemplate indicates broken identity and must be surfaced rather
+// than repaired by creating or adopting an Actor.
 func (w *ActorWorkflow) lifecycleActor(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*ateapipb.Actor, error) {
 	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
 	if err != nil {
@@ -172,7 +190,9 @@ func (w *ActorWorkflow) claim(
 ) (*apiv1alpha1.AgentInstance, bool, error) {
 	// The operation is persisted with a compare-and-set before touching
 	// Substrate. This lets every API replica reject a different mutation while
-	// still allowing the same mutation to finish after a lost response.
+	// still allowing the same mutation to finish after a lost response. The
+	// returned bool reports whether this call installed the marker; a retry
+	// which finds the same operation joins it but must not later clear it.
 	if instance.GetState() != expectedState {
 		return nil, false, dbpkg.ErrAgentInstanceConflict
 	}
@@ -197,8 +217,9 @@ func (w *ActorWorkflow) finish(
 	instance *apiv1alpha1.AgentInstance,
 	expectedState, nextState apiv1alpha1.AgentInstanceState,
 ) (*apiv1alpha1.AgentInstance, error) {
-	// Completing the operation uses the same compare-and-set. If another retry
-	// already committed the target state, that state is the successful result.
+	// Completing the operation uses a second compare-and-set so only the owner
+	// of the active operation can publish the new stable state. If another retry
+	// already committed that state, its result makes this retry successful too.
 	next := proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	next.State = nextState
 	next.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
@@ -212,7 +233,9 @@ func (w *ActorWorkflow) finish(
 
 func (w *ActorWorkflow) release(ctx context.Context, instance *apiv1alpha1.AgentInstance, state apiv1alpha1.AgentInstanceState, claimed bool, operationErr error) error {
 	// Only the request that installed the marker may clear it. A concurrent
-	// retry must not release an operation that it merely joined.
+	// retry must not release an operation that it merely joined. Clearing the
+	// marker restores the last stable database state after the Substrate call
+	// failed, allowing a later request to retry the workflow.
 	if !claimed {
 		return operationErr
 	}
@@ -226,6 +249,11 @@ func (w *ActorWorkflow) release(ctx context.Context, instance *apiv1alpha1.Agent
 	return errors.Join(operationErr, err)
 }
 
+// Delete fences other lifecycle mutations with the same persisted operation
+// marker used by Suspend and Resume. A missing Actor is treated as recovery
+// from a previously completed Substrate deletion. Otherwise the Actor's
+// template identity is checked and it is suspended before deletion, as
+// required by Substrate's lifecycle contract.
 func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	originalState := instance.GetState()
 	instance, claimed, err := w.claim(ctx, instance, originalState, apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_DELETE)
@@ -263,6 +291,10 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 	return w.finishDelete(ctx, instance)
 }
 
+// finishDelete removes the durable AgentInstance row only after the Actor is
+// gone. The returned message is detached from storage and scrubbed of runtime
+// routing details so the synchronous Delete RPC can describe the completed
+// operation without leaving a tombstone in the database.
 func (w *ActorWorkflow) finishDelete(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
 	if err := w.store.DeleteAgentInstance(ctx, instance.GetId()); err != nil {
 		return nil, fmt.Errorf("delete AgentInstance: %w", err)
