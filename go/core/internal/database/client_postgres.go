@@ -455,6 +455,22 @@ func toAgentInstance(row dbgen.AgentInstance) (*apiv1alpha1.AgentInstance, error
 	if err := proto.Unmarshal(row.Data, instance); err != nil {
 		return nil, fmt.Errorf("decode AgentInstance %s: %w", row.ID, err)
 	}
+	state, ok := apiv1alpha1.AgentInstanceState_value["AGENT_INSTANCE_STATE_"+row.State]
+	if !ok {
+		return nil, fmt.Errorf("decode AgentInstance %s state %q", row.ID, row.State)
+	}
+	operation := row.Operation
+	if operation == "NONE" {
+		operation = "UNSPECIFIED"
+	}
+	operationValue, ok := apiv1alpha1.AgentInstanceOperation_value["AGENT_INSTANCE_OPERATION_"+operation]
+	if !ok {
+		return nil, fmt.Errorf("decode AgentInstance %s operation %q", row.ID, row.Operation)
+	}
+	// These indexed columns are the lifecycle source of truth. In particular,
+	// migrations can backfill them without rewriting the protobuf blob.
+	instance.State = apiv1alpha1.AgentInstanceState(state)
+	instance.Operation = apiv1alpha1.AgentInstanceOperation(operationValue)
 	return instance, nil
 }
 

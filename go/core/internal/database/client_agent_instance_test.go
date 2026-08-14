@@ -7,8 +7,31 @@ import (
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
+	data, err := proto.Marshal(&apiv1alpha1.AgentInstance{
+		Id:        "instance-1",
+		State:     apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+		Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	instance, err := toAgentInstance(dbgen.AgentInstance{
+		ID: "instance-1", Data: data, State: "SUSPENDED", Operation: "RESUME",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED ||
+		instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME {
+		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", instance.GetState(), instance.GetOperation())
+	}
+}
 
 func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	client := NewClient(setupTestDB(t))

@@ -154,11 +154,22 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 	}
 }
 
-func TestServiceSuspendMapsLifecycleConflictToAborted(t *testing.T) {
+func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
 	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: dbpkg.ErrAgentInstanceConflict})
-	_, err := service.Suspend(serviceTestContext("alice"), "team-a", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
-	if !serviceerrors.IsCode(err, serviceerrors.CodeAborted) {
-		t.Fatalf("Suspend() error = %v, want code %s", err, serviceerrors.CodeAborted)
+	for _, test := range []struct {
+		name string
+		call func(*Service, context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
+	}{
+		{name: "suspend", call: (*Service).Suspend},
+		{name: "resume", call: (*Service).Resume},
+		{name: "delete", call: (*Service).Delete},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.call(service, serviceTestContext("alice"), "team-a", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+			if !serviceerrors.IsCode(err, serviceerrors.CodeAborted) {
+				t.Fatalf("error = %v, want code %s", err, serviceerrors.CodeAborted)
+			}
+		})
 	}
 }
 
