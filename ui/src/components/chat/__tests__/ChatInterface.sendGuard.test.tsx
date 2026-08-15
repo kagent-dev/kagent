@@ -86,7 +86,7 @@ const mockGetSessionTasks = getSessionTasks as jest.MockedFunction<typeof getSes
 const mockSendMessageStream = kagentA2AClient.sendMessageStream as jest.MockedFunction<typeof kagentA2AClient.sendMessageStream>;
 const mockToastInfo = toast.info as jest.MockedFunction<typeof toast.info>;
 
-const staleToastMessage = "New messages loaded — please review before sending";
+const staleToastMessage = "New messages loaded, please review before sending";
 
 // The send guard is server-authoritative: it compares the persisted user-message
 // high-water mark against what this tab last synced. In A2A v1, assistant output
