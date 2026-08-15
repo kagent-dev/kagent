@@ -9,6 +9,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/modelconfig"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -150,6 +151,9 @@ var hermesProviderSlugs = map[v1alpha3.ModelProvider]string{
 // hermesConfigPrelude returns shell lines that write ~/.hermes/config.yaml
 // selecting the ModelConfig's model and provider. Without it hermes defaults
 // to an unauthenticated provider and prompts silently produce no output.
+// When ModelConfig sets an explicit provider base URL (e.g. OpenAI/Anthropic
+// baseUrl), it is written as model.base_url so Hermes targets that endpoint
+// instead of the provider default (LiteLLM, vLLM, corporate proxies, etc.).
 // Returns "" when the ModelConfig provider has no hermes equivalent.
 func hermesConfigPrelude(mc *v1alpha3.ModelConfig) string {
 	slug, ok := hermesProviderSlugs[mc.Spec.Provider]
@@ -157,6 +161,9 @@ func hermesConfigPrelude(mc *v1alpha3.ModelConfig) string {
 		return ""
 	}
 	cfg := fmt.Sprintf("model:\n  default: %q\n  provider: %q\n", mc.Spec.Model, slug)
+	if baseURL := modelconfig.ExplicitBaseURL(mc); baseURL != "" {
+		cfg += fmt.Sprintf("  base_url: %q\n", baseURL)
+	}
 	if mc.Spec.Provider == v1alpha3.ModelProviderOpenAI {
 		// Hermes auto-upgrades direct api.openai.com to its codex_responses
 		// transport, which requests reasoning.encrypted_content — rejected

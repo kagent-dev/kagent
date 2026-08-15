@@ -2,6 +2,7 @@ package substrate
 
 import (
 	"context"
+	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -136,5 +137,72 @@ func TestBuildAcpStartupScript(t *testing.T) {
 	}
 	if !strings.Contains(gateway, "exec hermes acp") {
 		t.Fatalf("expected child exec inside shell: %q", gateway)
+	}
+}
+
+func decodeHermesConfigYAML(t *testing.T, prelude string) string {
+	t.Helper()
+	const marker = "echo "
+	i := strings.Index(prelude, marker)
+	if i < 0 {
+		t.Fatalf("prelude missing echo payload: %q", prelude)
+	}
+	rest := prelude[i+len(marker):]
+	b64 := strings.Fields(rest)[0]
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		t.Fatalf("decode config yaml: %v", err)
+	}
+	return string(raw)
+}
+
+func TestHermesConfigPrelude_IncludesExplicitBaseURL(t *testing.T) {
+	mc := &v1alpha3.ModelConfig{
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderOpenAI,
+			Model:    "gpt-4.1-mini",
+			OpenAI:   &v1alpha3.OpenAIConfig{BaseURL: "https://api.example/v1"},
+		},
+	}
+	yaml := decodeHermesConfigYAML(t, hermesConfigPrelude(mc))
+	if !strings.Contains(yaml, `default: "gpt-4.1-mini"`) {
+		t.Fatalf("missing model default: %s", yaml)
+	}
+	if !strings.Contains(yaml, `provider: "openai-api"`) {
+		t.Fatalf("missing provider: %s", yaml)
+	}
+	if !strings.Contains(yaml, `base_url: "https://api.example/v1"`) {
+		t.Fatalf("expected ModelConfig baseUrl in hermes config: %s", yaml)
+	}
+	if !strings.Contains(yaml, "api_mode: chat_completions") {
+		t.Fatalf("expected openai api_mode pin: %s", yaml)
+	}
+}
+
+func TestHermesConfigPrelude_OmitsBaseURLWhenUnset(t *testing.T) {
+	mc := &v1alpha3.ModelConfig{
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderAnthropic,
+			Model:    "claude-sonnet-4-5",
+		},
+	}
+	yaml := decodeHermesConfigYAML(t, hermesConfigPrelude(mc))
+	if strings.Contains(yaml, "base_url:") {
+		t.Fatalf("base_url must be omitted when ModelConfig has no explicit endpoint: %s", yaml)
+	}
+	if !strings.Contains(yaml, `provider: "anthropic"`) {
+		t.Fatalf("missing provider: %s", yaml)
+	}
+}
+
+func TestHermesConfigPrelude_UnsupportedProvider(t *testing.T) {
+	mc := &v1alpha3.ModelConfig{
+		Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderOllama,
+			Model:    "llama3",
+		},
+	}
+	if got := hermesConfigPrelude(mc); got != "" {
+		t.Fatalf("expected empty prelude for unsupported provider, got %q", got)
 	}
 }
