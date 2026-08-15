@@ -7,9 +7,33 @@ import (
 
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestCreateAgentInstanceIsIdempotent(t *testing.T) {
+func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
+	data, err := proto.Marshal(&apiv1alpha1.AgentInstance{
+		Id:        "instance-1",
+		State:     apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+		Operation: apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	instance, err := toAgentInstance(dbgen.AgentInstance{
+		ID: "instance-1", Data: data, State: "SUSPENDED", Operation: "RESUME",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED ||
+		instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME {
+		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", instance.GetState(), instance.GetOperation())
+	}
+}
+
+func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := context.Background()
 	revision := dbpkg.RuntimeRevision{
@@ -57,6 +81,27 @@ func TestCreateAgentInstanceIsIdempotent(t *testing.T) {
 	instances, err := client.ListAgentInstances(ctx, "team-a", "alice", false, nil, "", 10)
 	if err != nil || len(instances) != 1 {
 		t.Fatalf("ListAgentInstances() = %v, error %v", instances, err)
+	}
+	ready, err := client.MarkAgentInstanceReady(ctx, created.GetId(), "actor.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	suspending := proto.Clone(ready).(*apiv1alpha1.AgentInstance)
+	suspending.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND
+	if _, err := client.TransitionAgentInstance(ctx, suspending, ready.GetState(), ready.GetOperation()); err != nil {
+		t.Fatal(err)
+	}
+	resuming := proto.Clone(ready).(*apiv1alpha1.AgentInstance)
+	resuming.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME
+	current, err := client.TransitionAgentInstance(ctx, resuming, ready.GetState(), ready.GetOperation())
+	if !errors.Is(err, dbpkg.ErrAgentInstanceConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_SUSPEND {
+		t.Fatalf("conflicting transition = instance %v, error %v", current, err)
+	}
+	suspended := proto.Clone(suspending).(*apiv1alpha1.AgentInstance)
+	suspended.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED
+	suspended.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
+	if _, err := client.TransitionAgentInstance(ctx, suspended, ready.GetState(), suspending.GetOperation()); err != nil {
+		t.Fatal(err)
 	}
 
 	request.AgentTemplate.Name = "different"

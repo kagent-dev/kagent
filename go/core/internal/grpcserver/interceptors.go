@@ -208,6 +208,8 @@ func serviceErrorCode(code serviceerrors.Code) codes.Code {
 		return codes.FailedPrecondition
 	case serviceerrors.CodeResourceExhausted:
 		return codes.ResourceExhausted
+	case serviceerrors.CodeAborted:
+		return codes.Aborted
 	case serviceerrors.CodeUnavailable:
 		return codes.Unavailable
 	default:

@@ -17,6 +17,8 @@ var ErrTaskOwnedByAnotherUser = errors.New("task id owned by another user")
 
 var ErrIdempotencyConflict = errors.New("request id was already used with different parameters")
 
+var ErrAgentInstanceConflict = errors.New("AgentInstance lifecycle operation conflicts with its current state")
+
 type QueryOptions struct {
 	Limit    int
 	After    time.Time
@@ -119,6 +121,7 @@ type Client interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
+	TransitionAgentInstance(context.Context, *apiv1alpha1.AgentInstance, apiv1alpha1.AgentInstanceState, apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error)
 	DeleteAgentInstance(context.Context, string) error
 	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)

@@ -32,6 +32,7 @@ type AgentInstance struct {
 	State            string
 	Labels           []byte
 	Data             []byte
+	Operation        string
 }
 
 type AgentInstanceShare struct {
