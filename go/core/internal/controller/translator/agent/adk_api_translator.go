@@ -115,7 +115,7 @@ var DefaultImageConfig = ImageConfig{
 // default to the pushed runtime image manifest digests baked in at controller link time, and
 // can be overridden at runtime via the --app[-full]-image-digest / --golang-adk[-full]-image-digest
 // flags (for mirrored registries that re-assign digests). They are only consulted for sandbox
-// agents — Substrate requires digest-pinned refs — while regular agents reference images by tag.
+// agents, since Substrate requires digest-pinned refs, while regular agents reference images by tag.
 // The "full" variants bundle the sandbox runtime (bash tools); the slim variants do not.
 var PythonADKImageDigest string
 var PythonADKFullImageDigest string
@@ -221,7 +221,7 @@ const (
 
 // dns1123LabelRE matches RFC 1123 labels (lowercase alphanumeric + dashes,
 // must start and end with alphanumeric). K8s volume names require this
-// grammar — but K8s Secret names follow the looser DNS_SUBDOMAIN grammar
+// grammar, but K8s Secret names follow the looser DNS_SUBDOMAIN grammar
 // (dots allowed, up to 253 chars), so a literal Secret name like
 // `corp.ca` or cert-manager-style `mcp.example.com-tls` would fail volume
 // name validation if embedded verbatim. tlsCAPaths hashes the name when
@@ -271,7 +271,7 @@ func deriveTLSFields(tlsConfig *v1alpha3.TLSConfig) (*bool, *string, *bool) {
 }
 
 // populateTLSFields writes the derived TLS fields onto an adk.BaseModel.
-// Used by every model-provider branch in translateBaseModel — each provider
+// Used by every model-provider branch in translateBaseModel; each provider
 // embeds BaseModel, so this single call replaces the explicit three-field
 // assignment at each site. The MCP-connection params (StreamableHTTPConnectionParams,
 // SseConnectionParams) carry the same three fields but do not embed BaseModel;
@@ -285,14 +285,14 @@ func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha3.TLSConfig) 
 // the same OR different TLSConfigs:
 //   - different Secrets produce different volume names + paths and accumulate.
 //   - the same Secret referenced from multiple sources (e.g. several RMSs
-//     pointing at one shared corp-CA bundle) is idempotent — we skip the
+//     pointing at one shared corp-CA bundle) is idempotent, we skip the
 //     append if a volume with the same name is already present, because the
 //     RemoteMCPServer path (translateRemoteMCPServerTarget) appends directly to the
 //     already-merged modelDeploymentData rather than through
 //     mergeDeploymentData.
 //
 // Spec validation (Secret exists, named key present) is the reconciler's
-// job for both ModelConfig and RemoteMCPServer — see the TLS branches of
+// job for both ModelConfig and RemoteMCPServer; see the TLS branches of
 // ReconcileKagentModelConfig and ReconcileKagentRemoteMCPServer. The
 // translator trusts that the Status has already surfaced any
 // misconfiguration; mounting an absent key here would crash the agent at
@@ -704,17 +704,19 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 
 		return ollama, modelDeploymentData, secretHashBytes, nil
 	case v1alpha3.ModelProviderGemini:
-		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-			Name: env.GoogleAPIKey.Name(),
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: model.Spec.APIKeySecret,
+		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
+			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
+				Name: env.GoogleAPIKey.Name(),
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: model.Spec.APIKeySecret,
+						},
+						Key: model.Spec.APIKeySecretKey,
 					},
-					Key: model.Spec.APIKeySecretKey,
 				},
-			},
-		})
+			})
+		}
 		gemini := &adk.Gemini{
 			BaseModel: adk.BaseModel{
 				Model:   model.Spec.Model,
@@ -723,6 +725,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&gemini.BaseModel, model.Spec.TLS)
+		gemini.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 		if model.Spec.Gemini != nil && model.Spec.Gemini.MaxOutputTokens > 0 {
 			gemini.MaxOutputTokens = &model.Spec.Gemini.MaxOutputTokens
 		}
@@ -911,7 +914,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 
 		// Endpoint is validated above; Deployment (required) and APIVersion
-		// (defaulted) are guaranteed by the CRD — all three are always set.
+		// (defaulted) are guaranteed by the CRD, all three are always set.
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars,
 			corev1.EnvVar{
 				Name:  env.FoundryEndpoint.Name(),
@@ -1140,7 +1143,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 	// Converters that synthesize RMSs from in-cluster MCPServer/Service
 	// references don't set Spec.TLS, so this is a no-op for those. Returns
 	// the controller-resolved TLS Secret hash so callers can mix it into
-	// the agent's config hash — that's the signal that drives a rollout
+	// the agent's config hash, that's the signal that drives a rollout
 	// when the CA Secret rotates in place (same Secret name, new PEM).
 	addTLSConfiguration(mdd, remoteMcpServer.Spec.TLS)
 	return remoteMCPServerSecretHashBytes(remoteMcpServer), nil
@@ -1149,7 +1152,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 // remoteMCPServerSecretHashBytes returns the hex-decoded bytes of the
 // RMS's Status.SecretHash so the agent translator can fold them into the
 // agent's config hash. Returns nil (no contribution, no error) when the
-// status hash is empty or malformed — the controller is responsible for
+// status hash is empty or malformed; the controller is responsible for
 // keeping Status.SecretHash in sync, and a transient missing/garbage
 // value should not block agent translation.
 func remoteMCPServerSecretHashBytes(remoteMcpServer *v1alpha3.RemoteMCPServer) []byte {
@@ -1417,7 +1420,7 @@ func validateSubPath(p string) error {
 		return nil
 	}
 	// filepath.IsLocal rejects absolute paths, ".." segments, and anything
-	// else that can't be a local relative path — exactly the threat model here.
+	// else that can't be a local relative path, exactly the threat model here.
 	if !filepath.IsLocal(p) {
 		return fmt.Errorf("skill subPath must be a relative path without '..' segments, got %q", p)
 	}
@@ -1466,7 +1469,7 @@ func s3SkillName(ref v1alpha3.S3SkillRef) string {
 // prepareSkillsInitConfig converts CRD values into the JSON config consumed by
 // the skills-init binary. It validates subPaths and detects duplicate skill
 // directory names. User-controlled strings (URL, ref, name, OCI image, S3 URI)
-// flow through this struct as data only — the binary passes them to
+// flow through this struct as data only, the binary passes them to
 // git/library/SDK calls as argv/API inputs, never as shell input.
 func prepareSkillsInitConfig(
 	gitRefs []v1alpha3.GitRepo,
