@@ -125,21 +125,23 @@ func TestGetDecodesCanonicalTask(t *testing.T) {
 	assert.Equal(t, "done", stored.Task.History[0].Parts[0].Text())
 }
 
-func TestGetPrefersCallContextUserOverContextValue(t *testing.T) {
+func TestGetResolvesUserFromA2ACallContext(t *testing.T) {
 	encoded, err := pbconv.ToProtoTask(&a2a.Task{ID: a2a.TaskID("task-4"), ContextID: "session-4"})
 	require.NoError(t, err)
+
+	var gotUserID []string
 	service := newTaskStore(t, &taskTestServer{get: func(ctx context.Context, _ *apiv1alpha1.GetTaskRequest) (*apiv1alpha1.GetTaskResponse, error) {
 		values, _ := metadata.FromIncomingContext(ctx)
-		assert.Equal(t, []string{"call-context-user"}, values.Get("x-user-id"))
+		gotUserID = values.Get("x-user-id")
 		return &apiv1alpha1.GetTaskResponse{Task: encoded}, nil
 	}})
 
-	baseCtx, callCtx := a2asrv.NewCallContext(t.Context(), nil)
+	ctx, callCtx := a2asrv.NewCallContext(t.Context(), nil)
 	callCtx.User = a2asrv.NewAuthenticatedUser("call-context-user", nil)
-	ctx := auth.WithUserID(baseCtx, "context-value-user")
 
 	_, err = service.Get(ctx, a2a.TaskID("task-4"))
 	require.NoError(t, err)
+	assert.Equal(t, []string{"call-context-user"}, gotUserID)
 }
 
 func TestGetMapsNotFound(t *testing.T) {
