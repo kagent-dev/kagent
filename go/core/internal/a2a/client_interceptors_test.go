@@ -2,13 +2,77 @@ package a2a
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	a2aclient "github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/types"
 )
+
+type interceptorTestSession struct {
+	principal auth.Principal
+}
+
+func (s interceptorTestSession) Principal() auth.Principal {
+	return s.principal
+}
+
+type interceptorTestAuthProvider struct {
+	auth.AuthProvider
+	userID string
+}
+
+func (p interceptorTestAuthProvider) UpstreamAuth(r *http.Request, _ auth.Session, _ auth.Principal) error {
+	if p.userID != "" {
+		r.Header.Set("X-User-Id", p.userID)
+	}
+	return nil
+}
+
+func TestUpstreamAuthInterceptor_ForwardsAuthenticatedUser(t *testing.T) {
+	ctx := auth.AuthSessionTo(context.Background(), interceptorTestSession{
+		principal: auth.Principal{User: auth.User{ID: "caller-user"}},
+	})
+	req := &a2aclient.Request{
+		BaseURL:       "http://agent.default:8080",
+		ServiceParams: a2aclient.ServiceParams{},
+	}
+	interceptor := NewUpstreamAuthInterceptor(interceptorTestAuthProvider{}, types.NamespacedName{})
+
+	if _, _, err := interceptor.Before(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := req.ServiceParams.Get("X-User-Id"); len(got) != 1 || got[0] != "caller-user" {
+		t.Errorf("X-User-Id: want %q, got %q", "caller-user", got)
+	}
+}
+
+func TestUpstreamAuthInterceptor_IgnoresShareOwner(t *testing.T) {
+	ctx := auth.AuthSessionTo(context.Background(), interceptorTestSession{
+		principal: auth.Principal{User: auth.User{ID: "visiting-user"}},
+	})
+	ctx = auth.ShareContextTo(ctx, &auth.ShareContext{UserID: "owner-user"})
+	req := &a2aclient.Request{
+		BaseURL: "http://agent.default:8080",
+		ServiceParams: a2aclient.ServiceParams{
+			"x-user-id": {"preexisting-user"},
+		},
+	}
+	interceptor := NewUpstreamAuthInterceptor(
+		interceptorTestAuthProvider{userID: "provider-user"},
+		types.NamespacedName{},
+	)
+
+	if _, _, err := interceptor.Before(ctx, req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := req.ServiceParams.Get("X-User-Id"); len(got) != 1 || got[0] != "visiting-user" {
+		t.Errorf("X-User-Id: want exactly [%q], got %q", "visiting-user", got)
+	}
+}
 
 func TestUpstreamAuthInterceptor_InjectsTraceContext(t *testing.T) {
 	const rawTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
