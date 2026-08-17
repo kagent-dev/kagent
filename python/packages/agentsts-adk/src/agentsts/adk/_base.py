@@ -151,6 +151,8 @@ class ADKTokenPropagationPlugin(BasePlugin):
         self.audience = audience
         self.token_cache: Dict[str, _TokenCacheEntry] = {}
         self.actor_token_cache: Optional[_TokenCacheEntry] = None
+        # Earliest expiry across token_cache; None when no cached token expires.
+        self._earliest_expiry: Optional[int] = None
 
     def add_to_agent(self, agent: BaseAgent):
         """
@@ -240,17 +242,26 @@ class ADKTokenPropagationPlugin(BasePlugin):
             token=subject_token,
             expiry=expiry,
         )
+        self._earliest_expiry = _earlier_expiry(self._earliest_expiry, expiry)
         logger.debug("Cached new subject token")
         return None
 
     def _read_subject_token(self, state: dict) -> Optional[str]:
-        """Resolve the acting caller's subject token from session state."""
+        """Resolve the acting caller's subject token from session state.
+
+        get_subject_token is caller-supplied, so a raising implementation fails
+        closed (no token propagated) instead of aborting the agent run.
+        """
         get_subject_token = (
             self.sts_integration.get_subject_token
             if self.sts_integration and self.sts_integration.get_subject_token
             else _default_get_subject_token
         )
-        return get_subject_token(state)
+        try:
+            return get_subject_token(state)
+        except Exception as e:
+            logger.warning(f"Failed to read subject token from session state: {e}")
+            return None
 
     def _cache_key_for(self, session_id: str, subject_token: Optional[str]) -> str:
         return f"{session_id}\0{_subject_key(subject_token)}"
@@ -314,12 +325,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Clean up expired tokens after run, preserving valid tokens."""
-        # A session now holds one entry per subject, and only the acting
-        # subject's key is derivable here, so sweep every expired entry rather
-        # than leaving the other subjects' behind.
-        for key in [key for key, entry in self.token_cache.items() if _has_token_expired(entry.expiry)]:
-            logger.debug("Removing expired subject token from cache")
-            self.token_cache.pop(key, None)
+        self._sweep_expired_subject_tokens()
 
         # Clean up expired actor token cache
         if self.actor_token_cache and _has_token_expired(self.actor_token_cache.expiry):
@@ -327,6 +333,37 @@ class ADKTokenPropagationPlugin(BasePlugin):
             self.actor_token_cache = None
 
         return None
+
+    def _sweep_expired_subject_tokens(self) -> None:
+        """Drop every expired subject token from the cache.
+
+        A session holds one entry per subject and only the acting subject's key
+        is derivable here, so entries belonging to other subjects and other
+        sessions are swept too; scoping the sweep to the current session would
+        keep the entries of sessions that never run again forever. The earliest
+        expiry gates the scan, so a growing cache is only walked when there is
+        something to evict.
+        """
+        if self._earliest_expiry is None or not _has_token_expired(self._earliest_expiry):
+            return
+
+        earliest_expiry: Optional[int] = None
+        for key, entry in list(self.token_cache.items()):
+            if _has_token_expired(entry.expiry):
+                logger.debug("Removing expired subject token from cache")
+                self.token_cache.pop(key, None)
+                continue
+            earliest_expiry = _earlier_expiry(earliest_expiry, entry.expiry)
+        self._earliest_expiry = earliest_expiry
+
+
+def _earlier_expiry(current: Optional[int], candidate: Optional[int]) -> Optional[int]:
+    """Return the earlier of two expiries; None means "does not expire"."""
+    if candidate is None:
+        return current
+    if current is None:
+        return candidate
+    return min(current, candidate)
 
 
 def _has_token_expired(expiry: Optional[int], buffer_seconds: int = 5) -> bool:
