@@ -10,7 +10,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
-from agentsts.adk._base import HEADERS_KEY
+from agentsts.adk._base import HEADERS_KEY, MAX_CACHE_TTL_SECONDS
 from agentsts.adk._base import _extract_jwt_expiry as extract_jwt_expiry
 from agentsts.adk._base import _extract_jwt_from_headers as extract_jwt_from_headers
 from agentsts.adk._base import _has_token_expired as has_token_expired
@@ -767,7 +767,11 @@ class TestADKTokenPropagationPlugin:
 
     @pytest.mark.asyncio
     async def test_subject_token_cache_no_expiry(self):
-        """Case: subject token without expiry is cached indefinitely and reused."""
+        """Case: subject token without expiry is given a bounded lifetime and reused.
+
+        The cache holds one entry per (session, subject), so an entry that never
+        expires would pin a slot per caller for the lifetime of the process.
+        """
         sts = Mock(spec=ADKSTSIntegration)
         sts.get_subject_token = None
         sts.fetch_actor_token = None
@@ -782,9 +786,11 @@ class TestADKTokenPropagationPlugin:
             # First call
             await plugin.before_run_callback(invocation_context=ic)
             assert sts.exchange_token.call_count == 1
-            assert plugin.token_cache[plugin.cache_key(ic)].expiry is None
+            expiry = plugin.token_cache[plugin.cache_key(ic)].expiry
+            assert expiry is not None
+            assert expiry <= int(time.time()) + MAX_CACHE_TTL_SECONDS
 
-            # after_run_callback should preserve it (no expiry)
+            # after_run_callback preserves it until the bounded lifetime elapses
             await plugin.after_run_callback(invocation_context=ic)
             assert plugin.cache_key(ic) in plugin.token_cache
 
@@ -1168,6 +1174,39 @@ class TestADKTokenPropagationPlugin:
         assert subject_key("opaque-a") == subject_key("opaque-a")
         assert subject_key("opaque-a").startswith("h:")
         assert subject_key(None) == ""
+
+    def test_subject_key_without_issuer_uses_token_hash(self):
+        """Case: an absent iss leaves sub unqualified, so those partition by hash."""
+        import jwt as pyjwt
+
+        secret = "test-signing-key-of-at-least-32-bytes!"
+        no_iss = pyjwt.encode({"sub": "alice"}, secret, algorithm="HS256")
+        other_no_iss = pyjwt.encode({"sub": "alice", "jti": "second-issuer"}, secret, algorithm="HS256")
+
+        assert subject_key(no_iss).startswith("h:")
+        assert subject_key(no_iss) != subject_key(other_no_iss)
+
+    @pytest.mark.asyncio
+    async def test_token_without_expiry_stays_evictable(self):
+        """Case: a token carrying no exp is given a bounded lifetime, not an immortal entry."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic = self._make_invocation_context("sess-ttl", headers={"Authorization": "Bearer opaque-token"})
+
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=None):
+            await plugin.before_run_callback(invocation_context=ic)
+
+        entry = plugin.token_cache[plugin.cache_key(ic)]
+        assert entry.expiry is not None
+        assert entry.expiry <= int(time.time()) + MAX_CACHE_TTL_SECONDS
+        # The bounded expiry also arms the sweep gate, which a None expiry leaves unset.
+        assert plugin._earliest_expiry == entry.expiry
+
+    def test_header_provider_without_context_fails_closed(self):
+        """Case: a tool call with no invocation context gets no header instead of raising."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        assert plugin.header_provider(None) == {}
+        assert plugin.header_provider(self._make_readonly_context(None)) == {}
 
     @pytest.mark.asyncio
     async def test_after_run_sweeps_other_subjects_expired_entries(self):

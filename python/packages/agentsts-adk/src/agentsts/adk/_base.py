@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 HEADERS_KEY = "headers"
 
+# Bounds an entry whose token carries no usable expiry. The cache holds one entry
+# per (session, subject), so a token without an expiry would otherwise pin an
+# entry per caller for the lifetime of the process.
+MAX_CACHE_TTL_SECONDS = 300
+
 
 def _default_get_subject_token(state: dict) -> Optional[str]:
     """Default subject token retrieval from Authorization header in session state."""
@@ -43,8 +48,10 @@ def _subject_key(token: Optional[str]) -> str:
     """Derive a stable per-principal cache discriminator from a bearer token.
 
     Prefers the issuer-scoped ``sub`` claim. ``sub`` is unique only within an
-    issuer, so it is paired with ``iss``. Opaque or sub-less tokens fall back to
-    a hash of the raw token so they still partition per principal.
+    issuer, so it is paired with ``iss``. Opaque, sub-less and issuer-less tokens
+    fall back to a hash of the raw token so they still partition per principal:
+    an absent ``iss`` leaves ``sub`` unqualified, which two issuers that both omit
+    it could collide on.
 
     NOTE: this parses the token without verification and uses it only to
     partition the cache. On a cache hit the key selects which cached delegated
@@ -59,8 +66,9 @@ def _subject_key(token: Optional[str]) -> str:
     except Exception:
         claims = {}
     sub = claims.get("sub")
-    if sub:
-        return f"{claims.get('iss', '')}\0{sub}"
+    iss = claims.get("iss")
+    if sub and iss:
+        return f"{iss}\0{sub}"
     return "h:" + hashlib.sha256(token.encode()).hexdigest()
 
 
@@ -177,8 +185,14 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.debug(f"add_to_agent: updated MCP tool's header provider for agent {agent_name}")
 
     def header_provider(self, readonly_context: Optional[ReadonlyContext]) -> Dict[str, str]:
-        # access saved token
-        cache_entry = self.token_cache.get(self.cache_key(readonly_context._invocation_context))
+        # Runs on every tool call, so it fails closed rather than raising into the
+        # invocation: without a context there is no acting subject to key on.
+        invocation_context = getattr(readonly_context, "_invocation_context", None)
+        if invocation_context is None:
+            logger.debug("no invocation context for tool call, leaving existing headers in place")
+            return {}
+
+        cache_entry = self.token_cache.get(self.cache_key(invocation_context))
         if not cache_entry:
             return {}
 
@@ -234,8 +248,11 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.warning(f"STS token exchange failed: {e}")
                 return None
 
-        # Extract expiry from the token
+        # Extract expiry from the token, bounding tokens that carry none so every
+        # entry stays evictable.
         expiry = _extract_jwt_expiry(subject_token)
+        if expiry is None:
+            expiry = int(time.time()) + MAX_CACHE_TTL_SECONDS
 
         # Cache the token with metadata
         self.token_cache[cache_key] = _TokenCacheEntry(
