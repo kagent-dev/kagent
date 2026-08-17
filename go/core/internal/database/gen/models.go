@@ -45,6 +45,24 @@ type AgentInstanceShare struct {
 	CreatedAt  time.Time
 }
 
+type AgentInstanceTask struct {
+	InstanceID      string
+	ID              string
+	State           string
+	StatusTimestamp *time.Time
+	Data            []byte
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type AgentInstanceTaskEvent struct {
+	Sequence   int64
+	InstanceID string
+	TaskID     *string
+	Data       []byte
+	CreatedAt  time.Time
+}
+
 type AgentTemplateHarnessPair struct {
 	Namespace                string
 	AgentTemplateName        string

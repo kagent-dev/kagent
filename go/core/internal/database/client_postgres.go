@@ -10,7 +10,10 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
@@ -706,6 +709,104 @@ func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace
 		return dbpkg.ErrNotFound
 	}
 	return nil
+}
+
+func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event) error {
+	eventProto, err := pbconv.ToProtoStreamResponse(event)
+	if err != nil {
+		return fmt.Errorf("convert AgentInstance task event: %w", err)
+	}
+	eventData, err := proto.Marshal(eventProto)
+	if err != nil {
+		return fmt.Errorf("marshal AgentInstance task event: %w", err)
+	}
+
+	err = c.withTx(ctx, func(q *dbgen.Queries) error {
+		if task != nil {
+			data, err := marshalAgentInstanceTask(task)
+			if err != nil {
+				return err
+			}
+			if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
+				InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
+				StatusTimestamp: task.Status.Timestamp, Data: data,
+			}); err != nil {
+				var pgErr *pgconn.PgError
+				if errors.As(err, &pgErr) && pgErr.ConstraintName == "agent_instance_one_active_task_idx" {
+					return dbpkg.ErrAgentInstanceTaskConflict
+				}
+				return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
+			}
+		}
+		if err := q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
+			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)), Data: eventData,
+		}); err != nil {
+			return fmt.Errorf("store AgentInstance task event: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("store AgentInstance task update: %w", err)
+	}
+	return nil
+}
+
+func (c *postgresClient) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, error) {
+	row, err := c.q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{InstanceID: instanceID, ID: taskID})
+	if err != nil {
+		return nil, fmt.Errorf("get AgentInstance task %s: %w", taskID, notFoundOr(err))
+	}
+	return unmarshalAgentInstanceTask(row.Data)
+}
+
+func (c *postgresClient) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int) ([]*a2a.Task, int, error) {
+	params := dbgen.CountAgentInstanceTasksParams{
+		InstanceID: instanceID, State: string(state), StatusTimestampAfter: statusTimestampAfter,
+	}
+	total, err := c.q.CountAgentInstanceTasks(ctx, params)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count AgentInstance tasks: %w", err)
+	}
+	rows, err := c.q.ListAgentInstanceTasks(ctx, dbgen.ListAgentInstanceTasksParams{
+		InstanceID: instanceID, AfterID: afterID, State: params.State,
+		StatusTimestampAfter: statusTimestampAfter, PageSize: int32(limit),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list AgentInstance tasks: %w", err)
+	}
+	tasks := make([]*a2a.Task, 0, len(rows))
+	for _, row := range rows {
+		task, err := unmarshalAgentInstanceTask(row.Data)
+		if err != nil {
+			return nil, 0, fmt.Errorf("decode AgentInstance task %s: %w", row.ID, err)
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, int(total), nil
+}
+
+func marshalAgentInstanceTask(task *a2a.Task) ([]byte, error) {
+	pb, err := pbconv.ToProtoTask(task)
+	if err != nil {
+		return nil, fmt.Errorf("convert AgentInstance task: %w", err)
+	}
+	data, err := proto.Marshal(pb)
+	if err != nil {
+		return nil, fmt.Errorf("marshal AgentInstance task: %w", err)
+	}
+	return data, nil
+}
+
+func unmarshalAgentInstanceTask(data []byte) (*a2a.Task, error) {
+	var pb a2apb.Task
+	if err := proto.Unmarshal(data, &pb); err != nil {
+		return nil, fmt.Errorf("unmarshal AgentInstance task: %w", err)
+	}
+	task, err := pbconv.FromProtoTask(&pb)
+	if err != nil {
+		return nil, fmt.Errorf("convert AgentInstance task: %w", err)
+	}
+	return task, nil
 }
 
 // ── Push Notifications ────────────────────────────────────────────────────────

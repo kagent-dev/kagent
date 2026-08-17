@@ -19,6 +19,8 @@ var ErrIdempotencyConflict = errors.New("request id was already used with differ
 
 var ErrAgentInstanceConflict = errors.New("AgentInstance lifecycle operation conflicts with its current state")
 
+var ErrAgentInstanceTaskConflict = errors.New("AgentInstance already has an active task")
+
 type QueryOptions struct {
 	Limit    int
 	After    time.Time
@@ -126,4 +128,7 @@ type Client interface {
 	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
+	StoreAgentInstanceTaskEvent(context.Context, string, *a2a.Task, a2a.Event) error
+	GetAgentInstanceTask(context.Context, string, string) (*a2a.Task, error)
+	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)
 }

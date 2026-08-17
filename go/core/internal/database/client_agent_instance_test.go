@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
@@ -30,6 +32,55 @@ func TestToAgentInstanceUsesIndexedLifecycleColumns(t *testing.T) {
 	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED ||
 		instance.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_RESUME {
 		t.Fatalf("lifecycle = %s/%s, want SUSPENDED/RESUME", instance.GetState(), instance.GetOperation())
+	}
+}
+
+func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_instance (id, namespace, user_id, request_id, state, data)
+		VALUES ('instance-1', 'team-a', 'alice', 'request-1', 'READY', '\x00')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+	now := time.Now()
+	first := &a2a.Task{
+		ID: "task-1", ContextID: "instance-1",
+		Status:  a2a.TaskStatus{State: a2a.TaskStateSubmitted, Timestamp: &now},
+		History: []*a2a.Message{{ID: "message-1", Role: a2a.MessageRoleUser}},
+	}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", first, first.History[0]); err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
+	if err != nil || got.ID != first.ID || got.Status.State != first.Status.State || len(got.History) != 1 {
+		t.Fatalf("GetAgentInstanceTask() = %#v, %v", got, err)
+	}
+
+	second := &a2a.Task{ID: "task-2", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", second, second); !errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
+		t.Fatalf("second active task error = %v", err)
+	}
+	first.Status.State = a2a.TaskStateCompleted
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", first, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", second, second); err != nil {
+		t.Fatal(err)
+	}
+	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 3 {
+		t.Fatalf("event count = %d, want 3", events)
+	}
+
+	tasks, total, err := client.ListAgentInstanceTasks(ctx, "instance-1", "", a2a.TaskStateUnspecified, nil, 1)
+	if err != nil || total != 2 || len(tasks) != 1 || tasks[0].ID != first.ID {
+		t.Fatalf("first page = %#v, total %d, error %v", tasks, total, err)
+	}
+	tasks, total, err = client.ListAgentInstanceTasks(ctx, "instance-1", string(first.ID), a2a.TaskStateSubmitted, nil, 2)
+	if err != nil || total != 1 || len(tasks) != 1 || tasks[0].ID != second.ID {
+		t.Fatalf("filtered page = %#v, total %d, error %v", tasks, total, err)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 )
 
 type Querier interface {
+	CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error)
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
 	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
 	DeleteAgentInstance(ctx context.Context, id string) error
@@ -26,6 +27,7 @@ type Querier interface {
 	GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error)
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
+	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
 	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
@@ -55,10 +57,12 @@ type Querier interface {
 	// Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
 	IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error
 	InsertAgentInstance(ctx context.Context, arg InsertAgentInstanceParams) (AgentInstance, error)
+	InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) error
 	InsertEvent(ctx context.Context, arg InsertEventParams) error
 	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
 	ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error)
+	ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error)
 	ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
@@ -104,6 +108,7 @@ type Querier interface {
 	TaskExists(ctx context.Context, id string) (bool, error)
 	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
 	UpsertAgent(ctx context.Context, arg UpsertAgentParams) error
+	UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) error
 	UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error
 	UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) error
 	UpsertCheckpointWrite(ctx context.Context, arg UpsertCheckpointWriteParams) error
