@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -425,6 +426,104 @@ func TestHeaderProviderNoBearerDoesNotLeakSubjectToken(t *testing.T) {
 
 	if got, ok := headers["Authorization"]; ok {
 		t.Fatalf("expected no Authorization header for empty-bearer request, got %q", got)
+	}
+}
+
+// An absent "iss" leaves "sub" unqualified, so those tokens partition by hash
+// rather than by a key two issuers could both produce.
+func TestSubjectKeyWithoutIssuerUsesTokenHash(t *testing.T) {
+	t.Parallel()
+
+	key := subjectKey(signedTokenWith(t, "", "alice"))
+	if !strings.HasPrefix(key, "h:") {
+		t.Fatalf("subjectKey() = %q, want a hash-derived key for a token without iss", key)
+	}
+
+	other, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": "alice",
+		"jti": "second-issuer",
+	}).SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatalf("failed to sign token: %v", err)
+	}
+	if subjectKey(other) == key {
+		t.Fatal("two issuer-less tokens sharing a sub must not share a cache key")
+	}
+}
+
+// A token with no exp claim must still get a bounded cache lifetime: the cache
+// holds one entry per (session, subject), so an immortal entry per caller would
+// grow without limit.
+func TestCachedTokenWithoutExpiryStaysEvictable(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), nil, nil)
+	plugin.setCachedToken("sess-ttl", "alice", "opaque-token", 0)
+
+	entry, ok := plugin.getCachedToken("sess-ttl", "alice")
+	if !ok {
+		t.Fatal("expected a cached entry")
+	}
+	if entry.Expiry == 0 {
+		t.Fatal("entry with no exp claim must be given a bounded expiry")
+	}
+	if ceiling := time.Now().Add(maxCacheTTL).Unix(); entry.Expiry > ceiling {
+		t.Fatalf("entry expiry %d exceeds the %s ceiling %d", entry.Expiry, maxCacheTTL, ceiling)
+	}
+}
+
+// The sweep must evict entries belonging to subjects and sessions other than the
+// acting one, since only the acting subject's key is derivable in the callback.
+func TestAfterRunCallbackEvictsExpiredEntriesOfOtherSubjects(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), nil, nil)
+	past := time.Now().Add(-time.Hour).Unix()
+	future := time.Now().Add(time.Hour).Unix()
+	plugin.setCachedToken("sess-a", "alice", "alice-token", past)
+	plugin.setCachedToken("sess-b", "bob", "bob-token", future)
+
+	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-b"})
+
+	if _, ok := plugin.getCachedToken("sess-a", "alice"); ok {
+		t.Fatal("expired entry of another session/subject must be evicted")
+	}
+	if _, ok := plugin.getCachedToken("sess-b", "bob"); !ok {
+		t.Fatal("unexpired entry must survive the sweep")
+	}
+	if plugin.earliestExpiry != future {
+		t.Fatalf("earliestExpiry = %d, want %d after the sweep", plugin.earliestExpiry, future)
+	}
+}
+
+// The earliest expiry gates the walk, so a cache with nothing evictable is left
+// untouched instead of being traversed on every run.
+func TestAfterRunCallbackSkipsWalkUntilSomethingExpires(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), nil, nil)
+	future := time.Now().Add(time.Hour).Unix()
+	plugin.setCachedToken("sess-a", "alice", "alice-token", future)
+
+	plugin.AfterRunCallback(&fakeInvocationContext{Context: context.Background(), sessionID: "sess-a"})
+
+	if _, ok := plugin.getCachedToken("sess-a", "alice"); !ok {
+		t.Fatal("unexpired entry must survive")
+	}
+	if plugin.earliestExpiry != future {
+		t.Fatalf("earliestExpiry = %d, want it left at %d", plugin.earliestExpiry, future)
+	}
+}
+
+func TestClearCacheResetsEarliestExpiry(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), nil, nil)
+	plugin.setCachedToken("sess-a", "alice", "alice-token", time.Now().Add(time.Hour).Unix())
+	plugin.ClearCache()
+
+	if plugin.earliestExpiry != 0 {
+		t.Fatalf("earliestExpiry = %d, want 0 after ClearCache", plugin.earliestExpiry)
 	}
 }
 

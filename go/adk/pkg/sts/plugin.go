@@ -19,6 +19,11 @@ import (
 	"google.golang.org/genai"
 )
 
+// maxCacheTTL bounds an entry whose token carries no usable expiry. The cache
+// holds one entry per (session, subject), so a token without an expiry would
+// otherwise pin an entry per caller for the lifetime of the process.
+const maxCacheTTL = 5 * time.Minute
+
 // TokenCacheEntry holds a cached token with its expiry time.
 type TokenCacheEntry struct {
 	Token  string
@@ -43,6 +48,7 @@ type TokenPropagationPlugin struct {
 	mu              sync.RWMutex
 	logger          logr.Logger
 	bufferSeconds   int64
+	earliestExpiry  int64    // earliest Expiry in tokenCache; 0 when nothing is evictable
 	resource        []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
 	audience        []string // RFC 8693 audiences sent on the STS exchange; empty omits them
 }
@@ -87,8 +93,12 @@ func subjectKey(token string) string {
 	}
 	if claims, ok := parseUnverifiedClaims(token); ok {
 		if sub, _ := claims["sub"].(string); sub != "" {
-			iss, _ := claims["iss"].(string)
-			return iss + "\x00" + sub
+			// An absent "iss" leaves "sub" unqualified, which would collide
+			// across two issuers that both omit it, so those fall back to the
+			// token hash rather than a half-formed key.
+			if iss, _ := claims["iss"].(string); iss != "" {
+				return iss + "\x00" + sub
+			}
 		}
 	}
 	sum := sha256.Sum256([]byte(token))
@@ -154,9 +164,16 @@ func (p *TokenPropagationPlugin) setCachedToken(sessionID, subject, token string
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if expiry == 0 {
+		expiry = time.Now().Add(maxCacheTTL).Unix()
+	}
+
 	p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}] = &TokenCacheEntry{
 		Token:  token,
 		Expiry: expiry,
+	}
+	if p.earliestExpiry == 0 || expiry < p.earliestExpiry {
+		p.earliestExpiry = expiry
 	}
 }
 
@@ -296,11 +313,25 @@ func (p *TokenPropagationPlugin) AfterRunCallback(_ agent.InvocationContext) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for key, entry := range p.tokenCache {
-		if entry.HasExpired(p.bufferSeconds) {
-			delete(p.tokenCache, key)
+	// A session holds one entry per subject and only the acting subject's key is
+	// derivable here, so the sweep covers every entry rather than the caller's
+	// alone; scoping it to the current session would strand the entries of
+	// sessions that never run again. The earliest expiry gates the walk, so a
+	// large cache is only traversed once something can actually be evicted.
+	if p.earliestExpiry != 0 && p.earliestExpiry <= time.Now().Unix()+p.bufferSeconds {
+		earliest := int64(0)
+		for key, entry := range p.tokenCache {
+			if entry.HasExpired(p.bufferSeconds) {
+				delete(p.tokenCache, key)
+				continue
+			}
+			if earliest == 0 || entry.Expiry < earliest {
+				earliest = entry.Expiry
+			}
 		}
+		p.earliestExpiry = earliest
 	}
+
 	if p.actorTokenCache != nil && p.actorTokenCache.HasExpired(p.bufferSeconds) {
 		p.actorTokenCache = nil
 	}
@@ -354,6 +385,7 @@ func (p *TokenPropagationPlugin) ClearCache() {
 	defer p.mu.Unlock()
 
 	p.tokenCache = make(map[cacheKey]*TokenCacheEntry)
+	p.earliestExpiry = 0
 	p.actorTokenCache = nil
 	p.logger.Info("Cleared STS token cache")
 }
