@@ -831,6 +831,66 @@ class TestADKTokenPropagationPlugin:
             # Fetch should not be called again
             assert fetch_count == 1
 
+    @pytest.mark.asyncio
+    async def test_subject_token_callback_failure_does_not_abort_run(self):
+        """Case: a raising get_subject_token fails closed instead of breaking the run."""
+
+        def raising_get_subject_token(state):
+            raise RuntimeError("callback exploded")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = raising_get_subject_token
+        sts.fetch_actor_token = None
+        sts._actor_token = "static-actor"
+        sts.exchange_token = AsyncMock()
+
+        plugin = ADKTokenPropagationPlugin(sts)
+        ic = self._make_invocation_context("sess-raise", headers={"Authorization": "Bearer subject-token"})
+
+        assert await plugin.before_run_callback(invocation_context=ic) is None
+        assert plugin.token_cache == {}
+        sts.exchange_token.assert_not_awaited()
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {}
+
+    @pytest.mark.asyncio
+    async def test_after_run_callback_sweeps_expired_tokens_of_other_sessions(self):
+        """Case: the sweep is not scoped to the running session, so entries of
+        sessions that never run again cannot pile up."""
+        past_expiry = int(time.time()) - 100
+        future_expiry = int(time.time()) + 3600
+
+        plugin = ADKTokenPropagationPlugin()
+        expired_ic = self._make_invocation_context("sess-expired", headers={"Authorization": "Bearer AAA"})
+        live_ic = self._make_invocation_context("sess-live", headers={"Authorization": "Bearer BBB"})
+        running_ic = self._make_invocation_context("sess-running", headers={"Authorization": "Bearer CCC"})
+
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=past_expiry):
+            await plugin.before_run_callback(invocation_context=expired_ic)
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=future_expiry):
+            await plugin.before_run_callback(invocation_context=live_ic)
+            await plugin.before_run_callback(invocation_context=running_ic)
+
+        await plugin.after_run_callback(invocation_context=running_ic)
+
+        assert plugin.cache_key(expired_ic) not in plugin.token_cache
+        assert plugin.cache_key(live_ic) in plugin.token_cache
+        assert plugin.cache_key(running_ic) in plugin.token_cache
+
+    @pytest.mark.asyncio
+    async def test_after_run_callback_skips_scan_until_something_expires(self):
+        """Case: the cache is only walked once the earliest expiry is reached."""
+        plugin = ADKTokenPropagationPlugin()
+        ic = self._make_invocation_context("sess-gate", headers={"Authorization": "Bearer AAA"})
+
+        with patch("agentsts.adk._base._extract_jwt_expiry", return_value=int(time.time()) + 3600):
+            await plugin.before_run_callback(invocation_context=ic)
+
+        with patch.object(plugin, "token_cache", wraps=plugin.token_cache) as cache_spy:
+            await plugin.after_run_callback(invocation_context=ic)
+            cache_spy.items.assert_not_called()
+
+        assert plugin.cache_key(ic) in plugin.token_cache
+
     def test_extract_jwt_from_headers_success(self):
         """Test successful JWT extraction from headers."""
         headers = {"Authorization": "Bearer jwt-token-123"}
