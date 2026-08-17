@@ -5,7 +5,7 @@ import inspect
 import logging
 import uuid
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
 from a2a.server.agent_execution import AgentExecutor
@@ -40,6 +40,7 @@ from pydantic import BaseModel
 from ._bearer_token import bearer_token, extract_bearer_token
 from ._hitl import build_hitl_status_message, build_resume_hitl_message
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
+from ._turn_usage import TurnUsage
 from .converters.event_converter import serialize_metadata_value
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -56,6 +57,7 @@ class _ExecutionState:
     request_context: RequestContext
     invocation_id: str | None = None
     last_usage_metadata: Any = None
+    usage: TurnUsage = field(default_factory=TurnUsage)
 
 
 def _call_state(context: RequestContext) -> dict[str, Any]:
@@ -136,6 +138,10 @@ class A2aAgentExecutor(AgentExecutor):
             )
 
             execution_state = _ExecutionState(request_context=context)
+            # Resumed tasks (HITL cycles, follow-up messages) carry the
+            # previously persisted total, so kagent_usage_total stays a
+            # task-lifetime sum.
+            execution_state.usage.seed_from_task(context.current_task)
             upstream_config = UpstreamA2aAgentExecutorConfig(
                 request_converter=self._convert_request,
                 execute_interceptors=[
@@ -263,6 +269,7 @@ class A2aAgentExecutor(AgentExecutor):
             state.invocation_id = adk_event.invocation_id
         if adk_event.usage_metadata is not None:
             state.last_usage_metadata = adk_event.usage_metadata
+        state.usage.add(adk_event)
         return event
 
     async def _after_agent(
@@ -280,6 +287,7 @@ class A2aAgentExecutor(AgentExecutor):
             metadata[get_kagent_metadata_key("invocation_id")] = state.invocation_id
         if state.last_usage_metadata is not None:
             metadata[get_kagent_metadata_key("usage_metadata")] = serialize_metadata_value(state.last_usage_metadata)
+        state.usage.stamp(metadata)
         event.metadata.update(metadata)
 
         if event.status.state == TaskState.TASK_STATE_INPUT_REQUIRED and event.status.message:
