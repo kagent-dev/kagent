@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/client"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	pygen "github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/adk/python"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/common"
@@ -51,7 +51,7 @@ type PortForward struct {
 
 func NewPortForward(ctx context.Context, cfg *config.Config) (*PortForward, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083", "8084:8084")
 
 	go func() {
 		if err := cmd.Start(); err != nil {
@@ -272,7 +272,7 @@ func extractEnvVarsFromHeaders(mcpServers []common.McpServerType) []string {
 // ValidateAPIKey checks if the required API key environment variable is set for the given model provider
 func ValidateAPIKey(modelProvider string) error {
 	// Get the environment variable name for the provider
-	apiKeyEnvVar := GetProviderAPIKey(v1alpha2.ModelProvider(modelProvider))
+	apiKeyEnvVar := GetProviderAPIKey(v1alpha3.ModelProvider(modelProvider))
 
 	// If no API key is required for this provider (e.g., Ollama, local models), skip validation
 	if apiKeyEnvVar == "" {

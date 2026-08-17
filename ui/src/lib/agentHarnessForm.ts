@@ -372,7 +372,7 @@ export function buildAgentHarnessCRDraft(args: {
   }
 
   return {
-    apiVersion: "kagent.dev/v1alpha2",
+    apiVersion: "kagent.dev/v1alpha3",
     kind: "AgentHarness",
     metadata: {
       name: args.name.trim(),

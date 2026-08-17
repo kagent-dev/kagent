@@ -178,39 +178,6 @@ controller:
     # JWT claim for user identity (default: "sub")
     # Override only if your OIDC provider uses a different claim
     userIdClaim: ""
-  # -- Global deployment defaults applied to all agent pods.
-  # Per-agent settings in the Agent CRD take precedence over these defaults.
-  agentDeployment:
-    # -- Default ServiceAccount name for agent pods.
-    # When set, agent pods that don't specify an explicit serviceAccountName
-    # will use this ServiceAccount instead of creating a per-agent one.
-    # Useful for Workload Identity (GCP, AWS IRSA, Azure Workload Identity).
-    # Precedence: agent-level serviceAccountName > this default > auto-created SA.
-    # @default -- "" (auto-create per-agent ServiceAccount)
-    serviceAccountName: ""
-    # -- Default labels applied to all agent pod templates.
-    # Per-agent labels in the Agent CRD take precedence over these defaults.
-    # @default -- {} (no extra labels)
-    podLabels: {}
-    # Example:
-    #   podLabels:
-    #     team: platform
-    #     environment: production
-    # -- Default nodeSelector applied to all agent deployments.
-    # Useful when admission policies require a nodeSelector on every
-    # Deployment, since wizard-created Agents carry none. A per-agent
-    # nodeSelector in the Agent CRD takes precedence over these defaults.
-    # @default -- {} (no default nodeSelector)
-    nodeSelector: {}
-    # Example:
-    #   nodeSelector:
-    #     kubernetes.io/os: linux
-    # -- Default host address for agent pods to bind to.
-    # Leave empty to use the controller's default fallback of "0.0.0.0".
-    # Automatically set to "::" when ipv6.enabled is true.
-    # Can be explicitly overridden here regardless of the ipv6 flag.
-    # @default -- "" (controller falls back to "0.0.0.0"; "::" when ipv6.enabled)
-    host: ""
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
   a2aBaseUrl: ""
@@ -218,21 +185,16 @@ controller:
     registry: ""
     repository: kagent-dev/kagent/app
     tag: "" # Will default to global, then Chart version
-    pullPolicy: ""
-    # -- Image pull secret name set on agent pods created by the controller
-    pullSecret: ""
   # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
   skillsInitImage:
     registry: ""
     repository: kagent-dev/kagent/skills-init
     tag: "" # Will default to global, then Chart version
-    pullPolicy: ""
   # -- The image used for the Go (ADK) runtime agent.
   goAgentImage:
     registry: ""
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
-    pullPolicy: ""
   # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
   # internally. These values have no effect and will be removed in a future release.
   streaming: null
@@ -325,6 +287,7 @@ controller:
     ports:
       port: 8083
       targetPort: 8083
+      grpc: 8084
     annotations: {}
   # -- Prometheus-style /metrics endpoint for the controller manager.
   # When enabled, provisions a dedicated metrics Service plus the
@@ -346,6 +309,14 @@ controller:
     service:
       type: ClusterIP
       port: 8443
+  # -- Native gRPC application API settings. This port is internal unless a
+  # separate TLS-capable GRPCRoute or ingress is configured.
+  grpc:
+    bindAddress: ":8084"
+    maxMessageBytes: 16777216
+    reflection: false
+    tlsCertFile: ""
+    tlsKeyFile: ""
 
   # Extra controller env (mapped to flags via SUBSTRATE_* env names).
   env: []
@@ -356,10 +327,6 @@ controller:
     enabled: false
     ateApiEndpoint: ""
     atenetRouterURL: ""
-    ateApiInsecure: false
-    ateApiTokenFile: /var/run/secrets/tokens/ate-api/token
-    ateApiTokenAudience: api.ate-system.svc
-    ateApiTokenExpirationSeconds: 3600
     # Substrate ate-api-server identity for env source resolution (secretKeyRef/configMapKeyRef on ActorTemplates).
     ateApiServer:
       namespace: ate-system
@@ -484,8 +451,11 @@ ui:
   #     - X-Forwarded-Email
   # Browser uses this path on the UI hostname (nginx proxies /api → controller). Required for client-side /api and WebSockets from outside the cluster.
   publicBackendUrl: "/api"
-  # Next.js server default when set (BACKEND_INTERNAL_URL). Override if the controller API base differs.
+  # Next.js server HTTP base for A2A and other protocol-native routes. The
+  # kagent application API uses backendGrpcUrl instead.
   backendInternalUrl: ""
+  # Next.js server-only native gRPC target. Include http:// for internal h2c.
+  backendGrpcUrl: ""
   # -- Pod-level security context for the UI pod. Overrides the global podSecurityContext.
   # @default -- (uses global podSecurityContext)
   podSecurityContext: {}
@@ -743,141 +713,6 @@ proxy:
   # Proxy URL for internally-built k8s URLs
   # Example: "http://proxy.kagent.svc.cluster.local:8080"
   url: ""
-
-# ==============================================================================
-# AGENTS
-# ==============================================================================
-
-k8s-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
-kgateway-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
-istio-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
-promql-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
-observability-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
-argo-rollouts-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
-helm-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
-cilium-policy-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
-cilium-manager-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
-cilium-debug-agent:
-  enabled: true
-  modelConfigRef: ""
-  memory:
-    enabled: false
-    modelConfigRef: ""
-    ttlDays: 15
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      memory: 256Mi
 
 # ==============================================================================
 # MCP TOOLS

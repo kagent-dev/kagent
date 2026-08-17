@@ -1,16 +1,11 @@
 package client
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
-
-	api "github.com/kagent-dev/kagent/go/api/httpapi"
 )
 
 // ClientError represents a client-side error
@@ -41,17 +36,19 @@ func WithUserID(userID string) ClientOption {
 	}
 }
 
-// BaseClient contains the shared HTTP functionality used by all sub-clients
+// BaseClient contains the shared transport configuration used by all sub-clients.
 type BaseClient struct {
 	BaseURL    string
 	HTTPClient *http.Client
 	UserID     string // Default user ID for requests that require it
+	grpc       grpcTransport
 }
 
 // NewBaseClient creates a new base client with the given configuration
 func NewBaseClient(baseURL string, options ...ClientOption) *BaseClient {
 	client := &BaseClient{
 		BaseURL: strings.TrimSuffix(baseURL, "/"),
+		grpc:    newGRPCTransport(),
 	}
 
 	for _, option := range options {
@@ -65,94 +62,26 @@ func NewBaseClient(baseURL string, options ...ClientOption) *BaseClient {
 	return client
 }
 
-// HTTP helper methods
-
-func (c *BaseClient) buildURL(path string) string {
-	return c.BaseURL + path
-}
-
-func (c *BaseClient) addUserID(req *http.Request, userID string) {
-	if userID == "" {
-		return
-	}
-
-	u := req.URL
-	q := u.Query()
-	q.Set("user_id", userID)
-	u.RawQuery = q.Encode()
-	req.Header.Set("X-User-ID", userID)
-}
-
-func (c *BaseClient) doRequest(ctx context.Context, method, path string, body any, userID string) (*http.Response, error) {
-	var reqBody io.Reader
-	if body != nil {
-		jsonBody, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
-		}
-		reqBody = bytes.NewBuffer(jsonBody)
-	}
-
-	urlStr := c.buildURL(path)
-	req, err := http.NewRequestWithContext(ctx, method, urlStr, reqBody)
+func (c *BaseClient) checkHealth(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/health", nil)
 	if err != nil {
-		return nil, err
-	}
-	if userID != "" {
-		c.addUserID(req, userID)
-	}
-
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		return fmt.Errorf("create health request: %w", err)
 	}
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("request health endpoint: %w", err)
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-
-		var apiErr api.APIError
-		if json.Unmarshal(bodyBytes, &apiErr) == nil && apiErr.Error != "" {
-			return nil, &ClientError{
-				StatusCode: resp.StatusCode,
-				Message:    apiErr.Error,
-				Body:       string(bodyBytes),
-			}
-		}
-
-		return nil, &ClientError{
+		return &ClientError{
 			StatusCode: resp.StatusCode,
-			Message:    "Request failed",
-			Body:       string(bodyBytes),
+			Message:    "health check failed",
 		}
 	}
 
-	return resp, nil
-}
-
-func (c *BaseClient) Get(ctx context.Context, path string, userID string) (*http.Response, error) {
-	return c.doRequest(ctx, http.MethodGet, path, nil, userID)
-}
-
-func (c *BaseClient) Post(ctx context.Context, path string, body any, userID string) (*http.Response, error) {
-	return c.doRequest(ctx, http.MethodPost, path, body, userID)
-}
-
-func (c *BaseClient) Put(ctx context.Context, path string, body any, userID string) (*http.Response, error) {
-	return c.doRequest(ctx, http.MethodPut, path, body, userID)
-}
-
-func (c *BaseClient) Delete(ctx context.Context, path string, userID string) (*http.Response, error) {
-	return c.doRequest(ctx, http.MethodDelete, path, nil, userID)
-}
-
-func DecodeResponse(resp *http.Response, target any) error {
-	defer resp.Body.Close()
-	return json.NewDecoder(resp.Body).Decode(target)
+	return nil
 }
 
 // GetUserIDOrDefault returns the provided userID or falls back to the client's default

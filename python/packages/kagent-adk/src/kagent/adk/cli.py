@@ -82,7 +82,7 @@ def static(
 ):
     app_cfg = KAgentConfig()
 
-    # On Agent Substrate the config is injected as secret-backed env vars rather than mounted
+    # On Agent Substrate the config is injected as env vars rather than mounted
     # files; materialize them into `filepath` before loading. No-op on the Deployment path.
     materialize_from_env(filepath)
 
@@ -119,6 +119,7 @@ def static(
         plugins=plugins,
         stream=agent_config.stream if agent_config.stream is not None else False,
         agent_config=agent_config,
+        kagent_grpc_url=app_cfg.grpc_url,
     )
 
     server = kagent_app.build()
@@ -217,6 +218,7 @@ def run(
         plugins=plugins,
         stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
         agent_config=agent_config,
+        kagent_grpc_url=app_cfg.grpc_url,
     )
 
     if local:
@@ -237,7 +239,12 @@ def run(
 
 
 async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str):
-    app_cfg = KAgentConfig(url="http://fake-url.example.com", name="test-agent", namespace="kagent")
+    app_cfg = KAgentConfig(
+        url="http://fake-url.example.com",
+        grpc_url="fake-grpc.example.com:8084",
+        name="test-agent",
+        namespace="kagent",
+    )
     plugins = None
     sts_integration = create_sts_integration()
     if sts_integration:

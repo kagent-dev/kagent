@@ -11,7 +11,7 @@ The kagent controller manager runs multiple controllers that share a single `kag
 │                    Controller Manager                           │
 │                                                                 │
 │  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────┐ │
-│  │ AgentController  │  │ RemoteMCPServer  │  │ MCPServer     │ │
+│  │ SandboxAgentController  │  │ RemoteMCPServer  │  │ MCPServer     │ │
 │  │                  │  │ Controller       │  │ Controller    │ │
 │  └────────┬─────────┘  └────────┬─────────┘  └───────┬───────┘ │
 │           │                     │                    │         │
@@ -46,16 +46,16 @@ The reconciler uses database-level concurrency control instead of application-le
 
 ## Reconciliation Flows
 
-### Agent Reconciliation
+### SandboxAgent Reconciliation
 
-When an Agent CR is created or updated:
+When a SandboxAgent CR is created or updated:
 
-1. The `AgentController` receives the event
+1. The `SandboxAgentController` receives the event
 2. Delegates to the shared `kagentReconciler`
-3. The reconciler translates the Agent spec into Kubernetes manifests (Deployment, ConfigMap, etc.)
+3. The reconciler compiles the SandboxAgent and builds its Substrate ActorTemplate and config Secret
 4. Reconciles the desired state with the cluster (create/update/delete owned resources)
 5. Stores the agent configuration in the SQLite database (atomic upsert)
-6. Updates the Agent status
+6. Updates the SandboxAgent status
 
 ### RemoteMCPServer Reconciliation
 
@@ -74,7 +74,7 @@ Network I/O (connecting to remote MCP servers, listing tools) happens **outside*
 
 ## Event Filtering
 
-The `AgentController` uses a custom event predicate to control which Kubernetes events trigger reconciliation:
+The `SandboxAgentController` uses a custom event predicate to control which Kubernetes events trigger reconciliation:
 
 - **Create events**: Always processed (ensures all agents reconcile on controller startup)
 - **Delete events**: Always processed

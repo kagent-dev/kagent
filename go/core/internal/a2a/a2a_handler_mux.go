@@ -34,7 +34,6 @@ type A2AHandlerMux interface {
 type handlerMux struct {
 	handlers          map[string]http.Handler
 	lock              sync.RWMutex
-	agentPathPrefix   string
 	sandboxPathPrefix string
 	authenticator     auth.AuthProvider
 	taskStore         TaskStore
@@ -46,10 +45,9 @@ type middleware interface {
 	Wrap(next http.Handler) http.Handler
 }
 
-func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth.AuthProvider, taskStore TaskStore) *handlerMux {
+func NewA2AHttpMux(sandboxPathPrefix string, authenticator auth.AuthProvider, taskStore TaskStore) *handlerMux {
 	return &handlerMux{
 		handlers:          make(map[string]http.Handler),
-		agentPathPrefix:   agentPathPrefix,
 		sandboxPathPrefix: sandboxPathPrefix,
 		authenticator:     authenticator,
 		taskStore:         taskStore,
@@ -149,7 +147,7 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	handlerName := routeKey(a.isSandboxRoute(r), agentNamespace, agentName)
+	handlerName := routeKey(agentNamespace, agentName)
 
 	// get the underlying handler
 	handlerHandler, ok := a.getHandler(handlerName)
@@ -165,13 +163,6 @@ func (a *handlerMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	handlerHandler.ServeHTTP(w, r)
 }
 
-func (a *handlerMux) isSandboxRoute(r *http.Request) bool {
-	return strings.HasPrefix(r.URL.Path, a.sandboxPathPrefix+"/") || r.URL.Path == a.sandboxPathPrefix
-}
-
-func routeKey(isSandbox bool, namespace, name string) string {
-	if isSandbox {
-		return common.ResourceRefString("sandboxes", common.ResourceRefString(namespace, name))
-	}
-	return common.ResourceRefString(namespace, name)
+func routeKey(namespace, name string) string {
+	return common.ResourceRefString("sandboxes", common.ResourceRefString(namespace, name))
 }

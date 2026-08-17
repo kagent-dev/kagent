@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -34,20 +34,20 @@ func TestSubstrateGatewayBootstrap(t *testing.T) {
 func TestBuildSubstrateBootstrapJSON_ModelConfigAPIKeyUsesSecretRef(t *testing.T) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 
 	ns := "default"
-	mc := &v1alpha2.ModelConfig{
+	mc := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mc1", Namespace: ns},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Model:           "gpt-4o",
-			Provider:        v1alpha2.ModelProviderOpenAI,
+			Provider:        v1alpha3.ModelProviderOpenAI,
 			APIKeySecret:    "openai-key",
 			APIKeySecretKey: "OPENAI_API_KEY",
-			OpenAI:          &v1alpha2.OpenAIConfig{},
+			OpenAI:          &v1alpha3.OpenAIConfig{},
 		},
 	}
-	sbx := &v1alpha2.AgentHarness{ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns}}
+	sbx := &v1alpha3.AgentHarness{ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns}}
 
 	kube := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mc).Build()
 	raw, env, err := openclaw.BuildSubstrateBootstrapJSON(context.Background(), kube, ns, sbx, mc, openclaw.SubstrateGatewayBootstrap(80))
@@ -80,34 +80,34 @@ func TestBuildSubstrateBootstrapJSON_ModelConfigAPIKeyUsesSecretRef(t *testing.T
 func TestBuildSubstrateBootstrapJSON_TelegramUsesEnvSecretRef(t *testing.T) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 
 	ns := "default"
-	mc := &v1alpha2.ModelConfig{
+	mc := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mc1", Namespace: ns},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Model:           "gpt-4o",
-			Provider:        v1alpha2.ModelProviderOpenAI,
+			Provider:        v1alpha3.ModelProviderOpenAI,
 			APIKeySecret:    "openai-key",
 			APIKeySecretKey: "OPENAI_API_KEY",
-			OpenAI:          &v1alpha2.OpenAIConfig{},
+			OpenAI:          &v1alpha3.OpenAIConfig{},
 		},
 	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "tg-token", Namespace: ns},
 		Data:       map[string][]byte{"token": []byte("telegram-bot-token")},
 	}
-	sbx := &v1alpha2.AgentHarness{
+	sbx := &v1alpha3.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Name: "s1", Namespace: ns},
-		Spec: v1alpha2.AgentHarnessSpec{
-			Channels: []v1alpha2.AgentHarnessChannel{
+		Spec: v1alpha3.AgentHarnessSpec{
+			Channels: []v1alpha3.AgentHarnessChannel{
 				{
 					Name: "tg1",
-					Type: v1alpha2.AgentHarnessChannelTypeTelegram,
-					Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{
-						BotToken: v1alpha2.AgentHarnessChannelCredential{
-							ValueFrom: &v1alpha2.ValueSource{
-								Type: v1alpha2.SecretValueSource,
+					Type: v1alpha3.AgentHarnessChannelTypeTelegram,
+					Telegram: &v1alpha3.AgentHarnessTelegramChannelSpec{
+						BotToken: v1alpha3.AgentHarnessChannelCredential{
+							ValueFrom: &v1alpha3.ValueSource{
+								Type: v1alpha3.SecretValueSource,
 								Name: "tg-token",
 								Key:  "token",
 							},

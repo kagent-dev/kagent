@@ -47,7 +47,7 @@ stringData:
   key: sk-litellm-1234567890abcdef  # Replace with your actual API key
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: litellm-internal
@@ -107,7 +107,7 @@ stringData:
     -----END CERTIFICATE-----
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: corporate-llm
@@ -145,7 +145,7 @@ stringData:
     -----END CERTIFICATE-----
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: strict-internal-llm
@@ -177,7 +177,7 @@ spec:
 # Use Case: Local development where you want to quickly test without
 # managing certificates, or testing against a server with invalid certificates.
 
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: litellm-dev
@@ -234,7 +234,7 @@ stringData:
   key: your-azure-api-key-here
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: azure-through-proxy
@@ -270,7 +270,7 @@ stringData:
   key: sk-openai-1234567890abcdef
 
 ---
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: openai-public
@@ -291,8 +291,8 @@ spec:
 # Complete example showing how to create an Agent that uses a ModelConfig
 # with TLS configuration.
 
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
+apiVersion: kagent.dev/v1alpha3
+kind: SandboxAgent
 metadata:
   name: internal-assistant
   namespace: kagent
@@ -312,44 +312,6 @@ spec:
   config:
     systemMessage: "You are a helpful AI assistant."
     temperature: 0.7
-
----
-# Example 8: RBAC Configuration for Secret Access
-#
-# Agents need read access to Secrets containing CA certificates.
-# This example shows how to grant appropriate permissions.
-
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: agent-tls-secret-reader
-  namespace: kagent
-rules:
-  # Grant read access to specific Secrets only
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get"]
-    resourceNames:
-      - litellm-ca-cert
-      - corporate-ca-bundle
-      - strict-ca-cert
-      # Add other certificate Secrets as needed
-
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: agent-tls-secret-reader-binding
-  namespace: kagent
-subjects:
-  # Bind to default ServiceAccount (or specify custom ServiceAccount)
-  - kind: ServiceAccount
-    name: default
-    namespace: kagent
-roleRef:
-  kind: Role
-  name: agent-tls-secret-reader
-  apiGroup: rbac.authorization.k8s.io
 
 ---
 # Notes and Best Practices
@@ -380,11 +342,8 @@ roleRef:
 #
 # 5. Certificate Updates:
 #    - Update Secret with new certificate
-#    - Restart agent pods to pick up changes: kubectl rollout restart deployment/agent-<name>
-#    - Secrets are mounted as volumes and not automatically reloaded
+#    - Check SandboxAgent status and controller logs after rotation
 #
 # 6. Troubleshooting:
 #    - See https://kagent.dev/docs for detailed debugging steps
-#    - Check agent logs: kubectl logs deployment/agent-<name>
-#    - Verify Secret is mounted: kubectl exec deployment/agent-<name> -- ls /etc/ssl/certs/custom/corp-ca/
-#    - Test certificate: kubectl exec deployment/agent-<name> -- openssl x509 -in /etc/ssl/certs/custom/corp-ca/ca.crt -text -noout
+#    - Check controller logs and SandboxAgent status conditions

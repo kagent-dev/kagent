@@ -27,6 +27,8 @@ concurrency:
 
 jobs:
   playwright:
+    # Disabled until the Kind setup provisions Agent Substrate for SandboxAgent.
+    if: false
     runs-on: ubuntu-latest
     permissions:
       contents: read

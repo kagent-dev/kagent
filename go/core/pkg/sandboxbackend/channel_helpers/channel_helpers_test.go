@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -12,7 +12,7 @@ import (
 )
 
 func TestCredentialContainerEnvInline(t *testing.T) {
-	env, err := CredentialContainerEnv(v1alpha2.AgentHarnessChannelCredential{Value: "  xoxb-123  "}, "SLACK_BOT_TOKEN")
+	env, err := CredentialContainerEnv(v1alpha3.AgentHarnessChannelCredential{Value: "  xoxb-123  "}, "SLACK_BOT_TOKEN")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -22,8 +22,8 @@ func TestCredentialContainerEnvInline(t *testing.T) {
 }
 
 func TestCredentialContainerEnvSecret(t *testing.T) {
-	env, err := CredentialContainerEnv(v1alpha2.AgentHarnessChannelCredential{
-		ValueFrom: &v1alpha2.ValueSource{Type: v1alpha2.SecretValueSource, Name: "sec", Key: "tok"},
+	env, err := CredentialContainerEnv(v1alpha3.AgentHarnessChannelCredential{
+		ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "sec", Key: "tok"},
 	}, "TELEGRAM_BOT_TOKEN")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -37,8 +37,8 @@ func TestCredentialContainerEnvSecret(t *testing.T) {
 }
 
 func TestCredentialContainerEnvConfigMap(t *testing.T) {
-	env, err := CredentialContainerEnv(v1alpha2.AgentHarnessChannelCredential{
-		ValueFrom: &v1alpha2.ValueSource{Type: v1alpha2.ConfigMapValueSource, Name: "cm", Key: "tok"},
+	env, err := CredentialContainerEnv(v1alpha3.AgentHarnessChannelCredential{
+		ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.ConfigMapValueSource, Name: "cm", Key: "tok"},
 	}, "SLACK_APP_TOKEN")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -52,11 +52,11 @@ func TestCredentialContainerEnvConfigMap(t *testing.T) {
 }
 
 func TestCredentialContainerEnvErrors(t *testing.T) {
-	if _, err := CredentialContainerEnv(v1alpha2.AgentHarnessChannelCredential{}, "X"); err == nil {
+	if _, err := CredentialContainerEnv(v1alpha3.AgentHarnessChannelCredential{}, "X"); err == nil {
 		t.Fatal("expected error when neither value nor valueFrom is set")
 	}
-	if _, err := CredentialContainerEnv(v1alpha2.AgentHarnessChannelCredential{
-		ValueFrom: &v1alpha2.ValueSource{Type: "Bogus", Name: "n", Key: "k"},
+	if _, err := CredentialContainerEnv(v1alpha3.AgentHarnessChannelCredential{
+		ValueFrom: &v1alpha3.ValueSource{Type: "Bogus", Name: "n", Key: "k"},
 	}, "X"); err == nil {
 		t.Fatal("expected error for unknown value source type")
 	}
@@ -105,8 +105,8 @@ func TestResolveAllowedUserIDsFromSecret(t *testing.T) {
 		Data:       map[string][]byte{"users": []byte("u1,u2\nu3")},
 	}).Build()
 
-	got, err := ResolveAllowedUserIDs(context.Background(), kube, "ns", nil, &v1alpha2.ValueSource{
-		Type: v1alpha2.SecretValueSource, Name: "allow", Key: "users",
+	got, err := ResolveAllowedUserIDs(context.Background(), kube, "ns", nil, &v1alpha3.ValueSource{
+		Type: v1alpha3.SecretValueSource, Name: "allow", Key: "users",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

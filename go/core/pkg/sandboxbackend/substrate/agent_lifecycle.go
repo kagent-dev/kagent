@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,7 +60,7 @@ const (
 )
 
 func (p *Lifecycle) buildSandboxAgentActorTemplate(
-	sa *v1alpha2.SandboxAgent,
+	sa *v1alpha3.SandboxAgent,
 	wpKey types.NamespacedName,
 	podTemplate corev1.PodTemplateSpec,
 ) (*atev1alpha1.ActorTemplate, error) {
@@ -198,7 +198,7 @@ func findKagentContainer(containers []corev1.Container) *corev1.Container {
 // `static` command materializes the same env vars before reading /config). For BYO agents the
 // user-provided container Command/Args are used verbatim; the BYO image must serve A2A on the
 // substrate listen port (80).
-func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *corev1.Container, configSecretName string) ([]string, []corev1.EnvVar, error) {
+func buildSubstrateKagentContainerCommand(sa *v1alpha3.SandboxAgent, container *corev1.Container, configSecretName string) ([]string, []corev1.EnvVar, error) {
 	// KAGENT_NAME / KAGENT_NAMESPACE are normally injected by the translator pod
 	// template, but KAGENT_NAMESPACE uses a Downward API fieldRef which Substrate
 	// ActorTemplates do not support (it gets dropped by sanitizeActorTemplateEnvVar).
@@ -216,7 +216,7 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *
 	}
 
 	spec := sa.GetAgentSpec()
-	if spec != nil && spec.Type == v1alpha2.AgentType_BYO {
+	if spec != nil && spec.Type == v1alpha3.AgentType_BYO {
 		// BYO: use the explicit container command + args verbatim. Validation
 		// (ValidateSubstrateSandboxAgentSpec) guarantees a command is set. The rendered
 		// (minimal) config is exposed the same way as for declaratives — secret-backed env —
@@ -233,7 +233,7 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *
 
 	// Declarative: secret-backed config is materialized at startup from the per-config-hash Secret.
 	env = append(env, kagentAgentSecretEnv(configSecretName)...)
-	runtime := v1alpha2.EffectiveDeclarativeRuntime(sa.GetAgentSpec())
+	runtime := v1alpha3.EffectiveDeclarativeRuntime(sa.GetAgentSpec())
 	return buildSubstrateDeclarativeCommand(runtime), env, nil
 }
 
@@ -241,8 +241,8 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha2.SandboxAgent, container *
 // Substrate's atelet copies Command verbatim into the OCI spec's Process.Args with no fallback
 // to the image entrypoint, so an empty command makes `runsc create` fail with
 // "Spec.Process.Arg must be defined".
-func buildSubstrateDeclarativeCommand(runtime v1alpha2.DeclarativeRuntime) []string {
-	if runtime == v1alpha2.DeclarativeRuntime_Python {
+func buildSubstrateDeclarativeCommand(runtime v1alpha3.DeclarativeRuntime) []string {
+	if runtime == v1alpha3.DeclarativeRuntime_Python {
 		// The Python ADK `static` command reads config.json/agent-card.json from its
 		// --filepath (default /config), which the materialization step populates from
 		// the secret-backed env vars before the server starts.
@@ -261,7 +261,7 @@ func buildSubstrateDeclarativeCommand(runtime v1alpha2.DeclarativeRuntime) []str
 
 // sandboxAgentConfigSecretName returns the agent's STABLE config Secret name — the agent name,
 // matching the Secret the translator renders and emits in BuildManifest.
-func sandboxAgentConfigSecretName(sa *v1alpha2.SandboxAgent) string {
+func sandboxAgentConfigSecretName(sa *v1alpha3.SandboxAgent) string {
 	return sa.Name
 }
 
@@ -290,7 +290,7 @@ func secretEnv(name, secret, key string, optional ...bool) corev1.EnvVar {
 	return ev
 }
 
-func sandboxAgentLifecycleLabels(sa *v1alpha2.SandboxAgent) map[string]string {
+func sandboxAgentLifecycleLabels(sa *v1alpha3.SandboxAgent) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/managed-by": "kagent",
 		SandboxAgentLabelKey:           sa.Name,
@@ -299,7 +299,7 @@ func sandboxAgentLifecycleLabels(sa *v1alpha2.SandboxAgent) map[string]string {
 
 // sandboxAgentActorTemplateBaseName is the stable name prefix for a SandboxAgent's
 // ActorTemplate(s), independent of config. Used as the truncation base for hashed names.
-func sandboxAgentActorTemplateBaseName(sa *v1alpha2.SandboxAgent) string {
+func sandboxAgentActorTemplateBaseName(sa *v1alpha3.SandboxAgent) string {
 	return truncateDNS1123(sa.Name)
 }
 
@@ -307,7 +307,7 @@ func sandboxAgentActorTemplateBaseName(sa *v1alpha2.SandboxAgent) string {
 // given shape hash. The hash suffix makes each distinct shape a distinct template (and golden).
 // When the hash is empty it falls back to the stable base name. Consumers must NOT assume this
 // name — they resolve the live template via ResolveCurrentActorTemplate.
-func sandboxAgentActorTemplateName(sa *v1alpha2.SandboxAgent, shapeHash string) string {
+func sandboxAgentActorTemplateName(sa *v1alpha3.SandboxAgent, shapeHash string) string {
 	if shapeHash == "" {
 		return sandboxAgentActorTemplateBaseName(sa)
 	}
@@ -325,7 +325,7 @@ func shortConfigHash(annotationValue string) string {
 	return fmt.Sprintf("%x", v)
 }
 
-func sandboxAgentSnapshotsLocation(sa *v1alpha2.SandboxAgent) string {
+func sandboxAgentSnapshotsLocation(sa *v1alpha3.SandboxAgent) string {
 	if sa == nil {
 		return substrateSnapshotsLocationFor("", "", "")
 	}

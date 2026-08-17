@@ -1,5 +1,0 @@
-apiVersion: v2
-name: helm-agent
-description: A Helm Agent for kagent
-type: application
-version: ${VERSION}

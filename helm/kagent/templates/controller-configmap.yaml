@@ -12,18 +12,12 @@ data:
   {{- if .Values.ui.externalUrl }}
   KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
   {{- end }}
-  IMAGE_PULL_POLICY: {{ .Values.controller.agentImage.pullPolicy | default .Values.imagePullPolicy | quote }}
-  {{- if and .Values.controller.agentImage.pullSecret (not (eq .Values.controller.agentImage.pullSecret "")) }}
-  IMAGE_PULL_SECRET: {{ .Values.controller.agentImage.pullSecret | quote }}
-  {{- end }}
   IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry | default .Values.registry  | quote }}
   IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
   IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
-  SKILLS_INIT_IMAGE_PULL_POLICY: {{ .Values.controller.skillsInitImage.pullPolicy | default .Values.imagePullPolicy | quote }}
   SKILLS_INIT_IMAGE_REGISTRY: {{ .Values.controller.skillsInitImage.registry | default .Values.registry | quote }}
   SKILLS_INIT_IMAGE_REPOSITORY: {{ .Values.controller.skillsInitImage.repository | quote }}
   SKILLS_INIT_IMAGE_TAG: {{ coalesce .Values.controller.skillsInitImage.tag .Values.tag .Chart.Version | quote }}
-  GO_IMAGE_PULL_POLICY: {{ .Values.controller.goAgentImage.pullPolicy | default .Values.imagePullPolicy | quote }}
   GO_IMAGE_REGISTRY: {{ .Values.controller.goAgentImage.registry | default .Values.registry | quote }}
   GO_IMAGE_REPOSITORY: {{ .Values.controller.goAgentImage.repository | quote }}
   GO_IMAGE_TAG: {{ coalesce .Values.controller.goAgentImage.tag .Values.tag .Chart.Version | quote }}
@@ -81,33 +75,3 @@ data:
   KAGENT_A2A_CLIENT_TIMEOUT: {{ .Values.controller.a2aClientTimeout | quote }}
   {{- end }}
   ZAP_LOG_LEVEL: {{ .Values.controller.loglevel | quote }}
-  {{- $agentHost := "" }}
-  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.host (not (eq .Values.controller.agentDeployment.host "")) }}
-  {{- $agentHost = .Values.controller.agentDeployment.host }}
-  {{- else if .Values.ipv6.enabled }}
-  {{- $agentHost = "::" }}
-  {{- end }}
-  {{- if $agentHost }}
-  DEFAULT_AGENT_BIND_HOST: {{ $agentHost | quote }}
-  {{- end }}
-  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.serviceAccountName (not (eq .Values.controller.agentDeployment.serviceAccountName "")) }}
-  DEFAULT_SERVICE_ACCOUNT_NAME: {{ .Values.controller.agentDeployment.serviceAccountName | quote }}
-  {{- end }}
-  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.podLabels }}
-  {{- $pairs := list }}
-  {{- range $k := keys .Values.controller.agentDeployment.podLabels | sortAlpha }}
-  {{- $pairs = append $pairs (printf "%s=%s" $k (index $.Values.controller.agentDeployment.podLabels $k | toString)) }}
-  {{- end }}
-  {{- if $pairs }}
-  DEFAULT_AGENT_POD_LABELS: {{ join "," $pairs | quote }}
-  {{- end }}
-  {{- end }}
-  {{- if and .Values.controller.agentDeployment .Values.controller.agentDeployment.nodeSelector }}
-  {{- $nsPairs := list }}
-  {{- range $k := keys .Values.controller.agentDeployment.nodeSelector | sortAlpha }}
-  {{- $nsPairs = append $nsPairs (printf "%s=%s" $k (index $.Values.controller.agentDeployment.nodeSelector $k | toString)) }}
-  {{- end }}
-  {{- if $nsPairs }}
-  DEFAULT_AGENT_NODE_SELECTOR: {{ join "," $nsPairs | quote }}
-  {{- end }}
-  {{- end }}

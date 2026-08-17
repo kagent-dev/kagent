@@ -15,15 +15,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestSubstrateSnapshotsLocationDefault(t *testing.T) {
 	t.Parallel()
-	ah := &v1alpha2.AgentHarness{
+	ah := &v1alpha3.AgentHarness{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "kagent", Name: "claw"},
-		Spec: v1alpha2.AgentHarnessSpec{
-			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{},
+		Spec: v1alpha3.AgentHarnessSpec{
+			Substrate: &v1alpha3.AgentHarnessSubstrateSpec{},
 		},
 	}
 	if got := substrateSnapshotsLocation(ah); got != "gs://ate-snapshots/kagent/claw" {
@@ -56,18 +56,18 @@ func TestResolveWorkerPoolRef(t *testing.T) {
 			t.Parallel()
 
 			scheme := runtime.NewScheme()
-			utilruntime.Must(v1alpha2.AddToScheme(scheme))
+			utilruntime.Must(v1alpha3.AddToScheme(scheme))
 			utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 
-			ah := &v1alpha2.AgentHarness{
-				TypeMeta:   metav1.TypeMeta{APIVersion: v1alpha2.GroupVersion.String(), Kind: "AgentHarness"},
+			ah := &v1alpha3.AgentHarness{
+				TypeMeta:   metav1.TypeMeta{APIVersion: v1alpha3.GroupVersion.String(), Kind: "AgentHarness"},
 				ObjectMeta: metav1.ObjectMeta{Namespace: "kagent", Name: "claw"},
-				Spec: v1alpha2.AgentHarnessSpec{
-					Substrate: &v1alpha2.AgentHarnessSubstrateSpec{},
+				Spec: v1alpha3.AgentHarnessSpec{
+					Substrate: &v1alpha3.AgentHarnessSubstrateSpec{},
 				},
 			}
 			if tt.refName != "" {
-				ah.Spec.Substrate.WorkerPoolRef = &v1alpha2.TypedLocalReference{Name: tt.refName}
+				ah.Spec.Substrate.WorkerPoolRef = &v1alpha3.TypedLocalReference{Name: tt.refName}
 			}
 			wp := &atev1alpha1.WorkerPool{
 				ObjectMeta: metav1.ObjectMeta{Name: tt.wantRef.Name, Namespace: tt.wantRef.Namespace},
@@ -92,7 +92,7 @@ func TestResolveWorkerPoolRef(t *testing.T) {
 
 func TestActorTemplateName(t *testing.T) {
 	t.Parallel()
-	ah := &v1alpha2.AgentHarness{ObjectMeta: metav1.ObjectMeta{Name: "my-claw"}}
+	ah := &v1alpha3.AgentHarness{ObjectMeta: metav1.ObjectMeta{Name: "my-claw"}}
 	if got := actorTemplateName(ah); got != "my-claw" {
 		t.Fatalf("got %q", got)
 	}
@@ -102,7 +102,7 @@ func TestEnsureActorTemplateDoesNotUpdateWhenDesiredStateMatches(t *testing.T) {
 	t.Parallel()
 
 	scheme := runtime.NewScheme()
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 
 	var updateCalls int
@@ -118,16 +118,16 @@ func TestEnsureActorTemplateDoesNotUpdateWhenDesiredStateMatches(t *testing.T) {
 		}).
 		Build()
 
-	ah := &v1alpha2.AgentHarness{
-		TypeMeta: metav1.TypeMeta{APIVersion: v1alpha2.GroupVersion.String(), Kind: "AgentHarness"},
+	ah := &v1alpha3.AgentHarness{
+		TypeMeta: metav1.TypeMeta{APIVersion: v1alpha3.GroupVersion.String(), Kind: "AgentHarness"},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "kagent",
 			Name:      "claw",
 			UID:       "00000000-0000-0000-0000-000000000001",
 		},
-		Spec: v1alpha2.AgentHarnessSpec{
-			Backend: v1alpha2.AgentHarnessBackendOpenClaw,
-			Substrate: &v1alpha2.AgentHarnessSubstrateSpec{
+		Spec: v1alpha3.AgentHarnessSpec{
+			Backend: v1alpha3.AgentHarnessBackendOpenClaw,
+			Substrate: &v1alpha3.AgentHarnessSubstrateSpec{
 
 				WorkloadImage: "ghcr.io/kagent-dev/kagent/acp-sandbox-openclaw@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			},
@@ -147,7 +147,7 @@ func TestReconcileActorTemplateRecreatesOnSpecDrift(t *testing.T) {
 	t.Parallel()
 
 	scheme := runtime.NewScheme()
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 
 	key := types.NamespacedName{Namespace: "kagent", Name: "claw"}
@@ -270,7 +270,7 @@ func TestReconcileActorTemplatePendingDuringGoldenActorDelete(t *testing.T) {
 	t.Parallel()
 
 	scheme := runtime.NewScheme()
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 
 	key := types.NamespacedName{Namespace: "kagent", Name: "claw"}

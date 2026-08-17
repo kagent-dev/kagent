@@ -9,7 +9,6 @@ const FOCUS_ORDER: (keyof AgentFormValidationErrors)[] = [
   "agentHarness",
   "memoryModel",
   "memoryTtl",
-  "serviceAccountName",
   "promptSources",
   "tools",
   "skills",
@@ -49,11 +48,6 @@ export function focusFirstFormError(
         return;
       }
       continue;
-    }
-    if (key === "serviceAccountName") {
-      if (focusElementById("agent-field-service-account") || focusElementById("agent-field-service-account-byo")) {
-        return;
-      }
     }
     if (key === "agentHarness") {
       const err = errors.agentHarness;

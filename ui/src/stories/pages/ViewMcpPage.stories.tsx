@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { mocked } from "storybook/test";
 import { AgentsContext } from "@/components/AgentsProvider";
 import { AppPageFrame } from "@/components/layout/AppPageFrame";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { McpServersView } from "@/components/mcp/McpServersView";
-import { worker } from "@/mocks/browser";
-import { mcpAppToolsHandler } from "@/mocks/handlers";
+import { listMcpAppTools } from "@/app/actions/mcp-apps";
 import { createStoryAgentsContext, storyMcpServers } from "./fixtures";
 
 const storyMcpApps = [
@@ -32,6 +32,9 @@ const meta = {
       </AgentsContext.Provider>
     ),
   ],
+  beforeEach: () => {
+    mocked(listMcpAppTools).mockReset();
+  },
 } satisfies Meta;
 
 export default meta;
@@ -39,7 +42,7 @@ type Story = StoryObj<typeof meta>;
 
 export const Loaded: Story = {
   beforeEach: () => {
-    worker.use(mcpAppToolsHandler(storyMcpApps));
+    mocked(listMcpAppTools).mockResolvedValue({ message: "Tools fetched", data: storyMcpApps });
   },
   render: () => (
     <AppPageFrame ariaLabelledBy="mcp-page-title" mainClassName="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">
@@ -57,7 +60,7 @@ export const Loaded: Story = {
 /** Apps count still resolving: server rows show a small spinner next to the tool count. */
 export const LoadingApps: Story = {
   beforeEach: () => {
-    worker.use(mcpAppToolsHandler(storyMcpApps, 60_000));
+    mocked(listMcpAppTools).mockImplementation(() => new Promise(() => {}));
   },
   render: () => (
     <AppPageFrame ariaLabelledBy="mcp-page-title" mainClassName="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">

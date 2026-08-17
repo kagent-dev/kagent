@@ -44,23 +44,23 @@ func TestNew_Success(t *testing.T) {
 		t.Fatal("expected non-nil app")
 	}
 	if app.SessionService() != nil {
-		t.Error("expected nil session service when KAgentURL is empty")
+		t.Error("expected nil session service when KAgentGRPCURL is empty")
 	}
 }
 
-func TestNew_WithKAgentURL(t *testing.T) {
-	t.Setenv("KAGENT_URL", "")
+func TestNew_WithKAgentGRPCURL(t *testing.T) {
+	t.Setenv("KAGENT_GRPC_URL", "")
 
 	app, err := New(AppConfig{
-		AgentCard: a2atype.AgentCard{Name: "test-agent"},
-		Port:      "0",
-		KAgentURL: "http://localhost:9999",
+		AgentCard:     a2atype.AgentCard{Name: "test-agent"},
+		Port:          "0",
+		KAgentGRPCURL: "localhost:9999",
 	}, &fakeExecutor{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if app.SessionService() == nil {
-		t.Error("expected non-nil session service when KAgentURL is set")
+		t.Error("expected non-nil session service when KAgentGRPCURL is set")
 	}
 	app.stop()
 }
@@ -103,19 +103,19 @@ func TestApplyDefaults_ShutdownTimeoutExplicit(t *testing.T) {
 	}
 }
 
-func TestApplyDefaults_KAgentURLFromEnv(t *testing.T) {
-	t.Setenv("KAGENT_URL", "http://env-url:8083")
+func TestApplyDefaults_KAgentGRPCURLFromEnv(t *testing.T) {
+	t.Setenv("KAGENT_GRPC_URL", "env-url:8084")
 	cfg := applyDefaults(AppConfig{})
-	if cfg.KAgentURL != "http://env-url:8083" {
-		t.Errorf("expected KAgentURL from env, got %q", cfg.KAgentURL)
+	if cfg.KAgentGRPCURL != "env-url:8084" {
+		t.Errorf("expected KAgentGRPCURL from env, got %q", cfg.KAgentGRPCURL)
 	}
 }
 
-func TestApplyDefaults_KAgentURLExplicit(t *testing.T) {
-	t.Setenv("KAGENT_URL", "http://env-url:8083")
-	cfg := applyDefaults(AppConfig{KAgentURL: "http://explicit:8083"})
-	if cfg.KAgentURL != "http://explicit:8083" {
-		t.Errorf("expected explicit KAgentURL, got %q", cfg.KAgentURL)
+func TestApplyDefaults_KAgentGRPCURLExplicit(t *testing.T) {
+	t.Setenv("KAGENT_GRPC_URL", "env-url:8084")
+	cfg := applyDefaults(AppConfig{KAgentGRPCURL: "explicit:8084"})
+	if cfg.KAgentGRPCURL != "explicit:8084" {
+		t.Errorf("expected explicit KAgentGRPCURL, got %q", cfg.KAgentGRPCURL)
 	}
 }
 
