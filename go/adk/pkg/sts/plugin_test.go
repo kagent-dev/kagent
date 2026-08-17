@@ -429,6 +429,22 @@ func TestHeaderProviderNoBearerDoesNotLeakSubjectToken(t *testing.T) {
 	}
 }
 
+// An empty subject identifies no principal, so it must not be storable: an entry
+// under it would be shared by every credential-less caller in the session.
+func TestEmptySubjectIsNotCacheable(t *testing.T) {
+	t.Parallel()
+
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), nil, nil)
+	plugin.setCachedToken("sess-x", "", "anonymous-token", 0)
+
+	if len(plugin.tokenCache) != 0 {
+		t.Fatalf("expected empty subject not to be cached, got %d entries", len(plugin.tokenCache))
+	}
+	if _, ok := plugin.getCachedToken("sess-x", ""); ok {
+		t.Fatal("expected no cache hit for an empty subject")
+	}
+}
+
 // An absent "iss" leaves "sub" unqualified, so those tokens partition by hash
 // rather than by a key two issuers could both produce.
 func TestSubjectKeyWithoutIssuerUsesTokenHash(t *testing.T) {

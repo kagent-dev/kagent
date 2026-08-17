@@ -105,13 +105,14 @@ func subjectKey(token string) string {
 	return "h:" + hex.EncodeToString(sum[:])
 }
 
-// actingBearer recovers the caller's raw bearer token for this request. It
-// prefers the value executor.withBearerToken stored (models.BearerTokenKey) and
-// falls back to the A2A CallContext Authorization header. The fallback keeps the
-// per-subject cache key reliable at the MCP transport layer: the CallContext is
-// the same source the round-tripper's propagateToken path reads, so it reaches
-// the caller even when BearerTokenKey is not threaded to the MCP request context.
-func actingBearer(ctx context.Context) string {
+// actingCredential returns the credential this request authenticates with, which
+// is also what the cache key is derived from. It prefers the value
+// executor.withBearerToken stored (models.BearerTokenKey) and falls back to the
+// A2A CallContext Authorization header. The fallback keeps the per-subject cache
+// key reliable at the MCP transport layer: the CallContext is the same source the
+// round-tripper's propagateToken path reads, so it reaches the caller even when
+// BearerTokenKey is not threaded to the MCP request context.
+func actingCredential(ctx context.Context) string {
 	if token, ok := ctx.Value(models.BearerTokenKey).(string); ok && token != "" {
 		return token
 	}
@@ -144,6 +145,11 @@ type cacheKey struct {
 
 // getCachedToken retrieves a valid cached token for the session and subject.
 func (p *TokenPropagationPlugin) getCachedToken(sessionID, subject string) (*TokenCacheEntry, bool) {
+	// An empty subject identifies no principal, so it must never match an entry.
+	if subject == "" {
+		return nil, false
+	}
+
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -161,6 +167,12 @@ func (p *TokenPropagationPlugin) getCachedToken(sessionID, subject string) (*Tok
 
 // setCachedToken caches a token for the session and subject.
 func (p *TokenPropagationPlugin) setCachedToken(sessionID, subject, token string, expiry int64) {
+	// An empty subject identifies no principal, so an entry stored under it would
+	// be shared by every credential-less caller in the session.
+	if subject == "" {
+		return
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -231,10 +243,10 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 		return nil, nil
 	}
 
-	// Recover the acting bearer before the cache lookup: the cache is keyed by the
-	// acting subject, and a session shared by multiple subjects would otherwise
+	// Resolve the acting credential before the cache lookup: the cache is keyed by
+	// the acting subject, and a session shared by multiple subjects would otherwise
 	// reuse the first caller's token for every later caller.
-	bearerToken := actingBearer(ctx)
+	bearerToken := actingCredential(ctx)
 
 	if bearerToken == "" {
 		p.logger.V(1).Info("No bearer token in context, skipping token propagation", "sessionID", sessionID)
@@ -350,10 +362,10 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 		return nil
 	}
 
-	// Recover the acting subject from this request's own bearer, so the injected
+	// Derive the acting subject from this request's own credential, so the injected
 	// token matches the caller of this request rather than whichever subject
 	// first seeded the session.
-	subject := subjectKey(actingBearer(ctx))
+	subject := subjectKey(actingCredential(ctx))
 
 	entry, ok := p.getCachedToken(sessionID, subject)
 	if !ok {
