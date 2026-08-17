@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -14,7 +13,6 @@ import (
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -57,7 +55,9 @@ func NewRuntimeDialer(routerURL string, authenticator auth.AuthProvider) (*Runti
 }
 
 func (d *RuntimeDialer) Dial(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*a2aclient.Client, error) {
-	privateAuthority := substrate.ActorHost(instance.GetNamespace(), "ai-"+strings.ToLower(instance.GetId()), "")
+	if instance.GetA2AAuthority() == "" {
+		return nil, fmt.Errorf("runtime authority is empty")
+	}
 	// ponytail: scope one connection to one public RPC until gateway traffic
 	// justifies a lifecycle-aware per-instance connection pool.
 	return a2aclient.NewFromEndpoints(ctx, []*a2atype.AgentInterface{{
@@ -67,7 +67,7 @@ func (d *RuntimeDialer) Dial(ctx context.Context, instance *apiv1alpha1.AgentIns
 	}},
 		a2agrpc.WithGRPCTransport(
 			grpc.WithTransportCredentials(d.transport),
-			grpc.WithAuthority(privateAuthority),
+			grpc.WithAuthority(instance.GetA2AAuthority()),
 		),
 		a2aclient.WithCallInterceptors(
 			a2aext.NewClientPropagator(nil),

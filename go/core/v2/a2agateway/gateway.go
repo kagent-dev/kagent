@@ -9,17 +9,26 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/uuid"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
 	"google.golang.org/grpc/metadata"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+)
+
+const (
+	// AgentInstanceNamespaceHeader selects the Kubernetes namespace containing the AgentInstance.
+	AgentInstanceNamespaceHeader = "x-kagent-agent-instance-namespace"
+	// AgentInstanceIDHeader selects the AgentInstance within that namespace.
+	AgentInstanceIDHeader = "x-kagent-agent-instance-id"
 )
 
 type instanceStore interface {
@@ -51,11 +60,7 @@ func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer) 
 }
 
 func (g *Gateway) runtime(ctx context.Context, verb auth.Verb) (*a2aclient.Client, error) {
-	values := metadata.ValueFromIncomingContext(ctx, ":authority")
-	if len(values) != 1 {
-		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "exactly one AgentInstance authority is required")
-	}
-	namespace, id, err := agentinstance.ParseAuthority(values[0])
+	namespace, id, err := route(ctx)
 	if err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, err.Error())
 	}
@@ -75,9 +80,6 @@ func (g *Gateway) runtime(ctx context.Context, verb auth.Verb) (*a2aclient.Clien
 		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance", "namespace", namespace, "id", id)
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load AgentInstance")
 	}
-	if instance.GetA2AAuthority() != agentinstance.Authority(namespace, id) {
-		return nil, a2atype.NewError(a2atype.ErrInternalError, "AgentInstance has an invalid A2A authority")
-	}
 	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
 		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, fmt.Sprintf("AgentInstance is %s", instance.GetState()))
 	}
@@ -87,6 +89,22 @@ func (g *Gateway) runtime(ctx context.Context, verb auth.Verb) (*a2aclient.Clien
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime")
 	}
 	return client, nil
+}
+
+func route(ctx context.Context) (namespace, id string, err error) {
+	namespaces := metadata.ValueFromIncomingContext(ctx, AgentInstanceNamespaceHeader)
+	ids := metadata.ValueFromIncomingContext(ctx, AgentInstanceIDHeader)
+	if len(namespaces) != 1 || len(ids) != 1 {
+		return "", "", fmt.Errorf("exactly one %s and %s header is required", AgentInstanceNamespaceHeader, AgentInstanceIDHeader)
+	}
+	if problems := utilvalidation.IsDNS1123Label(namespaces[0]); len(problems) > 0 {
+		return "", "", fmt.Errorf("invalid %s header: %s", AgentInstanceNamespaceHeader, strings.Join(problems, "; "))
+	}
+	parsedID, err := uuid.Parse(ids[0])
+	if err != nil {
+		return "", "", fmt.Errorf("invalid %s header: %w", AgentInstanceIDHeader, err)
+	}
+	return namespaces[0], parsedID.String(), nil
 }
 
 func (g *Gateway) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2atype.Task, error) {

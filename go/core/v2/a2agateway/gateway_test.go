@@ -15,7 +15,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -102,27 +101,34 @@ func gatewayTestClient(t *testing.T, runtime *gatewayTestRuntime) *a2aclient.Cli
 	return client
 }
 
-func gatewayTestContext(authority string) context.Context {
+func gatewayTestContext() context.Context {
+	return gatewayTestContextWithRoute("team-a", gatewayTestID)
+}
+
+func gatewayTestContextWithRoute(namespace, id string) context.Context {
 	ctx := auth.AuthSessionTo(context.Background(), gatewayTestSession{})
-	return metadata.NewIncomingContext(ctx, metadata.Pairs(":authority", authority))
+	return metadata.NewIncomingContext(ctx, metadata.Pairs(
+		AgentInstanceNamespaceHeader, namespace,
+		AgentInstanceIDHeader, id,
+	))
 }
 
 func gatewayTestInstance() *apiv1alpha1.AgentInstance {
 	return &apiv1alpha1.AgentInstance{
 		Id: gatewayTestID, Namespace: "team-a", Creator: "alice",
-		A2AAuthority: agentinstance.Authority("team-a", gatewayTestID),
+		A2AAuthority: "private-runtime-authority",
 		State:        apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
 	}
 }
 
-func TestGatewayResolvesAuthenticatedAuthorityBeforeSending(t *testing.T) {
+func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	instance := gatewayTestInstance()
 	store := &gatewayTestStore{instance: instance}
 	authorizer := &gatewayTestAuthorizer{}
 	runtime := &gatewayTestRuntime{}
 	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)})
 
-	result, err := gateway.SendMessage(gatewayTestContext(instance.GetA2AAuthority()), &a2atype.SendMessageRequest{})
+	result, err := gateway.SendMessage(gatewayTestContext(), &a2atype.SendMessageRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +149,7 @@ func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)})
 
 	var events int
-	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(instance.GetA2AAuthority()), &a2atype.SendMessageRequest{}) {
+	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), &a2atype.SendMessageRequest{}) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -154,10 +160,16 @@ func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 	}
 }
 
-func TestGatewayRejectsPrivateActorAuthority(t *testing.T) {
+func TestGatewayRequiresValidRoutingHeaders(t *testing.T) {
 	gateway := New(&gatewayTestStore{instance: gatewayTestInstance()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{})
-	if _, err := gateway.SendMessage(gatewayTestContext("ai-instance.team-a.actors.resources.substrate.ate.dev"), &a2atype.SendMessageRequest{}); err == nil {
-		t.Fatal("SendMessage() accepted a private Actor authority")
+	for _, ctx := range []context.Context{
+		auth.AuthSessionTo(context.Background(), gatewayTestSession{}),
+		gatewayTestContextWithRoute("INVALID", gatewayTestID),
+		gatewayTestContextWithRoute("team-a", "not-a-uuid"),
+	} {
+		if _, err := gateway.SendMessage(ctx, &a2atype.SendMessageRequest{}); err == nil {
+			t.Fatal("SendMessage() accepted invalid routing headers")
+		}
 	}
 }
 
@@ -174,7 +186,7 @@ func TestGatewayHidesInternalErrors(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			gateway := New(test.store, &gatewayTestAuthorizer{}, test.dialer)
-			_, err := gateway.SendMessage(gatewayTestContext(instance.GetA2AAuthority()), &a2atype.SendMessageRequest{})
+			_, err := gateway.SendMessage(gatewayTestContext(), &a2atype.SendMessageRequest{})
 			if err == nil || !strings.Contains(err.Error(), test.message) {
 				t.Fatalf("SendMessage() error = %v, want %q", err, test.message)
 			}
@@ -185,7 +197,7 @@ func TestGatewayHidesInternalErrors(t *testing.T) {
 	}
 }
 
-func TestGatewayReadsAuthorityFromGRPC(t *testing.T) {
+func TestGatewayReadsRoutingHeadersFromGRPC(t *testing.T) {
 	instance := gatewayTestInstance()
 	runtime := &gatewayTestRuntime{}
 	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)})
@@ -200,7 +212,6 @@ func TestGatewayReadsAuthorityFromGRPC(t *testing.T) {
 	connection, err := grpc.NewClient("passthrough:///bufnet",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithAuthority(instance.GetA2AAuthority()),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -212,10 +223,20 @@ func TestGatewayReadsAuthorityFromGRPC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a2apb.NewA2AServiceClient(connection).SendMessage(t.Context(), request); err != nil {
+	ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs(
+		AgentInstanceNamespaceHeader, instance.GetNamespace(),
+		AgentInstanceIDHeader, instance.GetId(),
+	))
+	if _, err := a2apb.NewA2AServiceClient(connection).SendMessage(ctx, request); err != nil {
 		t.Fatal(err)
 	}
 	if !runtime.sent {
 		t.Fatal("gRPC request did not reach the AgentInstance runtime")
+	}
+}
+
+func TestRuntimeDialerRequiresAuthority(t *testing.T) {
+	if _, err := (&RuntimeDialer{}).Dial(t.Context(), &apiv1alpha1.AgentInstance{}); err == nil {
+		t.Fatal("Dial() accepted an empty runtime authority")
 	}
 }
