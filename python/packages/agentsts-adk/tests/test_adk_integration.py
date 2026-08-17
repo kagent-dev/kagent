@@ -1243,6 +1243,14 @@ class TestADKTokenPropagationPlugin:
 
         assert plugin.header_provider(self._make_readonly_context(ic_anon)) == {}
 
+    def test_empty_subject_is_not_cacheable(self):
+        """Case: a caller with no credential yields no cache key, so credential-less
+        callers cannot come to share one entry."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        assert plugin._cache_key_for("sess-x", None) is None
+        assert plugin._cache_key_for("sess-x", "") is None
+
 
 class TestADKSTSIntegration:
     """Test cases for ADKSTSIntegration."""

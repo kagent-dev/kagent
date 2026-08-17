@@ -192,7 +192,8 @@ class ADKTokenPropagationPlugin(BasePlugin):
             logger.debug("no invocation context for tool call, leaving existing headers in place")
             return {}
 
-        cache_entry = self.token_cache.get(self.cache_key(invocation_context))
+        cache_key = self.cache_key(invocation_context)
+        cache_entry = self.token_cache.get(cache_key) if cache_key else None
         if not cache_entry:
             return {}
 
@@ -217,6 +218,9 @@ class ADKTokenPropagationPlugin(BasePlugin):
             return None
 
         cache_key = self._cache_key_for(invocation_context.session.id, subject_token)
+        if cache_key is None:
+            logger.debug("no subject to key the token cache on, skipping token propagation")
+            return None
 
         # Check if we have a valid cached subject token
         cached_entry = self.token_cache.get(cache_key)
@@ -280,13 +284,20 @@ class ADKTokenPropagationPlugin(BasePlugin):
             logger.warning(f"Failed to read subject token from session state: {e}")
             return None
 
-    def _cache_key_for(self, session_id: str, subject_token: Optional[str]) -> str:
-        return f"{session_id}\0{_subject_key(subject_token)}"
+    def _cache_key_for(self, session_id: str, subject_token: Optional[str]) -> Optional[str]:
+        subject = _subject_key(subject_token)
+        if not subject:
+            # An empty subject identifies no principal, so it yields no key: an
+            # entry stored under it would be shared by every credential-less
+            # caller in the session.
+            return None
+        return f"{session_id}\0{subject}"
 
-    def cache_key(self, invocation_context: InvocationContext) -> str:
+    def cache_key(self, invocation_context: InvocationContext) -> Optional[str]:
         """Key the cache on the session and the acting subject, so a session
         carrying messages from several subjects keeps one token per subject
-        instead of collapsing onto whichever arrived first."""
+        instead of collapsing onto whichever arrived first. None when the caller
+        presents no credential to derive a subject from."""
         session = invocation_context.session
         return self._cache_key_for(session.id, self._read_subject_token(session.state))
 
