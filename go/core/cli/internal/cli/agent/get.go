@@ -111,7 +111,7 @@ func printAgents(agents []api.AgentResponse) error {
 			strconv.Itoa(i + 1),
 			utils.ResourceRefString(agent.Agent.Metadata.Namespace, agent.Agent.Metadata.Name),
 			agent.Agent.Metadata.CreationTimestamp.Format(time.RFC3339),
-			strconv.FormatBool(agent.DeploymentReady),
+			strconv.FormatBool(agent.Ready),
 			strconv.FormatBool(agent.Accepted),
 		}
 	}

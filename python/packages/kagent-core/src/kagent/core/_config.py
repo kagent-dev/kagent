@@ -1,25 +1,35 @@
 import os
 
-kagent_url = os.getenv("KAGENT_URL")
-kagent_name = os.getenv("KAGENT_NAME")
-kagent_namespace = os.getenv("KAGENT_NAMESPACE")
-
 
 class KAgentConfig:
     _url: str
+    _grpc_url: str
     _name: str
     _namespace: str
 
-    def __init__(self, url: str = None, name: str = None, namespace: str = None):
-        if not kagent_url and not url:
+    def __init__(
+        self,
+        url: str | None = None,
+        grpc_url: str | None = None,
+        name: str | None = None,
+        namespace: str | None = None,
+    ):
+        resolved_url = url or os.getenv("KAGENT_URL")
+        resolved_grpc_url = grpc_url or os.getenv("KAGENT_GRPC_URL")
+        resolved_name = name or os.getenv("KAGENT_NAME")
+        resolved_namespace = namespace or os.getenv("KAGENT_NAMESPACE")
+        if not resolved_url:
             raise ValueError("KAGENT_URL environment variable is not set")
-        if not kagent_name and not name:
+        if not resolved_grpc_url:
+            raise ValueError("KAGENT_GRPC_URL environment variable is not set")
+        if not resolved_name:
             raise ValueError("KAGENT_NAME environment variable is not set")
-        if not kagent_namespace and not namespace:
+        if not resolved_namespace:
             raise ValueError("KAGENT_NAMESPACE environment variable is not set")
-        self._url = kagent_url if not url else url
-        self._name = kagent_name if not name else name
-        self._namespace = kagent_namespace if not namespace else namespace
+        self._url = resolved_url
+        self._grpc_url = resolved_grpc_url
+        self._name = resolved_name
+        self._namespace = resolved_namespace
 
     @property
     def name(self):
@@ -36,3 +46,11 @@ class KAgentConfig:
     @property
     def url(self):
         return self._url
+
+    @property
+    def kagent_url(self):
+        return self._url
+
+    @property
+    def grpc_url(self):
+        return self._grpc_url

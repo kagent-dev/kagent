@@ -22,6 +22,9 @@
   },
   "dependencies": {
     "@a2a-js/sdk": "^1.0.1",
+    "@bufbuild/protobuf": "2.13.0",
+    "@connectrpc/connect": "2.1.2",
+    "@connectrpc/connect-node": "2.1.2",
     "@hookform/resolvers": "^5.5.7",
     "@mcp-ui/client": "^7.1.1",
     "@modelcontextprotocol/ext-apps": "^1.7.5",
@@ -105,7 +108,6 @@
     "eslint-plugin-storybook": "^10.5.5",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
-    "msw": "^2.15.0",
     "playwright": "1.62.1",
     "postcss": "^8.5.25",
     "storybook": "^10.2.10",
@@ -115,10 +117,5 @@
     "typescript": "5.9.3",
     "vite": "^8.2.0",
     "vitest": "^4.0.18"
-  },
-  "msw": {
-    "workerDirectory": [
-      "public"
-    ]
   }
 }

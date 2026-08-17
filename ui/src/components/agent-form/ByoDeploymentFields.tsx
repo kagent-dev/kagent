@@ -6,10 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, PlusCircle, Trash2 } from "lucide-react";
-import { ServiceAccountNameField } from "./ServiceAccountNameField";
 import { FieldError, FieldHint, FieldLabel, FieldRoot } from "./form-primitives";
 import { cn } from "@/lib/utils";
 import { AgentFormValidationErrors } from "./agent-form-types";
@@ -28,56 +26,32 @@ export function ByoDeploymentFields({
   commandRequired = false,
   byoCmd,
   byoArgs,
-  replicas,
-  imagePullPolicy,
-  imagePullSecrets,
   envPairs,
-  serviceAccountName,
   errors,
   disabled,
   onByoImageChange,
   onByoCmdChange,
   onByoArgsChange,
-  onReplicasChange,
-  onImagePullPolicyChange,
-  onImagePullSecretsUpdate,
-  onAddImagePullSecret,
-  onRemoveImagePullSecret,
   onEnvPairChange,
   onAddEnvPair,
   onRemoveEnvPair,
-  onServiceAccountChange,
-  onServiceAccountBlur,
   onValidateByoImage,
-  serviceAccountInputId = "agent-field-service-account-byo",
 }: {
   byoImage: string;
   /** When true (BYO on Agent Substrate), the command is required and the label reflects that. */
   commandRequired?: boolean;
   byoCmd: string;
   byoArgs: string;
-  replicas: string;
-  imagePullPolicy: string;
-  imagePullSecrets: string[];
   envPairs: EnvPair[];
-  serviceAccountName: string;
-  errors: Pick<AgentFormValidationErrors, "model" | "serviceAccountName" | "byoCmd">;
+  errors: Pick<AgentFormValidationErrors, "model" | "byoCmd">;
   disabled: boolean;
   onByoImageChange: (v: string) => void;
   onByoCmdChange: (v: string) => void;
   onByoArgsChange: (v: string) => void;
-  onReplicasChange: (v: string) => void;
-  onImagePullPolicyChange: (v: string) => void;
-  onImagePullSecretsUpdate: (secrets: string[]) => void;
-  onAddImagePullSecret: () => void;
-  onRemoveImagePullSecret: (index: number) => void;
   onEnvPairChange: (index: number, next: EnvPair) => void;
   onAddEnvPair: () => void;
   onRemoveEnvPair: (index: number) => void;
-  onServiceAccountChange: (v: string) => void;
-  onServiceAccountBlur: () => void;
   onValidateByoImage: () => void;
-  serviceAccountInputId?: string;
 }) {
   const [opsOpen, setOpsOpen] = useState(false);
 
@@ -140,86 +114,13 @@ export function ByoDeploymentFields({
           className="flex w-full items-center justify-between gap-2 rounded-md border border-dashed border-border/80 bg-muted/20 px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/40"
           type="button"
         >
-          <span>Scheduling, registry &amp; environment</span>
+          <span>Environment</span>
           <ChevronDown
             className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", opsOpen && "rotate-180")}
             aria-hidden
           />
         </CollapsibleTrigger>
         <CollapsibleContent className="space-y-4 pt-1 data-[state=open]:border-t-0">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FieldRoot>
-              <FieldLabel>Replicas</FieldLabel>
-              <Input
-                type="number"
-                inputMode="numeric"
-                name="replicaCount"
-                value={replicas}
-                onChange={(e) => onReplicasChange(e.target.value)}
-                placeholder="1"
-                disabled={disabled}
-                className="tabular-nums"
-              />
-            </FieldRoot>
-            <FieldRoot>
-              <FieldLabel>Image pull policy</FieldLabel>
-              <Select
-                value={imagePullPolicy}
-                onValueChange={onImagePullPolicyChange}
-                disabled={disabled}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select policy" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Always">Always</SelectItem>
-                  <SelectItem value="IfNotPresent">IfNotPresent</SelectItem>
-                  <SelectItem value="Never">Never</SelectItem>
-                </SelectContent>
-              </Select>
-            </FieldRoot>
-          </div>
-
-          <div className="space-y-2">
-            <FieldLabel>Image pull secrets</FieldLabel>
-            <FieldHint>One Kubernetes secret name per private registry the node must use.</FieldHint>
-            {imagePullSecrets.map((name, idx) => (
-              <div key={idx} className="flex flex-wrap items-center gap-2">
-                <Input
-                  placeholder="Secret name"
-                  value={name}
-                  onChange={(e) => {
-                    const copy = [...imagePullSecrets];
-                    copy[idx] = e.target.value;
-                    onImagePullSecretsUpdate(copy);
-                  }}
-                  disabled={disabled}
-                />
-                <div className="flex gap-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={onAddImagePullSecret}
-                    disabled={disabled}
-                  >
-                    Add secret
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onRemoveImagePullSecret(idx)}
-                    disabled={imagePullSecrets.length <= 1 || disabled}
-                    aria-label={`Remove image pull secret row ${idx + 1}`}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-
           <div className="space-y-2">
             <FieldLabel>Environment variables</FieldLabel>
             {envPairs.map((pair, index) => (
@@ -305,16 +206,6 @@ export function ByoDeploymentFields({
           </div>
         </CollapsibleContent>
       </Collapsible>
-
-      <ServiceAccountNameField
-        inputId={serviceAccountInputId}
-        value={serviceAccountName}
-        onChange={onServiceAccountChange}
-        onBlur={onServiceAccountBlur}
-        error={errors.serviceAccountName}
-        disabled={disabled}
-      />
     </div>
   );
 }
-

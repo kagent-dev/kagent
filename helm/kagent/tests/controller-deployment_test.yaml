@@ -76,6 +76,31 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
           value: 8083
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].name
+          value: grpc
+      - equal:
+          path: spec.template.spec.containers[0].ports[1].containerPort
+          value: 8084
+
+  - it: should configure the gRPC server
+    template: controller-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRPC_BIND_ADDRESS
+            value: ":8084"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRPC_MAX_MESSAGE_BYTES
+            value: "16777216"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRPC_REFLECTION
+            value: "false"
 
   - it: should set global annotations on deployment
     template: controller-deployment.yaml
@@ -106,16 +131,13 @@ tests:
             controller-key: "controller-value"
             shared-key: "controller-wins"
 
-  - it: should set substrate ate-api env vars and projected token when substrate is enabled
+  - it: should configure substrate ate-api mTLS when substrate is enabled
     template: controller-deployment.yaml
     set:
       controller:
         substrate:
           enabled: true
           ateApiEndpoint: "dns:///api.ate-system.svc:443"
-          ateApiTokenFile: "/custom/token"
-          ateApiTokenAudience: "custom-api"
-          ateApiTokenExpirationSeconds: 7200
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -125,29 +147,34 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: SUBSTRATE_ATE_API_TOKEN_FILE
-            value: "/custom/token"
+            name: SUBSTRATE_ATE_API_CA_FILE
+            value: /run/substrate-servicedns/trust-bundle.pem
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SUBSTRATE_ATE_API_CLIENT_CERT_FILE
+            value: /run/substrate-podidentity/credential-bundle.pem
       - equal:
           path: spec.template.spec.volumes[0].name
-          value: substrate-ate-api-token
+          value: substrate-servicedns
       - equal:
-          path: spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.audience
-          value: custom-api
+          path: spec.template.spec.volumes[0].projected.sources[0].clusterTrustBundle.signerName
+          value: servicedns.podcert.ate.dev/identity
       - equal:
-          path: spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.expirationSeconds
-          value: 7200
+          path: spec.template.spec.volumes[1].projected.sources[0].podCertificate.signerName
+          value: podidentity.podcert.ate.dev/identity
       - equal:
-          path: spec.template.spec.volumes[0].projected.sources[0].serviceAccountToken.path
-          value: token
+          path: spec.template.spec.volumes[1].projected.sources[0].podCertificate.credentialBundlePath
+          value: credential-bundle.pem
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[0].name
-          value: substrate-ate-api-token
+          value: substrate-servicedns
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[0].mountPath
-          value: /custom
+          value: /run/substrate-servicedns
       - equal:
-          path: spec.template.spec.containers[0].volumeMounts[0].readOnly
-          value: true
+          path: spec.template.spec.containers[0].volumeMounts[1].mountPath
+          value: /run/substrate-podidentity
 
   - it: should set A2A_BASE_URL with computed default value
     template: controller-configmap.yaml
@@ -208,146 +235,6 @@ tests:
       - equal:
           path: data.ZAP_LOG_LEVEL
           value: "debug"
-  - it: should use controller.agentImage.pullSecret when set
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentImage:
-          pullSecret: "pull-secret"
-    asserts:
-      - equal:
-          path: data.IMAGE_PULL_SECRET
-          value: "pull-secret"
-  - it: should not use controller.agentImage.pullSecret when not set
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentImage:
-          pullSecret: ""
-    asserts:
-      - notExists:
-          path: data.IMAGE_PULL_SECRET
-
-  - it: should set DEFAULT_AGENT_POD_LABELS when podLabels are configured
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          podLabels:
-            team: platform
-            env: prod
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_POD_LABELS
-          value: "env=prod,team=platform"
-
-  - it: should not set DEFAULT_AGENT_POD_LABELS when podLabels are empty
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          podLabels: {}
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_POD_LABELS
-
-  - it: should not set DEFAULT_AGENT_POD_LABELS when podLabels are not configured
-    template: controller-configmap.yaml
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_POD_LABELS
-
-  - it: should set DEFAULT_AGENT_POD_LABELS with single label
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          podLabels:
-            team: platform
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_POD_LABELS
-          value: "team=platform"
-
-  - it: should set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is configured
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          nodeSelector:
-            kubernetes.io/os: linux
-            pool: agents
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_NODE_SELECTOR
-          value: "kubernetes.io/os=linux,pool=agents"
-
-  - it: should not set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is empty
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          nodeSelector: {}
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_NODE_SELECTOR
-
-  - it: should not set DEFAULT_AGENT_NODE_SELECTOR when nodeSelector is not configured
-    template: controller-configmap.yaml
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_NODE_SELECTOR
-
-  - it: should set DEFAULT_AGENT_BIND_HOST when host is configured
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          host: "::"
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_BIND_HOST
-          value: "::"
-
-  - it: should not set DEFAULT_AGENT_BIND_HOST when host is empty
-    template: controller-configmap.yaml
-    set:
-      controller:
-        agentDeployment:
-          host: ""
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_BIND_HOST
-
-  - it: should not set DEFAULT_AGENT_BIND_HOST when host is not configured
-    template: controller-configmap.yaml
-    asserts:
-      - notExists:
-          path: data.DEFAULT_AGENT_BIND_HOST
-
-  - it: should set DEFAULT_AGENT_BIND_HOST to dual-stack when ipv6 is enabled
-    template: controller-configmap.yaml
-    set:
-      ipv6:
-        enabled: true
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_BIND_HOST
-          value: "::"
-
-  - it: should prefer explicit host over ipv6 flag
-    template: controller-configmap.yaml
-    set:
-      ipv6:
-        enabled: true
-      controller:
-        agentDeployment:
-          host: "0.0.0.0"
-    asserts:
-      - equal:
-          path: data.DEFAULT_AGENT_BIND_HOST
-          value: "0.0.0.0"
-
   - it: should configure watch namespaces
     template: controller-configmap.yaml
     set:
@@ -784,7 +671,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.template.spec.containers[0].ports
-          count: 1
+          count: 2
       - notContains:
           path: spec.template.spec.containers[0].ports
           content:

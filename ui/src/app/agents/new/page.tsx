@@ -9,9 +9,6 @@ import {
   formUsesDeclarativeSections,
   type AgentFormWorkloadKind,
 } from "@/lib/agentFormLayout";
-import {
-  substrateSupportedForAgentType,
-} from "@/lib/sandboxAgentForm";
 import { ModelConfig } from "@/types";
 import { SystemPromptSection } from "@/components/create/SystemPromptSection";
 import { generateId } from "@/lib/utils";
@@ -40,7 +37,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
 import { ByoDeploymentFields } from "@/components/agent-form/ByoDeploymentFields";
 import { AgentSkillsFormSection } from "@/components/agent-form/AgentSkillsFormSection";
-import { ServiceAccountNameField } from "@/components/agent-form/ServiceAccountNameField";
 import { DeclarativeRuntimeField } from "@/components/agent-form/DeclarativeRuntimeField";
 import { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";
@@ -90,13 +86,12 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   const substrateEnabled = useSubstrateEnabled();
 
   const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType);
-  const substrateSandboxAgent = state.runInSandbox;
   // Substrate supports both Python and Go declarative runtimes, so the runtime selector is
   // shown for declarative agents.
   const showDeclarativeRuntimeField = useDeclarativeAgentFields;
   const showByoFields = formUsesByoSections(state.agentType);
   const showModelAndBehaviorSection = useDeclarativeAgentFields;
-  const skillsEnabled = useDeclarativeAgentFields && !state.runInSandbox;
+  const skillsEnabled = false;
   const disabled = state.isSubmitting || state.isLoading;
 
   useEffect(() => {
@@ -203,7 +198,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const validateField = (fieldName: keyof AgentFormValidationErrors, value: any) => {
-    const formData: Partial<AgentFormData> = { type: state.agentType, runInSandbox: state.runInSandbox };
+    const formData: Partial<AgentFormData> = { type: state.agentType };
     const memoryEnabled = !!(state.selectedMemoryModel?.ref || state.memoryTtlDays);
 
     switch (fieldName) {
@@ -247,9 +242,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             ttlDays: value ? parseInt(value, 10) : undefined,
           };
         }
-        break;
-      case "serviceAccountName":
-        formData.serviceAccountName = value;
         break;
     }
 
@@ -404,10 +396,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     setState((prev) => ({
                       ...prev,
                       agentType: next,
-                      // BYO agents are not supported in a sandbox (Agent Substrate).
-                      ...(!substrateSupportedForAgentType(next) && prev.runInSandbox
-                        ? { runInSandbox: false }
-                        : {}),
                       errors: { ...prev.errors, type: undefined },
                     }));
                     validateField("type", val);
@@ -424,47 +412,7 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 </Select>
               </FieldRoot>
 
-              <FieldRoot>
-                <div className="flex gap-3 rounded-md border border-border/60 bg-muted/20 p-3">
-                  <div className="flex h-5 shrink-0 items-center self-start">
-                    <Checkbox
-                      id="run-in-sandbox"
-                      checked={state.runInSandbox}
-                      onCheckedChange={(checked) =>
-                        setState((prev) => ({
-                          ...prev,
-                          runInSandbox: !!checked,
-                          // Sandbox agents do not support skills.
-                          ...(checked
-                            ? {
-                                skillRefs: [""],
-                                skillGitRepos: [newEmptyGitSkillRow()],
-                                skillsGitAuthSecretName: "",
-                                skillS3Repos: [newEmptyS3SkillRow()],
-                                skillsS3AuthSecretName: "",
-                                errors: { ...prev.errors, skills: undefined },
-                              }
-                            : {}),
-                        }))
-                      }
-                      disabled={disabled || isEditMode || !substrateSupportedForAgentType(state.agentType)}
-                    />
-                  </div>
-                  <div className="min-w-0 space-y-1.5">
-                    <Label
-                      htmlFor="run-in-sandbox"
-                      className="block cursor-pointer text-sm font-medium leading-5 text-foreground"
-                    >
-                      Run in a sandbox
-                    </Label>
-                    <p className="text-xs leading-snug text-muted-foreground">
-                      Runs the workload in a sandbox (isolated sandbox runtime).
-                    </p>
-                  </div>
-                </div>
-              </FieldRoot>
-
-              {state.runInSandbox && substrateEnabled && substrateSupportedForAgentType(state.agentType) && (
+              {substrateEnabled && (
                 <FieldRoot>
                   <FieldLabel>Agent Substrate settings</FieldLabel>
                   <FieldHint>
@@ -589,13 +537,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                       </div>
                     </div>
 
-                    <ServiceAccountNameField
-                      value={state.serviceAccountName}
-                      onChange={(v) => setState((prev) => ({ ...prev, serviceAccountName: v }))}
-                      onBlur={() => validateField("serviceAccountName", state.serviceAccountName)}
-                      error={state.errors.serviceAccountName}
-                      disabled={disabled}
-                    />
                   </>
                 )}
               </FormSection>
@@ -604,30 +545,19 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
             {showByoFields && (
               <FormSection
                 title="Container"
-                description="Image and process for your workload. Open the lower panel for pull secrets, scheduling, and environment."
+                description="Image, process, and environment for your workload."
               >
                 <ByoDeploymentFields
                   byoImage={state.byoImage}
-                  commandRequired={substrateSandboxAgent}
+                  commandRequired
                   byoCmd={state.byoCmd}
                   byoArgs={state.byoArgs}
-                  replicas={state.replicas}
-                  imagePullPolicy={state.imagePullPolicy}
-                  imagePullSecrets={state.imagePullSecrets}
                   envPairs={state.envPairs}
-                  serviceAccountName={state.serviceAccountName}
-                  errors={{ model: state.errors.model, serviceAccountName: state.errors.serviceAccountName, byoCmd: state.errors.byoCmd }}
+                  errors={{ model: state.errors.model, byoCmd: state.errors.byoCmd }}
                   disabled={disabled}
                   onByoImageChange={(v) => setState((prev) => ({ ...prev, byoImage: v }))}
                   onByoCmdChange={(v) => setState((prev) => ({ ...prev, byoCmd: v }))}
                   onByoArgsChange={(v) => setState((prev) => ({ ...prev, byoArgs: v }))}
-                  onReplicasChange={(v) => setState((prev) => ({ ...prev, replicas: v }))}
-                  onImagePullPolicyChange={(v) => setState((prev) => ({ ...prev, imagePullPolicy: v }))}
-                  onImagePullSecretsUpdate={(s) => setState((prev) => ({ ...prev, imagePullSecrets: s }))}
-                  onAddImagePullSecret={() => setState((prev) => ({ ...prev, imagePullSecrets: [...prev.imagePullSecrets, ""] }))}
-                  onRemoveImagePullSecret={(idx) =>
-                    setState((prev) => ({ ...prev, imagePullSecrets: prev.imagePullSecrets.filter((_, i) => i !== idx) }))
-                  }
                   onEnvPairChange={(index, next) => {
                     const u = [...state.envPairs];
                     u[index] = next;
@@ -640,8 +570,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     }))
                   }
                   onRemoveEnvPair={(index) => setState((prev) => ({ ...prev, envPairs: prev.envPairs.filter((_, i) => i !== index) }))}
-                  onServiceAccountChange={(v) => setState((prev) => ({ ...prev, serviceAccountName: v }))}
-                  onServiceAccountBlur={() => validateField("serviceAccountName", state.serviceAccountName)}
                   onValidateByoImage={() => validateField("model", state.byoImage)}
                 />
               </FormSection>

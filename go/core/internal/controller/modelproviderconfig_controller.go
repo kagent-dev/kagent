@@ -19,7 +19,7 @@ package controller
 import (
 	"context"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,7 +60,7 @@ func (r *ModelProviderConfigController) SetupWithManager(mgr ctrl.Manager) error
 		WithOptions(controller.Options{
 			NeedLeaderElection: new(true),
 		}).
-		For(&v1alpha2.ModelProviderConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha3.ModelProviderConfig{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -86,10 +86,10 @@ func (r *ModelProviderConfigController) SetupWithManager(mgr ctrl.Manager) error
 		Complete(r)
 }
 
-func (r *ModelProviderConfigController) findModelProviderConfigsUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.ModelProviderConfig {
-	var configs []*v1alpha2.ModelProviderConfig
+func (r *ModelProviderConfigController) findModelProviderConfigsUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha3.ModelProviderConfig {
+	var configs []*v1alpha3.ModelProviderConfig
 
-	var configList v1alpha2.ModelProviderConfigList
+	var configList v1alpha3.ModelProviderConfigList
 	if err := cl.List(
 		ctx,
 		&configList,
@@ -109,7 +109,7 @@ func (r *ModelProviderConfigController) findModelProviderConfigsUsingSecret(ctx 
 	return configs
 }
 
-func modelProviderConfigReferencesSecret(mpc *v1alpha2.ModelProviderConfig, secretObj types.NamespacedName) bool {
+func modelProviderConfigReferencesSecret(mpc *v1alpha3.ModelProviderConfig, secretObj types.NamespacedName) bool {
 	if mpc.Spec.SecretRef == nil {
 		return false
 	}

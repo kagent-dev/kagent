@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // DefaultAPIKeyEnvVar is the environment variable name used for the model provider API key in the sandbox.
-func DefaultAPIKeyEnvVar(provider v1alpha2.ModelProvider) string {
+func DefaultAPIKeyEnvVar(provider v1alpha3.ModelProvider) string {
 	return fmt.Sprintf("%s_API_KEY", strings.ToUpper(string(provider)))
 }
 

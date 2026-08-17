@@ -176,7 +176,7 @@ type remoteA2AState struct {
 	// instead of reusing sharedContextID, so each call runs in its own isolated
 	// sub-agent session. Required for parallel fan-out: without it, N
 	// parallel calls in one turn collapse into a single shared sub-agent
-	// session. See go/api/v1alpha2.Tool.IsolateSessions.
+	// session. See go/api/v1alpha3.Tool.IsolateSessions.
 	isolateSessions bool
 }
 

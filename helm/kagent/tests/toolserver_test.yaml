@@ -56,7 +56,7 @@ tests:
     asserts:
       - equal:
           path: apiVersion
-          value: kagent.dev/v1alpha2
+          value: kagent.dev/v1alpha3
       - equal:
           path: kind
           value: RemoteMCPServer

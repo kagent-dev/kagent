@@ -335,23 +335,6 @@ export function declarativeAgentSkillsConfigured(
   return nonEmptyRefs || gitRepos.length > 0 || s3Refs.length > 0;
 }
 
-export const SUBSTRATE_SANDBOX_SKILLS_UNSUPPORTED_MSG =
-  "Skills are not supported for Agent Substrate sandbox agents yet";
-
-/** Returns an error when skills are configured on a sandbox (Agent Substrate) agent. */
-export function validateSubstrateSandboxSkillsConflict(
-  input: DeclarativeAgentSkillsFormInput,
-  runInSandbox: boolean,
-): string | undefined {
-  if (!runInSandbox) {
-    return undefined;
-  }
-  if (declarativeAgentSkillsConfigured(input)) {
-    return SUBSTRATE_SANDBOX_SKILLS_UNSUPPORTED_MSG;
-  }
-  return undefined;
-}
-
 /**
  * Validates OCI refs, Git/S3 sources, and optional auth secrets for the declarative agent form.
  * Returns the first error message, or `undefined` if valid.

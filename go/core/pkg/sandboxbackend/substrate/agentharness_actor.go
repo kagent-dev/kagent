@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -40,7 +40,7 @@ func NewAgentHarnessSessionActorBackend(client *Client, atenetRouterURL string) 
 // actor, then waits for it to be reachable via atenet-router. The sessionID
 // identifies the chat for logging only; chats are multiplexed as ACP sessions
 // inside the one actor, so they all resolve to the same ActorID(ah).
-func (b *AgentHarnessSessionActorBackend) EnsureSessionActor(ctx context.Context, ah *v1alpha2.AgentHarness, sessionID string) (sandboxbackend.EnsureResult, error) {
+func (b *AgentHarnessSessionActorBackend) EnsureSessionActor(ctx context.Context, ah *v1alpha3.AgentHarness, sessionID string) (sandboxbackend.EnsureResult, error) {
 	if ah == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("AgentHarness is required")
 	}
@@ -96,7 +96,7 @@ func (b *AgentHarnessSessionActorBackend) EnsureSessionActor(ctx context.Context
 // SuspendSessionActor checkpoints and frees the worker for the harness's shared
 // actor. It is resumed automatically on the next EnsureSessionActor. Because the
 // actor is shared, suspending affects every chat in the harness.
-func (b *AgentHarnessSessionActorBackend) SuspendSessionActor(ctx context.Context, ah *v1alpha2.AgentHarness, sessionID string) error {
+func (b *AgentHarnessSessionActorBackend) SuspendSessionActor(ctx context.Context, ah *v1alpha3.AgentHarness, sessionID string) error {
 	if b == nil || b.client == nil || ah == nil {
 		return nil
 	}
@@ -142,7 +142,7 @@ const (
 
 // GetSessionActorState reports whether the harness's shared actor is running,
 // suspended, or not yet created.
-func (b *AgentHarnessSessionActorBackend) GetSessionActorState(ctx context.Context, ah *v1alpha2.AgentHarness, sessionID string) (SessionActorState, error) {
+func (b *AgentHarnessSessionActorBackend) GetSessionActorState(ctx context.Context, ah *v1alpha3.AgentHarness, sessionID string) (SessionActorState, error) {
 	if b == nil || b.client == nil || ah == nil {
 		return SessionActorStateMissing, nil
 	}
@@ -169,7 +169,7 @@ func (b *AgentHarnessSessionActorBackend) GetSessionActorState(ctx context.Conte
 // DeleteAllAgentHarnessActors deletes the legacy single harness actor and every
 // per-session actor belonging to the AgentHarness. It is best-effort and returns
 // false while any actor is still terminating.
-func (b *AgentHarnessSessionActorBackend) DeleteAllAgentHarnessActors(ctx context.Context, ah *v1alpha2.AgentHarness) (bool, error) {
+func (b *AgentHarnessSessionActorBackend) DeleteAllAgentHarnessActors(ctx context.Context, ah *v1alpha3.AgentHarness) (bool, error) {
 	if b == nil || b.client == nil || ah == nil {
 		return true, nil
 	}
@@ -199,6 +199,6 @@ func (b *AgentHarnessSessionActorBackend) DeleteAllAgentHarnessActors(ctx contex
 	return allDone, nil
 }
 
-func agentHarnessActorPrefix(ah *v1alpha2.AgentHarness) string {
+func agentHarnessActorPrefix(ah *v1alpha3.AgentHarness) string {
 	return ActorID(ah)
 }

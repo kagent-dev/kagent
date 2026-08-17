@@ -25,7 +25,6 @@ import {
   s3SkillsAuthEnvFromSecret,
   s3SkillsAuthSecretNameFromEnv,
   validateDeclarativeAgentSkills,
-  validateSubstrateSandboxSkillsConflict,
   type GitSkillFormRow,
 } from "../agentSkillsForm";
 
@@ -476,31 +475,4 @@ describe("agentSkillsForm", () => {
     });
   });
 
-  describe("validateSubstrateSandboxSkillsConflict", () => {
-    it("rejects skills when running in a sandbox", () => {
-      expect(
-        validateSubstrateSandboxSkillsConflict(
-          {
-            skillRefs: ["ghcr.io/org/skill:v1"],
-            skillGitRepos: [],
-            skillsGitAuthSecretName: "",
-          },
-          true,
-        ),
-      ).toMatch(/not supported for Agent Substrate/);
-    });
-
-    it("allows empty skills on substrate", () => {
-      expect(
-        validateSubstrateSandboxSkillsConflict(
-          {
-            skillRefs: [""],
-            skillGitRepos: [newEmptyGitSkillRow()],
-            skillsGitAuthSecretName: "",
-          },
-          true,
-        ),
-      ).toBeUndefined();
-    });
-  });
 });

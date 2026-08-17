@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
@@ -49,7 +49,7 @@ const (
 // AgentHarness's generated ActorTemplate. Implemented by
 // *substrate.AgentHarnessSessionActorBackend.
 type AgentHarnessSessionActorCleaner interface {
-	DeleteAllAgentHarnessActors(ctx context.Context, ah *v1alpha2.AgentHarness) (bool, error)
+	DeleteAllAgentHarnessActors(ctx context.Context, ah *v1alpha3.AgentHarness) (bool, error)
 }
 
 // SubstrateAgentHarnessController reconciles AgentHarness resources that use the
@@ -58,7 +58,7 @@ type SubstrateAgentHarnessController struct {
 	Client   client.Client
 	Recorder events.EventRecorder
 	// Backends maps the harness backend type to its substrate AsyncBackend.
-	Backends           map[v1alpha2.AgentHarnessBackendType]sandboxbackend.AsyncBackend
+	Backends           map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend
 	SubstrateLifecycle substrate.AgentHarnessLifecycle
 	// SessionActorBackend manages the shared actor spun from the harness's
 	// generated ActorTemplate. The controller uses it only to clean up actors
@@ -72,14 +72,14 @@ type SubstrateAgentHarnessController struct {
 	DbClient database.Client
 }
 
-func (r *SubstrateAgentHarnessController) backendFor(ah *v1alpha2.AgentHarness) sandboxbackend.AsyncBackend {
+func (r *SubstrateAgentHarnessController) backendFor(ah *v1alpha3.AgentHarness) sandboxbackend.AsyncBackend {
 	return r.Backends[ah.Spec.Backend]
 }
 
 func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("agentHarness", req.NamespacedName)
 
-	var ah v1alpha2.AgentHarness
+	var ah v1alpha3.AgentHarness
 	if err := r.Client.Get(ctx, req.NamespacedName, &ah); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -106,9 +106,9 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 	lifecycleState, err := r.SubstrateLifecycle.EnsureGeneratedTemplate(ctx, &ah)
 	if err != nil {
 		log.Error(err, "substrate lifecycle reconciliation failed")
-		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse,
+		setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse,
 			"SubstrateLifecycleFailed", err.Error())
-		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
+		setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
 			"SubstrateLifecycleFailed", "")
 		if perr := patchAgentHarnessStatus(ctx, r.Client, &ah); perr != nil {
 			return ctrl.Result{}, perr
@@ -116,21 +116,21 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 	if lifecycleState.ActorTemplateReady {
-		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeActorTemplateReady,
+		setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeActorTemplateReady,
 			metav1.ConditionTrue, "Ready", "ActorTemplate golden snapshot is ready")
 	} else {
-		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeActorTemplateReady,
+		setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeActorTemplateReady,
 			metav1.ConditionFalse, "NotReady", "waiting for ActorTemplate golden snapshot")
 	}
 	if err := patchAgentHarnessStatus(ctx, r.Client, &ah); err != nil {
 		return ctrl.Result{}, err
 	}
 	if !lifecycleState.ActorTemplateReady {
-		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue,
+		setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue,
 			"SubstrateLifecyclePending", "waiting for ActorTemplate golden snapshot")
-		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionFalse,
+		setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeActorReady, metav1.ConditionFalse,
 			"ActorNotCreated", "waiting for ActorTemplate before creating actor")
-		setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
+		setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
 			"ActorTemplateNotReady", "ActorTemplate is not Ready yet")
 		if err := patchAgentHarnessStatus(ctx, r.Client, &ah); err != nil {
 			return ctrl.Result{}, err
@@ -148,11 +148,11 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 	if err := r.upsertHarnessAgentRow(ctx, &ah); err != nil {
 		return ctrl.Result{}, err
 	}
-	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue,
+	setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeAccepted, metav1.ConditionTrue,
 		"AgentHarnessAccepted", "ActorTemplate golden snapshot is ready")
-	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue,
+	setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeActorReady, metav1.ConditionTrue,
 		"TemplateReady", "shared actor is created on demand on the first chat connect")
-	setAgentHarnessCondition(&ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionTrue,
+	setAgentHarnessCondition(&ah, v1alpha3.AgentHarnessConditionTypeReady, metav1.ConditionTrue,
 		"TemplateReady", "AgentHarness template is ready; one shared actor serves all chat sessions")
 	ah.Status.ObservedGeneration = ah.Generation
 	if err := patchAgentHarnessStatus(ctx, r.Client, &ah); err != nil {
@@ -161,13 +161,13 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 	return ctrl.Result{}, nil
 }
 
-func (r *SubstrateAgentHarnessController) reconcileDelete(ctx context.Context, ah *v1alpha2.AgentHarness) (ctrl.Result, error) {
+func (r *SubstrateAgentHarnessController) reconcileDelete(ctx context.Context, ah *v1alpha3.AgentHarness) (ctrl.Result, error) {
 	if !controllerutil.ContainsFinalizer(ah, agentHarnessFinalizer) {
 		return ctrl.Result{}, nil
 	}
 
 	if substrateDeleteTimedOut(ah) {
-		setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeReady,
+		setAgentHarnessCondition(ah, v1alpha3.AgentHarnessConditionTypeReady,
 			metav1.ConditionFalse, "DeleteTimeout", "substrate cleanup exceeded timeout")
 		if err := patchAgentHarnessStatus(ctx, r.Client, ah); err != nil {
 			return ctrl.Result{}, err
@@ -187,7 +187,7 @@ func (r *SubstrateAgentHarnessController) reconcileDelete(ctx context.Context, a
 			return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, err
 		}
 		if !actorsDone {
-			setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeActorReady,
+			setAgentHarnessCondition(ah, v1alpha3.AgentHarnessConditionTypeActorReady,
 				metav1.ConditionFalse, "ActorDeleting", "waiting for substrate session actors deletion")
 			if err := patchAgentHarnessStatus(ctx, r.Client, ah); err != nil {
 				return ctrl.Result{}, err
@@ -207,14 +207,14 @@ func (r *SubstrateAgentHarnessController) reconcileDelete(ctx context.Context, a
 		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, fmt.Errorf("cleanup substrate lifecycle: %w", err)
 	}
 	if !complete {
-		setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeActorTemplateReady,
+		setAgentHarnessCondition(ah, v1alpha3.AgentHarnessConditionTypeActorTemplateReady,
 			metav1.ConditionFalse, "GoldenActorDeleting", "waiting for generated ActorTemplate golden actor deletion")
 		if err := patchAgentHarnessStatus(ctx, r.Client, ah); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: agentHarnessNotReadyRequeue}, nil
 	}
-	setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeActorTemplateReady,
+	setAgentHarnessCondition(ah, v1alpha3.AgentHarnessConditionTypeActorTemplateReady,
 		metav1.ConditionFalse, "Deleting", "generated ActorTemplate will be garbage collected")
 	if err := patchAgentHarnessStatus(ctx, r.Client, ah); err != nil {
 		return ctrl.Result{}, err
@@ -236,7 +236,7 @@ func (r *SubstrateAgentHarnessController) reconcileDelete(ctx context.Context, a
 // session handlers resolve harness chats through the regular agent lookup
 // instead of a harness-specific fallback. It is a no-op when no DB client is
 // configured.
-func (r *SubstrateAgentHarnessController) upsertHarnessAgentRow(ctx context.Context, ah *v1alpha2.AgentHarness) error {
+func (r *SubstrateAgentHarnessController) upsertHarnessAgentRow(ctx context.Context, ah *v1alpha3.AgentHarness) error {
 	if r.DbClient == nil {
 		return nil
 	}
@@ -247,7 +247,7 @@ func (r *SubstrateAgentHarnessController) upsertHarnessAgentRow(ctx context.Cont
 		// Harnesses are not sandbox agents: they serve many concurrent chats
 		// from one shared actor, so they must not pick up the sandbox
 		// single-session restriction.
-		WorkloadType: v1alpha2.WorkloadModeDeployment,
+		WorkloadType: v1alpha3.WorkloadModeSandbox,
 	}
 	if err := r.DbClient.StoreAgent(ctx, dbAgent); err != nil {
 		return fmt.Errorf("store agent row for AgentHarness %s: %w", id, err)
@@ -257,7 +257,7 @@ func (r *SubstrateAgentHarnessController) upsertHarnessAgentRow(ctx context.Cont
 
 // deleteHarnessAgentRow removes the AgentHarness's row from the shared agent
 // table. It is a no-op when no DB client is configured.
-func (r *SubstrateAgentHarnessController) deleteHarnessAgentRow(ctx context.Context, ah *v1alpha2.AgentHarness) error {
+func (r *SubstrateAgentHarnessController) deleteHarnessAgentRow(ctx context.Context, ah *v1alpha3.AgentHarness) error {
 	if r.DbClient == nil {
 		return nil
 	}
@@ -268,7 +268,7 @@ func (r *SubstrateAgentHarnessController) deleteHarnessAgentRow(ctx context.Cont
 	return nil
 }
 
-func substrateDeleteTimedOut(ah *v1alpha2.AgentHarness) bool {
+func substrateDeleteTimedOut(ah *v1alpha3.AgentHarness) bool {
 	if ah == nil || ah.DeletionTimestamp.IsZero() {
 		return false
 	}
@@ -279,7 +279,7 @@ func substrateDeleteTimedOut(ah *v1alpha2.AgentHarness) bool {
 func (r *SubstrateAgentHarnessController) SetupWithManager(mgr ctrl.Manager) error {
 	b := ctrl.NewControllerManagedBy(mgr).
 		WithOptions(controller.Options{NeedLeaderElection: new(true)}).
-		For(&v1alpha2.AgentHarness{}, builder.WithPredicates(agentHarnessPrimaryPredicate()))
+		For(&v1alpha3.AgentHarness{}, builder.WithPredicates(agentHarnessPrimaryPredicate()))
 	b = r.substrateWatches(b)
 	return b.Named("agentharness-substrate").Complete(r)
 }

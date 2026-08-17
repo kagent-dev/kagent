@@ -20,7 +20,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 
 	corev1 "k8s.io/api/core/v1"
@@ -71,7 +71,7 @@ func (r *RemoteMCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			NeedLeaderElection: new(true),
 		}).
-		For(&v1alpha2.RemoteMCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&v1alpha3.RemoteMCPServer{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Watches(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -97,10 +97,10 @@ func (r *RemoteMCPServerController) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *RemoteMCPServerController) findRemoteMCPServersUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha2.RemoteMCPServer {
-	var servers []*v1alpha2.RemoteMCPServer
+func (r *RemoteMCPServerController) findRemoteMCPServersUsingSecret(ctx context.Context, cl client.Client, obj types.NamespacedName) []*v1alpha3.RemoteMCPServer {
+	var servers []*v1alpha3.RemoteMCPServer
 
-	var serverList v1alpha2.RemoteMCPServerList
+	var serverList v1alpha3.RemoteMCPServerList
 	if err := cl.List(
 		ctx,
 		&serverList,
@@ -120,7 +120,7 @@ func (r *RemoteMCPServerController) findRemoteMCPServersUsingSecret(ctx context.
 	return servers
 }
 
-func remoteMCPServerReferencesSecret(server *v1alpha2.RemoteMCPServer, secretObj types.NamespacedName) bool {
+func remoteMCPServerReferencesSecret(server *v1alpha3.RemoteMCPServer, secretObj types.NamespacedName) bool {
 	// secrets must be in the same namespace as the RemoteMCPServer
 	if server.Namespace != secretObj.Namespace {
 		return false

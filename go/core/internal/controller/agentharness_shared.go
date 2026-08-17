@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 const (
@@ -40,11 +40,11 @@ const (
 // +kubebuilder:rbac:groups=kagent.dev,resources=agentharnesses/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kagent.dev,resources=agentharnesses/finalizers,verbs=update
 
-func reconcileBackendUnavailable(ctx context.Context, kube client.Client, ah *v1alpha2.AgentHarness) (ctrl.Result, error) {
-	setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse,
+func reconcileBackendUnavailable(ctx context.Context, kube client.Client, ah *v1alpha3.AgentHarness) (ctrl.Result, error) {
+	setAgentHarnessCondition(ah, v1alpha3.AgentHarnessConditionTypeAccepted, metav1.ConditionFalse,
 		"BackendUnavailable",
 		fmt.Sprintf("no substrate backend configured for %q", ah.Spec.Backend))
-	setAgentHarnessCondition(ah, v1alpha2.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
+	setAgentHarnessCondition(ah, v1alpha3.AgentHarnessConditionTypeReady, metav1.ConditionFalse,
 		"BackendUnavailable", "")
 	if err := patchAgentHarnessStatus(ctx, kube, ah); err != nil {
 		return ctrl.Result{}, err
@@ -52,8 +52,8 @@ func reconcileBackendUnavailable(ctx context.Context, kube client.Client, ah *v1
 	return ctrl.Result{}, nil
 }
 
-func patchAgentHarnessStatus(ctx context.Context, kube client.Client, ah *v1alpha2.AgentHarness) error {
-	var current v1alpha2.AgentHarness
+func patchAgentHarnessStatus(ctx context.Context, kube client.Client, ah *v1alpha3.AgentHarness) error {
+	var current v1alpha3.AgentHarness
 	if err := kube.Get(ctx, client.ObjectKeyFromObject(ah), &current); err != nil {
 		return fmt.Errorf("get AgentHarness before status update: %w", err)
 	}
@@ -69,7 +69,7 @@ func patchAgentHarnessStatus(ctx context.Context, kube client.Client, ah *v1alph
 	return nil
 }
 
-func setAgentHarnessCondition(ah *v1alpha2.AgentHarness, t string, s metav1.ConditionStatus, reason, msg string) {
+func setAgentHarnessCondition(ah *v1alpha3.AgentHarness, t string, s metav1.ConditionStatus, reason, msg string) {
 	meta.SetStatusCondition(&ah.Status.Conditions, metav1.Condition{
 		Type:               t,
 		Status:             s,

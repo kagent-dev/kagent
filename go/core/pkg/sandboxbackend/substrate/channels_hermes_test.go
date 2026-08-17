@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -22,11 +22,11 @@ func envByName(envs []corev1.EnvVar, name string) (corev1.EnvVar, bool) {
 }
 
 func TestBuildHermesChannelEnvTelegram(t *testing.T) {
-	chs := []v1alpha2.AgentHarnessChannel{{
+	chs := []v1alpha3.AgentHarnessChannel{{
 		Name: "tg",
-		Type: v1alpha2.AgentHarnessChannelTypeTelegram,
-		Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{
-			BotToken:       v1alpha2.AgentHarnessChannelCredential{Value: "tg-token"},
+		Type: v1alpha3.AgentHarnessChannelTypeTelegram,
+		Telegram: &v1alpha3.AgentHarnessTelegramChannelSpec{
+			BotToken:       v1alpha3.AgentHarnessChannelCredential{Value: "tg-token"},
 			AllowedUserIDs: []string{"1", "2"},
 		},
 	}}
@@ -52,16 +52,16 @@ func TestBuildHermesChannelEnvSlackFromSecret(t *testing.T) {
 		Data:       map[string][]byte{"users": []byte("U1,U2")},
 	}).Build()
 
-	chs := []v1alpha2.AgentHarnessChannel{{
+	chs := []v1alpha3.AgentHarnessChannel{{
 		Name: "sl",
-		Type: v1alpha2.AgentHarnessChannelTypeSlack,
-		Slack: &v1alpha2.AgentHarnessSlackChannelSpec{
-			BotToken: v1alpha2.AgentHarnessChannelCredential{
-				ValueFrom: &v1alpha2.ValueSource{Type: v1alpha2.SecretValueSource, Name: "slack", Key: "bot"},
+		Type: v1alpha3.AgentHarnessChannelTypeSlack,
+		Slack: &v1alpha3.AgentHarnessSlackChannelSpec{
+			BotToken: v1alpha3.AgentHarnessChannelCredential{
+				ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "slack", Key: "bot"},
 			},
-			AppToken: v1alpha2.AgentHarnessChannelCredential{Value: "xapp-1"},
-			Hermes: &v1alpha2.AgentHarnessHermesSlackOptions{
-				AllowedUserIDsFrom: &v1alpha2.ValueSource{Type: v1alpha2.SecretValueSource, Name: "allow", Key: "users"},
+			AppToken: v1alpha3.AgentHarnessChannelCredential{Value: "xapp-1"},
+			Hermes: &v1alpha3.AgentHarnessHermesSlackOptions{
+				AllowedUserIDsFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "allow", Key: "users"},
 				HomeChannel:        "C123",
 				HomeChannelName:    "general",
 			},
@@ -90,9 +90,9 @@ func TestBuildHermesChannelEnvSlackFromSecret(t *testing.T) {
 }
 
 func TestBuildHermesChannelEnvDuplicateType(t *testing.T) {
-	chs := []v1alpha2.AgentHarnessChannel{
-		{Name: "a", Type: v1alpha2.AgentHarnessChannelTypeTelegram, Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "x"}}},
-		{Name: "b", Type: v1alpha2.AgentHarnessChannelTypeTelegram, Telegram: &v1alpha2.AgentHarnessTelegramChannelSpec{BotToken: v1alpha2.AgentHarnessChannelCredential{Value: "y"}}},
+	chs := []v1alpha3.AgentHarnessChannel{
+		{Name: "a", Type: v1alpha3.AgentHarnessChannelTypeTelegram, Telegram: &v1alpha3.AgentHarnessTelegramChannelSpec{BotToken: v1alpha3.AgentHarnessChannelCredential{Value: "x"}}},
+		{Name: "b", Type: v1alpha3.AgentHarnessChannelTypeTelegram, Telegram: &v1alpha3.AgentHarnessTelegramChannelSpec{BotToken: v1alpha3.AgentHarnessChannelCredential{Value: "y"}}},
 	}
 	if _, err := buildHermesChannelEnv(context.Background(), nil, "ns", chs); err == nil {
 		t.Fatal("expected error for duplicate telegram channel")
@@ -100,7 +100,7 @@ func TestBuildHermesChannelEnvDuplicateType(t *testing.T) {
 }
 
 func TestBuildHermesChannelEnvUnsupportedType(t *testing.T) {
-	chs := []v1alpha2.AgentHarnessChannel{{Name: "x", Type: v1alpha2.AgentHarnessChannelType("discord")}}
+	chs := []v1alpha3.AgentHarnessChannel{{Name: "x", Type: v1alpha3.AgentHarnessChannelType("discord")}}
 	if _, err := buildHermesChannelEnv(context.Background(), nil, "ns", chs); err == nil {
 		t.Fatal("expected error for unsupported channel type")
 	}
