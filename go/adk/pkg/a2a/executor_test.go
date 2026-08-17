@@ -1,11 +1,37 @@
 package a2a
 
 import (
+	"context"
+	"net/http"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 )
+
+func TestUserIDCallInterceptor(t *testing.T) {
+	ctx, callCtx := a2asrv.WithCallContext(context.Background(), a2asrv.NewRequestMeta(map[string][]string{
+		"x-user-id": {"initiating-user"},
+	}))
+
+	gotCtx, err := UserIDCallInterceptor().Before(ctx, callCtx, &a2asrv.Request{})
+	if err != nil {
+		t.Fatalf("Before() error = %v", err)
+	}
+	if callCtx.User == nil || callCtx.User.Name() != "initiating-user" {
+		t.Fatalf("CallContext.User = %#v, want name %q", callCtx.User, "initiating-user")
+	}
+
+	req, err := http.NewRequestWithContext(gotCtx, http.MethodGet, "http://example.com", nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext() error = %v", err)
+	}
+	auth.NewKAgentTokenService("test-agent").AddHeaders(req)
+	if got := req.Header.Get("X-User-Id"); got != "initiating-user" {
+		t.Fatalf("X-User-Id = %q, want %q", got, "initiating-user")
+	}
+}
 
 // TestNewAgentMessage_StampsContextAndTaskID verifies agent messages carry the
 // request's context and task ids. A2A allows omitting them (the task is the

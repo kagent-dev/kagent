@@ -94,7 +94,7 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 	}
 	// Set the authenticated user so downstream code picks up the real identity.
 	callCtx.User = &a2asrv.AuthenticatedUser{UserName: vals[0]}
-	return ctx, nil
+	return auth.WithUserID(ctx, vals[0]), nil
 }
 
 // newAgentMessage builds an agent message stamped with the request's context
