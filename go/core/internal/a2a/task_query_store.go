@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -19,19 +20,19 @@ const (
 	maxTaskPageSize     = 100
 )
 
-// TaskStore is the subset of the persistent store ListTasks reads from.
+// TaskStore is the subset of the persistent store task queries read from.
 // *database.Client satisfies it. GetSession errors (including a missing or
 // other-user session) surface to the caller.
 type TaskStore interface {
+	GetTask(ctx context.Context, taskID, userID string) (*a2atype.Task, error)
 	GetSession(ctx context.Context, sessionID, userID string) (*dbpkg.Session, error)
 	ListSessions(ctx context.Context, userID string) ([]dbpkg.Session, error)
 	ListTasksForSession(ctx context.Context, sessionID, userID string) ([]*a2atype.Task, error)
 }
 
-// storeTaskQueryHandler answers ListTasks from kagent's task store, which is
-// the source of truth for persisted tasks. Every other method (including
-// GetTask, which already resolves to the same store via the passthrough) is
-// delegated to the embedded handler unchanged.
+// storeTaskQueryHandler answers GetTask and ListTasks from kagent's task
+// store, which is the source of truth for persisted tasks. Every other method
+// is delegated to the embedded handler unchanged.
 type storeTaskQueryHandler struct {
 	a2asrv.RequestHandler
 	store TaskStore
@@ -39,6 +40,22 @@ type storeTaskQueryHandler struct {
 
 func newStoreTaskQueryHandler(delegate a2asrv.RequestHandler, store TaskStore) *storeTaskQueryHandler {
 	return &storeTaskQueryHandler{RequestHandler: delegate, store: store}
+}
+
+func (h *storeTaskQueryHandler) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+	userID := callerUserID(ctx)
+	if userID == "" {
+		return h.RequestHandler.GetTask(ctx, req)
+	}
+
+	task, err := h.store.GetTask(ctx, string(req.ID), userID)
+	if err == nil {
+		return shapeTask(task, req.HistoryLength, true), nil
+	}
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return h.RequestHandler.GetTask(ctx, req)
+	}
+	return nil, err
 }
 
 // callerUserID returns the authenticated principal's user id, or "" when the
