@@ -129,11 +129,11 @@ Thanks to all contributors who are helping to make kagent better.
 
 ### Star History
 
-<a href="https://www.star-history.com/#kagent-dev/kagent&Date">
+<a href="https://star-history.dera.page/#kagent-dev/kagent&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=kagent-dev/kagent&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=kagent-dev/kagent&type=Date" />
-   <img alt="Star history of kagent-dev/kagent over time" src="https://api.star-history.com/svg?repos=kagent-dev/kagent&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=kagent-dev/kagent&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=kagent-dev/kagent&type=Date" />
+   <img alt="Star history of kagent-dev/kagent over time" src="https://star-history.dera.page/svg?repos=kagent-dev/kagent&type=Date" />
  </picture>
 </a>
 
