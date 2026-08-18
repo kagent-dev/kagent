@@ -69,20 +69,6 @@ func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, 
 	}
 }
 
-// parseUnverifiedClaims parses a JWT's claims WITHOUT signature or time
-// validation. It is used only for cache TTL; tokens are validated server-side
-// during STS exchange.
-func parseUnverifiedClaims(token string) (jwt.MapClaims, bool) {
-	if token == "" {
-		return nil, false
-	}
-	claims := jwt.MapClaims{}
-	if _, _, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseUnverified(token, claims); err != nil {
-		return nil, false
-	}
-	return claims, true
-}
-
 // earlierExpiry returns the earlier of two Unix expiry timestamps, treating 0
 // as "no expiry known" rather than as the epoch.
 func earlierExpiry(current, candidate int64) int64 {
@@ -410,8 +396,11 @@ func (p *TokenPropagationPlugin) ADKPlugin() (*adkplugin.Plugin, error) {
 // its signature. This is ONLY used for cache TTL management, not for security
 // decisions. Token validation happens server-side during STS exchange.
 func extractJWTExpiry(token string) int64 {
-	claims, ok := parseUnverifiedClaims(token)
-	if !ok {
+	if token == "" {
+		return 0
+	}
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseUnverified(token, claims); err != nil {
 		return 0
 	}
 	exp, err := claims.GetExpirationTime()
