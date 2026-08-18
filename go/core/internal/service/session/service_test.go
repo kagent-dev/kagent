@@ -275,3 +275,22 @@ func TestMissingAuthenticationAndStoreErrorsAreCanonical(t *testing.T) {
 		t.Fatalf("Get() error = %v, want internal", err)
 	}
 }
+
+func TestCreateAndUpdateMapRetiredSessionID(t *testing.T) {
+	store := newSessionTestStore()
+	store.agents["default__NS__agent"] = &database.Agent{ID: "default__NS__agent"}
+	store.storeSessionError = database.ErrSessionIDRetired
+	id := "retired-session"
+
+	_, err := NewService(store).Create(sessionContext("user-a", ""), CreateRequest{ID: &id, AgentRef: "default/agent"})
+	if !serviceerrors.IsCode(err, serviceerrors.CodeAlreadyExists) {
+		t.Fatalf("Create() error = %v, want already exists", err)
+	}
+
+	store.sessions[id] = &database.Session{ID: id, UserID: "user-a"}
+	name := "renamed"
+	_, err = NewService(store).Update(sessionContext("user-a", ""), UpdateRequest{SessionID: id, Name: &name})
+	if !serviceerrors.IsCode(err, serviceerrors.CodeNotFound) {
+		t.Fatalf("Update() error = %v, want not found", err)
+	}
+}

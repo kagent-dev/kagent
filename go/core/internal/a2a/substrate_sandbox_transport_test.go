@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -132,6 +133,21 @@ func TestEnsureSessionRow(t *testing.T) {
 			t.Fatalf("expected no row, got %v", err)
 		}
 	})
+
+	t.Run("a retired session id is not resurrected", func(t *testing.T) {
+		if err := db.StoreSession(ctx, &database.Session{ID: "sess-4", UserID: "jm@solo.io"}); err != nil {
+			t.Fatalf("StoreSession: %v", err)
+		}
+		if err := db.DeleteSession(ctx, "sess-4", "jm@solo.io"); err != nil {
+			t.Fatalf("DeleteSession: %v", err)
+		}
+		if err := rt.ensureSessionRow(ctx, "sess-4", "jm@solo.io"); !errors.Is(err, database.ErrSessionIDRetired) {
+			t.Fatalf("ensureSessionRow() error = %v, want a retired session id", err)
+		}
+		if _, err := db.GetSession(ctx, "sess-4", "jm@solo.io"); !errors.Is(err, database.ErrNotFound) {
+			t.Fatalf("the session must stay deleted, got %v", err)
+		}
+	})
 }
 
 func TestExtractA2AContextID(t *testing.T) {
@@ -159,5 +175,58 @@ func TestSuspendSessionActorOnClosePreservesBody(t *testing.T) {
 	}
 	if string(got) != "payload" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// A retired session id can never hold a visible row again, so RoundTrip must fail
+// before it reaches the actor backend: serving the request would create an actor
+// that no read path can see and no delete can reach. The backend is nil here, so a
+// regression that lets the request through panics instead of passing.
+func TestRoundTripRejectsARetiredSessionID(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database test in short mode")
+	}
+	t.Parallel()
+
+	ctx := context.Background()
+	connStr := dbtest.StartT(ctx, t)
+	dbtest.MigrateT(t, connStr, false)
+	pool, err := coredatabase.Connect(ctx, &coredatabase.PostgresConfig{URL: connStr})
+	if err != nil {
+		t.Fatalf("connect to test database: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	db := coredatabase.NewClient(pool)
+
+	if err := db.StoreSession(ctx, &database.Session{ID: "sess-retired", UserID: "jm@solo.io"}); err != nil {
+		t.Fatalf("StoreSession: %v", err)
+	}
+	if err := db.DeleteSession(ctx, "sess-retired", "jm@solo.io"); err != nil {
+		t.Fatalf("DeleteSession: %v", err)
+	}
+
+	sa := &v1alpha3.SandboxAgent{
+		Spec: v1alpha3.SandboxAgentSpec{
+			Type:        v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{Runtime: v1alpha3.DeclarativeRuntime_Python},
+		},
+	}
+	sa.Name = "my-agent"
+	sa.Namespace = "kagent"
+	rt := &substrateSandboxSessionRoundTripper{sandboxAgent: sa, db: db}
+
+	body := `{"params":{"message":{"contextId":"sess-retired"}}}`
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://kagent.invalid/", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	request.Header.Set("X-User-Id", "jm@solo.io")
+
+	response, err := rt.RoundTrip(request)
+	if !errors.Is(err, database.ErrSessionIDRetired) {
+		t.Fatalf("RoundTrip() error = %v, want a retired session id", err)
+	}
+	if response != nil {
+		t.Fatal("RoundTrip() must not return a response for a retired session id")
 	}
 }

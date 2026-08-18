@@ -108,7 +108,17 @@ func (c *postgresClient) StoreSession(ctx context.Context, session *dbpkg.Sessio
 			src := string(*session.Source)
 			params.Source = &src
 		}
-		return q.UpsertSession(ctx, params)
+		// UpsertSession returns no rows when the write was rejected: the id
+		// belongs to a soft-deleted session (deleted ids stay burned). Under
+		// READ COMMITTED the guard is evaluated against the latest committed
+		// row, so a delete committing mid-statement still rejects the write.
+		if _, err := q.UpsertSession(ctx, params); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return dbpkg.ErrSessionIDRetired
+			}
+			return fmt.Errorf("failed to store session %s: %w", session.ID, err)
+		}
+		return nil
 	})
 }
 

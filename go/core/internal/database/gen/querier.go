@@ -118,7 +118,12 @@ type Querier interface {
 	UpsertCrewAIMemory(ctx context.Context, arg UpsertCrewAIMemoryParams) error
 	UpsertPushNotification(ctx context.Context, arg UpsertPushNotificationParams) error
 	UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRevisionParams) error
-	UpsertSession(ctx context.Context, arg UpsertSessionParams) error
+	// UpsertSession returns the upserted id, or no rows when the write was
+	// rejected: the id belongs to a soft-deleted session. A deleted id is never
+	// updated or resurrected, it stays burned, so the tombstone and the events and
+	// tasks it owns are left exactly as they are. Callers map "no rows" to a
+	// conflict error.
+	UpsertSession(ctx context.Context, arg UpsertSessionParams) (string, error)
 	UpsertShareAccess(ctx context.Context, arg UpsertShareAccessParams) error
 	// UpsertTask returns the upserted id, or no rows when the write was rejected:
 	// the id belongs to another user, or it belongs to a soft-deleted task (a
