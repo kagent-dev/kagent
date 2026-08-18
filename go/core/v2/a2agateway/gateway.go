@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -38,6 +39,7 @@ const (
 
 type instanceStore interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
@@ -55,15 +57,16 @@ type Gateway struct {
 	store      instanceStore
 	authorizer auth.Authorizer
 	dialer     runtimeDialer
+	gatewayURL string
 }
 
 var _ a2asrv.RequestHandler = (*Gateway)(nil)
 
 // New returns the upstream A2A handler independently of any listener or gRPC
 // server, keeping deployment topology outside the gateway package.
-func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer) a2asrv.RequestHandler {
+func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, gatewayURL string) a2asrv.RequestHandler {
 	return &a2asrv.InterceptedHandler{
-		Handler:      &Gateway{store: store, authorizer: authorizer, dialer: dialer},
+		Handler:      &Gateway{store: store, authorizer: authorizer, dialer: dialer, gatewayURL: gatewayURL},
 		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
 	}
 }
@@ -284,8 +287,31 @@ func (g *Gateway) DeleteTaskPushConfig(ctx context.Context, req *a2atype.DeleteT
 	return a2atype.ErrPushNotificationNotSupported
 }
 
-func (g *Gateway) GetExtendedAgentCard(ctx context.Context, req *a2atype.GetExtendedAgentCardRequest) (*a2atype.AgentCard, error) {
-	return nil, a2atype.ErrExtendedCardNotConfigured
+func (g *Gateway) GetExtendedAgentCard(ctx context.Context, _ *a2atype.GetExtendedAgentCardRequest) (*a2atype.AgentCard, error) {
+	instance, err := g.instance(ctx, auth.VerbGet)
+	if err != nil {
+		return nil, err
+	}
+	revision, err := g.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance runtime revision", "revision", instance.GetPreparedRevision())
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load Agent Card")
+	}
+	card := &a2atype.AgentCard{}
+	if err := json.Unmarshal(revision.AgentCard, card); err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to decode AgentInstance Agent Card", "revision", revision.Revision)
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load Agent Card")
+	}
+
+	// The compiled card provides immutable template metadata. Public transport,
+	// capabilities, security, and signatures belong to the gateway instead of
+	// the private runtime that produced that card.
+	card.SupportedInterfaces = []*a2atype.AgentInterface{a2atype.NewAgentInterface(g.gatewayURL, a2atype.TransportProtocolGRPC)}
+	card.Capabilities = a2atype.AgentCapabilities{Streaming: true, ExtendedAgentCard: true}
+	card.SecurityRequirements = nil
+	card.SecuritySchemes = nil
+	card.Signatures = nil
+	return card, nil
 }
 
 func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageRequest) (*apiv1alpha1.AgentInstance, *a2atype.Task, bool, error) {

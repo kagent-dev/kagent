@@ -188,6 +188,7 @@ type RuntimeRevision struct {
 	GoldenSnapshot         string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	AgentCard              []byte
 }
 
 type Session struct {

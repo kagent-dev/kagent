@@ -383,7 +383,8 @@ func (c *postgresClient) UpsertRuntimeRevision(ctx context.Context, revision dbp
 		Revision: revision.Revision, Namespace: revision.Namespace,
 		AgentTemplateName: revision.AgentTemplateName, AgentTemplateUid: revision.AgentTemplateUID,
 		HarnessName: revision.HarnessName, HarnessUid: revision.HarnessUID,
-		SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations,
+		SourceSnapshot: revision.SourceSnapshot, AgentCard: revision.AgentCard,
+		EgressDestinations:     revision.EgressDestinations,
 		ActorTemplateNamespace: revision.ActorTemplateNamespace, ActorTemplateName: revision.ActorTemplateName,
 		ActorTemplateUid: revision.ActorTemplateUID, Phase: revision.Phase, GoldenSnapshot: revision.GoldenSnapshot,
 	}); err != nil {
@@ -401,7 +402,8 @@ func (c *postgresClient) GetRuntimeRevision(ctx context.Context, revision string
 		Revision: row.Revision, Namespace: row.Namespace,
 		AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
 		HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
-		SourceSnapshot: row.SourceSnapshot, EgressDestinations: row.EgressDestinations,
+		SourceSnapshot: row.SourceSnapshot, AgentCard: row.AgentCard,
+		EgressDestinations:     row.EgressDestinations,
 		ActorTemplateNamespace: row.ActorTemplateNamespace, ActorTemplateName: row.ActorTemplateName,
 		ActorTemplateUID: row.ActorTemplateUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
 	}, nil
@@ -440,7 +442,8 @@ func (c *postgresClient) ListUnreferencedRuntimeRevisions(ctx context.Context) (
 			Revision: row.Revision, Namespace: row.Namespace,
 			AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
 			HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
-			SourceSnapshot: row.SourceSnapshot, EgressDestinations: row.EgressDestinations,
+			SourceSnapshot: row.SourceSnapshot, AgentCard: row.AgentCard,
+			EgressDestinations:     row.EgressDestinations,
 			ActorTemplateNamespace: row.ActorTemplateNamespace, ActorTemplateName: row.ActorTemplateName,
 			ActorTemplateUID: row.ActorTemplateUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
 		})
