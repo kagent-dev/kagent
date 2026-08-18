@@ -21,21 +21,25 @@ func EnrichAgentCard(card *a2atype.AgentCard, agent adkagent.Agent) {
 	if card.Description == "" && agent.Description() != "" {
 		card.Description = agent.Description()
 	}
-	// If the agent card does not have the HITL extension, add it.
-	// Kagent's harness always supports it.
-	if !hasHITLExtension(card.Capabilities.Extensions) {
-		card.Capabilities.Extensions = append(card.Capabilities.Extensions, a2atype.AgentExtension{
-			URI: HITLExtensionURI, Description: "Human in the loop for tool approval, ask user, and nested subagents",
-			Required: false,
-		})
-	}
-
 	// Default to JSONRPC when no interface is explicitly configured.
 	if len(card.SupportedInterfaces) == 0 {
 		card.SupportedInterfaces = []*a2atype.AgentInterface{
 			a2atype.NewAgentInterface("/", a2atype.TransportProtocolJSONRPC),
 		}
 	}
+}
+
+// EnsureHITLExtension declares the optional HITL extension on the card so a client
+// can discover it and negotiate. Kagent's harness always supports it, and the
+// declaration does not depend on whether an ADK agent was supplied.
+func EnsureHITLExtension(card *a2atype.AgentCard) {
+	if card == nil || hasHITLExtension(card.Capabilities.Extensions) {
+		return
+	}
+	card.Capabilities.Extensions = append(card.Capabilities.Extensions, a2atype.AgentExtension{
+		URI: HITLExtensionURI, Description: "Human in the loop for tool approval, ask user, and nested subagents",
+		Required: false,
+	})
 }
 
 func hasHITLExtension(extensions []a2atype.AgentExtension) bool {

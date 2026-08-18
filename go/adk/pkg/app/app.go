@@ -143,6 +143,8 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	// Append any caller-supplied handler options.
 	handlerOpts = append(handlerOpts, cfg.HandlerOpts...)
 
+	a2a.EnsureHITLExtension(&cfg.AgentCard)
+
 	// Enrich agent card with skills derived from the ADK agent.
 	if cfg.Agent != nil {
 		a2a.EnrichAgentCard(&cfg.AgentCard, cfg.Agent)
