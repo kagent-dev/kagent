@@ -98,19 +98,6 @@ func (g *Gateway) instance(ctx context.Context, verb auth.Verb) (*apiv1alpha1.Ag
 	return instance, nil
 }
 
-func (g *Gateway) runtime(ctx context.Context, verb auth.Verb) (*a2aclient.Client, error) {
-	instance, err := g.instance(ctx, verb)
-	if err != nil {
-		return nil, err
-	}
-	client, err := g.dialer.Dial(ctx, instance)
-	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "namespace", instance.GetNamespace(), "id", instance.GetId())
-		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime")
-	}
-	return client, nil
-}
-
 func route(ctx context.Context) (namespace, id string, err error) {
 	namespaces := metadata.ValueFromIncomingContext(ctx, AgentInstanceNamespaceHeader)
 	ids := metadata.ValueFromIncomingContext(ctx, AgentInstanceIDHeader)
@@ -185,12 +172,38 @@ func (g *Gateway) ListTasks(ctx context.Context, req *a2atype.ListTasksRequest) 
 }
 
 func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
-	client, err := g.runtime(ctx, auth.VerbUpdate)
+	instance, err := g.instance(ctx, auth.VerbUpdate)
 	if err != nil {
 		return nil, err
 	}
+	if req == nil || req.ID == "" {
+		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "task ID is required")
+	}
+	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, a2atype.ErrTaskNotFound
+	}
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance task", "task", req.ID)
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to load task")
+	}
+	client, err := g.dialer.Dial(ctx, instance)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
+		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime")
+	}
 	defer client.Destroy()
-	return client.CancelTask(ctx, req)
+	canceled, err := client.CancelTask(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateTaskInfo(canceled, task); err != nil {
+		return nil, a2atype.NewError(a2atype.ErrInternalError, err.Error())
+	}
+	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), canceled, canceled); err != nil {
+		return nil, g.storeError(ctx, err)
+	}
+	return canceled, nil
 }
 
 func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
@@ -226,11 +239,50 @@ func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageReque
 }
 
 func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToTaskRequest) iter.Seq2[a2atype.Event, error] {
-	client, err := g.runtime(ctx, auth.VerbGet)
+	instance, err := g.instance(ctx, auth.VerbGet)
 	if err != nil {
 		return errorEvents(err)
 	}
-	return closeAfter(client, client.SubscribeToTask(ctx, req))
+	if req == nil || req.ID == "" {
+		return errorEvents(a2atype.NewError(a2atype.ErrInvalidRequest, "task ID is required"))
+	}
+	task, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(req.ID))
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return errorEvents(a2atype.ErrTaskNotFound)
+	}
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance task", "task", req.ID)
+		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to load task"))
+	}
+	if task.Status.State.Terminal() {
+		return func(yield func(a2atype.Event, error) bool) { yield(task, nil) }
+	}
+	client, err := g.dialer.Dial(ctx, instance)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
+		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime"))
+	}
+	return func(yield func(a2atype.Event, error) bool) {
+		defer client.Destroy()
+		for event, eventErr := range client.SubscribeToTask(ctx, req) {
+			if eventErr != nil {
+				yield(nil, eventErr)
+				return
+			}
+			updated, err := g.taskForEvent(ctx, client, instance.GetId(), task, event)
+			if err == nil {
+				err = g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), updated, event)
+			}
+			if err != nil {
+				yield(nil, g.storeError(ctx, err))
+				return
+			}
+			task = updated
+			if !yield(event, nil) {
+				return
+			}
+		}
+	}
 }
 
 func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
@@ -488,16 +540,5 @@ func errorEvents(err error) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		var zero a2atype.Event
 		yield(zero, err)
-	}
-}
-
-func closeAfter(client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) iter.Seq2[a2atype.Event, error] {
-	return func(yield func(a2atype.Event, error) bool) {
-		defer client.Destroy()
-		for event, err := range events {
-			if !yield(event, err) {
-				return
-			}
-		}
 	}
 }
