@@ -5,14 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"google.golang.org/adk/v2/agent"
 	adkplugin "google.golang.org/adk/v2/plugin"
@@ -25,6 +22,10 @@ import (
 const maxCacheTTL = 5 * time.Minute
 
 // TokenCacheEntry holds a cached token with its expiry time.
+//
+// Expiry 0 means the entry never expires. Only the actor token cache stores
+// such entries; setCachedToken bounds every subject entry, because the subject
+// cache holds one entry per caller rather than one per session.
 type TokenCacheEntry struct {
 	Token  string
 	Expiry int64 // Unix timestamp, 0 if no expiry
@@ -82,6 +83,18 @@ func parseUnverifiedClaims(token string) (jwt.MapClaims, bool) {
 	return claims, true
 }
 
+// earlierExpiry returns the earlier of two Unix expiry timestamps, treating 0
+// as "no expiry known" rather than as the epoch.
+func earlierExpiry(current, candidate int64) int64 {
+	if candidate == 0 {
+		return current
+	}
+	if current == 0 || candidate < current {
+		return candidate
+	}
+	return current
+}
+
 // subjectKey derives a per-principal cache discriminator from a bearer token: a
 // hash of the raw token.
 //
@@ -92,9 +105,7 @@ func parseUnverifiedClaims(token string) (jwt.MapClaims, bool) {
 // the raw token instead makes a forged token a cache miss, so it goes to the
 // STS and fails there.
 //
-// The cost is a re-exchange when a principal's bearer rotates mid-session, which
-// is wanted anyway: the delegated token's lifetime tracks the subject token it
-// was exchanged from.
+// The cost is a re-exchange when a principal's bearer rotates mid-session.
 func subjectKey(token string) string {
 	if token == "" {
 		return ""
@@ -104,33 +115,14 @@ func subjectKey(token string) string {
 }
 
 // actingCredential returns the credential this request authenticates with, which
-// is also what the cache key is derived from. It prefers the value
-// executor.withBearerToken stored (models.BearerTokenKey) and falls back to the
-// A2A CallContext Authorization header. The fallback keeps the per-subject cache
-// key reliable at the MCP transport layer: the CallContext is the same source the
-// round-tripper's propagateToken path reads, so it reaches the caller even when
-// BearerTokenKey is not threaded to the MCP request context.
+// is also what the cache key is derived from. models.BearerTokenFromContext
+// prefers the value executor.withBearerToken stored and falls back to the A2A
+// call context, which is what reaches the MCP transport layer: the call context
+// is the same source the round-tripper's propagateToken path reads, so the
+// per-subject key stays derivable even when BearerTokenKey is not threaded to
+// the MCP request context.
 func actingCredential(ctx context.Context) string {
-	if token, ok := ctx.Value(models.BearerTokenKey).(string); ok && token != "" {
-		return token
-	}
-	callCtx, ok := a2asrv.CallContextFrom(ctx)
-	if !ok {
-		return ""
-	}
-	meta := callCtx.ServiceParams()
-	if meta == nil {
-		return ""
-	}
-	vals, ok := meta.Get(constants.AuthorizationHeader)
-	if !ok || len(vals) == 0 {
-		return ""
-	}
-	parts := strings.Fields(strings.TrimSpace(vals[0]))
-	if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
-		return parts[1]
-	}
-	return ""
+	return models.BearerTokenFromContext(ctx)
 }
 
 // cacheKey scopes a cache entry to both the session and the acting subject so a
@@ -174,6 +166,9 @@ func (p *TokenPropagationPlugin) setCachedToken(sessionID, subject, token string
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// Every subject entry carries an expiry so the sweep can always evict it.
+	// Only entries whose token has no usable exp fall back to maxCacheTTL;
+	// a token that states its own expiry keeps it.
 	if expiry == 0 {
 		expiry = time.Now().Add(maxCacheTTL).Unix()
 	}
@@ -255,11 +250,8 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 
 	// Check if we already have a valid cached token for this session and subject.
 	if entry, ok := p.getCachedToken(sessionID, subject); ok {
-		p.logger.V(1).Info("Using cached STS token", "sessionID", sessionID)
-		if entry.Expiry > 0 {
-			p.logger.V(1).Info("Token expiry remaining",
-				"expiresIn", time.Until(time.Unix(entry.Expiry, 0)).String())
-		}
+		p.logger.V(1).Info("Using cached STS token", "sessionID", sessionID,
+			"expiresIn", time.Until(time.Unix(entry.Expiry, 0)).String())
 		return nil, nil
 	}
 
@@ -305,11 +297,15 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			// Fall back to JWT exp claim for cache TTL.
 			expiry = extractJWTExpiry(exchangedToken)
 		}
+		// The entry is keyed by the caller's credential, so it must not outlive
+		// it: replaying an expired bearer would otherwise keep hitting a cached
+		// delegated token instead of reaching the STS.
+		expiry = earlierExpiry(expiry, extractJWTExpiry(bearerToken))
 		p.setCachedToken(sessionID, subject, exchangedToken, expiry)
 		p.logger.Info("Successfully exchanged and cached STS token", "sessionID", sessionID)
 	} else {
 		// No STS integration — cache the raw subject token for header injection.
-		expiry := extractJWTExpiry(subjectToken)
+		expiry := earlierExpiry(extractJWTExpiry(subjectToken), extractJWTExpiry(bearerToken))
 		p.setCachedToken(sessionID, subject, subjectToken, expiry)
 		p.logger.V(1).Info("Cached subject token (no STS exchange)", "sessionID", sessionID)
 	}

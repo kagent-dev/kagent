@@ -572,3 +572,84 @@ func TestExtractJWTExpiryUsesUnverifiedClaims(t *testing.T) {
 		t.Fatalf("extractJWTExpiry() = %d, want %d", got, want)
 	}
 }
+
+// signedTokenExpiringIn mints a token whose exp claim is offset from now.
+func signedTokenExpiringIn(t *testing.T, sub string, d time.Duration) string {
+	t.Helper()
+	claims := jwt.MapClaims{
+		"iss": "https://issuer.example",
+		"sub": sub,
+		"exp": time.Now().Add(d).Unix(),
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("secret"))
+	if err != nil {
+		t.Fatalf("failed to sign token: %v", err)
+	}
+	return token
+}
+
+// The entry is keyed by the caller's credential, so it must not outlive it.
+// Otherwise a caller replaying an expired bearer keeps hitting a cached
+// delegated token instead of reaching the STS that would reject it.
+func TestCachedEntryDoesNotOutliveTheCallerCredential(t *testing.T) {
+	t.Parallel()
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":         srv.URL,
+				"token_endpoint": srv.URL + "/token",
+			})
+			return
+		}
+		// A delegated token that long outlives the caller's own credential.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":      "long-lived",
+			"issued_token_type": string(TokenTypeJWT),
+			"expires_in":        3600,
+		})
+	}))
+	defer srv.Close()
+
+	integration, err := NewSTSIntegration(
+		srv.URL+"/.well-known/oauth-authorization-server",
+		"",
+		func(context.Context) (string, error) { return "actor", nil },
+		nil,
+		5,
+		true,
+		false,
+	)
+	if err != nil {
+		t.Fatalf("NewSTSIntegration() error = %v", err)
+	}
+
+	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), nil, nil)
+
+	const sessionID = "sess-ttl"
+	bearer := signedTokenExpiringIn(t, "alice", 30*time.Second)
+	ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, bearer)
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: ctx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
+	}
+
+	entry, ok := plugin.getCachedToken(sessionID, subjectKey(bearer))
+	if !ok {
+		t.Fatal("expected a cached entry after the exchange")
+	}
+	if want := extractJWTExpiry(bearer); entry.Expiry != want {
+		t.Fatalf("entry expiry = %d, want the caller credential's exp %d", entry.Expiry, want)
+	}
+}
+
+// A credential with no exp claim leaves the exchange's own lifetime in place
+// rather than truncating it.
+func TestCachedEntryKeepsExchangeExpiryWhenCredentialHasNone(t *testing.T) {
+	t.Parallel()
+
+	exchanged := signedTokenExpiringIn(t, "alice", time.Hour)
+	if got := earlierExpiry(extractJWTExpiry(exchanged), extractJWTExpiry(signedTokenWithSub(t, "alice"))); got != extractJWTExpiry(exchanged) {
+		t.Fatalf("earlierExpiry() = %d, want the exchange expiry %d", got, extractJWTExpiry(exchanged))
+	}
+}

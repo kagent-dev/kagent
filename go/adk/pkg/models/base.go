@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/constants"
 	"google.golang.org/genai"
 )
 
@@ -79,6 +82,39 @@ func withConnectTimeout(base http.RoundTripper, connectTimeout time.Duration) (h
 var BearerTokenKey = &contextKey{}
 
 type contextKey struct{}
+
+// BearerFromCallContext returns the bearer token carried by the A2A call
+// context's Authorization header, or "" when there is none.
+func BearerFromCallContext(ctx context.Context) string {
+	callCtx, ok := a2asrv.CallContextFrom(ctx)
+	if !ok {
+		return ""
+	}
+	meta := callCtx.ServiceParams()
+	if meta == nil {
+		return ""
+	}
+	vals, ok := meta.Get(constants.AuthorizationHeader)
+	if !ok || len(vals) == 0 {
+		return ""
+	}
+	parts := strings.Fields(strings.TrimSpace(vals[0]))
+	if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
+		return parts[1]
+	}
+	return ""
+}
+
+// BearerTokenFromContext returns the credential the request authenticates with.
+// It prefers the value stored under BearerTokenKey and falls back to the A2A
+// call context, which reaches callers whose context was not threaded through
+// the executor.
+func BearerTokenFromContext(ctx context.Context) string {
+	if token, ok := ctx.Value(BearerTokenKey).(string); ok && token != "" {
+		return token
+	}
+	return BearerFromCallContext(ctx)
+}
 
 // headerTransport wraps an http.RoundTripper and adds custom headers to all requests
 type headerTransport struct {
