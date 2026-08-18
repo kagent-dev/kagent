@@ -1134,10 +1134,18 @@ class TestADKTokenPropagationPlugin:
         assert has_token_expired(extract_jwt_expiry(no_exp_token)) is False
 
     @staticmethod
-    def _jwt(iss: str, sub: str, signing_key: str = "test-signing-key-of-at-least-32-bytes!") -> str:
+    def _jwt(
+        iss: str,
+        sub: str,
+        signing_key: str = "test-signing-key-of-at-least-32-bytes!",
+        expiry: int | None = None,
+    ) -> str:
         import jwt as pyjwt
 
-        return pyjwt.encode({"iss": iss, "sub": sub}, signing_key, algorithm="HS256")
+        claims = {"iss": iss, "sub": sub}
+        if expiry is not None:
+            claims["exp"] = expiry
+        return pyjwt.encode(claims, signing_key, algorithm="HS256")
 
     @pytest.mark.asyncio
     async def test_two_subjects_in_one_session_keep_separate_tokens(self):
@@ -1301,13 +1309,64 @@ class TestADKTokenPropagationPlugin:
         assert plugin.token_cache[plugin.cache_key(ic_alice)].token == "exchanged-alice"
         assert plugin.token_cache[plugin.cache_key(ic_bob)].token == "exchanged-bob"
 
+    @pytest.mark.asyncio
+    async def test_get_subject_token_is_not_called_per_tool_call(self):
+        """Case: header_provider runs on every tool call, so it must reuse the key
+        resolved for the run rather than re-invoking the caller-supplied hook."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        calls = []
+
+        def counting_hook(state):
+            calls.append(state)
+            return state.get(HEADERS_KEY, {}).get("Authorization", "").removeprefix("Bearer ")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = counting_hook
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value="exchanged-alice")
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-hook", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+        after_run = len(calls)
+
+        ro_ctx = self._make_readonly_context(ic)
+        for _ in range(3):
+            assert plugin.header_provider(ro_ctx) == {"Authorization": "Bearer exchanged-alice"}
+
+        assert len(calls) == after_run
+
+    @pytest.mark.asyncio
+    async def test_cached_entry_does_not_outlive_the_caller_credential(self):
+        """Case: the entry is keyed by the caller's credential, so a caller replaying
+        an expired bearer must miss the cache and reach the STS."""
+        alice = self._jwt("https://dex.example", "alice", expiry=int(time.time()) + 30)
+        long_lived = self._jwt("https://dex.example", "alice", expiry=int(time.time()) + 3600)
+
+        sts = Mock(spec=ADKSTSIntegration)
+        sts.get_subject_token = None
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(return_value=long_lived)
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic = self._make_invocation_context("sess-ttl", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        entry = plugin.token_cache[plugin.cache_key(ic)]
+        assert entry.expiry == extract_jwt_expiry(alice)
+
     def test_empty_subject_is_not_cacheable(self):
         """Case: a caller with no credential yields no cache key, so credential-less
         callers cannot come to share one entry."""
         plugin = ADKTokenPropagationPlugin(sts_integration=None)
 
-        assert plugin._cache_key_for("sess-x", None) is None
-        assert plugin._cache_key_for("sess-x", "") is None
+        assert plugin._cache_key_for("sess-x", None, None) is None
+        assert plugin._cache_key_for("sess-x", "", "") is None
+        # No credential but a subject token from the hook still keys per session.
+        assert plugin._cache_key_for("sess-x", None, "hook-token") is not None
 
 
 class TestADKSTSIntegration:
