@@ -2,25 +2,18 @@ package embedding
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func openAIEmbeddingResponseBody() string {
-	vals := make([]string, TargetDimension)
-	for i := range vals {
-		vals[i] = "0.01"
-	}
-	return `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[` + strings.Join(vals, ",") + `]}],"model":"text-embedding-3-small","usage":{"prompt_tokens":1,"total_tokens":1}}`
-}
 
 // TestFoundryProviderAPIKey verifies the API-key auth path: the Api-Key header
 // is set, the request targets the deployment embeddings path with the api-version
@@ -35,7 +28,7 @@ func TestFoundryProviderAPIKey(t *testing.T) {
 		gotAPIKey = r.Header.Get("Api-Key")
 		gotAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(openAIEmbeddingResponseBody()))
+		json.NewEncoder(w).Encode(embeddingResponse("text-embedding-3-small"))
 	}))
 	defer server.Close()
 
@@ -77,7 +70,7 @@ func TestFoundryProviderWorkloadIdentity(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		gotAPIKey = r.Header.Get("Api-Key")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(openAIEmbeddingResponseBody()))
+		json.NewEncoder(w).Encode(embeddingResponse("text-embedding-3-small"))
 	}))
 	defer server.Close()
 
@@ -95,4 +88,62 @@ func TestFoundryProviderWorkloadIdentity(t *testing.T) {
 	require.Len(t, embeddings, 1)
 	assert.Equal(t, "Bearer entra-token", gotAuth)
 	assert.Empty(t, gotAPIKey)
+}
+
+func TestFoundryProviderAPIKeyPassthrough(t *testing.T) {
+	t.Setenv("FOUNDRY_API_KEY", "")
+
+	var gotAPIKey, gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAPIKey = r.Header.Get("Api-Key")
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(embeddingResponse("text-embedding-3-small"))
+	}))
+	defer server.Close()
+
+	p, err := newFoundryProvider(&adk.EmbeddingConfig{
+		Provider:          "foundry",
+		Model:             "text-embedding-3-small",
+		Endpoint:          server.URL,
+		Deployment:        "text-embedding-3-small",
+		APIVersion:        "2024-10-21",
+		APIKeyPassthrough: true,
+	}, nil)
+	require.NoError(t, err)
+
+	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	embeddings, err := p.generate(ctx, []string{"hello"})
+	require.NoError(t, err)
+	require.Len(t, embeddings, 1)
+	assert.Equal(t, "the-callers-token", gotAPIKey)
+	assert.Empty(t, gotAuth)
+}
+
+func TestFoundryProviderAPIKeyPassthroughOverridesStaticKey(t *testing.T) {
+	t.Setenv("FOUNDRY_API_KEY", "static-key-should-be-overridden")
+
+	var gotAPIKey string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAPIKey = r.Header.Get("Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(embeddingResponse("text-embedding-3-small"))
+	}))
+	defer server.Close()
+
+	p, err := newFoundryProvider(&adk.EmbeddingConfig{
+		Provider:          "foundry",
+		Model:             "text-embedding-3-small",
+		Endpoint:          server.URL,
+		Deployment:        "text-embedding-3-small",
+		APIVersion:        "2024-10-21",
+		APIKeyPassthrough: true,
+	}, nil)
+	require.NoError(t, err)
+
+	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	embeddings, err := p.generate(ctx, []string{"hello"})
+	require.NoError(t, err)
+	require.Len(t, embeddings, 1)
+	assert.Equal(t, "the-callers-token", gotAPIKey)
 }

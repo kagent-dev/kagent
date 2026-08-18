@@ -181,6 +181,9 @@ controller:
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
   a2aBaseUrl: ""
+  # -- Public gRPC URL advertised by AgentInstance Agent Cards.
+  # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
+  a2aGatewayUrl: ""
   agentImage:
     registry: ""
     repository: kagent-dev/kagent/app

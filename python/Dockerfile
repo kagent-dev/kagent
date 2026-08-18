@@ -1,5 +1,5 @@
 ### STAGE 1: uv binary
-ARG UV_VERSION=0.11.15
+ARG UV_VERSION=0.12.3
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
 ### STAGE 2: builder
@@ -53,8 +53,20 @@ ARG VERSION
 RUN --mount=type=cache,target=/.kagent/cache,rw                               \
     echo "Creating virtual environment and installing dependencies..."        \
     && uv venv --python=python$TOOLS_PYTHON_VERSION                           \
-    && uv lock && uv sync --package kagent-adk --no-editable                  \
+    && uv sync --frozen --package kagent-adk --no-editable                    \
     && uv cache prune                                                         \
+    # The standalone CPython build bundles pip (with vendored msgpack /
+    # pkg_resources) in its own site-packages. The runtime only uses the venv,
+    # so drop it rather than shipping CVE-flagged packages that nothing imports.
+    && rm -rf /python/cpython-*/lib/python*/site-packages/pip                 \
+              /python/cpython-*/lib/python*/site-packages/pip-*.dist-info     \
+              /python/cpython-*/lib/python*/site-packages/setuptools          \
+              /python/cpython-*/lib/python*/site-packages/setuptools-*.dist-info \
+              /python/cpython-*/lib/python*/site-packages/pkg_resources      \
+    # Fail the build if pip survived (rm -rf on a non-matching glob exits 0,
+    # e.g. after a Python minor bump moves site-packages). --system skips venv
+    # discovery so this probes the standalone interpreter.
+    && ! "$(uv python find --system)" -c "import pip" 2>/dev/null             \
     && echo "Installation complete."
 
 # Pre-create the config dir owned by the runtime user. On Agent Substrate the config is

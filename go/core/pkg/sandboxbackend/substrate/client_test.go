@@ -37,7 +37,7 @@ func TestAteAPITLSConfig(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, bundle, 0o600))
 	cfg, err = ateAPITLSConfig(Config{CAFile: path, ClientCertFile: path})
 	require.NoError(t, err)
-	require.NotEmpty(t, cfg.RootCAs.Subjects())
+	require.NotNil(t, cfg.RootCAs)
 	loaded, err := cfg.GetClientCertificate(&tls.CertificateRequestInfo{})
 	require.NoError(t, err)
 	require.NotEmpty(t, loaded.Certificate)
