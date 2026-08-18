@@ -48,7 +48,7 @@ type TokenPropagationPlugin struct {
 	mu              sync.RWMutex
 	logger          logr.Logger
 	bufferSeconds   int64
-	earliestExpiry  int64    // earliest Expiry in tokenCache; 0 when nothing is evictable
+	earliestExpiry  int64    // lower bound on the earliest Expiry in tokenCache; 0 when nothing is evictable
 	resource        []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
 	audience        []string // RFC 8693 audiences sent on the STS exchange; empty omits them
 }
@@ -69,8 +69,8 @@ func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, 
 }
 
 // parseUnverifiedClaims parses a JWT's claims WITHOUT signature or time
-// validation. It is used only for cache partitioning and TTL, never for a
-// security decision; tokens are validated server-side during STS exchange.
+// validation. It is used only for cache TTL; tokens are validated server-side
+// during STS exchange.
 func parseUnverifiedClaims(token string) (jwt.MapClaims, bool) {
 	if token == "" {
 		return nil, false
@@ -82,27 +82,25 @@ func parseUnverifiedClaims(token string) (jwt.MapClaims, bool) {
 	return claims, true
 }
 
-// subjectKey derives a stable per-principal cache discriminator from a bearer
-// token: the issuer-scoped "sub" claim when present, otherwise a hash of the
-// raw token so opaque or sub-less tokens still partition per principal. "sub"
-// is only unique within an issuer, so it is combined with "iss" to avoid two
-// principals from different issuers colliding onto one cache entry.
+// subjectKey derives a per-principal cache discriminator from a bearer token: a
+// hash of the raw token.
+//
+// A cache hit hands the caller a delegated token without performing an exchange,
+// so the key decides who receives someone else's authority. Deriving it from
+// unverified "iss"/"sub" claims would let a forged, unsigned token select a
+// victim's entry and never reach the STS that would have rejected it. Hashing
+// the raw token instead makes a forged token a cache miss, so it goes to the
+// STS and fails there.
+//
+// The cost is a re-exchange when a principal's bearer rotates mid-session, which
+// is wanted anyway: the delegated token's lifetime tracks the subject token it
+// was exchanged from.
 func subjectKey(token string) string {
 	if token == "" {
 		return ""
 	}
-	if claims, ok := parseUnverifiedClaims(token); ok {
-		if sub, _ := claims["sub"].(string); sub != "" {
-			// An absent "iss" leaves "sub" unqualified, which would collide
-			// across two issuers that both omit it, so those fall back to the
-			// token hash rather than a half-formed key.
-			if iss, _ := claims["iss"].(string); iss != "" {
-				return iss + "\x00" + sub
-			}
-		}
-	}
 	sum := sha256.Sum256([]byte(token))
-	return "h:" + hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:])
 }
 
 // actingCredential returns the credential this request authenticates with, which
@@ -345,6 +343,7 @@ func (p *TokenPropagationPlugin) AfterRunCallback(_ agent.InvocationContext) {
 	}
 
 	if p.actorTokenCache != nil && p.actorTokenCache.HasExpired(p.bufferSeconds) {
+		p.logger.V(1).Info("Removing expired actor token from cache")
 		p.actorTokenCache = nil
 	}
 }

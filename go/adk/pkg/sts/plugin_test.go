@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
@@ -245,13 +244,13 @@ func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
 	}
 }
 
-func signedTokenWith(t *testing.T, iss, sub string) string {
+func signedTokenWithKey(t *testing.T, iss, sub, signingKey string) string {
 	t.Helper()
 	claims := jwt.MapClaims{"sub": sub}
 	if iss != "" {
 		claims["iss"] = iss
 	}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte("secret"))
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(signingKey))
 	if err != nil {
 		t.Fatalf("failed to sign token: %v", err)
 	}
@@ -260,15 +259,30 @@ func signedTokenWith(t *testing.T, iss, sub string) string {
 
 func signedTokenWithSub(t *testing.T, sub string) string {
 	t.Helper()
-	return signedTokenWith(t, "https://issuer.example", sub)
+	return signedTokenWithKey(t, "https://issuer.example", sub, "secret")
 }
 
-// "sub" is only unique within an issuer, so two principals that share a "sub"
-// value across different issuers must not collapse onto one cache key.
-func TestSubjectKeyDistinguishesIssuers(t *testing.T) {
+// A cache hit hands out a delegated token without an STS exchange, so the key
+// must not be derivable from claims anyone can write: a token carrying the
+// victim's "iss" and "sub" must miss the victim's entry and be sent to the STS,
+// which is what rejects it.
+func TestSubjectKeyIgnoresUnverifiedClaims(t *testing.T) {
 	t.Parallel()
-	if subjectKey(signedTokenWith(t, "iss-a", "same")) == subjectKey(signedTokenWith(t, "iss-b", "same")) {
-		t.Fatal("same sub from different issuers must not share a cache key")
+	genuine := signedTokenWithKey(t, "https://issuer.example", "alice", "genuine-signing-key")
+	forged := signedTokenWithKey(t, "https://issuer.example", "alice", "attacker-signing-key")
+	if subjectKey(genuine) == subjectKey(forged) {
+		t.Fatal("a token claiming the victim's iss/sub must not share the victim's cache key")
+	}
+}
+
+// Distinct credentials must partition, and no credential must yield no key.
+func TestSubjectKeyPartitionsOpaqueTokens(t *testing.T) {
+	t.Parallel()
+	if subjectKey("opaque-a") == subjectKey("opaque-b") {
+		t.Fatal("distinct opaque tokens must not share a cache key")
+	}
+	if got := subjectKey(""); got != "" {
+		t.Fatalf("subjectKey(\"\") = %q, want an empty key", got)
 	}
 }
 
@@ -445,25 +459,26 @@ func TestEmptySubjectIsNotCacheable(t *testing.T) {
 	}
 }
 
-// An absent "iss" leaves "sub" unqualified, so those tokens partition by hash
-// rather than by a key two issuers could both produce.
-func TestSubjectKeyWithoutIssuerUsesTokenHash(t *testing.T) {
+// The forged-token case end to end: a caller presenting a token that merely
+// claims to be alice must not be handed alice's cached entry.
+func TestHeaderProviderRejectsForgedSubjectClaims(t *testing.T) {
 	t.Parallel()
 
-	key := subjectKey(signedTokenWith(t, "", "alice"))
-	if !strings.HasPrefix(key, "h:") {
-		t.Fatalf("subjectKey() = %q, want a hash-derived key for a token without iss", key)
+	plugin := NewTokenPropagationPlugin(nil, logr.Discard(), nil, nil)
+	const sessionID = "sess-forge"
+	alice := signedTokenWithKey(t, "https://issuer.example", "alice", "genuine-signing-key")
+
+	seedCtx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, alice)
+	if _, err := plugin.BeforeRunCallback(&fakeInvocationContext{Context: seedCtx, sessionID: sessionID}); err != nil {
+		t.Fatalf("BeforeRunCallback() error = %v", err)
 	}
 
-	other, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub": "alice",
-		"jti": "second-issuer",
-	}).SignedString([]byte("secret"))
-	if err != nil {
-		t.Fatalf("failed to sign token: %v", err)
-	}
-	if subjectKey(other) == key {
-		t.Fatal("two issuer-less tokens sharing a sub must not share a cache key")
+	forged := signedTokenWithKey(t, "https://issuer.example", "alice", "attacker-signing-key")
+	forgedCtx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, forged)
+	headers := plugin.HeaderProvider(fakeSessionContext{Context: forgedCtx, sessionID: sessionID})
+
+	if got, ok := headers["Authorization"]; ok {
+		t.Fatalf("forged token must not receive a cached entry, got %q", got)
 	}
 }
 
