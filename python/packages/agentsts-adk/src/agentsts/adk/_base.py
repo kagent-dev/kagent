@@ -32,11 +32,6 @@ logger = logging.getLogger(__name__)
 
 HEADERS_KEY = "headers"
 
-# Caps the per-invocation key memo. A run that dies before after_run_callback
-# never releases its entry, so the memo is bounded and the oldest entries go
-# first; the cap sits far above any plausible number of concurrent runs.
-MAX_TRACKED_INVOCATIONS = 1024
-
 # Bounds an entry whose token carries no usable expiry. The cache holds one entry
 # per (session, subject), so a token without an expiry would otherwise pin an
 # entry per caller for the lifetime of the process.
@@ -55,17 +50,12 @@ def _acting_credential(state: dict) -> Optional[str]:
     headers = state.get(HEADERS_KEY, None)
     if not isinstance(headers, dict):
         return None
-    return _extract_jwt_from_headers(headers)
+    return _extract_jwt_from_headers(headers, warn=False)
 
 
 def _default_get_subject_token(state: dict) -> Optional[str]:
     """Default subject token retrieval from Authorization header in session state."""
     return _acting_credential(state)
-
-
-def _invocation_id(invocation_context) -> str:
-    """Identify one agent run, so the key resolved for it is reused by its tool calls."""
-    return getattr(invocation_context, "invocation_id", "") or ""
 
 
 def _subject_key(token: Optional[str]) -> str:
@@ -177,10 +167,6 @@ class ADKTokenPropagationPlugin(BasePlugin):
         self.actor_token_cache: Optional[_TokenCacheEntry] = None
         # Earliest expiry across token_cache; None when no cached token expires.
         self._earliest_expiry: Optional[int] = None
-        # invocation id -> cache key, resolved once per run in before_run_callback.
-        # header_provider runs on every tool call and reads it from here, so a
-        # caller-supplied get_subject_token is never invoked per tool call.
-        self._invocation_keys: Dict[str, str] = {}
 
     def add_to_agent(self, agent: BaseAgent):
         """
@@ -212,9 +198,10 @@ class ADKTokenPropagationPlugin(BasePlugin):
             logger.debug("no invocation context for tool call, leaving existing headers in place")
             return {}
 
-        cache_key = self._invocation_keys.get(_invocation_id(invocation_context))
+        cache_key = self.cache_key(invocation_context)
         cache_entry = self.token_cache.get(cache_key) if cache_key else None
         if not cache_entry:
+            logger.debug("no cached access token for this caller, leaving existing headers in place")
             return {}
 
         logger.debug("Using cached access token for tool invocation")
@@ -241,7 +228,6 @@ class ADKTokenPropagationPlugin(BasePlugin):
         if cache_key is None:
             logger.debug("subject token not found in session state for token propagation")
             return None
-        self._remember_invocation_key(invocation_context, cache_key)
 
         # Check if we have a valid cached subject token
         cached_entry = self.token_cache.get(cache_key)
@@ -317,14 +303,18 @@ class ADKTokenPropagationPlugin(BasePlugin):
     ) -> Optional[str]:
         """Build the cache key for one caller in one session.
 
-        The key names both the caller's own credential and the token the entry
-        was exchanged from, so an entry can never be handed to a caller other
-        than the one it was minted for, whatever get_subject_token returns.
+        The key names the caller's own credential, so an entry can never be
+        handed to a caller other than the one it was minted for, whatever
+        get_subject_token returns.
 
         Without an inbound credential there is nothing caller-scoped to key on,
         so the hook's output stands in for it: that mode has no per-caller
         identity to preserve, and one entry per session is correct for it.
         """
+        if not session_id:
+            # Nothing identifies the conversation, so entries could only be
+            # shared between unrelated ones.
+            return None
         if not subject_token:
             # No token to exchange, so there is nothing to cache.
             return None
@@ -333,34 +323,23 @@ class ADKTokenPropagationPlugin(BasePlugin):
             # An empty subject identifies no principal: an entry stored under it
             # would be shared by every credential-less caller in the session.
             return None
-        return f"{session_id}\0{caller}\0{_subject_key(subject_token)}"
-
-    def _remember_invocation_key(self, invocation_context: InvocationContext, cache_key: str) -> None:
-        """Record the key resolved for this run so header_provider can reuse it."""
-        while len(self._invocation_keys) >= MAX_TRACKED_INVOCATIONS:
-            self._invocation_keys.pop(next(iter(self._invocation_keys)))
-        self._invocation_keys[_invocation_id(invocation_context)] = cache_key
+        return f"{session_id}\0{caller}"
 
     def cache_key(self, invocation_context: InvocationContext) -> Optional[str]:
         """Key the cache on the session and the acting subject, so a session
         carrying messages from several subjects keeps one token per subject
         instead of collapsing onto whichever arrived first.
 
-        Returns the key resolved for this invocation when there is one.
-        header_provider reads that memo rather than calling this, so a
-        caller-supplied get_subject_token is not invoked on every tool call.
+        The caller's credential is read straight from the run's own state, so
+        the key is derivable on every tool call. get_subject_token is consulted
+        only when no inbound credential identifies the caller.
         """
-        memoized = self._invocation_keys.get(_invocation_id(invocation_context))
-        if memoized:
-            return memoized
         session = getattr(invocation_context, "session", None)
         if session is None:
             return None
-        return self._cache_key_for(
-            session.id,
-            _acting_credential(session.state),
-            self._read_subject_token(session.state),
-        )
+        credential = _acting_credential(session.state)
+        subject_token = credential or self._read_subject_token(session.state)
+        return self._cache_key_for(session.id, credential, subject_token)
 
     async def _get_actor_token(self) -> Optional[str]:
         """Get actor token from cache or fetch dynamically.
@@ -414,7 +393,6 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Clean up expired tokens after run, preserving valid tokens."""
-        self._invocation_keys.pop(_invocation_id(invocation_context), None)
         self._sweep_expired_subject_tokens()
 
         # Clean up expired actor token cache
@@ -475,31 +453,38 @@ def _has_token_expired(expiry: Optional[int], buffer_seconds: int = 5) -> bool:
     return expiry <= (current_time + buffer_seconds)
 
 
-def _extract_jwt_from_headers(headers: dict[str, str]) -> Optional[str]:
+def _extract_jwt_from_headers(headers: dict[str, str], warn: bool = True) -> Optional[str]:
     """Extract JWT from request headers for STS token exchange.
 
     Args:
         headers: Dictionary of request headers
+        warn: Whether a missing or malformed header is worth a warning. The
+            cache-key probe reads the same header as the subject-token lookup,
+            so only one of the two reports it.
 
     Returns:
         JWT token string if found in Authorization header, None otherwise
     """
     if not headers:
-        logger.warning("No headers provided for JWT extraction")
+        if warn:
+            logger.warning("No headers provided for JWT extraction")
         return None
 
     auth_header = headers.get("Authorization") or headers.get("authorization")
     if not auth_header:
-        logger.warning("No Authorization header found in request")
+        if warn:
+            logger.warning("No Authorization header found in request")
         return None
 
     if not auth_header.startswith("Bearer "):
-        logger.warning("Authorization header must start with Bearer")
+        if warn:
+            logger.warning("Authorization header must start with Bearer")
         return None
 
     jwt_token = auth_header.removeprefix("Bearer ").strip()
     if not jwt_token:
-        logger.warning("Empty JWT token found in Authorization header")
+        if warn:
+            logger.warning("Empty JWT token found in Authorization header")
         return None
 
     logger.debug(f"Successfully extracted JWT token (length: {len(jwt_token)})")
