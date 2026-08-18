@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Optional
 
 from google.adk.agents import BaseAgent, LlmAgent
+from kagent.skills import file_search_tools_enabled
 
-from ..tools import BashTool, EditFileTool, ReadFileTool, WriteFileTool
+from ..tools import BashTool, EditFileTool, GrepFileTool, ListFilesTool, ReadFileTool, WriteFileTool
 from .skill_tool import SkillsTool
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -50,3 +51,17 @@ def add_skills_tool_to_agent(
     if "edit_file" not in existing_tool_names:
         agent.tools.append(EditFileTool())
         logger.debug(f"Added edit file tool to agent: {agent.name}")
+
+    # list_files/grep_file are opt-in: they give an agent broad filesystem
+    # visibility, so some deployments want them off unless explicitly
+    # enabled, same as bash.
+    if file_search_tools_enabled():
+        if "list_files" not in existing_tool_names:
+            agent.tools.append(ListFilesTool(skills_directory))
+            logger.debug(f"Added list files tool to agent: {agent.name}")
+
+        if "grep_file" not in existing_tool_names:
+            agent.tools.append(GrepFileTool(skills_directory))
+            logger.debug(f"Added grep file tool to agent: {agent.name}")
+    else:
+        logger.debug(f"Omitting list_files/grep_file tools for agent: {agent.name} (KAGENT_ENABLE_FILE_SEARCH_TOOLS not enabled)")

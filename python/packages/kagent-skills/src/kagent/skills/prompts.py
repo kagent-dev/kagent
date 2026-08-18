@@ -1,4 +1,5 @@
 from .models import Skill
+from .shell import file_search_tools_enabled
 
 
 def generate_skills_xml(skills: list[Skill]) -> str:
@@ -89,10 +90,36 @@ Usage:
 """
 
 
+def get_list_files_description() -> str:
+    """Returns the standardized description for the list_files tool."""
+    return """Lists files and directories at a given path.
+
+Usage:
+- Provide a path (absolute or relative to your working directory); defaults to the working directory
+- Directories are listed with a trailing "/"; files are followed by their size in bytes
+- You can list skills/ directory, uploads/, outputs/, or any directory in your session
+"""
+
+
+def get_grep_file_description() -> str:
+    """Returns the standardized description for the grep_file tool."""
+    return """Searches for a regular expression pattern in a file or directory.
+
+Usage:
+- Provide a pattern and a path (absolute or relative to your working directory)
+- Set recursive=true to search all files under a directory path
+- Recursion does not follow symlinked subdirectories (e.g. skills/ is a symlink) -
+  point path directly at skills/ to search inside it
+- Set ignore_case=true for case-insensitive matching
+- Returns matching lines as path:line_number:content
+- You can search the skills/ directory, uploads/, outputs/, or any file/directory in your session
+"""
+
+
 def get_bash_description() -> str:
     """Returns the standardized description for the bash tool."""
     # This combines the useful parts from both ADK and OpenAI descriptions
-    return """Execute bash commands in the skills environment with sandbox protection.
+    description = """Execute bash commands in the skills environment with sandbox protection.
 
 Working Directory & Structure:
 - Commands run in a temporary session directory: /tmp/kagent/{session_id}/
@@ -114,3 +141,13 @@ Timeouts:
 - python scripts: 60s
 - other commands: 30s
 """
+    # Appended as a trailing paragraph rather than interpolated into the
+    # description above, so that long, free-form prose block stays a plain
+    # string -- not an f-string where a stray '{'/'}' added later could
+    # raise or silently corrupt output.
+    if file_search_tools_enabled():
+        description += (
+            "\nAlso available: list_files and grep_file, "
+            "for exploring the filesystem without a full shell command.\n"
+        )
+    return description

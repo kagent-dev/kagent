@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -106,6 +108,230 @@ func EditFileContent(path string, oldString, newString string, replaceAll bool) 
 	}
 
 	return os.WriteFile(path, []byte(newContent), 0644)
+}
+
+// ListDirContent lists the entries of a directory, one per line. Directories
+// are suffixed with "/"; files are followed by their size in bytes.
+func ListDirContent(path string) (string, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return "", err
+	}
+
+	if len(entries) == 0 {
+		return "Directory is empty.", nil
+	}
+
+	var result strings.Builder
+	for _, entry := range entries {
+		if entry.IsDir() {
+			fmt.Fprintf(&result, "%s/\n", entry.Name())
+			continue
+		}
+
+		// entry.IsDir() reflects the entry's own type (Lstat-like) and is
+		// false for a symlink even when its target is a directory -- e.g.
+		// the "skills" symlink present in every session dir. Stat (which
+		// follows symlinks) to classify those correctly, matching Python's
+		// pathlib Path.is_dir(), which follows symlinks by default.
+		if entry.Type()&fs.ModeSymlink != 0 {
+			if target, statErr := os.Stat(filepath.Join(path, entry.Name())); statErr == nil && target.IsDir() {
+				fmt.Fprintf(&result, "%s/\n", entry.Name())
+				continue
+			}
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			fmt.Fprintf(&result, "%s\n", entry.Name())
+			continue
+		}
+		fmt.Fprintf(&result, "%s\t%d\n", entry.Name(), info.Size())
+	}
+
+	return strings.TrimSuffix(result.String(), "\n"), nil
+}
+
+// WithinRoot reports whether resolved (an already symlink-resolved path) is
+// root itself or nested under it. Callers are responsible for resolving
+// symlinks on both arguments first; this is a pure path-containment check.
+func WithinRoot(resolved, root string) bool {
+	resolved = filepath.Clean(resolved)
+	root = filepath.Clean(root)
+	return resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator))
+}
+
+type walkEntryAction int
+
+const (
+	// walkEntryGrep: a regular, in-bounds file that should be grepped.
+	walkEntryGrep walkEntryAction = iota
+	// walkEntrySkip: silently excluded by policy, not a read failure -- a
+	// directory, a symlinked directory, a non-regular file (FIFO/socket/
+	// device), or a symlink whose target escapes the search root.
+	walkEntrySkip
+	// walkEntryUnreadable: a genuine read/stat failure on this entry.
+	walkEntryUnreadable
+)
+
+// classifyWalkEntry decides how GrepContent's WalkDir callback should treat
+// p, given the resolved search root. It never opens p for reading -- the
+// caller is responsible for that once this returns walkEntryGrep, and must
+// read the returned resolved path rather than p itself: p is the symlink
+// as walked, and re-resolving or reopening it separately from this check
+// would reintroduce a TOCTOU window where the symlink's target could change
+// between the check and the read.
+//
+// This narrows that window but doesn't eliminate it: resolved is still a
+// path string, so the later os.Open on it is a fresh lookup, not an
+// operation on a captured file handle. A path component of resolved could
+// still be swapped out between this check and that open. Closing that
+// residual race fully would need platform-specific work (e.g. Linux's
+// openat2 with RESOLVE_NO_SYMLINKS), which isn't done anywhere else in this
+// file either -- this function only guarantees "reads what was just
+// verified", not "reads atomically with no concurrent tampering".
+func classifyWalkEntry(root, p string, d fs.DirEntry) (walkEntryAction, string) {
+	if d.IsDir() {
+		return walkEntrySkip, ""
+	}
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return walkEntryUnreadable, ""
+	}
+	fi, statErr := os.Stat(resolved)
+	if statErr != nil {
+		return walkEntryUnreadable, ""
+	}
+	if fi.IsDir() {
+		// p is a symlink to a directory: WalkDir doesn't recurse into
+		// symlinked directories, and grepFile would fail trying to read
+		// one as a file, so skip it rather than treating it as an error.
+		return walkEntrySkip, ""
+	}
+	if !fi.Mode().IsRegular() {
+		// Skip non-regular files (FIFOs, sockets, devices): opening one
+		// for reading can block indefinitely (e.g. a FIFO with no writer
+		// connected), and grep has no business reading them.
+		return walkEntrySkip, ""
+	}
+	if !WithinRoot(resolved, root) {
+		// The symlink-resolved target escapes the root being searched, so
+		// a symlink can't be used to read files outside the requested
+		// directory.
+		return walkEntrySkip, ""
+	}
+	return walkEntryGrep, resolved
+}
+
+// GrepContent searches path for lines matching a regular expression pattern.
+// If path is a directory, recursive must be true to search its files.
+func GrepContent(path, pattern string, recursive, ignoreCase bool) (string, error) {
+	expr := pattern
+	if ignoreCase {
+		expr = "(?i)" + expr
+	}
+	re, err := regexp.Compile(expr)
+	if err != nil {
+		return "", fmt.Errorf("invalid pattern: %w", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+
+	var result strings.Builder
+	var skipped int
+	grepFile := func(filePath string) error {
+		file, err := os.Open(filePath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+		lineNum := 1
+		for scanner.Scan() {
+			if line := scanner.Text(); re.MatchString(line) {
+				if len(line) > 2000 {
+					line = line[:2000] + "..."
+				}
+				fmt.Fprintf(&result, "%s:%d:%s\n", filePath, lineNum, line)
+			}
+			lineNum++
+		}
+		return scanner.Err()
+	}
+
+	if info.IsDir() {
+		if !recursive {
+			return "", fmt.Errorf("%q is a directory; set recursive=true to search directories", path)
+		}
+		// Reuse the outer err (rather than := , which would shadow it in this
+		// block) so a WalkDir failure below is actually observed by the
+		// err != nil check after this if/else.
+		var root string
+		root, err = filepath.EvalSymlinks(path)
+		if err != nil {
+			return "", err
+		}
+		// Walk the resolved root, not path: filepath.WalkDir uses Lstat on
+		// its root argument, so if path itself were an unresolved directory
+		// symlink, WalkDir would see a non-directory at the root and never
+		// descend into it at all.
+		err = filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				if p == root {
+					// The search root itself couldn't be read (e.g.
+					// permission denied): the search never actually ran, so
+					// surface a real error instead of a misleadingly
+					// confident "no matches found".
+					return walkErr
+				}
+				// WalkDir surfaces ReadDir/Lstat failures (e.g. a
+				// permission-denied subdirectory) through this err rather
+				// than via grepFile, but it deserves the same treatment: one
+				// unreadable subtree shouldn't discard matches already found
+				// in its siblings.
+				skipped++
+				return nil
+			}
+			switch action, resolved := classifyWalkEntry(root, p, d); action {
+			case walkEntryUnreadable:
+				skipped++
+			case walkEntryGrep:
+				// A read error on one file (permission denied, a line
+				// exceeding the scan buffer, etc.) shouldn't abort matches
+				// already found elsewhere in the tree.
+				if grepErr := grepFile(resolved); grepErr != nil {
+					skipped++
+				}
+			}
+			return nil
+		})
+	} else {
+		if !info.Mode().IsRegular() {
+			return "", fmt.Errorf("%q is not a regular file", path)
+		}
+		err = grepFile(path)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	if result.Len() == 0 {
+		if skipped > 0 {
+			return fmt.Sprintf("no matches found (%d entries could not be read)", skipped), nil
+		}
+		return "no matches found", nil
+	}
+
+	matches := strings.TrimSuffix(result.String(), "\n")
+	if skipped > 0 {
+		matches += fmt.Sprintf("\n\n(%d entries could not be read)", skipped)
+	}
+	return matches, nil
 }
 
 func resolveSRTSettingsArgs() ([]string, error) {

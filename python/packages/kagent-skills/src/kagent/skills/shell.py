@@ -126,6 +126,143 @@ def edit_file_content(
         raise OSError(f"Error writing file {file_path}: {e}") from e
 
 
+def list_dir_content(dir_path: Path, allowed_root: Path | list[Path] | None = None) -> str:
+    """Lists the entries of a directory, one per line.
+
+    Directories are suffixed with "/"; files are followed by their size in bytes.
+    """
+    dir_path = _validate_path(dir_path, allowed_root)
+
+    if not dir_path.exists():
+        raise FileNotFoundError(f"Directory not found: {dir_path}")
+
+    if not dir_path.is_dir():
+        raise NotADirectoryError(f"Path is not a directory: {dir_path}")
+
+    entries = sorted(dir_path.iterdir(), key=lambda p: p.name)
+    if not entries:
+        return "Directory is empty."
+
+    lines = []
+    for entry in entries:
+        if entry.is_dir():
+            lines.append(f"{entry.name}/")
+            continue
+        try:
+            size = entry.stat().st_size
+        except OSError:
+            lines.append(entry.name)
+            continue
+        lines.append(f"{entry.name}\t{size}")
+
+    return "\n".join(lines)
+
+
+def grep_content(
+    file_or_dir_path: Path,
+    pattern: str,
+    recursive: bool = False,
+    ignore_case: bool = False,
+    allowed_root: Path | list[Path] | None = None,
+) -> str:
+    """Searches path for lines matching a regular expression pattern.
+
+    If path is a directory, recursive must be true to search its files.
+
+    pattern is untrusted, agent-controlled input: Python's backtracking `re`
+    engine can take catastrophically long on an adversarial pattern. This
+    function does not bound its own execution time -- callers must do so
+    (e.g. via a timeout around a thread/process offload) if the caller is
+    exposed to untrusted patterns.
+    """
+    file_or_dir_path = _validate_path(file_or_dir_path, allowed_root)
+
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+    except re.error as e:
+        raise ValueError(f"invalid pattern: {e}") from e
+
+    if not file_or_dir_path.exists():
+        raise FileNotFoundError(f"Path not found: {file_or_dir_path}")
+
+    def grep_file(file_path: Path) -> list[str]:
+        matches = []
+        with file_path.open("r", encoding="utf-8", errors="replace") as f:
+            for line_num, line in enumerate(f, start=1):
+                line = line.rstrip("\n")
+                if compiled.search(line):
+                    if len(line) > 2000:
+                        line = line[:2000] + "..."
+                    matches.append(f"{file_path}:{line_num}:{line}")
+        return matches
+
+    results: list[str] = []
+    skipped = 0
+    if file_or_dir_path.is_dir():
+        if not recursive:
+            raise IsADirectoryError(f"{file_or_dir_path} is a directory; set recursive=true to search directories")
+
+        # os.walk (not rglob) so that a directory-level failure -- root or
+        # nested -- is observable via onerror. rglob() silently omits any
+        # directory it can't list, at any depth, with no hook to detect it;
+        # that let a nested unreadable subdirectory disappear from a
+        # recursive search with no signal at all, exactly the "confidently
+        # wrong empty result" failure mode skipped/the annotation below
+        # exists to prevent. followlinks defaults to False, so this doesn't
+        # descend into symlinked directories, matching grepFile's Go twin.
+        root_str = str(file_or_dir_path)
+        walk_errors: list[OSError] = []
+        entries: list[Path] = []
+        for dirpath, _dirnames, filenames in os.walk(file_or_dir_path, onerror=walk_errors.append):
+            entries.extend(Path(dirpath) / name for name in filenames)
+
+        for walk_err in walk_errors:
+            if walk_err.filename == root_str:
+                # The search root itself couldn't be read: the search never
+                # actually ran, so surface a real error instead of a
+                # misleadingly confident "no matches found".
+                raise OSError(f"{file_or_dir_path} could not be read: {walk_err}") from walk_err
+        # A nested subdirectory that couldn't be read shouldn't abort
+        # matches already found in sibling directories -- just count it.
+        skipped += len(walk_errors)
+
+        for entry in sorted(entries):
+            # is_file() follows symlinks and checks S_ISREG, so this also
+            # excludes FIFOs/sockets/devices -- opening one for reading can
+            # block indefinitely (e.g. a FIFO with no writer connected).
+            if not entry.is_file():
+                continue
+            try:
+                # Skip entries whose symlink-resolved target escapes the
+                # root being searched, so a symlink can't be used to read
+                # files outside the requested directory.
+                safe_entry = _validate_path(entry, allowed_root)
+            except PermissionError:
+                continue
+            try:
+                results.extend(grep_file(safe_entry))
+            except OSError:
+                # A read error on one file shouldn't abort matches already
+                # found elsewhere in the tree, but it also shouldn't look
+                # identical to a genuinely empty search -- see the note below.
+                skipped += 1
+                continue
+    else:
+        if not file_or_dir_path.is_file():
+            raise OSError(f"{file_or_dir_path} is not a regular file")
+        results.extend(grep_file(file_or_dir_path))
+
+    if not results:
+        if skipped:
+            return f"no matches found ({skipped} entries could not be read)"
+        return "no matches found"
+
+    output = "\n".join(results)
+    if skipped:
+        output += f"\n\n({skipped} entries could not be read)"
+    return output
+
+
 # --- Shell Operation Tools ---
 
 # Matches env-var names containing secret-related segments as whole
@@ -157,6 +294,18 @@ def _sanitize_env(env: dict[str, str] | None = None) -> dict[str, str]:
     """Return a copy of the environment with secret variables removed."""
     source = env if env is not None else os.environ
     return {k: v for k, v in source.items() if k not in _SECRET_ENV_NAMES and not _SECRET_PATTERNS.search(k)}
+
+
+_ENABLE_FILE_SEARCH_TOOLS_ENV = "KAGENT_ENABLE_FILE_SEARCH_TOOLS"
+
+
+def file_search_tools_enabled() -> bool:
+    """Whether the list_files/grep_file tools are enabled.
+
+    Disabled by default, same as bash: both give an agent broad filesystem
+    visibility, so some deployments want them off unless explicitly enabled.
+    """
+    return os.environ.get(_ENABLE_FILE_SEARCH_TOOLS_ENV, "").strip().lower() in ("1", "t", "true")
 
 
 def _get_srt_settings_args() -> list[str]:
