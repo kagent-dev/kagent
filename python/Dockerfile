@@ -64,8 +64,9 @@ RUN --mount=type=cache,target=/.kagent/cache,rw                               \
               /python/cpython-*/lib/python*/site-packages/setuptools-*.dist-info \
               /python/cpython-*/lib/python*/site-packages/pkg_resources      \
     # Fail the build if pip survived (rm -rf on a non-matching glob exits 0,
-    # e.g. after a Python minor bump moves site-packages).
-    && ! "$(uv python find)" -c "import pip" 2>/dev/null                      \
+    # e.g. after a Python minor bump moves site-packages). --system skips venv
+    # discovery so this probes the standalone interpreter.
+    && ! "$(uv python find --system)" -c "import pip" 2>/dev/null             \
     && echo "Installation complete."
 
 # Pre-create the config dir owned by the runtime user. On Agent Substrate the config is
