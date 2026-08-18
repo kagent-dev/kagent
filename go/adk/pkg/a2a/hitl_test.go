@@ -260,3 +260,29 @@ func TestBuildRemoteHitlStateAndHint(t *testing.T) {
 		t.Fatalf("hint = %q", got)
 	}
 }
+
+// A sub-agent's ask_user pause should surface the actual question in the
+// hint, not just "requires approval for tool(s): ask_user" — a human can't
+// act on a tool name alone.
+func TestBuildRemoteHitlStateAndHintAskUser(t *testing.T) {
+	task := &a2atype.Task{
+		ID: "child-task", ContextID: "child-context",
+		Status: a2atype.TaskStatus{
+			Message: AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("pause")), &AskUserRequest{
+				Type: HITLTypeAskUserRequest,
+				ID:   "confirm-1",
+				Questions: []map[string]any{
+					{"question": "What is the GitHub owner/org for the repo?"},
+				},
+			}),
+		},
+	}
+	state := BuildRemoteHitlState(task, "github_agent")
+	if state == nil || state.AskUserRequest == nil {
+		t.Fatalf("state = %#v", state)
+	}
+	want := "Remote agent 'github_agent' asks: What is the GitHub owner/org for the repo?"
+	if got := RemoteHitlHint(state); got != want {
+		t.Fatalf("hint = %q, want %q", got, want)
+	}
+}
