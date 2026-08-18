@@ -9,6 +9,11 @@ import (
 // GetSubjectTokenFunc is a function type for extracting subject tokens.
 // It receives the bearer token (from Authorization header) and should return
 // the subject token for STS exchange, or empty string if not available.
+//
+// It must be a pure function of bearerToken. TokenPropagationPlugin caches the
+// exchange under a hash of the bearer, so an implementation that mints or
+// fetches a token returns one value per call while the cache keeps serving the
+// first for the entry's lifetime.
 type GetSubjectTokenFunc func(bearerToken string) string
 
 // DefaultGetSubjectToken extracts the JWT token from the Authorization header.
