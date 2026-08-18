@@ -21,3 +21,6 @@ WHERE token = $1 AND session_id = $2 AND user_id = $3;
 INSERT INTO session_share_access (user_id, share_id, accessed_at)
 VALUES ($1, $2, NOW())
 ON CONFLICT (user_id, share_id) DO UPDATE SET accessed_at = NOW();
+
+-- name: DeleteSessionSharesBySession :exec
+DELETE FROM session_share WHERE session_id = $1;

@@ -196,6 +196,18 @@ func TestCreateEnforcesLegacySandboxSingleSession(t *testing.T) {
 	}
 }
 
+func TestCreateReportsAlreadyExistsOnDuplicateSessionID(t *testing.T) {
+	store := newSessionTestStore()
+	store.agents["default__NS__agent"] = &database.Agent{ID: "default__NS__agent"}
+	store.storeSessionError = database.ErrSessionIDInUse
+	dupID := "dup"
+
+	_, err := NewService(store).Create(sessionContext("user-a", ""), CreateRequest{ID: &dupID, AgentRef: "default/agent"})
+	if !serviceerrors.IsCode(err, serviceerrors.CodeAlreadyExists) {
+		t.Fatalf("Create() error = %v, want already exists", err)
+	}
+}
+
 func TestGetUsesShareOwnerAndReportsReadOnly(t *testing.T) {
 	store := newSessionTestStore()
 	store.sessions["shared"] = &database.Session{ID: "shared", UserID: "owner"}

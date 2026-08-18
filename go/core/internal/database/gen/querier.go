@@ -21,6 +21,7 @@ type Querier interface {
 	// Soft-deleted sessions are included so tombstones still reclaim disk.
 	DeleteExpiredSessionsBatch(ctx context.Context, arg DeleteExpiredSessionsBatchParams) (int64, error)
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
+	DeleteSessionSharesBySession(ctx context.Context, sessionID string) error
 	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
 	GetAgent(ctx context.Context, id string) (Agent, error)
@@ -100,9 +101,14 @@ type Querier interface {
 	SoftDeleteCheckpointWrites(ctx context.Context, arg SoftDeleteCheckpointWritesParams) error
 	SoftDeleteCheckpoints(ctx context.Context, arg SoftDeleteCheckpointsParams) error
 	SoftDeleteEvent(ctx context.Context, id string) error
+	SoftDeleteEventsBySession(ctx context.Context, sessionID *string) error
 	SoftDeletePushNotification(ctx context.Context, taskID string) error
 	SoftDeleteSession(ctx context.Context, arg SoftDeleteSessionParams) error
 	SoftDeleteTask(ctx context.Context, arg SoftDeleteTaskParams) error
+	// SoftDeleteTasksBySession cascades from an already owner-verified session
+	// delete (the caller checked GetSession(id, userID) first), so it trusts
+	// session_id alone and does not re-check ownership per task.
+	SoftDeleteTasksBySession(ctx context.Context, sessionID *string) error
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)
