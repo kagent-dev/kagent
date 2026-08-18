@@ -119,6 +119,7 @@ func (r *SandboxAgentController) SetupWithManager(mgr ctrl.Manager) error {
 		mcpService:      r.sandboxAgentDependencyFinder("failed to list sandboxagents for Service watch", usesMCPService),
 		configMap:       r.sandboxAgentDependencyFinder("failed to list sandboxagents for ConfigMap watch", referencesConfigMap),
 		mcpServer:       r.sandboxAgentDependencyFinder("failed to list sandboxagents for MCPServer watch", usesMCPServer),
+		secret:          r.sandboxAgentSecretFinder,
 	})
 	if err != nil {
 		return err
@@ -158,4 +159,78 @@ func (r *SandboxAgentController) sandboxAgentDependencyFinder(errMsg string, pre
 			return pred(agent, obj)
 		})
 	}
+}
+
+func (r *SandboxAgentController) sandboxAgentSecretFinder(
+	ctx context.Context,
+	cl client.Client,
+	secret types.NamespacedName,
+) []types.NamespacedName {
+	var agents v1alpha3.SandboxAgentList
+	if err := cl.List(ctx, &agents); err != nil {
+		sandboxAgentControllerLog.Error(err, "failed to list SandboxAgents for Secret watch")
+		return nil
+	}
+
+	matchedServers := make(map[types.NamespacedName]*v1alpha3.RemoteMCPServer)
+	var remoteMCPServers v1alpha3.RemoteMCPServerList
+	// Unlike sibling finders, don't fail closed here: a RemoteMCPServer list
+	// failure must not drop the direct tool.HeadersFrom matches below, which
+	// never depended on that list. Degrade to indirect-incomplete instead.
+	if err := cl.List(ctx, &remoteMCPServers); err != nil {
+		sandboxAgentControllerLog.Error(err, "failed to list RemoteMCPServers for Secret watch; indirect matches may be incomplete")
+	} else {
+		for i := range remoteMCPServers.Items {
+			server := &remoteMCPServers.Items[i]
+			if server.Namespace == secret.Namespace &&
+				valueRefsReferenceSecret(server.Spec.HeadersFrom, secret.Name) {
+				matchedServers[types.NamespacedName{
+					Name:      server.Name,
+					Namespace: server.Namespace,
+				}] = server
+			}
+		}
+	}
+
+	return collectSandboxAgentRefs(agents.Items, func(agent *v1alpha3.SandboxAgent) bool {
+		spec := agent.GetAgentSpec()
+		if spec.Type != v1alpha3.AgentType_Declarative || spec.Declarative == nil {
+			return false
+		}
+
+		for _, tool := range spec.Declarative.Tools {
+			if tool == nil {
+				continue
+			}
+			if agent.Namespace == secret.Namespace &&
+				valueRefsReferenceSecret(tool.HeadersFrom, secret.Name) {
+				return true
+			}
+			if tool.McpServer == nil ||
+				(tool.McpServer.ApiGroup != "" && tool.McpServer.ApiGroup != "kagent.dev") ||
+				tool.McpServer.Kind != "RemoteMCPServer" {
+				continue
+			}
+
+			server, matched := matchedServers[tool.McpServer.NamespacedName(agent.Namespace)]
+			if !matched {
+				continue
+			}
+			allowed, err := server.Spec.AllowedNamespaces.AllowsNamespace(
+				ctx,
+				cl,
+				agent.Namespace,
+				server.Namespace,
+			)
+			if err != nil {
+				sandboxAgentControllerLog.Error(err, "failed to check RemoteMCPServer namespace access")
+				continue
+			}
+			if allowed {
+				return true
+			}
+		}
+
+		return false
+	})
 }

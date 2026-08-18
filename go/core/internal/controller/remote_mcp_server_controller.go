@@ -131,5 +131,10 @@ func remoteMCPServerReferencesSecret(server *v1alpha3.RemoteMCPServer, secretObj
 		return true
 	}
 
+	// check if secret is referenced by an upstream request header
+	if valueRefsReferenceSecret(server.Spec.HeadersFrom, secretObj.Name) {
+		return true
+	}
+
 	return false
 }
