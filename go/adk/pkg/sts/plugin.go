@@ -2,6 +2,8 @@ package sts
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -14,7 +16,16 @@ import (
 	"google.golang.org/genai"
 )
 
+// maxCacheTTL bounds an entry whose token carries no usable expiry. The cache
+// holds one entry per (session, subject), so a token without an expiry would
+// otherwise pin an entry per caller for the lifetime of the process.
+const maxCacheTTL = 5 * time.Minute
+
 // TokenCacheEntry holds a cached token with its expiry time.
+//
+// Expiry 0 means the entry never expires. Only the actor token cache stores
+// such entries; setCachedToken bounds every subject entry, because the subject
+// cache holds one entry per caller rather than one per session.
 type TokenCacheEntry struct {
 	Token  string
 	Expiry int64 // Unix timestamp, 0 if no expiry
@@ -33,11 +44,12 @@ func (e *TokenCacheEntry) HasExpired(bufferSeconds int64) bool {
 // a header provider used by MCP tool transports.
 type TokenPropagationPlugin struct {
 	integration     *STSIntegration
-	tokenCache      map[string]*TokenCacheEntry // keyed by session ID
-	actorTokenCache *TokenCacheEntry            // used only for dynamic fetchActorToken providers
+	tokenCache      map[cacheKey]*TokenCacheEntry
+	actorTokenCache *TokenCacheEntry // used only for dynamic fetchActorToken providers
 	mu              sync.RWMutex
 	logger          logr.Logger
 	bufferSeconds   int64
+	earliestExpiry  int64    // lower bound on the earliest Expiry in tokenCache; 0 when nothing is evictable
 	resource        []string // RFC 8707 resource indicators sent on the STS exchange; empty omits them
 	audience        []string // RFC 8693 audiences sent on the STS exchange; empty omits them
 }
@@ -49,7 +61,7 @@ type TokenPropagationPlugin struct {
 func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, resource, audience []string) *TokenPropagationPlugin {
 	return &TokenPropagationPlugin{
 		integration:   integration,
-		tokenCache:    make(map[string]*TokenCacheEntry),
+		tokenCache:    make(map[cacheKey]*TokenCacheEntry),
 		logger:        logger.WithName("sts-plugin"),
 		bufferSeconds: 5,
 		resource:      resource,
@@ -57,12 +69,67 @@ func NewTokenPropagationPlugin(integration *STSIntegration, logger logr.Logger, 
 	}
 }
 
-// getCachedToken retrieves a valid cached token for the session.
-func (p *TokenPropagationPlugin) getCachedToken(sessionID string) (*TokenCacheEntry, bool) {
+// earlierExpiry returns the earlier of two Unix expiry timestamps, treating 0
+// as "no expiry known" rather than as the epoch.
+func earlierExpiry(current, candidate int64) int64 {
+	if candidate == 0 {
+		return current
+	}
+	if current == 0 || candidate < current {
+		return candidate
+	}
+	return current
+}
+
+// subjectKey derives a per-principal cache discriminator from a bearer token: a
+// hash of the raw token.
+//
+// A cache hit hands the caller a delegated token without performing an exchange,
+// so the key decides who receives someone else's authority. Deriving it from
+// unverified "iss"/"sub" claims would let a forged, unsigned token select a
+// victim's entry and never reach the STS that would have rejected it. Hashing
+// the raw token instead makes a forged token a cache miss, so it goes to the
+// STS and fails there.
+//
+// The cost is a re-exchange when a principal's bearer rotates mid-session.
+func subjectKey(token string) string {
+	if token == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// actingCredential returns the credential this request authenticates with, which
+// is also what the cache key is derived from. models.BearerTokenFromContext
+// prefers the value executor.withBearerToken stored and falls back to the A2A
+// call context, which is what reaches the MCP transport layer: the call context
+// is the same source the round-tripper's propagateToken path reads, so the
+// per-subject key stays derivable even when BearerTokenKey is not threaded to
+// the MCP request context.
+func actingCredential(ctx context.Context) string {
+	return models.BearerTokenFromContext(ctx)
+}
+
+// cacheKey scopes a cache entry to both the session and the acting subject so a
+// session that carries messages from multiple subjects keeps one exchanged
+// token per subject rather than collapsing to whichever arrived first.
+type cacheKey struct {
+	sessionID string
+	subject   string
+}
+
+// getCachedToken retrieves a valid cached token for the session and subject.
+func (p *TokenPropagationPlugin) getCachedToken(sessionID, subject string) (*TokenCacheEntry, bool) {
+	// An empty subject identifies no principal, so it must never match an entry.
+	if subject == "" {
+		return nil, false
+	}
+
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	entry, ok := p.tokenCache[sessionID]
+	entry, ok := p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}]
 	if !ok {
 		return nil, false
 	}
@@ -74,14 +141,30 @@ func (p *TokenPropagationPlugin) getCachedToken(sessionID string) (*TokenCacheEn
 	return entry, true
 }
 
-// setCachedToken caches a token for the session.
-func (p *TokenPropagationPlugin) setCachedToken(sessionID string, token string, expiry int64) {
+// setCachedToken caches a token for the session and subject.
+func (p *TokenPropagationPlugin) setCachedToken(sessionID, subject, token string, expiry int64) {
+	// An empty subject identifies no principal, so an entry stored under it would
+	// be shared by every credential-less caller in the session.
+	if subject == "" {
+		return
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.tokenCache[sessionID] = &TokenCacheEntry{
+	// Every subject entry carries an expiry so the sweep can always evict it.
+	// Only entries whose token has no usable exp fall back to maxCacheTTL;
+	// a token that states its own expiry keeps it.
+	if expiry == 0 {
+		expiry = time.Now().Add(maxCacheTTL).Unix()
+	}
+
+	p.tokenCache[cacheKey{sessionID: sessionID, subject: subject}] = &TokenCacheEntry{
 		Token:  token,
 		Expiry: expiry,
+	}
+	if p.earliestExpiry == 0 || expiry < p.earliestExpiry {
+		p.earliestExpiry = expiry
 	}
 }
 
@@ -139,26 +222,22 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 		return nil, nil
 	}
 
-	// Check if we already have a valid cached token for this session.
-	if entry, ok := p.getCachedToken(sessionID); ok {
-		p.logger.V(1).Info("Using cached STS token", "sessionID", sessionID)
-		if entry.Expiry > 0 {
-			p.logger.V(1).Info("Token expiry remaining",
-				"expiresIn", time.Until(time.Unix(entry.Expiry, 0)).String())
-		}
-		return nil, nil
-	}
-
-	// Extract bearer token from context. executor.go stores it with models.BearerTokenKey.
-	bearerToken := ""
-	if v := ctx.Value(models.BearerTokenKey); v != nil {
-		if token, ok := v.(string); ok {
-			bearerToken = token
-		}
-	}
+	// Resolve the acting credential before the cache lookup: the cache is keyed by
+	// the acting subject, and a session shared by multiple subjects would otherwise
+	// reuse the first caller's token for every later caller.
+	bearerToken := actingCredential(ctx)
 
 	if bearerToken == "" {
 		p.logger.V(1).Info("No bearer token in context, skipping token propagation", "sessionID", sessionID)
+		return nil, nil
+	}
+
+	subject := subjectKey(bearerToken)
+
+	// Check if we already have a valid cached token for this session and subject.
+	if entry, ok := p.getCachedToken(sessionID, subject); ok {
+		p.logger.V(1).Info("Using cached STS token", "sessionID", sessionID,
+			"expiresIn", time.Until(time.Unix(entry.Expiry, 0)).String())
 		return nil, nil
 	}
 
@@ -204,12 +283,16 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 			// Fall back to JWT exp claim for cache TTL.
 			expiry = extractJWTExpiry(exchangedToken)
 		}
-		p.setCachedToken(sessionID, exchangedToken, expiry)
+		// The entry is keyed by the caller's credential, so it must not outlive
+		// it: replaying an expired bearer would otherwise keep hitting a cached
+		// delegated token instead of reaching the STS.
+		expiry = earlierExpiry(expiry, extractJWTExpiry(bearerToken))
+		p.setCachedToken(sessionID, subject, exchangedToken, expiry)
 		p.logger.Info("Successfully exchanged and cached STS token", "sessionID", sessionID)
 	} else {
 		// No STS integration — cache the raw subject token for header injection.
-		expiry := extractJWTExpiry(subjectToken)
-		p.setCachedToken(sessionID, subjectToken, expiry)
+		expiry := earlierExpiry(extractJWTExpiry(subjectToken), extractJWTExpiry(bearerToken))
+		p.setCachedToken(sessionID, subject, subjectToken, expiry)
 		p.logger.V(1).Info("Cached subject token (no STS exchange)", "sessionID", sessionID)
 	}
 
@@ -218,25 +301,29 @@ func (p *TokenPropagationPlugin) BeforeRunCallback(ctx agent.InvocationContext) 
 
 // AfterRunCallback is called after the ADK run finishes.
 // It cleans up expired tokens from the cache.
-func (p *TokenPropagationPlugin) AfterRunCallback(ctx agent.InvocationContext) {
-	sessionID := ""
-	if session := ctx.Session(); session != nil {
-		sessionID = session.ID()
-	}
-	if sessionID == "" {
-		return
-	}
-
+func (p *TokenPropagationPlugin) AfterRunCallback(_ agent.InvocationContext) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Remove expired subject token.
-	if entry, ok := p.tokenCache[sessionID]; ok {
-		if entry.HasExpired(p.bufferSeconds) {
-			p.logger.V(1).Info("Removing expired subject token from cache", "sessionID", sessionID)
-			delete(p.tokenCache, sessionID)
+	// A session holds one entry per subject and only the acting subject's key is
+	// derivable here, so the sweep covers every entry rather than the caller's
+	// alone; scoping it to the current session would strand the entries of
+	// sessions that never run again. The earliest expiry gates the walk, so a
+	// large cache is only traversed once something can actually be evicted.
+	if p.earliestExpiry != 0 && p.earliestExpiry <= time.Now().Unix()+p.bufferSeconds {
+		earliest := int64(0)
+		for key, entry := range p.tokenCache {
+			if entry.HasExpired(p.bufferSeconds) {
+				delete(p.tokenCache, key)
+				continue
+			}
+			if earliest == 0 || entry.Expiry < earliest {
+				earliest = entry.Expiry
+			}
 		}
+		p.earliestExpiry = earliest
 	}
+
 	if p.actorTokenCache != nil && p.actorTokenCache.HasExpired(p.bufferSeconds) {
 		p.logger.V(1).Info("Removing expired actor token from cache")
 		p.actorTokenCache = nil
@@ -256,9 +343,14 @@ func (p *TokenPropagationPlugin) HeaderProvider(ctx context.Context) map[string]
 		return nil
 	}
 
-	entry, ok := p.getCachedToken(sessionID)
+	// Derive the acting subject from this request's own credential, so the injected
+	// token matches the caller of this request rather than whichever subject
+	// first seeded the session.
+	subject := subjectKey(actingCredential(ctx))
+
+	entry, ok := p.getCachedToken(sessionID, subject)
 	if !ok {
-		p.logger.V(1).Info("No cached STS token for session, MCP request will use existing headers", "sessionID", sessionID)
+		p.logger.V(1).Info("No cached STS token for session/subject, MCP request will use existing headers", "sessionID", sessionID)
 		return nil
 	}
 
@@ -280,22 +372,13 @@ func sessionIDFromContext(ctx context.Context) string {
 	return sessionCtx.SessionID()
 }
 
-// GetTokenForSession retrieves the cached token for a specific session.
-// Returns empty string if no valid token is cached.
-func (p *TokenPropagationPlugin) GetTokenForSession(sessionID string) string {
-	entry, ok := p.getCachedToken(sessionID)
-	if !ok {
-		return ""
-	}
-	return entry.Token
-}
-
 // ClearCache clears all cached tokens.
 func (p *TokenPropagationPlugin) ClearCache() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.tokenCache = make(map[string]*TokenCacheEntry)
+	p.tokenCache = make(map[cacheKey]*TokenCacheEntry)
+	p.earliestExpiry = 0
 	p.actorTokenCache = nil
 	p.logger.Info("Cleared STS token cache")
 }
@@ -309,29 +392,20 @@ func (p *TokenPropagationPlugin) ADKPlugin() (*adkplugin.Plugin, error) {
 	})
 }
 
-// extractJWTExpiry extracts the 'exp' claim from a JWT token without verifying its signature.
-// This is ONLY used for cache TTL management, not for security decisions.
-// Token validation happens server-side during STS exchange.
+// extractJWTExpiry extracts the 'exp' claim from a JWT token without verifying
+// its signature. This is ONLY used for cache TTL management, not for security
+// decisions. Token validation happens server-side during STS exchange.
 func extractJWTExpiry(token string) int64 {
 	if token == "" {
 		return 0
 	}
-
 	claims := jwt.MapClaims{}
 	if _, _, err := jwt.NewParser(jwt.WithoutClaimsValidation()).ParseUnverified(token, claims); err != nil {
 		return 0
 	}
-
-	if exp, ok := claims["exp"]; ok {
-		switch v := exp.(type) {
-		case float64:
-			return int64(v)
-		case int64:
-			return v
-		case int:
-			return int64(v)
-		}
+	exp, err := claims.GetExpirationTime()
+	if err != nil || exp == nil {
+		return 0
 	}
-
-	return 0
+	return exp.Unix()
 }
