@@ -124,15 +124,11 @@ func composeVertexHTTPClient(base *http.Client, tokenSource oauth2.TokenSource) 
 // via Google Cloud Vertex AI using Application Default Credentials (ADC).
 // This is used for the GeminiAnthropic / AnthropicVertexAI provider type.
 //
-// Composition contract:
-//   - vertex.WithCredentials is applied first so its base URL and its
-//     URL-rewrite/anthropic_version middleware are registered.
-//   - option.WithHTTPClient is applied last with a client we build ourselves
-//     from the user's TransportConfig, wrapped by an oauth2.Transport so the
-//     custom TLS / headers / timeout stack AND the Google OAuth2 token are
-//     both applied on the wire. Base URL and middleware are stored on
-//     separate fields on the SDK's request config and middleware is additive,
-//     so only the HTTP client field is overridden.
+// We resolve ADC ourselves and compose a single *http.Client carrying both the
+// caller's TransportConfig (TLS, headers, timeout) and the Google OAuth2 token.
+// Ordering matters: vertex.WithCredentials must come before option.WithHTTPClient
+// so the Vertex endpoint setup is applied while our composed client remains the
+// one used on the wire (the last WithHTTPClient wins).
 func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicConfig, region, projectID string, logger logr.Logger) (*AnthropicModel, error) {
 	// Build the caller's HTTP client (TLS, headers, timeout).
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
@@ -153,10 +149,9 @@ func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicC
 	composedClient := composeVertexHTTPClient(httpClient, creds.TokenSource)
 
 	opts := []option.RequestOption{
-		// Registers Vertex base URL + URL-rewrite middleware.
+		// Configure the Vertex AI endpoint first.
 		vertex.WithCredentials(ctx, region, projectID, creds),
-		// Overrides only the HTTP client field. Base URL and middleware
-		// registered above survive.
+		// Apply our composed client last so it is the one used on the wire.
 		option.WithHTTPClient(composedClient),
 	}
 
