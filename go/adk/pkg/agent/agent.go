@@ -109,6 +109,9 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 		log.Info("Wiring MCP App model result callback", "toolCount", len(mcpAppToolNames))
 		beforeModelCallbacks = append(beforeModelCallbacks, MakeMCPAppModelResultCallback(mcpAppToolNames))
 	}
+	// Pairing repair runs last so it also covers anything the earlier callbacks
+	// leave unpaired.
+	beforeModelCallbacks = append(beforeModelCallbacks, MakeToolPairingCallback())
 	beforeToolCallbacks = append(beforeToolCallbacks, makeBeforeToolCallback(log))
 
 	llmAgentConfig := llmagent.Config{
