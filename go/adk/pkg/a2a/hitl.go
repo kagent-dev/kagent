@@ -361,16 +361,45 @@ func VisibleTools(approval *ToolApprovalRequest, ask *AskUserRequest) []HitlTool
 	return nil
 }
 
+// askUserQuestionText extracts the human-readable question text(s) from an
+// ask_user HitlTool's args (see VisibleTools), or "" if the shape is
+// unexpected. This is the content RemoteHitlHint would otherwise discard,
+// surfacing only the tool name ("ask_user") instead of what is actually
+// being asked.
+func askUserQuestionText(args map[string]any) string {
+	raw, _ := args["questions"].([]map[string]any)
+	texts := make([]string, 0, len(raw))
+	for _, q := range raw {
+		if text, ok := q["question"].(string); ok && text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return strings.Join(texts, " ")
+}
+
 func RemoteHitlHint(state *RemoteHitlState) string {
 	if state == nil {
 		return "Remote agent requires human input before continuing."
 	}
 	tools := VisibleTools(state.ToolApprovalRequest, state.AskUserRequest)
 	names := make([]string, 0, len(tools))
+	questions := make([]string, 0, len(tools))
 	for _, tool := range tools {
-		if tool.Name != "" {
-			names = append(names, tool.Name)
+		if tool.Name == "" {
+			continue
 		}
+		names = append(names, tool.Name)
+		if tool.Name == "ask_user" {
+			if q := askUserQuestionText(tool.Args); q != "" {
+				questions = append(questions, q)
+			}
+		}
+	}
+	// A real ask_user question is more useful to the human than the bare
+	// tool name — surface it directly rather than "requires approval for
+	// tool(s): ask_user", which carries no actionable information.
+	if len(questions) > 0 {
+		return fmt.Sprintf("Remote agent '%s' asks: %s", state.SubagentName, strings.Join(questions, " "))
 	}
 	if len(names) > 0 {
 		return fmt.Sprintf("Remote agent '%s' requires approval for tool(s): %s",
