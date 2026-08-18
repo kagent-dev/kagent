@@ -80,11 +80,12 @@ func TestHeaderProvider_UsesSessionIDMethod(t *testing.T) {
 	}
 }
 
-func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T) {
-	t.Parallel()
+// newSTSIntegration wires an STSIntegration to a fake authorization server whose
+// token endpoint answers with issue(r); every other path is discovery. issue
+// runs on the server goroutine, so it must not call t.Fatal.
+func newSTSIntegration(t *testing.T, fetchActor func(context.Context) (string, error), issue func(*http.Request) map[string]any) *STSIntegration {
+	t.Helper()
 
-	fetchCount := 0
-	exchangeCount := 0
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/oauth-authorization-server" {
@@ -98,27 +99,14 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 			http.NotFound(w, r)
 			return
 		}
-		exchangeCount++
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm() error = %v", err)
-		}
-		if got := r.FormValue("actor_token"); got != "dynamic-actor" {
-			t.Fatalf("actor_token = %q, want %q", got, "dynamic-actor")
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":      "access-token",
-			"issued_token_type": string(TokenTypeJWT),
-		})
+		_ = json.NewEncoder(w).Encode(issue(r))
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
 	integration, err := NewSTSIntegration(
 		srv.URL+"/.well-known/oauth-authorization-server",
 		"",
-		func(context.Context) (string, error) {
-			fetchCount++
-			return "dynamic-actor", nil
-		},
+		fetchActor,
 		nil,
 		5,
 		true,
@@ -127,6 +115,39 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 	if err != nil {
 		t.Fatalf("NewSTSIntegration() error = %v", err)
 	}
+	return integration
+}
+
+// staticActor is an actor-token provider that always returns the same token.
+func staticActor(token string) func(context.Context) (string, error) {
+	return func(context.Context) (string, error) { return token, nil }
+}
+
+// issued is a token endpoint response carrying accessToken.
+func issued(accessToken string) map[string]any {
+	return map[string]any{
+		"access_token":      accessToken,
+		"issued_token_type": string(TokenTypeJWT),
+	}
+}
+
+func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T) {
+	t.Parallel()
+
+	fetchCount := 0
+	exchangeCount := 0
+	gotActorToken := ""
+	integration := newSTSIntegration(t,
+		func(context.Context) (string, error) {
+			fetchCount++
+			return "dynamic-actor", nil
+		},
+		func(r *http.Request) map[string]any {
+			exchangeCount++
+			gotActorToken = r.FormValue("actor_token")
+			return issued("access-token")
+		},
+	)
 
 	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), nil, nil)
 	for _, sessionID := range []string{"sess-one", "sess-two"} {
@@ -144,6 +165,9 @@ func TestBeforeRunCallback_ReusesCachedDynamicActorTokenForExchange(t *testing.T
 	}
 	if exchangeCount != 2 {
 		t.Fatalf("token exchange calls = %d, want 2", exchangeCount)
+	}
+	if gotActorToken != "dynamic-actor" {
+		t.Fatalf("actor_token = %q, want %q", gotActorToken, "dynamic-actor")
 	}
 }
 
@@ -184,38 +208,10 @@ func TestBeforeRunCallback_SendsResourceAndAudience(t *testing.T) {
 			// back on the test goroutine to avoid a data race on the captured form.
 			gotForm := make(chan exchangeForm, 1)
 
-			var srv *httptest.Server
-			srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path == "/.well-known/oauth-authorization-server" {
-					_ = json.NewEncoder(w).Encode(map[string]any{
-						"issuer":         srv.URL,
-						"token_endpoint": srv.URL + "/token",
-					})
-					return
-				}
-				if r.URL.Path != "/token" {
-					http.NotFound(w, r)
-					return
-				}
-				if err := r.ParseForm(); err != nil {
-					gotForm <- exchangeForm{err: err}
-				} else {
-					gotForm <- exchangeForm{resource: r.FormValue("resource"), audience: r.FormValue("audience")}
-				}
-				_ = json.NewEncoder(w).Encode(map[string]any{
-					"access_token":      "access-token",
-					"issued_token_type": string(TokenTypeJWT),
-				})
-			}))
-			defer srv.Close()
-
-			integration, err := NewSTSIntegration(
-				srv.URL+"/.well-known/oauth-authorization-server",
-				"", nil, nil, 5, true, false,
-			)
-			if err != nil {
-				t.Fatalf("NewSTSIntegration() error = %v", err)
-			}
+			integration := newSTSIntegration(t, nil, func(r *http.Request) map[string]any {
+				gotForm <- exchangeForm{resource: r.FormValue("resource"), audience: r.FormValue("audience")}
+				return issued("access-token")
+			})
 
 			plugin := NewTokenPropagationPlugin(integration, logr.Discard(), tt.resource, tt.audience)
 			ctx := context.WithValue(context.Background(), kagentmodels.BearerTokenKey, "subject-token")
@@ -291,39 +287,11 @@ func TestSubjectKeyPartitionsOpaqueTokens(t *testing.T) {
 func TestSharedSessionKeepsPerSubjectTokens(t *testing.T) {
 	t.Parallel()
 
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/oauth-authorization-server" {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"issuer":         srv.URL,
-				"token_endpoint": srv.URL + "/token",
-			})
-			return
-		}
-		if err := r.ParseForm(); err != nil {
-			t.Fatalf("ParseForm() error = %v", err)
-		}
-		// Echo the incoming subject into the issued token so each caller receives
-		// a distinct exchanged token.
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":      "exchanged-for-" + subjectKey(r.FormValue("subject_token")),
-			"issued_token_type": string(TokenTypeJWT),
-		})
-	}))
-	defer srv.Close()
-
-	integration, err := NewSTSIntegration(
-		srv.URL+"/.well-known/oauth-authorization-server",
-		"",
-		func(context.Context) (string, error) { return "actor", nil },
-		nil,
-		5,
-		true,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("NewSTSIntegration() error = %v", err)
-	}
+	// Echo the incoming subject into the issued token so each caller receives a
+	// distinct exchanged token.
+	integration := newSTSIntegration(t, staticActor("actor"), func(r *http.Request) map[string]any {
+		return issued("exchanged-for-" + subjectKey(r.FormValue("subject_token")))
+	})
 
 	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), nil, nil)
 
@@ -382,35 +350,10 @@ func TestBeforeRunCallbackSameSubjectCachesExchange(t *testing.T) {
 	t.Parallel()
 
 	exchangeCount := 0
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/oauth-authorization-server" {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"issuer":         srv.URL,
-				"token_endpoint": srv.URL + "/token",
-			})
-			return
-		}
+	integration := newSTSIntegration(t, staticActor("actor"), func(*http.Request) map[string]any {
 		exchangeCount++
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":      "access",
-			"issued_token_type": string(TokenTypeJWT),
-		})
-	}))
-	defer srv.Close()
-
-	integration, err := NewSTSIntegration(
-		srv.URL+"/.well-known/oauth-authorization-server",
-		"",
-		func(context.Context) (string, error) { return "actor", nil },
-		nil,
-		5,
-		true,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("NewSTSIntegration() error = %v", err)
-	}
+		return issued("access")
+	})
 
 	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), nil, nil)
 	bearer := signedTokenWithSub(t, "alice")
@@ -594,36 +537,12 @@ func signedTokenExpiringIn(t *testing.T, sub string, d time.Duration) string {
 func TestCachedEntryDoesNotOutliveTheCallerCredential(t *testing.T) {
 	t.Parallel()
 
-	var srv *httptest.Server
-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/.well-known/oauth-authorization-server" {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"issuer":         srv.URL,
-				"token_endpoint": srv.URL + "/token",
-			})
-			return
-		}
-		// A delegated token that long outlives the caller's own credential.
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"access_token":      "long-lived",
-			"issued_token_type": string(TokenTypeJWT),
-			"expires_in":        3600,
-		})
-	}))
-	defer srv.Close()
-
-	integration, err := NewSTSIntegration(
-		srv.URL+"/.well-known/oauth-authorization-server",
-		"",
-		func(context.Context) (string, error) { return "actor", nil },
-		nil,
-		5,
-		true,
-		false,
-	)
-	if err != nil {
-		t.Fatalf("NewSTSIntegration() error = %v", err)
-	}
+	// A delegated token that long outlives the caller's own credential.
+	integration := newSTSIntegration(t, staticActor("actor"), func(*http.Request) map[string]any {
+		resp := issued("long-lived")
+		resp["expires_in"] = 3600
+		return resp
+	})
 
 	plugin := NewTokenPropagationPlugin(integration, logr.Discard(), nil, nil)
 
@@ -643,13 +562,30 @@ func TestCachedEntryDoesNotOutliveTheCallerCredential(t *testing.T) {
 	}
 }
 
-// A credential with no exp claim leaves the exchange's own lifetime in place
-// rather than truncating it.
-func TestCachedEntryKeepsExchangeExpiryWhenCredentialHasNone(t *testing.T) {
+// earlierExpiry decides the cached entry's lifetime, so it must treat a missing
+// expiry as "unknown" rather than as the epoch.
+func TestEarlierExpiry(t *testing.T) {
 	t.Parallel()
 
-	exchanged := signedTokenExpiringIn(t, "alice", time.Hour)
-	if got := earlierExpiry(extractJWTExpiry(exchanged), extractJWTExpiry(signedTokenWithSub(t, "alice"))); got != extractJWTExpiry(exchanged) {
-		t.Fatalf("earlierExpiry() = %d, want the exchange expiry %d", got, extractJWTExpiry(exchanged))
+	tests := []struct {
+		name      string
+		current   int64
+		candidate int64
+		want      int64
+	}{
+		{name: "the candidate expires first", current: 200, candidate: 100, want: 100},
+		{name: "the current entry expires first", current: 100, candidate: 200, want: 100},
+		{name: "no candidate expiry keeps the current one", current: 100, candidate: 0, want: 100},
+		{name: "no current expiry takes the candidate", current: 0, candidate: 100, want: 100},
+		{name: "neither expires", current: 0, candidate: 0, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := earlierExpiry(tt.current, tt.candidate); got != tt.want {
+				t.Fatalf("earlierExpiry(%d, %d) = %d, want %d", tt.current, tt.candidate, got, tt.want)
+			}
+		})
 	}
 }
