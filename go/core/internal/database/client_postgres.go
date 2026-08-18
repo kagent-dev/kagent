@@ -1,6 +1,7 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -711,14 +712,62 @@ func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace
 	return nil
 }
 
-func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event) error {
-	eventProto, err := pbconv.ToProtoStreamResponse(event)
-	if err != nil {
-		return fmt.Errorf("convert AgentInstance task event: %w", err)
+func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
+	if task == nil || len(task.History) == 0 || task.History[0] == nil || task.History[0].ID == "" {
+		return nil, false, fmt.Errorf("AgentInstance task requires an initial message")
 	}
-	eventData, err := proto.Marshal(eventProto)
+	message := task.History[0]
+	taskData, err := marshalAgentInstanceTask(task)
 	if err != nil {
-		return fmt.Errorf("marshal AgentInstance task event: %w", err)
+		return nil, false, err
+	}
+	eventData, err := marshalAgentInstanceTaskEvent(message)
+	if err != nil {
+		return nil, false, err
+	}
+
+	result := task
+	created := false
+	err = c.withTx(ctx, func(q *dbgen.Queries) error {
+		rows, err := q.CreateAgentInstanceTask(ctx, dbgen.CreateAgentInstanceTaskParams{
+			InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
+			StatusTimestamp: task.Status.Timestamp, Data: taskData,
+			InitialMessageID: &message.ID, RequestHash: requestHash,
+		})
+		if err != nil {
+			if isActiveTaskConflict(err) {
+				return dbpkg.ErrAgentInstanceTaskConflict
+			}
+			return fmt.Errorf("create AgentInstance task %s: %w", task.ID, err)
+		}
+		if rows == 0 {
+			row, err := q.GetAgentInstanceTaskByMessageID(ctx, dbgen.GetAgentInstanceTaskByMessageIDParams{
+				InstanceID: instanceID, InitialMessageID: &message.ID,
+			})
+			if err != nil {
+				return fmt.Errorf("get AgentInstance task for message %s: %w", message.ID, err)
+			}
+			if !bytes.Equal(row.RequestHash, requestHash) {
+				return dbpkg.ErrIdempotencyConflict
+			}
+			result, err = unmarshalAgentInstanceTask(row.Data)
+			return err
+		}
+		created = true
+		return q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
+			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(message.TaskID)), Data: eventData,
+		})
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("create AgentInstance task: %w", err)
+	}
+	return result, created, nil
+}
+
+func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event) error {
+	eventData, err := marshalAgentInstanceTaskEvent(event)
+	if err != nil {
+		return err
 	}
 
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
@@ -731,8 +780,7 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 				InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
 				StatusTimestamp: task.Status.Timestamp, Data: data,
 			}); err != nil {
-				var pgErr *pgconn.PgError
-				if errors.As(err, &pgErr) && pgErr.ConstraintName == "agent_instance_one_active_task_idx" {
+				if isActiveTaskConflict(err) {
 					return dbpkg.ErrAgentInstanceTaskConflict
 				}
 				return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
@@ -795,6 +843,23 @@ func marshalAgentInstanceTask(task *a2a.Task) ([]byte, error) {
 		return nil, fmt.Errorf("marshal AgentInstance task: %w", err)
 	}
 	return data, nil
+}
+
+func marshalAgentInstanceTaskEvent(event a2a.Event) ([]byte, error) {
+	pb, err := pbconv.ToProtoStreamResponse(event)
+	if err != nil {
+		return nil, fmt.Errorf("convert AgentInstance task event: %w", err)
+	}
+	data, err := proto.Marshal(pb)
+	if err != nil {
+		return nil, fmt.Errorf("marshal AgentInstance task event: %w", err)
+	}
+	return data, nil
+}
+
+func isActiveTaskConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.ConstraintName == "agent_instance_one_active_task_idx"
 }
 
 func unmarshalAgentInstanceTask(data []byte) (*a2a.Task, error) {

@@ -38,6 +38,7 @@ type gatewayTestStore struct {
 	tasks                 []*a2atype.Task
 	total                 int
 	taskErr               error
+	replay                *a2atype.Task
 	stored                []a2atype.Event
 	namespace, id, userID string
 }
@@ -54,6 +55,18 @@ func (s *gatewayTestStore) StoreAgentInstanceTaskEvent(_ context.Context, _ stri
 	s.task = task
 	s.stored = append(s.stored, event)
 	return nil
+}
+
+func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, _ []byte, task *a2atype.Task) (*a2atype.Task, bool, error) {
+	if s.taskErr != nil {
+		return nil, false, s.taskErr
+	}
+	if s.replay != nil {
+		return s.replay, false, nil
+	}
+	s.task = task
+	s.stored = append(s.stored, task.History[0])
+	return task, true, nil
 }
 
 func (s *gatewayTestStore) GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error) {
@@ -317,5 +330,33 @@ func TestGatewayRejectsConcurrentTaskBeforeDialing(t *testing.T) {
 	}
 	if dialer.instance != nil {
 		t.Fatal("conflicting task dialed the private runtime")
+	}
+}
+
+func TestGatewayReplaysDuplicateMessageWithoutDialing(t *testing.T) {
+	existing := &a2atype.Task{ID: "existing-task", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), replay: existing}
+	dialer := &gatewayTestDialer{}
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer)
+
+	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	if err != nil || result != existing {
+		t.Fatalf("SendMessage() = %#v, %v", result, err)
+	}
+	if dialer.instance != nil {
+		t.Fatal("duplicate message dialed the private runtime")
+	}
+}
+
+func TestGatewayRejectsConflictingMessageIDWithoutDialing(t *testing.T) {
+	store := &gatewayTestStore{instance: gatewayTestInstance(), taskErr: dbpkg.ErrIdempotencyConflict}
+	dialer := &gatewayTestDialer{}
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
+		t.Fatal("SendMessage() accepted a reused message ID with different content")
+	}
+	if dialer.instance != nil {
+		t.Fatal("conflicting message dialed the private runtime")
 	}
 }

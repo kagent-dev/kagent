@@ -11,6 +11,7 @@ import (
 type Querier interface {
 	CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error)
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
+	CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error)
 	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
 	DeleteAgentInstance(ctx context.Context, id string) error
 	DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error)
@@ -28,6 +29,7 @@ type Querier interface {
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
 	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
+	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
 	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)

@@ -31,8 +31,44 @@ func (q *Queries) CountAgentInstanceTasks(ctx context.Context, arg CountAgentIns
 	return count, err
 }
 
+const createAgentInstanceTask = `-- name: CreateAgentInstanceTask :execrows
+INSERT INTO agent_instance_task (
+    instance_id, id, state, status_timestamp, data, initial_message_id, request_hash
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (instance_id, initial_message_id)
+    WHERE initial_message_id IS NOT NULL
+DO NOTHING
+`
+
+type CreateAgentInstanceTaskParams struct {
+	InstanceID       string
+	ID               string
+	State            string
+	StatusTimestamp  *time.Time
+	Data             []byte
+	InitialMessageID *string
+	RequestHash      []byte
+}
+
+func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error) {
+	result, err := q.db.Exec(ctx, createAgentInstanceTask,
+		arg.InstanceID,
+		arg.ID,
+		arg.State,
+		arg.StatusTimestamp,
+		arg.Data,
+		arg.InitialMessageID,
+		arg.RequestHash,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getAgentInstanceTask = `-- name: GetAgentInstanceTask :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
 WHERE instance_id = $1 AND id = $2
 `
 
@@ -52,6 +88,35 @@ func (q *Queries) GetAgentInstanceTask(ctx context.Context, arg GetAgentInstance
 		&i.Data,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.InitialMessageID,
+		&i.RequestHash,
+	)
+	return i, err
+}
+
+const getAgentInstanceTaskByMessageID = `-- name: GetAgentInstanceTaskByMessageID :one
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
+WHERE instance_id = $1 AND initial_message_id = $2
+`
+
+type GetAgentInstanceTaskByMessageIDParams struct {
+	InstanceID       string
+	InitialMessageID *string
+}
+
+func (q *Queries) GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, getAgentInstanceTaskByMessageID, arg.InstanceID, arg.InitialMessageID)
+	var i AgentInstanceTask
+	err := row.Scan(
+		&i.InstanceID,
+		&i.ID,
+		&i.State,
+		&i.StatusTimestamp,
+		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitialMessageID,
+		&i.RequestHash,
 	)
 	return i, err
 }
@@ -73,7 +138,7 @@ func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAg
 }
 
 const listAgentInstanceTasks = `-- name: ListAgentInstanceTasks :many
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
 WHERE instance_id = $1
   AND id > $2
   AND ($3::text = '' OR state = $3)
@@ -114,6 +179,8 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 			&i.Data,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.InitialMessageID,
+			&i.RequestHash,
 		); err != nil {
 			return nil, err
 		}

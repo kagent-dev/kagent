@@ -6,6 +6,7 @@ package a2agateway
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -16,12 +17,14 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/google/uuid"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -35,6 +38,7 @@ const (
 
 type instanceStore interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
+	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error)
@@ -187,9 +191,12 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 }
 
 func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
-	instance, submitted, err := g.prepareSend(ctx, req)
+	instance, submitted, created, err := g.prepareSend(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	if !created {
+		return submitted, nil
 	}
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
@@ -224,9 +231,12 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 }
 
 func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
-	instance, submitted, err := g.prepareSend(ctx, req)
+	instance, submitted, created, err := g.prepareSend(ctx, req)
 	if err != nil {
 		return errorEvents(err)
+	}
+	if !created {
+		return func(yield func(a2atype.Event, error) bool) { yield(submitted, nil) }
 	}
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
@@ -278,28 +288,48 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, req *a2atype.GetExte
 	return nil, a2atype.ErrExtendedCardNotConfigured
 }
 
-func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageRequest) (*apiv1alpha1.AgentInstance, *a2atype.Task, error) {
+func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageRequest) (*apiv1alpha1.AgentInstance, *a2atype.Task, bool, error) {
 	instance, err := g.instance(ctx, auth.VerbCreate)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	if req == nil || req.Message == nil {
-		return nil, nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message is required")
+		return nil, nil, false, a2atype.NewError(a2atype.ErrInvalidRequest, "message is required")
+	}
+	if req.Message.ID == "" {
+		return nil, nil, false, a2atype.NewError(a2atype.ErrInvalidRequest, "message ID is required")
 	}
 	if req.Message.ContextID != "" && req.Message.ContextID != instance.GetId() {
-		return nil, nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
+		return nil, nil, false, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
 	}
 	if req.Message.TaskID != "" {
-		return nil, nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "continuing a task is not supported")
+		return nil, nil, false, a2atype.NewError(a2atype.ErrUnsupportedOperation, "continuing a task is not supported")
 	}
 	req.Message.ContextID = instance.GetId()
+	requestHash, err := hashSendRequest(req)
+	if err != nil {
+		return nil, nil, false, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
+	}
 	req.Message.TaskID = a2atype.NewTaskID()
 	submitted := a2atype.NewSubmittedTask(req.Message, req.Message)
-	// Reserve the active-task slot before dialing so concurrent sends cannot both execute.
-	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), submitted, req.Message); err != nil {
-		return nil, nil, g.storeError(ctx, err)
+	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
+	if err != nil {
+		return nil, nil, false, g.storeError(ctx, err)
 	}
-	return instance, submitted, nil
+	return instance, stored, created, nil
+}
+
+func hashSendRequest(req *a2atype.SendMessageRequest) ([]byte, error) {
+	pb, err := pbconv.ToProtoSendMessageRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	data, err := proto.MarshalOptions{Deterministic: true}.Marshal(pb)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(data)
+	return sum[:], nil
 }
 
 func taskForResult(submitted *a2atype.Task, result a2atype.SendMessageResult) (*a2atype.Task, error) {
@@ -387,6 +417,9 @@ func (g *Gateway) failTask(ctx context.Context, instanceID string, task *a2atype
 }
 
 func (g *Gateway) storeError(ctx context.Context, err error) error {
+	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+		return a2atype.NewError(a2atype.ErrInvalidRequest, "message ID was already used with a different request")
+	}
 	if errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
 		return a2atype.NewError(a2atype.ErrUnsupportedOperation, "AgentInstance already has an active task")
 	}
