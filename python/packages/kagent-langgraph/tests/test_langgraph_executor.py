@@ -80,3 +80,24 @@ async def test_interrupt_ask_user_without_activation_still_asks():
 
     assert get_ask_user_request(message) is None
     assert _text(message) == "Which namespace?"
+
+
+async def test_interrupt_skips_action_requests_without_a_name_or_id():
+    interrupt_data = [{"action_requests": [{"args": {"path": "/tmp"}}, {"id": "call-1"}, "not-a-mapping"]}]
+
+    message = await _handle(True, interrupt_data=interrupt_data)
+
+    assert get_tool_approval_request(message) is None
+    assert _text(message) == "Human input is required before the agent can continue."
+
+
+async def test_interrupt_normalizes_non_dict_args():
+    interrupt_data = [{"action_requests": [{"id": "call-1", "name": "delete_file", "args": "/tmp/x"}]}]
+
+    message = await _handle(True, interrupt_data=interrupt_data)
+
+    request = get_tool_approval_request(message)
+
+    assert request is not None
+    assert request.tools[0].args == {}
+    assert _text(message) == "Approval is required for tool(s): delete_file"

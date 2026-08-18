@@ -234,13 +234,23 @@ class LangGraphAgentExecutor(AgentExecutor):
                     action,
                 )
                 continue
-            tool_name = action["name"]
-            tool_args = action["args"]
+            tool_name = str(action.get("name") or "")
             # id is the opaque HITL correlation id; call_id is the tool call id.
             # Graphs typically set both to the LangChain tool call id.
-            correlation_id = action["id"]
-            call_id = action.get("call_id") or correlation_id
-            tools.append(HitlTool(id=correlation_id, call_id=call_id, name=tool_name, args=tool_args))
+            correlation_id = str(action.get("id") or "")
+            if not tool_name or not correlation_id:
+                logger.warning("Skipping an action_request without a tool name or id: %r", action)
+                continue
+            tool_args = action.get("args")
+            call_id = str(action.get("call_id") or correlation_id)
+            tools.append(
+                HitlTool(
+                    id=correlation_id,
+                    call_id=call_id,
+                    name=tool_name,
+                    args=tool_args if isinstance(tool_args, dict) else {},
+                )
+            )
 
         # The text part names the tools so a client that did not activate the
         # extension still learns what it is being asked.
@@ -252,7 +262,9 @@ class LangGraphAgentExecutor(AgentExecutor):
             context_id=context_id,
             parts=[Part(text=text)],
         )
-        if hitl_enabled:
+        # With no usable action request there is nothing for a client to decide on,
+        # so the pause stays text-only rather than carrying an empty request.
+        if hitl_enabled and tools:
             attach_hitl_extension(status_message, _hitl_request(tools, text))
 
         await event_queue.enqueue_event(
