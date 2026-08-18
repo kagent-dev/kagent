@@ -38,10 +38,22 @@ HEADERS_KEY = "headers"
 MAX_CACHE_TTL_SECONDS = 300
 
 
-def _default_get_subject_token(state: dict) -> Optional[str]:
-    """Default subject token retrieval from Authorization header in session state."""
+def _acting_credential(state: dict) -> Optional[str]:
+    """Return the credential this caller presented, which the cache is keyed on.
+
+    Deliberately not ``get_subject_token``: that hook receives the whole session
+    state, so an implementation reading a session-scoped field would return one
+    value for every caller and collapse the key back to a single entry per
+    session. Only the inbound Authorization header is caller-scoped by
+    construction.
+    """
     headers = state.get(HEADERS_KEY, None)
     return _extract_jwt_from_headers(headers)
+
+
+def _default_get_subject_token(state: dict) -> Optional[str]:
+    """Default subject token retrieval from Authorization header in session state."""
+    return _acting_credential(state)
 
 
 def _subject_key(token: Optional[str]) -> str:
@@ -209,17 +221,15 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Propagate token to model before execution."""
-        # Resolve the acting subject before the cache lookup: the cache is keyed
-        # by subject, and a session carrying messages from several subjects would
+        # Resolve the acting caller before the cache lookup: the cache is keyed by
+        # subject, and a session carrying messages from several subjects would
         # otherwise reuse whichever caller arrived first.
-        subject_token = self._read_subject_token(invocation_context.session.state)
-        if not subject_token:
-            logger.debug("subject token not found in session state for token propagation")
-            return None
-
-        cache_key = self._cache_key_for(invocation_context.session.id, subject_token)
+        cache_key = self._cache_key_for(
+            invocation_context.session.id,
+            self._key_input(invocation_context.session.state),
+        )
         if cache_key is None:
-            logger.debug("no subject to key the token cache on, skipping token propagation")
+            logger.debug("subject token not found in session state for token propagation")
             return None
 
         # Check if we have a valid cached subject token
@@ -230,6 +240,13 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.debug(f"Using cached subject token (expires in {cached_entry.expiry - current_time}s)")
             else:
                 logger.debug("Using cached subject token (no expiry)")
+            return None
+
+        # The exchange payload comes from get_subject_token, which the cache key
+        # deliberately does not use: see _acting_credential.
+        subject_token = self._read_subject_token(invocation_context.session.state)
+        if not subject_token:
+            logger.debug("subject token not found in session state for token propagation")
             return None
 
         if self.sts_integration:
@@ -284,6 +301,19 @@ class ADKTokenPropagationPlugin(BasePlugin):
             logger.warning(f"Failed to read subject token from session state: {e}")
             return None
 
+    def _key_input(self, state: dict) -> Optional[str]:
+        """Return the value the cache key is derived from.
+
+        The caller's own credential wins when there is one, so a session carrying
+        several callers partitions per caller even if get_subject_token reads a
+        session-scoped field and would return one value for all of them.
+
+        Without an inbound credential there is nothing caller-scoped to key on,
+        so the hook's output is used: that mode has no per-caller identity to
+        preserve, and one entry per session is the correct partitioning for it.
+        """
+        return _acting_credential(state) or self._read_subject_token(state)
+
     def _cache_key_for(self, session_id: str, subject_token: Optional[str]) -> Optional[str]:
         subject = _subject_key(subject_token)
         if not subject:
@@ -299,7 +329,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         instead of collapsing onto whichever arrived first. None when the caller
         presents no credential to derive a subject from."""
         session = invocation_context.session
-        return self._cache_key_for(session.id, self._read_subject_token(session.state))
+        return self._cache_key_for(session.id, self._key_input(session.state))
 
     async def _get_actor_token(self) -> Optional[str]:
         """Get actor token from cache or fetch dynamically.

@@ -1243,6 +1243,33 @@ class TestADKTokenPropagationPlugin:
 
         assert plugin.header_provider(self._make_readonly_context(ic_anon)) == {}
 
+    @pytest.mark.asyncio
+    async def test_session_scoped_get_subject_token_does_not_collapse_the_key(self):
+        """Case: a get_subject_token reading session state (not the caller's header)
+        still keeps one entry per caller, since the key comes from the credential."""
+        alice = self._jwt("https://dex.example", "alice")
+        bob = self._jwt("https://dex.example", "bob")
+
+        sts = Mock(spec=ADKSTSIntegration)
+        # Reads a session-scoped field, so it returns the same token for every caller.
+        sts.get_subject_token = lambda state: state.get("session_token")
+        sts.fetch_actor_token = None
+        sts._actor_token = "actor-token"
+        sts.exchange_token = AsyncMock(side_effect=["exchanged-alice", "exchanged-bob"])
+        plugin = ADKTokenPropagationPlugin(sts)
+
+        ic_alice = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {alice}"})
+        ic_bob = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {bob}"})
+        for ic in (ic_alice, ic_bob):
+            ic.session.state["session_token"] = "one-token-for-the-whole-session"
+
+        await plugin.before_run_callback(invocation_context=ic_alice)
+        await plugin.before_run_callback(invocation_context=ic_bob)
+
+        assert len(plugin.token_cache) == 2
+        assert plugin.token_cache[plugin.cache_key(ic_alice)].token == "exchanged-alice"
+        assert plugin.token_cache[plugin.cache_key(ic_bob)].token == "exchanged-bob"
+
     def test_empty_subject_is_not_cacheable(self):
         """Case: a caller with no credential yields no cache key, so credential-less
         callers cannot come to share one entry."""
