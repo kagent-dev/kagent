@@ -1368,6 +1368,28 @@ class TestADKTokenPropagationPlugin:
         # No credential but a subject token from the hook still keys per session.
         assert plugin._cache_key_for("sess-x", None, "hook-token") is not None
 
+    def test_unidentified_session_is_not_cacheable(self):
+        """Case: without a session id, entries could only be shared between
+        unrelated conversations."""
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+
+        assert plugin._cache_key_for("", "a-credential", "a-credential") is None
+
+    @pytest.mark.asyncio
+    async def test_header_provider_still_resolves_after_the_run_ends(self):
+        """Case: the key comes from the run's own state, not from state held between
+        callbacks, so a tool call outliving after_run_callback still authenticates."""
+        alice = self._jwt("https://dex.example", "alice")
+
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic = self._make_invocation_context("sess-late", headers={"Authorization": f"Bearer {alice}"})
+        await plugin.before_run_callback(invocation_context=ic)
+
+        await plugin.after_run_callback(invocation_context=ic)
+        # The entry is unexpired, so the sweep kept it.
+        assert plugin.cache_key(ic) in plugin.token_cache
+        assert plugin.header_provider(self._make_readonly_context(ic)) == {"Authorization": f"Bearer {alice}"}
+
 
 class TestADKSTSIntegration:
     """Test cases for ADKSTSIntegration."""
