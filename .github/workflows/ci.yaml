@@ -461,6 +461,10 @@ jobs:
       - name: Install python
         run: uv python install 3.11
 
+      - name: Verify uv.lock matches pyproject.toml
+        working-directory: ./python
+        run: uv lock --check
+
       - name: Sync dependencies
         working-directory: ./python
         run: uv sync --all-extras
