@@ -16,8 +16,9 @@ import (
 var ErrTaskOwnedByAnotherUser = errors.New("task id owned by another user")
 
 // ErrSessionIDRetired means the session id belongs to a soft-deleted session.
-// The id is not reusable: the tombstone and the events and tasks it owns are
-// left as they are.
+// The id stays unusable for as long as the tombstone exists, and the tombstone
+// and the events and tasks it owns are left as they are. Once retention
+// hard-deletes the tombstone the id inserts normally again.
 var ErrSessionIDRetired = errors.New("session id belongs to a deleted session")
 
 var ErrIdempotencyConflict = errors.New("request id was already used with different parameters")
