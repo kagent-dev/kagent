@@ -10,7 +10,10 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
@@ -455,6 +458,22 @@ func toAgentInstance(row dbgen.AgentInstance) (*apiv1alpha1.AgentInstance, error
 	if err := proto.Unmarshal(row.Data, instance); err != nil {
 		return nil, fmt.Errorf("decode AgentInstance %s: %w", row.ID, err)
 	}
+	state, ok := apiv1alpha1.AgentInstanceState_value["AGENT_INSTANCE_STATE_"+row.State]
+	if !ok {
+		return nil, fmt.Errorf("decode AgentInstance %s state %q", row.ID, row.State)
+	}
+	operation := row.Operation
+	if operation == "NONE" {
+		operation = "UNSPECIFIED"
+	}
+	operationValue, ok := apiv1alpha1.AgentInstanceOperation_value["AGENT_INSTANCE_OPERATION_"+operation]
+	if !ok {
+		return nil, fmt.Errorf("decode AgentInstance %s operation %q", row.ID, row.Operation)
+	}
+	// These indexed columns are the lifecycle source of truth. In particular,
+	// migrations can backfill them without rewriting the protobuf blob.
+	instance.State = apiv1alpha1.AgentInstanceState(state)
+	instance.Operation = apiv1alpha1.AgentInstanceOperation(operationValue)
 	return instance, nil
 }
 
@@ -593,6 +612,52 @@ func (c *postgresClient) MarkAgentInstanceReady(ctx context.Context, id, authori
 	return toAgentInstance(row)
 }
 
+func (c *postgresClient) TransitionAgentInstance(
+	ctx context.Context,
+	instance *apiv1alpha1.AgentInstance,
+	expectedState apiv1alpha1.AgentInstanceState,
+	expectedOperation apiv1alpha1.AgentInstanceOperation,
+) (*apiv1alpha1.AgentInstance, error) {
+	data, err := marshalAgentInstance(instance)
+	if err != nil {
+		return nil, err
+	}
+	row, err := c.q.TransitionAgentInstance(ctx, dbgen.TransitionAgentInstanceParams{
+		ID: instance.GetId(), Data: data,
+		ExpectedState: agentInstanceStateName(expectedState), ExpectedOperation: agentInstanceOperationName(expectedOperation),
+		NextState: agentInstanceStateName(instance.GetState()), NextOperation: agentInstanceOperationName(instance.GetOperation()),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		row, err = c.q.GetAgentInstanceByID(ctx, instance.GetId())
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), dbpkg.ErrNotFound)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get conflicting AgentInstance %s: %w", instance.GetId(), err)
+		}
+		current, decodeErr := toAgentInstance(row)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		return current, dbpkg.ErrAgentInstanceConflict
+	}
+	if err != nil {
+		return nil, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), err)
+	}
+	return toAgentInstance(row)
+}
+
+func agentInstanceStateName(state apiv1alpha1.AgentInstanceState) string {
+	return strings.TrimPrefix(state.String(), "AGENT_INSTANCE_STATE_")
+}
+
+func agentInstanceOperationName(operation apiv1alpha1.AgentInstanceOperation) string {
+	if operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+		return "NONE"
+	}
+	return strings.TrimPrefix(operation.String(), "AGENT_INSTANCE_OPERATION_")
+}
+
 func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) error {
 	if err := c.q.DeleteAgentInstance(ctx, id); err != nil {
 		return fmt.Errorf("delete AgentInstance %s: %w", id, err)
@@ -644,6 +709,104 @@ func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace
 		return dbpkg.ErrNotFound
 	}
 	return nil
+}
+
+func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event) error {
+	eventProto, err := pbconv.ToProtoStreamResponse(event)
+	if err != nil {
+		return fmt.Errorf("convert AgentInstance task event: %w", err)
+	}
+	eventData, err := proto.Marshal(eventProto)
+	if err != nil {
+		return fmt.Errorf("marshal AgentInstance task event: %w", err)
+	}
+
+	err = c.withTx(ctx, func(q *dbgen.Queries) error {
+		if task != nil {
+			data, err := marshalAgentInstanceTask(task)
+			if err != nil {
+				return err
+			}
+			if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
+				InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
+				StatusTimestamp: task.Status.Timestamp, Data: data,
+			}); err != nil {
+				var pgErr *pgconn.PgError
+				if errors.As(err, &pgErr) && pgErr.ConstraintName == "agent_instance_one_active_task_idx" {
+					return dbpkg.ErrAgentInstanceTaskConflict
+				}
+				return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
+			}
+		}
+		if err := q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
+			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)), Data: eventData,
+		}); err != nil {
+			return fmt.Errorf("store AgentInstance task event: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("store AgentInstance task update: %w", err)
+	}
+	return nil
+}
+
+func (c *postgresClient) GetAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, error) {
+	row, err := c.q.GetAgentInstanceTask(ctx, dbgen.GetAgentInstanceTaskParams{InstanceID: instanceID, ID: taskID})
+	if err != nil {
+		return nil, fmt.Errorf("get AgentInstance task %s: %w", taskID, notFoundOr(err))
+	}
+	return unmarshalAgentInstanceTask(row.Data)
+}
+
+func (c *postgresClient) ListAgentInstanceTasks(ctx context.Context, instanceID, afterID string, state a2a.TaskState, statusTimestampAfter *time.Time, limit int) ([]*a2a.Task, int, error) {
+	params := dbgen.CountAgentInstanceTasksParams{
+		InstanceID: instanceID, State: string(state), StatusTimestampAfter: statusTimestampAfter,
+	}
+	total, err := c.q.CountAgentInstanceTasks(ctx, params)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count AgentInstance tasks: %w", err)
+	}
+	rows, err := c.q.ListAgentInstanceTasks(ctx, dbgen.ListAgentInstanceTasksParams{
+		InstanceID: instanceID, AfterID: afterID, State: params.State,
+		StatusTimestampAfter: statusTimestampAfter, PageSize: int32(limit),
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list AgentInstance tasks: %w", err)
+	}
+	tasks := make([]*a2a.Task, 0, len(rows))
+	for _, row := range rows {
+		task, err := unmarshalAgentInstanceTask(row.Data)
+		if err != nil {
+			return nil, 0, fmt.Errorf("decode AgentInstance task %s: %w", row.ID, err)
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, int(total), nil
+}
+
+func marshalAgentInstanceTask(task *a2a.Task) ([]byte, error) {
+	pb, err := pbconv.ToProtoTask(task)
+	if err != nil {
+		return nil, fmt.Errorf("convert AgentInstance task: %w", err)
+	}
+	data, err := proto.Marshal(pb)
+	if err != nil {
+		return nil, fmt.Errorf("marshal AgentInstance task: %w", err)
+	}
+	return data, nil
+}
+
+func unmarshalAgentInstanceTask(data []byte) (*a2a.Task, error) {
+	var pb a2apb.Task
+	if err := proto.Unmarshal(data, &pb); err != nil {
+		return nil, fmt.Errorf("unmarshal AgentInstance task: %w", err)
+	}
+	task, err := pbconv.FromProtoTask(&pb)
+	if err != nil {
+		return nil, fmt.Errorf("convert AgentInstance task: %w", err)
+	}
+	return task, nil
 }
 
 // ── Push Notifications ────────────────────────────────────────────────────────
