@@ -48,6 +48,8 @@ def _acting_credential(state: dict) -> Optional[str]:
     construction.
     """
     headers = state.get(HEADERS_KEY, None)
+    if not isinstance(headers, dict):
+        return None
     return _extract_jwt_from_headers(headers)
 
 
@@ -57,31 +59,23 @@ def _default_get_subject_token(state: dict) -> Optional[str]:
 
 
 def _subject_key(token: Optional[str]) -> str:
-    """Derive a stable per-principal cache discriminator from a bearer token.
+    """Derive a per-principal cache discriminator from a bearer token: a hash of
+    the raw token.
 
-    Prefers the issuer-scoped ``sub`` claim. ``sub`` is unique only within an
-    issuer, so it is paired with ``iss``. Opaque, sub-less and issuer-less tokens
-    fall back to a hash of the raw token so they still partition per principal:
-    an absent ``iss`` leaves ``sub`` unqualified, which two issuers that both omit
-    it could collide on.
+    A cache hit hands the caller a delegated token without performing an
+    exchange, so the key decides who receives someone else's authority. Deriving
+    it from unverified ``iss``/``sub`` claims would let a forged, unsigned token
+    select a victim's entry and never reach the STS that would have rejected it.
+    Hashing the raw token instead makes a forged token a cache miss, so it goes
+    to the STS and fails there.
 
-    NOTE: this parses the token without verification and uses it only to
-    partition the cache. On a cache hit the key selects which cached delegated
-    token the caller receives, so authenticating the inbound bearer remains the
-    caller's (upstream) responsibility; tokens are validated server-side during
-    the STS exchange on a miss.
+    The cost is a re-exchange when a principal's bearer rotates mid-session,
+    which is wanted anyway: the delegated token's lifetime tracks the subject
+    token it was exchanged from.
     """
     if not token:
         return ""
-    try:
-        claims = jwt.decode(token, options={"verify_signature": False})
-    except Exception:
-        claims = {}
-    sub = claims.get("sub")
-    iss = claims.get("iss")
-    if sub and iss:
-        return f"{iss}\0{sub}"
-    return "h:" + hashlib.sha256(token.encode()).hexdigest()
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 class ADKSTSIntegration(STSIntegrationBase):
@@ -328,7 +322,9 @@ class ADKTokenPropagationPlugin(BasePlugin):
         carrying messages from several subjects keeps one token per subject
         instead of collapsing onto whichever arrived first. None when the caller
         presents no credential to derive a subject from."""
-        session = invocation_context.session
+        session = getattr(invocation_context, "session", None)
+        if session is None:
+            return None
         return self._cache_key_for(session.id, self._key_input(session.state))
 
     async def _get_actor_token(self) -> Optional[str]:
