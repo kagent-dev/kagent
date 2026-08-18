@@ -35,6 +35,7 @@ import (
 	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	legacysubstrate "github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
+	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
 	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 	"golang.org/x/sync/errgroup"
@@ -103,16 +104,25 @@ func main() {
 	}
 	defer actors.Close()
 
+	authenticator := &authimpl.UnsecureAuthenticator{}
 	authorizer := &authimpl.NoopAuthorizer{}
 	instances := agentinstance.NewService(store, authorizer, agentinstance.NewActorWorkflow(store, actors))
+	gatewayDialer, err := a2agateway.NewRuntimeDialer(
+		env("SUBSTRATE_ATENET_ROUTER_URL", legacysubstrate.DefaultAtenetRouterURL),
+		authenticator,
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
 	server, err := grpcserver.New(grpcserver.Config{
 		BindAddress:          env("GRPC_BIND_ADDRESS", ":8084"),
 		Reflection:           envBool("GRPC_REFLECTION"),
-		Authenticator:        &authimpl.UnsecureAuthenticator{},
+		Authenticator:        authenticator,
 		ShareStore:           store,
 		SessionService:       sessionservice.NewService(store),
 		TaskService:          taskservice.NewService(store),
 		AgentInstanceService: instances,
+		A2AHandler:           a2agateway.New(store, authorizer, gatewayDialer),
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -154,7 +164,7 @@ func envBool(name string) bool {
 
 func namespaces(value string) []string {
 	var result []string
-	for _, namespace := range strings.Split(value, ",") {
+	for namespace := range strings.SplitSeq(value, ",") {
 		if namespace = strings.TrimSpace(namespace); namespace != "" {
 			result = append(result, namespace)
 		}
