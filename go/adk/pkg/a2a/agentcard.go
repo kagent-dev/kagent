@@ -21,6 +21,9 @@ func EnrichAgentCard(card *a2atype.AgentCard, agent adkagent.Agent) {
 	if card.Description == "" && agent.Description() != "" {
 		card.Description = agent.Description()
 	}
+
+	EnsureHITLExtension(card)
+
 	// Default to JSONRPC when no interface is explicitly configured.
 	if len(card.SupportedInterfaces) == 0 {
 		card.SupportedInterfaces = []*a2atype.AgentInterface{

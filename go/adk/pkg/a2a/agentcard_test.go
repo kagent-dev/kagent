@@ -1,9 +1,12 @@
 package a2a
 
 import (
+	"iter"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 )
 
 func TestEnsureHITLExtension(t *testing.T) {
@@ -43,4 +46,23 @@ func TestEnsureHITLExtension(t *testing.T) {
 	t.Run("nil card", func(t *testing.T) {
 		EnsureHITLExtension(nil)
 	})
+}
+
+func TestEnrichAgentCardDeclaresHITLExtension(t *testing.T) {
+	agent, err := adkagent.New(adkagent.Config{
+		Name: "adk_agent",
+		Run: func(adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(yield func(*session.Event, error) bool) {}
+		},
+	})
+	if err != nil {
+		t.Fatalf("adkagent.New: %v", err)
+	}
+	card := &a2atype.AgentCard{Name: "agent"}
+
+	EnrichAgentCard(card, agent)
+
+	if !hasHITLExtension(card.Capabilities.Extensions) {
+		t.Fatalf("extensions = %#v, want the HITL extension", card.Capabilities.Extensions)
+	}
 }

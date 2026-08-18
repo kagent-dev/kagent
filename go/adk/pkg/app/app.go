@@ -143,20 +143,13 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	// Append any caller-supplied handler options.
 	handlerOpts = append(handlerOpts, cfg.HandlerOpts...)
 
-	a2a.EnsureHITLExtension(&cfg.AgentCard)
-
-	// Enrich agent card with skills derived from the ADK agent.
-	if cfg.Agent != nil {
-		a2a.EnrichAgentCard(&cfg.AgentCard, cfg.Agent)
-	}
-
 	serverConfig := server.ServerConfig{
 		Host:            cfg.Host,
 		Port:            cfg.Port,
 		ShutdownTimeout: cfg.ShutdownTimeout,
 	}
 
-	a2aServer, err := server.NewA2AServer(cfg.AgentCard, executor, log, serverConfig, handlerOpts...)
+	a2aServer, err := server.NewA2AServer(buildAgentCard(cfg), executor, log, serverConfig, handlerOpts...)
 	if err != nil {
 		app.stop()
 		return nil, fmt.Errorf("failed to create A2A server: %w", err)
@@ -164,6 +157,17 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	app.server = a2aServer
 
 	return app, nil
+}
+
+// buildAgentCard returns the card the server serves. The HITL extension is declared
+// for every app, whether or not an ADK agent was supplied for skill derivation.
+func buildAgentCard(cfg AppConfig) a2atype.AgentCard {
+	card := cfg.AgentCard
+	a2a.EnsureHITLExtension(&card)
+	if cfg.Agent != nil {
+		a2a.EnrichAgentCard(&card, cfg.Agent)
+	}
+	return card
 }
 
 // Run starts the A2A server and blocks until a shutdown signal is received.

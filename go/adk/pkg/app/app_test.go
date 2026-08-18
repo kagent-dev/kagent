@@ -3,11 +3,15 @@ package app
 import (
 	"context"
 	"iter"
+	"slices"
 	"testing"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/session"
 )
 
 // fakeExecutor implements a2asrv.AgentExecutor for testing.
@@ -150,5 +154,49 @@ func TestBuildAppName_Default(t *testing.T) {
 	name := buildAppName(&a2atype.AgentCard{})
 	if name != defaultAppName {
 		t.Errorf("expected %q, got %q", defaultAppName, name)
+	}
+}
+
+func TestBuildAgentCard_DeclaresHITLWithoutAgent(t *testing.T) {
+	card := buildAgentCard(AppConfig{AgentCard: a2atype.AgentCard{Name: "byo-agent"}})
+
+	if !slices.ContainsFunc(card.Capabilities.Extensions, func(extension a2atype.AgentExtension) bool {
+		return extension.URI == a2a.HITLExtensionURI
+	}) {
+		t.Fatalf("extensions = %#v, want the HITL extension", card.Capabilities.Extensions)
+	}
+}
+
+func TestBuildAgentCard_DeclaresHITLWithAgent(t *testing.T) {
+	agent, err := adkagent.New(adkagent.Config{
+		Name:        "adk_agent",
+		Description: "an ADK agent",
+		Run: func(adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+			return func(yield func(*session.Event, error) bool) {}
+		},
+	})
+	if err != nil {
+		t.Fatalf("adkagent.New: %v", err)
+	}
+
+	card := buildAgentCard(AppConfig{AgentCard: a2atype.AgentCard{Name: "adk-agent"}, Agent: agent})
+
+	if !slices.ContainsFunc(card.Capabilities.Extensions, func(extension a2atype.AgentExtension) bool {
+		return extension.URI == a2a.HITLExtensionURI
+	}) {
+		t.Fatalf("extensions = %#v, want the HITL extension", card.Capabilities.Extensions)
+	}
+	if card.Description != "an ADK agent" {
+		t.Errorf("description = %q, want the agent description", card.Description)
+	}
+}
+
+func TestBuildAgentCard_LeavesCallerCardUntouched(t *testing.T) {
+	cfg := AppConfig{AgentCard: a2atype.AgentCard{Name: "byo-agent"}}
+
+	buildAgentCard(cfg)
+
+	if len(cfg.AgentCard.Capabilities.Extensions) != 0 {
+		t.Errorf("caller extensions = %#v, want the caller's card untouched", cfg.AgentCard.Capabilities.Extensions)
 	}
 }
