@@ -3,6 +3,8 @@ package a2a
 import (
 	"context"
 	"iter"
+	"reflect"
+	"slices"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -10,6 +12,7 @@ import (
 	"github.com/go-logr/logr"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
@@ -142,6 +145,17 @@ func TestTurnUsageSkipsPartialAndEmptyEvents(t *testing.T) {
 	noUsage := model.LLMResponse{Content: genai.NewContentFromText("no usage", genai.RoleModel)}
 
 	_, terminal := runUsageAgent(t, nil, partial, noUsage, usageResponse("final", 10, 5, 15))
+
+	total := usageTotalFrom(t, terminal)
+	assertTokenCount(t, total, "promptTokenCount", 10)
+	assertTokenCount(t, total, "candidatesTokenCount", 5)
+	assertTokenCount(t, total, "totalTokenCount", 15)
+}
+
+// TestTurnUsageDerivesTotalWhenProviderReportsNone covers the Anthropic models,
+// which report input and output counts without a total.
+func TestTurnUsageDerivesTotalWhenProviderReportsNone(t *testing.T) {
+	_, terminal := runUsageAgent(t, nil, usageResponse("no total", 10, 5, 0))
 
 	total := usageTotalFrom(t, terminal)
 	assertTokenCount(t, total, "promptTokenCount", 10)
@@ -339,5 +353,69 @@ func TestTurnUsageIsPerExecution(t *testing.T) {
 	ctx := withTurnUsage(context.Background(), usage)
 	if got := turnUsageFrom(ctx); got != usage {
 		t.Fatalf("turnUsageFrom(ctx) = %#v, want the bound accumulator", got)
+	}
+}
+
+// TestUsageObservingRunnerProviderMirrorsRunnerConfig fails when the upstream
+// RunnerConfig grows a field, since RunnerProvider replaces RunnerConfig
+// outright and a field the mirror does not carry is silently dropped.
+func TestUsageObservingRunnerProviderMirrorsRunnerConfig(t *testing.T) {
+	mirrored := []string{"AppName", "Agent", "SessionService"}
+
+	fields := reflect.VisibleFields(reflect.TypeOf(adka2a.RunnerConfig{}))
+	got := make([]string, 0, len(fields))
+	for _, field := range fields {
+		got = append(got, field.Name)
+	}
+	if !slices.Equal(got, mirrored) {
+		t.Fatalf("adka2a.RunnerConfig fields = %v, want %v; carry the new field in usageObservingRunnerProvider", got, mirrored)
+	}
+
+	agent, err := adkagent.New(adkagent.Config{
+		Name: "mirror-agent",
+		Run: func(adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(func(*adksession.Event, error) bool) {}
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent.New() error = %v", err)
+	}
+	sessionService := adksession.InMemoryService()
+	base := runner.Config{AppName: "mirror-app", Agent: agent, SessionService: sessionService}
+
+	cfg, observing, err := usageObservingRunnerProvider(base)(t.Context(), nil, &plugin.Plugin{})
+	if err != nil {
+		t.Fatalf("provider error = %v", err)
+	}
+	if observing == nil {
+		t.Fatal("provider returned a nil runner")
+	}
+	want := adka2a.RunnerConfig{AppName: base.AppName, Agent: base.Agent, SessionService: sessionService}
+	if cfg != want {
+		t.Fatalf("RunnerConfig = %#v, want %#v", cfg, want)
+	}
+}
+
+func TestUsageObservingRunnerProviderRejectsIncompleteConfig(t *testing.T) {
+	agent, err := adkagent.New(adkagent.Config{
+		Name: "mirror-agent",
+		Run: func(adkagent.InvocationContext) iter.Seq2[*adksession.Event, error] {
+			return func(func(*adksession.Event, error) bool) {}
+		},
+	})
+	if err != nil {
+		t.Fatalf("agent.New() error = %v", err)
+	}
+
+	tests := map[string]runner.Config{
+		"no agent":           {AppName: "app", SessionService: adksession.InMemoryService()},
+		"no session service": {AppName: "app", Agent: agent},
+	}
+	for name, base := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, _, err := usageObservingRunnerProvider(base)(t.Context(), nil, &plugin.Plugin{}); err == nil {
+				t.Fatal("provider error = nil, want the default provider's validation error")
+			}
+		})
 	}
 }

@@ -13,12 +13,22 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
+from google.adk.a2a.converters.event_converter import convert_event_to_a2a_message
+from google.adk.a2a.converters.long_running_functions import LongRunningFunctions
 from google.adk.a2a.executor.executor_context import ExecutorContext
+from google.adk.agents.base_agent import BaseAgent
 from google.adk.events import Event
+from google.adk.runners import InMemoryRunner
 from google.genai import types as genai_types
 
 from kagent.adk._agent_executor import A2aAgentExecutor, _ExecutionState
-from kagent.adk._turn_usage import USAGE_TOTAL_KEY, TurnUsage
+from kagent.adk._turn_usage import (
+    TURN_USAGE_PLUGIN_NAME,
+    USAGE_TOTAL_KEY,
+    TurnUsage,
+    TurnUsagePlugin,
+    attach_turn_usage,
+)
 from kagent.adk.converters.event_converter import serialize_metadata_value
 
 
@@ -99,8 +109,7 @@ def test_skips_partial_and_empty_events():
 
 
 def test_counts_each_adk_event_once():
-    """One ADK event can be converted into several A2A events, and the
-    after-event interceptor runs for each of them."""
+    """An event reaching the accumulator more than once is counted once."""
     usage = TurnUsage()
     event = usage_event(10, 5, 15, None, partial=False, event_id="event-1")
 
@@ -163,6 +172,76 @@ def test_seed_from_task_ignores_missing_or_malformed():
     assert usage.empty()
 
 
+def test_derives_total_when_provider_reports_none():
+    """Anthropic reports input and output counts without a total."""
+    usage = TurnUsage()
+    usage.add(
+        Event(
+            author="agent",
+            partial=False,
+            usage_metadata=genai_types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=100,
+                candidates_token_count=20,
+            ),
+        )
+    )
+
+    assert stamped_total(usage) == {
+        "promptTokenCount": 100,
+        "candidatesTokenCount": 20,
+        "totalTokenCount": 120,
+    }
+
+
+@pytest.mark.asyncio
+async def test_plugin_counts_events_that_produce_no_a2a_event():
+    """The event carrying the usage of the call that pauses a task has its
+    long-running function call stripped before conversion, so it produces no
+    A2A event and never reaches the after-event interceptor."""
+    usage = TurnUsage()
+    plugin = TurnUsagePlugin(usage)
+    paused = Event(
+        author="agent",
+        partial=False,
+        model_version="model-a",
+        content=genai_types.Content(
+            role="model",
+            parts=[genai_types.Part(function_call=genai_types.FunctionCall(id="call-1", name="delete_file"))],
+        ),
+        long_running_tool_ids={"call-1"},
+        usage_metadata=genai_types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=10,
+            candidates_token_count=5,
+            total_token_count=15,
+        ),
+    )
+
+    stripped = LongRunningFunctions(None).process_event(paused)
+    assert convert_event_to_a2a_message(stripped) is None, "the stripped event must not convert to an A2A event"
+
+    assert await plugin.on_event_callback(invocation_context=None, event=paused) is None
+    assert stamped_total(usage) == {
+        "promptTokenCount": 10,
+        "candidatesTokenCount": 5,
+        "totalTokenCount": 15,
+        "modelVersion": "model-a",
+    }
+
+
+def test_attach_turn_usage_repoints_an_already_registered_plugin():
+    runner = InMemoryRunner(agent=BaseAgent(name="agent"), app_name="app")
+
+    first = TurnUsage()
+    attach_turn_usage(runner, first)
+    second = TurnUsage()
+    attach_turn_usage(runner, second)
+
+    plugin = runner.plugin_manager.get_plugin(TURN_USAGE_PLUGIN_NAME)
+    assert isinstance(plugin, TurnUsagePlugin)
+    assert plugin.usage is second
+    assert len([p for p in runner.plugin_manager.plugins if p.name == TURN_USAGE_PLUGIN_NAME]) == 1
+
+
 @pytest.mark.asyncio
 async def test_executor_stamps_total_on_terminal_status_update():
     message = Message(message_id="message-1", role=Role.ROLE_USER, parts=[Part(text="hi")])
@@ -181,8 +260,8 @@ async def test_executor_stamps_total_on_terminal_status_update():
 
     adk_event = usage_event(10, 5, 15, "model-a", partial=False, event_id="event-1")
     a2a_event = object()
-    for _ in range(2):
-        assert await executor._after_event(state, executor_context, a2a_event, adk_event) is a2a_event
+    await TurnUsagePlugin(state.usage).on_event_callback(invocation_context=None, event=adk_event)
+    assert await executor._after_event(state, executor_context, a2a_event, adk_event) is a2a_event
 
     terminal = TaskStatusUpdateEvent(
         task_id="task-1",
@@ -197,4 +276,36 @@ async def test_executor_stamps_total_on_terminal_status_update():
         "candidatesTokenCount": 25,
         "totalTokenCount": 135,
         "modelVersion": "model-a",
+    }
+
+
+@pytest.mark.asyncio
+async def test_failed_status_event_carries_the_total():
+    """Failures raised outside the upstream executor publish their own terminal
+    event, which must carry the total like every other terminal state."""
+    message = Message(message_id="message-1", role=Role.ROLE_USER, parts=[Part(text="hi")])
+    request_context = RequestContext(
+        ServerCallContext(state={}),
+        SendMessageRequest(message=message),
+        task_id="task-1",
+        context_id="context-1",
+    )
+    executor = A2aAgentExecutor(runner=lambda: None)
+    usage = TurnUsage()
+    usage.seed_from_task(task_with_total({"promptTokenCount": 100, "candidatesTokenCount": 20, "totalTokenCount": 120}))
+
+    published: list[TaskStatusUpdateEvent] = []
+
+    class _Queue:
+        async def enqueue_event(self, event):
+            published.append(event)
+
+    await executor._publish_failed_status_event(request_context, _Queue(), "boom", usage)
+
+    assert len(published) == 1
+    assert published[0].status.state == TaskState.TASK_STATE_FAILED
+    assert dict(published[0].metadata[USAGE_TOTAL_KEY].items()) == {
+        "promptTokenCount": 100,
+        "candidatesTokenCount": 20,
+        "totalTokenCount": 120,
     }

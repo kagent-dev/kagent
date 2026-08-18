@@ -39,7 +39,7 @@ from pydantic import BaseModel
 
 from ._hitl import build_hitl_status_message, build_resume_hitl_message
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
-from ._turn_usage import TurnUsage
+from ._turn_usage import TurnUsage, attach_turn_usage
 from .converters.event_converter import serialize_metadata_value
 
 logger = logging.getLogger("kagent_adk." + __name__)
@@ -120,9 +120,14 @@ class A2aAgentExecutor(AgentExecutor):
 
         runner: Runner | None = None
         context_token = None
+        execution_state = _ExecutionState(request_context=context)
+        # Resumed tasks (HITL cycles, follow-up messages) carry the previously
+        # persisted total, so kagent_usage_total stays a task-lifetime sum.
+        execution_state.usage.seed_from_task(context.current_task)
         try:
             self._translate_hitl_response(context)
             runner = await self._resolve_runner()
+            attach_turn_usage(runner, execution_state.usage)
 
             run_request = self._convert_request(context, None)
             await self._prepare_session(context, run_request, runner)
@@ -136,11 +141,6 @@ class A2aAgentExecutor(AgentExecutor):
                 {key: value for key, value in span_attributes.items() if value is not None}
             )
 
-            execution_state = _ExecutionState(request_context=context)
-            # Resumed tasks (HITL cycles, follow-up messages) carry the
-            # previously persisted total, so kagent_usage_total stays a
-            # task-lifetime sum.
-            execution_state.usage.seed_from_task(context.current_task)
             upstream_config = UpstreamA2aAgentExecutorConfig(
                 request_converter=self._convert_request,
                 execute_interceptors=[
@@ -175,10 +175,13 @@ class A2aAgentExecutor(AgentExecutor):
                 context,
                 event_queue,
                 str(error) or "A2A request execution was cancelled.",
+                execution_state.usage,
             )
         except Exception as error:
             logger.error("Error preparing A2A request: %s", error, exc_info=True)
-            await self._publish_failed_status_event(context, event_queue, _friendly_error_message(str(error)))
+            await self._publish_failed_status_event(
+                context, event_queue, _friendly_error_message(str(error)), execution_state.usage
+            )
         finally:
             if context_token is not None:
                 clear_kagent_span_attributes(context_token)
@@ -264,7 +267,6 @@ class A2aAgentExecutor(AgentExecutor):
             state.invocation_id = adk_event.invocation_id
         if adk_event.usage_metadata is not None:
             state.last_usage_metadata = adk_event.usage_metadata
-        state.usage.add(adk_event)
         return event
 
     async def _after_agent(
@@ -329,23 +331,26 @@ class A2aAgentExecutor(AgentExecutor):
         context: RequestContext,
         event_queue: EventQueue,
         error_message: str,
+        usage: TurnUsage,
     ) -> None:
         try:
-            await event_queue.enqueue_event(
-                TaskStatusUpdateEvent(
-                    task_id=context.task_id,
-                    context_id=context.context_id,
-                    status=TaskStatus(
-                        state=TaskState.TASK_STATE_FAILED,
-                        timestamp=now_timestamp(),
-                        message=Message(
-                            message_id=str(uuid.uuid4()),
-                            role=Role.ROLE_AGENT,
-                            parts=[Part(text=error_message)],
-                        ),
+            event = TaskStatusUpdateEvent(
+                task_id=context.task_id,
+                context_id=context.context_id,
+                status=TaskStatus(
+                    state=TaskState.TASK_STATE_FAILED,
+                    timestamp=now_timestamp(),
+                    message=Message(
+                        message_id=str(uuid.uuid4()),
+                        role=Role.ROLE_AGENT,
+                        parts=[Part(text=error_message)],
                     ),
-                )
+                ),
             )
+            metadata: dict[str, Any] = {}
+            usage.stamp(metadata)
+            event.metadata.update(metadata)
+            await event_queue.enqueue_event(event)
         except BaseException as enqueue_error:
             if isinstance(enqueue_error, (KeyboardInterrupt, SystemExit)):
                 raise

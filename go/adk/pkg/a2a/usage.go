@@ -19,7 +19,9 @@ import (
 
 // usageTotalMetadataKey is the A2A metadata key carrying the aggregated
 // token usage of a task. The value has the same shape as the per-event
-// adk_usage_metadata entry, plus modelVersion.
+// adk_usage_metadata entry, plus modelVersion. Every terminal status update of
+// a task carries the running task-lifetime total, so consumers take the latest
+// value rather than summing across executions.
 var usageTotalMetadataKey = GetKAgentMetadataKey("usage_total")
 
 // turnUsage accumulates token usage across the ADK events of one execution so
@@ -162,6 +164,16 @@ func (u *turnUsage) empty() bool {
 	return u.promptTokens == 0 && u.completionTokens == 0 && u.totalTokens == 0
 }
 
+// totalTokenCount derives a total when no provider reported one. The Anthropic
+// models report per-call input and output counts without a total, and emitting
+// a zero total next to non-zero counts reads as "no tokens were used".
+func (u *turnUsage) totalTokenCount() int64 {
+	if u.totalTokens != 0 {
+		return u.totalTokens
+	}
+	return u.promptTokens + u.completionTokens + u.thoughtsTokens
+}
+
 // stampEvent attaches the aggregate to a terminal status update under
 // kagent_usage_total. The value is serialized exactly like the per-event
 // adk_usage_metadata (same genai type, same JSON mapping) plus modelVersion, so
@@ -175,7 +187,7 @@ func (u *turnUsage) stampEvent(event *a2atype.TaskStatusUpdateEvent) {
 		CandidatesTokenCount:    clampInt32(u.completionTokens),
 		ThoughtsTokenCount:      clampInt32(u.thoughtsTokens),
 		CachedContentTokenCount: clampInt32(u.cachedContentTokens),
-		TotalTokenCount:         clampInt32(u.totalTokens),
+		TotalTokenCount:         clampInt32(u.totalTokenCount()),
 	})
 	if err != nil || total == nil {
 		return
