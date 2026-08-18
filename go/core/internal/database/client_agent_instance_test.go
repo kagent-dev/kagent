@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -156,12 +157,20 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 		Revision: "revision-1", Namespace: "team-a",
 		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid",
-		SourceSnapshot: []byte("{}"), EgressDestinations: []string{},
+		SourceSnapshot: []byte("{}"), AgentCard: []byte(`{"name":"assistant"}`), EgressDestinations: []string{},
 		ActorTemplateNamespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid", Phase: "Ready",
 	}
 	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
+	}
+	storedRevision, err := client.GetRuntimeRevision(ctx, revision.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedCard map[string]string
+	if err := json.Unmarshal(storedRevision.AgentCard, &storedCard); err != nil || storedCard["name"] != "assistant" {
+		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
 	}
 	pair := dbpkg.AgentTemplateHarnessPair{
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
