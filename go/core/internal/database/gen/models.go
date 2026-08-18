@@ -46,13 +46,15 @@ type AgentInstanceShare struct {
 }
 
 type AgentInstanceTask struct {
-	InstanceID      string
-	ID              string
-	State           string
-	StatusTimestamp *time.Time
-	Data            []byte
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	InstanceID       string
+	ID               string
+	State            string
+	StatusTimestamp  *time.Time
+	Data             []byte
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	InitialMessageID *string
+	RequestHash      []byte
 }
 
 type AgentInstanceTaskEvent struct {
@@ -186,6 +188,7 @@ type RuntimeRevision struct {
 	GoldenSnapshot         string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	AgentCard              []byte
 }
 
 type Session struct {

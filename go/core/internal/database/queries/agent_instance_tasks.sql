@@ -7,6 +7,15 @@ ON CONFLICT (instance_id, id) DO UPDATE SET
     data = EXCLUDED.data,
     updated_at = NOW();
 
+-- name: CreateAgentInstanceTask :execrows
+INSERT INTO agent_instance_task (
+    instance_id, id, state, status_timestamp, data, initial_message_id, request_hash
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT (instance_id, initial_message_id)
+    WHERE initial_message_id IS NOT NULL
+DO NOTHING;
+
 -- name: InsertAgentInstanceTaskEvent :exec
 INSERT INTO agent_instance_task_event (instance_id, task_id, data)
 VALUES ($1, $2, $3);
@@ -14,6 +23,10 @@ VALUES ($1, $2, $3);
 -- name: GetAgentInstanceTask :one
 SELECT * FROM agent_instance_task
 WHERE instance_id = $1 AND id = $2;
+
+-- name: GetAgentInstanceTaskByMessageID :one
+SELECT * FROM agent_instance_task
+WHERE instance_id = $1 AND initial_message_id = $2;
 
 -- name: CountAgentInstanceTasks :one
 SELECT COUNT(*) FROM agent_instance_task

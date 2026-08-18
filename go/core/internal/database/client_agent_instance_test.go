@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -51,8 +52,24 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 		Status:  a2a.TaskStatus{State: a2a.TaskStateSubmitted, Timestamp: &now},
 		History: []*a2a.Message{{ID: "message-1", Role: a2a.MessageRoleUser}},
 	}
-	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", first, first.History[0]); err != nil {
-		t.Fatal(err)
+	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), first)
+	if err != nil || !created || stored.ID != first.ID {
+		t.Fatalf("CreateAgentInstanceTask() = %#v, created %v, error %v", stored, created, err)
+	}
+	replayed, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"),
+		&a2a.Task{ID: "ignored", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}, History: first.History})
+	if err != nil || created || replayed.ID != first.ID {
+		t.Fatalf("replayed CreateAgentInstanceTask() = %#v, created %v, error %v", replayed, created, err)
+	}
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("different"), first); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+		t.Fatalf("conflicting message error = %v", err)
+	}
+	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 1 {
+		t.Fatalf("event count after retries = %d, want 1", events)
+	}
+	var eventTaskID string
+	if err := db.QueryRow(ctx, "SELECT task_id FROM agent_instance_task_event").Scan(&eventTaskID); err != nil || eventTaskID != string(first.ID) {
+		t.Fatalf("initial event task ID = %q, want %q: %v", eventTaskID, first.ID, err)
 	}
 	got, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
 	if err != nil || got.ID != first.ID || got.Status.State != first.Status.State || len(got.History) != 1 {
@@ -84,6 +101,55 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	}
 }
 
+func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_instance (id, namespace, user_id, request_id, state, data)
+		VALUES ('instance-1', 'team-a', 'alice', 'request-1', 'READY', '\x00')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+	start := make(chan struct{})
+	type result struct {
+		task    *a2a.Task
+		created bool
+		err     error
+	}
+	results := make(chan result, 2)
+	for _, taskID := range []a2a.TaskID{"task-1", "task-2"} {
+		go func() {
+			<-start
+			message := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: taskID, ContextID: "instance-1"}
+			task := a2a.NewSubmittedTask(message, message)
+			stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), task)
+			results <- result{stored, created, err}
+		}()
+	}
+	close(start)
+
+	var resultID a2a.TaskID
+	createdCount := 0
+	for range 2 {
+		result := <-results
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.created {
+			createdCount++
+		}
+		if resultID == "" {
+			resultID = result.task.ID
+		} else if result.task.ID != resultID {
+			t.Fatalf("replayed task ID = %q, want %q", result.task.ID, resultID)
+		}
+	}
+	if createdCount != 1 {
+		t.Fatalf("created count = %d, want 1", createdCount)
+	}
+}
+
 func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	client := NewClient(setupTestDB(t))
 	ctx := context.Background()
@@ -91,12 +157,20 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 		Revision: "revision-1", Namespace: "team-a",
 		AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid",
-		SourceSnapshot: []byte("{}"), EgressDestinations: []string{},
+		SourceSnapshot: []byte("{}"), AgentCard: []byte(`{"name":"assistant"}`), EgressDestinations: []string{},
 		ActorTemplateNamespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
 		ActorTemplateUID: "actor-template-uid", Phase: "Ready",
 	}
 	if err := client.UpsertRuntimeRevision(ctx, revision); err != nil {
 		t.Fatal(err)
+	}
+	storedRevision, err := client.GetRuntimeRevision(ctx, revision.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedCard map[string]string
+	if err := json.Unmarshal(storedRevision.AgentCard, &storedCard); err != nil || storedCard["name"] != "assistant" {
+		t.Fatalf("GetRuntimeRevision() Agent Card = %s: %v", storedRevision.AgentCard, err)
 	}
 	pair := dbpkg.AgentTemplateHarnessPair{
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
