@@ -66,6 +66,10 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 1 {
 		t.Fatalf("event count after retries = %d, want 1", events)
 	}
+	var eventTaskID string
+	if err := db.QueryRow(ctx, "SELECT task_id FROM agent_instance_task_event").Scan(&eventTaskID); err != nil || eventTaskID != string(first.ID) {
+		t.Fatalf("initial event task ID = %q, want %q: %v", eventTaskID, first.ID, err)
+	}
 	got, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
 	if err != nil || got.ID != first.ID || got.Status.State != first.Status.State || len(got.History) != 1 {
 		t.Fatalf("GetAgentInstanceTask() = %#v, %v", got, err)

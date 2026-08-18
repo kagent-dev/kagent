@@ -755,7 +755,7 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 		}
 		created = true
 		return q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
-			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(message.TaskID)), Data: eventData,
+			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(task.ID)), Data: eventData,
 		})
 	})
 	if err != nil {
