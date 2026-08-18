@@ -167,6 +167,10 @@ class ADKTokenPropagationPlugin(BasePlugin):
         self.actor_token_cache: Optional[_TokenCacheEntry] = None
         # Earliest expiry across token_cache; None when no cached token expires.
         self._earliest_expiry: Optional[int] = None
+        # invocation id -> cache key, resolved once per run in before_run_callback.
+        # header_provider runs on every tool call and reads it from here, so a
+        # caller-supplied get_subject_token is never invoked per tool call.
+        self._invocation_keys: Dict[str, str] = {}
 
     def add_to_agent(self, agent: BaseAgent):
         """
@@ -198,7 +202,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
             logger.debug("no invocation context for tool call, leaving existing headers in place")
             return {}
 
-        cache_key = self.cache_key(invocation_context)
+        cache_key = self._invocation_keys.get(getattr(invocation_context, "invocation_id", "") or "")
         cache_entry = self.token_cache.get(cache_key) if cache_key else None
         if not cache_entry:
             return {}
@@ -218,13 +222,16 @@ class ADKTokenPropagationPlugin(BasePlugin):
         # Resolve the acting caller before the cache lookup: the cache is keyed by
         # subject, and a session carrying messages from several subjects would
         # otherwise reuse whichever caller arrived first.
-        cache_key = self._cache_key_for(
-            invocation_context.session.id,
-            self._key_input(invocation_context.session.state),
-        )
+        state = invocation_context.session.state
+        credential = _acting_credential(state)
+        # The exchange payload comes from get_subject_token, which on its own is
+        # not caller-scoped: see _acting_credential.
+        subject_token = self._read_subject_token(state)
+        cache_key = self._cache_key_for(invocation_context.session.id, credential, subject_token)
         if cache_key is None:
             logger.debug("subject token not found in session state for token propagation")
             return None
+        self._invocation_keys[invocation_context.invocation_id] = cache_key
 
         # Check if we have a valid cached subject token
         cached_entry = self.token_cache.get(cache_key)
@@ -234,13 +241,6 @@ class ADKTokenPropagationPlugin(BasePlugin):
                 logger.debug(f"Using cached subject token (expires in {cached_entry.expiry - current_time}s)")
             else:
                 logger.debug("Using cached subject token (no expiry)")
-            return None
-
-        # The exchange payload comes from get_subject_token, which the cache key
-        # deliberately does not use: see _acting_credential.
-        subject_token = self._read_subject_token(invocation_context.session.state)
-        if not subject_token:
-            logger.debug("subject token not found in session state for token propagation")
             return None
 
         if self.sts_integration:
@@ -268,6 +268,10 @@ class ADKTokenPropagationPlugin(BasePlugin):
         expiry = _extract_jwt_expiry(subject_token)
         if expiry is None:
             expiry = int(time.time()) + MAX_CACHE_TTL_SECONDS
+        # The entry is keyed by the caller's credential, so it must not outlive
+        # it: replaying an expired bearer would otherwise keep hitting a cached
+        # delegated token instead of reaching the STS.
+        expiry = _earlier_expiry(expiry, _extract_jwt_expiry(credential))
 
         # Cache the token with metadata
         self.token_cache[cache_key] = _TokenCacheEntry(
@@ -295,37 +299,52 @@ class ADKTokenPropagationPlugin(BasePlugin):
             logger.warning(f"Failed to read subject token from session state: {e}")
             return None
 
-    def _key_input(self, state: dict) -> Optional[str]:
-        """Return the value the cache key is derived from.
+    def _cache_key_for(
+        self,
+        session_id: str,
+        credential: Optional[str],
+        subject_token: Optional[str],
+    ) -> Optional[str]:
+        """Build the cache key for one caller in one session.
 
-        The caller's own credential wins when there is one, so a session carrying
-        several callers partitions per caller even if get_subject_token reads a
-        session-scoped field and would return one value for all of them.
+        The key names both the caller's own credential and the token the entry
+        was exchanged from, so an entry can never be handed to a caller other
+        than the one it was minted for, whatever get_subject_token returns.
 
         Without an inbound credential there is nothing caller-scoped to key on,
-        so the hook's output is used: that mode has no per-caller identity to
-        preserve, and one entry per session is the correct partitioning for it.
+        so the hook's output stands in for it: that mode has no per-caller
+        identity to preserve, and one entry per session is correct for it.
         """
-        return _acting_credential(state) or self._read_subject_token(state)
-
-    def _cache_key_for(self, session_id: str, subject_token: Optional[str]) -> Optional[str]:
-        subject = _subject_key(subject_token)
-        if not subject:
-            # An empty subject identifies no principal, so it yields no key: an
-            # entry stored under it would be shared by every credential-less
-            # caller in the session.
+        if not subject_token:
+            # No token to exchange, so there is nothing to cache.
             return None
-        return f"{session_id}\0{subject}"
+        caller = _subject_key(credential) or _subject_key(subject_token)
+        if not caller:
+            # An empty subject identifies no principal: an entry stored under it
+            # would be shared by every credential-less caller in the session.
+            return None
+        return f"{session_id}\0{caller}\0{_subject_key(subject_token)}"
 
     def cache_key(self, invocation_context: InvocationContext) -> Optional[str]:
         """Key the cache on the session and the acting subject, so a session
         carrying messages from several subjects keeps one token per subject
-        instead of collapsing onto whichever arrived first. None when the caller
-        presents no credential to derive a subject from."""
+        instead of collapsing onto whichever arrived first.
+
+        Returns the key resolved for this invocation when there is one.
+        header_provider reads that memo rather than calling this, so a
+        caller-supplied get_subject_token is not invoked on every tool call.
+        """
+        memoized = self._invocation_keys.get(getattr(invocation_context, "invocation_id", "") or "")
+        if memoized:
+            return memoized
         session = getattr(invocation_context, "session", None)
         if session is None:
             return None
-        return self._cache_key_for(session.id, self._key_input(session.state))
+        return self._cache_key_for(
+            session.id,
+            _acting_credential(session.state),
+            self._read_subject_token(session.state),
+        )
 
     async def _get_actor_token(self) -> Optional[str]:
         """Get actor token from cache or fetch dynamically.
@@ -379,6 +398,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Clean up expired tokens after run, preserving valid tokens."""
+        self._invocation_keys.pop(getattr(invocation_context, "invocation_id", "") or "", None)
         self._sweep_expired_subject_tokens()
 
         # Clean up expired actor token cache
