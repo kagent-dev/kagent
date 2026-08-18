@@ -3,13 +3,21 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from a2a.types import Task
+from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
+from google.adk.plugins.base_plugin import BasePlugin
+from google.adk.runners import Runner
 from google.genai import types as genai_types
 from kagent.core.a2a import get_kagent_metadata_key
 
 from .converters.event_converter import serialize_metadata_value
 
+# Every terminal status update of a task carries the running task-lifetime
+# total, so consumers take the latest value rather than summing across
+# executions.
 USAGE_TOTAL_KEY = get_kagent_metadata_key("usage_total")
+
+TURN_USAGE_PLUGIN_NAME = "kagent_turn_usage"
 
 
 class TurnUsage:
@@ -18,8 +26,8 @@ class TurnUsage:
 
     Partial (streaming chunk) events are skipped: each LLM call reports its
     usage on the final non-partial event, so summing partials would
-    double-count. One ADK event can be converted into several A2A events, so
-    events already counted are tracked by id.
+    double-count. Events already counted are tracked by id, so an event
+    reaching the accumulator more than once is counted once.
     """
 
     def __init__(self) -> None:
@@ -72,6 +80,14 @@ class TurnUsage:
     def empty(self) -> bool:
         return self.prompt_tokens == 0 and self.completion_tokens == 0 and self.total_tokens == 0
 
+    def total_token_count(self) -> int:
+        """Anthropic and other providers report per-call input and output counts
+        without a total, so derive one rather than emitting a zero total next to
+        non-zero counts."""
+        if self.total_tokens:
+            return self.total_tokens
+        return self.prompt_tokens + self.completion_tokens + self.thoughts_tokens
+
     def stamp(self, metadata: dict[str, Any]) -> None:
         """Attach the aggregate to metadata under kagent_usage_total. The value
         is serialized exactly like the per-event kagent_usage_metadata (same
@@ -85,7 +101,7 @@ class TurnUsage:
                 candidates_token_count=self.completion_tokens or None,
                 thoughts_token_count=self.thoughts_tokens or None,
                 cached_content_token_count=self.cached_content_tokens or None,
-                total_token_count=self.total_tokens or None,
+                total_token_count=self.total_token_count() or None,
             )
         )
         if not isinstance(total, dict):
@@ -103,3 +119,32 @@ def _token_count(value: Any) -> int:
     if isinstance(value, (int, float)):
         return int(value)
     return 0
+
+
+class TurnUsagePlugin(BasePlugin):
+    """Feeds every ADK event the runner produces into the accumulator.
+
+    The A2A after-event interceptor only runs for ADK events the converter
+    turns into at least one A2A event. The event carrying the usage of the call
+    that pauses a task for input has its long-running function call stripped
+    before conversion, produces no A2A event, and would never be counted.
+    """
+
+    def __init__(self, usage: TurnUsage) -> None:
+        super().__init__(name=TURN_USAGE_PLUGIN_NAME)
+        self.usage = usage
+
+    async def on_event_callback(self, *, invocation_context: InvocationContext, event: Event) -> None:
+        del invocation_context
+        self.usage.add(event)
+        return None
+
+
+def attach_turn_usage(runner: Runner, usage: TurnUsage) -> None:
+    """Points the runner's usage plugin at the accumulator of this execution."""
+    manager = runner.plugin_manager
+    existing = manager.get_plugin(TURN_USAGE_PLUGIN_NAME)
+    if isinstance(existing, TurnUsagePlugin):
+        existing.usage = usage
+        return
+    manager.register_plugin(TurnUsagePlugin(usage))
