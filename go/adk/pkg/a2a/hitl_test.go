@@ -3,6 +3,7 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -25,6 +26,39 @@ func confirmationPart(id, toolName, toolID string, args, payload map[string]any)
 			"toolConfirmation":     map[string]any{"hint": "Please confirm", "payload": payload},
 		},
 	}, map[string]any{"adk_type": "function_call", "adk_is_long_running": true})
+}
+
+func hintlessConfirmationPart(id, toolName, toolID string) *a2atype.Part {
+	return dataPart(map[string]any{
+		"name": toolconfirmation.FunctionCallName,
+		"id":   id,
+		"args": map[string]any{
+			"originalFunctionCall": map[string]any{"name": toolName, "id": toolID},
+		},
+	}, map[string]any{"adk_type": "function_call", "adk_is_long_running": true})
+}
+
+func askUserConfirmationPart(id, toolID string, questions []any, hint string) *a2atype.Part {
+	return dataPart(map[string]any{
+		"name": toolconfirmation.FunctionCallName,
+		"id":   id,
+		"args": map[string]any{
+			"originalFunctionCall": map[string]any{
+				"name": "ask_user", "id": toolID, "args": map[string]any{"questions": questions},
+			},
+			"toolConfirmation": map[string]any{"hint": hint},
+		},
+	}, map[string]any{"adk_type": "function_call", "adk_is_long_running": true})
+}
+
+func messageText(message *a2atype.Message) string {
+	var text strings.Builder
+	for _, part := range message.Parts {
+		if content, ok := part.Content.(a2atype.Text); ok {
+			text.WriteString(string(content))
+		}
+	}
+	return text.String()
 }
 
 func hitlDecisionMessage(payload any) *a2atype.Message {
@@ -118,6 +152,30 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 			confirmationPart("confirm-1", "delete_file", "call-1", nil, nil)), false)
 		if GetToolApprovalRequest(public) != nil {
 			t.Fatalf("unexpected payload on inactive client")
+		}
+		if text := messageText(public); text != "Please confirm" {
+			t.Errorf("text = %q, want the tool hint %q", text, "Please confirm")
+		}
+	})
+
+	t.Run("not activated without a tool hint names the tool", func(t *testing.T) {
+		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+			hintlessConfirmationPart("confirm-1", "delete_file", "call-1")), false)
+		if text := messageText(public); !strings.Contains(text, "delete_file") {
+			t.Errorf("text = %q, want it to name delete_file", text)
+		}
+	})
+
+	t.Run("not activated ask_user carries the question", func(t *testing.T) {
+		questions := []any{map[string]any{"question": "Which database?"}}
+		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
+			askUserConfirmationPart("confirm-2", "call-2", questions, "Which database?"))
+		public := BuildHITLStatusMessage(internal, false)
+		if GetAskUserRequest(public) != nil {
+			t.Fatal("unexpected payload on inactive client")
+		}
+		if text := messageText(public); !strings.Contains(text, "Which database?") {
+			t.Errorf("text = %q, want it to carry the question", text)
 		}
 	})
 

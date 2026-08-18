@@ -81,7 +81,7 @@ The server activates only the exact requested URI and echoes the activated URI
 on its response or event stream. A future incompatible contract uses a new URI,
 for example `.../hitl/v2`; there is no silent version fallback.
 
-**Because version 1 is optional (`required: false`), a client that does not opt in can still receive an ordinary `input-required` task with human-readable text. It cannot safely submit a structured HITL decision and must use a client that supports the extension or avoid invoking HITL features.**
+**Because version 1 is optional (`required: false`), a client that does not opt in can still receive an ordinary `input-required` task with human-readable text. That text carries the tool's hint when it has one, and otherwise names the tools awaiting approval, so the pause stays renderable without the extension. It cannot safely submit a structured HITL decision and must use a client that supports the extension or avoid invoking HITL features.**
 
 ## Where the payload lives
 

@@ -429,6 +429,20 @@ func (tool confirmationTool) asHitlTool() HitlTool {
 	return HitlTool{ID: tool.approvalID, CallID: tool.callID, Name: tool.name, Args: tool.args}
 }
 
+// fallbackHint describes a pause for clients that did not activate the extension.
+func fallbackHint(tools []HitlTool) string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Name != "" {
+			names = append(names, tool.Name)
+		}
+	}
+	if len(names) > 0 {
+		return fmt.Sprintf("Approval is required for tool(s): %s", strings.Join(names, ", "))
+	}
+	return "Human input is required before the agent can continue."
+}
+
 // BuildHITLStatusMessage: ADK confirmation DataParts → public HITL Message extension.
 func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.Message {
 	if message == nil {
@@ -436,7 +450,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 	}
 	var tools []HitlTool
 	var remote *RemoteHitlState
-	hint := "Human input is required before the agent can continue."
+	var hint string
 	for _, part := range message.Parts {
 		data := asDataPart(part)
 		if data == nil || part.Metadata == nil {
@@ -460,7 +474,14 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		return message
 	}
 
-	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(hint))
+	// The text part carries the same information as the typed payload, so a client
+	// that did not activate the extension still learns what it is being asked.
+	text := hint
+	if text == "" {
+		text = fallbackHint(tools)
+	}
+
+	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(text))
 	public.TaskID, public.ContextID = message.TaskID, message.ContextID
 	if !activated {
 		return public

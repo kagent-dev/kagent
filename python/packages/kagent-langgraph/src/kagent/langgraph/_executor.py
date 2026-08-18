@@ -39,6 +39,7 @@ from kagent.core.a2a import (
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
+    hitl_fallback_text,
     now_timestamp,
     require_ask_user_response,
     require_tool_approval_response,
@@ -232,21 +233,18 @@ class LangGraphAgentExecutor(AgentExecutor):
             call_id = action.get("call_id") or correlation_id
             tools.append(HitlTool(id=correlation_id, call_id=call_id, name=tool_name, args=tool_args))
 
+        # The text part names the tools so a client that did not activate the
+        # extension still learns what it is being asked.
+        text = hitl_fallback_text(tools)
         status_message = Message(
             message_id=str(uuid.uuid4()),
             role=Role.ROLE_AGENT,
             task_id=task_id,
             context_id=context_id,
-            parts=[Part(text="Human approval is required before the agent can continue.")],
+            parts=[Part(text=text)],
         )
         if hitl_enabled:
-            attach_hitl_extension(
-                status_message,
-                ToolApprovalRequest(
-                    hint="Human approval is required before the agent can continue.",
-                    tools=tools,
-                ),
-            )
+            attach_hitl_extension(status_message, ToolApprovalRequest(hint=text, tools=tools))
 
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(

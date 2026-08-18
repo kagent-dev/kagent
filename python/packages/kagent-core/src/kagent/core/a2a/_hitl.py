@@ -184,6 +184,13 @@ def require_ask_user_response(
     return response
 
 
+def hitl_fallback_text(tools: list[HitlTool]) -> str:
+    """Human-readable pause text for clients that did not activate the extension."""
+    if tools:
+        return f"Approval is required for tool(s): {', '.join(tool.name for tool in tools)}"
+    return "Human input is required before the agent can continue."
+
+
 def hitl_activated(headers: Mapping[str, Any] | None) -> bool:
     """True when the client opted in with the exact hitl/v1 URI in A2A-Extensions."""
     if not headers:

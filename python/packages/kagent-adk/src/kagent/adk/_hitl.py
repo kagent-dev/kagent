@@ -28,6 +28,7 @@ from kagent.core.a2a import (
     get_ask_user_response,
     get_tool_approval_request,
     get_tool_approval_response,
+    hitl_fallback_text,
     require_ask_user_response,
     require_tool_approval_response,
 )
@@ -128,11 +129,6 @@ def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, 
     the confirmation payload. Without activation, only human-readable text is returned.
     """
     message = Message(message_id=str(uuid.uuid4()), role=Role.ROLE_AGENT, task_id=task_id, context_id=context_id)
-    default_hint = "Human input is required before the agent can continue."
-    if not activated:
-        message.parts.append(Part(text=default_hint))
-        return message
-
     tools: list[HitlTool] = []
     hint: str | None = None
     remote_state: RemoteHitlState | None = None
@@ -149,10 +145,14 @@ def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, 
         if candidate is not None:
             remote_state = candidate
 
+    # The text part carries the same information as the typed payload, so a client
+    # that did not activate the extension still learns what it is being asked.
+    text = hint or hitl_fallback_text(tools)
+
     # Auth-required parts can share the long-running path without being HITL
     # confirmations. Leave those messages unextended.
-    if not tools:
-        message.parts.append(Part(text=hint or default_hint))
+    if not tools or not activated:
+        message.parts.append(Part(text=text))
         return message
 
     nested: NestedHitlRequest | None = None
@@ -180,7 +180,7 @@ def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, 
         request = ToolApprovalRequest(hint=hint, tools=tools, nested=nested)
 
     attach_hitl_extension(message, request)
-    message.parts.append(Part(text=hint or default_hint))
+    message.parts.append(Part(text=text))
     return message
 
 
