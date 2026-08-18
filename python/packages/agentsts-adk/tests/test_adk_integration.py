@@ -17,6 +17,28 @@ from agentsts.adk._base import _has_token_expired as has_token_expired
 from agentsts.adk._base import _subject_key as subject_key
 
 
+class _ScanCountingDict(dict):
+    """A dict that counts full traversals, however they are spelled."""
+
+    scans = 0
+
+    def items(self):
+        self.scans += 1
+        return super().items()
+
+    def keys(self):
+        self.scans += 1
+        return super().keys()
+
+    def values(self):
+        self.scans += 1
+        return super().values()
+
+    def __iter__(self):
+        self.scans += 1
+        return super().__iter__()
+
+
 class TestADKTokenPropagationPlugin:
     """Unit tests for token propagation plugin covering: none, downstream, and STS exchange."""
 
@@ -891,10 +913,13 @@ class TestADKTokenPropagationPlugin:
         with patch("agentsts.adk._base._extract_jwt_expiry", return_value=int(time.time()) + 3600):
             await plugin.before_run_callback(invocation_context=ic)
 
-        with patch.object(plugin, "token_cache", wraps=plugin.token_cache) as cache_spy:
-            await plugin.after_run_callback(invocation_context=ic)
-            cache_spy.items.assert_not_called()
+        # Counts every way the cache can be walked, so the assertion still holds
+        # if the sweep stops going through items().
+        counting_cache = _ScanCountingDict(plugin.token_cache)
+        plugin.token_cache = counting_cache
+        await plugin.after_run_callback(invocation_context=ic)
 
+        assert counting_cache.scans == 0
         assert plugin.cache_key(ic) in plugin.token_cache
 
     def test_extract_jwt_from_headers_success(self):
@@ -1109,10 +1134,10 @@ class TestADKTokenPropagationPlugin:
         assert has_token_expired(extract_jwt_expiry(no_exp_token)) is False
 
     @staticmethod
-    def _jwt(iss: str, sub: str) -> str:
+    def _jwt(iss: str, sub: str, signing_key: str = "test-signing-key-of-at-least-32-bytes!") -> str:
         import jwt as pyjwt
 
-        return pyjwt.encode({"iss": iss, "sub": sub}, "test-signing-key-of-at-least-32-bytes!", algorithm="HS256")
+        return pyjwt.encode({"iss": iss, "sub": sub}, signing_key, algorithm="HS256")
 
     @pytest.mark.asyncio
     async def test_two_subjects_in_one_session_keep_separate_tokens(self):
@@ -1164,27 +1189,33 @@ class TestADKTokenPropagationPlugin:
         assert sts.exchange_token.await_count == 1
         assert len(plugin.token_cache) == 1
 
-    def test_subject_key_does_not_collide_across_issuers(self):
-        """Case: same sub at two issuers -> distinct keys, since sub is issuer-scoped."""
-        assert subject_key(self._jwt("https://iss-a", "same")) != subject_key(self._jwt("https://iss-b", "same"))
+    def test_subject_key_ignores_unverified_claims(self):
+        """Case: a cache hit skips the exchange, so a token merely claiming the
+        victim's iss/sub must not select the victim's entry."""
+        genuine = self._jwt("https://dex.example", "alice", signing_key="genuine-signing-key-of-32-bytes-plus")
+        forged = self._jwt("https://dex.example", "alice", signing_key="attacker-signing-key-of-32-bytes-ok")
 
-    def test_subject_key_falls_back_to_hash_for_opaque_tokens(self):
-        """Case: non-JWT (or sub-less) tokens still partition per principal."""
+        assert subject_key(genuine) != subject_key(forged)
+
+    def test_subject_key_partitions_opaque_tokens(self):
+        """Case: distinct credentials partition, and no credential yields no key."""
         assert subject_key("opaque-a") != subject_key("opaque-b")
         assert subject_key("opaque-a") == subject_key("opaque-a")
-        assert subject_key("opaque-a").startswith("h:")
         assert subject_key(None) == ""
 
-    def test_subject_key_without_issuer_uses_token_hash(self):
-        """Case: an absent iss leaves sub unqualified, so those partition by hash."""
-        import jwt as pyjwt
+    @pytest.mark.asyncio
+    async def test_forged_subject_claims_do_not_reuse_cached_token(self):
+        """Case: the forged-token path end to end -> no cached entry is handed back."""
+        genuine = self._jwt("https://dex.example", "alice", signing_key="genuine-signing-key-of-32-bytes-plus")
+        forged = self._jwt("https://dex.example", "alice", signing_key="attacker-signing-key-of-32-bytes-ok")
 
-        secret = "test-signing-key-of-at-least-32-bytes!"
-        no_iss = pyjwt.encode({"sub": "alice"}, secret, algorithm="HS256")
-        other_no_iss = pyjwt.encode({"sub": "alice", "jti": "second-issuer"}, secret, algorithm="HS256")
+        plugin = ADKTokenPropagationPlugin(sts_integration=None)
+        ic_genuine = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {genuine}"})
+        await plugin.before_run_callback(invocation_context=ic_genuine)
+        assert len(plugin.token_cache) == 1
 
-        assert subject_key(no_iss).startswith("h:")
-        assert subject_key(no_iss) != subject_key(other_no_iss)
+        ic_forged = self._make_invocation_context("shared-sess", headers={"Authorization": f"Bearer {forged}"})
+        assert plugin.header_provider(self._make_readonly_context(ic_forged)) == {}
 
     @pytest.mark.asyncio
     async def test_token_without_expiry_stays_evictable(self):
