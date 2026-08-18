@@ -59,23 +59,30 @@ const AGENT_REPLY = process.env.E2E_AGENT_REPLY ?? "Hello from the agent";
 const frame = (event) => `data: ${JSON.stringify({ jsonrpc: "2.0", id: "1", result: event })}\n\n`;
 
 function chatStream(contextId, taskId) {
-  const message = {
-    kind: "message",
-    role: "agent",
-    parts: [{ kind: "text", text: AGENT_REPLY }],
-    contextId,
-    taskId,
-    messageId: 1,
-    metadata: {},
+  const artifact = {
+    artifactUpdate: {
+      taskId,
+      contextId,
+      artifact: {
+        artifactId: "e2e-agent-reply",
+        name: "",
+        description: "",
+        parts: [{ text: AGENT_REPLY }],
+      },
+      append: false,
+      lastChunk: true,
+    },
   };
   const completed = {
-    kind: "status-update",
-    taskId,
-    contextId,
-    final: true,
-    status: { state: "completed", message },
+    statusUpdate: {
+      taskId,
+      contextId,
+      status: {
+        state: "TASK_STATE_COMPLETED",
+      },
+    },
   };
-  return frame(completed) + "data: [DONE]\n\n";
+  return frame(artifact) + frame(completed) + "data: [DONE]\n\n";
 }
 
 async function handleChat(req, res) {

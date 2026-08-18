@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // GatewayBootstrapConfig describes the gateway section of openclaw.json for a harness runtime.
@@ -45,7 +45,7 @@ func BuildGatewayOnlyBootstrapJSON(gw GatewayBootstrapConfig) ([]byte, error) {
 	return raw, nil
 }
 
-func buildCoreBootstrapDocument(mc *v1alpha2.ModelConfig, gw GatewayBootstrapConfig, apiKey credentialValue, providerRecord, modelID, apiAdapter, defaultBaseURLWhenUnset string) bootstrapDocument {
+func buildCoreBootstrapDocument(mc *v1alpha3.ModelConfig, gw GatewayBootstrapConfig, apiKey credentialValue, providerRecord, modelID, apiAdapter, defaultBaseURLWhenUnset string) bootstrapDocument {
 	doc := bootstrapDocument{
 		Gateway: buildGatewaySection(gw),
 		Agents: agentsSection{
@@ -119,7 +119,7 @@ func buildGatewaySection(gw GatewayBootstrapConfig) gatewaySection {
 	return section
 }
 
-func requiredModelID(mc *v1alpha2.ModelConfig) (string, error) {
+func requiredModelID(mc *v1alpha3.ModelConfig) (string, error) {
 	modelID := strings.TrimSpace(mc.Spec.Model)
 	if modelID == "" {
 		return "", fmt.Errorf("ModelConfig.spec.model is required for OpenClaw bootstrap JSON")

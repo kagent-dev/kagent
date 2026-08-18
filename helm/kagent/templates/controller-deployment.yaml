@@ -38,16 +38,25 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "kagent.fullname" . }}-controller
-      {{- if or (gt (len .Values.controller.volumes) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled .Values.controller.substrate.ateApiTokenFile) }}
+      {{- if or (gt (len .Values.controller.volumes) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled) }}
       volumes:
-      {{- if and .Values.controller.substrate .Values.controller.substrate.enabled .Values.controller.substrate.ateApiTokenFile }}
-      - name: substrate-ate-api-token
+      {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
+      - name: substrate-servicedns
         projected:
           sources:
-          - serviceAccountToken:
-              audience: {{ .Values.controller.substrate.ateApiTokenAudience | quote }}
-              expirationSeconds: {{ .Values.controller.substrate.ateApiTokenExpirationSeconds }}
-              path: {{ base .Values.controller.substrate.ateApiTokenFile | quote }}
+          - clusterTrustBundle:
+              signerName: servicedns.podcert.ate.dev/identity
+              labelSelector:
+                matchLabels:
+                  podcert.ate.dev/canarying: live
+              path: trust-bundle.pem
+      - name: substrate-podidentity
+        projected:
+          sources:
+          - podCertificate:
+              signerName: podidentity.podcert.ate.dev/identity
+              keyType: ECDSAP256
+              credentialBundlePath: credential-bundle.pem
       {{- end }}
       {{- with .Values.controller.volumes }}
       {{- toYaml . | nindent 6 }}
@@ -59,6 +68,14 @@ spec:
       {{- end }}
       {{- with .Values.controller.tolerations }}
       tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.topologySpreadConstraints }}
+      topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
@@ -107,23 +124,33 @@ spec:
             - name: METRICS_SECURE
               value: {{ .Values.controller.metrics.secureServing | quote }}
             {{- end }}
+            - name: GRPC_BIND_ADDRESS
+              value: {{ .Values.controller.grpc.bindAddress | quote }}
+            - name: GRPC_MAX_MESSAGE_BYTES
+              value: {{ printf "%.0f" (.Values.controller.grpc.maxMessageBytes | float64) | quote }}
+            - name: GRPC_REFLECTION
+              value: {{ .Values.controller.grpc.reflection | quote }}
+            {{- with .Values.controller.grpc.tlsCertFile }}
+            - name: GRPC_TLS_CERT_FILE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.controller.grpc.tlsKeyFile }}
+            - name: GRPC_TLS_KEY_FILE
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.controller.env }}
               {{- toYaml . | nindent 12 }}
             {{- end }}
             {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
             - name: SUBSTRATE_ATE_API_ENDPOINT
               value: {{ .Values.controller.substrate.ateApiEndpoint | quote }}
-            {{- with .Values.controller.substrate.ateApiTokenFile }}
-            - name: SUBSTRATE_ATE_API_TOKEN_FILE
-              value: {{ . | quote }}
-            {{- end }}
+            - name: SUBSTRATE_ATE_API_CA_FILE
+              value: /run/substrate-servicedns/trust-bundle.pem
+            - name: SUBSTRATE_ATE_API_CLIENT_CERT_FILE
+              value: /run/substrate-podidentity/credential-bundle.pem
             {{- with .Values.controller.substrate.atenetRouterURL }}
             - name: SUBSTRATE_ATENET_ROUTER_URL
               value: {{ . | quote }}
-            {{- end }}
-            {{- if .Values.controller.substrate.ateApiInsecure }}
-            - name: SUBSTRATE_ATE_API_INSECURE
-              value: "true"
             {{- end }}
             - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAMESPACE
               value: {{ .Values.controller.substrate.defaultWorkerPool.namespace | default (include "kagent.namespace" .) | quote }}
@@ -143,6 +170,9 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.controller.service.ports.targetPort }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.controller.service.ports.grpc }}
               protocol: TCP
             {{- if .Values.controller.metrics.enabled }}
             - name: metrics
@@ -176,11 +206,14 @@ spec:
               port: http
             periodSeconds: 30
           {{- end }}
-          {{- if or (gt (len .Values.controller.volumeMounts) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled .Values.controller.substrate.ateApiTokenFile) }}
+          {{- if or (gt (len .Values.controller.volumeMounts) 0) (and .Values.controller.substrate .Values.controller.substrate.enabled) }}
           volumeMounts:
-            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled .Values.controller.substrate.ateApiTokenFile }}
-            - name: substrate-ate-api-token
-              mountPath: {{ dir .Values.controller.substrate.ateApiTokenFile | quote }}
+            {{- if and .Values.controller.substrate .Values.controller.substrate.enabled }}
+            - name: substrate-servicedns
+              mountPath: /run/substrate-servicedns
+              readOnly: true
+            - name: substrate-podidentity
+              mountPath: /run/substrate-podidentity
               readOnly: true
             {{- end }}
             {{- with .Values.controller.volumeMounts }}

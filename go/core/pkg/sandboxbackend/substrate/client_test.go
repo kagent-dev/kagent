@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"math/big"
 	"net"
@@ -23,16 +24,29 @@ import (
 )
 
 func TestAteAPITLSConfig(t *testing.T) {
-	cfg := ateAPITLSConfig(false)
+	cfg, err := ateAPITLSConfig(Config{})
+	require.NoError(t, err)
 	require.False(t, cfg.InsecureSkipVerify)
-
-	cfg = ateAPITLSConfig(true)
-	require.True(t, cfg.InsecureSkipVerify)
 	require.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
+
+	cert := newTestTLSCert(t)
+	key, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	require.NoError(t, err)
+	bundle := append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key})...)
+	path := filepath.Join(t.TempDir(), "bundle.pem")
+	require.NoError(t, os.WriteFile(path, bundle, 0o600))
+	cfg, err = ateAPITLSConfig(Config{CAFile: path, ClientCertFile: path})
+	require.NoError(t, err)
+	require.NotNil(t, cfg.RootCAs)
+	loaded, err := cfg.GetClientCertificate(&tls.CertificateRequestInfo{})
+	require.NoError(t, err)
+	require.NotEmpty(t, loaded.Certificate)
 }
 
-func TestDial_tlsSkipVerifyReachesReady(t *testing.T) {
+func TestDial_verifiedTLSReachesReady(t *testing.T) {
 	cert := newTestTLSCert(t)
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]}), 0o600))
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -48,46 +62,11 @@ func TestDial_tlsSkipVerifyReachesReady(t *testing.T) {
 
 	c, err := Dial(context.Background(), Config{
 		AteAPIEndpoint: lis.Addr().String(),
-		Insecure:       true,
+		CAFile:         caFile,
 		DialTimeout:    2 * time.Second,
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Close())
-}
-
-func TestBearerTokenFile(t *testing.T) {
-	t.Run("reads and trims token", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "token")
-		require.NoError(t, os.WriteFile(path, []byte(" test-token\n"), 0o600))
-
-		creds := bearerTokenFile{path: path, requireTLS: true}
-		md, err := creds.GetRequestMetadata(context.Background())
-		require.NoError(t, err)
-		require.Equal(t, "Bearer test-token", md["authorization"])
-		require.True(t, creds.RequireTransportSecurity())
-	})
-
-	t.Run("allows insecure transport when configured", func(t *testing.T) {
-		creds := bearerTokenFile{requireTLS: false}
-		require.False(t, creds.RequireTransportSecurity())
-	})
-
-	t.Run("rejects empty token", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "token")
-		require.NoError(t, os.WriteFile(path, []byte(" \n"), 0o600))
-
-		_, err := bearerTokenFile{path: path}.GetRequestMetadata(context.Background())
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "is empty")
-	})
-
-	t.Run("wraps read errors", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "missing")
-
-		_, err := bearerTokenFile{path: path}.GetRequestMetadata(context.Background())
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "read bearer token file")
-	})
 }
 
 func TestEnsureAtespace(t *testing.T) {
@@ -151,6 +130,7 @@ func newTestTLSCert(t *testing.T) tls.Certificate {
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	require.NoError(t, err)

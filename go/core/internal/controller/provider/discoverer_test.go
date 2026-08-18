@@ -24,33 +24,33 @@ import (
 	"strings"
 	"testing"
 
-	v1alpha2 "github.com/kagent-dev/kagent/go/api/v1alpha2"
+	v1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 func TestBuildModelsURL(t *testing.T) {
 	tests := []struct {
 		name         string
 		endpoint     string
-		providerType v1alpha2.ModelProvider
+		providerType v1alpha3.ModelProvider
 		want         string
 	}{
 		// OpenAI
 		{
 			name:         "OpenAI - base URL",
 			endpoint:     "https://api.openai.com",
-			providerType: v1alpha2.ModelProviderOpenAI,
+			providerType: v1alpha3.ModelProviderOpenAI,
 			want:         "https://api.openai.com/v1/models",
 		},
 		{
 			name:         "OpenAI - with v1",
 			endpoint:     "https://api.openai.com/v1",
-			providerType: v1alpha2.ModelProviderOpenAI,
+			providerType: v1alpha3.ModelProviderOpenAI,
 			want:         "https://api.openai.com/v1/models",
 		},
 		{
 			name:         "OpenAI - trailing slash",
 			endpoint:     "https://api.openai.com/v1/",
-			providerType: v1alpha2.ModelProviderOpenAI,
+			providerType: v1alpha3.ModelProviderOpenAI,
 			want:         "https://api.openai.com/v1/models",
 		},
 
@@ -58,13 +58,13 @@ func TestBuildModelsURL(t *testing.T) {
 		{
 			name:         "Anthropic - base URL",
 			endpoint:     "https://api.anthropic.com",
-			providerType: v1alpha2.ModelProviderAnthropic,
+			providerType: v1alpha3.ModelProviderAnthropic,
 			want:         "https://api.anthropic.com/v1/models",
 		},
 		{
 			name:         "Anthropic - with v1",
 			endpoint:     "https://api.anthropic.com/v1",
-			providerType: v1alpha2.ModelProviderAnthropic,
+			providerType: v1alpha3.ModelProviderAnthropic,
 			want:         "https://api.anthropic.com/v1/models",
 		},
 
@@ -72,7 +72,7 @@ func TestBuildModelsURL(t *testing.T) {
 		{
 			name:         "Azure OpenAI",
 			endpoint:     "https://my-resource.openai.azure.com",
-			providerType: v1alpha2.ModelProviderAzureOpenAI,
+			providerType: v1alpha3.ModelProviderAzureOpenAI,
 			want:         "https://my-resource.openai.azure.com/v1/models",
 		},
 
@@ -84,13 +84,13 @@ func TestBuildModelsURL(t *testing.T) {
 		{
 			name:         "Gemini - googleapis",
 			endpoint:     "https://generativelanguage.googleapis.com",
-			providerType: v1alpha2.ModelProviderGemini,
+			providerType: v1alpha3.ModelProviderGemini,
 			want:         "https://generativelanguage.googleapis.com/v1beta/models",
 		},
 		{
 			name:         "Gemini - custom endpoint",
 			endpoint:     "https://custom-gemini.example.com",
-			providerType: v1alpha2.ModelProviderGemini,
+			providerType: v1alpha3.ModelProviderGemini,
 			want:         "https://custom-gemini.example.com/v1/models",
 		},
 
@@ -98,7 +98,7 @@ func TestBuildModelsURL(t *testing.T) {
 		{
 			name:         "LiteLLM gateway",
 			endpoint:     "https://litellm.company.com/v1",
-			providerType: v1alpha2.ModelProviderOpenAI,
+			providerType: v1alpha3.ModelProviderOpenAI,
 			want:         "https://litellm.company.com/v1/models",
 		},
 	}
@@ -143,7 +143,7 @@ func TestDiscoverModels_OpenAI(t *testing.T) {
 	defer server.Close()
 
 	d := NewModelDiscoverer()
-	models, err := d.DiscoverModels(context.Background(), v1alpha2.ModelProviderOpenAI, server.URL, "test-api-key")
+	models, err := d.DiscoverModels(context.Background(), v1alpha3.ModelProviderOpenAI, server.URL, "test-api-key")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -195,7 +195,7 @@ func TestDiscoverModels_Anthropic(t *testing.T) {
 	defer server.Close()
 
 	d := NewModelDiscoverer()
-	models, err := d.DiscoverModels(context.Background(), v1alpha2.ModelProviderAnthropic, server.URL, "test-anthropic-key")
+	models, err := d.DiscoverModels(context.Background(), v1alpha3.ModelProviderAnthropic, server.URL, "test-anthropic-key")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -248,7 +248,7 @@ func TestDiscoverModels_ErrorResponses(t *testing.T) {
 			defer server.Close()
 
 			d := NewModelDiscoverer()
-			_, err := d.DiscoverModels(context.Background(), v1alpha2.ModelProviderOpenAI, server.URL, "test-key")
+			_, err := d.DiscoverModels(context.Background(), v1alpha3.ModelProviderOpenAI, server.URL, "test-key")
 
 			if err == nil {
 				t.Error("expected error but got nil")
@@ -270,7 +270,7 @@ func TestDiscoverModels_InvalidJSON(t *testing.T) {
 	defer server.Close()
 
 	d := NewModelDiscoverer()
-	_, err := d.DiscoverModels(context.Background(), v1alpha2.ModelProviderOpenAI, server.URL, "test-key")
+	_, err := d.DiscoverModels(context.Background(), v1alpha3.ModelProviderOpenAI, server.URL, "test-key")
 
 	if err == nil {
 		t.Error("expected error for invalid JSON")
@@ -295,7 +295,7 @@ func TestDiscoverModels_EmptyResponse(t *testing.T) {
 	defer server.Close()
 
 	d := NewModelDiscoverer()
-	models, err := d.DiscoverModels(context.Background(), v1alpha2.ModelProviderOpenAI, server.URL, "test-key")
+	models, err := d.DiscoverModels(context.Background(), v1alpha3.ModelProviderOpenAI, server.URL, "test-key")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -324,7 +324,7 @@ func TestDiscoverModels_FilterEmptyIDs(t *testing.T) {
 	defer server.Close()
 
 	d := NewModelDiscoverer()
-	models, err := d.DiscoverModels(context.Background(), v1alpha2.ModelProviderOpenAI, server.URL, "test-key")
+	models, err := d.DiscoverModels(context.Background(), v1alpha3.ModelProviderOpenAI, server.URL, "test-key")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -358,7 +358,7 @@ func TestDiscoverOllamaModels(t *testing.T) {
 
 	d := NewModelDiscoverer()
 	// Test through the public DiscoverModels API for Ollama provider
-	models, err := d.DiscoverModels(context.Background(), v1alpha2.ModelProviderOllama, server.URL, "")
+	models, err := d.DiscoverModels(context.Background(), v1alpha3.ModelProviderOllama, server.URL, "")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -406,7 +406,7 @@ func TestDiscoverModels_OllamaDelegation(t *testing.T) {
 
 	d := NewModelDiscoverer()
 	// Use DiscoverModels (not DiscoverOllamaModels directly) to test delegation
-	models, err := d.DiscoverModels(context.Background(), v1alpha2.ModelProviderOllama, server.URL, "")
+	models, err := d.DiscoverModels(context.Background(), v1alpha3.ModelProviderOllama, server.URL, "")
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -450,7 +450,7 @@ func TestSetAuthHeaders(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		providerType v1alpha2.ModelProvider
+		providerType v1alpha3.ModelProvider
 		apiKey       string
 		wantAuthz    string
 		wantAPIKey   string
@@ -458,26 +458,26 @@ func TestSetAuthHeaders(t *testing.T) {
 	}{
 		{
 			name:         "OpenAI",
-			providerType: v1alpha2.ModelProviderOpenAI,
+			providerType: v1alpha3.ModelProviderOpenAI,
 			apiKey:       "sk-test",
 			wantAuthz:    "Bearer sk-test",
 		},
 		{
 			name:         "Azure OpenAI",
-			providerType: v1alpha2.ModelProviderAzureOpenAI,
+			providerType: v1alpha3.ModelProviderAzureOpenAI,
 			apiKey:       "azure-key",
 			wantAuthz:    "Bearer azure-key",
 		},
 		{
 			name:         "Anthropic",
-			providerType: v1alpha2.ModelProviderAnthropic,
+			providerType: v1alpha3.ModelProviderAnthropic,
 			apiKey:       "anth-key",
 			wantAPIKey:   "anth-key",
 			wantAnthVer:  "2023-06-01",
 		},
 		{
 			name:         "Gemini",
-			providerType: v1alpha2.ModelProviderGemini,
+			providerType: v1alpha3.ModelProviderGemini,
 			apiKey:       "gemini-key",
 			wantAuthz:    "Bearer gemini-key",
 		},

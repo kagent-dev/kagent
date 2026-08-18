@@ -11,6 +11,7 @@ from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
+from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, configure_logging, configure_tracing
 
 from . import AgentConfig, KAgentApp
@@ -67,6 +68,10 @@ def maybe_add_skills_with_config(root_agent: BaseAgent, agent_config: Optional[A
         add_skills_tool_to_agent(skills_directory, root_agent)
 
 
+def parse_agent_card(data: dict) -> AgentCard:
+    return ParseDict(data, AgentCard())
+
+
 @app.command()
 def static(
     host: str = "127.0.0.1",
@@ -77,7 +82,7 @@ def static(
 ):
     app_cfg = KAgentConfig()
 
-    # On Agent Substrate the config is injected as secret-backed env vars rather than mounted
+    # On Agent Substrate the config is injected as env vars rather than mounted
     # files; materialize them into `filepath` before loading. No-op on the Deployment path.
     materialize_from_env(filepath)
 
@@ -86,7 +91,7 @@ def static(
     agent_config = AgentConfig.model_validate(config)
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
-    agent_card = AgentCard.model_validate(agent_card)
+    agent_card = parse_agent_card(agent_card)
     plugins = None
     sts_integration = create_sts_integration()
     if sts_integration:
@@ -114,6 +119,7 @@ def static(
         plugins=plugins,
         stream=agent_config.stream if agent_config.stream is not None else False,
         agent_config=agent_config,
+        kagent_grpc_url=app_cfg.grpc_url,
     )
 
     server = kagent_app.build()
@@ -192,7 +198,7 @@ def run(
 
     with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
-    agent_card = AgentCard.model_validate(agent_card)
+    agent_card = parse_agent_card(agent_card)
 
     # Attempt to import optional user-defined lifespan(app) from the agent package
     lifespan = None
@@ -212,6 +218,7 @@ def run(
         plugins=plugins,
         stream=agent_config.stream if agent_config and agent_config.stream is not None else False,
         agent_config=agent_config,
+        kagent_grpc_url=app_cfg.grpc_url,
     )
 
     if local:
@@ -232,7 +239,12 @@ def run(
 
 
 async def test_agent(agent_config: AgentConfig, agent_card: AgentCard, task: str):
-    app_cfg = KAgentConfig(url="http://fake-url.example.com", name="test-agent", namespace="kagent")
+    app_cfg = KAgentConfig(
+        url="http://fake-url.example.com",
+        grpc_url="fake-grpc.example.com:8084",
+        name="test-agent",
+        namespace="kagent",
+    )
     plugins = None
     sts_integration = create_sts_integration()
     if sts_integration:
@@ -260,7 +272,7 @@ def test(
 
     with open(os.path.join(filepath, "agent-card.json"), "r") as f:
         agent_card = json.load(f)
-    agent_card = AgentCard.model_validate(agent_card)
+    agent_card = parse_agent_card(agent_card)
     agent_config = AgentConfig.model_validate(config)
     asyncio.run(test_agent(agent_config, agent_card, task))
 

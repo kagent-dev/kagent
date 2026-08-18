@@ -42,7 +42,7 @@ const mockAgent: AgentResponse = {
   model: "gpt-4",
   modelProvider: "openai",
   modelConfigRef: "openai-config",
-  deploymentReady: true,
+  ready: true,
   accepted: true,
   tools: [],
 };
@@ -62,7 +62,7 @@ const mockAgent2: AgentResponse = {
   model: "gpt-4-turbo",
   modelProvider: "openai",
   modelConfigRef: "openai-config",
-  deploymentReady: true,
+  ready: true,
   accepted: true,
   tools: [],
 };
@@ -82,7 +82,7 @@ const mockAgent3: AgentResponse = {
   model: "claude-3-opus",
   modelProvider: "anthropic",
   modelConfigRef: "anthropic-config",
-  deploymentReady: true,
+  ready: true,
   accepted: true,
   tools: [],
 };

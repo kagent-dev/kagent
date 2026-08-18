@@ -11,18 +11,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/common"
-	commonexec "github.com/kagent-dev/kagent/go/core/cli/internal/common/exec"
 	commonimage "github.com/kagent-dev/kagent/go/core/cli/internal/common/image"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -55,7 +52,7 @@ type DeployCfg struct {
 
 	// EnvFile is the path to a .env file containing environment variables to be loaded into the agent.
 	// This MUST include the model provider API key (e.g., ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY).
-	// A Secret will be created with these values and mounted in the agent deployment.
+	// A Secret will be created with these values for the agent ActorTemplate.
 	EnvFile string
 
 	// Platform specifies the target platform for Docker builds (e.g., "linux/amd64", "linux/arm64")
@@ -119,13 +116,6 @@ func DeployCmd(ctx context.Context, k8sClient client.Client, cfg *DeployCfg) err
 	// Step 9: Deploy MCP servers if defined
 	if err := deployMCPServersIfNeeded(ctx, k8sClient, cfg, manifest); err != nil {
 		return err
-	}
-
-	// Step 10: Restart deployment if not in dry-run mode
-	if !cfg.DryRun {
-		if err := restartAgentDeployment(ctx, k8sClient, cfg, manifest); err != nil {
-			fmt.Printf("Warning: failed to restart deployment: %v\n", err)
-		}
 	}
 
 	printDeploymentResult(cfg, manifest)
@@ -424,71 +414,6 @@ func createEnvFileSecret(ctx context.Context, k8sClient client.Client, namespace
 	return nil
 }
 
-// waitForDeployment polls for a deployment to be created, with a timeout
-func waitForDeployment(ctx context.Context, k8sClient client.Client, namespace, name string, timeout time.Duration, config *config.Config) (*appsv1.Deployment, error) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	timeoutTimer := time.NewTimer(timeout)
-	defer timeoutTimer.Stop()
-
-	deployment := &appsv1.Deployment{}
-
-	for {
-		select {
-		case <-timeoutTimer.C:
-			return nil, apierrors.NewNotFound(appsv1.Resource("deployment"), name)
-		case <-ticker.C:
-			err := k8sClient.Get(ctx, types.NamespacedName{
-				Name:      name,
-				Namespace: namespace,
-			}, deployment)
-
-			if err == nil {
-				if IsVerbose(config) {
-					fmt.Printf("Deployment '%s' found in namespace '%s'\n", name, namespace)
-				}
-				return deployment, nil
-			}
-
-			if !apierrors.IsNotFound(err) {
-				return nil, fmt.Errorf("error checking for deployment: %v", err)
-			}
-		}
-	}
-}
-
-// restartAgentDeployment restarts the agent deployment using kubectl rollout restart
-func restartAgentDeployment(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest) error {
-	deploymentName := manifest.Name
-	namespace := cfg.Config.Namespace
-
-	_, err := waitForDeployment(ctx, k8sClient, namespace, deploymentName, 30*time.Second, cfg.Config)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			if IsVerbose(cfg.Config) {
-				fmt.Printf("Deployment '%s' not found after timeout, it may still be being created by the controller\n", deploymentName)
-			}
-			return nil
-		}
-		return fmt.Errorf("failed to wait for deployment: %v", err)
-	}
-
-	kubectl := commonexec.NewKubectlExecutor(IsVerbose(cfg.Config), namespace)
-
-	if err := kubectl.RolloutRestart(deploymentName); err != nil {
-		return fmt.Errorf("failed to restart deployment: %v", err)
-	}
-
-	if err := kubectl.WaitForDeployment(deploymentName, 2*time.Minute); err != nil {
-		if IsVerbose(cfg.Config) {
-			fmt.Printf("Warning: failed to check rollout status: %v\n", err)
-		}
-	}
-
-	return nil
-}
-
 // deployMCPServersIfNeeded deploys MCP servers if any are defined in the manifest
 func deployMCPServersIfNeeded(ctx context.Context, k8sClient client.Client, cfg *DeployCfg, manifest *common.AgentManifest) error {
 	if len(manifest.McpServers) == 0 {
@@ -510,9 +435,8 @@ func deployMCPServersIfNeeded(ctx context.Context, k8sClient client.Client, cfg 
 func printDeploymentResult(cfg *DeployCfg, manifest *common.AgentManifest) {
 	if !cfg.DryRun {
 		fmt.Printf("\n✅ Successfully deployed agent '%s' to namespace '%s'\n", manifest.Name, cfg.Config.Namespace)
-		fmt.Printf("\nTo check the deployment status:\n")
-		fmt.Printf("  kubectl get agent %s -n %s\n", manifest.Name, cfg.Config.Namespace)
-		fmt.Printf("  kubectl get pods -l kagent=%s -n %s\n", manifest.Name, cfg.Config.Namespace)
+		fmt.Printf("\nTo check the agent status:\n")
+		fmt.Printf("  kubectl get sandboxagent %s -n %s\n", manifest.Name, cfg.Config.Namespace)
 	}
 }
 
@@ -531,11 +455,11 @@ func outputYAML(obj client.Object) error {
 // getAPIKeyEnvVar returns the environment variable name for the given model provider
 func getAPIKeyEnvVar(modelProvider string) string {
 	switch modelProvider {
-	case strings.ToLower(string(v1alpha2.ModelProviderAnthropic)):
+	case strings.ToLower(string(v1alpha3.ModelProviderAnthropic)):
 		return "ANTHROPIC_API_KEY"
-	case strings.ToLower(string(v1alpha2.ModelProviderOpenAI)):
+	case strings.ToLower(string(v1alpha3.ModelProviderOpenAI)):
 		return "OPENAI_API_KEY"
-	case strings.ToLower(string(v1alpha2.ModelProviderGemini)):
+	case strings.ToLower(string(v1alpha3.ModelProviderGemini)):
 		return "GOOGLE_API_KEY"
 	default:
 		return ""
@@ -562,8 +486,8 @@ func CreateKubernetesClient() (client.Client, error) {
 	if err := v1alpha1.AddToScheme(schemes); err != nil {
 		return nil, fmt.Errorf("failed to add kagent v1alpha1 scheme: %v", err)
 	}
-	if err := v1alpha2.AddToScheme(schemes); err != nil {
-		return nil, fmt.Errorf("failed to add kagent v1alpha2 scheme: %v", err)
+	if err := v1alpha3.AddToScheme(schemes); err != nil {
+		return nil, fmt.Errorf("failed to add kagent v1alpha3 scheme: %v", err)
 	}
 
 	k8sClient, err := client.New(config, client.Options{Scheme: schemes})
@@ -652,8 +576,8 @@ func determineImageName(configImage, agentName string) string {
 	return commonimage.ConstructImageName(configImage, agentName)
 }
 
-// buildAgentCRD constructs an Agent CRD object
-func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName string, envData *envFileData) *v1alpha2.Agent {
+// buildAgentCRD constructs a SandboxAgent CRD object.
+func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName string, envData *envFileData) *v1alpha3.SandboxAgent {
 	var envVars []corev1.EnvVar
 
 	// Add all environment variables from the env file secret
@@ -673,33 +597,30 @@ func buildAgentCRD(namespace string, manifest *common.AgentManifest, imageName s
 		}
 	}
 
-	deploymentSpec := v1alpha2.ByoDeploymentSpec{
+	byoSpec := v1alpha3.BYOAgentSpec{
 		Image: imageName,
-		SharedDeploymentSpec: v1alpha2.SharedDeploymentSpec{
-			Env: envVars,
-		},
+		Cmd:   &manifest.Name,
+		Env:   envVars,
 	}
 
-	agent := &v1alpha2.Agent{
+	agent := &v1alpha3.SandboxAgent{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      manifest.Name,
 			Namespace: namespace,
 		},
-		Spec: v1alpha2.AgentSpec{
-			Type:        v1alpha2.AgentType_BYO,
+		Spec: v1alpha3.SandboxAgentSpec{
+			Type:        v1alpha3.AgentType_BYO,
 			Description: manifest.Description,
-			BYO: &v1alpha2.BYOAgentSpec{
-				Deployment: &deploymentSpec,
-			},
+			BYO:         &byoSpec,
 		},
 	}
-	agent.SetGroupVersionKind(v1alpha2.GroupVersion.WithKind("Agent"))
+	agent.SetGroupVersionKind(v1alpha3.GroupVersion.WithKind("SandboxAgent"))
 	return agent
 }
 
 // createOrUpdateAgent creates a new agent or updates an existing one
-func createOrUpdateAgent(ctx context.Context, k8sClient client.Client, agent *v1alpha2.Agent, namespace, name string, verbose bool) error {
-	existingAgent := &v1alpha2.Agent{}
+func createOrUpdateAgent(ctx context.Context, k8sClient client.Client, agent *v1alpha3.SandboxAgent, namespace, name string, verbose bool) error {
+	existingAgent := &v1alpha3.SandboxAgent{}
 	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, existingAgent)
 
 	if err != nil {
@@ -738,7 +659,7 @@ func deployMCPServers(ctx context.Context, k8sClient client.Client, cfg *DeployC
 
 		switch mcpServer.Type {
 		case "remote":
-			// Deploy RemoteMCPServer (v1alpha2)
+			// Deploy RemoteMCPServer (v1alpha3)
 			if err := deployRemoteMCPServer(ctx, k8sClient, cfg.Config.Namespace, &mcpServer, verbose, cfg.DryRun); err != nil {
 				return fmt.Errorf("failed to deploy remote MCP server '%s': %v", mcpServer.Name, err)
 			}
@@ -772,19 +693,19 @@ func deployRemoteMCPServer(ctx context.Context, k8sClient client.Client, namespa
 }
 
 // buildRemoteMCPServer constructs a RemoteMCPServer CRD object
-func buildRemoteMCPServer(namespace string, mcpServer *common.McpServerType, headerRefs []v1alpha2.ValueRef) *v1alpha2.RemoteMCPServer {
+func buildRemoteMCPServer(namespace string, mcpServer *common.McpServerType, headerRefs []v1alpha3.ValueRef) *v1alpha3.RemoteMCPServer {
 	timeout := metav1.Duration{Duration: defaultTimeout}
 	sseReadTimeout := metav1.Duration{Duration: defaultSSEReadTimeout}
 	terminateOnClose := true
 
-	remoteMCPServer := &v1alpha2.RemoteMCPServer{
+	remoteMCPServer := &v1alpha3.RemoteMCPServer{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mcpServer.Name,
 			Namespace: namespace,
 		},
-		Spec: v1alpha2.RemoteMCPServerSpec{
+		Spec: v1alpha3.RemoteMCPServerSpec{
 			Description:      fmt.Sprintf("Remote MCP server: %s", mcpServer.Name),
-			Protocol:         v1alpha2.RemoteMCPServerProtocolStreamableHttp,
+			Protocol:         v1alpha3.RemoteMCPServerProtocolStreamableHttp,
 			URL:              mcpServer.URL,
 			HeadersFrom:      headerRefs,
 			Timeout:          &timeout,
@@ -792,13 +713,13 @@ func buildRemoteMCPServer(namespace string, mcpServer *common.McpServerType, hea
 			TerminateOnClose: &terminateOnClose,
 		},
 	}
-	remoteMCPServer.SetGroupVersionKind(v1alpha2.GroupVersion.WithKind("RemoteMCPServer"))
+	remoteMCPServer.SetGroupVersionKind(v1alpha3.GroupVersion.WithKind("RemoteMCPServer"))
 	return remoteMCPServer
 }
 
 // createOrUpdateRemoteMCPServer creates a new RemoteMCPServer or updates an existing one
-func createOrUpdateRemoteMCPServer(ctx context.Context, k8sClient client.Client, remoteMCPServer *v1alpha2.RemoteMCPServer, namespace, name string, verbose bool) error {
-	existingRemoteMCPServer := &v1alpha2.RemoteMCPServer{}
+func createOrUpdateRemoteMCPServer(ctx context.Context, k8sClient client.Client, remoteMCPServer *v1alpha3.RemoteMCPServer, namespace, name string, verbose bool) error {
+	existingRemoteMCPServer := &v1alpha3.RemoteMCPServer{}
 	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, existingRemoteMCPServer)
 
 	if err != nil {
@@ -915,8 +836,8 @@ func createOrUpdateMCPServer(ctx context.Context, k8sClient client.Client, mcpSe
 }
 
 // createSecretsForHeaders creates secrets for header values that reference environment variables
-func createSecretsForHeaders(ctx context.Context, k8sClient client.Client, namespace string, mcpServer *common.McpServerType, verbose bool, dryRun bool) ([]v1alpha2.ValueRef, error) {
-	var headerRefs []v1alpha2.ValueRef
+func createSecretsForHeaders(ctx context.Context, k8sClient client.Client, namespace string, mcpServer *common.McpServerType, verbose bool, dryRun bool) ([]v1alpha3.ValueRef, error) {
+	var headerRefs []v1alpha3.ValueRef
 	envVarRegex := regexp.MustCompile(envVarPattern)
 
 	for headerName, headerValue := range mcpServer.Headers {
@@ -931,11 +852,11 @@ func createSecretsForHeaders(ctx context.Context, k8sClient client.Client, names
 }
 
 // processHeaderValue processes a single header value and creates a secret if needed
-func processHeaderValue(ctx context.Context, k8sClient client.Client, namespace, serverName, headerName, headerValue string, envVarRegex *regexp.Regexp, verbose bool, dryRun bool) (v1alpha2.ValueRef, error) {
+func processHeaderValue(ctx context.Context, k8sClient client.Client, namespace, serverName, headerName, headerValue string, envVarRegex *regexp.Regexp, verbose bool, dryRun bool) (v1alpha3.ValueRef, error) {
 	// Check if the header value contains environment variable references
 	matches := envVarRegex.FindStringSubmatch(headerValue)
 	if len(matches) == 0 {
-		return v1alpha2.ValueRef{
+		return v1alpha3.ValueRef{
 			Name:  headerName,
 			Value: headerValue,
 		}, nil
@@ -944,7 +865,7 @@ func processHeaderValue(ctx context.Context, k8sClient client.Client, namespace,
 	envVarName := extractEnvVarName(matches)
 	envValue := os.Getenv(envVarName)
 	if envValue == "" {
-		return v1alpha2.ValueRef{}, fmt.Errorf("environment variable '%s' referenced in header '%s' is not set", envVarName, headerName)
+		return v1alpha3.ValueRef{}, fmt.Errorf("environment variable '%s' referenced in header '%s' is not set", envVarName, headerName)
 	}
 
 	// Replace the environment variable reference with the actual value
@@ -956,14 +877,14 @@ func processHeaderValue(ctx context.Context, k8sClient client.Client, namespace,
 	secretKey := sanitizeForSecretKey(headerName)
 
 	if err := createSecret(ctx, k8sClient, namespace, secretName, secretKey, fullHeaderValue, verbose, dryRun); err != nil {
-		return v1alpha2.ValueRef{}, fmt.Errorf("failed to create secret for header '%s': %v", headerName, err)
+		return v1alpha3.ValueRef{}, fmt.Errorf("failed to create secret for header '%s': %v", headerName, err)
 	}
 
 	// Return the header reference pointing to the secret
-	return v1alpha2.ValueRef{
+	return v1alpha3.ValueRef{
 		Name: headerName,
-		ValueFrom: &v1alpha2.ValueSource{
-			Type: v1alpha2.SecretValueSource,
+		ValueFrom: &v1alpha3.ValueSource{
+			Type: v1alpha3.SecretValueSource,
 			Name: secretName,
 			Key:  secretKey,
 		},

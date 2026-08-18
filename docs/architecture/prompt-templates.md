@@ -109,8 +109,8 @@ data:
     Never delete resources without explicit user confirmation.
     Never expose secrets or credentials in your responses.
 ---
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
+apiVersion: kagent.dev/v1alpha3
+kind: SandboxAgent
 metadata:
   name: k8s-helper
   namespace: default
@@ -191,8 +191,8 @@ Kagent ships a `kagent-builtin-prompts` ConfigMap (deployed via Helm) with the f
 Example using built-in prompts:
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
+apiVersion: kagent.dev/v1alpha3
+kind: SandboxAgent
 metadata:
   name: my-agent
   namespace: kagent  # same namespace where kagent is installed
@@ -282,7 +282,7 @@ kubectl get agent my-agent -o jsonpath='{.status.conditions[?(@.type=="Accepted"
 
 ## Related Files
 
-- [agent_types.go](../../go/api/v1alpha2/agent_types.go) — `PromptTemplateSpec`, `PromptSource` types
+- [agent_types.go](../../go/api/v1alpha3/agent_types.go) — `PromptTemplateSpec`, `PromptSource` types
 - [template.go](../../go/core/internal/controller/translator/agent/template.go) — Template resolution logic
 - [template_test.go](../../go/core/internal/controller/translator/agent/template_test.go) — Unit tests
 - [compiler.go](../../go/core/internal/controller/translator/agent/compiler.go) — Template integration in `translateInlineAgent()`

@@ -2,8 +2,9 @@ from enum import Enum
 from unittest.mock import Mock
 
 import pytest
-from a2a.types import TaskState, TaskStatusUpdateEvent
+from a2a.types import TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
 from google.genai import types as genai_types
+from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import get_kagent_metadata_key
 from pydantic import BaseModel, Field
 
@@ -19,7 +20,9 @@ def _create_mock_invocation_context():
     return context
 
 
-def _create_mock_event(error_code=None, content=None, invocation_id="test_invocation", author="test_author"):
+def _create_mock_event(
+    error_code=None, content=None, invocation_id="test_invocation", author="test_author", partial=False
+):
     """Create a mock event for testing."""
     event = Mock()
     event.error_code = error_code
@@ -31,6 +34,8 @@ def _create_mock_event(error_code=None, content=None, invocation_id="test_invoca
     event.custom_metadata = None
     event.usage_metadata = None
     event.error_message = None
+    event.partial = partial
+    event.long_running_tool_ids = None
     return event
 
 
@@ -50,10 +55,12 @@ class TestEventConverter:
             event1, invocation_context, task_id="test_task_1", context_id="test_context_1"
         )
         error_events1 = [
-            e for e in result1 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+            e for e in result1 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_FAILED
         ]
         working_events1 = [
-            e for e in result1 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+            e
+            for e in result1
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_WORKING
         ]
         assert len(error_events1) == 0, (
             f"Expected no error events for STOP with empty content, got {len(error_events1)}"
@@ -72,10 +79,12 @@ class TestEventConverter:
             event2, invocation_context, task_id="test_task_2", context_id="test_context_2"
         )
         error_events2 = [
-            e for e in result2 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+            e for e in result2 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_FAILED
         ]
         working_events2 = [
-            e for e in result2 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+            e
+            for e in result2
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_WORKING
         ]
         assert len(error_events2) == 0, f"Expected no error events for STOP with empty parts, got {len(error_events2)}"
         assert len(working_events2) == 0, (
@@ -90,10 +99,12 @@ class TestEventConverter:
             event3, invocation_context, task_id="test_task_3", context_id="test_context_3"
         )
         error_events3 = [
-            e for e in result3 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+            e for e in result3 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_FAILED
         ]
         working_events3 = [
-            e for e in result3 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
+            e
+            for e in result3
+            if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_WORKING
         ]
         assert len(error_events3) == 0, (
             f"Expected no error events for STOP with missing content, got {len(error_events3)}"
@@ -110,7 +121,7 @@ class TestEventConverter:
             event4, invocation_context, task_id="test_task_4", context_id="test_context_4"
         )
         error_events4 = [
-            e for e in result4 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+            e for e in result4 if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_FAILED
         ]
         assert len(error_events4) == 1, f"Expected 1 error event for MALFORMED_FUNCTION_CALL, got {len(error_events4)}"
 
@@ -120,23 +131,91 @@ class TestEventConverter:
         assert error_code_key in error_event.metadata
         assert error_event.metadata[error_code_key] == str(genai_types.FinishReason.MALFORMED_FUNCTION_CALL)
 
-    def test_message_carries_task_and_context_ids(self):
-        """The converted message stamps task_id/context_id so consumers that
-        flatten task.history can key it to its task without backfilling."""
+    def test_content_is_emitted_as_artifact(self):
         invocation_context = _create_mock_invocation_context()
         content = genai_types.Content(parts=[genai_types.Part(text="hello world")])
         event = _create_mock_event(content=content, invocation_id="test_invocation_ids")
 
         result = convert_event_to_a2a_events(event, invocation_context, task_id="task-xyz", context_id="ctx-xyz")
 
-        working_events = [
-            e for e in result if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.working
-        ]
-        assert len(working_events) == 1
-        message = working_events[0].status.message
-        assert message is not None
-        assert message.task_id == "task-xyz"
-        assert message.context_id == "ctx-xyz"
+        artifact_events = [e for e in result if isinstance(e, TaskArtifactUpdateEvent)]
+        assert len(artifact_events) == 1
+        artifact_event = artifact_events[0]
+        assert artifact_event.task_id == "task-xyz"
+        assert artifact_event.context_id == "ctx-xyz"
+        assert artifact_event.artifact.parts[0].text == "hello world"
+        assert artifact_event.last_chunk is True
+        assert get_kagent_metadata_key("adk_partial") not in artifact_event.metadata
+        assert not any(
+            isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.TASK_STATE_WORKING for e in result
+        )
+
+    def test_partial_chunks_reuse_artifact_id_and_final_replaces(self):
+        """Go OutputArtifactPerEvent framing: append deltas, replace+close on final."""
+        invocation_context = _create_mock_invocation_context()
+        agents_artifacts: dict[str, str] = {}
+
+        first = convert_event_to_a2a_events(
+            _create_mock_event(content=genai_types.Content(parts=[genai_types.Part(text="hel")]), partial=True),
+            invocation_context,
+            agents_artifacts=agents_artifacts,
+        )[0]
+        second = convert_event_to_a2a_events(
+            _create_mock_event(content=genai_types.Content(parts=[genai_types.Part(text="lo")]), partial=True),
+            invocation_context,
+            agents_artifacts=agents_artifacts,
+        )[0]
+        final = convert_event_to_a2a_events(
+            _create_mock_event(content=genai_types.Content(parts=[genai_types.Part(text="hello")]), partial=False),
+            invocation_context,
+            agents_artifacts=agents_artifacts,
+        )[0]
+
+        assert isinstance(first, TaskArtifactUpdateEvent)
+        assert first.artifact.artifact_id == second.artifact.artifact_id == final.artifact.artifact_id
+        assert first.append is False
+        assert first.last_chunk is False
+        assert second.append is True
+        assert second.last_chunk is False
+        assert final.append is False
+        assert final.last_chunk is True
+        assert final.artifact.parts[0].text == "hello"
+        assert agents_artifacts == {}
+
+    def test_final_mixed_event_keeps_text_and_hitl_parts_on_same_artifact(self):
+        invocation_context = _create_mock_invocation_context()
+        agents_artifacts: dict[str, str] = {}
+        partial_event = _create_mock_event(
+            content=genai_types.Content(parts=[genai_types.Part(text="partial text")]), partial=True
+        )
+        partial_artifact = convert_event_to_a2a_events(
+            partial_event, invocation_context, agents_artifacts=agents_artifacts
+        )[0]
+
+        final_event = _create_mock_event(
+            content=genai_types.Content(
+                parts=[
+                    genai_types.Part(text="partial text complete"),
+                    genai_types.Part(
+                        function_call=genai_types.FunctionCall(id="call-1", name="dangerous_tool", args={"value": "x"})
+                    ),
+                ]
+            ),
+            partial=False,
+        )
+        final_event.long_running_tool_ids = {"call-1"}
+
+        result = convert_event_to_a2a_events(final_event, invocation_context, agents_artifacts=agents_artifacts)
+
+        assert len(result) == 1
+        final_artifact = result[0]
+        assert isinstance(final_artifact, TaskArtifactUpdateEvent)
+        assert final_artifact.last_chunk is True
+        assert final_artifact.append is False
+        assert final_artifact.artifact.artifact_id == partial_artifact.artifact.artifact_id
+        assert final_artifact.artifact.parts[0].text == "partial text complete"
+        assert MessageToDict(final_artifact.artifact.parts[1].data)["name"] == "dangerous_tool"
+        assert agents_artifacts == {}
 
 
 class TestSerializeMetadataValue:

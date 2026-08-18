@@ -17,12 +17,12 @@ def test_get_a2a_max_content_length_with_env_var():
 
 
 def test_get_a2a_max_content_length_without_env_var():
-    """Test that without env var, None is returned (use a2a-sdk default)."""
+    """Test that without env var, the former a2a-sdk default is preserved."""
     with patch.dict(os.environ, {}, clear=True):
         # Ensure env var is not set
         os.environ.pop("A2A_MAX_CONTENT_LENGTH", None)
         result = get_a2a_max_content_length()
-        assert result is None
+        assert result == DEFAULT_A2A_MAX_CONTENT_LENGTH
 
 
 def test_get_a2a_max_content_length_with_zero():

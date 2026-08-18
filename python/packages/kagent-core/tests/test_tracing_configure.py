@@ -8,7 +8,7 @@ from opentelemetry.trace import get_current_span
 from kagent.core.tracing import _utils
 
 
-def test_configure_tracing_logging_enabled_uses_event_logger_provider(monkeypatch):
+def test_configure_tracing_logging_enabled_uses_logger_provider(monkeypatch):
     monkeypatch.setenv("OTEL_LOGGING_ENABLED", "true")
     monkeypatch.setenv("OTEL_TRACING_ENABLED", "false")
 
@@ -25,20 +25,17 @@ def test_configure_tracing_logging_enabled_uses_event_logger_provider(monkeypatc
         def shutdown(self) -> None:
             instrument_calls["log_processor_shutdown"] = True
 
-    def fake_event_logger_provider(logger_provider):
-        event_logger_provider = {"logger_provider": logger_provider}
-        instrument_calls["event_logger_provider"] = event_logger_provider
-        return event_logger_provider
+    def fake_instrument_anthropic(logger_provider=None):
+        instrument_calls["anthropic_logger_provider"] = logger_provider
 
-    def fake_instrument_anthropic(event_logger_provider=None):
-        instrument_calls["anthropic_event_logger_provider"] = event_logger_provider
+    def fake_instrument_google(logger_provider=None):
+        instrument_calls["google_logger_provider"] = logger_provider
 
     monkeypatch.setattr(_utils, "OpenAIInstrumentor", FakeOpenAIInstrumentor)
-    monkeypatch.setattr(_utils, "EventLoggerProvider", fake_event_logger_provider)
     monkeypatch.setattr(_utils, "_create_log_exporter", lambda *args, **kwargs: object())
     monkeypatch.setattr(_utils, "BatchLogRecordProcessor", lambda *args, **kwargs: FakeLogRecordProcessor())
     monkeypatch.setattr(_utils, "_instrument_anthropic", fake_instrument_anthropic)
-    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", fake_instrument_google)
     monkeypatch.setattr(
         _utils,
         "_logs",
@@ -48,8 +45,9 @@ def test_configure_tracing_logging_enabled_uses_event_logger_provider(monkeypatc
     _utils.configure(name="test", namespace="test")
 
     assert instrument_calls["init_kwargs"] == {"use_legacy_attributes": False}
-    assert "event_logger_provider" in instrument_calls["instrument_kwargs"]
-    assert instrument_calls["anthropic_event_logger_provider"] == instrument_calls["event_logger_provider"]
+    assert instrument_calls["instrument_kwargs"] == {"logger_provider": instrument_calls["logger_provider"]}
+    assert instrument_calls["anthropic_logger_provider"] == instrument_calls["logger_provider"]
+    assert instrument_calls["google_logger_provider"] == instrument_calls["logger_provider"]
 
 
 def test_configure_tracing_only_uses_legacy_instrumentation(monkeypatch):
@@ -65,11 +63,12 @@ def test_configure_tracing_only_uses_legacy_instrumentation(monkeypatch):
         def instrument(self, **kwargs):
             instrument_calls["instrument_kwargs"] = kwargs
 
-    def fake_instrument_anthropic(event_logger_provider=None):
-        instrument_calls["anthropic_event_logger_provider"] = event_logger_provider
+    def fake_instrument_anthropic(logger_provider=None):
+        instrument_calls["anthropic_logger_provider"] = logger_provider
 
-    def fake_instrument_google():
+    def fake_instrument_google(logger_provider=None):
         instrument_calls["google_instrumented"] = True
+        instrument_calls["google_logger_provider"] = logger_provider
 
     monkeypatch.setattr(_utils, "OpenAIInstrumentor", FakeOpenAIInstrumentor)
     monkeypatch.setattr(_utils, "_instrument_anthropic", fake_instrument_anthropic)
@@ -79,8 +78,45 @@ def test_configure_tracing_only_uses_legacy_instrumentation(monkeypatch):
 
     assert instrument_calls["init_kwargs"] == {}
     assert instrument_calls["instrument_kwargs"] == {}
-    assert instrument_calls["anthropic_event_logger_provider"] is None
+    assert instrument_calls["anthropic_logger_provider"] is None
     assert instrument_calls["google_instrumented"] is True
+    assert instrument_calls["google_logger_provider"] is None
+
+
+def test_configure_resource_merges_otel_env_attributes(monkeypatch):
+    # OTEL_RESOURCE_ATTRIBUTES is the only way to set deployment.environment.name
+    # or service.version. The bare Resource() constructor ignores it entirely.
+    monkeypatch.setenv("OTEL_LOGGING_ENABLED", "false")
+    monkeypatch.setenv("OTEL_TRACING_ENABLED", "true")
+    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment.name=prod,service.version=1.4.2")
+
+    captured = {}
+
+    class FakeTracerProvider:
+        def __init__(self, resource):
+            captured["resource"] = resource
+
+        def add_span_processor(self, processor):
+            pass
+
+    monkeypatch.setattr(_utils, "TracerProvider", FakeTracerProvider)
+    monkeypatch.setattr(_utils, "_create_span_exporter", lambda **kwargs: object())
+    monkeypatch.setattr(_utils, "BatchSpanProcessor", lambda exporter: object())
+    monkeypatch.setattr(_utils.trace, "set_tracer_provider", lambda provider: None)
+    monkeypatch.setattr(_utils, "HTTPXClientInstrumentor", lambda: SimpleNamespace(instrument=lambda **kw: None))
+    monkeypatch.setattr(_utils, "OpenAIInstrumentor", lambda **kwargs: SimpleNamespace(instrument=lambda **kw: None))
+    monkeypatch.setattr(_utils, "_instrument_anthropic", lambda *a, **kw: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda *a, **kw: None)
+
+    _utils.configure(name="test-agent", namespace="test-ns")
+
+    attributes = captured["resource"].attributes
+    # Identity stays under our control; env-supplied attributes come along.
+    assert attributes["service.name"] == "test-agent"
+    assert attributes["service.namespace"] == "test-ns"
+    assert attributes["deployment.environment.name"] == "prod"
+    assert attributes["service.version"] == "1.4.2"
+    assert attributes["telemetry.sdk.language"] == "python"
 
 
 def test_configure_all_disabled_skips_instrumentation(monkeypatch):
@@ -96,10 +132,10 @@ def test_configure_all_disabled_skips_instrumentation(monkeypatch):
         def instrument(self, **kwargs):
             instrument_calls["openai_instrumented"] = True
 
-    def fake_instrument_anthropic(event_logger_provider=None):
+    def fake_instrument_anthropic(logger_provider=None):
         instrument_calls["anthropic_called"] = True
 
-    def fake_instrument_google():
+    def fake_instrument_google(logger_provider=None):
         instrument_calls["google_instrumented"] = True
 
     monkeypatch.setattr(_utils, "OpenAIInstrumentor", FakeOpenAIInstrumentor)
@@ -129,17 +165,16 @@ def test_configure_instrument_openai_client_false_skips_openai(monkeypatch, logg
         def instrument(self, **kwargs):
             instrument_calls["openai_instrumented"] = True
 
-    def fake_instrument_anthropic(event_logger_provider=None):
+    def fake_instrument_anthropic(logger_provider=None):
         instrument_calls["anthropic_called"] = True
 
     monkeypatch.setattr(_utils, "OpenAIInstrumentor", FakeOpenAIInstrumentor)
-    monkeypatch.setattr(_utils, "EventLoggerProvider", lambda logger_provider: {"lp": logger_provider})
     monkeypatch.setattr(_utils, "_create_log_exporter", lambda *args, **kwargs: object())
     monkeypatch.setattr(
         _utils, "BatchLogRecordProcessor", lambda *args, **kwargs: SimpleNamespace(shutdown=lambda: None)
     )
     monkeypatch.setattr(_utils, "_instrument_anthropic", fake_instrument_anthropic)
-    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda logger_provider=None: None)
     monkeypatch.setattr(_utils, "_logs", SimpleNamespace(set_logger_provider=lambda provider: None))
 
     _utils.configure(name="test", namespace="test", instrument_openai_client=False)
@@ -280,7 +315,7 @@ def test_configure_gates_post_response_flush_on_env(monkeypatch, env_value, expe
     )
     monkeypatch.setattr(_utils, "OpenAIInstrumentor", lambda **kwargs: SimpleNamespace(instrument=lambda **kw: None))
     monkeypatch.setattr(_utils, "_instrument_anthropic", lambda *a, **kw: None)
-    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda: None)
+    monkeypatch.setattr(_utils, "_instrument_google_generativeai", lambda *a, **kw: None)
 
     app = FastAPI()
     _utils.configure(name="test", namespace="test", fastapi_app=app)

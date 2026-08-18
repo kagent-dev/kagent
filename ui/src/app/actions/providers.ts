@@ -2,20 +2,23 @@
 import { createErrorResponse } from "./utils";
 import { Provider, ConfiguredModelProvider, ConfiguredModelProviderModelsResponse } from "@/types";
 import { BaseResponse } from "@/types";
-import { fetchApi } from "./utils";
+import { getModelGrpcGateway } from "@/lib/grpc/client";
 
 /**
  * Gets the list of supported (stock) providers
  * @returns A promise with the list of supported providers
  */
 export async function getSupportedModelProviders(): Promise<BaseResponse<Provider[]>> {
-    try {
-      const response = await fetchApi<BaseResponse<Provider[]>>("/modelproviderconfigs/models");
-      return response;
-    } catch (error) {
-      return createErrorResponse<Provider[]>(error, "Error getting supported providers");
-    }
+  try {
+    const gateway = await getModelGrpcGateway();
+    return {
+      message: "Successfully listed supported model providers",
+      data: await gateway.listSupportedModelProviders(),
+    };
+  } catch (error) {
+    return createErrorResponse<Provider[]>(error, "Error getting supported providers");
   }
+}
 
 /**
  * Gets the list of configured model providers from ModelProvider CRDs
@@ -23,8 +26,11 @@ export async function getSupportedModelProviders(): Promise<BaseResponse<Provide
  */
 export async function getConfiguredProviders(): Promise<BaseResponse<ConfiguredModelProvider[]>> {
   try {
-    const response = await fetchApi<BaseResponse<ConfiguredModelProvider[]>>("/modelproviderconfigs/configured");
-    return response;
+    const gateway = await getModelGrpcGateway();
+    return {
+      message: "Successfully listed configured model providers",
+      data: await gateway.listConfiguredProviders(),
+    };
   } catch (error) {
     return createErrorResponse<ConfiguredModelProvider[]>(error, "Error getting configured model providers");
   }
@@ -41,11 +47,11 @@ export async function getConfiguredProviderModels(
   forceRefresh: boolean = false
 ): Promise<BaseResponse<ConfiguredModelProviderModelsResponse>> {
   try {
-    const queryParam = forceRefresh ? "?refresh=true" : "";
-    const response = await fetchApi<BaseResponse<ConfiguredModelProviderModelsResponse>>(
-      `/modelproviderconfigs/configured/${providerName}/models${queryParam}`
-    );
-    return response;
+    const gateway = await getModelGrpcGateway();
+    return {
+      message: "Successfully retrieved models",
+      data: await gateway.listProviderModels(providerName, forceRefresh),
+    };
   } catch (error) {
     return createErrorResponse<ConfiguredModelProviderModelsResponse>(error, `Error getting models for model provider ${providerName}`);
   }

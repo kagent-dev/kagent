@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 )
 
@@ -23,15 +24,19 @@ func NewVersionClient(client *BaseClient) Version {
 
 // GetVersion retrieves version information
 func (c *versionClient) GetVersion(ctx context.Context) (*api.VersionResponse, error) {
-	resp, err := c.client.Get(ctx, "/version", "")
+	client, err := c.client.systemServiceClient()
 	if err != nil {
 		return nil, err
 	}
-
-	var version api.VersionResponse
-	if err := DecodeResponse(resp, &version); err != nil {
+	callContext, cancel := c.client.grpcCallContext(ctx)
+	defer cancel()
+	response, err := client.GetVersion(callContext, &apiv1alpha1.GetVersionRequest{})
+	if err != nil {
 		return nil, err
 	}
-
-	return &version, nil
+	return &api.VersionResponse{
+		KAgentVersion: response.GetKagentVersion(),
+		GitCommit:     response.GetGitCommit(),
+		BuildDate:     response.GetBuildDate(),
+	}, nil
 }

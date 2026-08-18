@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,11 +13,11 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/client"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	pygen "github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/adk/python"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/common"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
 )
 
 var (
@@ -50,7 +51,7 @@ type PortForward struct {
 
 func NewPortForward(ctx context.Context, cfg *config.Config) (*PortForward, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083")
+	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083", "8084:8084")
 
 	go func() {
 		if err := cmd.Start(); err != nil {
@@ -89,25 +90,23 @@ func (p *PortForward) Stop() {
 	// The kubectl process will terminate when the context is canceled
 }
 
-func StreamA2AEvents(ch <-chan protocol.StreamingMessageEvent, verbose bool) {
-	for event := range ch {
-		if verbose {
-			json, err := event.MarshalJSON()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
-				continue
-			}
-			fmt.Fprintf(os.Stdout, "%+v\n", string(json))
-		} else {
-			json, err := event.MarshalJSON()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
-				continue
-			}
-			fmt.Fprintf(os.Stdout, "%+v\n", string(json))
+func StreamA2AEvents(ch <-chan clia2a.StreamResult, verbose bool) error {
+	_ = verbose
+	defer fmt.Fprintln(os.Stdout)
+
+	for result := range ch {
+		if result.Err != nil {
+			return result.Err
 		}
+
+		json, err := json.Marshal(result.Event)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
+			continue
+		}
+		fmt.Fprintf(os.Stdout, "%+v\n", string(json))
 	}
-	fmt.Fprintln(os.Stdout)
+	return nil
 }
 
 // ResolveProjectDir resolves the project directory to an absolute path
@@ -273,7 +272,7 @@ func extractEnvVarsFromHeaders(mcpServers []common.McpServerType) []string {
 // ValidateAPIKey checks if the required API key environment variable is set for the given model provider
 func ValidateAPIKey(modelProvider string) error {
 	// Get the environment variable name for the provider
-	apiKeyEnvVar := GetProviderAPIKey(v1alpha2.ModelProvider(modelProvider))
+	apiKeyEnvVar := GetProviderAPIKey(v1alpha3.ModelProvider(modelProvider))
 
 	// If no API key is required for this provider (e.g., Ollama, local models), skip validation
 	if apiKeyEnvVar == "" {

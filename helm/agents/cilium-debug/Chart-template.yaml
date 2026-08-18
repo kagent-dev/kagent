@@ -1,5 +1,0 @@
-apiVersion: v2
-name: cilium-debug-agent
-description: An Agent to debug Cilium for kagent
-type: application
-version: ${VERSION}

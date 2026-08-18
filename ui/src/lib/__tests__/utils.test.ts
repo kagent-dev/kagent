@@ -1,5 +1,5 @@
 import { describe, expect, it, jest, beforeEach, afterEach, afterAll } from '@jest/globals';
-import { createRFC1123ValidName, getBackendUrl, getRelativeTimeString, isResourceNameValid, messageUtils } from '../utils';
+import { createRFC1123ValidName, getBackendUrl, getRelativeTimeString, isResourceNameValid } from '../utils';
 
 describe('URL Generation Utilities', () => {
   const originalEnv = process.env;

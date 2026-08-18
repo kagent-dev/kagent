@@ -20,7 +20,7 @@ export const TEMPLATE_VARIABLES: ReadonlyArray<{ example: string; hint: string }
   { example: "{{.AgentNamespace}}", hint: "metadata.namespace" },
   { example: "{{.Description}}", hint: "spec.description" },
   { example: "{{.ToolNames}}", hint: "MCP tools (range in templates)" },
-  { example: "{{.SkillNames}}", hint: "skills.refs / gitRefs" },
+  { example: "{{.SkillNames}}", hint: "skills.refs / gitRefs / s3Refs" },
 ];
 
 /** @ at line/word boundary: insert include and register a prompt library source. */

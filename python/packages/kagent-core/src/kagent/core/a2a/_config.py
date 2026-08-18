@@ -6,14 +6,14 @@ import os
 logger = logging.getLogger(__name__)
 
 A2A_MAX_CONTENT_LENGTH_ENV_VAR = "A2A_MAX_CONTENT_LENGTH"
-DEFAULT_A2A_MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10MB (a2a-sdk default)
+DEFAULT_A2A_MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10MB (preserves the pre-v1 SDK default)
 
 
 def get_a2a_max_content_length() -> int | None:
     """Get the a2a max content length from environment variable.
 
-    Returns the configured max content length to be passed to
-    A2AFastAPIApplication or A2AStarletteApplication constructors.
+    Returns the configured max content length for the A2A request-size
+    middleware.
 
     Environment variable:
         A2A_MAX_CONTENT_LENGTH: Maximum payload size in bytes.
@@ -26,8 +26,7 @@ def get_a2a_max_content_length() -> int | None:
     """
     max_content_length_str = os.getenv(A2A_MAX_CONTENT_LENGTH_ENV_VAR)
     if max_content_length_str is None:
-        # Return None to use the a2a-sdk default (10MB)
-        return None
+        return DEFAULT_A2A_MAX_CONTENT_LENGTH
 
     # Handle special case for unlimited
     if max_content_length_str.lower() in ("0", "none", "unlimited"):

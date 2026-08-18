@@ -90,7 +90,7 @@ export default function AgentList({
 
   useEffect(() => {
     const hasTransitionalAgent = agents.some(
-      (agent) => !agent.accepted || !agent.deploymentReady,
+      (agent) => !agent.accepted || !agent.ready,
     );
     if (!hasTransitionalAgent) {
       return;

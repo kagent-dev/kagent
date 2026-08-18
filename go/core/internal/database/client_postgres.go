@@ -14,11 +14,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
-	"github.com/kagent-dev/kagent/go/core/pkg/a2acompat/trpcv0"
 	"github.com/pgvector/pgvector-go"
-	"trpc.group/trpc-go/trpc-a2a-go/protocol"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type postgresClient struct {
@@ -279,24 +280,19 @@ func (c *postgresClient) ListEventsForSession(ctx context.Context, sessionID, us
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
-// TODO(0.11.0): Switch task writes to v1 storage format and remove legacy conversion from this write path.
-// NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0
 func (c *postgresClient) StoreTask(ctx context.Context, task *a2a.Task, userID string) error {
-	legacyTask, err := trpcv0.ToLegacyTask(task)
-	if err != nil {
-		return fmt.Errorf("failed to convert task to legacy format: %w", err)
-	}
-	data, err := json.Marshal(legacyTask)
+	data, err := json.Marshal(task)
 	if err != nil {
 		return fmt.Errorf("failed to serialize task: %w", err)
 	}
+	protocolVersion := string(a2a.Version)
 	// UpsertTask returns no rows when the write was rejected: the id belongs
 	// to another user, or to a soft-deleted task (deleted ids stay burned).
 	if _, err := c.q.UpsertTask(ctx, dbgen.UpsertTaskParams{
 		ID:              string(task.ID),
 		Data:            string(data),
 		SessionID:       strPtrIfNotEmpty(task.ContextID),
-		ProtocolVersion: nil,
+		ProtocolVersion: &protocolVersion,
 		UserID:          &userID,
 	}); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -360,21 +356,371 @@ func (c *postgresClient) DeleteTask(ctx context.Context, taskID, userID string) 
 	return c.checkTaskOwner(ctx, taskID, userID)
 }
 
+// ── AgentTemplate runtime revisions ──────────────────────────────────────────
+
+func (c *postgresClient) UpsertAgentTemplateHarnessPair(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+	if pair.AgentTemplateLabels == nil {
+		pair.AgentTemplateLabels = map[string]string{}
+	}
+	labels, err := json.Marshal(pair.AgentTemplateLabels)
+	if err != nil {
+		return fmt.Errorf("marshal AgentTemplate labels: %w", err)
+	}
+	return c.q.UpsertAgentTemplateHarnessPair(ctx, dbgen.UpsertAgentTemplateHarnessPairParams{
+		Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
+		AgentTemplateUid: pair.AgentTemplateUID, HarnessName: pair.HarnessName,
+		HarnessUid: pair.HarnessUID, DesiredRevision: pair.DesiredRevision,
+		AgentTemplateLabels: labels,
+	})
+}
+
+func (c *postgresClient) UpsertRuntimeRevision(ctx context.Context, revision dbpkg.RuntimeRevision) error {
+	if err := c.q.UpsertRuntimeRevision(ctx, dbgen.UpsertRuntimeRevisionParams{
+		Revision: revision.Revision, Namespace: revision.Namespace,
+		AgentTemplateName: revision.AgentTemplateName, AgentTemplateUid: revision.AgentTemplateUID,
+		HarnessName: revision.HarnessName, HarnessUid: revision.HarnessUID,
+		SourceSnapshot: revision.SourceSnapshot, EgressDestinations: revision.EgressDestinations,
+		ActorTemplateNamespace: revision.ActorTemplateNamespace, ActorTemplateName: revision.ActorTemplateName,
+		ActorTemplateUid: revision.ActorTemplateUID, Phase: revision.Phase, GoldenSnapshot: revision.GoldenSnapshot,
+	}); err != nil {
+		return fmt.Errorf("upsert runtime revision %s: %w", revision.Revision, err)
+	}
+	return nil
+}
+
+func (c *postgresClient) GetRuntimeRevision(ctx context.Context, revision string) (*dbpkg.RuntimeRevision, error) {
+	row, err := c.q.GetRuntimeRevision(ctx, revision)
+	if err != nil {
+		return nil, fmt.Errorf("get runtime revision %s: %w", revision, notFoundOr(err))
+	}
+	return &dbpkg.RuntimeRevision{
+		Revision: row.Revision, Namespace: row.Namespace,
+		AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
+		HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
+		SourceSnapshot: row.SourceSnapshot, EgressDestinations: row.EgressDestinations,
+		ActorTemplateNamespace: row.ActorTemplateNamespace, ActorTemplateName: row.ActorTemplateName,
+		ActorTemplateUID: row.ActorTemplateUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
+	}, nil
+}
+
+func (c *postgresClient) MarkRuntimeRevisionSuccessful(ctx context.Context, pair dbpkg.AgentTemplateHarnessPair) error {
+	revision := pair.DesiredRevision
+	return c.q.MarkRuntimeRevisionSuccessful(ctx, dbgen.MarkRuntimeRevisionSuccessfulParams{
+		Revision: &revision, Namespace: pair.Namespace,
+		AgentTemplateUid: pair.AgentTemplateUID, HarnessUid: pair.HarnessUID,
+	})
+}
+
+func (c *postgresClient) RetireAgentTemplateHarnessPairs(ctx context.Context, namespace, name string) error {
+	return c.q.RetireAgentTemplateHarnessPairs(ctx, dbgen.RetireAgentTemplateHarnessPairsParams{Namespace: namespace, AgentTemplateName: name})
+}
+
+func (c *postgresClient) RetireAgentTemplateHarnessPair(ctx context.Context, namespace, template, harness string) error {
+	return c.q.RetireAgentTemplateHarnessPair(ctx, dbgen.RetireAgentTemplateHarnessPairParams{Namespace: namespace, AgentTemplateName: template, HarnessName: harness})
+}
+
+func (c *postgresClient) RetireOtherAgentTemplateHarnessPairs(ctx context.Context, namespace, templateUID string, harnesses []string) error {
+	return c.q.RetireOtherAgentTemplateHarnessPairs(ctx, dbgen.RetireOtherAgentTemplateHarnessPairsParams{
+		Namespace: namespace, AgentTemplateUid: templateUID, HarnessNames: harnesses,
+	})
+}
+
+func (c *postgresClient) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]dbpkg.RuntimeRevision, error) {
+	rows, err := c.q.ListUnreferencedRuntimeRevisions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list unreferenced runtime revisions: %w", err)
+	}
+	result := make([]dbpkg.RuntimeRevision, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, dbpkg.RuntimeRevision{
+			Revision: row.Revision, Namespace: row.Namespace,
+			AgentTemplateName: row.AgentTemplateName, AgentTemplateUID: row.AgentTemplateUid,
+			HarnessName: row.HarnessName, HarnessUID: row.HarnessUid,
+			SourceSnapshot: row.SourceSnapshot, EgressDestinations: row.EgressDestinations,
+			ActorTemplateNamespace: row.ActorTemplateNamespace, ActorTemplateName: row.ActorTemplateName,
+			ActorTemplateUID: row.ActorTemplateUid, Phase: row.Phase, GoldenSnapshot: row.GoldenSnapshot,
+		})
+	}
+	return result, nil
+}
+
+func (c *postgresClient) DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error {
+	return c.q.DeleteUnreferencedRuntimeRevision(ctx, revision)
+}
+
+// ── AgentInstances ───────────────────────────────────────────────────────────
+
+func toAgentInstance(row dbgen.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	instance := &apiv1alpha1.AgentInstance{}
+	if err := proto.Unmarshal(row.Data, instance); err != nil {
+		return nil, fmt.Errorf("decode AgentInstance %s: %w", row.ID, err)
+	}
+	state, ok := apiv1alpha1.AgentInstanceState_value["AGENT_INSTANCE_STATE_"+row.State]
+	if !ok {
+		return nil, fmt.Errorf("decode AgentInstance %s state %q", row.ID, row.State)
+	}
+	operation := row.Operation
+	if operation == "NONE" {
+		operation = "UNSPECIFIED"
+	}
+	operationValue, ok := apiv1alpha1.AgentInstanceOperation_value["AGENT_INSTANCE_OPERATION_"+operation]
+	if !ok {
+		return nil, fmt.Errorf("decode AgentInstance %s operation %q", row.ID, row.Operation)
+	}
+	// These indexed columns are the lifecycle source of truth. In particular,
+	// migrations can backfill them without rewriting the protobuf blob.
+	instance.State = apiv1alpha1.AgentInstanceState(state)
+	instance.Operation = apiv1alpha1.AgentInstanceOperation(operationValue)
+	return instance, nil
+}
+
+func marshalAgentInstance(instance *apiv1alpha1.AgentInstance) ([]byte, error) {
+	data, err := proto.Marshal(instance)
+	if err != nil {
+		return nil, fmt.Errorf("encode AgentInstance %s: %w", instance.GetId(), err)
+	}
+	return data, nil
+}
+
+func sameAgentInstanceRequest(instance, request *apiv1alpha1.AgentInstance) bool {
+	return instance.GetHarness().GetName() == request.GetHarness().GetName() && instance.GetAgentTemplate().GetName() == request.GetAgentTemplate().GetName()
+}
+
+func (c *postgresClient) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
+	requestKey := dbgen.GetAgentInstanceByRequestParams{
+		UserID: request.GetCreator(), Namespace: request.GetNamespace(), RequestID: requestID,
+	}
+	existing, err := c.q.GetAgentInstanceByRequest(ctx, requestKey)
+	if err == nil {
+		instance, err := toAgentInstance(existing)
+		if err == nil && !sameAgentInstanceRequest(instance, request) {
+			return nil, false, dbpkg.ErrIdempotencyConflict
+		}
+		return instance, false, err
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, fmt.Errorf("get AgentInstance request: %w", err)
+	}
+
+	revision, err := c.q.GetLatestRuntimeRevisionForInstance(ctx, dbgen.GetLatestRuntimeRevisionForInstanceParams{
+		Namespace: request.GetNamespace(), AgentTemplateName: request.GetAgentTemplate().GetName(), HarnessName: request.GetHarness().GetName(),
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("get latest successful runtime revision: %w", notFoundOr(err))
+	}
+	labels := map[string]string{}
+	if err := json.Unmarshal(revision.AgentTemplateLabels, &labels); err != nil {
+		return nil, false, fmt.Errorf("decode AgentTemplate labels: %w", err)
+	}
+
+	now := timestamppb.Now()
+	instance := proto.Clone(request).(*apiv1alpha1.AgentInstance)
+	instance.PreparedRevision = revision.Revision
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
+	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
+	instance.Labels = labels
+	instance.CreatedAt = now
+	instance.UpdatedAt = now
+	data, err := marshalAgentInstance(instance)
+	if err != nil {
+		return nil, false, err
+	}
+	row, err := c.q.InsertAgentInstance(ctx, dbgen.InsertAgentInstanceParams{
+		ID: request.GetId(), Namespace: request.GetNamespace(), UserID: request.GetCreator(), RequestID: requestID,
+		PreparedRevision: &revision.Revision, Labels: revision.AgentTemplateLabels, Data: data,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		existing, err = c.q.GetAgentInstanceByRequest(ctx, requestKey)
+		if err != nil {
+			return nil, false, fmt.Errorf("get concurrent AgentInstance request: %w", err)
+		}
+		instance, err = toAgentInstance(existing)
+		if err == nil && !sameAgentInstanceRequest(instance, request) {
+			return nil, false, dbpkg.ErrIdempotencyConflict
+		}
+		return instance, false, err
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("insert AgentInstance: %w", err)
+	}
+	instance, err = toAgentInstance(row)
+	return instance, err == nil, err
+}
+
+func (c *postgresClient) GetAgentInstance(ctx context.Context, namespace, id, userID string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := c.q.GetAgentInstanceForUser(ctx, dbgen.GetAgentInstanceForUserParams{Namespace: namespace, ID: id, UserID: userID})
+	if err != nil {
+		return nil, fmt.Errorf("get AgentInstance %s/%s: %w", namespace, id, notFoundOr(err))
+	}
+	return toAgentInstance(row)
+}
+
+func (c *postgresClient) ListAgentInstances(ctx context.Context, namespace, userID string, allUsers bool, matchLabels map[string]string, afterID string, limit int) ([]*apiv1alpha1.AgentInstance, error) {
+	if matchLabels == nil {
+		matchLabels = map[string]string{}
+	}
+	labels, err := json.Marshal(matchLabels)
+	if err != nil {
+		return nil, fmt.Errorf("marshal AgentInstance label selector: %w", err)
+	}
+	rows, err := c.q.ListAgentInstances(ctx, dbgen.ListAgentInstancesParams{
+		Namespace: namespace, UserID: userID, AllUsers: allUsers,
+		AfterID: afterID, MatchLabels: labels, PageSize: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list AgentInstances: %w", err)
+	}
+	result := make([]*apiv1alpha1.AgentInstance, 0, len(rows))
+	for _, row := range rows {
+		instance, err := toAgentInstance(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, instance)
+	}
+	return result, nil
+}
+
+func (c *postgresClient) MarkAgentInstanceReady(ctx context.Context, id, authority string) (*apiv1alpha1.AgentInstance, error) {
+	row, err := c.q.GetAgentInstanceByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get AgentInstance %s before ready: %w", id, notFoundOr(err))
+	}
+	instance, err := toAgentInstance(row)
+	if err != nil || instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING {
+		return instance, err
+	}
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
+	instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
+	instance.A2AAuthority = authority
+	instance.Failure = nil
+	instance.UpdatedAt = timestamppb.Now()
+	data, err := marshalAgentInstance(instance)
+	if err != nil {
+		return nil, err
+	}
+	row, err = c.q.MarkAgentInstanceReady(ctx, dbgen.MarkAgentInstanceReadyParams{ID: id, Data: data})
+	if errors.Is(err, pgx.ErrNoRows) {
+		row, err = c.q.GetAgentInstanceByID(ctx, id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("mark AgentInstance %s ready: %w", id, notFoundOr(err))
+	}
+	return toAgentInstance(row)
+}
+
+func (c *postgresClient) TransitionAgentInstance(
+	ctx context.Context,
+	instance *apiv1alpha1.AgentInstance,
+	expectedState apiv1alpha1.AgentInstanceState,
+	expectedOperation apiv1alpha1.AgentInstanceOperation,
+) (*apiv1alpha1.AgentInstance, error) {
+	data, err := marshalAgentInstance(instance)
+	if err != nil {
+		return nil, err
+	}
+	row, err := c.q.TransitionAgentInstance(ctx, dbgen.TransitionAgentInstanceParams{
+		ID: instance.GetId(), Data: data,
+		ExpectedState: agentInstanceStateName(expectedState), ExpectedOperation: agentInstanceOperationName(expectedOperation),
+		NextState: agentInstanceStateName(instance.GetState()), NextOperation: agentInstanceOperationName(instance.GetOperation()),
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		row, err = c.q.GetAgentInstanceByID(ctx, instance.GetId())
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), dbpkg.ErrNotFound)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("get conflicting AgentInstance %s: %w", instance.GetId(), err)
+		}
+		current, decodeErr := toAgentInstance(row)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		return current, dbpkg.ErrAgentInstanceConflict
+	}
+	if err != nil {
+		return nil, fmt.Errorf("transition AgentInstance %s: %w", instance.GetId(), err)
+	}
+	return toAgentInstance(row)
+}
+
+func agentInstanceStateName(state apiv1alpha1.AgentInstanceState) string {
+	return strings.TrimPrefix(state.String(), "AGENT_INSTANCE_STATE_")
+}
+
+func agentInstanceOperationName(operation apiv1alpha1.AgentInstanceOperation) string {
+	if operation == apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+		return "NONE"
+	}
+	return strings.TrimPrefix(operation.String(), "AGENT_INSTANCE_OPERATION_")
+}
+
+func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) error {
+	if err := c.q.DeleteAgentInstance(ctx, id); err != nil {
+		return fmt.Errorf("delete AgentInstance %s: %w", id, err)
+	}
+	return nil
+}
+
+func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare {
+	return dbpkg.AgentInstanceShare{
+		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
+		Creator: row.Creator, Permission: row.Permission,
+		TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
+	}
+}
+
+func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
+	row, err := c.q.CreateAgentInstanceShare(ctx, dbgen.CreateAgentInstanceShareParams{
+		ID: share.ID, Namespace: share.Namespace, InstanceID: share.InstanceID,
+		Creator: share.Creator, Permission: share.Permission, TokenHash: share.TokenHash,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create AgentInstance share: %w", err)
+	}
+	result := toAgentInstanceShare(row)
+	return &result, nil
+}
+
+func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, creator, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
+	rows, err := c.q.ListAgentInstanceShares(ctx, dbgen.ListAgentInstanceSharesParams{
+		Namespace: namespace, InstanceID: instanceID, UserID: creator,
+		AfterID: afterID, PageSize: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list AgentInstance shares: %w", err)
+	}
+	result := make([]dbpkg.AgentInstanceShare, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, toAgentInstanceShare(row))
+	}
+	return result, nil
+}
+
+func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, creator string) error {
+	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: id, UserID: creator})
+	if err != nil {
+		return fmt.Errorf("delete AgentInstance share %s/%s: %w", namespace, id, err)
+	}
+	if count == 0 {
+		return dbpkg.ErrNotFound
+	}
+	return nil
+}
+
 // ── Push Notifications ────────────────────────────────────────────────────────
 
-// TODO(0.11.0): Switch push notification writes to v1 storage format and remove legacy conversion from this write path.
-// NOTE: We will still need to keep the read compatibility for legacy rows in 0.11.0.
 func (c *postgresClient) StorePushNotification(ctx context.Context, config *a2a.PushConfig) error {
-	legacyConfig := trpcv0.ToLegacyPushConfig(config)
-	data, err := json.Marshal(legacyConfig)
+	data, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to serialize push notification: %w", err)
 	}
+	protocolVersion := string(a2a.Version)
 	return c.q.UpsertPushNotification(ctx, dbgen.UpsertPushNotificationParams{
 		ID:              config.ID,
 		TaskID:          string(config.TaskID),
 		Data:            string(data),
-		ProtocolVersion: nil,
+		ProtocolVersion: &protocolVersion,
 	})
 }
 
@@ -469,7 +815,7 @@ func (c *postgresClient) DeleteToolsForServer(ctx context.Context, serverName, g
 	return c.q.SoftDeleteToolsForServer(ctx, dbgen.SoftDeleteToolsForServerParams{ServerName: serverName, GroupKind: groupKind})
 }
 
-func (c *postgresClient) RefreshToolsForServer(ctx context.Context, serverName, groupKind string, tools ...*v1alpha2.MCPTool) error {
+func (c *postgresClient) RefreshToolsForServer(ctx context.Context, serverName, groupKind string, tools ...*v1alpha3.MCPTool) error {
 	return c.withTx(ctx, func(q *dbgen.Queries) error {
 		if err := q.SoftDeleteToolsForServer(ctx, dbgen.SoftDeleteToolsForServerParams{
 			ServerName: serverName, GroupKind: groupKind,
@@ -836,6 +1182,37 @@ func (c *postgresClient) PruneExpiredMemories(ctx context.Context) error {
 	})
 }
 
+const sessionRetentionBatchSize int32 = 1000
+
+func (c *postgresClient) PruneExpiredSessions(ctx context.Context, retentionDays int) (int64, error) {
+	if retentionDays <= 0 {
+		return 0, nil
+	}
+	var total int64
+	for {
+		var n int64
+		err := c.withTx(ctx, func(q *dbgen.Queries) error {
+			var err error
+			n, err = q.DeleteExpiredSessionsBatch(ctx, dbgen.DeleteExpiredSessionsBatchParams{
+				RetentionDays: int32(retentionDays),
+				BatchSize:     sessionRetentionBatchSize,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to delete expired sessions batch: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return total, err
+		}
+		total += n
+		if n == 0 {
+			break
+		}
+	}
+	return total, nil
+}
+
 // ── Conversion helpers ────────────────────────────────────────────────────────
 
 func toAgent(r dbgen.Agent) *dbpkg.Agent {
@@ -845,7 +1222,7 @@ func toAgent(r dbgen.Agent) *dbpkg.Agent {
 		UpdatedAt:    derefTime(r.UpdatedAt),
 		DeletedAt:    r.DeletedAt,
 		Type:         r.Type,
-		WorkloadType: v1alpha2.WorkloadMode(r.WorkloadType),
+		WorkloadType: v1alpha3.WorkloadMode(r.WorkloadType),
 		Config:       r.Config,
 	}
 }
@@ -1042,48 +1419,28 @@ func strPtrIfNotEmpty(s string) *string {
 	return &s
 }
 
-// parseVersionedTask parses a task from a string and a version, handles conversion from legacy to v1 format.
+// parseVersionedTask accepts only official A2A v1 rows during the v1-only cutover.
 func parseVersionedTask(data string, version *string) (*a2a.Task, error) {
-	switch {
-	case version == nil || *version == "":
-		var legacyTask protocol.Task
-		if err := json.Unmarshal([]byte(data), &legacyTask); err != nil {
-			return nil, fmt.Errorf("failed to deserialize legacy task: %w", err)
-		}
-		task, err := trpcv0.ToV1Task(&legacyTask)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert legacy task to v1: %w", err)
-		}
-		return task, nil
-	case *version == trpcv0.ProtocolVersionV1:
-		var task a2a.Task
-		if err := json.Unmarshal([]byte(data), &task); err != nil {
-			return nil, fmt.Errorf("failed to deserialize v1 task: %w", err)
-		}
-		return &task, nil
-	default:
-		return nil, fmt.Errorf("unsupported task protocol_version %q", *version)
+	if version == nil || *version != string(a2a.Version) {
+		return nil, fmt.Errorf("unsupported task protocol_version %q: expected %q", derefStr(version), a2a.Version)
 	}
+	var task a2a.Task
+	if err := json.Unmarshal([]byte(data), &task); err != nil {
+		return nil, fmt.Errorf("failed to deserialize task: %w", err)
+	}
+	return &task, nil
 }
 
-// parseVersionedPushConfig parses a push notification config from a string and a version, handles conversion from legacy to v1 format.
+// parseVersionedPushConfig accepts only official A2A v1 rows during the v1-only cutover.
 func parseVersionedPushConfig(data string, version *string) (*a2a.PushConfig, error) {
-	switch {
-	case version == nil || *version == "":
-		var legacyCfg protocol.TaskPushNotificationConfig
-		if err := json.Unmarshal([]byte(data), &legacyCfg); err != nil {
-			return nil, fmt.Errorf("failed to deserialize legacy push notification: %w", err)
-		}
-		return trpcv0.ToV1PushConfig(&legacyCfg), nil
-	case *version == trpcv0.ProtocolVersionV1:
-		var cfg a2a.PushConfig
-		if err := json.Unmarshal([]byte(data), &cfg); err != nil {
-			return nil, fmt.Errorf("failed to deserialize v1 push notification: %w", err)
-		}
-		return &cfg, nil
-	default:
-		return nil, fmt.Errorf("unsupported push_notification protocol_version %q", *version)
+	if version == nil || *version != string(a2a.Version) {
+		return nil, fmt.Errorf("unsupported push_notification protocol_version %q: expected %q", derefStr(version), a2a.Version)
 	}
+	var cfg a2a.PushConfig
+	if err := json.Unmarshal([]byte(data), &cfg); err != nil {
+		return nil, fmt.Errorf("failed to deserialize push notification: %w", err)
+	}
+	return &cfg, nil
 }
 
 func derefStr(s *string) string {
