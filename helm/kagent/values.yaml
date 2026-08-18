@@ -613,6 +613,11 @@ providers:
     apiKeySecretRef: kagent-openai
     apiKeySecretKey: OPENAI_API_KEY
     # apiKey: ""
+    # Use `config` for provider-specific settings, e.g. a custom baseUrl for
+    # self-hosted / OpenAI-compatible endpoints like vLLM. Same key works for
+    # any provider (see ollama and azureOpenAI below).
+    # config:
+    #   baseUrl: "https://your-endpoint.example.com/v1"
     # Optional TLS settings for the generated ModelConfig.
     # This same block can be used under any provider.
     # tls:
