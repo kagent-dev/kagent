@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
@@ -45,15 +46,8 @@ func TestOpenAIProvider_UsesAPIKeyNotKagentToken(t *testing.T) {
 			t.Errorf("input = %v, want [hello]", req.Input)
 		}
 
-		vec := make([]float64, TargetDimension)
-		vec[0] = 1.0
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"object": "list",
-			"data":   []map[string]any{{"object": "embedding", "index": 0, "embedding": vec}},
-			"model":  req.Model,
-			"usage":  map[string]any{"prompt_tokens": 1, "total_tokens": 1},
-		})
+		json.NewEncoder(w).Encode(embeddingResponse("text-embedding-3-small"))
 	}))
 	defer srv.Close()
 
@@ -87,6 +81,69 @@ func TestOpenAIProvider_UsesAPIKeyNotKagentToken(t *testing.T) {
 	}
 }
 
+func TestOpenAIProvider_APIKeyPassthrough(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(embeddingResponse("text-embedding-3-small"))
+	}))
+	defer srv.Close()
+
+	client, err := New(Config{
+		EmbeddingConfig: &adk.EmbeddingConfig{
+			Provider:          "openai",
+			Model:             "text-embedding-3-small",
+			BaseUrl:           srv.URL,
+			APIKeyPassthrough: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	if _, err := client.Generate(ctx, []string{"hello"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if gotAuth != "Bearer the-callers-token" {
+		t.Errorf("Authorization = %q, want Bearer the-callers-token", gotAuth)
+	}
+}
+
+func TestOpenAIProvider_APIKeyPassthroughDisabled_IgnoresContextToken(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "sk-static-key")
+
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(embeddingResponse("text-embedding-3-small"))
+	}))
+	defer srv.Close()
+
+	client, err := New(Config{
+		EmbeddingConfig: &adk.EmbeddingConfig{
+			Provider: "openai",
+			Model:    "text-embedding-3-small",
+			BaseUrl:  srv.URL,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "should-be-ignored")
+	if _, err := client.Generate(ctx, []string{"hello"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if gotAuth != "Bearer sk-static-key" {
+		t.Errorf("Authorization = %q, want Bearer sk-static-key (passthrough disabled)", gotAuth)
+	}
+}
+
 func TestNormalizeL2(t *testing.T) {
 	normed := normalizeL2([]float32{3, 4})
 	var sum float64
@@ -106,7 +163,7 @@ func TestProcessEmbeddings_RejectsUndersized(t *testing.T) {
 	}
 }
 
-func azureEmbeddingResponse(model string) map[string]any {
+func embeddingResponse(model string) map[string]any {
 	vec := make([]float64, TargetDimension)
 	vec[0] = 1.0
 	return map[string]any{
@@ -177,7 +234,7 @@ func TestAzureOpenAIProvider_RequestShape(t *testing.T) {
 				gotAPIKey = r.Header.Get("Api-Key")
 				gotAPIVersion = r.URL.Query().Get("api-version")
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(azureEmbeddingResponse(deployment))
+				json.NewEncoder(w).Encode(embeddingResponse(deployment))
 			}))
 			defer srv.Close()
 
@@ -215,6 +272,74 @@ func TestAzureOpenAIProvider_RequestShape(t *testing.T) {
 				t.Errorf("Api-Key = %q, want %q", gotAPIKey, apiKey)
 			}
 		})
+	}
+}
+
+func TestAzureOpenAIProvider_APIKeyPassthrough(t *testing.T) {
+	t.Setenv("AZURE_OPENAI_API_KEY", "")
+
+	var gotAPIKey, gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAPIKey = r.Header.Get("Api-Key")
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(embeddingResponse("text-embedding-3-small"))
+	}))
+	defer srv.Close()
+
+	client, err := New(Config{
+		EmbeddingConfig: &adk.EmbeddingConfig{
+			Provider:          "azure_openai",
+			Model:             "text-embedding-3-small",
+			Endpoint:          srv.URL,
+			APIKeyPassthrough: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	if _, err := client.Generate(ctx, []string{"hello"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if gotAPIKey != "the-callers-token" {
+		t.Errorf("Api-Key = %q, want the-callers-token", gotAPIKey)
+	}
+	if gotAuth != "" {
+		t.Errorf("Authorization = %q, want empty (Azure uses Api-Key)", gotAuth)
+	}
+}
+
+func TestAzureOpenAIProvider_APIKeyPassthroughOverridesStaticKey(t *testing.T) {
+	t.Setenv("AZURE_OPENAI_API_KEY", "static-key-should-be-overridden")
+
+	var gotAPIKey string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAPIKey = r.Header.Get("Api-Key")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(embeddingResponse("text-embedding-3-small"))
+	}))
+	defer srv.Close()
+
+	client, err := New(Config{
+		EmbeddingConfig: &adk.EmbeddingConfig{
+			Provider:          "azure_openai",
+			Model:             "text-embedding-3-small",
+			Endpoint:          srv.URL,
+			APIKeyPassthrough: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	ctx := context.WithValue(context.Background(), models.BearerTokenKey, "the-callers-token")
+	if _, err := client.Generate(ctx, []string{"hello"}); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	if gotAPIKey != "the-callers-token" {
+		t.Errorf("Api-Key = %q, want the-callers-token", gotAPIKey)
 	}
 }
 
