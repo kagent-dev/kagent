@@ -77,6 +77,7 @@ data:
   SESSION_RETENTION_DAYS: {{ .Values.database.postgres.sessionRetentionDays | default 0 | quote }}
   WATCH_NAMESPACES: {{ include "kagent.watchNamespaces" . | quote }}
   MCP_EGRESS_PLAINTEXT: {{ .Values.controller.mcpEgressPlaintext | default false | quote }}
+  TOOL_REFRESH_INTERVAL: {{ .Values.controller.toolRefreshInterval | default "60s" | quote }}
   {{- if .Values.controller.a2aClientTimeout }}
   KAGENT_A2A_CLIENT_TIMEOUT: {{ .Values.controller.a2aClientTimeout | quote }}
   {{- end }}

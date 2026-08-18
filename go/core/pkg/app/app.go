@@ -136,6 +136,9 @@ type Config struct {
 	// http://host:<port-or-443> so traffic egresses in plaintext to a proxy
 	// that originates TLS upstream. Off by default;
 	MCPEgressPlaintext bool
+	// How often MCP tool-discovery controllers requeue to refresh the tool cache.
+	// Default 60s. Raise above the DB idle / Aurora auto-pause threshold for scale-to-zero.
+	ToolRefreshInterval time.Duration
 	Database           struct {
 		Url                  string
 		UrlFile              string
@@ -203,6 +206,8 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 
 	commandLine.BoolVar(&cfg.MCPEgressPlaintext, "mcp-egress-plaintext", false,
 		"When set, rewrite RemoteMCPServer tool URLs and the controller's tool-discovery dial from https://host[:port] to http://host:<port-or-443> so MCP traffic egresses in plaintext to a TLS-originating proxy. Off by default.")
+	commandLine.DurationVar(&cfg.ToolRefreshInterval, "tool-refresh-interval", 60*time.Second,
+		"How often MCP tool-discovery controllers requeue to refresh the discovered-tool cache. Raise above the database idle / auto-pause threshold to allow scale-to-zero.")
 
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
@@ -611,16 +616,18 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	)
 
 	if err := (&controller.ServiceController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
+		Scheme:       mgr.GetScheme(),
+		Reconciler:   rcnclr,
+		RequeueAfter: cfg.ToolRefreshInterval,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MCPServerToolDiscovery")
 		os.Exit(1)
 	}
 
 	if err := (&controller.MCPServerToolController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
+		Scheme:       mgr.GetScheme(),
+		Reconciler:   rcnclr,
+		RequeueAfter: cfg.ToolRefreshInterval,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Service")
 		os.Exit(1)
@@ -691,8 +698,9 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	if err = (&controller.RemoteMCPServerController{
-		Scheme:     mgr.GetScheme(),
-		Reconciler: rcnclr,
+		Scheme:       mgr.GetScheme(),
+		Reconciler:   rcnclr,
+		RequeueAfter: cfg.ToolRefreshInterval,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "RemoteMCPServer")
 		os.Exit(1)
