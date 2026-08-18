@@ -139,7 +139,7 @@ type Config struct {
 	// How often MCP tool-discovery controllers requeue to refresh the tool cache.
 	// Default 60s. Raise above the DB idle / Aurora auto-pause threshold for scale-to-zero.
 	ToolRefreshInterval time.Duration
-	Database           struct {
+	Database            struct {
 		Url                  string
 		UrlFile              string
 		VectorEnabled        bool
