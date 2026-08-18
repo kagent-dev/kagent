@@ -1121,6 +1121,114 @@ func TestSearchAgentMemoryConcurrentAccessCount(t *testing.T) {
 	}
 }
 
+// TestListTasksForUser exercises the ListTasksForUser SQL query against a real
+// database: cross-user scoping via the session join, the optional single-session
+// predicate, status filtering, the timestamp filter, and LIMIT/OFFSET pagination
+// with a stable COUNT(*) OVER() total.
+func TestListTasksForUser(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	for _, s := range []struct{ id, user string }{
+		{"s1", "alice"}, {"s2", "alice"}, {"s3", "bob"},
+	} {
+		require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: s.id, UserID: s.user}))
+	}
+
+	early := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	late := time.Date(2026, 7, 8, 0, 0, 0, 0, time.UTC)
+	mkTask := func(id, contextID string, state a2a.TaskState, ts time.Time) *a2a.Task {
+		return &a2a.Task{
+			ID:        a2a.TaskID(id),
+			ContextID: contextID,
+			Status:    a2a.TaskStatus{State: state, Timestamp: &ts},
+		}
+	}
+
+	require.NoError(t, client.StoreTask(ctx, mkTask("t1", "s1", a2a.TaskStateWorking, early), "alice"))
+	require.NoError(t, client.StoreTask(ctx, mkTask("t2", "s1", a2a.TaskStateCompleted, late), "alice"))
+	require.NoError(t, client.StoreTask(ctx, mkTask("t3", "s2", a2a.TaskStateWorking, late), "alice"))
+	require.NoError(t, client.StoreTask(ctx, mkTask("t4", "s3", a2a.TaskStateWorking, late), "bob"))
+	require.NoError(t, client.StoreTask(ctx, mkTask("t5", "s1", a2a.TaskStateInputRequired, late), "alice"))
+
+	// t6 sits in alice's session s1 but is owned by mallory (a fresh insert has
+	// no ownership check against the session, unlike an UpsertTask conflict on
+	// an existing row): the session join alone must not be enough to hand it
+	// to alice.
+	require.NoError(t, client.StoreTask(ctx, mkTask("t6", "s1", a2a.TaskStateWorking, late), "mallory"))
+
+	ids := func(tasks []*a2a.Task) []string {
+		out := make([]string, len(tasks))
+		for i, tk := range tasks {
+			out[i] = string(tk.ID)
+		}
+		return out
+	}
+
+	t.Run("all sessions ordered by id", func(t *testing.T) {
+		tasks, total, err := client.ListTasksForUser(ctx, "alice", dbpkg.ListTasksForUserParams{Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 4, total)
+		require.Equal(t, []string{"t1", "t2", "t3", "t5"}, ids(tasks))
+	})
+
+	t.Run("cross-user isolation", func(t *testing.T) {
+		tasks, total, err := client.ListTasksForUser(ctx, "bob", dbpkg.ListTasksForUserParams{Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 1, total)
+		require.Equal(t, []string{"t4"}, ids(tasks))
+	})
+
+	t.Run("session ownership alone does not grant a foreign-owned task", func(t *testing.T) {
+		tasks, total, err := client.ListTasksForUser(ctx, "alice", dbpkg.ListTasksForUserParams{SessionID: "s1", Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 3, total, "t6 belongs to mallory even though it lives in alice's session s1")
+		require.NotContains(t, ids(tasks), "t6")
+	})
+
+	t.Run("single session predicate", func(t *testing.T) {
+		tasks, total, err := client.ListTasksForUser(ctx, "alice", dbpkg.ListTasksForUserParams{SessionID: "s1", Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 3, total)
+		require.Equal(t, []string{"t1", "t2", "t5"}, ids(tasks))
+	})
+
+	t.Run("status filter", func(t *testing.T) {
+		tasks, total, err := client.ListTasksForUser(ctx, "alice", dbpkg.ListTasksForUserParams{Status: a2a.TaskStateWorking, Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 2, total)
+		require.Equal(t, []string{"t1", "t3"}, ids(tasks))
+	})
+
+	t.Run("status timestamp after", func(t *testing.T) {
+		cutoff := time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC)
+		tasks, total, err := client.ListTasksForUser(ctx, "alice", dbpkg.ListTasksForUserParams{StatusTimestampAfter: &cutoff, Limit: 50})
+		require.NoError(t, err)
+		require.Equal(t, 3, total) // t1 is early and excluded
+		require.Equal(t, []string{"t2", "t3", "t5"}, ids(tasks))
+	})
+
+	t.Run("pagination with stable total", func(t *testing.T) {
+		p1, total, err := client.ListTasksForUser(ctx, "alice", dbpkg.ListTasksForUserParams{Limit: 2, Offset: 0})
+		require.NoError(t, err)
+		require.Equal(t, 4, total)
+		require.Equal(t, []string{"t1", "t2"}, ids(p1))
+
+		p2, total, err := client.ListTasksForUser(ctx, "alice", dbpkg.ListTasksForUserParams{Limit: 2, Offset: 2})
+		require.NoError(t, err)
+		require.Equal(t, 4, total)
+		require.Equal(t, []string{"t3", "t5"}, ids(p2))
+	})
+
+	t.Run("offset past end keeps the true total", func(t *testing.T) {
+		tasks, total, err := client.ListTasksForUser(ctx, "alice", dbpkg.ListTasksForUserParams{Limit: 2, Offset: 10})
+		require.NoError(t, err)
+		require.Empty(t, tasks)
+		require.Equal(t, 4, total, "an empty over-range page must still report the full count")
+	})
+}
+
 // TestSingleRowReadsMapMissingToErrNotFound verifies that every single-row
 // read maps the driver's no-rows error to dbpkg.ErrNotFound, so callers can
 // match with errors.Is without importing pgx.
