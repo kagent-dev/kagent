@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 HEADERS_KEY = "headers"
 
+# Caps the per-invocation key memo. A run that dies before after_run_callback
+# never releases its entry, so the memo is bounded and the oldest entries go
+# first; the cap sits far above any plausible number of concurrent runs.
+MAX_TRACKED_INVOCATIONS = 1024
+
 # Bounds an entry whose token carries no usable expiry. The cache holds one entry
 # per (session, subject), so a token without an expiry would otherwise pin an
 # entry per caller for the lifetime of the process.
@@ -56,6 +61,11 @@ def _acting_credential(state: dict) -> Optional[str]:
 def _default_get_subject_token(state: dict) -> Optional[str]:
     """Default subject token retrieval from Authorization header in session state."""
     return _acting_credential(state)
+
+
+def _invocation_id(invocation_context) -> str:
+    """Identify one agent run, so the key resolved for it is reused by its tool calls."""
+    return getattr(invocation_context, "invocation_id", "") or ""
 
 
 def _subject_key(token: Optional[str]) -> str:
@@ -202,7 +212,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
             logger.debug("no invocation context for tool call, leaving existing headers in place")
             return {}
 
-        cache_key = self._invocation_keys.get(getattr(invocation_context, "invocation_id", "") or "")
+        cache_key = self._invocation_keys.get(_invocation_id(invocation_context))
         cache_entry = self.token_cache.get(cache_key) if cache_key else None
         if not cache_entry:
             return {}
@@ -231,7 +241,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         if cache_key is None:
             logger.debug("subject token not found in session state for token propagation")
             return None
-        self._invocation_keys[invocation_context.invocation_id] = cache_key
+        self._remember_invocation_key(invocation_context, cache_key)
 
         # Check if we have a valid cached subject token
         cached_entry = self.token_cache.get(cache_key)
@@ -325,6 +335,12 @@ class ADKTokenPropagationPlugin(BasePlugin):
             return None
         return f"{session_id}\0{caller}\0{_subject_key(subject_token)}"
 
+    def _remember_invocation_key(self, invocation_context: InvocationContext, cache_key: str) -> None:
+        """Record the key resolved for this run so header_provider can reuse it."""
+        while len(self._invocation_keys) >= MAX_TRACKED_INVOCATIONS:
+            self._invocation_keys.pop(next(iter(self._invocation_keys)))
+        self._invocation_keys[_invocation_id(invocation_context)] = cache_key
+
     def cache_key(self, invocation_context: InvocationContext) -> Optional[str]:
         """Key the cache on the session and the acting subject, so a session
         carrying messages from several subjects keeps one token per subject
@@ -334,7 +350,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         header_provider reads that memo rather than calling this, so a
         caller-supplied get_subject_token is not invoked on every tool call.
         """
-        memoized = self._invocation_keys.get(getattr(invocation_context, "invocation_id", "") or "")
+        memoized = self._invocation_keys.get(_invocation_id(invocation_context))
         if memoized:
             return memoized
         session = getattr(invocation_context, "session", None)
@@ -398,7 +414,7 @@ class ADKTokenPropagationPlugin(BasePlugin):
         invocation_context: InvocationContext,
     ) -> Optional[dict]:
         """Clean up expired tokens after run, preserving valid tokens."""
-        self._invocation_keys.pop(getattr(invocation_context, "invocation_id", "") or "", None)
+        self._invocation_keys.pop(_invocation_id(invocation_context), None)
         self._sweep_expired_subject_tokens()
 
         # Clean up expired actor token cache
