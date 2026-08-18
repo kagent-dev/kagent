@@ -10,6 +10,11 @@ import (
 
 type Querier interface {
 	CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error)
+	// The full filtered count for ListTasksForUser, independent of LIMIT/OFFSET. Used
+	// to recover total when a requested page lands past the end of the set (an empty
+	// page carries no COUNT(*) OVER()). The WHERE clause is identical to
+	// ListTasksForUser and must stay in sync with it.
+	CountTasksForUser(ctx context.Context, arg CountTasksForUserParams) (int64, error)
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
 	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
 	DeleteAgentInstance(ctx context.Context, id string) error
@@ -82,6 +87,25 @@ type Querier interface {
 	ListSessionsForAgent(ctx context.Context, arg ListSessionsForAgentParams) ([]ListSessionsForAgentRow, error)
 	ListSessionsForAgentAllUsers(ctx context.Context, agentID *string) ([]Session, error)
 	ListTasksForSession(ctx context.Context, arg ListTasksForSessionParams) ([]Task, error)
+	// Lists a user's tasks across every session they own (or a single session when
+	// session_id is set), filtering, ordering, and paginating server-side. total is
+	// the COUNT(*) OVER() of the full filtered set, before LIMIT/OFFSET.
+	//
+	// The session join alone isn't sufficient ownership proof: a task's own
+	// user_id (with the NULL-owner fallback documented above, for rows predating
+	// the owner column) is checked too, matching GetTask/ListTasksForSession, so a
+	// foreign task parked in the caller's session is never handed to the caller.
+	//
+	// status matches task.data's persisted state string (e.g. 'TASK_STATE_WORKING').
+	// Post-v1.0 cutover, task.data is always v1-shaped, so a single spelling is
+	// enough. data is always a JSON object (json.Marshal output), so ::jsonb never
+	// errors; the timestamp cast is guarded by a CASE (ordered evaluation) against
+	// a present-but-malformed value.
+	//
+	// COUNT(*) OVER() rides on the returned rows, so a page past the end of the set
+	// carries no total; callers recover it with CountTasksForUser, whose WHERE clause
+	// must stay identical to this one.
+	ListTasksForUser(ctx context.Context, arg ListTasksForUserParams) ([]ListTasksForUserRow, error)
 	ListToolServers(ctx context.Context) ([]Toolserver, error)
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)

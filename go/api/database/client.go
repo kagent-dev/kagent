@@ -26,6 +26,18 @@ type QueryOptions struct {
 	After    time.Time
 	OrderAsc bool // When true, order results by created_at ASC (chronological). Default is DESC (newest first).
 }
+
+// ListTasksForUserParams filters and paginates a user's tasks. SessionID empty
+// lists across every session the user owns. Status empty (TaskStateUnspecified)
+// disables the status filter; StatusTimestampAfter nil disables the timestamp
+// filter. Results are ordered by task id.
+type ListTasksForUserParams struct {
+	SessionID            string
+	Status               a2a.TaskState
+	StatusTimestampAfter *time.Time
+	Limit                int
+	Offset               int
+}
 type LangGraphCheckpointTuple struct {
 	Checkpoint *LangGraphCheckpoint
 	Writes     []*LangGraphCheckpointWrite
@@ -62,6 +74,7 @@ type Client interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListFeedback(ctx context.Context, userID string) ([]Feedback, error)
 	ListTasksForSession(ctx context.Context, sessionID string, userID string) ([]*a2a.Task, error)
+	ListTasksForUser(ctx context.Context, userID string, params ListTasksForUserParams) (tasks []*a2a.Task, total int, err error)
 	ListSessions(ctx context.Context, userID string) ([]Session, error)
 	ListSessionsForAgent(ctx context.Context, agentID string, userID string) ([]SessionWithShareToken, error)
 	ListSessionsForAgentAllUsers(ctx context.Context, agentID string) ([]Session, error)

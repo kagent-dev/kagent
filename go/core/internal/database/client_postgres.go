@@ -350,6 +350,57 @@ func (c *postgresClient) ListTasksForSession(ctx context.Context, sessionID, use
 	return tasks, nil
 }
 
+func (c *postgresClient) ListTasksForUser(ctx context.Context, userID string, params dbpkg.ListTasksForUserParams) ([]*a2a.Task, int, error) {
+	arg := dbgen.ListTasksForUserParams{
+		UserID:      userID,
+		StatusAfter: params.StatusTimestampAfter,
+		PageOffset:  int32(params.Offset),
+		PageLimit:   int32(params.Limit),
+	}
+	if params.SessionID != "" {
+		arg.SessionID = &params.SessionID
+	}
+	if params.Status != a2a.TaskStateUnspecified {
+		status := string(params.Status)
+		arg.Status = &status
+	}
+
+	rows, err := c.q.ListTasksForUser(ctx, arg)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list user tasks: %w", err)
+	}
+
+	tasks := make([]*a2a.Task, 0, len(rows))
+	for _, r := range rows {
+		task, err := parseVersionedTask(r.Data, r.ProtocolVersion)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to parse task %s: %w", r.ID, err)
+		}
+		tasks = append(tasks, task)
+	}
+	total := 0
+	if len(rows) > 0 {
+		total = int(rows[0].Total)
+	}
+
+	// COUNT(*) OVER() rides on the returned rows, so a page requested past the
+	// end of the set comes back empty and carries no total. Recover it directly
+	// so the caller still sees the true filtered count.
+	if len(rows) == 0 && params.Offset > 0 {
+		count, err := c.q.CountTasksForUser(ctx, dbgen.CountTasksForUserParams{
+			UserID:      arg.UserID,
+			SessionID:   arg.SessionID,
+			Status:      arg.Status,
+			StatusAfter: arg.StatusAfter,
+		})
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to count user tasks: %w", err)
+		}
+		total = int(count)
+	}
+	return tasks, total, nil
+}
+
 func (c *postgresClient) DeleteTask(ctx context.Context, taskID, userID string) error {
 	if err := c.q.SoftDeleteTask(ctx, dbgen.SoftDeleteTaskParams{ID: taskID, UserID: &userID}); err != nil {
 		return fmt.Errorf("failed to delete task %s: %w", taskID, err)
