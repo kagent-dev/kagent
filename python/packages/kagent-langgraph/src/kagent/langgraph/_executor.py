@@ -29,6 +29,7 @@ from a2a.types import (
 )
 from google.protobuf.json_format import MessageToDict
 from kagent.core.a2a import (
+    AskUserRequest,
     HitlTool,
     ToolApprovalRequest,
     attach_hitl_extension,
@@ -39,7 +40,7 @@ from kagent.core.a2a import (
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
-    hitl_fallback_text,
+    hitl_status_text,
     now_timestamp,
     require_ask_user_response,
     require_tool_approval_response,
@@ -68,6 +69,14 @@ class LangGraphAgentExecutorConfig(BaseModel):
 
     # Whether to stream intermediate results
     enable_streaming: bool = True
+
+
+def _hitl_request(tools: list[HitlTool], text: str) -> AskUserRequest | ToolApprovalRequest:
+    """An ask_user interrupt becomes a question; anything else becomes an approval."""
+    if len(tools) == 1 and tools[0].name == "ask_user":
+        questions = tools[0].args.get("questions")
+        return AskUserRequest(id=tools[0].id, questions=questions if isinstance(questions, list) else [])
+    return ToolApprovalRequest(hint=text, tools=tools)
 
 
 class LangGraphAgentExecutor(AgentExecutor):
@@ -235,7 +244,7 @@ class LangGraphAgentExecutor(AgentExecutor):
 
         # The text part names the tools so a client that did not activate the
         # extension still learns what it is being asked.
-        text = hitl_fallback_text(tools)
+        text = hitl_status_text(tools)
         status_message = Message(
             message_id=str(uuid.uuid4()),
             role=Role.ROLE_AGENT,
@@ -244,7 +253,7 @@ class LangGraphAgentExecutor(AgentExecutor):
             parts=[Part(text=text)],
         )
         if hitl_enabled:
-            attach_hitl_extension(status_message, ToolApprovalRequest(hint=text, tools=tools))
+            attach_hitl_extension(status_message, _hitl_request(tools, text))
 
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(

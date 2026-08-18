@@ -331,6 +331,36 @@ def test_status_message_without_activation_names_the_tool():
     assert _status_text(status_message) == "Approval is required for tool(s): delete_file"
 
 
+def test_status_message_keeps_the_hint_and_the_tool_name():
+    part = _confirmation_part("confirm-1", "delete_file", {"path": "/tmp/x"}, hint="Deleting this file is permanent")
+
+    status_message = build_hitl_status_message([part], "task-1", "context-1", activated=False)
+
+    assert _status_text(status_message) == "Deleting this file is permanent (delete_file)"
+
+
+def test_status_message_keeps_every_hint_across_tools():
+    parts = [
+        _confirmation_part("confirm-1", "delete_file", {"path": "/tmp/x"}, hint="Deleting is permanent"),
+        _confirmation_part("confirm-2", "restart_pod", {"name": "api"}),
+    ]
+
+    status_message = build_hitl_status_message(parts, "task-1", "context-1", activated=False)
+
+    assert _status_text(status_message) == "Deleting is permanent (delete_file, restart_pod)"
+
+
+def test_status_message_skips_a_confirmation_part_without_a_call():
+    unusable = convert_genai_part_to_a2a_part(
+        genai_types.Part(function_call=genai_types.FunctionCall(name=REQUEST_CONFIRMATION_FUNCTION_CALL_NAME, args={}))
+    )
+    assert unusable is not None and not isinstance(unusable, list)
+
+    status_message = build_hitl_status_message([unusable], "task-1", "context-1", activated=False)
+
+    assert _status_text(status_message) == "Human input is required before the agent can continue."
+
+
 def test_status_message_without_activation_carries_the_question():
     part = _confirmation_part(
         "confirm-1",
@@ -354,6 +384,7 @@ def test_status_message_with_activation_keeps_the_same_text():
     assert request is not None
     assert request.tools[0].name == "delete_file"
     assert _status_text(status_message) == "Approval is required for tool(s): delete_file"
+    assert request.hint == _status_text(status_message)
 
 
 def test_status_message_without_confirmation_parts_stays_generic():

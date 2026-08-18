@@ -28,6 +28,17 @@ func confirmationPart(id, toolName, toolID string, args, payload map[string]any)
 	}, map[string]any{"adk_type": "function_call", "adk_is_long_running": true})
 }
 
+func hintedConfirmationPart(id, toolName, toolID, hint string) *a2atype.Part {
+	return dataPart(map[string]any{
+		"name": toolconfirmation.FunctionCallName,
+		"id":   id,
+		"args": map[string]any{
+			"originalFunctionCall": map[string]any{"name": toolName, "id": toolID},
+			"toolConfirmation":     map[string]any{"hint": hint},
+		},
+	}, map[string]any{"adk_type": "function_call", "adk_is_long_running": true})
+}
+
 func hintlessConfirmationPart(id, toolName, toolID string) *a2atype.Part {
 	return dataPart(map[string]any{
 		"name": toolconfirmation.FunctionCallName,
@@ -153,16 +164,48 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 		if GetToolApprovalRequest(public) != nil {
 			t.Fatalf("unexpected payload on inactive client")
 		}
-		if text := messageText(public); text != "Please confirm" {
-			t.Errorf("text = %q, want the tool hint %q", text, "Please confirm")
+		if want := "Please confirm (delete_file)"; messageText(public) != want {
+			t.Errorf("text = %q, want %q", messageText(public), want)
 		}
 	})
 
 	t.Run("not activated without a tool hint names the tool", func(t *testing.T) {
 		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
 			hintlessConfirmationPart("confirm-1", "delete_file", "call-1")), false)
-		if text := messageText(public); !strings.Contains(text, "delete_file") {
-			t.Errorf("text = %q, want it to name delete_file", text)
+		if want := "Approval is required for tool(s): delete_file"; messageText(public) != want {
+			t.Errorf("text = %q, want %q", messageText(public), want)
+		}
+	})
+
+	t.Run("several tools keep every hint and every name", func(t *testing.T) {
+		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
+			confirmationPart("confirm-1", "delete_file", "call-1", nil, nil),
+			hintlessConfirmationPart("confirm-2", "restart_pod", "call-2"))
+		want := "Please confirm (delete_file, restart_pod)"
+		if text := messageText(BuildHITLStatusMessage(internal, false)); text != want {
+			t.Errorf("text = %q, want %q", text, want)
+		}
+	})
+
+	t.Run("hints join in tool order", func(t *testing.T) {
+		internal := a2atype.NewMessage(a2atype.MessageRoleAgent,
+			hintedConfirmationPart("confirm-1", "delete_file", "call-1", "First hint"),
+			hintedConfirmationPart("confirm-2", "restart_pod", "call-2", "Second hint"))
+		want := "First hint; Second hint (delete_file, restart_pod)"
+		if text := messageText(BuildHITLStatusMessage(internal, false)); text != want {
+			t.Errorf("text = %q, want %q", text, want)
+		}
+	})
+
+	t.Run("activated payload hint repeats the text", func(t *testing.T) {
+		public := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+			hintlessConfirmationPart("confirm-1", "delete_file", "call-1")), true)
+		payload := GetToolApprovalRequest(public)
+		if payload == nil {
+			t.Fatal("payload = nil, want a tool approval request")
+		}
+		if payload.Hint != messageText(public) {
+			t.Errorf("hint = %q, text = %q, want them identical", payload.Hint, messageText(public))
 		}
 	})
 
@@ -174,8 +217,8 @@ func TestBuildHITLStatusMessage(t *testing.T) {
 		if GetAskUserRequest(public) != nil {
 			t.Fatal("unexpected payload on inactive client")
 		}
-		if text := messageText(public); !strings.Contains(text, "Which database?") {
-			t.Errorf("text = %q, want it to carry the question", text)
+		if want := "Which database?"; messageText(public) != want {
+			t.Errorf("text = %q, want the question verbatim %q", messageText(public), want)
 		}
 	})
 

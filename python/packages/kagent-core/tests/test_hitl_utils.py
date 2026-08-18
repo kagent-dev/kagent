@@ -15,7 +15,7 @@ from kagent.core.a2a import (
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
-    hitl_fallback_text,
+    hitl_status_text,
 )
 
 
@@ -99,14 +99,39 @@ def test_parse_ask_user_request() -> None:
     assert request.id == "question-1"
 
 
-def test_fallback_text_names_the_tools() -> None:
+def test_status_text_names_the_tools() -> None:
     tools = [
         HitlTool(id="confirmation-1", call_id="call-1", name="delete_file"),
         HitlTool(id="confirmation-2", call_id="call-2", name="restart_pod"),
     ]
 
-    assert hitl_fallback_text(tools) == "Approval is required for tool(s): delete_file, restart_pod"
+    assert hitl_status_text(tools) == "Approval is required for tool(s): delete_file, restart_pod"
 
 
-def test_fallback_text_without_tools() -> None:
-    assert hitl_fallback_text([]) == "Human input is required before the agent can continue."
+def test_status_text_keeps_every_hint_and_every_name() -> None:
+    tools = [
+        HitlTool(id="confirmation-1", call_id="call-1", name="delete_file"),
+        HitlTool(id="confirmation-2", call_id="call-2", name="restart_pod"),
+    ]
+
+    assert (
+        hitl_status_text(tools, ["Deleting is permanent", "Restarting drops connections"])
+        == "Deleting is permanent; Restarting drops connections (delete_file, restart_pod)"
+    )
+
+
+def test_status_text_for_ask_user_is_the_question() -> None:
+    tools = [
+        HitlTool(
+            id="confirmation-1",
+            call_id="call-1",
+            name="ask_user",
+            args={"questions": [{"question": "Which namespace?"}]},
+        )
+    ]
+
+    assert hitl_status_text(tools, ["Which namespace?"]) == "Which namespace?"
+
+
+def test_status_text_without_tools() -> None:
+    assert hitl_status_text([]) == "Human input is required before the agent can continue."
