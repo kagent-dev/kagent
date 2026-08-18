@@ -10,7 +10,8 @@ ON CONFLICT (user_id, thread_id, checkpoint_ns, checkpoint_id) DO UPDATE SET
     checkpoint           = EXCLUDED.checkpoint,
     checkpoint_type      = EXCLUDED.checkpoint_type,
     version              = EXCLUDED.version,
-    updated_at           = NOW();
+    updated_at           = NOW(),
+    deleted_at           = NULL;
 
 -- name: ListCheckpoints :many
 SELECT * FROM lg_checkpoint
@@ -47,7 +48,8 @@ ON CONFLICT (user_id, thread_id, checkpoint_ns, checkpoint_id, write_idx) DO UPD
     value_type = EXCLUDED.value_type,
     channel    = EXCLUDED.channel,
     task_id    = EXCLUDED.task_id,
-    updated_at = NOW();
+    updated_at = NOW(),
+    deleted_at = NULL;
 
 -- name: SoftDeleteCheckpoints :exec
 UPDATE lg_checkpoint SET deleted_at = NOW()

@@ -14,7 +14,8 @@ VALUES ($1, $2, $3, $4, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     data             = EXCLUDED.data,
     protocol_version = EXCLUDED.protocol_version,
-    updated_at       = NOW();
+    updated_at       = NOW(),
+    deleted_at       = NULL;
 
 -- name: SoftDeletePushNotification :exec
 UPDATE push_notification SET deleted_at = NOW()

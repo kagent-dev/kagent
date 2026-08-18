@@ -1155,3 +1155,31 @@ func TestSingleRowReadsMapMissingToErrNotFound(t *testing.T) {
 		})
 	}
 }
+
+// A soft-deleted push config keeps its id, so re-registering that id must revive
+// the row instead of updating one that stays deleted and that no read path can
+// see.
+func TestDeletedPushConfigIsRevivedByReRegistration(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	config := func(url string) *a2a.PushConfig {
+		return &a2a.PushConfig{ID: "cfg-1", TaskID: "task-push", URL: url}
+	}
+	require.NoError(t, client.StorePushNotification(ctx, config("https://first.example/hook")))
+	require.NoError(t, client.DeletePushNotification(ctx, "task-push"))
+
+	_, err := client.GetPushNotification(ctx, "task-push", "cfg-1")
+	require.Error(t, err, "the deleted config must not be readable")
+
+	require.NoError(t, client.StorePushNotification(ctx, config("https://second.example/hook")))
+
+	stored, err := client.GetPushNotification(ctx, "task-push", "cfg-1")
+	require.NoError(t, err, "re-registering the id must produce a readable config")
+	assert.Equal(t, "https://second.example/hook", stored.URL)
+
+	listed, err := client.ListPushNotifications(ctx, "task-push")
+	require.NoError(t, err)
+	require.Len(t, listed, 1, "the revived config must be listed once")
+}

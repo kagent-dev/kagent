@@ -135,3 +135,49 @@ func TestListCheckpointsBatchesWrites(t *testing.T) {
 		}
 	}
 }
+
+// A soft-deleted thread's rows keep their key, so a checkpointer writing that
+// key again must revive the row instead of updating one that stays deleted and
+// that no read path can see.
+func TestDeletedCheckpointRowsAreRevivedByANewWrite(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	const (
+		userID   = "alice"
+		threadID = "thread-revive"
+		ns       = ""
+		cpID     = "cp-00"
+	)
+	checkpoint := func(payload string) *dbpkg.LangGraphCheckpoint {
+		return &dbpkg.LangGraphCheckpoint{
+			UserID: userID, ThreadID: threadID, CheckpointNS: ns, CheckpointID: cpID,
+			Metadata: "{}", Checkpoint: payload, Version: 1,
+		}
+	}
+	write := func(value string) []*dbpkg.LangGraphCheckpointWrite {
+		return []*dbpkg.LangGraphCheckpointWrite{{
+			UserID: userID, ThreadID: threadID, CheckpointNS: ns, CheckpointID: cpID,
+			WriteIdx: 0, Value: value, ValueType: "json", Channel: "channel-0", TaskID: "task-0",
+		}}
+	}
+
+	require.NoError(t, client.StoreCheckpoint(ctx, checkpoint(`{"step":1}`)))
+	require.NoError(t, client.StoreCheckpointWrites(ctx, write("first")))
+	require.NoError(t, client.DeleteCheckpoint(ctx, userID, threadID))
+
+	tuples, err := client.ListCheckpoints(ctx, userID, threadID, ns, nil, 0)
+	require.NoError(t, err)
+	require.Empty(t, tuples, "the deleted thread must not be readable")
+
+	require.NoError(t, client.StoreCheckpoint(ctx, checkpoint(`{"step":2}`)))
+	require.NoError(t, client.StoreCheckpointWrites(ctx, write("second")))
+
+	tuples, err = client.ListCheckpoints(ctx, userID, threadID, ns, nil, 0)
+	require.NoError(t, err)
+	require.Len(t, tuples, 1, "the rewritten checkpoint must be readable")
+	require.Equal(t, `{"step":2}`, tuples[0].Checkpoint.Checkpoint)
+	require.Len(t, tuples[0].Writes, 1, "the rewritten write must be readable")
+	require.Equal(t, "second", tuples[0].Writes[0].Value)
+}
