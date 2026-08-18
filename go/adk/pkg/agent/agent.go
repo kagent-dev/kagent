@@ -111,7 +111,7 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	}
 	// Pairing repair runs last so it also covers anything the earlier callbacks
 	// leave unpaired.
-	beforeModelCallbacks = append(beforeModelCallbacks, MakeToolPairingCallback())
+	beforeModelCallbacks = append(beforeModelCallbacks, MakeToolPairingCallback(log))
 	beforeToolCallbacks = append(beforeToolCallbacks, makeBeforeToolCallback(log))
 
 	llmAgentConfig := llmagent.Config{
