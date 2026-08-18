@@ -1,5 +1,13 @@
 {{- if and .Values.controller.substrate.enabled .Values.substrateWorkerPool.create }}
-{{- if not .Values.substrateWorkerPool.ateomImage }}
+{{- $ateomImage := .Values.substrateWorkerPool.ateomImage }}
+{{- if not $ateomImage }}
+  {{- range .Chart.Dependencies }}
+    {{- if eq .Name "substrate" }}
+      {{- $ateomImage = printf "ghcr.io/kagent-dev/substrate/ateom-gvisor:v%s" .Version }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- if not $ateomImage }}
 {{- fail "substrateWorkerPool.ateomImage is required when substrateWorkerPool.create=true" }}
 {{- end }}
 apiVersion: ate.dev/v1alpha1
@@ -15,7 +23,7 @@ metadata:
     {{- end }}
 spec:
   replicas: {{ .Values.substrateWorkerPool.replicas }}
-  ateomImage: {{ .Values.substrateWorkerPool.ateomImage | quote }}
+  ateomImage: {{ $ateomImage | quote }}
   sandboxClass: {{ .Values.substrateWorkerPool.sandboxClass | default "gvisor" | quote }}
   {{- with .Values.substrateWorkerPool.template }}
   template:
