@@ -643,7 +643,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   skillGitRepos={state.skillGitRepos}
                   skillsGitAuthSecretName={state.skillsGitAuthSecretName}
                   skillS3Repos={state.skillS3Repos}
-                  skillsS3AuthSecretName={state.skillsS3AuthSecretName}
                   skillsError={state.errors.skills}
                   disabled={disabled}
                   resolvedGitSkillRepos={resolvedGitSkillRepos}
@@ -700,7 +699,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                           : prev.skillS3Repos.filter((_, i) => i !== index),
                     }))
                   }
-                  onS3AuthSecretChange={(value) => setState((prev) => ({ ...prev, skillsS3AuthSecretName: value }))}
                   onClearSkillsError={clearSkillsError}
                 />
                 ) : null}

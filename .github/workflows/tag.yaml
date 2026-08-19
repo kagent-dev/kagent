@@ -21,7 +21,6 @@ jobs:
           - ui
           - app
           - golang-adk
-          - skills-init
           - acp-sandbox-hermes
           - acp-sandbox-openclaw
           - acp-sandbox-claude

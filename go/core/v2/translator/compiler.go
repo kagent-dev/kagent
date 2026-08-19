@@ -172,6 +172,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
+	environment = dedupeEnv(environment)
 
 	// One provenance list covers every Kubernetes input, including hashed Secret
 	// keys, so it both explains and participates in revision identity.
@@ -179,13 +180,17 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
+	environment, err = c.resolveEnvironment(ctx, template.Namespace, environment)
+	if err != nil {
+		return nil, fmt.Errorf("resolve runtime environment: %w", err)
+	}
 
 	return &Revision{
 		Namespace:          template.Namespace,
 		AgentTemplateName:  template.Name,
 		HarnessName:        harness.Name,
 		Image:              harness.Spec.Workload.Image,
-		Environment:        dedupeEnv(environment),
+		Environment:        environment,
 		ConfigJSON:         configJSON,
 		AgentCardJSON:      cardJSON,
 		WorkerPoolName:     harness.Spec.Substrate.WorkerPoolRef.Name,
@@ -193,6 +198,32 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		Provenance:         provenance,
 		EgressDestinations: agentConfigDestinations(cfg, modelConfig, modelRuntime.Model),
 	}, nil
+}
+
+// resolveEnvironment replaces Kubernetes Secret references with literals
+// because Substrate ActorTemplates accept only literal environment values.
+func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, environment []corev1.EnvVar) ([]corev1.EnvVar, error) {
+	resolved := append([]corev1.EnvVar(nil), environment...)
+	for i, variable := range resolved {
+		if variable.ValueFrom == nil {
+			continue
+		}
+		if variable.ValueFrom.SecretKeyRef == nil {
+			return nil, fmt.Errorf("environment variable %q uses an unsupported value source", variable.Name)
+		}
+		ref := variable.ValueFrom.SecretKeyRef
+		secret := &corev1.Secret{}
+		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, secret); err != nil {
+			return nil, err
+		}
+		value, ok := secret.Data[ref.Key]
+		if !ok {
+			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
+		}
+		resolved[i].Value = string(value)
+		resolved[i].ValueFrom = nil
+	}
+	return resolved, nil
 }
 
 // buildProvenance records every Kubernetes input that can change the compiled

@@ -175,7 +175,6 @@ type Config struct {
 		CallTimeout                time.Duration
 		DefaultWorkerPoolNamespace string
 		DefaultWorkerPoolName      string
-		PauseImage                 string
 	}
 }
 
@@ -233,9 +232,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
 	commandLine.StringVar(&agent_translator.PythonADKImageDigest, "app-image-digest", agent_translator.PythonADKImageDigest, "Manifest digest (sha256:...) for the Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
 	commandLine.StringVar(&agent_translator.GoADKImageDigest, "golang-adk-image-digest", agent_translator.GoADKImageDigest, "Manifest digest (sha256:...) for the Go agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
-	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Registry, "skills-init-image-registry", agent_translator.DefaultSkillsInitImageConfig.Registry, "The registry to use for the skills init image.")
-	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
-	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Registry, "go-image-registry", agent_translator.DefaultGoImageConfig.Registry, "The registry to use for the Go (ADK) runtime agent image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Repository, "go-image-repository", agent_translator.DefaultGoImageConfig.Repository, "The repository to use for the Go (ADK) runtime agent image.")
 	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Tag, "go-image-tag", agent_translator.DefaultGoImageConfig.Tag, "The tag to use for the Go (ADK) runtime agent image.")
@@ -248,7 +244,6 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.DurationVar(&cfg.Substrate.CallTimeout, "substrate-call-timeout", 30*time.Second, "Per-RPC timeout for ate-api calls.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolName, "substrate-default-workerpool-name", "", "Default Agent Substrate WorkerPool name when spec.substrate.workerPoolRef is unset.")
-	commandLine.StringVar(&cfg.Substrate.PauseImage, "substrate-pause-image", "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da", "Pause image for generated ActorTemplates.")
 }
 
 // postgresConfigFromApp builds a database.PostgresConfig from app flags.
@@ -548,10 +543,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	agentHarnessSessionActorBackend := substrate.NewAgentHarnessSessionActorBackend(substrateAteClient, atenetRouterURL)
 	extensionCfg.SandboxBackend = substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
 
-	v2Runtime, err := v2controller.NewRuntime(
-		mgr.GetConfig(), watchNamespacesList,
-		v2controller.CollectionConfig{PauseImage: cfg.Substrate.PauseImage}, ctx.Done(),
-	)
+	v2Runtime, err := v2controller.NewRuntime(mgr.GetConfig(), watchNamespacesList, ctx.Done())
 	if err != nil {
 		setupLog.Error(err, "unable to initialize v2 KRT runtime")
 		os.Exit(1)
@@ -869,7 +861,6 @@ func substrateAppConfig(cfg *Config) substrate.Config {
 
 func substrateLifecycleFromConfig(kubeClient client.Client, cfg *Config, ate *substrate.Client) *substrate.Lifecycle {
 	return substrate.NewLifecycle(kubeClient, substrate.LifecycleDefaults{
-		PauseImage: cfg.Substrate.PauseImage,
 		// ImageRegistry/ImageRepository mirror the declarative-agent image config
 		// (--image-registry/--image-repository) so digest-pinned acp-sandbox
 		// workload images resolve against the same (possibly private/mirrored)

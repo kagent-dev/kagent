@@ -8,6 +8,15 @@ creates.
 Render the lifecycle fixtures with the digest-pinned runtime image built for
 the test, then run the lifecycle test:
 
+On Kind, install Substrate with the atelet registry rewrite used by its Kind
+overlay:
+
+```yaml
+atelet:
+  extraArgs:
+    - --localhost-registry-replacement=kind-registry:5000
+```
+
 ```bash
 KAGENT_E2E_RUNTIME_IMAGE=<registry>/kagent-dev/kagent/golang-adk@sha256:<digest> \
   envsubst < go/core/test/e2e/manifests/lifecycle.yaml.tmpl | kubectl apply -f -

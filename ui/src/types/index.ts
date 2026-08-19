@@ -315,17 +315,12 @@ export interface S3SkillRef {
   name?: string;
 }
 
-export interface SkillsInitContainer {
-  env?: EnvVar[];
-}
-
 export interface SkillForAgent {
   insecureSkipVerify?: boolean;
   refs?: string[];
   gitAuthSecretRef?: { name: string };
   gitRefs?: GitRepo[];
   s3Refs?: S3SkillRef[];
-  initContainer?: SkillsInitContainer;
 }
 
 /** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha3). */

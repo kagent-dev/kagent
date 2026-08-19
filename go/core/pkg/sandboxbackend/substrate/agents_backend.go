@@ -57,7 +57,7 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 	if err != nil {
 		return nil, err
 	}
-	tmpl, err := b.Lifecycle.buildSandboxAgentActorTemplate(sa, wpKey, in.PodTemplate)
+	tmpl, err := b.Lifecycle.buildSandboxAgentActorTemplate(ctx, sa, wpKey, in.PodTemplate, in.ConfigSecret)
 	if err != nil {
 		return nil, err
 	}

@@ -3,7 +3,6 @@ import {
   newEmptyGitSkillRow,
   newEmptyS3SkillRow,
   s3RefToFormRow,
-  s3SkillsAuthSecretNameFromEnv,
   type GitSkillFormRow,
   type S3SkillFormRow,
 } from "@/lib/agentSkillsForm";
@@ -76,7 +75,6 @@ export interface AgentFormData {
   skillGitRepos?: GitRepo[];
   skillsGitAuthSecretName?: string;
   skillS3Repos?: S3SkillRef[];
-  skillsS3AuthSecretName?: string;
   memory?: {
     modelConfig?: string;
     ttlDays?: number;
@@ -123,7 +121,6 @@ export interface AgentFormFields {
   skillGitRepos: GitSkillFormRow[];
   skillsGitAuthSecretName: string;
   skillS3Repos: S3SkillFormRow[];
-  skillsS3AuthSecretName: string;
   byoImage: string;
   byoCmd: string;
   byoArgs: string;
@@ -168,7 +165,6 @@ export function createInitialAgentFormState({
     skillGitRepos: [newEmptyGitSkillRow()],
     skillsGitAuthSecretName: "",
     skillS3Repos: [newEmptyS3SkillRow()],
-    skillsS3AuthSecretName: "",
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
@@ -322,9 +318,6 @@ export function agentResponseToFormState(
       skillS3Repos: agent.spec.skills?.s3Refs?.length
         ? agent.spec.skills.s3Refs.map(s3RefToFormRow)
         : [newEmptyS3SkillRow()],
-      skillsS3AuthSecretName: s3SkillsAuthSecretNameFromEnv(
-        agent.spec.skills?.initContainer?.env,
-      ),
       stream: declarative?.stream ?? false,
       shareTools: declarative?.shareTools ?? false,
       declarativeRuntime: declarative?.runtime === "go" ? "go" : "python",

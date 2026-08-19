@@ -86,7 +86,7 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	const img2 = "registry.example/app@sha256:2222222"
 	wpKey := types.NamespacedName{Namespace: "kagent", Name: "kagent-default"}
 
-	tmpl, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("255", img1))
+	tmpl, err := p.buildSandboxAgentActorTemplate(context.Background(), sa, wpKey, podFor("255", img1), nil)
 	require.NoError(t, err)
 	shapeHash := tmpl.Annotations[actorTemplateHashAnnotation]
 	require.NotEmpty(t, shapeHash)
@@ -95,13 +95,13 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 
 	// A soft config change (new config hash, same rendered shape) must keep the SAME template —
 	// that is what lets existing sessions keep their actor (and durable dir) across rollouts.
-	softChange, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("256", img1))
+	softChange, err := p.buildSandboxAgentActorTemplate(context.Background(), sa, wpKey, podFor("256", img1), nil)
 	require.NoError(t, err)
 	require.Equal(t, tmpl.Name, softChange.Name, "config-only change must not fan out a new template")
 	require.Equal(t, shapeHash, softChange.Annotations[actorTemplateHashAnnotation])
 
 	// A actor template shape change (new image digest) must fan out a new template + golden.
-	shapeChange, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("256", img2))
+	shapeChange, err := p.buildSandboxAgentActorTemplate(context.Background(), sa, wpKey, podFor("256", img2), nil)
 	require.NoError(t, err)
 	require.NotEqual(t, tmpl.Name, shapeChange.Name, "image change must produce a new template")
 	require.NotEqual(t, shapeHash, shapeChange.Annotations[actorTemplateHashAnnotation])
@@ -113,13 +113,17 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	wp := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Name: "kagent-default", Namespace: "kagent"}}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wp).Build()
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"}, Data: map[string][]byte{
+		"config.json": []byte("{}"), "agent-card.json": []byte("{}"),
+	}}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wp, secret).Build()
 	p := &Lifecycle{
 		Client:   cl,
-		Defaults: LifecycleDefaults{PauseImage: "gcr.io/test/pause@sha256:deadbeef", DefaultWorkerPool: types.NamespacedName{Name: "kagent-default", Namespace: "kagent"}},
+		Defaults: LifecycleDefaults{DefaultWorkerPool: types.NamespacedName{Name: "kagent-default", Namespace: "kagent"}},
 	}
 	b := NewAgentsBackend(p, nil)
 	sa := &v1alpha3.SandboxAgent{
@@ -133,7 +137,7 @@ func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 			Image: "registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111",
 		}}},
 	}
-	objs, err := b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod})
+	objs, err := b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod, ConfigSecret: secret})
 	require.NoError(t, err)
 	require.Len(t, objs, 1, "the ActorTemplate is the backend's only object; the config Secret is the translator's")
 

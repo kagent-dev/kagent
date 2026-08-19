@@ -42,7 +42,7 @@ func (p AgentTemplateHarnessPair) ResourceName() string {
 
 // NewCollections creates the complete read-only input graph. An empty
 // watchNamespaces list watches all namespaces.
-func NewCollections(client kube.Client, watchNamespaces []string, config CollectionConfig, opts krt.OptionsBuilder) Collections {
+func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder) Collections {
 	agentTemplates := typedCollection[*kagentv1alpha3.AgentTemplate](client, watchNamespaces, "AgentTemplates", opts)
 	harnesses := typedCollection[*kagentv1alpha3.Harness](client, watchNamespaces, "Harnesses", opts)
 	modelConfigs := typedCollection[*kagentv1alpha3.ModelConfig](client, watchNamespaces, "ModelConfigs", opts)
@@ -52,7 +52,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, config Collect
 	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
 	actorTemplates := typedCollection[*atev1alpha1.ActorTemplate](client, watchNamespaces, "ActorTemplates", opts)
 	pairs := newPairCollection(agentTemplates, harnesses, opts)
-	reconciliations := newPairReconciliations(pairs, modelConfigs, remoteMCPServers, configMaps, secrets, workerPools, actorTemplates, config, opts)
+	reconciliations := newPairReconciliations(pairs, modelConfigs, remoteMCPServers, configMaps, secrets, workerPools, actorTemplates, opts)
 	statuses := newAgentTemplateStatuses(agentTemplates, reconciliations, opts)
 
 	return Collections{

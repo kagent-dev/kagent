@@ -39,9 +39,6 @@ jobs:
           - build_target: app
             image_name: app
             tag_suffix: ""
-          - build_target: skills-init
-            image_name: skills-init
-            tag_suffix: ""
           - build_target: golang-adk
             image_name: golang-adk
             tag_suffix: ""

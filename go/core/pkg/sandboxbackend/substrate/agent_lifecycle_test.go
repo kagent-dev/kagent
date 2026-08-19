@@ -1,6 +1,7 @@
 package substrate
 
 import (
+	"context"
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
@@ -43,10 +44,7 @@ func TestActorTemplateEnvFromPodEnv(t *testing.T) {
 	}
 
 	got := actorTemplateEnvFromPodEnv(env)
-	require.Len(t, got, 2)
-	require.NotNil(t, got[0].Value)
-	require.Equal(t, "ok", *got[0].Value)
-	require.NotNil(t, got[1].ValueFrom.SecretKeyRef)
+	require.Equal(t, []atev1alpha1.EnvVar{{Name: "LITERAL", Value: "ok"}}, got)
 }
 
 func TestBuildSubstrateDeclarativeCommand(t *testing.T) {
@@ -158,13 +156,19 @@ func TestBuildSubstrateKagentContainerCommandBYO(t *testing.T) {
 func newTestLifecycle(t *testing.T) *Lifecycle {
 	t.Helper()
 	scheme := runtime.NewScheme()
+	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
+	configSecret := func(name string) *corev1.Secret {
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "kagent"}, Data: map[string][]byte{
+			"config.json": []byte("{}"), "agent-card.json": []byte("{}"),
+		}}
+	}
 	return &Lifecycle{
-		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
-		Defaults: LifecycleDefaults{
-			PauseImage: "gcr.io/test/pause@sha256:deadbeef",
-		},
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+			configSecret("go-agent"), configSecret("py-agent"), configSecret("byo-agent"), configSecret("my-agent"),
+		).Build(),
+		Defaults: LifecycleDefaults{},
 	}
 }
 
@@ -227,7 +231,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := newTestLifecycle(t)
-			tmpl, err := p.buildSandboxAgentActorTemplate(tc.sa, wpKey, podTemplateFor(tc.container))
+			tmpl, err := p.buildSandboxAgentActorTemplate(context.Background(), tc.sa, wpKey, podTemplateFor(tc.container), nil)
 			require.NoError(t, err)
 
 			require.Len(t, tmpl.Spec.Containers, 1)
@@ -294,7 +298,7 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 			container.Image = pinnedImage
 			podTemplate := corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{container}}}
 
-			tmpl, err := p.buildSandboxAgentActorTemplate(tc.sa, wpKey, podTemplate)
+			tmpl, err := p.buildSandboxAgentActorTemplate(context.Background(), tc.sa, wpKey, podTemplate, nil)
 			require.NoError(t, err)
 			require.Len(t, tmpl.Spec.Containers, 1)
 			c := tmpl.Spec.Containers[0]

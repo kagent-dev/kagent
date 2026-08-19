@@ -10,13 +10,11 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/controller/translator/labels"
-	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -41,8 +39,7 @@ type configSecretInputs struct {
 	mounts  []corev1.VolumeMount
 	// hashInput is the byte payload that should be folded into the pod
 	// template's config-hash annotation. Hashing is done by the caller once
-	// all rollout-relevant inputs (including the skills-init ConfigMap) are
-	// known.
+	// all rollout-relevant inputs are known.
 	hashInput configHashInput
 }
 
@@ -53,32 +50,9 @@ type configHashInput struct {
 }
 
 type podRuntimeInputs struct {
-	initContainers  []corev1.Container
-	envVars         []corev1.EnvVar
-	volumes         []corev1.Volume
-	volumeMounts    []corev1.VolumeMount
-	securityContext *corev1.SecurityContext
-	// skillsInitConfigMap is the ConfigMap (when skills are configured) that
-	// carries the JSON configuration consumed by the skills-init binary. It
-	// is added to AgentOutputs.Manifest and content-hashed into the pod
-	// template annotations so changes trigger a rollout.
-	skillsInitConfigMap *corev1.ConfigMap
-}
-
-func getDefaultResources(spec *corev1.ResourceRequirements) corev1.ResourceRequirements {
-	if spec != nil {
-		return *spec
-	}
-	return corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("100m"),
-			corev1.ResourceMemory: resource.MustParse("384Mi"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("2000m"),
-			corev1.ResourceMemory: resource.MustParse("1Gi"),
-		},
-	}
+	envVars      []corev1.EnvVar
+	volumes      []corev1.Volume
+	volumeMounts []corev1.VolumeMount
 }
 
 func (a *adkApiTranslator) BuildManifest(
@@ -105,27 +79,16 @@ func (a *adkApiTranslator) BuildManifest(
 	// ActorTemplates reference this Secret by the agent's stable name.
 	outputs.Manifest = append(outputs.Manifest, configSecret.secret)
 
-	podRuntime, err := buildPodRuntime(manifestCtx, configSecret.volumes, configSecret.mounts)
-	if err != nil {
-		return nil, err
-	}
+	podRuntime := buildPodRuntime(manifestCtx, configSecret.volumes, configSecret.mounts)
 
-	var skillsInitCfg []byte
-	if podRuntime.skillsInitConfigMap != nil {
-		outputs.Manifest = append(outputs.Manifest, podRuntime.skillsInitConfigMap)
-		// Folded into the same rollout-trigger hash as the rest of the pod
-		// config — the PodSpec only names the ConfigMap, so Kubernetes
-		// wouldn't otherwise restart the pod when its rendered config changes.
-		skillsInitCfg = []byte(podRuntime.skillsInitConfigMap.Data[skillsinit.ConfigMapKey])
-	}
 	var configHash uint64
-	if h := configSecret.hashInput; h.agentCfg != nil || h.agentCard != nil || h.secretData != nil || skillsInitCfg != nil {
-		configHash = computeConfigHash(h.agentCfg, h.agentCard, h.secretData, skillsInitCfg)
+	if h := configSecret.hashInput; h.agentCfg != nil || h.agentCard != nil || h.secretData != nil {
+		configHash = computeConfigHash(h.agentCfg, h.agentCard, h.secretData)
 	}
 
 	podTemplate := buildPodTemplate(manifestCtx, podRuntime, configHash)
 
-	workloadObjects, err := a.buildWorkloadObjects(ctx, manifestCtx, podTemplate)
+	workloadObjects, err := a.buildWorkloadObjects(ctx, manifestCtx, podTemplate, configSecret.secret)
 	if err != nil {
 		return nil, err
 	}
@@ -238,29 +201,16 @@ func buildPodRuntime(
 	manifestCtx manifestContext,
 	secretVolumes []corev1.Volume,
 	secretMounts []corev1.VolumeMount,
-) (*podRuntimeInputs, error) {
+) *podRuntimeInputs {
 	sharedEnv := collectSharedEnv(manifestCtx.agent)
 
 	volumes := append([]corev1.Volume{}, secretVolumes...)
 	volumeMounts := append([]corev1.VolumeMount{}, secretMounts...)
 
-	needCodeExecIsolation := false
-	initContainers, skillsInitCM, err := buildSkillsRuntime(manifestCtx, &sharedEnv, &volumes, &volumeMounts, &needCodeExecIsolation)
-	if err != nil {
-		return nil, err
-	}
-
 	envVars := append([]corev1.EnvVar{}, manifestCtx.deployment.Env...)
 	envVars = append(envVars, sharedEnv...)
 
-	return &podRuntimeInputs{
-		initContainers:      initContainers,
-		envVars:             envVars,
-		volumes:             volumes,
-		volumeMounts:        volumeMounts,
-		securityContext:     buildContainerSecurityContext(nil, needCodeExecIsolation),
-		skillsInitConfigMap: skillsInitCM,
-	}, nil
+	return &podRuntimeInputs{envVars: envVars, volumes: volumes, volumeMounts: volumeMounts}
 }
 
 func collectSharedEnv(agent *v1alpha3.SandboxAgent) []corev1.EnvVar {
@@ -295,91 +245,6 @@ func collectSharedEnv(agent *v1alpha3.SandboxAgent) []corev1.EnvVar {
 	return sharedEnv
 }
 
-func buildSkillsRuntime(
-	manifestCtx manifestContext,
-	sharedEnv *[]corev1.EnvVar,
-	volumes *[]corev1.Volume,
-	volumeMounts *[]corev1.VolumeMount,
-	needCodeExecIsolation *bool,
-) ([]corev1.Container, *corev1.ConfigMap, error) {
-	spec := manifestCtx.agent.GetAgentSpec()
-	if spec.Skills == nil {
-		return nil, nil, nil
-	}
-
-	skills := spec.Skills.Refs
-	gitRefs := spec.Skills.GitRefs
-	s3Refs := spec.Skills.S3Refs
-	if len(skills) == 0 && len(gitRefs) == 0 && len(s3Refs) == 0 {
-		return nil, nil, nil
-	}
-
-	*needCodeExecIsolation = true
-	*sharedEnv = append(*sharedEnv, corev1.EnvVar{
-		Name:  env.KagentSkillsFolder.Name(),
-		Value: "/skills",
-	})
-	*volumes = append(*volumes, corev1.Volume{
-		Name: "kagent-skills",
-		VolumeSource: corev1.VolumeSource{
-			EmptyDir: &corev1.EmptyDirVolumeSource{},
-		},
-	})
-	*volumeMounts = append(*volumeMounts, corev1.VolumeMount{
-		Name:      "kagent-skills",
-		MountPath: "/skills",
-		ReadOnly:  true,
-	})
-
-	var initResources *corev1.ResourceRequirements
-	var initEnv []corev1.EnvVar
-	if spec.Skills.InitContainer != nil {
-		if spec.Skills.InitContainer.Resources != nil {
-			initResources = spec.Skills.InitContainer.Resources.DeepCopy()
-		}
-		initEnv = append(initEnv, spec.Skills.InitContainer.Env...)
-	}
-
-	container, skillsVolumes, configMap, err := buildSkillsInitContainer(
-		manifestCtx.agent.GetName(),
-		manifestCtx.agent.GetNamespace(),
-		gitRefs,
-		spec.Skills.GitAuthSecretRef,
-		skills,
-		spec.Skills.InsecureSkipVerify,
-		nil,
-		initEnv,
-		getDefaultResources(initResources),
-		spec.Skills.ImagePullSecrets,
-		s3Refs,
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to build skills init container: %w", err)
-	}
-
-	*volumes = append(*volumes, skillsVolumes...)
-	return container, configMap, nil
-}
-
-func buildContainerSecurityContext(
-	base *corev1.SecurityContext,
-	needCodeExecIsolation bool,
-) *corev1.SecurityContext {
-	if base != nil {
-		securityContext := base.DeepCopy()
-		if needCodeExecIsolation && !allowPrivilegeEscalationExplicitlyFalse(securityContext) {
-			securityContext.Privileged = new(true)
-		}
-		return securityContext
-	}
-
-	if !needCodeExecIsolation {
-		return nil
-	}
-
-	return &corev1.SecurityContext{Privileged: new(true)}
-}
-
 func buildPodTemplate(
 	manifestCtx manifestContext,
 	runtimeInputs *podRuntimeInputs,
@@ -400,15 +265,13 @@ func buildPodTemplate(
 			Annotations: podTemplateAnnotations,
 		},
 		Spec: corev1.PodSpec{
-			InitContainers: runtimeInputs.initContainers,
 			Containers: []corev1.Container{{
-				Name:            "kagent",
-				Image:           dep.Image,
-				Command:         cmd,
-				Args:            dep.Args,
-				Env:             runtimeInputs.envVars,
-				SecurityContext: runtimeInputs.securityContext,
-				VolumeMounts:    runtimeInputs.volumeMounts,
+				Name:         "kagent",
+				Image:        dep.Image,
+				Command:      cmd,
+				Args:         dep.Args,
+				Env:          runtimeInputs.envVars,
+				VolumeMounts: runtimeInputs.volumeMounts,
 			}},
 			Volumes: runtimeInputs.volumes,
 		},
@@ -419,10 +282,12 @@ func (a *adkApiTranslator) buildWorkloadObjects(
 	ctx context.Context,
 	manifestCtx manifestContext,
 	podTemplate corev1.PodTemplateSpec,
+	configSecret *corev1.Secret,
 ) ([]client.Object, error) {
 	sbObjs, err := a.sandboxBackend.BuildSandbox(ctx, sandboxbackend.BuildInput{
-		Agent:       manifestCtx.agent,
-		PodTemplate: podTemplate,
+		Agent:        manifestCtx.agent,
+		PodTemplate:  podTemplate,
+		ConfigSecret: configSecret,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("build sandbox workload: %w", err)

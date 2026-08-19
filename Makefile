@@ -55,7 +55,6 @@ UI_IMAGE_NAME ?= ui
 APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
-SKILLS_INIT_IMAGE_NAME ?= skills-init
 ACP_SANDBOX_BASE_IMAGE_NAME ?= acp-sandbox-base
 ACP_SANDBOX_HERMES_IMAGE_NAME ?= acp-sandbox-hermes
 ACP_SANDBOX_OPENCLAW_IMAGE_NAME ?= acp-sandbox-openclaw
@@ -66,14 +65,12 @@ UI_IMAGE_TAG ?= $(VERSION)
 APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
-SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
 ACP_SANDBOX_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
 APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
-SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
 ACP_SANDBOX_BASE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_BASE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
 ACP_SANDBOX_HERMES_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_HERMES_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
 ACP_SANDBOX_OPENCLAW_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_OPENCLAW_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
@@ -239,14 +236,13 @@ build-all: proto-generate buildx-create
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-skills-init build-golang-adk build-app build-controller
+build: buildx-create build-ui build-golang-adk build-app build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
 	@echo "App Image: $(APP_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
-	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
 
 .PHONY: build-monitor
 build-monitor: ## Watch BuildKit process list inside the buildx container
@@ -275,7 +271,6 @@ build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo app=$(APP_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
-	@echo skills-init=$(SKILLS_INIT_IMG)
 	@echo acp-sandbox-base=$(ACP_SANDBOX_BASE_IMG)
 	@echo acp-sandbox-hermes=$(ACP_SANDBOX_HERMES_IMG)
 	@echo acp-sandbox-openclaw=$(ACP_SANDBOX_OPENCLAW_IMG)
@@ -317,12 +312,6 @@ build-golang-adk: ## Build and push the Go ADK image
 build-golang-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
-
-.PHONY: build-skills-init
-build-skills-init: ## Build and push the skills-init image
-build-skills-init: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile ./go
-	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
 
 .PHONY: build-acp-sandbox
 build-acp-sandbox: ## Build and push all ACP sandbox agent images (hermes, openclaw, claude)
@@ -669,7 +658,6 @@ report/image-cve: audit build
 	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
 	grype $(CONTAINER_RUNTIME):$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
 	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
-	grype $(CONTAINER_RUNTIME):$(SKILLS_INIT_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/skills-init-cve.csv
 
 
 ##@ Cleanup

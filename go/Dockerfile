@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
 
 ### STAGE 2: final image
-FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest
+FROM alpine:3.22
 ARG TARGETPLATFORM
 
 RUN apk add --no-cache bash ca-certificates

@@ -142,9 +142,8 @@ type SkillForAgent struct {
 
 	// ImagePullSecrets is a list of references to secrets in the same namespace to use for
 	// pulling skill images from private registries. Each referenced secret must be of type
-	// kubernetes.io/dockerconfigjson. The credentials from all secrets are merged and made
-	// available to the skills-init container at /.kagent/.docker/config.json; krane will
-	// use them automatically when pulling images.
+	// kubernetes.io/dockerconfigjson. The credentials from all secrets are merged when
+	// pulling images.
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
 	ImagePullSecrets []corev1.LocalObjectReference `json:"imagePullSecrets,omitempty"`
@@ -163,27 +162,11 @@ type SkillForAgent struct {
 	GitRefs []GitRepo `json:"gitRefs,omitempty"`
 
 	// S3 object prefixes or archives to fetch skills from.
-	// Auth uses the AWS SDK default credential chain (typically static keys via
-	// skills.initContainer.env: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION).
+	// Auth uses the AWS SDK default credential chain.
 	// +kubebuilder:validation:MaxItems=20
 	// +kubebuilder:validation:MinItems=1
 	// +optional
 	S3Refs []S3SkillRef `json:"s3Refs,omitempty"`
-
-	// Configuration for the skills-init init container.
-	// +optional
-	InitContainer *SkillsInitContainer `json:"initContainer,omitempty"`
-}
-
-// SkillsInitContainer configures the skills-init init container.
-type SkillsInitContainer struct {
-	// Resource requirements for the skills-init init container.
-	// +optional
-	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
-
-	// Additional environment variables for the skills-init init container.
-	// +optional
-	Env []corev1.EnvVar `json:"env,omitempty"`
 }
 
 // GitRepo specifies a single Git repository to fetch skills from.
@@ -222,8 +205,7 @@ type S3SkillRef struct {
 	// +kubebuilder:validation:Pattern=`^s3://.+`
 	URI string `json:"uri"`
 
-	// AWS region for the bucket. Optional when AWS_REGION / AWS_DEFAULT_REGION is set
-	// on the skills-init container (e.g. via initContainer.env).
+	// AWS region for the bucket. Optional when AWS_REGION / AWS_DEFAULT_REGION is set.
 	// +optional
 	Region string `json:"region,omitempty"`
 

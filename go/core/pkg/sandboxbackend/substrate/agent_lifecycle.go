@@ -1,6 +1,7 @@
 package substrate
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -60,9 +61,11 @@ const (
 )
 
 func (p *Lifecycle) buildSandboxAgentActorTemplate(
+	ctx context.Context,
 	sa *v1alpha3.SandboxAgent,
 	wpKey types.NamespacedName,
 	podTemplate corev1.PodTemplateSpec,
+	configSecret *corev1.Secret,
 ) (*atev1alpha1.ActorTemplate, error) {
 	kagentContainer := findKagentContainer(podTemplate.Spec.Containers)
 	if kagentContainer == nil {
@@ -77,15 +80,18 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 	if err != nil {
 		return nil, err
 	}
+	containerEnv, err = resolvePodEnv(ctx, p.Client, sa.Namespace, append(containerEnv, kagentContainer.Env...), configSecret)
+	if err != nil {
+		return nil, fmt.Errorf("resolve actor environment: %w", err)
+	}
 
 	spec := atev1alpha1.ActorTemplateSpec{
-		PauseImage:   p.Defaults.PauseImage,
 		SandboxClass: atev1alpha1.SandboxClassGvisor,
 		Containers: []atev1alpha1.Container{{
 			Name:    defaultKagentContainer,
 			Image:   image,
 			Command: command,
-			Env:     actorTemplateEnvFromPodEnv(append(containerEnv, kagentContainer.Env...)),
+			Env:     actorTemplateEnvFromPodEnv(containerEnv),
 			// Gate actor readiness (the golden snapshot, and resume RPCs) on the app
 			// actually serving A2A traffic, so a startup crash or wrong listen port
 			// surfaces as Ready=False instead of a broken-chat "ready" agent. The

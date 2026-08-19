@@ -43,7 +43,7 @@ func (r testReader) Get(ctx context.Context, key types.NamespacedName, object ru
 	return r.Client.Get(ctx, key, object.(client.Object))
 }
 
-func TestCompileAgentTemplateKeepsCredentialsOutOfRevision(t *testing.T) {
+func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "mcp-auth", Namespace: "test"},
 		Data:       map[string][]byte{"token": []byte("Bearer top-secret")},
@@ -105,14 +105,15 @@ func TestCompileAgentTemplateKeepsCredentialsOutOfRevision(t *testing.T) {
 	if !bytes.Contains(spec.ConfigJSON, []byte("__KAGENT_ENV[KAGENT_CREDENTIAL_")) {
 		t.Fatalf("config does not contain credential placeholder: %s", spec.ConfigJSON)
 	}
-	foundSecretRefs := map[string]bool{}
+	foundSecretValues := map[string]bool{}
 	for _, variable := range spec.Environment {
-		if variable.ValueFrom != nil && variable.ValueFrom.SecretKeyRef != nil {
-			foundSecretRefs[variable.ValueFrom.SecretKeyRef.Name] = true
+		if variable.ValueFrom != nil {
+			t.Fatalf("runtime revision environment contains unresolved valueFrom: %+v", variable)
 		}
+		foundSecretValues[variable.Value] = true
 	}
-	if !foundSecretRefs[secret.Name] || !foundSecretRefs[secondSecret.Name] {
-		t.Fatalf("runtime revision environment does not preserve all SecretKeyRefs: %v", foundSecretRefs)
+	if !foundSecretValues[string(secret.Data["token"])] || !foundSecretValues[string(secondSecret.Data["token"])] {
+		t.Fatalf("runtime revision environment does not contain resolved credentials")
 	}
 	if len(spec.EgressDestinations) != 3 || spec.EgressDestinations[0] != "api.openai.com" || spec.EgressDestinations[1] != "mcp.example.com" || spec.EgressDestinations[2] != "second-mcp.example.com" {
 		t.Fatalf("egress destinations = %v", spec.EgressDestinations)
