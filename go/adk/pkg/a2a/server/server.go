@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -13,6 +16,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2acompat/a2av0"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -51,7 +55,7 @@ type A2AServer struct {
 // NewA2AServer creates a new A2A server using a2asrv.
 func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger logr.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
-	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
+	jsonrpcHandler := newCompatJSONRPCHandler(requestHandler)
 	if maxContentLength := getMaxContentLength(logger); maxContentLength != nil {
 		jsonrpcHandler = withRequestSizeLimit(jsonrpcHandler, *maxContentLength)
 	}
@@ -168,6 +172,44 @@ func getMaxContentLength(logger logr.Logger) *int64 {
 		maxContentLength = defaultMaxContentLength
 	}
 	return &maxContentLength
+}
+
+// newCompatJSONRPCHandler serves both the native a2a-go/v2 JSON-RPC method
+// names (e.g. "SendMessage") and the standard A2A protocol's slash-namespaced
+// names (e.g. "message/send") against the same RequestHandler. Every public
+// A2A client SDK (e.g. @a2a-js/sdk) still sends the slash-namespaced names;
+// a2a-go/v2's own dispatcher only recognizes the newer bare names, with no
+// compatibility shim wired in anywhere upstream of this. The two conventions
+// never collide — every native v2 method name is a bare identifier, while
+// every legacy name is namespaced with a "/" — so a single peek at the
+// request body's "method" field is enough to route correctly.
+func newCompatJSONRPCHandler(handler a2asrv.RequestHandler) http.Handler {
+	native := a2asrv.NewJSONRPCHandler(handler)
+	legacy := a2av0.NewJSONRPCHandler(handler)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			native.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			// Let the native handler read (and fail on) the same body again,
+			// so a size-limited or otherwise broken body still produces the
+			// usual JSON-RPC error response instead of a bespoke one here.
+			native.ServeHTTP(w, r)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+
+		var probe struct {
+			Method string `json:"method"`
+		}
+		if json.Unmarshal(body, &probe) == nil && strings.Contains(probe.Method, "/") {
+			legacy.ServeHTTP(w, r)
+			return
+		}
+		native.ServeHTTP(w, r)
+	})
 }
 
 func withRequestSizeLimit(next http.Handler, maxContentLength int64) http.Handler {
