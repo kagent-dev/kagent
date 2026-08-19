@@ -1,0 +1,49 @@
+suite: test substrate workerpool ateomImage defaulting
+templates:
+  - substrate-workerpool.yaml
+tests:
+  - it: should not render when substrateWorkerPool.create is false (default)
+    set:
+      controller.substrate.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render when controller.substrate.enabled is false, even if create is true
+    set:
+      controller.substrate.enabled: false
+      substrateWorkerPool.create: true
+      substrateWorkerPool.ateomImage: "ghcr.io/example/ateom:v1.0.0"
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use the explicit ateomImage when set, regardless of the substrate dependency condition
+    set:
+      controller.substrate.enabled: true
+      substrateWorkerPool.create: true
+      substrate.enabled: false
+      substrateWorkerPool.ateomImage: "ghcr.io/example/custom-ateom:v9.9.9"
+    asserts:
+      - equal:
+          path: spec.ateomImage
+          value: "ghcr.io/example/custom-ateom:v9.9.9"
+
+  - it: should default ateomImage from the substrate chart dependency version when unset and substrate.enabled is true
+    set:
+      controller.substrate.enabled: true
+      substrateWorkerPool.create: true
+      substrate.enabled: true
+    asserts:
+      - equal:
+          path: spec.ateomImage
+          value: "ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.0.9"
+
+  - it: should fail with a clear message when ateomImage is unset and the substrate dependency isn't enabled
+    set:
+      controller.substrate.enabled: true
+      substrateWorkerPool.create: true
+      substrate.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "substrateWorkerPool.ateomImage is required when substrateWorkerPool.create=true and the \"substrate\" chart dependency isn't enabled (substrate.enabled=false) - set it explicitly to match your ate-system version"
