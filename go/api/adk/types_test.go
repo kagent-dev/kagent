@@ -8,7 +8,13 @@ import (
 
 func TestAgentConfigStdioToolsRoundTrip(t *testing.T) {
 	want := []StdioMcpServerConfig{{Command: "server", Args: []string{"--stdio"}, Env: map[string]string{"KEY": "value"}, Dir: "/plugin"}}
-	input := AgentConfig{Model: &OpenAI{BaseModel: BaseModel{Model: "test"}}, StdioTools: want}
+	wantPlugins := &AgentPluginConfig{Skills: []AgentPluginSkill{{
+		Name: "review",
+		Source: AgentPluginSource{Git: &AgentPluginGit{
+			URL: "https://example.com/plugin.git", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}},
+	}}}
+	input := AgentConfig{Model: &OpenAI{BaseModel: BaseModel{Model: "test"}}, StdioTools: want, AgentPlugins: wantPlugins}
 	raw, err := json.Marshal(input)
 	if err != nil {
 		t.Fatal(err)
@@ -19,6 +25,9 @@ func TestAgentConfigStdioToolsRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(output.StdioTools, want) {
 		t.Fatalf("stdio tools = %#v, want %#v", output.StdioTools, want)
+	}
+	if !reflect.DeepEqual(output.AgentPlugins, wantPlugins) {
+		t.Fatalf("agent plugins = %#v, want %#v", output.AgentPlugins, wantPlugins)
 	}
 }
 

@@ -43,19 +43,7 @@ type MCPConfig struct {
 	HasSkills bool
 }
 
-func MaterializeFromEnv(ctx context.Context) (MCPConfig, error) {
-	raw := os.Getenv(ConfigEnv)
-	if raw == "" {
-		return MCPConfig{}, nil
-	}
-	var config Config
-	if err := json.Unmarshal([]byte(raw), &config); err != nil {
-		return MCPConfig{}, fmt.Errorf("parse %s: %w", ConfigEnv, err)
-	}
-	return Materialize(ctx, config, Paths{Plugins: DefaultPluginRoot, Skills: DefaultSkillsRoot, Data: DefaultDataRoot})
-}
-
-func Materialize(ctx context.Context, config Config, paths Paths) (MCPConfig, error) {
+func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths) (MCPConfig, error) {
 	if err := os.MkdirAll(paths.Skills, 0o755); err != nil {
 		return MCPConfig{}, fmt.Errorf("create skills directory: %w", err)
 	}
@@ -109,7 +97,7 @@ func Materialize(ctx context.Context, config Config, paths Paths) (MCPConfig, er
 	return result, nil
 }
 
-func fetchSource(ctx context.Context, source Source, destination string) (string, error) {
+func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination string) (string, error) {
 	if err := os.RemoveAll(destination); err != nil {
 		return "", err
 	}

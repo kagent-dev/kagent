@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/kagent-dev/kagent/go/api/adk"
 )
 
 func TestMaterializeGitPlugin(t *testing.T) {
@@ -42,8 +44,8 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	commit := git("rev-parse", "HEAD")
 
 	root := t.TempDir()
-	result, err := Materialize(context.Background(), Config{Plugins: []Plugin{{
-		Source: Source{Git: &Git{URL: repository, Commit: commit}}, Skills: []string{"review"},
+	result, err := Materialize(context.Background(), adk.AgentPluginConfig{Plugins: []adk.AgentPluginBundle{{
+		Source: adk.AgentPluginSource{Git: &adk.AgentPluginGit{URL: repository, Commit: commit}}, Skills: []string{"review"},
 	}}}, Paths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")})
 	if err != nil {
 		t.Fatal(err)

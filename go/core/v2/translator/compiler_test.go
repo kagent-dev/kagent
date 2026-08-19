@@ -7,8 +7,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -67,17 +67,12 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var config agentplugins.Config
-	found := false
-	for _, variable := range spec.Environment {
-		if variable.Name == agentplugins.ConfigEnv {
-			found = true
-			if err := json.Unmarshal([]byte(variable.Value), &config); err != nil {
-				t.Fatal(err)
-			}
-		}
+	var config adk.AgentConfig
+	if err := json.Unmarshal(spec.ConfigJSON, &config); err != nil {
+		t.Fatal(err)
 	}
-	if !found || len(config.Skills) != 2 || len(config.Plugins) != 2 || config.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
+	plugins := config.AgentPlugins
+	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
 		t.Fatalf("compiled Agent Plugins config = %#v", config)
 	}
 	for _, host := range []string{"ghcr.io", "registry-1.docker.io", "github.com", "objects.example.com"} {

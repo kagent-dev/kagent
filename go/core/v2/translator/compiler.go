@@ -14,7 +14,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -136,6 +135,13 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 			return nil, err
 		}
 	}
+	pluginConfig, err := agentPluginConfig(template)
+	if err != nil {
+		return nil, err
+	}
+	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
+		cfg.AgentPlugins = &pluginConfig
+	}
 
 	configJSON, err := json.Marshal(cfg)
 	if err != nil {
@@ -167,17 +173,6 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
 		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
 	)
-	pluginConfig, err := agentPluginConfig(template)
-	if err != nil {
-		return nil, err
-	}
-	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		raw, err := json.Marshal(pluginConfig)
-		if err != nil {
-			return nil, fmt.Errorf("marshal Agent Plugins configuration: %w", err)
-		}
-		environment = append(environment, corev1.EnvVar{Name: agentplugins.ConfigEnv, Value: string(raw)})
-	}
 	environment = dedupeEnv(environment)
 
 	// One provenance list covers every Kubernetes input, including hashed Secret
@@ -213,9 +208,9 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	}, nil
 }
 
-func agentPluginSourceDestinations(config agentplugins.Config) []string {
+func agentPluginSourceDestinations(config adk.AgentPluginConfig) []string {
 	var result []string
-	appendSource := func(source agentplugins.Source) {
+	appendSource := func(source adk.AgentPluginSource) {
 		switch {
 		case source.Git != nil:
 			result = appendURLHost(result, source.Git.URL)
@@ -240,38 +235,38 @@ func agentPluginSourceDestinations(config agentplugins.Config) []string {
 	return result
 }
 
-func agentPluginConfig(template *v1alpha3.AgentTemplate) (agentplugins.Config, error) {
-	result := agentplugins.Config{
-		Skills:  make([]agentplugins.Skill, 0, len(template.Spec.Skills)),
-		Plugins: make([]agentplugins.Plugin, 0, len(template.Spec.Plugins)),
+func agentPluginConfig(template *v1alpha3.AgentTemplate) (adk.AgentPluginConfig, error) {
+	result := adk.AgentPluginConfig{
+		Skills:  make([]adk.AgentPluginSkill, 0, len(template.Spec.Skills)),
+		Plugins: make([]adk.AgentPluginBundle, 0, len(template.Spec.Plugins)),
 	}
 	names := make(map[string]struct{})
 	for _, skill := range template.Spec.Skills {
 		if _, exists := names[skill.Name]; exists {
-			return agentplugins.Config{}, newValidationError("duplicate skill name %q", skill.Name)
+			return adk.AgentPluginConfig{}, newValidationError("duplicate skill name %q", skill.Name)
 		}
 		names[skill.Name] = struct{}{}
-		result.Skills = append(result.Skills, agentplugins.Skill{Name: skill.Name, Source: agentPluginSource(skill.Source)})
+		result.Skills = append(result.Skills, adk.AgentPluginSkill{Name: skill.Name, Source: agentPluginSource(skill.Source)})
 	}
 	for _, plugin := range template.Spec.Plugins {
 		for _, name := range plugin.Skills {
 			if _, exists := names[name]; exists {
-				return agentplugins.Config{}, newValidationError("duplicate skill name %q", name)
+				return adk.AgentPluginConfig{}, newValidationError("duplicate skill name %q", name)
 			}
 			names[name] = struct{}{}
 		}
-		result.Plugins = append(result.Plugins, agentplugins.Plugin{Source: agentPluginSource(plugin.Source), Skills: append([]string(nil), plugin.Skills...)})
+		result.Plugins = append(result.Plugins, adk.AgentPluginBundle{Source: agentPluginSource(plugin.Source), Skills: append([]string(nil), plugin.Skills...)})
 	}
 	return result, nil
 }
 
-func agentPluginSource(source v1alpha3.ArtifactSource) agentplugins.Source {
-	result := agentplugins.Source{OCI: source.OCI, Path: source.Path}
+func agentPluginSource(source v1alpha3.ArtifactSource) adk.AgentPluginSource {
+	result := adk.AgentPluginSource{OCI: source.OCI, Path: source.Path}
 	if source.Git != nil {
-		result.Git = &agentplugins.Git{URL: source.Git.URL, Commit: source.Git.Commit}
+		result.Git = &adk.AgentPluginGit{URL: source.Git.URL, Commit: source.Git.Commit}
 	}
 	if source.Bucket != nil {
-		result.S3 = &agentplugins.S3{
+		result.S3 = &adk.AgentPluginS3{
 			Endpoint: source.Bucket.S3.Endpoint, Bucket: source.Bucket.S3.Bucket, Key: source.Bucket.S3.Key,
 			VersionID: source.Bucket.S3.VersionID, Region: source.Bucket.S3.Region,
 		}

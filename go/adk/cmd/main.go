@@ -92,10 +92,17 @@ func main() {
 		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
 		os.Exit(1)
 	}
-	pluginConfig, err := agentplugins.MaterializeFromEnv(logr.NewContext(context.Background(), logger))
-	if err != nil {
-		logger.Error(err, "Failed to materialize Agent Plugins")
-		os.Exit(1)
+	pluginConfig := agentplugins.MCPConfig{}
+	if agentConfig.AgentPlugins != nil {
+		pluginConfig, err = agentplugins.Materialize(
+			logr.NewContext(context.Background(), logger),
+			*agentConfig.AgentPlugins,
+			agentplugins.Paths{Plugins: agentplugins.DefaultPluginRoot, Skills: agentplugins.DefaultSkillsRoot, Data: agentplugins.DefaultDataRoot},
+		)
+		if err != nil {
+			logger.Error(err, "Failed to materialize Agent Plugins")
+			os.Exit(1)
+		}
 	}
 	agentConfig.HttpTools = append(agentConfig.HttpTools, pluginConfig.HTTP...)
 	agentConfig.SseTools = append(agentConfig.SseTools, pluginConfig.SSE...)

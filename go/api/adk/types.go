@@ -548,6 +548,43 @@ type NetworkConfig struct {
 	AllowedDomains []string `json:"allowed_domains,omitempty"`
 }
 
+// AgentPluginConfig describes immutable Agent Plugin and standalone skill
+// packages that the runtime must download before starting the agent.
+type AgentPluginConfig struct {
+	Skills  []AgentPluginSkill  `json:"skills,omitempty"`
+	Plugins []AgentPluginBundle `json:"plugins,omitempty"`
+}
+
+type AgentPluginSkill struct {
+	Name   string            `json:"name"`
+	Source AgentPluginSource `json:"source"`
+}
+
+type AgentPluginBundle struct {
+	Source AgentPluginSource `json:"source"`
+	Skills []string          `json:"skills,omitempty"`
+}
+
+type AgentPluginSource struct {
+	OCI  string          `json:"oci,omitempty"`
+	Git  *AgentPluginGit `json:"git,omitempty"`
+	S3   *AgentPluginS3  `json:"s3,omitempty"`
+	Path string          `json:"path,omitempty"`
+}
+
+type AgentPluginGit struct {
+	URL    string `json:"url"`
+	Commit string `json:"commit"`
+}
+
+type AgentPluginS3 struct {
+	Endpoint  string `json:"endpoint"`
+	Bucket    string `json:"bucket"`
+	Key       string `json:"key"`
+	VersionID string `json:"versionId"`
+	Region    string `json:"region,omitempty"`
+}
+
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
 type AgentContextConfig struct {
 	Compaction *AgentCompressionConfig `json:"compaction,omitempty"`
@@ -602,6 +639,7 @@ type AgentConfig struct {
 	Stream        *bool                  `json:"stream,omitempty"`
 	Memory        *MemoryConfig          `json:"memory,omitempty"`
 	Network       *NetworkConfig         `json:"network,omitempty"`
+	AgentPlugins  *AgentPluginConfig     `json:"agent_plugins,omitempty"`
 	ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
 	ShareTools    *bool                  `json:"share_tools,omitempty"`
 	SessionDBURL  string                 `json:"session_db_url,omitempty"`
@@ -627,6 +665,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		Stream        *bool                  `json:"stream,omitempty"`
 		Memory        json.RawMessage        `json:"memory"`
 		Network       *NetworkConfig         `json:"network,omitempty"`
+		AgentPlugins  *AgentPluginConfig     `json:"agent_plugins,omitempty"`
 		ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
 		ShareTools    *bool                  `json:"share_tools,omitempty"`
 		SessionDBURL  string                 `json:"session_db_url,omitempty"`
@@ -664,6 +703,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Stream = tmp.Stream
 	a.Memory = memory
 	a.Network = tmp.Network
+	a.AgentPlugins = tmp.AgentPlugins
 	a.ContextConfig = tmp.ContextConfig
 	a.ShareTools = tmp.ShareTools
 	a.SessionDBURL = tmp.SessionDBURL
