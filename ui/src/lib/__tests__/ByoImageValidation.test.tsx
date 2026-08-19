@@ -73,10 +73,6 @@ jest.mock("@/components/agent-form/AgentSkillsFormSection", () => ({
   AgentSkillsFormSection: () => null,
 }));
 
-jest.mock("@/components/agent-form/ServiceAccountNameField", () => ({
-  ServiceAccountNameField: () => null,
-}));
-
 jest.mock("@/components/agent-form/DeclarativeRuntimeField", () => ({
   DeclarativeRuntimeField: () => null,
 }));
@@ -92,9 +88,7 @@ const byoAgentResponse: AgentResponse = {
       type: "BYO",
       description: "",
       byo: {
-        deployment: {
-          image: "ghcr.io/org/agent:v1.0.0",
-        },
+        image: "ghcr.io/org/agent:v1.0.0",
       },
     },
   } as AgentResponse["agent"],
@@ -102,9 +96,8 @@ const byoAgentResponse: AgentResponse = {
   modelProvider: "",
   modelConfigRef: "",
   tools: [],
-  deploymentReady: true,
+  ready: true,
   accepted: true,
-  workloadMode: "deployment",
 };
 
 describe("BYO container image validation on blur (edit mode)", () => {
