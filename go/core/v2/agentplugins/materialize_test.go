@@ -140,4 +140,28 @@ func TestCopySkillPreservesContainedSymlink(t *testing.T) {
 	if err != nil || string(content) != "# skill" {
 		t.Fatalf("copied symlink content = %q, %v", content, err)
 	}
+	link, err := os.Readlink(filepath.Join(destination, "README.md"))
+	if err != nil || link != "SKILL.md" {
+		t.Fatalf("copied symlink = %q, %v", link, err)
+	}
+}
+
+func TestCopySkillRejectsSymlinkOutsideSkill(t *testing.T) {
+	root, destination := t.TempDir(), filepath.Join(t.TempDir(), "skill")
+	source := filepath.Join(root, "skill")
+	if err := os.Mkdir(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("# skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "shared.md"), []byte("shared"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../shared.md", filepath.Join(source, "shared.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := copySkill(source, destination); err == nil {
+		t.Fatal("copySkill() accepted a symlink outside the skill root")
+	}
 }

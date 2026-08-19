@@ -117,6 +117,7 @@ spec:
                               type: string
                             url:
                               minLength: 1
+                              pattern: ^https?://[^[:space:]]+$
                               type: string
                           required:
                           - commit
@@ -227,6 +228,7 @@ spec:
                               type: string
                             url:
                               minLength: 1
+                              pattern: ^https?://[^[:space:]]+$
                               type: string
                           required:
                           - commit

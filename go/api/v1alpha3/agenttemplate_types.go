@@ -127,6 +127,7 @@ type AgentTemplateSkill struct {
 
 // GitArtifact identifies immutable content at a full Git commit ID.
 type GitArtifact struct {
+	// +kubebuilder:validation:Pattern=`^https?://[^[:space:]]+$`
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	URL string `json:"url"`

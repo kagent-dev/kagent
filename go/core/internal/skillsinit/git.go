@@ -5,7 +5,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 )
+
+var immutableGitCommit = regexp.MustCompile(`^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
 
 // CloneGit fetches a single git ref into ref.Dest. All user-controlled
 // strings (URL, Ref, SubPath) are passed to git as separate argv entries via
@@ -46,6 +49,9 @@ func CloneGit(ref GitRef) error {
 // CloneGitCommit fetches only one immutable commit instead of cloning the
 // repository's complete history.
 func CloneGitCommit(url, commit, destination string) error {
+	if !immutableGitCommit.MatchString(commit) {
+		return fmt.Errorf("git commit must be a full SHA")
+	}
 	if err := os.MkdirAll(destination, 0o755); err != nil {
 		return err
 	}

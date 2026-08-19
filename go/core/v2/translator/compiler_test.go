@@ -42,9 +42,14 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "helper", Namespace: "test"},
 		Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"},
-			Skills: []v1alpha3.AgentTemplateSkill{{Name: "review", Source: v1alpha3.ArtifactSource{
-				OCI: "ghcr.io/acme/review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-			}}},
+			Skills: []v1alpha3.AgentTemplateSkill{
+				{Name: "review", Source: v1alpha3.ArtifactSource{
+					OCI: "ghcr.io/acme/review@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				}},
+				{Name: "summary", Source: v1alpha3.ArtifactSource{
+					OCI: "acme/summary@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				}},
+			},
 			Plugins: []v1alpha3.PluginBundle{
 				{
 					Source: v1alpha3.ArtifactSource{Git: &v1alpha3.GitArtifact{
@@ -72,11 +77,13 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 			}
 		}
 	}
-	if !found || len(config.Skills) != 1 || len(config.Plugins) != 2 || config.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
+	if !found || len(config.Skills) != 2 || len(config.Plugins) != 2 || config.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
 		t.Fatalf("compiled Agent Plugins config = %#v", config)
 	}
-	if !slices.Contains(spec.EgressDestinations, "objects.example.com") {
-		t.Fatalf("egress destinations = %v", spec.EgressDestinations)
+	for _, host := range []string{"ghcr.io", "registry-1.docker.io", "github.com", "objects.example.com"} {
+		if !slices.Contains(spec.EgressDestinations, host) {
+			t.Fatalf("egress destinations %v do not contain %q", spec.EgressDestinations, host)
+		}
 	}
 }
 

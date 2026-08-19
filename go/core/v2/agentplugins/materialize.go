@@ -23,7 +23,7 @@ const (
 	DefaultSkillsRoot = "/skills"
 	DefaultDataRoot   = "/data/plugins"
 	maxPackageBytes   = 100 << 20
-	maxPackageFiles   = 10_000
+	maxPackageEntries = 10_000
 	pluginSchema      = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
 	mcpSchema         = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
 )
@@ -157,7 +157,7 @@ func fetchSource(ctx context.Context, source Source, destination string) (string
 }
 
 func validatePackage(root string) error {
-	var files, bytes int64
+	var entries, bytes int64
 	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -165,9 +165,9 @@ func validatePackage(root string) error {
 		if entry.IsDir() && entry.Name() == ".git" {
 			return filepath.SkipDir
 		}
-		files++
-		if files > maxPackageFiles {
-			return fmt.Errorf("artifact contains more than %d files", maxPackageFiles)
+		entries++
+		if entries > maxPackageEntries {
+			return fmt.Errorf("artifact contains more than %d filesystem entries", maxPackageEntries)
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -240,11 +240,21 @@ func copySkill(source, destination string) error {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			if filepath.IsAbs(link) {
+				return fmt.Errorf("skill symlink %q must be relative", path)
+			}
 			resolved, err := filepath.EvalSymlinks(path)
 			if err != nil {
 				return err
 			}
-			return os.Symlink(resolved, target)
+			if !pathWithin(source, resolved) {
+				return fmt.Errorf("skill symlink %q escapes skill root", path)
+			}
+			return os.Symlink(link, target)
 		}
 		if entry.IsDir() {
 			return os.MkdirAll(target, info.Mode().Perm())
@@ -344,8 +354,16 @@ func loadMCP(ctx context.Context, root, dataRoot string) MCPConfig {
 	var document mcpDocument
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&document); err != nil || document.Schema != mcpSchema || document.Servers == nil {
+	if err := decoder.Decode(&document); err != nil {
 		log.Error(err, "Invalid plugin MCP configuration", "pluginRoot", root)
+		return MCPConfig{}
+	}
+	if document.Schema != mcpSchema {
+		log.Error(fmt.Errorf("unsupported MCP schema %q", document.Schema), "Invalid plugin MCP configuration", "pluginRoot", root)
+		return MCPConfig{}
+	}
+	if document.Servers == nil {
+		log.Error(fmt.Errorf("mcpServers is required"), "Invalid plugin MCP configuration", "pluginRoot", root)
 		return MCPConfig{}
 	}
 	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
