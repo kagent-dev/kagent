@@ -12,11 +12,7 @@ import (
 	"time"
 )
 
-const srtSettingsPathEnv = "KAGENT_SRT_SETTINGS_PATH"
-
-type CommandExecutor struct {
-	srtArgs []string
-}
+type CommandExecutor struct{}
 
 // ReadFileContent reads a file with line numbers.
 func ReadFileContent(path string, offset, limit int) (string, error) {
@@ -108,20 +104,8 @@ func EditFileContent(path string, oldString, newString string, replaceAll bool) 
 	return os.WriteFile(path, []byte(newContent), 0644)
 }
 
-func resolveSRTSettingsArgs() ([]string, error) {
-	settingsPath := strings.TrimSpace(os.Getenv(srtSettingsPathEnv))
-	if settingsPath == "" {
-		return nil, fmt.Errorf("%s is not set", srtSettingsPathEnv)
-	}
-	return []string{"--settings", settingsPath}, nil
-}
-
-func NewCommandExecutorFromEnv() (*CommandExecutor, error) {
-	srtArgs, err := resolveSRTSettingsArgs()
-	if err != nil {
-		return nil, err
-	}
-	return &CommandExecutor{srtArgs: srtArgs}, nil
+func NewCommandExecutor() *CommandExecutor {
+	return &CommandExecutor{}
 }
 
 // ExecuteCommand executes a shell command.
@@ -134,8 +118,7 @@ func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, wo
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	args := append(append([]string{}, e.srtArgs...), "bash", "-c", command)
-	cmd := exec.CommandContext(ctx, "srt", args...)
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = workingDir
 
 	var stdout, stderr bytes.Buffer

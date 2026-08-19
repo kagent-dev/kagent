@@ -3,9 +3,7 @@
 #
 # Required environment variables:
 #   APP_IMG         Python agent runtime image ref (repo:tag)
-#   APP_FULL_IMG    Python agent full runtime image ref (repo:tag)
 #   GOLANG_ADK_IMG  Go agent runtime image ref (repo:tag)
-#   GOLANG_ADK_FULL_IMG  Go agent full runtime image ref (repo:tag)
 #   ACP_SANDBOX_OPENCLAW_IMG  acp-sandbox openclaw workload image ref (repo:tag)
 #   ACP_SANDBOX_HERMES_IMG    acp-sandbox hermes workload image ref (repo:tag)
 #
@@ -27,9 +25,7 @@ if [[ "${DIGEST_CURL_INSECURE:-false}" == "true" ]]; then
 fi
 
 : "${APP_IMG:?APP_IMG is required}"
-: "${APP_FULL_IMG:?APP_FULL_IMG is required}"
 : "${GOLANG_ADK_IMG:?GOLANG_ADK_IMG is required}"
-: "${GOLANG_ADK_FULL_IMG:?GOLANG_ADK_FULL_IMG is required}"
 : "${ACP_SANDBOX_OPENCLAW_IMG:?ACP_SANDBOX_OPENCLAW_IMG is required}"
 : "${ACP_SANDBOX_HERMES_IMG:?ACP_SANDBOX_HERMES_IMG is required}"
 
@@ -110,8 +106,6 @@ append_digest_ldflag() {
 }
 
 append_digest_ldflag "${TRANSLATOR_PKG}" "PythonADKImageDigest" "${APP_IMG}"
-append_digest_ldflag "${TRANSLATOR_PKG}" "PythonADKFullImageDigest" "${APP_FULL_IMG}"
 append_digest_ldflag "${TRANSLATOR_PKG}" "GoADKImageDigest" "${GOLANG_ADK_IMG}"
-append_digest_ldflag "${TRANSLATOR_PKG}" "GoADKFullImageDigest" "${GOLANG_ADK_FULL_IMG}"
 append_digest_ldflag "${SUBSTRATE_PKG}" "AcpSandboxOpenClawImageDigest" "${ACP_SANDBOX_OPENCLAW_IMG}"
 append_digest_ldflag "${SUBSTRATE_PKG}" "AcpSandboxHermesImageDigest" "${ACP_SANDBOX_HERMES_IMG}"

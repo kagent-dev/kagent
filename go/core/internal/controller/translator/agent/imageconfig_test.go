@@ -39,71 +39,38 @@ func TestImageConfigPinnedImageWithoutDigest(t *testing.T) {
 
 func TestResolveGoRuntimeImageWithDigest(t *testing.T) {
 	originalBase := GoADKImageDigest
-	originalFull := GoADKFullImageDigest
 	t.Cleanup(func() {
 		GoADKImageDigest = originalBase
-		GoADKFullImageDigest = originalFull
 	})
 	GoADKImageDigest = "sha256:go-base"
-	GoADKFullImageDigest = "sha256:go-full"
 
-	got, err := resolveGoRuntimeImage("localhost:5001", false, true)
+	got, err := resolveGoRuntimeImage("localhost:5001", true)
 	require.NoError(t, err)
 	require.Equal(t, "localhost:5001/kagent-dev/kagent/golang-adk@sha256:go-base", got)
-
-	got, err = resolveGoRuntimeImage("localhost:5001", true, true)
-	require.NoError(t, err)
-	require.Equal(t, "localhost:5001/kagent-dev/kagent/golang-adk@sha256:go-full", got)
 }
 
 func TestResolveGoRuntimeImageWithoutDigest(t *testing.T) {
 	originalBase := GoADKImageDigest
-	originalFull := GoADKFullImageDigest
 	t.Cleanup(func() {
 		GoADKImageDigest = originalBase
-		GoADKFullImageDigest = originalFull
 	})
 	GoADKImageDigest = ""
-	GoADKFullImageDigest = ""
 
-	_, err := resolveGoRuntimeImage("localhost:5001", false, true)
+	_, err := resolveGoRuntimeImage("localhost:5001", true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "golang-adk")
-
-	_, err = resolveGoRuntimeImage("localhost:5001", true, true)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "golang-adk-full")
 }
 
 func TestResolvePythonRuntimeImageWithDigest(t *testing.T) {
 	original := PythonADKImageDigest
-	originalFull := PythonADKFullImageDigest
 	t.Cleanup(func() {
 		PythonADKImageDigest = original
-		PythonADKFullImageDigest = originalFull
 	})
 	PythonADKImageDigest = "sha256:app-digest"
-	PythonADKFullImageDigest = "sha256:app-full-digest"
 
-	got, err := resolvePythonRuntimeImage("ghcr.io", false, true)
+	got, err := resolvePythonRuntimeImage("ghcr.io", true)
 	require.NoError(t, err)
 	require.Equal(t, "ghcr.io/kagent-dev/kagent/app@sha256:app-digest", got)
-
-	gotFull, err := resolvePythonRuntimeImage("ghcr.io", true, true)
-	require.NoError(t, err)
-	require.Equal(t, "ghcr.io/kagent-dev/kagent/app@sha256:app-full-digest", gotFull)
-}
-
-func TestResolvePythonFullRuntimeImageWithoutDigest(t *testing.T) {
-	original := PythonADKFullImageDigest
-	t.Cleanup(func() {
-		PythonADKFullImageDigest = original
-	})
-	PythonADKFullImageDigest = ""
-
-	_, err := resolvePythonRuntimeImage("ghcr.io", true, true)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "app-full")
 }
 
 func TestPythonADKImageDigestSupportsLinkerFlag(t *testing.T) {
@@ -124,7 +91,7 @@ func TestResolvePythonRuntimeImageWithoutDigest(t *testing.T) {
 	})
 	PythonADKImageDigest = ""
 
-	_, err := resolvePythonRuntimeImage("ghcr.io", false, true)
+	_, err := resolvePythonRuntimeImage("ghcr.io", true)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "app")
 }
@@ -139,21 +106,13 @@ func TestResolveRuntimeImageByTag(t *testing.T) {
 	DefaultImageConfig.Tag = "v9.9.9"
 	DefaultGoImageConfig.Tag = "v8.8.8"
 
-	got, err := resolvePythonRuntimeImage("my-registry.example.com", false, false)
+	got, err := resolvePythonRuntimeImage("my-registry.example.com", false)
 	require.NoError(t, err)
 	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/app:v9.9.9", got)
 
-	got, err = resolvePythonRuntimeImage("my-registry.example.com", true, false)
-	require.NoError(t, err)
-	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/app:v9.9.9-full", got)
-
-	got, err = resolveGoRuntimeImage("my-registry.example.com", false, false)
+	got, err = resolveGoRuntimeImage("my-registry.example.com", false)
 	require.NoError(t, err)
 	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v8.8.8", got)
-
-	got, err = resolveGoRuntimeImage("my-registry.example.com", true, false)
-	require.NoError(t, err)
-	require.Equal(t, "my-registry.example.com/kagent-dev/kagent/golang-adk:v8.8.8-full", got)
 }
 
 func TestResolveRuntimeImageByTagIgnoresMissingDigest(t *testing.T) {
@@ -161,7 +120,7 @@ func TestResolveRuntimeImageByTagIgnoresMissingDigest(t *testing.T) {
 	t.Cleanup(func() { PythonADKImageDigest = original })
 	PythonADKImageDigest = ""
 
-	_, err := resolvePythonRuntimeImage("ghcr.io", false, false)
+	_, err := resolvePythonRuntimeImage("ghcr.io", false)
 	require.NoError(t, err)
 }
 

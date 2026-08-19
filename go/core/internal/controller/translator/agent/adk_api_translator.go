@@ -111,20 +111,15 @@ var DefaultImageConfig = ImageConfig{
 	Repository: "kagent-dev/kagent/app",
 }
 
-// PythonADKImageDigest, PythonADKFullImageDigest, GoADKImageDigest, and GoADKFullImageDigest
-// default to the pushed runtime image manifest digests baked in at controller link time, and
-// can be overridden at runtime via the --app[-full]-image-digest / --golang-adk[-full]-image-digest
-// flags (for mirrored registries that re-assign digests). They are only consulted for sandbox
-// agents — Substrate requires digest-pinned refs — while regular agents reference images by tag.
-// The "full" variants bundle the sandbox runtime (bash tools); the slim variants do not.
+// PythonADKImageDigest and GoADKImageDigest default to the pushed runtime image manifest digests
+// baked in at controller link time. They can be overridden for mirrored registries that re-assign
+// digests. Substrate requires digest-pinned refs, while regular agents reference images by tag.
 var PythonADKImageDigest string
-var PythonADKFullImageDigest string
 var GoADKImageDigest string
-var GoADKFullImageDigest string
 
 // DefaultGoImageConfig is the image config for the Go (ADK) runtime agent.
 // Regular agents reference it by tag; sandbox agents pin by digest via
-// GoADKImageDigest / GoADKFullImageDigest.
+// GoADKImageDigest.
 var DefaultGoImageConfig = ImageConfig{
 	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,

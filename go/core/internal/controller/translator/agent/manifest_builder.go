@@ -96,7 +96,7 @@ func (a *adkApiTranslator) BuildManifest(
 	outputs := &AgentOutputs{}
 	manifestCtx := newManifestContext(agent, inputs.Deployment)
 
-	configSecret, err := a.buildConfigSecret(manifestCtx, inputs.Config, inputs.Sandbox, inputs.AgentCard, inputs.SecretHashBytes)
+	configSecret, err := a.buildConfigSecret(manifestCtx, inputs.Config, inputs.AgentCard, inputs.SecretHashBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (a *adkApiTranslator) BuildManifest(
 	// ActorTemplates reference this Secret by the agent's stable name.
 	outputs.Manifest = append(outputs.Manifest, configSecret.secret)
 
-	podRuntime, err := buildPodRuntime(manifestCtx, inputs.Sandbox, configSecret.volumes, configSecret.mounts)
+	podRuntime, err := buildPodRuntime(manifestCtx, configSecret.volumes, configSecret.mounts)
 	if err != nil {
 		return nil, err
 	}
@@ -173,13 +173,11 @@ func (m manifestContext) objectMeta() metav1.ObjectMeta {
 func (a *adkApiTranslator) buildConfigSecret(
 	manifestCtx manifestContext,
 	cfg *adk.AgentConfig,
-	sandboxCfg *v1alpha3.SandboxConfig,
 	card *a2a.AgentCard,
 	modelConfigSecretHashBytes []byte,
 ) (*configSecretInputs, error) {
 	cfgJSON := ""
 	agentCard := ""
-	srtSettingsJSON := ""
 	var hashInput configHashInput
 	var volumes []corev1.Volume
 	var mounts []corev1.VolumeMount
@@ -198,26 +196,15 @@ func (a *adkApiTranslator) buildConfigSecret(
 		}
 		agentCard = string(cardJSON)
 	}
-	if needsSRTSettings(manifestCtx.agent, sandboxCfg) {
-		bSRTSettings, err := buildSRTSettingsJSON(sandboxCfg)
-		if err != nil {
-			return nil, err
-		}
-		srtSettingsJSON = string(bSRTSettings)
-	}
-
-	if cfg != nil || srtSettingsJSON != "" {
+	if cfg != nil {
 		secretData := modelConfigSecretHashBytes
 		if secretData == nil {
 			secretData = []byte{}
 		}
-		hashData := make([]byte, 0, len(secretData)+len(srtSettingsJSON))
-		hashData = append(hashData, secretData...)
-		hashData = append(hashData, srtSettingsJSON...)
 		hashInput = configHashInput{
 			agentCfg:   []byte(cfgJSON),
 			agentCard:  []byte(agentCard),
-			secretData: hashData,
+			secretData: secretData,
 		}
 		volumes = []corev1.Volume{{
 			Name: "config",
@@ -232,7 +219,7 @@ func (a *adkApiTranslator) buildConfigSecret(
 		secret: &corev1.Secret{
 			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"},
 			ObjectMeta: manifestCtx.objectMeta(),
-			StringData: buildConfigSecretData(cfgJSON, agentCard, srtSettingsJSON),
+			StringData: buildConfigSecretData(cfgJSON, agentCard),
 		},
 		volumes:   volumes,
 		mounts:    mounts,
@@ -240,20 +227,15 @@ func (a *adkApiTranslator) buildConfigSecret(
 	}, nil
 }
 
-func buildConfigSecretData(cfgJSON, agentCard, srtSettingsJSON string) map[string]string {
-	data := map[string]string{
+func buildConfigSecretData(cfgJSON, agentCard string) map[string]string {
+	return map[string]string{
 		"config.json":     cfgJSON,
 		"agent-card.json": agentCard,
 	}
-	if srtSettingsJSON != "" {
-		data["srt-settings.json"] = srtSettingsJSON
-	}
-	return data
 }
 
 func buildPodRuntime(
 	manifestCtx manifestContext,
-	sandboxCfg *v1alpha3.SandboxConfig,
 	secretVolumes []corev1.Volume,
 	secretMounts []corev1.VolumeMount,
 ) (*podRuntimeInputs, error) {
@@ -268,13 +250,6 @@ func buildPodRuntime(
 		return nil, err
 	}
 
-	if needsSRTSettings(manifestCtx.agent, sandboxCfg) {
-		sharedEnv = append(sharedEnv, corev1.EnvVar{
-			Name:  env.KagentSRTSettingsPath.Name(),
-			Value: env.KagentSRTSettingsPath.DefaultValue(),
-		})
-	}
-
 	envVars := append([]corev1.EnvVar{}, manifestCtx.deployment.Env...)
 	envVars = append(envVars, sharedEnv...)
 
@@ -286,33 +261,6 @@ func buildPodRuntime(
 		securityContext:     buildContainerSecurityContext(nil, needCodeExecIsolation),
 		skillsInitConfigMap: skillsInitCM,
 	}, nil
-}
-
-func needsSRTSettings(agent *v1alpha3.SandboxAgent, sandboxCfg *v1alpha3.SandboxConfig) bool {
-	spec := agent.GetAgentSpec()
-	if spec.Type == v1alpha3.AgentType_BYO {
-		return sandboxCfg != nil
-	}
-	return spec.Skills != nil
-}
-
-func buildSRTSettingsJSON(sandboxCfg *v1alpha3.SandboxConfig) ([]byte, error) {
-	allowedDomains := []string{}
-	if sandboxCfg != nil && sandboxCfg.Network != nil {
-		allowedDomains = append(allowedDomains, sandboxCfg.Network.AllowedDomains...)
-	}
-
-	return json.Marshal(map[string]any{
-		"network": map[string]any{
-			"allowedDomains": allowedDomains,
-			"deniedDomains":  []string{},
-		},
-		"filesystem": map[string]any{
-			"denyRead":   []string{},
-			"allowWrite": []string{".", "/tmp"},
-			"denyWrite":  []string{},
-		},
-	})
 }
 
 func collectSharedEnv(agent *v1alpha3.SandboxAgent) []corev1.EnvVar {

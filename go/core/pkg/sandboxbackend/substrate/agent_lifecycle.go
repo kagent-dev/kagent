@@ -269,7 +269,6 @@ func kagentAgentSecretEnv(secretName string) []corev1.EnvVar {
 	return []corev1.EnvVar{
 		secretEnv("KAGENT_CONFIG_JSON", secretName, "config.json"),
 		secretEnv("KAGENT_AGENT_CARD_JSON", secretName, "agent-card.json"),
-		secretEnv("KAGENT_SRT_SETTINGS_JSON", secretName, "srt-settings.json", true),
 	}
 }
 

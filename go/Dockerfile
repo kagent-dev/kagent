@@ -30,10 +30,10 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
 
 ### STAGE 2: final image
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest
 ARG TARGETPLATFORM
+
+RUN apk add --no-cache bash ca-certificates
 
 WORKDIR /
 COPY --from=builder /app /app
