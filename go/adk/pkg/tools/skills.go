@@ -114,10 +114,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover skills: %w", err)
 	}
-	commandExecutor, err := skillruntime.NewCommandExecutorFromEnv()
-	if err != nil {
-		return nil, fmt.Errorf("failed to configure bash sandbox: %w", err)
-	}
+	commandExecutor := skillruntime.NewCommandExecutor()
 
 	skillsTool, err := functiontool.New(functiontool.Config{
 		Name:        "skills",

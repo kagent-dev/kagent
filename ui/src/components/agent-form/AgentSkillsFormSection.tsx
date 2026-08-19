@@ -26,7 +26,6 @@ type AgentSkillsFormSectionProps = {
   skillGitRepos: GitSkillFormRow[];
   skillsGitAuthSecretName: string;
   skillS3Repos: S3SkillFormRow[];
-  skillsS3AuthSecretName: string;
   skillsError?: string;
   disabled: boolean;
   resolvedGitSkillRepos: GitRepo[];
@@ -41,7 +40,6 @@ type AgentSkillsFormSectionProps = {
   onS3RowChange: (index: number, next: S3SkillFormRow) => void;
   onAddS3Row: () => void;
   onRemoveS3Row: (index: number) => void;
-  onS3AuthSecretChange: (value: string) => void;
   onClearSkillsError: () => void;
 };
 
@@ -50,7 +48,6 @@ export function AgentSkillsFormSection({
   skillGitRepos,
   skillsGitAuthSecretName,
   skillS3Repos,
-  skillsS3AuthSecretName,
   skillsError,
   disabled,
   resolvedGitSkillRepos,
@@ -65,7 +62,6 @@ export function AgentSkillsFormSection({
   onS3RowChange,
   onAddS3Row,
   onRemoveS3Row,
-  onS3AuthSecretChange,
   onClearSkillsError,
 }: AgentSkillsFormSectionProps) {
   return (
@@ -279,8 +275,7 @@ export function AgentSkillsFormSection({
           </FieldLabel>
           <FieldHint>
             Prefix with <code className="text-xs">SKILL.md</code>, or a <code className="text-xs">.zip</code> /{" "}
-            <code className="text-xs">.tgz</code> archive. Auth uses a Secret with standard AWS key names, wired into the
-            skills init container.
+            <code className="text-xs">.tgz</code> archive. Authentication uses the runtime&apos;s AWS credential chain.
           </FieldHint>
           <div className="mt-3 space-y-4">
             {skillS3Repos.map((row, idx) => {
@@ -365,28 +360,6 @@ export function AgentSkillsFormSection({
                 </div>
               );
             })}
-          </div>
-          <div className="mt-4">
-            <Label className="text-xs text-muted-foreground" htmlFor="s3-skills-auth-secret">
-              AWS credentials secret (optional)
-            </Label>
-            <Input
-              id="s3-skills-auth-secret"
-              className="mt-1"
-              placeholder="e.g. aws-creds (same namespace as agent)"
-              value={skillsS3AuthSecretName}
-              onChange={(e) => {
-                onClearSkillsError();
-                onS3AuthSecretChange(e.target.value);
-              }}
-              disabled={disabled}
-            />
-            <FieldHint className="mt-1">
-              Keys: <code className="text-xs">AWS_ACCESS_KEY_ID</code>,{" "}
-              <code className="text-xs">AWS_SECRET_ACCESS_KEY</code>, optional{" "}
-              <code className="text-xs">AWS_SESSION_TOKEN</code>. Stored as{" "}
-              <code className="text-xs">skills.initContainer.env</code>.
-            </FieldHint>
           </div>
           {skillsError ? (
             <p className="mt-3 flex items-start gap-2 text-sm text-destructive" role="alert">

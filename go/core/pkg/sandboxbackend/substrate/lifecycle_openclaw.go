@@ -77,6 +77,10 @@ func (p *Lifecycle) buildOpenClawActorStartup(ctx context.Context, ah *v1alpha3.
 	if err != nil {
 		return "", nil, err
 	}
+	containerEnv, err = resolvePodEnv(ctx, p.Client, ah.Namespace, containerEnv, nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve actor environment: %w", err)
+	}
 	return script, actorTemplateEnvFromPodEnv(containerEnv), nil
 }
 

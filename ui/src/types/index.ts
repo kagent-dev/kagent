@@ -316,17 +316,12 @@ export interface S3SkillRef {
   name?: string;
 }
 
-export interface SkillsInitContainer {
-  env?: EnvVar[];
-}
-
 export interface SkillForAgent {
   insecureSkipVerify?: boolean;
   refs?: string[];
   gitAuthSecretRef?: { name: string };
   gitRefs?: GitRepo[];
   s3Refs?: S3SkillRef[];
-  initContainer?: SkillsInitContainer;
 }
 
 /** Kubernetes SandboxAgent CRD (kagent.dev/v1alpha3). */
@@ -382,12 +377,7 @@ export interface PromptTemplateDetail {
   data: Record<string, string>;
 }
 
-/** Which ADK implementation runs the agent (Kubernetes `spec.declarative.runtime`). */
-export type DeclarativeRuntime = "python" | "go";
-
 export interface DeclarativeAgentSpec {
-  /** ADK implementation: Python (default) or Go (faster cold start). */
-  runtime?: DeclarativeRuntime;
   systemMessage: string;
   tools: Tool[];
   // Name of the model config resource

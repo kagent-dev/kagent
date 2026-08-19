@@ -42,14 +42,9 @@ type BashTool struct {
 
 // NewBashTool creates a new BashTool
 func NewBashTool(skillsDirectory string) (*BashTool, error) {
-	executor, err := NewCommandExecutorFromEnv()
-	if err != nil {
-		return nil, err
-	}
-
 	return &BashTool{
 		SkillsDirectory: skillsDirectory,
-		executor:        executor,
+		executor:        NewCommandExecutor(),
 	}, nil
 }
 

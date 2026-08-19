@@ -50,10 +50,6 @@ jest.mock("@/components/agent-form/AgentSkillsFormSection", () => ({
   AgentSkillsFormSection: () => null,
 }));
 
-jest.mock("@/components/agent-form/DeclarativeRuntimeField", () => ({
-  DeclarativeRuntimeField: () => null,
-}));
-
 const mockUseRouter = useRouter as jest.Mock;
 const mockUseSearchParams = useSearchParams as jest.Mock;
 

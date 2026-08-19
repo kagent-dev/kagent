@@ -104,7 +104,18 @@ def visible_tools(request: ToolApprovalRequest | AskUserRequest) -> list[HitlToo
 
 def remote_hitl_hint(state: RemoteHitlState) -> str:
     """Build the parent confirmation hint for a paused child task."""
-    names = [tool.name for tool in visible_tools(state.hitl_request)]
+    request = state.hitl_request
+    if isinstance(request, AskUserRequest):
+        # questions carries the real text whether or not nested is set (see
+        # build_hitl_status_message), so prefer it over the bare tool name.
+        question_text = " ".join(
+            question["question"]
+            for question in request.questions
+            if isinstance(question.get("question"), str) and question["question"]
+        )
+        if question_text:
+            return f"Remote agent '{state.subagent_name}' asks: {question_text}"
+    names = [tool.name for tool in visible_tools(request)]
     if names:
         return f"Remote agent '{state.subagent_name}' requires approval for tool(s): {', '.join(names)}"
     return f"Remote agent '{state.subagent_name}' requires human input before continuing."
