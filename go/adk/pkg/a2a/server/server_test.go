@@ -240,6 +240,93 @@ func TestNoPreResponseFlushByDefault(t *testing.T) {
 	}
 }
 
+// sendJSONRPC posts a raw JSON-RPC body to a fresh test server and returns
+// the recorded response.
+func sendJSONRPC(t *testing.T, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	srv, err := NewA2AServer(a2atype.AgentCard{}, substrateExecutor{}, logr.Discard(), ServerConfig{Port: "0"})
+	if err != nil {
+		t.Fatalf("NewA2AServer: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.httpServer.Handler.ServeHTTP(rec, req)
+	return rec
+}
+
+func jsonrpcErrorCode(t *testing.T, rec *httptest.ResponseRecorder) *int {
+	t.Helper()
+
+	var resp struct {
+		Error *struct {
+			Code int `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v: %s", err, rec.Body.String())
+	}
+	if resp.Error == nil {
+		return nil
+	}
+	return &resp.Error.Code
+}
+
+// Every public A2A client SDK (e.g. @a2a-js/sdk) sends the standard
+// slash-namespaced JSON-RPC method names (e.g. "message/send"), which
+// a2a-go/v2's own dispatcher does not recognize on its own. The server must
+// still accept them via the a2acompat/a2av0 shim, alongside the native
+// bare-name methods it already handles.
+func TestJSONRPCCompatDualDispatch(t *testing.T) {
+	t.Run("legacy method name dispatches successfully", func(t *testing.T) {
+		body, err := json.Marshal(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      "1",
+			"method":  "message/send",
+			"params": map[string]any{
+				"message": map[string]any{
+					"kind":      "message",
+					"messageId": "test-msg-1",
+					"role":      "user",
+					"parts":     []map[string]any{{"kind": "text", "text": "hi"}},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+
+		rec := sendJSONRPC(t, body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		if code := jsonrpcErrorCode(t, rec); code != nil {
+			t.Fatalf("legacy message/send returned JSON-RPC error %d: %s", *code, rec.Body.String())
+		}
+	})
+
+	t.Run("unrecognized legacy-shaped method still reports method not found", func(t *testing.T) {
+		body, err := json.Marshal(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      "1",
+			"method":  "tasks/doesNotExist",
+			"params":  map[string]any{},
+		})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+
+		rec := sendJSONRPC(t, body)
+		const jsonRPCMethodNotFound = -32601
+		code := jsonrpcErrorCode(t, rec)
+		if code == nil || *code != jsonRPCMethodNotFound {
+			t.Fatalf("error code = %v, want %d: %s", code, jsonRPCMethodNotFound, rec.Body.String())
+		}
+	})
+}
+
 func TestA2ARequestSizeLimit(t *testing.T) {
 	tests := []struct {
 		name          string
