@@ -25,7 +25,7 @@ import (
 
 // Default model names used when not specified in configuration
 const (
-	DefaultGeminiModel    = "gemini-2.0-flash"
+	DefaultGeminiModel    = "gemini-2.5-flash"
 	DefaultAnthropicModel = "claude-sonnet-4-20250514"
 	DefaultOllamaModel    = "llama3.2"
 )
