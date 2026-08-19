@@ -3,7 +3,6 @@ package models
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -97,7 +96,7 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 		role := strings.TrimSpace(content.Role)
 		var textParts []string
 		var functionCalls []*genai.FunctionCall
-		var imageURLs []string
+		var contentParts responses.ResponseInputMessageContentListParam
 
 		for _, part := range content.Parts {
 			if part == nil {
@@ -107,12 +106,42 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
-			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				imageURLs = append(imageURLs, fmt.Sprintf(
-					"data:%s;base64,%s",
-					part.InlineData.MIMEType,
-					base64.StdEncoding.EncodeToString(part.InlineData.Data),
-				))
+			} else if part.InlineData != nil {
+				mime := part.InlineData.MIMEType
+				name := blobName(part.InlineData)
+				if isImageMIME(mime) {
+					img := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+					img.OfInputImage.ImageURL = param.NewOpt(dataURI(mime, part.InlineData.Data))
+					contentParts = append(contentParts, img)
+				} else if isOpenAIResponsesFileMIME(mime, name) {
+					// Responses input_file: PDF + txt/md/csv/docx/xlsx/pptx/…
+					fileMIME := mime
+					if isOpenAIPDF(mime, name) {
+						fileMIME = "application/pdf"
+					}
+					fname := openAIFilename(name, fileMIME)
+					file := responses.ResponseInputFileParam{
+						FileData: param.NewOpt(dataURI(fileMIME, part.InlineData.Data)),
+						Filename: param.NewOpt(fname),
+					}
+					contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
+				} else {
+					textParts = append(textParts, unsupportedFileNote(name, mime))
+				}
+			} else if part.FileData != nil {
+				mime := part.FileData.MIMEType
+				name := fileDataName(part.FileData)
+				uri := part.FileData.FileURI
+				// file_url is Responses-only (Chat Completions docs: not supported).
+				if uri != "" && isOpenAIResponsesFileMIME(mime, name) {
+					file := responses.ResponseInputFileParam{
+						FileURL:  param.NewOpt(uri),
+						Filename: param.NewOpt(openAIFilename(name, mime)),
+					}
+					contentParts = append(contentParts, responses.ResponseInputContentUnionParam{OfInputFile: &file})
+				} else {
+					textParts = append(textParts, unsupportedFileNote(name, mime))
+				}
 			}
 		}
 
@@ -139,7 +168,7 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 			continue
 		}
 
-		if len(textParts) == 0 && len(imageURLs) == 0 {
+		if len(textParts) == 0 && len(contentParts) == 0 {
 			continue
 		}
 
@@ -148,16 +177,12 @@ func genaiContentsToResponsesInput(contents []*genai.Content, config *genai.Gene
 			msgRole = responses.EasyInputMessageRoleAssistant
 		}
 
-		if len(imageURLs) > 0 {
-			parts := make(responses.ResponseInputMessageContentListParam, 0, len(textParts)+len(imageURLs))
+		if len(contentParts) > 0 {
+			parts := make(responses.ResponseInputMessageContentListParam, 0, len(textParts)+len(contentParts))
 			for _, t := range textParts {
 				parts = append(parts, responses.ResponseInputContentParamOfInputText(t))
 			}
-			for _, url := range imageURLs {
-				img := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
-				img.OfInputImage.ImageURL = param.NewOpt(url)
-				parts = append(parts, img)
-			}
+			parts = append(parts, contentParts...)
 			input = append(input, responses.ResponseInputItemParamOfMessage(parts, msgRole))
 		} else {
 			input = append(input, responses.ResponseInputItemParamOfMessage(strings.Join(textParts, "\n"), msgRole))

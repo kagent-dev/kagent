@@ -51,6 +51,7 @@ from kagent.core.tracing._span_processor import (
 from pydantic import BaseModel
 from typing_extensions import override
 
+from ._bearer_token import bearer_token, extract_bearer_token
 from ._mcp_toolset import is_anyio_cross_task_cancel_scope_error
 from ._remote_a2a_tool import SubagentSessionProvider
 from .converters.event_converter import convert_event_to_a2a_events, serialize_metadata_value
@@ -540,9 +541,13 @@ class A2aAgentExecutor(UpstreamA2aAgentExecutor):
         else:
             # Normal flow: set request headers to session state
             headers = context.call_context.state.get("headers", {})
+            headers = headers if isinstance(headers, dict) else {}
             state_changes = {
                 "headers": headers,
             }
+            # Also stash the token in a ContextVar for consumers with no
+            # callback_context of their own - see _bearer_token.py.
+            bearer_token.set(extract_bearer_token(headers))
 
             actions_with_update = EventActions(state_delta=state_changes)
             system_event = Event(

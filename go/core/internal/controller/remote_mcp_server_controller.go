@@ -40,10 +40,21 @@ var (
 	remoteMCPServerControllerLog = ctrl.Log.WithName("remotemcpserver-controller")
 )
 
+const defaultToolRefreshInterval = 60 * time.Second
+
+func toolRefreshRequeueAfter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return defaultToolRefreshInterval
+	}
+	return d
+}
+
 // RemoteMCPServerController reconciles a RemoteMCPServer object
 type RemoteMCPServerController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
+	// RequeueAfter is how often to refresh discovered tools. Zero uses defaultToolRefreshInterval.
+	RequeueAfter time.Duration
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=remotemcpservers,verbs=get;list;watch;create;update;patch;delete
@@ -59,10 +70,7 @@ func (r *RemoteMCPServerController) Reconcile(ctx context.Context, req ctrl.Requ
 		// Return zero result when there's an error - controller-runtime will handle backoff
 		return ctrl.Result{}, err
 	}
-	// Success - requeue after 60s to refresh tool server status
-	return ctrl.Result{
-		RequeueAfter: 60 * time.Second,
-	}, nil
+	return ctrl.Result{RequeueAfter: toolRefreshRequeueAfter(r.RequeueAfter)}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

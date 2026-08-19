@@ -204,6 +204,10 @@ func genaiContentsToOrchTemplate(contents []*genai.Content, config *genai.Genera
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
+			} else if part.InlineData != nil {
+				textParts = append(textParts, unsupportedFileNote(blobName(part.InlineData), part.InlineData.MIMEType))
+			} else if part.FileData != nil {
+				textParts = append(textParts, unsupportedFileNote(fileDataName(part.FileData), part.FileData.MIMEType))
 			}
 		}
 

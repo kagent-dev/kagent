@@ -130,10 +130,7 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 
 		var textParts []string
 		var functionCalls []*genai.FunctionCall
-		var imageParts []struct {
-			mimeType string
-			data     []byte
-		}
+		var mediaBlocks []anthropic.ContentBlockParamUnion
 
 		for _, part := range content.Parts {
 			if part == nil {
@@ -143,11 +140,31 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
-			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				imageParts = append(imageParts, struct {
-					mimeType string
-					data     []byte
-				}{part.InlineData.MIMEType, part.InlineData.Data})
+			} else if part.InlineData != nil {
+				mime := part.InlineData.MIMEType
+				name := blobName(part.InlineData)
+				if isImageMIME(mime) {
+					mediaBlocks = append(mediaBlocks, anthropic.NewImageBlockBase64(mime, base64.StdEncoding.EncodeToString(part.InlineData.Data)))
+				} else if isAnthropicPDF(mime, name) {
+					mediaBlocks = append(mediaBlocks, anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{
+						Data: base64.StdEncoding.EncodeToString(part.InlineData.Data),
+					}))
+				} else if isAnthropicPlainText(mime, name) {
+					mediaBlocks = append(mediaBlocks, anthropic.NewDocumentBlock(anthropic.PlainTextSourceParam{
+						Data: string(part.InlineData.Data),
+					}))
+				} else {
+					textParts = append(textParts, unsupportedFileNote(name, mime))
+				}
+			} else if part.FileData != nil {
+				mime := part.FileData.MIMEType
+				name := fileDataName(part.FileData)
+				uri := part.FileData.FileURI
+				if uri != "" && isAnthropicPDF(mime, name) {
+					mediaBlocks = append(mediaBlocks, anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{URL: uri}))
+				} else {
+					textParts = append(textParts, unsupportedFileNote(name, mime))
+				}
 			}
 		}
 
@@ -188,13 +205,7 @@ func genaiContentsToAnthropicMessages(contents []*genai.Content, config *genai.G
 		} else {
 			// Regular user message
 			var contentBlocks []anthropic.ContentBlockParamUnion
-
-			// Add images first
-			for _, img := range imageParts {
-				contentBlocks = append(contentBlocks, anthropic.NewImageBlockBase64(img.mimeType, base64.StdEncoding.EncodeToString(img.data)))
-			}
-
-			// Add text
+			contentBlocks = append(contentBlocks, mediaBlocks...)
 			if len(textParts) > 0 {
 				contentBlocks = append(contentBlocks, anthropic.NewTextBlock(strings.Join(textParts, "\n")))
 			}

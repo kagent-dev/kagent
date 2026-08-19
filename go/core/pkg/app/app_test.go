@@ -306,6 +306,21 @@ func TestPostgresConfigFromAppUnset(t *testing.T) {
 	assert.Nil(t, pgCfg.MaxConnLifetime)
 }
 
+func TestToolRefreshIntervalFlag(t *testing.T) {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	cfg := Config{}
+	cfg.SetFlags(fs)
+
+	f := fs.Lookup("tool-refresh-interval")
+	assert.NotNil(t, f, "tool-refresh-interval flag should be registered")
+	assert.Equal(t, "1m0s", f.DefValue, "default should be 60s")
+
+	t.Setenv("TOOL_REFRESH_INTERVAL", "15m")
+	err := LoadFromEnv(fs)
+	assert.NoError(t, err)
+	assert.Equal(t, 15*time.Minute, cfg.ToolRefreshInterval)
+}
+
 func TestSessionRetentionDaysFlag(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	cfg := Config{}
