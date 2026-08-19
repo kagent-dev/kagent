@@ -190,13 +190,15 @@ func TestNewAnthropicClientAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAnthropicClient() error = %v", err)
 	}
-	_, _ = client.Messages.New(context.Background(), anthropic.MessageNewParams{
+	if _, err := client.Messages.New(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("dep"),
 		MaxTokens: 16,
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock("hi")),
 		},
-	})
+	}); err != nil {
+		t.Fatalf("Messages.New() error = %v", err)
+	}
 	if gotPath != "/anthropic/v1/messages" {
 		t.Fatalf("path = %q, want /anthropic/v1/messages", gotPath)
 	}
@@ -225,13 +227,15 @@ func TestNewAnthropicClientWorkloadIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAnthropicClient() error = %v", err)
 	}
-	_, _ = client.Messages.New(context.Background(), anthropic.MessageNewParams{
+	if _, err := client.Messages.New(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.Model("dep"),
 		MaxTokens: 16,
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock("hi")),
 		},
-	})
+	}); err != nil {
+		t.Fatalf("Messages.New() error = %v", err)
+	}
 	if gotAuth != "Bearer entra-token" {
 		t.Fatalf("Authorization = %q, want bearer token", gotAuth)
 	}

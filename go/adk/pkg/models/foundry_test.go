@@ -211,6 +211,15 @@ func TestNewFoundryAnthropicModelRequiresEndpoint(t *testing.T) {
 	}
 }
 
+func TestNewFoundryAnthropicModelRequiresDeployment(t *testing.T) {
+	t.Setenv("FOUNDRY_DEPLOYMENT", "")
+
+	_, err := NewFoundryAnthropicModelWithLogger(context.Background(), &AnthropicConfig{}, "https://example.services.ai.azure.com/", "", nil, logr.Discard())
+	if err == nil || !strings.Contains(err.Error(), "FOUNDRY_DEPLOYMENT environment variable is not set") {
+		t.Fatalf("NewFoundryAnthropicModelWithLogger() error = %v, want missing FOUNDRY_DEPLOYMENT", err)
+	}
+}
+
 // TestFoundryAnthropicAPIKeySendsApiKeyHeader verifies the API-key path: when
 // FOUNDRY_API_KEY is set, requests carry the x-api-key header and hit the
 // Foundry Anthropic Messages path.
