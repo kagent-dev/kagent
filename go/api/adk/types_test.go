@@ -2,8 +2,25 @@ package adk
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
+
+func TestAgentConfigStdioToolsRoundTrip(t *testing.T) {
+	want := []StdioMcpServerConfig{{Command: "server", Args: []string{"--stdio"}, Env: map[string]string{"KEY": "value"}, Dir: "/plugin"}}
+	input := AgentConfig{Model: &OpenAI{BaseModel: BaseModel{Model: "test"}}, StdioTools: want}
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output AgentConfig
+	if err := json.Unmarshal(raw, &output); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(output.StdioTools, want) {
+		t.Fatalf("stdio tools = %#v, want %#v", output.StdioTools, want)
+	}
+}
 
 func TestMarshalJSON_TypeDiscriminator(t *testing.T) {
 	tests := []struct {

@@ -19,6 +19,7 @@ import (
 	runnerpkg "github.com/kagent-dev/kagent/go/adk/pkg/runner"
 	"github.com/kagent-dev/kagent/go/adk/pkg/session"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
+	"github.com/kagent-dev/kagent/go/core/v2/agentplugins"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -90,6 +91,20 @@ func main() {
 	if err != nil {
 		logger.Error(err, "Failed to load agent config (model configuration is required)", "configDir", configDir)
 		os.Exit(1)
+	}
+	pluginConfig, err := agentplugins.MaterializeFromEnv(logr.NewContext(context.Background(), logger))
+	if err != nil {
+		logger.Error(err, "Failed to materialize Agent Plugins")
+		os.Exit(1)
+	}
+	agentConfig.HttpTools = append(agentConfig.HttpTools, pluginConfig.HTTP...)
+	agentConfig.SseTools = append(agentConfig.SseTools, pluginConfig.SSE...)
+	agentConfig.StdioTools = append(agentConfig.StdioTools, pluginConfig.Stdio...)
+	if pluginConfig.HasSkills {
+		if err := os.Setenv("KAGENT_SKILLS_FOLDER", agentplugins.DefaultSkillsRoot); err != nil {
+			logger.Error(err, "Failed to configure Agent Plugins skills directory")
+			os.Exit(1)
+		}
 	}
 	logger.Info("Loaded agent config", "configDir", configDir)
 	logger.Info("Agent configuration",

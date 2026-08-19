@@ -43,6 +43,24 @@ func CloneGit(ref GitRef) error {
 	return nil
 }
 
+// CloneGitCommit fetches only one immutable commit instead of cloning the
+// repository's complete history.
+func CloneGitCommit(url, commit, destination string) error {
+	if err := os.MkdirAll(destination, 0o755); err != nil {
+		return err
+	}
+	if err := runGitIn(destination, "init"); err != nil {
+		return err
+	}
+	if err := runGitIn(destination, "remote", "add", "origin", url); err != nil {
+		return err
+	}
+	if err := runGitIn(destination, "fetch", "--depth", "1", "origin", commit); err != nil {
+		return err
+	}
+	return runGitIn(destination, "checkout", "--detach", "FETCH_HEAD")
+}
+
 func runGit(args ...string) error {
 	return runGitIn("", args...)
 }

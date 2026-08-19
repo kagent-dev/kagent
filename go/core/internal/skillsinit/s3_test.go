@@ -137,10 +137,12 @@ func Test_fetchS3_zipArchive(t *testing.T) {
 	}
 	dst := t.TempDir()
 	err = fetchS3(context.Background(), client, S3Ref{
-		URI:  "s3://skills/bundles/ops.zip",
-		Dest: dst,
+		URI:       "s3://skills/bundles/ops.zip",
+		Dest:      dst,
+		VersionID: "version-1",
 	})
 	require.NoError(t, err)
+	assert.Equal(t, "version-1", client.gotVersionID)
 	assert.Equal(t, "# from zip", readFile(t, filepath.Join(dst, "SKILL.md")))
 }
 
@@ -177,7 +179,8 @@ func Test_fetchS3_tgzArchive(t *testing.T) {
 }
 
 type fakeS3 struct {
-	objects map[string][]byte
+	objects      map[string][]byte
+	gotVersionID string
 }
 
 func (f *fakeS3) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
@@ -193,6 +196,7 @@ func (f *fakeS3) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Inpu
 }
 
 func (f *fakeS3) GetObject(ctx context.Context, params *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	f.gotVersionID = aws.ToString(params.VersionId)
 	key := aws.ToString(params.Key)
 	data, ok := f.objects[key]
 	if !ok {
