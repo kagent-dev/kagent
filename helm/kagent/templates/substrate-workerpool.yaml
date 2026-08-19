@@ -8,7 +8,13 @@
   {{- end }}
 {{- end }}
 {{- if not $ateomImage }}
-{{- fail "substrateWorkerPool.ateomImage is required when substrateWorkerPool.create=true" }}
+  {{/* .Chart.Dependencies only lists sub-charts whose own "condition" is
+       currently true (here, the top-level substrate.enabled) - so this is
+       reached when substrate/ate-system isn't bundled by this release, e.g.
+       installed separately and possibly at a different version. Don't guess
+       this chart's own pinned version in that case - require an explicit
+       value instead. */}}
+  {{- fail "substrateWorkerPool.ateomImage is required when substrateWorkerPool.create=true and the \"substrate\" chart dependency isn't enabled (substrate.enabled=false) - set it explicitly to match your ate-system version" }}
 {{- end }}
 apiVersion: ate.dev/v1alpha1
 kind: WorkerPool
