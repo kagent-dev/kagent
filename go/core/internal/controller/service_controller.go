@@ -37,6 +37,8 @@ import (
 type ServiceController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
+	// RequeueAfter is how often to refresh discovered tools. Zero uses defaultToolRefreshInterval.
+	RequeueAfter time.Duration
 }
 
 // +kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch
@@ -57,7 +59,7 @@ func (r *ServiceController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+	return ctrl.Result{RequeueAfter: toolRefreshRequeueAfter(r.RequeueAfter)}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

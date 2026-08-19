@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,11 @@ func (f *fakeServiceReconciler) GetOwnedResourceTypes() []client.Object {
 
 // TestServiceController_ErrorTypeDetection tests that the controller
 // correctly distinguishes between ValidationError and other errors.
+func TestToolRefreshRequeueAfter(t *testing.T) {
+	assert.Equal(t, defaultToolRefreshInterval, toolRefreshRequeueAfter(0))
+	assert.Equal(t, 15*time.Minute, toolRefreshRequeueAfter(15*time.Minute))
+}
+
 func TestServiceController_ErrorTypeDetection(t *testing.T) {
 	ctx := context.Background()
 

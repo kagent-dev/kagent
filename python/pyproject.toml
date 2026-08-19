@@ -23,7 +23,7 @@ constraint-dependencies = [
     "pyopenssl>=26.0.0",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
-    "sqlparse>=0.5.5",
+    "sqlparse>=0.6.0",
     "wheel>=0.46.2",
 ]
 

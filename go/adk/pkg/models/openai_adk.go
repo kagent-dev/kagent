@@ -248,7 +248,7 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 		role := strings.TrimSpace(content.Role)
 		var textParts []string
 		var functionCalls []*genai.FunctionCall
-		var imageParts []openai.ChatCompletionContentPartImageImageURLParam
+		var contentParts []openai.ChatCompletionContentPartUnionParam
 
 		for _, part := range content.Parts {
 			if part == nil {
@@ -258,10 +258,29 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 				textParts = append(textParts, part.Text)
 			} else if part.FunctionCall != nil {
 				functionCalls = append(functionCalls, part.FunctionCall)
-			} else if part.InlineData != nil && strings.HasPrefix(part.InlineData.MIMEType, "image/") {
-				imageParts = append(imageParts, openai.ChatCompletionContentPartImageImageURLParam{
-					URL: fmt.Sprintf("data:%s;base64,%s", part.InlineData.MIMEType, base64.StdEncoding.EncodeToString(part.InlineData.Data)),
-				})
+			} else if part.InlineData != nil {
+				mime := part.InlineData.MIMEType
+				name := blobName(part.InlineData)
+				if isImageMIME(mime) {
+					contentParts = append(contentParts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+						URL: dataURI(mime, part.InlineData.Data),
+					}))
+				} else if isOpenAIPDF(mime, name) {
+					// Chat Completions file_data accepts PDF only (not txt/docx/…).
+					file := openai.ChatCompletionContentPartFileFileParam{
+						FileData: param.NewOpt(dataURI("application/pdf", part.InlineData.Data)),
+						Filename: param.NewOpt(openAIFilename(name, "application/pdf")),
+					}
+					contentParts = append(contentParts, openai.FileContentPart(file))
+				} else if isTextFileMIME(mime, name) {
+					// Fallback: inline text so .txt still reaches the model on CC.
+					textParts = append(textParts, inlineFileText(name, part.InlineData.Data))
+				} else {
+					textParts = append(textParts, unsupportedFileNote(name, mime))
+				}
+			} else if part.FileData != nil {
+				// Chat Completions has no file_url; only Responses does.
+				textParts = append(textParts, unsupportedFileNote(fileDataName(part.FileData), part.FileData.MIMEType))
 			}
 		}
 
@@ -311,14 +330,12 @@ func genaiContentsToOpenAIMessages(contents []*genai.Content, config *genai.Gene
 			messages = append(messages, openai.ChatCompletionMessageParamUnion{OfAssistant: &asst})
 			messages = append(messages, toolResponseMessages...)
 		} else {
-			if len(imageParts) > 0 {
-				parts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(textParts)+len(imageParts))
+			if len(contentParts) > 0 {
+				parts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(textParts)+len(contentParts))
 				for _, t := range textParts {
 					parts = append(parts, openai.TextContentPart(t))
 				}
-				for _, img := range imageParts {
-					parts = append(parts, openai.ImageContentPart(img))
-				}
+				parts = append(parts, contentParts...)
 				messages = append(messages, openai.UserMessage(parts))
 			} else if len(textParts) > 0 {
 				messages = append(messages, openai.UserMessage(strings.Join(textParts, "\n")))
