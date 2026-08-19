@@ -34,7 +34,7 @@ func (r *recordingActorClient) GetActor(_ context.Context, in *ateapipb.GetActor
 	}
 	return &ateapipb.Actor{
 		Metadata: &ateapipb.ResourceMetadata{Name: name, Atespace: in.GetActor().GetAtespace()},
-		Status:   ateapipb.Actor_STATUS_SUSPENDED,
+		Status:   &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
 	}, nil
 }
 

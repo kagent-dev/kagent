@@ -134,8 +134,10 @@ func TestGetSubstrateStatus(t *testing.T) {
 		).Build()
 		ateClient := &fakeATEClient{
 			actors: []*ateapipb.Actor{{
-				Metadata:               &ateapipb.ResourceMetadata{Name: "actor-1"},
-				Status:                 ateapipb.Actor_STATUS_RUNNING,
+				Metadata: &ateapipb.ResourceMetadata{Name: "actor-1"},
+				Status: &ateapipb.ActorStatus{
+					State: ateapipb.ActorState_ACTOR_STATE_RUNNING,
+				},
 				ActorTemplateNamespace: "team",
 				ActorTemplateName:      "template",
 			}},

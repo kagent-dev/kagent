@@ -40,6 +40,7 @@ jobs:
       - setup
     env:
       VERSION: v0.0.1-test
+      SUBSTRATE_VERSION: 0.0.15
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -80,14 +81,16 @@ jobs:
 
       - name: Install Agent Substrate
         run: |
-          helm upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds --version 0.0.13 --namespace ate-system --create-namespace
-          helm upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version 0.0.13 --namespace ate-system --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000'
-          go -C go run -mod=mod github.com/agent-substrate/substrate/cmd/kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
-          go -C go run -mod=mod github.com/agent-substrate/substrate/cmd/kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
-          go -C go run -mod=mod github.com/agent-substrate/substrate/cmd/kubectl-ate --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
-          go -C go run -mod=mod github.com/agent-substrate/substrate/cmd/kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
+          curl -fsSL -o kubectl-ate "https://github.com/kagent-dev/substrate/releases/download/v${SUBSTRATE_VERSION}/kubectl-ate-linux-amd64"
+          chmod +x kubectl-ate
+          helm upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds --version "${SUBSTRATE_VERSION}" --namespace ate-system --create-namespace
+          helm upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system --set-string 'atelet.extraArgs[0]=--localhost-registry-replacement=kind-registry:5000'
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
+          ./kubectl-ate --context kind-kagent admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
+          ./kubectl-ate --context kind-kagent admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
           kubectl create configmap ate-api-authentication -n ate-system --from-literal=authentication.yaml=$'actorIdentityJWTProvider: kubernetes\njwtProviders:\n- name: kubernetes\n  issuer: https://kubernetes.default.svc\n  audiences: [api.ate-system.svc]\n  certificateAuthorityFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt\n  discoveryTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token\n'
-          helm upgrade substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version 0.0.13 --namespace ate-system --reuse-values --wait --timeout 5m
+          helm upgrade substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate --version "${SUBSTRATE_VERSION}" --namespace ate-system --reuse-values --wait --timeout 5m
 
       - name: Install Kagent
         id: install-kagent
@@ -107,7 +110,7 @@ jobs:
             --set controller.substrate.defaultWorkerPool.name=kagent-default
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=1
-            --set-string substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor@sha256:762ace8746c7b919474d8418e0086037a9b6450bc42c6b875efb3314447abf54
+            --set-string substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor@sha256:dbc40a126d5ff196d4cbd30b370995596ed2a0d4aa4135ba2e8f3e57934f2454
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
@@ -305,6 +308,8 @@ jobs:
       - name: Run Go unit tests
         working-directory: go
         run: |
+          make setup-envtest
+          export KUBEBUILDER_ASSETS="$(make -s envtest-path)"
           go test -race -skip 'TestE2E.*' -v ./...
 
   helm-unit-tests:
