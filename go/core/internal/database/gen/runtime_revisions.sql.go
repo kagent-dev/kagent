@@ -28,7 +28,7 @@ func (q *Queries) DeleteUnreferencedRuntimeRevision(ctx context.Context, revisio
 }
 
 const getRuntimeRevision = `-- name: GetRuntimeRevision :one
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_namespace, actor_template_name, actor_template_uid, phase, golden_snapshot, created_at, updated_at FROM runtime_revision WHERE revision = $1
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_namespace, actor_template_name, actor_template_uid, phase, golden_snapshot, created_at, updated_at, agent_card FROM runtime_revision WHERE revision = $1
 `
 
 func (q *Queries) GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error) {
@@ -50,12 +50,13 @@ func (q *Queries) GetRuntimeRevision(ctx context.Context, revision string) (Runt
 		&i.GoldenSnapshot,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AgentCard,
 	)
 	return i, err
 }
 
 const listUnreferencedRuntimeRevisions = `-- name: ListUnreferencedRuntimeRevisions :many
-SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_namespace, actor_template_name, actor_template_uid, phase, golden_snapshot, created_at, updated_at FROM runtime_revision r
+SELECT revision, namespace, agent_template_name, agent_template_uid, harness_name, harness_uid, source_snapshot, egress_destinations, actor_template_namespace, actor_template_name, actor_template_uid, phase, golden_snapshot, created_at, updated_at, agent_card FROM runtime_revision r
 WHERE NOT EXISTS (
     SELECT 1 FROM agent_template_harness_pair p
     WHERE p.retired_at IS NULL
@@ -91,6 +92,7 @@ func (q *Queries) ListUnreferencedRuntimeRevisions(ctx context.Context) ([]Runti
 			&i.GoldenSnapshot,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AgentCard,
 		); err != nil {
 			return nil, err
 		}
@@ -221,14 +223,15 @@ func (q *Queries) UpsertAgentTemplateHarnessPair(ctx context.Context, arg Upsert
 const upsertRuntimeRevision = `-- name: UpsertRuntimeRevision :exec
 INSERT INTO runtime_revision (
     revision, namespace, agent_template_name, agent_template_uid,
-    harness_name, harness_uid, source_snapshot, egress_destinations,
+    harness_name, harness_uid, source_snapshot, agent_card, egress_destinations,
     actor_template_namespace, actor_template_name, actor_template_uid,
     phase, golden_snapshot
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8,
-    $9, $10, $11, $12, $13
+    $9, $10, $11, $12, $13, $14
 )
 ON CONFLICT (revision) DO UPDATE SET
+    agent_card = EXCLUDED.agent_card,
     actor_template_uid = EXCLUDED.actor_template_uid,
     phase = EXCLUDED.phase,
     golden_snapshot = EXCLUDED.golden_snapshot,
@@ -243,6 +246,7 @@ type UpsertRuntimeRevisionParams struct {
 	HarnessName            string
 	HarnessUid             string
 	SourceSnapshot         []byte
+	AgentCard              []byte
 	EgressDestinations     []string
 	ActorTemplateNamespace string
 	ActorTemplateName      string
@@ -260,6 +264,7 @@ func (q *Queries) UpsertRuntimeRevision(ctx context.Context, arg UpsertRuntimeRe
 		arg.HarnessName,
 		arg.HarnessUid,
 		arg.SourceSnapshot,
+		arg.AgentCard,
 		arg.EgressDestinations,
 		arg.ActorTemplateNamespace,
 		arg.ActorTemplateName,
