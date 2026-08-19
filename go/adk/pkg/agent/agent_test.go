@@ -110,9 +110,9 @@ func TestConfigDeserialization_AllTypes(t *testing.T) {
 		},
 		{
 			name:      "gemini",
-			json:      `{"type":"gemini","model":"gemini-2.0-flash"}`,
+			json:      `{"type":"gemini","model":"gemini-2.5-flash"}`,
 			wantType:  "gemini",
-			wantModel: "gemini-2.0-flash",
+			wantModel: "gemini-2.5-flash",
 		},
 		{
 			name:      "gemini_vertex_ai",
