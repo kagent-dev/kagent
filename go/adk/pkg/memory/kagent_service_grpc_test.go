@@ -275,6 +275,15 @@ func TestKagentMemoryServiceExtractSessionContent(t *testing.T) {
 			},
 			wantContent: `"condition":"sunny"`,
 		},
+		{
+			name: "long function response is truncated",
+			events: []*adksession.Event{
+				newMockEventWithFunctionResponse("agent", "get_weather", map[string]any{
+					"forecast": strings.Repeat("x", 1000),
+				}),
+			},
+			wantContent: "...(truncated)",
+		},
 	}
 
 	for _, test := range tests {

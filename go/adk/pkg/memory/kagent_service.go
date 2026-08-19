@@ -42,6 +42,8 @@ type Config struct {
 	Model adkmodel.LLM
 }
 
+const maxToolResultChars = 500
+
 // New creates a new KagentMemoryService.
 func New(cfg Config) (*KagentMemoryService, error) {
 	if cfg.AgentName == "" {
@@ -315,7 +317,11 @@ func (s *KagentMemoryService) extractSessionContent(session adksession.Session) 
 				if err != nil || len(responseJSON) == 0 {
 					continue
 				}
-				text = fmt.Sprintf("[tool result from %s]: %s", part.FunctionResponse.Name, responseJSON)
+				truncated := string(responseJSON)
+				if len(truncated) > maxToolResultChars {
+					truncated = truncated[:maxToolResultChars] + "...(truncated)"
+				}
+				text = fmt.Sprintf("[tool result from %s]: %s", part.FunctionResponse.Name, truncated)
 			}
 
 			if text != "" {
