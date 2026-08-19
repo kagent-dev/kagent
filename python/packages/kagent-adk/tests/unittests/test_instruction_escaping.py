@@ -39,7 +39,7 @@ def _make_agent_config(instruction: str):
     import kagent.adk.types as types_mod
 
     return types_mod.AgentConfig(
-        model={"type": "gemini", "model": "gemini-2.0-flash"},
+        model={"type": "gemini", "model": "gemini-2.5-flash"},
         description="test agent",
         instruction=instruction,
     )

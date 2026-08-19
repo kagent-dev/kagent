@@ -181,6 +181,9 @@ controller:
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
   a2aBaseUrl: ""
+  # -- Public gRPC URL advertised by AgentInstance Agent Cards.
+  # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
+  a2aGatewayUrl: ""
   agentImage:
     registry: ""
     repository: kagent-dev/kagent/app
@@ -647,7 +650,7 @@ providers:
       azureEndpoint: ""
   gemini:
     provider: Gemini
-    model: "gemini-2.0-flash-lite"
+    model: "gemini-2.5-flash-lite"
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""
