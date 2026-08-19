@@ -237,7 +237,7 @@ func agentPluginSourceDestinations(config adk.AgentPluginConfig) []string {
 
 func agentPluginConfig(template *v1alpha3.AgentTemplate) (adk.AgentPluginConfig, error) {
 	result := adk.AgentPluginConfig{
-		Skills:  make([]adk.AgentPluginSkill, 0, len(template.Spec.Skills)),
+		Skills:  make([]adk.StandaloneSkill, 0, len(template.Spec.Skills)),
 		Plugins: make([]adk.AgentPluginBundle, 0, len(template.Spec.Plugins)),
 	}
 	names := make(map[string]struct{})
@@ -246,7 +246,7 @@ func agentPluginConfig(template *v1alpha3.AgentTemplate) (adk.AgentPluginConfig,
 			return adk.AgentPluginConfig{}, newValidationError("duplicate skill name %q", skill.Name)
 		}
 		names[skill.Name] = struct{}{}
-		result.Skills = append(result.Skills, adk.AgentPluginSkill{Name: skill.Name, Source: agentPluginSource(skill.Source)})
+		result.Skills = append(result.Skills, adk.StandaloneSkill{Name: skill.Name, Source: agentPluginSource(skill.Source)})
 	}
 	for _, plugin := range template.Spec.Plugins {
 		for _, name := range plugin.Skills {

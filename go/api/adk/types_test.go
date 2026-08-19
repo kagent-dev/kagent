@@ -8,7 +8,7 @@ import (
 
 func TestAgentConfigStdioToolsRoundTrip(t *testing.T) {
 	want := []StdioMcpServerConfig{{Command: "server", Args: []string{"--stdio"}, Env: map[string]string{"KEY": "value"}, Dir: "/plugin"}}
-	wantPlugins := &AgentPluginConfig{Skills: []AgentPluginSkill{{
+	wantPlugins := &AgentPluginConfig{Skills: []StandaloneSkill{{
 		Name: "review",
 		Source: AgentPluginSource{Git: &AgentPluginGit{
 			URL: "https://example.com/plugin.git", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

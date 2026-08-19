@@ -551,11 +551,13 @@ type NetworkConfig struct {
 // AgentPluginConfig describes immutable Agent Plugin and standalone skill
 // packages that the runtime must download before starting the agent.
 type AgentPluginConfig struct {
-	Skills  []AgentPluginSkill  `json:"skills,omitempty"`
+	Skills  []StandaloneSkill   `json:"skills,omitempty"`
 	Plugins []AgentPluginBundle `json:"plugins,omitempty"`
 }
 
-type AgentPluginSkill struct {
+// StandaloneSkill identifies one independently sourced skill, rather than a
+// skill selected from an Agent Plugin bundle.
+type StandaloneSkill struct {
 	Name   string            `json:"name"`
 	Source AgentPluginSource `json:"source"`
 }
