@@ -41,6 +41,8 @@ var mcpServerGK = schema.GroupKind{Group: "kagent.dev", Kind: "MCPServer"}
 type MCPServerToolController struct {
 	Scheme     *runtime.Scheme
 	Reconciler reconciler.KagentReconciler
+	// RequeueAfter is how often to refresh discovered tools. Zero uses defaultToolRefreshInterval.
+	RequeueAfter time.Duration
 }
 
 // +kubebuilder:rbac:groups=kagent.dev,resources=mcpservers,verbs=get;list;watch
@@ -60,10 +62,7 @@ func (r *MCPServerToolController) Reconcile(ctx context.Context, req ctrl.Reques
 		// Transient error - return error to trigger exponential backoff retry
 		return ctrl.Result{}, err
 	}
-	// Success - requeue after 60s to refresh tool server status
-	return ctrl.Result{
-		RequeueAfter: 60 * time.Second,
-	}, nil
+	return ctrl.Result{RequeueAfter: toolRefreshRequeueAfter(r.RequeueAfter)}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -199,6 +199,23 @@ tests:
           path: data.MCP_EGRESS_PLAINTEXT
           value: "true"
 
+  - it: should default TOOL_REFRESH_INTERVAL to 60s
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.TOOL_REFRESH_INTERVAL
+          value: "60s"
+
+  - it: should set TOOL_REFRESH_INTERVAL when configured
+    template: controller-configmap.yaml
+    set:
+      controller:
+        toolRefreshInterval: "15m"
+    asserts:
+      - equal:
+          path: data.TOOL_REFRESH_INTERVAL
+          value: "15m"
+
   - it: should use custom loglevel when set
     template: controller-configmap.yaml
     set:

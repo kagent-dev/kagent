@@ -2,7 +2,7 @@
 
 import type React from "react";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { ArrowBigUp, X, Loader2, Mic, Square } from "lucide-react";
+import { ArrowBigUp, X, Loader2, Mic, Square, Paperclip, FileIcon, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -45,6 +45,63 @@ import {
   type SessionGuardOptions,
 } from "@/lib/chatSessionGuard";
 
+// Soft client caps aligned with the strictest common provider (Bedrock Converse):
+// images ≤ 3.75 MB and ≤ 8000×8000 px; documents ≤ 4.5 MB; ≤ 5 files per message.
+const MAX_CHAT_IMAGE_BYTES = Math.floor(3.75 * 1024 * 1024);
+const MAX_CHAT_DOC_BYTES = Math.floor(4.5 * 1024 * 1024);
+const MAX_CHAT_IMAGE_PX = 8000;
+const MAX_CHAT_FILES = 5;
+
+type PendingChatFile = {
+  id: string;
+  name: string;
+  mimeType: string;
+  bytes: string; // raw base64 (no data: prefix)
+};
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Returns false when dimensions exceed maxPx. Unreadable images pass (provider rejects). */
+async function imageWithinPixelLimit(file: File, maxPx: number): Promise<boolean> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const ok = bmp.width <= maxPx && bmp.height <= maxPx;
+    bmp.close();
+    return ok;
+  } catch {
+    return true;
+  }
+}
+
+/** Build A2A message parts: optional text + FileParts (wire shape a2a-go accepts). */
+function buildUserMessageParts(text: string, files: PendingChatFile[]): Message["parts"] {
+  // SDK Part typings are protobuf-shaped; chat already sends JSON {kind,text} parts.
+  const parts: Message["parts"] = [];
+  const push = (part: unknown) => parts.push(part as Message["parts"][number]);
+  const trimmed = text.trim();
+  if (trimmed) {
+    push({ kind: "text", text: trimmed });
+  }
+  for (const file of files) {
+    push({
+      kind: "file",
+      file: {
+        bytes: file.bytes,
+        mimeType: file.mimeType,
+        name: file.name,
+      },
+    });
+  }
+  return parts;
+}
+
 interface ChatInterfaceProps {
   selectedAgentName: string;
   selectedNamespace: string;
@@ -61,7 +118,15 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const substrateSandbox = useChatSubstrateSandbox();
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileDragDepthRef = useRef(0);
   const [currentInputMessage, setCurrentInputMessage] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<PendingChatFile[]>([]);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  // File attach is Go declarative agents only (Python adapters still drop non-images).
+  const supportsFileAttach =
+    currentAgent.agent?.spec?.type === "Declarative" &&
+    currentAgent.agent?.spec?.declarative?.runtime === "go";
 
   const [chatStatus, setChatStatus] = useState<ChatStatus>("ready");
 
@@ -299,12 +364,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     userMessageText: string,
     options: {
       clearInput?: boolean;
+      /** When false, do not attach/clear staged files (MCP ui/message path). */
+      attachPendingFiles?: boolean;
       restoreInputOnError?: boolean;
       errorLabel?: string;
       rethrowOnError?: boolean;
     } = {},
   ) => {
-    if (!userMessageText.trim() || !selectedAgentName || !selectedNamespace) {
+    const attachPendingFiles = options.attachPendingFiles ?? true;
+    const filesToSend = attachPendingFiles ? pendingFiles : [];
+    if ((!userMessageText.trim() && filesToSend.length === 0) || !selectedAgentName || !selectedNamespace) {
       return;
     }
     if (chatStatus !== "ready") {
@@ -314,10 +383,6 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         throw error;
       }
       return;
-    }
-
-    if (options.clearInput ?? true) {
-      setCurrentInputMessage("");
     }
 
     // Cross-tab guard: fetch the latest session state before mutating anything.
@@ -333,10 +398,16 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           staleOrChanged: "New messages loaded — please review before sending",
         },
       });
+      // Don't clear staged files/input if the send was blocked.
       if (guardResult === "blocked") return;
     }
 
-    setCurrentInputMessage("");
+    if (options.clearInput ?? true) {
+      setCurrentInputMessage("");
+    }
+    if (attachPendingFiles) {
+      setPendingFiles([]);
+    }
     setChatStatus("thinking");
     setStoredMessages(prev => [...prev, ...streamingMessages]);
     setStreamingMessages([]);
@@ -347,16 +418,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     pendingTurnStatsRef.current = undefined;
 
     const messageId = uuidv4();
+    const messageParts = buildUserMessageParts(userMessageText, filesToSend);
 
     // For new sessions or when no stored messages exist, show the user message immediately
     const userMessage: Message = {
       kind: "message",
       messageId,
       role: "user",
-      parts: [{
-        kind: "text",
-        text: userMessageText
-      }],
+      parts: messageParts,
       contextId: guardSessionId,
       metadata: {
         timestamp: Date.now()
@@ -385,7 +454,10 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           isCreatingSessionRef.current = true;
           setIsFirstMessage(true);
 
-          const sessionName = deriveSessionTitle(userMessageText);
+          const sessionName =
+            deriveSessionTitle(userMessageText) ||
+            deriveSessionTitle(filesToSend[0]?.name ?? "") ||
+            "New Chat";
           const newSessionResponse = await createSession({
             agent_ref: `${selectedNamespace}/${selectedAgentName}`,
             name: sessionName,
@@ -395,6 +467,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
             toast.error("Failed to create session");
             setChatStatus("error");
             setCurrentInputMessage(userMessageText);
+            if (attachPendingFiles) setPendingFiles(filesToSend);
             isCreatingSessionRef.current = false;
             return;
           }
@@ -421,6 +494,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
           toast.error("Error creating session");
           setChatStatus("error");
           setCurrentInputMessage(userMessageText);
+          if (attachPendingFiles) setPendingFiles(filesToSend);
           isCreatingSessionRef.current = false;
           return;
         }
@@ -462,10 +536,14 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
         messageId,
         contextId: currentSessionId,
       });
+      a2aMessage.parts = messageParts;
 
       await streamA2AMessage(a2aMessage, {
         errorLabel: "Streaming failed",
-        onError: () => setCurrentInputMessage(userMessageText),
+        onError: () => {
+          setCurrentInputMessage(userMessageText);
+          if (attachPendingFiles) setPendingFiles(filesToSend);
+        },
         sessionIdForWait: currentSessionId,
       });
     } catch (error) {
@@ -474,6 +552,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
       setChatStatus("error");
       if (options.restoreInputOnError ?? true) {
         setCurrentInputMessage(userMessageText);
+        if (attachPendingFiles) setPendingFiles(filesToSend);
       }
       if (options.rethrowOnError) {
         throw error;
@@ -481,12 +560,106 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
     }
   };
 
+  const handleAttachFiles = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    // Read first; enforce MAX_CHAT_FILES in the state updater so overlapping
+    // picker/drop ops cannot both append past the cap.
+    const candidates: PendingChatFile[] = [];
+    for (const file of Array.from(fileList)) {
+      const isImage = file.type.startsWith("image/");
+      const maxBytes = isImage ? MAX_CHAT_IMAGE_BYTES : MAX_CHAT_DOC_BYTES;
+      if (file.size > maxBytes) {
+        const mb = (maxBytes / (1024 * 1024)).toFixed(2);
+        toast.error(`${file.name} exceeds the ${mb}MB ${isImage ? "image" : "file"} limit`);
+        continue;
+      }
+      if (isImage && !(await imageWithinPixelLimit(file, MAX_CHAT_IMAGE_PX))) {
+        toast.error(`${file.name} exceeds the ${MAX_CHAT_IMAGE_PX}×${MAX_CHAT_IMAGE_PX}px image limit`);
+        continue;
+      }
+      try {
+        const dataUrl = await readFileAsDataURL(file);
+        const comma = dataUrl.indexOf(",");
+        const bytes = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+        candidates.push({
+          id: uuidv4(),
+          name: file.name,
+          mimeType: file.type || "application/octet-stream",
+          bytes,
+        });
+      } catch {
+        toast.error(`Failed to read ${file.name}`);
+      }
+    }
+    if (candidates.length > 0) {
+      let overflow = false;
+      setPendingFiles(prev => {
+        const room = MAX_CHAT_FILES - prev.length;
+        if (room <= 0) {
+          overflow = true;
+          return prev;
+        }
+        if (candidates.length > room) {
+          overflow = true;
+          return [...prev, ...candidates.slice(0, room)];
+        }
+        return [...prev, ...candidates];
+      });
+      if (overflow) {
+        toast.error(`You can attach at most ${MAX_CHAT_FILES} files per message`);
+      }
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const resetFileDrag = () => {
+    fileDragDepthRef.current = 0;
+    setIsDraggingFiles(false);
+  };
+
+  const handleComposerDragEnter = (e: React.DragEvent) => {
+    if (!supportsFileAttach || chatStatus !== "ready") return;
+    if (![...e.dataTransfer.types].includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fileDragDepthRef.current += 1;
+    setIsDraggingFiles(true);
+  };
+
+  const handleComposerDragLeave = (e: React.DragEvent) => {
+    if (!supportsFileAttach) return;
+    e.preventDefault();
+    e.stopPropagation();
+    fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+    if (fileDragDepthRef.current === 0) {
+      setIsDraggingFiles(false);
+    }
+  };
+
+  const handleComposerDragOver = (e: React.DragEvent) => {
+    if (!supportsFileAttach || chatStatus !== "ready") return;
+    if (![...e.dataTransfer.types].includes("Files")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleComposerDrop = (e: React.DragEvent) => {
+    if (!supportsFileAttach || chatStatus !== "ready") return;
+    e.preventDefault();
+    e.stopPropagation();
+    resetFileDrag();
+    void handleAttachFiles(e.dataTransfer.files);
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isListening) {
       stopListening();
     }
-    if (!currentInputMessage.trim()) {
+    if (!currentInputMessage.trim() && pendingFiles.length === 0) {
       return;
     }
 
@@ -499,6 +672,7 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const handleMcpAppSendMessage = async (text: string) => {
     await sendChatMessageText(text, {
       clearInput: false,
+      attachPendingFiles: false, // don't send/clear user-staged attachments
       restoreInputOnError: false,
       errorLabel: "MCP app message failed",
       rethrowOnError: true,
@@ -986,7 +1160,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      if (currentInputMessage.trim() && selectedAgentName && selectedNamespace && chatStatus === "ready") {
+      if (
+        (currentInputMessage.trim() || pendingFiles.length > 0) &&
+        selectedAgentName &&
+        selectedNamespace &&
+        chatStatus === "ready"
+      ) {
         handleSendMessage(e);
       }
     }
@@ -1100,18 +1279,92 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
               </div>
             </div>
 
-            <form onSubmit={handleSendMessage}>
+            <form
+              onSubmit={handleSendMessage}
+              onDragEnter={handleComposerDragEnter}
+              onDragLeave={handleComposerDragLeave}
+              onDragOver={handleComposerDragOver}
+              onDrop={handleComposerDrop}
+              className={`relative rounded-md transition-colors ${isDraggingFiles ? "ring-2 ring-primary/50 bg-primary/5" : ""}`}
+              data-testid="chat-composer"
+            >
+              {isDraggingFiles && (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-md border border-dashed border-primary/40 bg-background/70 text-sm text-muted-foreground">
+                  Drop files to attach
+                </div>
+              )}
               <Textarea
                 data-testid="chat-input"
                 value={currentInputMessage}
                 onChange={(e) => setCurrentInputMessage(e.target.value)}
-                placeholder={getStatusPlaceholder(chatStatus)}
+                placeholder={
+                  supportsFileAttach && chatStatus === "ready"
+                    ? `${getStatusPlaceholder(chatStatus)} (or drop files here)`
+                    : getStatusPlaceholder(chatStatus)
+                }
                 onKeyDown={handleKeyDown}
                 className={`min-h-[100px] border-0 shadow-none p-0 focus-visible:ring-0 resize-none ${chatStatus !== "ready" ? "opacity-50 cursor-not-allowed" : ""}`}
                 disabled={chatStatus !== "ready"}
               />
 
+              {supportsFileAttach && pendingFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3" data-testid="chat-file-chips">
+                  {pendingFiles.map(file => {
+                    const isImage = file.mimeType.startsWith("image/");
+                    const Icon = isImage ? ImageIcon : FileIcon;
+                    return (
+                      <span
+                        key={file.id}
+                        className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs"
+                      >
+                        <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        {file.name}
+                        <button
+                          type="button"
+                          aria-label={`Remove ${file.name}`}
+                          className="opacity-70 hover:opacity-100"
+                          onClick={() => setPendingFiles(prev => prev.filter(f => f.id !== file.id))}
+                          disabled={chatStatus !== "ready"}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-2 mt-4">
+                {supportsFileAttach && (
+                  <>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      data-testid="chat-file-input"
+                      onChange={(e) => void handleAttachFiles(e.target.files)}
+                    />
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            data-testid="chat-attach"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={chatStatus !== "ready"}
+                            aria-label="Attach files"
+                          >
+                            <Paperclip className="h-4 w-4" aria-hidden />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top">Attach files</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </>
+                )}
                 {isVoiceSupported && (
                   <TooltipProvider>
                     <Tooltip>
@@ -1142,7 +1395,12 @@ export default function ChatInterface({ selectedAgentName, selectedNamespace, se
                     </Tooltip>
                   </TooltipProvider>
                 )}
-                <Button type="submit" data-testid="chat-send" className={""} disabled={!currentInputMessage.trim() || chatStatus !== "ready"}>
+                <Button
+                  type="submit"
+                  data-testid="chat-send"
+                  className={""}
+                  disabled={(!currentInputMessage.trim() && pendingFiles.length === 0) || chatStatus !== "ready"}
+                >
                   Send
                   <ArrowBigUp className="h-4 w-4 ml-2" />
                 </Button>

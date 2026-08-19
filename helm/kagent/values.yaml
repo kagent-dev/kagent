@@ -260,6 +260,11 @@ controller:
   # off by default.
   mcpEgressPlaintext: false
 
+  # -- How often MCP tool-discovery controllers requeue to refresh the
+  # discovered-tool cache (RemoteMCPServer, MCPServer, labeled MCP Service).
+  # Default 60s.
+  toolRefreshInterval: "60s"
+
   # -- Additional annotations to add to the controller Deployment metadata
   annotations: {}
 

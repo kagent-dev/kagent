@@ -3,7 +3,7 @@ import { TruncatableText } from "@/components/chat/TruncatableText";
 import ToolCallDisplay from "@/components/chat/ToolCallDisplay";
 import AskUserDisplay, { AskUserQuestion } from "@/components/chat/AskUserDisplay";
 import KagentLogo from "../kagent-logo";
-import { ThumbsUp, ThumbsDown } from "lucide-react";
+import { ThumbsUp, ThumbsDown, FileIcon, ImageIcon } from "lucide-react";
 import TokenStatsTooltip from "@/components/chat/TokenStatsTooltip";
 import type { TokenStats } from "@/types";
 import { useState } from "react";
@@ -13,6 +13,22 @@ import { convertToUserFriendlyName } from "@/lib/utils";
 import { ADKMetadata, getMetadataValue } from "@/lib/messageHandlers";
 import { ToolDecision } from "@/types";
 import type { ChatMcpAppTool } from "@/components/chat/ChatMcpAppsContext";
+
+type MessageFileChip = { name: string; mimeType: string };
+
+/** Extract A2A FileParts for chip display (icons only — no previews). */
+function fileChipsFromMessage(message: Message): MessageFileChip[] {
+  const chips: MessageFileChip[] = [];
+  for (const part of message.parts ?? []) {
+    const p = part as { kind?: string; file?: { name?: string; mimeType?: string } };
+    if (p.kind !== "file" || !p.file) continue;
+    chips.push({
+      name: p.file.name || "file",
+      mimeType: p.file.mimeType || "",
+    });
+  }
+  return chips;
+}
 
 interface ChatMessageProps {
   message: Message;
@@ -37,6 +53,7 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
 
   const textParts = message.parts?.filter(part => part.kind === "text") || [];
   const content = textParts.map(part => (part as TextPart).text).join("");
+  const fileChips = fileChipsFromMessage(message);
 
   const source = message.role === "user" ? "user" : "assistant";
   const tokenStats = (message.metadata as Record<string, unknown> | undefined)?.tokenStats as TokenStats | undefined;
@@ -151,8 +168,8 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
     return null;
   }
 
-  // Skip empty messages
-  if (!content) {
+  // Skip empty messages (allow file-only user turns)
+  if (!content && fileChips.length === 0) {
     return null;
   }
 
@@ -175,7 +192,27 @@ export default function ChatMessage({ message, allMessages, agentContext, onAppr
         <KagentLogo className="w-4 h-4" />
         <div className="text-xs font-bold">{displayName}</div>
       </div> : <div className="text-xs font-bold">{displayName}</div>}
-      <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
+      {content ? (
+        <TruncatableText content={String(content)} className="break-all text-primary-foreground" />
+      ) : null}
+      {fileChips.length > 0 && (
+        <div className="flex flex-wrap gap-2 mt-1" data-testid="chat-message-file-chips">
+          {fileChips.map((file, i) => {
+            const isImage = file.mimeType.startsWith("image/");
+            const Icon = isImage ? ImageIcon : FileIcon;
+            return (
+              <span
+                key={`${file.name}-${i}`}
+                className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs"
+                title={file.mimeType || undefined}
+              >
+                <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                {file.name}
+              </span>
+            );
+          })}
+        </div>
+      )}
       {source !== "user" && (
         <div className="flex mt-2 justify-end items-center gap-2">
           {tokenStats && <TokenStatsTooltip stats={tokenStats} />}
