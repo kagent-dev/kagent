@@ -36,15 +36,6 @@ const (
 	AgentType_BYO         AgentType = "BYO"
 )
 
-// DeclarativeRuntime represents the runtime implementation for declarative agents
-// +kubebuilder:validation:Enum=python;go
-type DeclarativeRuntime string
-
-const (
-	DeclarativeRuntime_Python DeclarativeRuntime = "python"
-	DeclarativeRuntime_Go     DeclarativeRuntime = "go"
-)
-
 // AgentSpec defines the desired state of Agent.
 // +kubebuilder:validation:XValidation:message="type must be specified",rule="has(self.type)"
 // +kubebuilder:validation:XValidation:message="type must be either Declarative or BYO",rule="self.type == 'Declarative' || self.type == 'BYO'"
@@ -217,13 +208,6 @@ type S3SkillRef struct {
 
 // +kubebuilder:validation:XValidation:rule="!has(self.systemMessage) || !has(self.systemMessageFrom)",message="systemMessage and systemMessageFrom are mutually exclusive"
 type DeclarativeAgentSpec struct {
-	// Runtime specifies which ADK implementation to use for this agent.
-	// - "go": Uses the Go ADK (default, faster startup, most features supported)
-	// - "python": Uses the Python ADK (slower startup, full feature set)
-	// The runtime determines the ActorTemplate container image and command.
-	// +optional
-	// +kubebuilder:default=go
-	Runtime DeclarativeRuntime `json:"runtime,omitempty"`
 	// SystemMessage is a string specifying the system message for the agent.
 	// When PromptTemplate is set, this field is treated as a Go text/template
 	// with access to an include("source/key") function and agent context variables
@@ -303,19 +287,6 @@ type SandboxConfig struct {
 	// When unset or when allowedDomains is empty, outbound access is denied by default.
 	// +optional
 	Network *NetworkConfig `json:"network,omitempty"`
-}
-
-// EffectiveDeclarativeRuntime returns the ADK runtime from spec fields (defaults to Python when not set).
-// All agents (including substrate SandboxAgents) honor spec.declarative.runtime.
-func EffectiveDeclarativeRuntime(spec *AgentSpec) DeclarativeRuntime {
-	if spec == nil {
-		return DeclarativeRuntime_Python
-	}
-	runtime := DeclarativeRuntime_Python
-	if spec.Declarative != nil && spec.Declarative.Runtime != "" {
-		runtime = spec.Declarative.Runtime
-	}
-	return runtime
 }
 
 // NetworkConfig configures outbound network access for sandboxed execution paths.

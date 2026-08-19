@@ -8,7 +8,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	translator.PythonADKImageDigest = "sha256:test-app"
-	translator.GoADKImageDigest = "sha256:test-go-base"
+	translator.AgentImageDigest = "sha256:test-go-base"
 	os.Exit(m.Run())
 }

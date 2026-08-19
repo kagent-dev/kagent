@@ -25,14 +25,9 @@ const (
 	SandboxAgentLabelKey   = "kagent.dev/sandbox-agent"
 	// desiredGenerationAnnotation records the SandboxAgent generation that last applied a given
 	// ActorTemplate; the template for the current desired config carries the highest value.
-	desiredGenerationAnnotation = "kagent.dev/desired-generation"
-	defaultGoEntrypoint         = "/app"
-	// defaultPythonEntrypoint is the absolute path to the kagent-adk console script in the
-	// Python ADK image venv. Substrate copies Command verbatim into the OCI Process.Args with
-	// no PATH/entrypoint fallback, so the path must be explicit and kept in sync with the
-	// Python Dockerfile's UV_PROJECT_ENVIRONMENT (/.kagent/.venv).
-	defaultPythonEntrypoint         = "/.kagent/.venv/bin/kagent-adk"
-	substrateKagentListenPort int32 = 80
+	desiredGenerationAnnotation       = "kagent.dev/desired-generation"
+	defaultGoEntrypoint               = "/app"
+	substrateKagentListenPort   int32 = 80
 
 	// sandboxAgentTemplateNameMaxBase reserves room in the 63-char DNS-1123 budget for
 	// the "-<hash>" suffix (hash is up to 16 hex chars). A golden snapshot is an immutable
@@ -200,8 +195,7 @@ func findKagentContainer(containers []corev1.Container) *corev1.Container {
 // be fully explicit.
 //
 // For declarative agents the command is the runtime ADK entrypoint and config is materialized
-// from secret-backed env vars at startup (Go: MaterializeFromEnv in the Go ADK; Python: the
-// `static` command materializes the same env vars before reading /config). For BYO agents the
+// from secret-backed env vars at startup. For BYO agents the
 // user-provided container Command/Args are used verbatim; the BYO image must serve A2A on the
 // substrate listen port (80).
 func buildSubstrateKagentContainerCommand(sa *v1alpha3.SandboxAgent, container *corev1.Container, configSecretName string) ([]string, []corev1.EnvVar, error) {
@@ -239,25 +233,14 @@ func buildSubstrateKagentContainerCommand(sa *v1alpha3.SandboxAgent, container *
 
 	// Declarative: secret-backed config is materialized at startup from the per-config-hash Secret.
 	env = append(env, kagentAgentSecretEnv(configSecretName)...)
-	runtime := v1alpha3.EffectiveDeclarativeRuntime(sa.GetAgentSpec())
-	return buildSubstrateDeclarativeCommand(runtime), env, nil
+	return buildSubstrateDeclarativeCommand(), env, nil
 }
 
 // buildSubstrateDeclarativeCommand returns the explicit command for a declarative ADK image.
 // Substrate's atelet copies Command verbatim into the OCI spec's Process.Args with no fallback
 // to the image entrypoint, so an empty command makes `runsc create` fail with
 // "Spec.Process.Arg must be defined".
-func buildSubstrateDeclarativeCommand(runtime v1alpha3.DeclarativeRuntime) []string {
-	if runtime == v1alpha3.DeclarativeRuntime_Python {
-		// The Python ADK `static` command reads config.json/agent-card.json from its
-		// --filepath (default /config), which the materialization step populates from
-		// the secret-backed env vars before the server starts.
-		return []string{
-			defaultPythonEntrypoint, "static",
-			"--host", "0.0.0.0",
-			"--port", fmt.Sprintf("%d", substrateKagentListenPort),
-		}
-	}
+func buildSubstrateDeclarativeCommand() []string {
 	return []string{
 		defaultGoEntrypoint,
 		"--host", "0.0.0.0",

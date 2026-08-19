@@ -73,8 +73,8 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	t.Parallel()
 	p := newTestLifecycle(t)
 	sa := &v1alpha3.SandboxAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-		Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{Runtime: v1alpha3.DeclarativeRuntime_Python}},
+		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"},
+		Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{}},
 	}
 	podFor := func(configHash, image string) corev1.PodTemplateSpec {
 		return corev1.PodTemplateSpec{
@@ -90,7 +90,7 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	require.NoError(t, err)
 	shapeHash := tmpl.Annotations[actorTemplateHashAnnotation]
 	require.NotEmpty(t, shapeHash)
-	require.Equal(t, "py-agent-"+shapeHash, tmpl.Name, "template name must carry the shape-hash suffix")
+	require.Equal(t, "agent-"+shapeHash, tmpl.Name, "template name must carry the shape-hash suffix")
 	require.Equal(t, "ff", tmpl.Annotations[consts.ConfigHashAnnotation], "config hash is kept as an informational annotation")
 
 	// A soft config change (new config hash, same rendered shape) must keep the SAME template —
@@ -117,7 +117,7 @@ func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	wp := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Name: "kagent-default", Namespace: "kagent"}}
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"}, Data: map[string][]byte{
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"}, Data: map[string][]byte{
 		"config.json": []byte("{}"), "agent-card.json": []byte("{}"),
 	}}
 	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wp, secret).Build()
@@ -127,8 +127,8 @@ func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 	}
 	b := NewAgentsBackend(p, nil)
 	sa := &v1alpha3.SandboxAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-		Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{Runtime: v1alpha3.DeclarativeRuntime_Python}},
+		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"},
+		Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{}},
 	}
 	pod := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{consts.ConfigHashAnnotation: "255"}},
@@ -143,7 +143,7 @@ func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 
 	tmpl, ok := objs[0].(*atev1alpha1.ActorTemplate)
 	require.True(t, ok)
-	require.Equal(t, "py-agent-"+tmpl.Annotations[actorTemplateHashAnnotation], tmpl.Name, "ActorTemplate is named for its shape hash")
+	require.Equal(t, "agent-"+tmpl.Annotations[actorTemplateHashAnnotation], tmpl.Name, "ActorTemplate is named for its shape hash")
 }
 
 func TestResolveCurrentActorTemplate(t *testing.T) {

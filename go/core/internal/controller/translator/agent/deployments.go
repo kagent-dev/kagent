@@ -25,22 +25,8 @@ type resolvedDeployment struct {
 	Env   []corev1.EnvVar
 }
 
-// getRuntimeImageRepository returns the image repository for a given runtime:
-// DefaultGoImageConfig.Repository for the Go runtime, DefaultImageConfig.Repository
-// otherwise.
-func getRuntimeImageRepository(runtime v1alpha3.DeclarativeRuntime) string {
-	if runtime == v1alpha3.DeclarativeRuntime_Go {
-		return DefaultGoImageConfig.Repository
-	}
-	return DefaultImageConfig.Repository
-}
-
-func resolvePythonRuntimeImage(registry string, pinDigest bool) (string, error) {
-	return resolveRuntimeImage(registry, DefaultImageConfig.Repository, DefaultImageConfig.Tag, PythonADKImageDigest, "app", pinDigest)
-}
-
 func resolveGoRuntimeImage(registry string, pinDigest bool) (string, error) {
-	return resolveRuntimeImage(registry, getRuntimeImageRepository(v1alpha3.DeclarativeRuntime_Go), DefaultGoImageConfig.Tag, GoADKImageDigest, "golang-adk", pinDigest)
+	return resolveRuntimeImage(registry, DefaultImageConfig.Repository, DefaultImageConfig.Tag, AgentImageDigest, pinDigest)
 }
 
 // resolveRuntimeImage builds the image reference for a declarative agent runtime.
@@ -52,54 +38,30 @@ func resolveGoRuntimeImage(registry string, pinDigest bool) (string, error) {
 // Sandbox agents require pinDigest: Substrate ActorTemplate validation rejects
 // image refs without a digest, so those use the link-time (or flag-overridden)
 // runtime image digests.
-func resolveRuntimeImage(registry, repository, tag, digest, imageLabel string, pinDigest bool) (string, error) {
+func resolveRuntimeImage(registry, repository, tag, digest string, pinDigest bool) (string, error) {
 	if !pinDigest {
 		return fmt.Sprintf("%s/%s:%s", registry, repository, tag), nil
 	}
 	if d := normalizeImageDigest(digest); d != "" {
 		return fmt.Sprintf("%s/%s@%s", registry, repository, d), nil
 	}
-	return "", fmt.Errorf(
-		"%s image digest is not set; rebuild the controller after pushing agent runtime images, or override it via --%s-image-digest",
-		imageLabel, imageLabel,
-	)
+	return "", fmt.Errorf("agent image digest is not set; rebuild the controller after pushing the agent image, or override it via --image-digest")
 }
 
 func resolveInlineDeployment(agent *v1alpha3.SandboxAgent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	specRef := agent.GetAgentSpec()
 	spec := specRef.Declarative
 
-	// Determine runtime (defaults to python when spec.declarative.runtime is unset).
-	runtime := v1alpha3.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
-
-	// Resolve the runtime image registry.
-	baseRegistry := DefaultImageConfig.Registry
-	if runtime == v1alpha3.DeclarativeRuntime_Go {
-		baseRegistry = DefaultGoImageConfig.Registry
-	}
-
 	// Per-agent spec overrides take precedence over all defaults.
-	registry := baseRegistry
+	registry := DefaultImageConfig.Registry
 	if spec.ImageRegistry != "" {
 		registry = spec.ImageRegistry
 	}
 
-	var image string
 	// Substrate ActorTemplates reject tag refs, so runtime images are pinned.
-	pinDigest := true
-	switch runtime {
-	case v1alpha3.DeclarativeRuntime_Go:
-		var err error
-		image, err = resolveGoRuntimeImage(registry, pinDigest)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		var err error
-		image, err = resolvePythonRuntimeImage(registry, pinDigest)
-		if err != nil {
-			return nil, err
-		}
+	image, err := resolveGoRuntimeImage(registry, true)
+	if err != nil {
+		return nil, err
 	}
 
 	dep := &resolvedDeployment{

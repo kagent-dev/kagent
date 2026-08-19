@@ -106,23 +106,12 @@ func normalizeImageDigest(digest string) string {
 var DefaultImageConfig = ImageConfig{
 	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
-	Repository: "kagent-dev/kagent/app",
-}
-
-// PythonADKImageDigest and GoADKImageDigest default to the pushed runtime image manifest digests
-// baked in at controller link time. They can be overridden for mirrored registries that re-assign
-// digests. Substrate requires digest-pinned refs, while regular agents reference images by tag.
-var PythonADKImageDigest string
-var GoADKImageDigest string
-
-// DefaultGoImageConfig is the image config for the Go (ADK) runtime agent.
-// Regular agents reference it by tag; sandbox agents pin by digest via
-// GoADKImageDigest.
-var DefaultGoImageConfig = ImageConfig{
-	Registry:   "ghcr.io",
-	Tag:        version.Get().Version,
 	Repository: "kagent-dev/kagent/golang-adk",
 }
+
+// AgentImageDigest defaults to the pushed runtime image manifest digest baked in at controller
+// link time. It can be overridden for mirrored registries that re-assign digests.
+var AgentImageDigest string
 
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs

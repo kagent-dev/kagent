@@ -19,7 +19,7 @@ jobs:
         image:
           - controller
           - ui
-          - app
+          - kagent-adk
           - golang-adk
           - acp-sandbox-hermes
           - acp-sandbox-openclaw

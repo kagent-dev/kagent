@@ -37,7 +37,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
 import { ByoDeploymentFields } from "@/components/agent-form/ByoDeploymentFields";
 import { AgentSkillsFormSection } from "@/components/agent-form/AgentSkillsFormSection";
-import { DeclarativeRuntimeField } from "@/components/agent-form/DeclarativeRuntimeField";
 import { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -86,9 +85,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   const substrateEnabled = useSubstrateEnabled();
 
   const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType);
-  // Substrate supports both Python and Go declarative runtimes, so the runtime selector is
-  // shown for declarative agents.
-  const showDeclarativeRuntimeField = useDeclarativeAgentFields;
   const showByoFields = formUsesByoSections(state.agentType);
   const showModelAndBehaviorSection = useDeclarativeAgentFields;
   const skillsEnabled = false;
@@ -450,14 +446,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                     </div>
                   </div>
                 </FieldRoot>
-              )}
-
-              {showDeclarativeRuntimeField && (
-                <DeclarativeRuntimeField
-                  value={state.declarativeRuntime}
-                  onChange={(declarativeRuntime) => setState((prev) => ({ ...prev, declarativeRuntime }))}
-                  disabled={disabled}
-                />
               )}
 
               <FieldRoot>

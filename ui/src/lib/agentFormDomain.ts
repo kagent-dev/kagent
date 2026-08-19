@@ -33,7 +33,6 @@ import type {
   AgentResponse,
   AgentSpec,
   ContextConfig,
-  DeclarativeRuntime,
   EnvVar,
   GitRepo,
   ModelConfig,
@@ -66,7 +65,6 @@ export interface AgentFormData {
   namespace: string;
   description: string;
   type?: AgentType;
-  declarativeRuntime?: DeclarativeRuntime;
   systemPrompt?: string;
   modelName?: string;
   tools: Tool[];
@@ -127,7 +125,6 @@ export interface AgentFormFields {
   envPairs: AgentFormEnvRow[];
   stream: boolean;
   shareTools: boolean;
-  declarativeRuntime: DeclarativeRuntime;
   contextConfig: ContextConfig | undefined;
   promptSourceRows: PromptSourceRow[];
   substrateWorkerPoolRefName: string;
@@ -171,7 +168,6 @@ export function createInitialAgentFormState({
     envPairs: [{ name: "", value: "", isSecret: false }],
     stream: false,
     shareTools: false,
-    declarativeRuntime: "go",
     contextConfig: undefined,
     promptSourceRows: [newPromptSourceRow()],
     isSubmitting: false,
@@ -320,7 +316,6 @@ export function agentResponseToFormState(
         : [newEmptyS3SkillRow()],
       stream: declarative?.stream ?? false,
       shareTools: declarative?.shareTools ?? false,
-      declarativeRuntime: declarative?.runtime === "go" ? "go" : "python",
       selectedMemoryModel: memoryModelRef
         ? {
             ref: memoryModelRef,
@@ -427,7 +422,6 @@ export function agentFormStateToData(
           }
         : undefined,
     context: declarative ? state.contextConfig : undefined,
-    declarativeRuntime: declarative ? state.declarativeRuntime : undefined,
     byoImage: state.byoImage,
     byoCmd: state.byoCmd || undefined,
     byoArgs: state.byoArgs
@@ -463,12 +457,6 @@ function qualifiedResourceRef(namespace: string | undefined, ref: string): strin
     return ref;
   }
   return k8sRefUtils.toRef(namespace || "default", ref);
-}
-
-function declarativeRuntimeFromForm(
-  data: AgentWorkloadFormData,
-): DeclarativeRuntime {
-  return data.declarativeRuntime === "python" ? "python" : "go";
 }
 
 function resolveNamespacedRef(
@@ -568,7 +556,6 @@ function declarativeSpecFromForm(
   data: AgentWorkloadFormData,
 ): DeclarativeAgentSpec {
   const declarative: DeclarativeAgentSpec = {
-    runtime: declarativeRuntimeFromForm(data),
     systemMessage: data.systemPrompt || "",
     modelConfig: resourceNameFromRef(data.modelName),
     stream: data.stream ?? true,

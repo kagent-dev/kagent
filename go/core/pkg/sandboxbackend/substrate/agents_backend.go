@@ -66,11 +66,10 @@ func (b *AgentsBackend) BuildSandbox(ctx context.Context, in sandboxbackend.Buil
 
 // SessionDBURL returns the durable-dir session-store URL the translator bakes into the rendered
 // config (AgentConfig.session_db_url) before building the config Secret. The value is
-// runtime-specific: python's google-adk DatabaseSessionService uses SQLAlchemy's async engine,
-// so the URL must name an async driver (aiosqlite, a core google-adk dependency); the Go ADK's
-// local store parses either form.
+// runtime-specific: Python BYO agents may use SQLAlchemy's async engine, so their URL names the
+// aiosqlite driver. The declarative Go runtime uses the native SQLite URL.
 func (b *AgentsBackend) SessionDBURL(agent *v1alpha3.SandboxAgent) string {
-	if v1alpha3.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) == v1alpha3.DeclarativeRuntime_Go {
+	if agent.GetAgentSpec().Type == v1alpha3.AgentType_Declarative {
 		return sessionDBURLGo
 	}
 	return sessionDBURLPython

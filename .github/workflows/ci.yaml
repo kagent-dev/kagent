@@ -380,7 +380,7 @@ jobs:
         working-directory: ./ui
         run: npm run test:vitest
 
-  # This job builds the Docker images for the controller, UI, app, and CLI on arm64.
+  # This job builds the Docker images for the controller, UI, ADKs, and CLI on arm64.
   build:
     needs: setup
     env:
@@ -390,7 +390,7 @@ jobs:
         image:
           - controller
           - ui
-          - app
+          - kagent-adk
           - cli
           - golang-adk
           - acp-sandbox-hermes

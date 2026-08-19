@@ -184,12 +184,8 @@ controller:
   # -- Public gRPC URL advertised by AgentInstance Agent Cards.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
   a2aGatewayUrl: ""
+  # -- The image used for declarative agents.
   agentImage:
-    registry: ""
-    repository: kagent-dev/kagent/app
-    tag: "" # Will default to global, then Chart version
-  # -- The image used for the Go (ADK) runtime agent.
-  goAgentImage:
     registry: ""
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version

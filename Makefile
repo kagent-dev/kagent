@@ -52,7 +52,6 @@ KIND_IMAGE_VERSION ?= 1.35.0
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
-APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
 ACP_SANDBOX_BASE_IMAGE_NAME ?= acp-sandbox-base
@@ -62,13 +61,11 @@ ACP_SANDBOX_CLAUDE_IMAGE_NAME ?= acp-sandbox-claude
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
-APP_IMAGE_TAG ?= $(VERSION)
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
 ACP_SANDBOX_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
-APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
 ACP_SANDBOX_BASE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_BASE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
@@ -236,11 +233,10 @@ build-all: proto-generate buildx-create
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-golang-adk build-app build-controller
+build: buildx-create build-ui build-kagent-adk build-golang-adk build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
-	@echo "App Image: $(APP_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
 
@@ -268,7 +264,6 @@ build-cli-local: proto-generate
 build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
-	@echo app=$(APP_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
 	@echo acp-sandbox-base=$(ACP_SANDBOX_BASE_IMG)
@@ -300,12 +295,6 @@ build-kagent-adk: ## Build and push the Python kagent ADK image
 build-kagent-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
-
-.PHONY: build-app
-build-app: ## Build and push the app image (depends on kagent-adk)
-build-app: buildx-create build-kagent-adk
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
-	$(DOCKER_PUSH) $(APP_IMG)
 
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
@@ -342,8 +331,8 @@ build-acp-sandbox-claude: buildx-create
 	$(DOCKER_PUSH) $(ACP_SANDBOX_CLAUDE_IMG)
 
 .PHONY: push
-push: ## Push all component images (controller, ui, app, ADKs)
-push: push-controller push-ui push-app push-kagent-adk push-golang-adk
+push: ## Push all component images (controller, ui, ADKs)
+push: push-controller push-ui push-kagent-adk push-golang-adk
 
 
 ##@ Testing
@@ -656,7 +645,7 @@ report/image-cve: ## Scan built images with grype and write CVE CSV reports to r
 report/image-cve: audit build
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
-	grype $(CONTAINER_RUNTIME):$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
+	grype $(CONTAINER_RUNTIME):$(KAGENT_ADK_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/kagent-adk-cve.csv
 	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
 
 
