@@ -88,6 +88,10 @@ type Querier interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
+	// LockActiveAgentInstanceTask returns the instance's non-terminal task, if any,
+	// and holds it for the rest of the transaction so a concurrent send cannot
+	// terminate it and claim the slot at the same time.
+	LockActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error

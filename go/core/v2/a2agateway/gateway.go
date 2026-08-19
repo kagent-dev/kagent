@@ -40,7 +40,7 @@ const (
 type instanceStore interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
-	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
+	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task, time.Duration) (*a2atype.Task, bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error)
@@ -58,15 +58,22 @@ type Gateway struct {
 	authorizer auth.Authorizer
 	dialer     runtimeDialer
 	gatewayURL string
+	// taskStaleAfter bounds how long an active task may go without progress
+	// before a new send terminates it and claims the slot. Zero disables the
+	// takeover, leaving an interrupted task to block the instance.
+	taskStaleAfter time.Duration
 }
 
 var _ a2asrv.RequestHandler = (*Gateway)(nil)
 
 // New returns the upstream A2A handler independently of any listener or gRPC
 // server, keeping deployment topology outside the gateway package.
-func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, gatewayURL string) a2asrv.RequestHandler {
+func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, gatewayURL string, taskStaleAfter time.Duration) a2asrv.RequestHandler {
 	return &a2asrv.InterceptedHandler{
-		Handler:      &Gateway{store: store, authorizer: authorizer, dialer: dialer, gatewayURL: gatewayURL},
+		Handler: &Gateway{
+			store: store, authorizer: authorizer, dialer: dialer,
+			gatewayURL: gatewayURL, taskStaleAfter: taskStaleAfter,
+		},
 		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
 	}
 }
@@ -390,7 +397,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	}
 	req.Message.TaskID = a2atype.NewTaskID()
 	submitted := a2atype.NewSubmittedTask(req.Message, req.Message)
-	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
+	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted, g.taskStaleAfter)
 	if err != nil {
 		return nil, nil, false, g.storeError(ctx, err)
 	}

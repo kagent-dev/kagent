@@ -122,7 +122,9 @@ func main() {
 		SessionService:       sessionservice.NewService(store),
 		TaskService:          taskservice.NewService(store),
 		AgentInstanceService: instances,
-		A2AHandler:           a2agateway.New(store, authorizer, gatewayDialer, env("A2A_GATEWAY_URL", "http://127.0.0.1:8084")),
+		A2AHandler: a2agateway.New(store, authorizer, gatewayDialer,
+			env("A2A_GATEWAY_URL", "http://127.0.0.1:8084"),
+			envDuration("AGENT_INSTANCE_TASK_STALE_AFTER", time.Hour)),
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -159,6 +161,17 @@ func env(name, fallback string) string {
 
 func envBool(name string) bool {
 	value, _ := strconv.ParseBool(os.Getenv(name))
+	return value
+}
+
+// envDuration reads a Go duration such as 45m. An unparseable value falls back
+// so a malformed setting cannot silently disable the behaviour it configures;
+// an explicit 0 does disable it.
+func envDuration(name string, fallback time.Duration) time.Duration {
+	value, err := time.ParseDuration(os.Getenv(name))
+	if err != nil {
+		return fallback
+	}
 	return value
 }
 

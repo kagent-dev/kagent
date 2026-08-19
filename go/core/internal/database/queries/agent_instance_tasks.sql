@@ -44,3 +44,17 @@ WHERE instance_id = sqlc.arg(instance_id)
        OR status_timestamp > sqlc.narg(status_timestamp_after))
 ORDER BY id
 LIMIT sqlc.arg(page_size);
+
+-- LockActiveAgentInstanceTask returns the instance's non-terminal task, if any,
+-- and holds it for the rest of the transaction so a concurrent send cannot
+-- terminate it and claim the slot at the same time.
+-- name: LockActiveAgentInstanceTask :one
+SELECT * FROM agent_instance_task
+WHERE instance_id = $1
+  AND state NOT IN (
+      'TASK_STATE_COMPLETED',
+      'TASK_STATE_CANCELED',
+      'TASK_STATE_FAILED',
+      'TASK_STATE_REJECTED'
+  )
+FOR UPDATE;

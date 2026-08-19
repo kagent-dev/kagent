@@ -8,6 +8,7 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
@@ -52,16 +53,16 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 		Status:  a2a.TaskStatus{State: a2a.TaskStateSubmitted, Timestamp: &now},
 		History: []*a2a.Message{{ID: "message-1", Role: a2a.MessageRoleUser}},
 	}
-	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), first)
+	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), first, time.Hour)
 	if err != nil || !created || stored.ID != first.ID {
 		t.Fatalf("CreateAgentInstanceTask() = %#v, created %v, error %v", stored, created, err)
 	}
 	replayed, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"),
-		&a2a.Task{ID: "ignored", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}, History: first.History})
+		&a2a.Task{ID: "ignored", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}, History: first.History}, time.Hour)
 	if err != nil || created || replayed.ID != first.ID {
 		t.Fatalf("replayed CreateAgentInstanceTask() = %#v, created %v, error %v", replayed, created, err)
 	}
-	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("different"), first); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("different"), first, time.Hour); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting message error = %v", err)
 	}
 	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 1 {
@@ -123,7 +124,7 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 			<-start
 			message := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: taskID, ContextID: "instance-1"}
 			task := a2a.NewSubmittedTask(message, message)
-			stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), task)
+			stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), task, time.Hour)
 			results <- result{stored, created, err}
 		}()
 	}
@@ -232,5 +233,82 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	request.AgentTemplate.Name = "different"
 	if _, _, err := client.CreateAgentInstance(ctx, request, "request-1"); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting request error = %v", err)
+	}
+}
+
+func ageAgentInstanceTask(t *testing.T, db *pgxpool.Pool, instanceID, taskID string, updatedAt time.Time) {
+	t.Helper()
+	if _, err := db.Exec(context.Background(),
+		`UPDATE agent_instance_task SET updated_at = $1 WHERE instance_id = $2 AND id = $3`,
+		updatedAt, instanceID, taskID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newAgentInstanceTask(id, messageID string) *a2a.Task {
+	now := time.Now()
+	return &a2a.Task{
+		ID: a2a.TaskID(id), ContextID: "instance-1",
+		Status:  a2a.TaskStatus{State: a2a.TaskStateWorking, Timestamp: &now},
+		History: []*a2a.Message{{ID: messageID, Role: a2a.MessageRoleUser}},
+	}
+}
+
+func TestStaleActiveAgentInstanceTaskIsTerminatedSoTheSlotIsReusable(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	if _, err := db.Exec(ctx, `
+		INSERT INTO agent_instance (id, namespace, user_id, request_id, state, data)
+		VALUES ('instance-1', 'team-a', 'alice', 'request-1', 'READY', '\x00')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(db)
+
+	interrupted := newAgentInstanceTask("task-1", "message-1")
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), interrupted, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+
+	// While the first task is still reporting progress it keeps the slot.
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"),
+		newAgentInstanceTask("task-2", "message-2"), time.Hour); !errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
+		t.Fatalf("send during a live task = %v, want %v", err, dbpkg.ErrAgentInstanceTaskConflict)
+	}
+
+	ageAgentInstanceTask(t, db, "instance-1", "task-1", time.Now().Add(-2*time.Hour))
+
+	// A zero bound leaves the interrupted task in place, so the slot stays blocked.
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"),
+		newAgentInstanceTask("task-2", "message-2"), 0); !errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
+		t.Fatalf("send with the takeover disabled = %v, want %v", err, dbpkg.ErrAgentInstanceTaskConflict)
+	}
+
+	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"),
+		newAgentInstanceTask("task-2", "message-2"), time.Hour)
+	if err != nil || !created || stored.ID != "task-2" {
+		t.Fatalf("send after the bound = %#v, created %v, error %v", stored, created, err)
+	}
+
+	terminated, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminated.Status.State != a2a.TaskStateFailed {
+		t.Fatalf("interrupted task state = %s, want %s", terminated.Status.State, a2a.TaskStateFailed)
+	}
+	if len(terminated.History) != 2 {
+		t.Fatalf("interrupted task history = %d messages, want the interruption appended", len(terminated.History))
+	}
+	last := terminated.History[len(terminated.History)-1]
+	if last.Role != a2a.MessageRoleAgent || last.TaskID != terminated.ID {
+		t.Fatalf("interruption message = %#v, want an agent message on the task", last)
+	}
+	if terminated.Status.Message == nil || terminated.Status.Message.ID != last.ID {
+		t.Fatalf("interrupted task status message = %#v, want the appended message", terminated.Status.Message)
+	}
+	if events := countRows(t, db,
+		"SELECT COUNT(*) FROM agent_instance_task_event WHERE task_id = $1", "task-1"); events != 2 {
+		t.Fatalf("events recorded for the interrupted task = %d, want the send and the interruption", events)
 	}
 }

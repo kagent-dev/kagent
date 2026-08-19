@@ -128,7 +128,10 @@ type Client interface {
 	CreateAgentInstanceShare(context.Context, AgentInstanceShare) (*AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
-	CreateAgentInstanceTask(context.Context, string, []byte, *a2a.Task) (*a2a.Task, bool, error)
+	// CreateAgentInstanceTask reserves the instance's single active-task slot,
+	// first terminating an active task that has been silent for longer than the
+	// given bound. A zero bound disables that takeover.
+	CreateAgentInstanceTask(context.Context, string, []byte, *a2a.Task, time.Duration) (*a2a.Task, bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2a.Task, a2a.Event) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2a.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)
