@@ -362,14 +362,12 @@ func VisibleTools(approval *ToolApprovalRequest, ask *AskUserRequest) []HitlTool
 }
 
 // askUserQuestionText extracts the human-readable question text(s) from an
-// ask_user HitlTool's args (see VisibleTools), or "" if the shape is
-// unexpected. This is the content RemoteHitlHint would otherwise discard,
-// surfacing only the tool name ("ask_user") instead of what is actually
-// being asked.
-func askUserQuestionText(args map[string]any) string {
-	raw, _ := args["questions"].([]map[string]any)
-	texts := make([]string, 0, len(raw))
-	for _, q := range raw {
+// ask_user request's typed Questions field, or "" if none carry text. This is
+// the content RemoteHitlHint would otherwise discard, surfacing only the
+// tool name ("ask_user") instead of what is actually being asked.
+func askUserQuestionText(questions []map[string]any) string {
+	texts := make([]string, 0, len(questions))
+	for _, q := range questions {
 		if text, ok := q["question"].(string); ok && text != "" {
 			texts = append(texts, text)
 		}
@@ -381,25 +379,23 @@ func RemoteHitlHint(state *RemoteHitlState) string {
 	if state == nil {
 		return "Remote agent requires human input before continuing."
 	}
-	tools := VisibleTools(state.ToolApprovalRequest, state.AskUserRequest)
-	names := make([]string, 0, len(tools))
-	questions := make([]string, 0, len(tools))
-	for _, tool := range tools {
-		if tool.Name == "" {
-			continue
-		}
-		names = append(names, tool.Name)
-		if tool.Name == "ask_user" {
-			if q := askUserQuestionText(tool.Args); q != "" {
-				questions = append(questions, q)
-			}
+	// AskUserRequest.Questions carries the real question text whether or not
+	// Nested is set (see BuildHITLStatusMessage), so read it directly rather
+	// than re-deriving from VisibleTools()'s nested HitlTool.Args: those args
+	// round-trip through JSON into a plain map[string]any, which decodes
+	// "questions" as []any rather than []map[string]any, silently losing the
+	// question in the nested case.
+	if state.AskUserRequest != nil {
+		if q := askUserQuestionText(state.AskUserRequest.Questions); q != "" {
+			return fmt.Sprintf("Remote agent '%s' asks: %s", state.SubagentName, q)
 		}
 	}
-	// A real ask_user question is more useful to the human than the bare
-	// tool name — surface it directly rather than "requires approval for
-	// tool(s): ask_user", which carries no actionable information.
-	if len(questions) > 0 {
-		return fmt.Sprintf("Remote agent '%s' asks: %s", state.SubagentName, strings.Join(questions, " "))
+	tools := VisibleTools(state.ToolApprovalRequest, state.AskUserRequest)
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Name != "" {
+			names = append(names, tool.Name)
+		}
 	}
 	if len(names) > 0 {
 		return fmt.Sprintf("Remote agent '%s' requires approval for tool(s): %s",
