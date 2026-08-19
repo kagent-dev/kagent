@@ -122,7 +122,7 @@ func main() {
 		SessionService:       sessionservice.NewService(store),
 		TaskService:          taskservice.NewService(store),
 		AgentInstanceService: instances,
-		A2AHandler:           a2agateway.New(store, authorizer, gatewayDialer),
+		A2AHandler:           a2agateway.New(store, authorizer, gatewayDialer, env("A2A_GATEWAY_URL", "http://127.0.0.1:8084")),
 	})
 	if err != nil {
 		log.Fatal(err)
