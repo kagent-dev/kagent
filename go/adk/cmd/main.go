@@ -107,7 +107,7 @@ func main() {
 	agentConfig.HttpTools = append(agentConfig.HttpTools, pluginConfig.HTTP...)
 	agentConfig.SseTools = append(agentConfig.SseTools, pluginConfig.SSE...)
 	agentConfig.StdioTools = append(agentConfig.StdioTools, pluginConfig.Stdio...)
-	if pluginConfig.HasSkills {
+	if agentConfig.AgentPlugins != nil {
 		if err := os.Setenv("KAGENT_SKILLS_FOLDER", agentplugins.DefaultSkillsRoot); err != nil {
 			logger.Error(err, "Failed to configure Agent Plugins skills directory")
 			os.Exit(1)

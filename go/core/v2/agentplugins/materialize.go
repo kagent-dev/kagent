@@ -37,10 +37,9 @@ type Paths struct {
 }
 
 type MCPConfig struct {
-	HTTP      []adk.HttpMcpServerConfig
-	SSE       []adk.SseMcpServerConfig
-	Stdio     []adk.StdioMcpServerConfig
-	HasSkills bool
+	HTTP  []adk.HttpMcpServerConfig
+	SSE   []adk.SseMcpServerConfig
+	Stdio []adk.StdioMcpServerConfig
 }
 
 func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths) (MCPConfig, error) {
@@ -56,7 +55,6 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 
 	var result MCPConfig
 	for i, skill := range config.Skills {
-		result.HasSkills = true
 		root := filepath.Join(paths.Plugins, fmt.Sprintf("standalone-%d", i))
 		sourceRoot, err := fetchSource(ctx, skill.Source, root)
 		if err != nil {
@@ -83,7 +81,6 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 		}
 		pluginNames[manifest.Name] = struct{}{}
 		for _, name := range plugin.Skills {
-			result.HasSkills = true
 			source := filepath.Join(pluginRoot, "skills", name)
 			if err := copySkill(source, filepath.Join(paths.Skills, name)); err != nil {
 				return MCPConfig{}, fmt.Errorf("plugin %q skill %q: %w", manifest.Name, name, err)

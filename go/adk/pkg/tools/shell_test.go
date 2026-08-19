@@ -1,4 +1,4 @@
-package skills
+package tools
 
 import (
 	"context"
@@ -15,6 +15,23 @@ func createTempDir(t *testing.T) string {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 	return tmpDir
+}
+
+func TestGetSessionPath(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	skillsDir := t.TempDir()
+
+	sessionPath, err := GetSessionPath("test-session", skillsDir)
+	if err != nil {
+		t.Fatalf("GetSessionPath() error = %v", err)
+	}
+	target, err := os.Readlink(filepath.Join(sessionPath, "skills"))
+	if err != nil {
+		t.Fatalf("Readlink() error = %v", err)
+	}
+	if target != skillsDir {
+		t.Fatalf("skills link = %q, want %q", target, skillsDir)
+	}
 }
 
 func TestReadFileContent(t *testing.T) {

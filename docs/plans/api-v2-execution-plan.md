@@ -203,6 +203,10 @@ Implement the selected Agent Plugins 1.0.0 subset:
 - Immutable OCI digest, full Git commit, and versioned S3-compatible ZIP sources.
 - Validate the canonical root `plugin.json`.
 - Materialize only explicitly selected Agent Skills and supporting files.
+- Use Go ADK's native `skilltoolset` for skill discovery, validation,
+  instruction loading, and resource loading. Keep only kagent's execution
+  tools (`read_file`, `write_file`, `edit_file`, and `bash`) rather than
+  maintaining duplicate skill-loading code.
 - Load standard `mcp.json` entries for stdio, Streamable HTTP, and legacy SSE
   transports into the runtime configuration.
 - Reject path traversal, escaping symlinks, duplicate skill names, mutable references, and oversized packages.
