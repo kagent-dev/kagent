@@ -265,8 +265,9 @@ func TestKagentMemoryServiceExtractSessionContent(t *testing.T) {
 			wantContent: "user: Hello",
 		},
 		{
-			name:   "function call only",
-			events: []*adksession.Event{newMockEventWithFunctionCall("agent", "get_weather")},
+			name:        "function call is extracted",
+			events:      []*adksession.Event{newMockEventWithFunctionCall("agent", "get_weather")},
+			wantContent: "[tool call to get_weather]",
 		},
 		{
 			name: "function response is extracted",

@@ -305,13 +305,25 @@ func (s *KagentMemoryService) extractSessionContent(session adksession.Session) 
 		}
 
 		for _, part := range event.Content.Parts {
-			// Skip function calls
-			if part.FunctionCall != nil {
-				continue
-			}
-
 			// Get text content
 			text := part.Text
+
+			if text == "" && part.FunctionCall != nil {
+				argsJSON, err := json.Marshal(part.FunctionCall.Args)
+				if err != nil {
+					argsJSON = nil
+				}
+				truncated := string(argsJSON)
+				if len(truncated) > maxToolResultChars {
+					truncated = truncated[:maxToolResultChars] + "...(truncated)"
+				}
+				if truncated == "" || truncated == "null" {
+					text = fmt.Sprintf("[tool call to %s]", part.FunctionCall.Name)
+				} else {
+					text = fmt.Sprintf("[tool call to %s]: %s", part.FunctionCall.Name, truncated)
+				}
+			}
+
 			if text == "" && part.FunctionResponse != nil {
 				responseJSON, err := json.Marshal(part.FunctionResponse.Response)
 				if err != nil || len(responseJSON) == 0 {
