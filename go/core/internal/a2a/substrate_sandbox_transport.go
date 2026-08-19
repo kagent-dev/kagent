@@ -16,7 +16,6 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // substrateSandboxSessionRoundTripper routes each A2A request to the session actor identified by contextId.
@@ -71,15 +70,18 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 	if sessionID == "" {
 		return nil, fmt.Errorf("message contextId (session id) is required for substrate sandbox agents")
 	}
-
-	// non blocking attempt to ensure that sandbox agent session metadata is persisted to postgres
-	// to support session list and delete cleanup.
-	if err := t.ensureSessionRow(req.Context(), sessionID, req.Header.Get("X-User-Id")); err != nil {
-		ctrllog.FromContext(req.Context()).WithName("substrate-sandbox-transport").Error(err,
-			"failed to ensure session row; continuing without it", "sessionID", sessionID)
+	userID := strings.TrimSpace(req.Header.Get("X-User-Id"))
+	if userID == "" {
+		return nil, fmt.Errorf("request carries no user identity")
 	}
 
-	res, err := t.actorBackend.EnsureSessionActor(req.Context(), t.sandboxAgent, sessionID)
+	// Persist owner-scoped session metadata before creating or resuming an actor.
+	// Failing closed keeps untracked sessions out of the shared sandbox runtime.
+	if err := t.ensureSessionRow(req.Context(), sessionID, userID); err != nil {
+		return nil, fmt.Errorf("ensure controller session row: %w", err)
+	}
+
+	res, err := t.actorBackend.EnsureSessionActor(req.Context(), t.sandboxAgent, userID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +95,7 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 
 	resp, err := actorRT.RoundTrip(req)
 	if err != nil {
-		t.scheduleSuspendSession(sessionID)
+		t.scheduleSuspendSession(userID, sessionID)
 		return nil, err
 	}
 
@@ -102,7 +104,7 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 	resp.Body = &suspendSessionActorOnClose{
 		ReadCloser: resp.Body,
 		suspend: func() {
-			t.scheduleSuspendSession(sessionID)
+			t.scheduleSuspendSession(userID, sessionID)
 		},
 	}
 	return resp, nil
@@ -132,14 +134,14 @@ func (t *substrateSandboxSessionRoundTripper) ensureSessionRow(ctx context.Conte
 	return nil
 }
 
-func (t *substrateSandboxSessionRoundTripper) scheduleSuspendSession(sessionID string) {
+func (t *substrateSandboxSessionRoundTripper) scheduleSuspendSession(userID, sessionID string) {
 	if t == nil || t.actorBackend == nil || t.sandboxAgent == nil {
 		return
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_ = t.actorBackend.SuspendSessionActor(ctx, t.sandboxAgent, sessionID)
+		_ = t.actorBackend.SuspendSessionActor(ctx, t.sandboxAgent, userID, sessionID)
 	}()
 }
 

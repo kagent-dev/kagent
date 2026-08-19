@@ -35,7 +35,7 @@ type Store interface {
 }
 
 type SandboxActorCleaner interface {
-	DeleteSandboxAgentSessionActor(context.Context, *v1alpha3.SandboxAgent, string) (bool, error)
+	DeleteSandboxAgentSessionActor(context.Context, *v1alpha3.SandboxAgent, string, string) (bool, error)
 }
 
 type Service struct {
@@ -274,7 +274,7 @@ func (s *Service) Delete(ctx context.Context, sessionID string) error {
 		return serviceerrors.NewInternal("Failed to delete session", err)
 	}
 	if cleanup != nil {
-		if _, err := s.actorCleaner.DeleteSandboxAgentSessionActor(ctx, cleanup, sessionID); err != nil {
+		if _, err := s.actorCleaner.DeleteSandboxAgentSessionActor(ctx, cleanup, userID, sessionID); err != nil {
 			ctrllog.FromContext(ctx).Error(err, "failed to delete substrate session actor", "sessionID", sessionID)
 		}
 	}

@@ -64,12 +64,11 @@ func (c *statusActorClient) ResumeActor(_ context.Context, in *ateapipb.ResumeAc
 	return &ateapipb.ResumeActorResponse{Actor: a}, nil
 }
 
-// TestDeleteSandboxAgentSessionActor covers the one-session-one-actor delete: a single
-// deterministic id covers the session's whole life, regardless of rollouts it survived.
+// TestDeleteSandboxAgentSessionActor covers the owner/session actor delete across rollouts.
 func TestDeleteSandboxAgentSessionActor(t *testing.T) {
 	t.Parallel()
 	sa := reapAgent()
-	actorID := SandboxAgentSessionActorID(sa, "sess-1")
+	actorID := SandboxAgentPrincipalSessionActorID(sa, "alice@example.com", "sess-1")
 
 	rec := &statusActorClient{actors: map[string]*ateapipb.Actor{}}
 	rec.add(&ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: actorID}, Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}})
@@ -79,7 +78,7 @@ func TestDeleteSandboxAgentSessionActor(t *testing.T) {
 	var done bool
 	var err error
 	for range 3 {
-		done, err = b.DeleteSandboxAgentSessionActor(context.Background(), sa, "sess-1")
+		done, err = b.DeleteSandboxAgentSessionActor(context.Background(), sa, "alice@example.com", "sess-1")
 		require.NoError(t, err)
 		if done {
 			break
@@ -89,9 +88,21 @@ func TestDeleteSandboxAgentSessionActor(t *testing.T) {
 	require.Equal(t, []string{actorID}, rec.deleted)
 
 	// Missing actor is already done.
-	done, err = b.DeleteSandboxAgentSessionActor(context.Background(), sa, "sess-never")
+	done, err = b.DeleteSandboxAgentSessionActor(context.Background(), sa, "alice@example.com", "sess-never")
 	require.NoError(t, err)
 	require.True(t, done)
+}
+
+func TestSandboxAgentPrincipalSessionActorIDIsOwnerScoped(t *testing.T) {
+	t.Parallel()
+	sa := reapAgent()
+
+	alice := SandboxAgentPrincipalSessionActorID(sa, "alice@example.com", "shared-session")
+	bob := SandboxAgentPrincipalSessionActorID(sa, "bob@example.com", "shared-session")
+
+	require.NotEqual(t, alice, bob)
+	require.Equal(t, alice, SandboxAgentPrincipalSessionActorID(sa, "alice@example.com", "shared-session"))
+	require.NotContains(t, alice, "alice")
 }
 
 // reapAgent is the SandboxAgent used by the reap tests.
