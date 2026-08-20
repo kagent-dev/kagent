@@ -44,6 +44,24 @@ type Config struct {
 
 const maxToolResultChars = 500
 
+// marshalAndTruncate marshals v to JSON and truncates it to maxToolResultChars.
+// It returns ok=false if marshaling fails or the result is empty/null, signaling
+// that the caller has no usable content to include.
+func marshalAndTruncate(v any) (string, bool) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "", false
+	}
+	s := string(data)
+	if s == "" || s == "null" {
+		return "", false
+	}
+	if len(s) > maxToolResultChars {
+		s = s[:maxToolResultChars] + "...(truncated)"
+	}
+	return s, true
+}
+
 // New creates a new KagentMemoryService.
 func New(cfg Config) (*KagentMemoryService, error) {
 	if cfg.AgentName == "" {
@@ -309,15 +327,8 @@ func (s *KagentMemoryService) extractSessionContent(session adksession.Session) 
 			text := part.Text
 
 			if text == "" && part.FunctionCall != nil {
-				argsJSON, err := json.Marshal(part.FunctionCall.Args)
-				if err != nil {
-					argsJSON = nil
-				}
-				truncated := string(argsJSON)
-				if len(truncated) > maxToolResultChars {
-					truncated = truncated[:maxToolResultChars] + "...(truncated)"
-				}
-				if truncated == "" || truncated == "null" {
+				truncated, ok := marshalAndTruncate(part.FunctionCall.Args)
+				if !ok {
 					text = fmt.Sprintf("[tool call to %s]", part.FunctionCall.Name)
 				} else {
 					text = fmt.Sprintf("[tool call to %s]: %s", part.FunctionCall.Name, truncated)
@@ -325,13 +336,9 @@ func (s *KagentMemoryService) extractSessionContent(session adksession.Session) 
 			}
 
 			if text == "" && part.FunctionResponse != nil {
-				responseJSON, err := json.Marshal(part.FunctionResponse.Response)
-				if err != nil || len(responseJSON) == 0 {
+				truncated, ok := marshalAndTruncate(part.FunctionResponse.Response)
+				if !ok {
 					continue
-				}
-				truncated := string(responseJSON)
-				if len(truncated) > maxToolResultChars {
-					truncated = truncated[:maxToolResultChars] + "...(truncated)"
 				}
 				text = fmt.Sprintf("[tool result from %s]: %s", part.FunctionResponse.Name, truncated)
 			}
