@@ -17,11 +17,12 @@ from kagent.adk._approval import make_approval_callback
 from kagent.adk._mcp_apps import MCPAppToolNames, make_mcp_app_model_result_callback
 from kagent.adk._mcp_toolset import KAgentMcpToolset
 from kagent.adk._remote_a2a_tool import KAgentRemoteA2AToolset
-from kagent.adk.models._anthropic import KAgentAnthropicLlm
+from kagent.adk.models._anthropic import FoundryAnthropic, KAgentAnthropicLlm
 from kagent.adk.models._bedrock import KAgentBedrockLlm
 from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
 from kagent.adk.models._ollama import create_ollama_llm
 from kagent.adk.models._openai import AzureOpenAI as OpenAIAzure
+from kagent.adk.models._openai import FoundryOpenAI
 from kagent.adk.models._openai import OpenAI as OpenAINative
 from kagent.adk.models._ssl import create_ssl_context
 from kagent.adk.tools.ask_user_tool import AskUserTool
@@ -291,6 +292,14 @@ class AzureOpenAI(BaseLLM):
     type: Literal["azure_openai"]
 
 
+class Foundry(BaseLLM):
+    endpoint: str | None = None
+    deployment: str | None = None
+    api_version: str | None = None
+    api_format: Literal["openai", "anthropic"] = "openai"
+    type: Literal["foundry"]
+
+
 class Anthropic(BaseLLM):
     base_url: str | None = None
 
@@ -348,7 +357,9 @@ class SAPAICore(BaseLLM):
     type: Literal["sap_ai_core"]
 
 
-ModelUnion = Union[OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Gemini, Bedrock, SAPAICore]
+ModelUnion = Union[
+    OpenAI, Anthropic, GeminiVertexAI, GeminiAnthropic, Ollama, AzureOpenAI, Foundry, Gemini, Bedrock, SAPAICore
+]
 
 
 class ContextCompressionSettings(BaseModel):
@@ -377,6 +388,9 @@ class EmbeddingConfig(BaseModel):
     )
     tls_ca_cert_path: str | None = None
     tls_disable_system_cas: bool | None = None
+    endpoint: str | None = None
+    deployment: str | None = None
+    api_version: str | None = None
 
 
 class MemoryConfig(BaseModel):
@@ -708,6 +722,24 @@ def _create_llm_from_model_config(model_config: ModelUnion):
         return OpenAIAzure(
             model=model_config.model,
             type="azure_openai",
+            default_headers=extra_headers,
+            **_transport_kwargs(model_config),
+        )
+    if model_config.type == "foundry":
+        if model_config.api_format == "anthropic":
+            return FoundryAnthropic(
+                model=model_config.deployment or model_config.model,
+                endpoint=model_config.endpoint,
+                deployment=model_config.deployment,
+                extra_headers=extra_headers,
+                **_transport_kwargs(model_config),
+            )
+        return FoundryOpenAI(
+            model=model_config.model,
+            type="foundry",
+            endpoint=model_config.endpoint,
+            deployment=model_config.deployment,
+            api_version=model_config.api_version,
             default_headers=extra_headers,
             **_transport_kwargs(model_config),
         )

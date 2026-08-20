@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Literal, Optional, cast
 
@@ -32,6 +31,12 @@ from openai.types.chat.chat_completion_message_tool_call_param import (
 from openai.types.shared_params import FunctionDefinition, FunctionParameters
 from pydantic import Field
 
+from ._azure import (
+    build_azure_openai_client,
+    resolve_azure_api_key,
+    resolve_azure_openai_config,
+    resolve_foundry_config,
+)
 from ._ssl import KAgentTLSMixin
 from ._token_source import GDCHTokenSource
 from ._utils import function_declaration_schema
@@ -591,26 +596,55 @@ class AzureOpenAI(BaseOpenAI):
     @cached_property
     def _client(self) -> AsyncAzureOpenAI:
         """Get the Azure OpenAI client with optional custom SSL configuration."""
-        api_version = self.api_version or os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
-        azure_endpoint = self.azure_endpoint or os.environ.get("AZURE_OPENAI_ENDPOINT")
-        api_key = self.api_key or os.environ.get("AZURE_OPENAI_API_KEY")
+        azure_endpoint, api_version = resolve_azure_openai_config(self.azure_endpoint, self.api_version)
+        api_key = resolve_azure_api_key(
+            self.api_key,
+            api_key_passthrough=self.api_key_passthrough,
+            environment_variable="AZURE_OPENAI_API_KEY",
+        )
 
-        if not azure_endpoint:
-            raise ValueError(
-                "Azure endpoint must be provided either via azure_endpoint parameter or AZURE_OPENAI_ENDPOINT environment variable"
-            )
-
-        if not api_key:
-            raise ValueError(
-                "API key must be provided either via api_key parameter or AZURE_OPENAI_API_KEY environment variable"
-            )
-
-        http_client = self._create_http_client()
-
-        return AsyncAzureOpenAI(
+        return build_azure_openai_client(
+            azure_deployment=self.azure_deployment,
             api_key=api_key,
             api_version=api_version,
             azure_endpoint=azure_endpoint,
+            api_key_passthrough=self.api_key_passthrough,
             default_headers=self.default_headers,
-            http_client=http_client,
+            http_client=self._create_http_client(),
+            missing_credential_hint=(
+                "No Azure credential resolved: set AZURE_OPENAI_API_KEY, enable "
+                "api_key_passthrough, or configure Azure Workload Identity"
+            ),
+        )
+
+
+class FoundryOpenAI(BaseOpenAI):
+    """Azure AI Foundry model using its OpenAI-compatible data plane."""
+
+    type: Literal["foundry"]
+    endpoint: Optional[str] = None
+    deployment: Optional[str] = None
+    api_version: Optional[str] = None
+
+    @cached_property
+    def _client(self) -> AsyncAzureOpenAI:
+        endpoint, deployment, api_version = resolve_foundry_config(self.endpoint, self.deployment, self.api_version)
+        api_key = resolve_azure_api_key(
+            self.api_key,
+            api_key_passthrough=self.api_key_passthrough,
+            environment_variable="FOUNDRY_API_KEY",
+        )
+
+        return build_azure_openai_client(
+            api_version=api_version,
+            azure_endpoint=endpoint,
+            azure_deployment=deployment,
+            api_key=api_key,
+            api_key_passthrough=self.api_key_passthrough,
+            default_headers=self.default_headers,
+            http_client=self._create_http_client(),
+            missing_credential_hint=(
+                "No Azure credential resolved: set FOUNDRY_API_KEY, enable "
+                "api_key_passthrough, or configure Azure Workload Identity"
+            ),
         )
