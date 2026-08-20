@@ -32,7 +32,7 @@ Kagent is a Kubernetes-native framework for building, deploying, and managing AI
 │  ┌─────────────────────┐  ┌──────────────────┐  ┌─────────────────────┐  │
 │  │  Controller Manager │  │   HTTP Server    │  │     Database        │  │
 │  │                     │  │   (port 8083)    │  │   (SQLite/Postgres) │  │
-│  │  - AgentController  │  │                  │  │                     │  │
+│  │  - SandboxAgentController  │  │                  │  │                     │  │
 │  │  - RemoteMCPServer  │  │  - REST API      │  │  - Agents           │  │
 │  │    Controller       │  │  - A2A proxy     │  │  - ToolServers      │  │
 │  │  - MCPServer (KMCP) │  │  - UI backend    │  │  - Tools            │  │
@@ -44,13 +44,13 @@ Kagent is a Kubernetes-native framework for building, deploying, and managing AI
 │            ▼                       ▼                                      │
 │  ┌─────────────────────────────────────────────┐                         │
 │  │          Kubernetes API Server              │                         │
-│  │  Deployments, Services, Secrets, ConfigMaps │                         │
+│  │  SandboxAgents, Secrets, ConfigMaps          │                         │
 │  └──────────────────────┬──────────────────────┘                         │
 └─────────────────────────┼────────────────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                      Agent Pods (per agent)                             │
+│                  Substrate Actor workloads                            │
 │                                                                         │
 │  ┌───────────────────────────────────────────────────────────────────┐  │
 │  │                  Python ADK Runtime (or Go ADK)                   │  │
@@ -86,18 +86,16 @@ The controller manager runs inside the `kagent-controller` pod and manages multi
 
 | Controller | Watches | Produces | Key File |
 |-----------|---------|----------|----------|
-| `AgentController` | `Agent` CRD | Deployment, Service, Secret (config), ServiceAccount | `go/core/internal/controller/agent_controller.go` |
+| `SandboxAgentController` | `SandboxAgent` CRD | Secret (config), Substrate ActorTemplate | `go/core/internal/controller/sandboxagent_controller.go` |
 | `RemoteMCPServerController` | `RemoteMCPServer` CRD | DB entries for tool servers + discovered tools | `go/core/internal/controller/remotemcpserver_controller.go` |
 | `MCPServerController` | `MCPServer` CRD (via KMCP) | Managed MCP server pods | External KMCP controller |
 | `ModelConfigController` | `ModelConfig` CRD | DB entries, secret hash tracking | `go/core/internal/controller/modelconfig_controller.go` |
 
 **Shared Reconciler**: All controllers delegate to `kagentReconciler` (`go/core/internal/controller/reconciler/reconciler.go`), which holds references to the translator, kube client, and database client.
 
-**Translator**: The `adkApiTranslator` (`go/core/internal/controller/translator/agent/adk_api_translator.go`) converts Agent CRD specs into:
-- A **Deployment** (with the agent container image, environment, volumes)
-- A **Service** (ClusterIP, exposing the agent's HTTP port)
+**Translator**: The `adkApiTranslator` (`go/core/internal/controller/translator/agent/adk_api_translator.go`) converts SandboxAgent specs into:
+- A Substrate **ActorTemplate** containing the runtime PodTemplate
 - A **Secret** (containing `config.json` — the serialized agent configuration read by the Python/Go ADK runtime)
-- A **ServiceAccount** (unless a custom one is specified)
 
 See [controller-reconciliation.md](controller-reconciliation.md) for concurrency model details.
 
@@ -107,7 +105,7 @@ The HTTP server runs in the same `kagent-controller` binary, listening on port 8
 
 **Key responsibilities:**
 - **REST API** for the UI (CRUD operations on agents, conversations, sessions)
-- **A2A proxy** that forwards Agent-to-Agent protocol messages from the UI to agent pods
+- **A2A proxy** that forwards Agent-to-Agent protocol messages from the UI to Substrate actors
 - **A2A server** that exposes agents configured with `a2aConfig` to external callers
 
 **Key file:** `go/core/internal/httpserver/server.go`
@@ -121,7 +119,7 @@ The HTTP server runs in the same `kagent-controller` binary, listening on port 8
 | `/api/sessions` | GET/POST/DELETE | Session management |
 | `/api/sessions/{id}/events` | POST | Persist session events |
 | `/api/tasks` | GET/POST | A2A task management |
-| `/api/a2a/{namespace}/{name}` | POST | A2A JSON-RPC endpoint (proxied to agent pod) |
+| `/api/a2a-sandboxes/{namespace}/{name}` | POST | SandboxAgent A2A JSON-RPC endpoint |
 | `/api/toolservers` | GET | List tool servers |
 | `/api/tools` | GET | List available tools |
 | `/api/models` | GET | List model configs |
@@ -153,20 +151,13 @@ The controller uses SQLite (default) or PostgreSQL for persistent state that sup
 - `go/core/internal/database/client.go` — Database client implementation
 - `go/core/internal/database/service.go` — Business logic with atomic upserts
 
-### 4. Agent Runtime (Python ADK)
+### 4. Agent Runtime
 
-Each agent runs as a separate Kubernetes pod with the Python ADK runtime (or optionally Go ADK).
-
-**Startup flow:**
-1. Pod starts with the `kagent-adk` container image
-2. Reads `config.json` from a mounted Secret (created by the translator)
-3. `config.json` contains: system message, model config, MCP server connections, tool lists, memory config, etc.
-4. Starts a [uvicorn](https://www.uvicorn.org/) HTTP server implementing the A2A protocol
-5. Connects to MCP tool servers listed in the config
+Standard agents run as Agent Substrate actors using either the Python or Go ADK runtime. The actor materializes the translated configuration from Secret-backed environment variables and serves A2A traffic.
 
 **Request handling flow:**
 1. Controller HTTP server receives a message from the UI
-2. Proxies it via A2A JSON-RPC to the agent pod's service
+2. Proxies it via A2A JSON-RPC to the SandboxAgent's Substrate actor
 3. Agent executor creates/resumes a session and runs the Google ADK `Runner`
 4. ADK runner manages the LLM conversation loop (prompt → response → tool calls → tool results → repeat)
 5. Events are converted from ADK format to A2A format via the event converter
@@ -211,22 +202,21 @@ The web interface is a Next.js application that communicates with the controller
 
 ## Custom Resource Definitions (CRDs)
 
-Kagent defines four main CRDs (all in `apiVersion: kagent.dev/v1alpha2`):
+Kagent defines four main CRDs (all in `apiVersion: kagent.dev/v1alpha3`):
 
 ### Agent
 
 The primary resource. Defines an AI agent with its system prompt, model, tools, and deployment configuration.
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
+apiVersion: kagent.dev/v1alpha3
+kind: SandboxAgent
 metadata:
   name: my-agent
 spec:
   type: Declarative  # or BYO (Bring Your Own)
   description: "Agent description"
   declarative:
-    runtime: python    # or go
     systemMessage: "You are a helpful agent..."
     modelConfig: my-model-config  # reference to ModelConfig
     stream: true
@@ -258,15 +248,17 @@ spec:
 ```
 
 **Two agent types:**
-- **Declarative** — Kagent manages the entire agent lifecycle. The controller creates a Deployment with the ADK runtime container, injects configuration, and manages MCP connections.
-- **BYO (Bring Your Own)** — User provides a custom container image. Kagent creates the Deployment but the user controls the agent runtime.
+- **Declarative** — Kagent builds a Substrate ActorTemplate with the ADK runtime, configuration, and MCP connections.
+- **BYO (Bring Your Own)** — User provides a custom container image and command for the Substrate ActorTemplate.
+
+Runnable standard agents require a configured Agent Substrate backend.
 
 ### ModelConfig
 
 Configures LLM provider credentials and settings.
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: ModelConfig
 metadata:
   name: my-model
@@ -285,7 +277,7 @@ spec:
 Declares a remote MCP tool server that agents can reference.
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: RemoteMCPServer
 metadata:
   name: my-tool-server
@@ -309,23 +301,22 @@ Managed MCP servers — the KMCP controller handles deploying and running these 
 ### Agent Creation Flow
 
 ```
-User applies Agent YAML
-    → K8s API Server stores Agent CR
-    → AgentController receives Create event
+User applies SandboxAgent YAML
+    → K8s API Server stores SandboxAgent CR
+    → SandboxAgentController receives Create event
     → kagentReconciler.reconcile()
         → adkApiTranslator.translateInlineAgent()
             → Resolves ModelConfig (fetches API key from Secret)
             → Resolves prompt template (if configured)
             → Resolves MCP server connections
             → Builds config.json
-            → Returns: Deployment, Service, Secret, ServiceAccount
+            → Returns: ActorTemplate and Secret
         → Reconcile each resource (create/update via K8s API)
         → Store agent in database (atomic upsert)
-        → Update Agent status (Accepted=True)
-    → Deployment creates agent Pod
-    → Pod starts Python ADK, reads config.json, connects to MCP servers
-    → Agent pod becomes Ready
-    → AgentController updates status (Ready=True)
+        → Update SandboxAgent status (Accepted=True)
+    → Substrate starts an actor for the chat session
+    → Actor starts the ADK runtime, reads config.json, and connects to MCP servers
+    → SandboxAgentController updates status (Ready=True)
 ```
 
 ### Message Flow (UI → Agent → UI)
@@ -336,8 +327,8 @@ User types message in UI
     → POST /api/agents/{ns}/{name}/conversations/{id}/messages
     → Controller HTTP server
         → Creates/gets conversation + session in DB
-        → Proxies A2A JSON-RPC to agent pod Service
-    → Agent pod receives A2A message
+        → Resolves and invokes the session's Substrate actor
+    → Agent actor receives A2A message
         → AgentExecutor._handle_request()
             → Creates ADK Runner with session
             → Runner calls LLM with system prompt + history + tools
@@ -362,7 +353,7 @@ See [human-in-the-loop.md](human-in-the-loop.md) for the full flow. Summary:
 
 ## Protocol: A2A (Agent-to-Agent)
 
-Kagent uses the [A2A protocol](https://github.com/google/A2A) as the communication protocol between the controller and agent pods. A2A uses JSON-RPC 2.0 over HTTP with streaming support.
+Kagent uses the [A2A protocol](https://github.com/google/A2A) as the communication protocol between the controller and agent actors. A2A uses JSON-RPC 2.0 over HTTP with streaming support.
 
 **Key A2A concepts in kagent:**
 - **Task**: Represents a unit of work (a user message and the agent's response)
@@ -396,7 +387,8 @@ The Go code is a single module (`github.com/kagent-dev/kagent/go`) with three to
 ```
 go/
 ├── api/        # Shared types
-│   ├── v1alpha2/         # CRD type definitions
+│   ├── v1alpha2/         # Compatibility CRD type definitions
+│   ├── v1alpha3/         # Current CRD type definitions
 │   ├── adk/              # ADK config types (shared with Python)
 │   ├── database/         # database models
 │   ├── httpapi/          # HTTP API request/response types
@@ -474,8 +466,6 @@ Kagent is deployed via two Helm charts:
    - `kagent-tools` Deployment (built-in tool server, optional)
    - Various Services, ConfigMaps, ServiceAccounts, RBAC
 
-Agent Helm charts in `helm/agents/` provide pre-configured agents (k8s-agent, helm-agent, istio-agent, etc.) that can be installed alongside the core chart.
-
 ---
 
 ## Key Architectural Decisions
@@ -484,11 +474,11 @@ Agent Helm charts in `helm/agents/` provide pre-configured agents (k8s-agent, he
 
 2. **A2A as the agent communication protocol** — Rather than a custom protocol, kagent uses the open A2A standard for all controller-to-agent communication.
 
-3. **Controller-as-proxy** — The controller HTTP server proxies A2A requests to agent pods. The UI never talks directly to agent pods. This centralizes auth, routing, and observability.
+3. **Controller-as-proxy** — The controller HTTP server proxies A2A requests to Substrate actors. The UI never talks directly to actors. This centralizes auth, routing, and observability.
 
-4. **Config via Secret** — Agent configuration (system prompt, model credentials, MCP connections) is serialized as `config.json` in a Kubernetes Secret, mounted into the agent pod. This decouples CRD reconciliation from runtime configuration.
+4. **Config via Secret** — Agent configuration (system prompt, model credentials, MCP connections) is serialized in a Kubernetes Secret and materialized by the actor runtime. This decouples CRD reconciliation from runtime configuration.
 
-5. **Dual runtime** — Agents can use either Python ADK (full features, Google ADK-based) or Go ADK (faster startup, most features). The `runtime` field on the CRD controls which container image and readiness probe are used.
+5. **Runtime boundary** — Declarative agents use the Go ADK. Python and other runtimes use BYO images and commands.
 
 6. **Template resolution at reconciliation time** — Prompt templates are resolved by the controller, not at runtime. The agent receives a fully resolved string. This makes debugging easier and keeps the runtime simple.
 

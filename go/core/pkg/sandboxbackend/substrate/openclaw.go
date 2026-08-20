@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,14 +26,14 @@ var dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 // ClawBackend implements AsyncBackend for OpenClaw on Agent Substrate.
 type ClawBackend struct {
 	client   *Client
-	backend  v1alpha2.AgentHarnessBackendType
+	backend  v1alpha3.AgentHarnessBackendType
 	recorder record.EventRecorder
 }
 
 var _ sandboxbackend.AsyncBackend = (*ClawBackend)(nil)
 
 // NewOpenClawBackend returns a substrate backend for openclaw harness types.
-func NewOpenClawBackend(client *Client, backend v1alpha2.AgentHarnessBackendType, recorder record.EventRecorder) *ClawBackend {
+func NewOpenClawBackend(client *Client, backend v1alpha3.AgentHarnessBackendType, recorder record.EventRecorder) *ClawBackend {
 	return &ClawBackend{
 		client:   client,
 		backend:  backend,
@@ -41,11 +41,11 @@ func NewOpenClawBackend(client *Client, backend v1alpha2.AgentHarnessBackendType
 	}
 }
 
-func (b *ClawBackend) Name() v1alpha2.AgentHarnessBackendType {
+func (b *ClawBackend) Name() v1alpha3.AgentHarnessBackendType {
 	return b.backend
 }
 
-func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.AgentHarness) (sandboxbackend.EnsureResult, error) {
+func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha3.AgentHarness) (sandboxbackend.EnsureResult, error) {
 	if ah == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("AgentHarness is required")
 	}
@@ -68,10 +68,10 @@ func (b *ClawBackend) EnsureAgentHarness(ctx context.Context, ah *v1alpha2.Agent
 		}
 	}
 
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING:
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING:
 		// already active or waking
-	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED:
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED:
 		actor, err = b.client.ResumeActor(ctx, atespace, actorID)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate ResumeActor %q: %w", actorID, err)
@@ -113,14 +113,14 @@ func (b *ClawBackend) DeleteAgentHarness(ctx context.Context, h sandboxbackend.H
 	return done, nil
 }
 
-func (b *ClawBackend) OnAgentHarnessReady(_ context.Context, _ *v1alpha2.AgentHarness, _ sandboxbackend.Handle) error {
+func (b *ClawBackend) OnAgentHarnessReady(_ context.Context, _ *v1alpha3.AgentHarness, _ sandboxbackend.Handle) error {
 	// OpenClaw config is baked into the ActorTemplate golden snapshot when the
 	// generated ActorTemplate is reconciled.
 	return nil
 }
 
 // ActorID returns a stable DNS-1123 actor id for this harness.
-func ActorID(ah *v1alpha2.AgentHarness) string {
+func ActorID(ah *v1alpha3.AgentHarness) string {
 	raw := fmt.Sprintf("%s-%s-%s", actorIDPrefix, ah.Namespace, ah.Name)
 	raw = strings.ToLower(raw)
 	raw = strings.ReplaceAll(raw, "_", "-")
@@ -147,7 +147,7 @@ func ActorHost(atespace, actorID string, suffix string) string {
 	return actorID + "." + atespace + "." + suffix
 }
 
-func generatedActorTemplateKey(ah *v1alpha2.AgentHarness) (string, string) {
+func generatedActorTemplateKey(ah *v1alpha3.AgentHarness) (string, string) {
 	return ah.Namespace, actorTemplateName(ah)
 }
 
@@ -159,26 +159,26 @@ func substrateConnectionEndpoint(namespace, name string, actor *ateapipb.Actor) 
 	if actorID := strings.TrimSpace(actorName(actor)); actorID != "" {
 		return fmt.Sprintf("atenet-router Host %s (UI via kagent %s)", ActorHost(actor.GetMetadata().GetAtespace(), actorID, ""), gw)
 	}
-	return fmt.Sprintf("kagent gateway: %s (actor status %s)", gw, actor.GetStatus())
+	return fmt.Sprintf("kagent gateway: %s (actor status %s)", gw, actor.GetStatus().GetState())
 }
 
 func actorStatusToCondition(actor *ateapipb.Actor) (metav1.ConditionStatus, string, string) {
 	if actor == nil {
 		return metav1.ConditionUnknown, "ActorMissing", "empty actor response"
 	}
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_RUNNING:
-		if ip := actor.GetAteomPodIp(); ip != "" {
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_RUNNING:
+		if ip := actor.GetStatus().GetWorkerAssignment().GetWorkerPodIp(); ip != "" {
 			return metav1.ConditionTrue, "ActorRunning", fmt.Sprintf("actor running on %s", ip)
 		}
 		return metav1.ConditionTrue, "ActorRunning", "actor is running"
-	case ateapipb.Actor_STATUS_RESUMING:
+	case ateapipb.ActorState_ACTOR_STATE_RESUMING:
 		return metav1.ConditionFalse, "ActorResuming", "actor is resuming"
-	case ateapipb.Actor_STATUS_SUSPENDING:
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
 		return metav1.ConditionFalse, "ActorSuspending", "actor is suspending"
-	case ateapipb.Actor_STATUS_SUSPENDED:
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
 		return metav1.ConditionFalse, "ActorSuspended", "actor is suspended"
 	default:
-		return metav1.ConditionUnknown, "ActorStatusUnknown", actor.GetStatus().String()
+		return metav1.ConditionUnknown, "ActorStatusUnknown", actor.GetStatus().GetState().String()
 	}
 }

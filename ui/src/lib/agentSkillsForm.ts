@@ -1,19 +1,8 @@
-import type { EnvVar, GitRepo, S3SkillRef } from "@/types";
+import type { GitRepo, S3SkillRef } from "@/types";
 import { isResourceNameValid } from "@/lib/utils";
 
 /** Matches CRD max items for `skills.refs`, `skills.gitRefs`, and `skills.s3Refs`. */
 export const MAX_SKILLS_PER_SOURCE = 20;
-
-/** Secret keys expected for S3 static credentials → skills.initContainer.env. */
-export const S3_SKILLS_AWS_ACCESS_KEY_ID = "AWS_ACCESS_KEY_ID";
-export const S3_SKILLS_AWS_SECRET_ACCESS_KEY = "AWS_SECRET_ACCESS_KEY";
-export const S3_SKILLS_AWS_SESSION_TOKEN = "AWS_SESSION_TOKEN";
-
-const S3_SKILLS_AWS_ENV_NAMES = new Set([
-  S3_SKILLS_AWS_ACCESS_KEY_ID,
-  S3_SKILLS_AWS_SECRET_ACCESS_KEY,
-  S3_SKILLS_AWS_SESSION_TOKEN,
-]);
 
 /** Form row for `spec.skills.gitRefs` (GitRepo). */
 export type GitSkillFormRow = {
@@ -280,49 +269,11 @@ export function s3SkillRowUriIssues(row: S3SkillFormRow): {
   return { hasExtraWithoutUri, uriInvalid };
 }
 
-/** Build initContainer.env entries for static AWS keys from a Secret. */
-export function s3SkillsAuthEnvFromSecret(secretName: string): EnvVar[] {
-  const name = secretName.trim();
-  if (!name) return [];
-  return [
-    {
-      name: S3_SKILLS_AWS_ACCESS_KEY_ID,
-      valueFrom: { secretKeyRef: { name, key: S3_SKILLS_AWS_ACCESS_KEY_ID } },
-    },
-    {
-      name: S3_SKILLS_AWS_SECRET_ACCESS_KEY,
-      valueFrom: { secretKeyRef: { name, key: S3_SKILLS_AWS_SECRET_ACCESS_KEY } },
-    },
-    {
-      name: S3_SKILLS_AWS_SESSION_TOKEN,
-      valueFrom: {
-        secretKeyRef: {
-          name,
-          key: S3_SKILLS_AWS_SESSION_TOKEN,
-          optional: true,
-        },
-      },
-    },
-  ];
-}
-
-/** Read secret name from initContainer.env AWS_ACCESS_KEY_ID secretKeyRef, if present. */
-export function s3SkillsAuthSecretNameFromEnv(env: EnvVar[] | undefined): string {
-  const accessKey = (env || []).find((e) => e.name === S3_SKILLS_AWS_ACCESS_KEY_ID);
-  return accessKey?.valueFrom?.secretKeyRef?.name?.trim() || "";
-}
-
-/** Drop AWS credential env vars we manage; keep any other initContainer env. */
-export function filterNonS3SkillsAuthEnv(env: EnvVar[] | undefined): EnvVar[] {
-  return (env || []).filter((e) => !S3_SKILLS_AWS_ENV_NAMES.has(e.name));
-}
-
 export type DeclarativeAgentSkillsFormInput = {
   skillRefs: string[];
   skillGitRepos: GitSkillFormRow[];
   skillsGitAuthSecretName: string;
   skillS3Repos?: S3SkillFormRow[];
-  skillsS3AuthSecretName?: string;
 };
 
 /** True when the form has at least one OCI, Git, or S3 skill source configured. */
@@ -333,23 +284,6 @@ export function declarativeAgentSkillsConfigured(
   const gitRepos = formRowsToGitRepos(input.skillGitRepos || []);
   const s3Refs = formRowsToS3Refs(input.skillS3Repos || []);
   return nonEmptyRefs || gitRepos.length > 0 || s3Refs.length > 0;
-}
-
-export const SUBSTRATE_SANDBOX_SKILLS_UNSUPPORTED_MSG =
-  "Skills are not supported for Agent Substrate sandbox agents yet";
-
-/** Returns an error when skills are configured on a sandbox (Agent Substrate) agent. */
-export function validateSubstrateSandboxSkillsConflict(
-  input: DeclarativeAgentSkillsFormInput,
-  runInSandbox: boolean,
-): string | undefined {
-  if (!runInSandbox) {
-    return undefined;
-  }
-  if (declarativeAgentSkillsConfigured(input)) {
-    return SUBSTRATE_SANDBOX_SKILLS_UNSUPPORTED_MSG;
-  }
-  return undefined;
 }
 
 /**
@@ -421,14 +355,6 @@ export function validateDeclarativeAgentSkills(
   }
   if (hasDuplicateStrings(s3Refs.map((r) => s3SkillDedupeKey(r.uri)))) {
     return "Duplicate S3 skill URI";
-  }
-
-  const s3Sec = input.skillsS3AuthSecretName?.trim();
-  if (s3Sec && s3Refs.length === 0) {
-    return "Add at least one S3 skill to use AWS credentials, or clear the secret name";
-  }
-  if (s3Sec && !isResourceNameValid(s3Sec)) {
-    return "S3 auth secret name must be a valid Kubernetes resource name";
   }
 
   return undefined;

@@ -7,7 +7,7 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/stretchr/testify/require"
@@ -30,7 +30,7 @@ func TestShortConfigHash(t *testing.T) {
 
 func TestSandboxAgentActorTemplateNameWithHash(t *testing.T) {
 	t.Parallel()
-	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
+	sa := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
 
 	// Distinct configs → distinct template names → distinct golden snapshots.
 	n1 := sandboxAgentActorTemplateName(sa, "abc123")
@@ -43,13 +43,13 @@ func TestSandboxAgentActorTemplateNameWithHash(t *testing.T) {
 	require.Equal(t, "my-agent", sandboxAgentActorTemplateName(sa, ""))
 
 	// Long agent names stay within the DNS-1123 budget once the hash suffix is added.
-	long := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("a", 80)}}
+	long := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: strings.Repeat("a", 80)}}
 	require.LessOrEqual(t, len(sandboxAgentActorTemplateName(long, "deadbeefdeadbeef")), 63)
 }
 
 func TestSandboxAgentSessionActorIDIsSessionStable(t *testing.T) {
 	t.Parallel()
-	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
+	sa := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
 
 	// One session ⇔ one actor: the id is derived from the session alone, so it survives config
 	// AND shape rollouts (the actor's template binding lives on the actor record, not in the id).
@@ -72,11 +72,9 @@ func TestSandboxAgentSessionActorIDIsSessionStable(t *testing.T) {
 func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	t.Parallel()
 	p := newTestLifecycle(t)
-	sa := &v1alpha2.SandboxAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
-		},
+	sa := &v1alpha3.SandboxAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"},
+		Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{}},
 	}
 	podFor := func(configHash, image string) corev1.PodTemplateSpec {
 		return corev1.PodTemplateSpec{
@@ -88,22 +86,22 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 	const img2 = "registry.example/app@sha256:2222222"
 	wpKey := types.NamespacedName{Namespace: "kagent", Name: "kagent-default"}
 
-	tmpl, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("255", img1))
+	tmpl, err := p.buildSandboxAgentActorTemplate(context.Background(), sa, wpKey, podFor("255", img1), nil)
 	require.NoError(t, err)
 	shapeHash := tmpl.Annotations[actorTemplateHashAnnotation]
 	require.NotEmpty(t, shapeHash)
-	require.Equal(t, "py-agent-"+shapeHash, tmpl.Name, "template name must carry the shape-hash suffix")
+	require.Equal(t, "agent-"+shapeHash, tmpl.Name, "template name must carry the shape-hash suffix")
 	require.Equal(t, "ff", tmpl.Annotations[consts.ConfigHashAnnotation], "config hash is kept as an informational annotation")
 
 	// A soft config change (new config hash, same rendered shape) must keep the SAME template —
 	// that is what lets existing sessions keep their actor (and durable dir) across rollouts.
-	softChange, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("256", img1))
+	softChange, err := p.buildSandboxAgentActorTemplate(context.Background(), sa, wpKey, podFor("256", img1), nil)
 	require.NoError(t, err)
 	require.Equal(t, tmpl.Name, softChange.Name, "config-only change must not fan out a new template")
 	require.Equal(t, shapeHash, softChange.Annotations[actorTemplateHashAnnotation])
 
 	// A actor template shape change (new image digest) must fan out a new template + golden.
-	shapeChange, err := p.buildSandboxAgentActorTemplate(sa, wpKey, podFor("256", img2))
+	shapeChange, err := p.buildSandboxAgentActorTemplate(context.Background(), sa, wpKey, podFor("256", img2), nil)
 	require.NoError(t, err)
 	require.NotEqual(t, tmpl.Name, shapeChange.Name, "image change must produce a new template")
 	require.NotEqual(t, shapeHash, shapeChange.Annotations[actorTemplateHashAnnotation])
@@ -115,20 +113,22 @@ func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {
 func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 	t.Parallel()
 	scheme := runtime.NewScheme()
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
 	wp := &atev1alpha1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Name: "kagent-default", Namespace: "kagent"}}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wp).Build()
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"}, Data: map[string][]byte{
+		"config.json": []byte("{}"), "agent-card.json": []byte("{}"),
+	}}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wp, secret).Build()
 	p := &Lifecycle{
 		Client:   cl,
-		Defaults: LifecycleDefaults{PauseImage: "gcr.io/test/pause@sha256:deadbeef", DefaultWorkerPool: types.NamespacedName{Name: "kagent-default", Namespace: "kagent"}},
+		Defaults: LifecycleDefaults{DefaultWorkerPool: types.NamespacedName{Name: "kagent-default", Namespace: "kagent"}},
 	}
 	b := NewAgentsBackend(p, nil)
-	sa := &v1alpha2.SandboxAgent{
-		ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
-		},
+	sa := &v1alpha3.SandboxAgent{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"},
+		Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{}},
 	}
 	pod := corev1.PodTemplateSpec{
 		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{consts.ConfigHashAnnotation: "255"}},
@@ -137,13 +137,13 @@ func TestBuildSandboxReturnsActorTemplate(t *testing.T) {
 			Image: "registry.example/app@sha256:1111111111111111111111111111111111111111111111111111111111111111",
 		}}},
 	}
-	objs, err := b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod})
+	objs, err := b.BuildSandbox(context.Background(), sandboxbackend.BuildInput{Agent: sa, PodTemplate: pod, ConfigSecret: secret})
 	require.NoError(t, err)
 	require.Len(t, objs, 1, "the ActorTemplate is the backend's only object; the config Secret is the translator's")
 
 	tmpl, ok := objs[0].(*atev1alpha1.ActorTemplate)
 	require.True(t, ok)
-	require.Equal(t, "py-agent-"+tmpl.Annotations[actorTemplateHashAnnotation], tmpl.Name, "ActorTemplate is named for its shape hash")
+	require.Equal(t, "agent-"+tmpl.Annotations[actorTemplateHashAnnotation], tmpl.Name, "ActorTemplate is named for its shape hash")
 }
 
 func TestResolveCurrentActorTemplate(t *testing.T) {
@@ -230,7 +230,7 @@ func TestResolveCurrentActorTemplatePrefersDesiredGeneration(t *testing.T) {
 
 func TestActorBelongsToSandboxAgent(t *testing.T) {
 	t.Parallel()
-	sa := &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
+	sa := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
 	prefix := sandboxAgentActorPrefix(sa)
 	owned := map[string]struct{}{"my-agent-abc123": {}, "my-agent": {}}
 

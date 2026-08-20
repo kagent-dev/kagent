@@ -80,7 +80,7 @@ const getItemDisplayInfo = (
       displayName,
       description: agentResp.agent.spec.description,
       identifier: `agent-${displayName}`,
-      providerText: agentResp.agent.kind || "Agent",
+      providerText: agentResp.agent.kind || "SandboxAgent",
       Icon: KagentLogo,
       iconColor: "text-green-500",
       isAgent: true,
@@ -318,7 +318,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({
         agent: {
           name: agentName,
           namespace: agentNamespace,
-          kind: agentResp.agent.kind || "Agent",
+          kind: agentResp.agent.kind || "SandboxAgent",
           apiGroup: "kagent.dev",
         },
       };

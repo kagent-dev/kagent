@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+message StructuredObject {
+  string api_version = 1;
+  string kind = 2;
+  google.protobuf.Struct value = 3;
+}
+
+message ResourceReference {
+  string namespace = 1;
+  string name = 2;
+}
+
+message PageRequest {
+  int32 limit = 1;
+  string page_token = 2;
+}
+
+message PageResponse {
+  string next_page_token = 1;
+}

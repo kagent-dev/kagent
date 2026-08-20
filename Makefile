@@ -52,10 +52,8 @@ KIND_IMAGE_VERSION ?= 1.35.0
 
 CONTROLLER_IMAGE_NAME ?= controller
 UI_IMAGE_NAME ?= ui
-APP_IMAGE_NAME ?= app
 KAGENT_ADK_IMAGE_NAME ?= kagent-adk
 GOLANG_ADK_IMAGE_NAME ?= golang-adk
-SKILLS_INIT_IMAGE_NAME ?= skills-init
 ACP_SANDBOX_BASE_IMAGE_NAME ?= acp-sandbox-base
 ACP_SANDBOX_HERMES_IMAGE_NAME ?= acp-sandbox-hermes
 ACP_SANDBOX_OPENCLAW_IMAGE_NAME ?= acp-sandbox-openclaw
@@ -63,23 +61,13 @@ ACP_SANDBOX_CLAUDE_IMAGE_NAME ?= acp-sandbox-claude
 
 CONTROLLER_IMAGE_TAG ?= $(VERSION)
 UI_IMAGE_TAG ?= $(VERSION)
-APP_IMAGE_TAG ?= $(VERSION)
-APP_FULL_IMAGE_TAG ?= $(VERSION)-full
 KAGENT_ADK_IMAGE_TAG ?= $(VERSION)
-KAGENT_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
 GOLANG_ADK_IMAGE_TAG ?= $(VERSION)
-GOLANG_ADK_FULL_IMAGE_TAG ?= $(VERSION)-full
-SKILLS_INIT_IMAGE_TAG ?= $(VERSION)
 ACP_SANDBOX_IMAGE_TAG ?= $(VERSION)
 CONTROLLER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CONTROLLER_IMAGE_NAME):$(CONTROLLER_IMAGE_TAG)
 UI_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(UI_IMAGE_NAME):$(UI_IMAGE_TAG)
-APP_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_IMAGE_TAG)
-APP_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(APP_IMAGE_NAME):$(APP_FULL_IMAGE_TAG)
 KAGENT_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_IMAGE_TAG)
-KAGENT_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(KAGENT_ADK_IMAGE_NAME):$(KAGENT_ADK_FULL_IMAGE_TAG)
 GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_IMAGE_TAG)
-GOLANG_ADK_FULL_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(GOLANG_ADK_FULL_IMAGE_TAG)
-SKILLS_INIT_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SKILLS_INIT_IMAGE_NAME):$(SKILLS_INIT_IMAGE_TAG)
 ACP_SANDBOX_BASE_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_BASE_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
 ACP_SANDBOX_HERMES_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_HERMES_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
 ACP_SANDBOX_OPENCLAW_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(ACP_SANDBOX_OPENCLAW_IMAGE_NAME):$(ACP_SANDBOX_IMAGE_TAG)
@@ -99,6 +87,8 @@ LDFLAGS := -X github.com/$(DOCKER_REPO)/go/core/internal/version.Version=$(VERSI
 TOOLS_UV_VERSION ?= 0.10.4
 TOOLS_NODE_VERSION ?= 24
 TOOLS_PYTHON_VERSION ?= 3.13
+BUF_VERSION ?= v1.72.0
+BUF := go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 
 # build args
 TOOLS_IMAGE_BUILD_ARGS =  --build-arg VERSION=$(VERSION)
@@ -137,6 +127,35 @@ print-tools-versions: ## Print tools versions
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
+
+##@ Protobuf
+
+.PHONY: proto-generate
+proto-generate: ## Generate Go, TypeScript, and Python protobuf clients and servers
+	cd proto && $(BUF) generate
+
+.PHONY: proto-lint
+proto-lint: ## Lint repository-owned protobuf schemas
+	cd proto && $(BUF) lint
+
+.PHONY: proto-breaking
+proto-breaking: ## Check protobuf compatibility against the target branch (default: main)
+	@if git cat-file -e "$(PROTO_BREAKING_BRANCH):proto/buf.yaml" 2>/dev/null; then \
+		$(BUF) breaking proto --against ".git#branch=$(PROTO_BREAKING_BRANCH),subdir=proto"; \
+	else \
+		echo "No protobuf module on $(PROTO_BREAKING_BRANCH); skipping first-release breaking check"; \
+	fi
+
+PROTO_BREAKING_BRANCH ?= main
+PROTO_GENERATED_PATHS := go/api/gen ui/src/generated python/packages/kagent-proto/src/kagent
+
+.PHONY: proto-check
+proto-check: proto-lint proto-generate ## Regenerate protobuf artifacts and fail when committed output drifts
+	@if test -n "$$(git status --porcelain -- $(PROTO_GENERATED_PATHS))"; then \
+		echo "Generated protobuf files are out of date:"; \
+		git status --short -- $(PROTO_GENERATED_PATHS); \
+		exit 1; \
+	fi
 
 ##@ Git
 
@@ -207,25 +226,19 @@ endif
 .PHONY: build-all
 build-all: ## Build all images for amd64+arm64 without pushing (outputs to /dev/null for CI validation)
 build-all: BUILD_ARGS ?= --progress=plain --builder $(BUILDX_BUILDER_NAME) --platform linux/amd64,linux/arm64 --output type=tar,dest=/dev/null
-build-all: buildx-create
+build-all: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile     ./go
-	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f go/Dockerfile.full ./go
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f ui/Dockerfile     ./ui
 	$(DOCKER_BUILDER) $(BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -f python/Dockerfile ./python
 
 .PHONY: build
 build: ## Build and push all component images
-build: buildx-create build-ui build-skills-init build-golang-adk build-golang-adk-full build-app build-app-full build-controller
+build: buildx-create build-ui build-kagent-adk build-golang-adk build-controller
 	@echo "Build completed successfully."
 	@echo "Controller Image: $(CONTROLLER_IMG)"
 	@echo "UI Image: $(UI_IMG)"
-	@echo "App Image: $(APP_IMG)"
-	@echo "App Full Image: $(APP_FULL_IMG)"
 	@echo "Kagent ADK Image: $(KAGENT_ADK_IMG)"
-	@echo "Kagent ADK Full Image: $(KAGENT_ADK_FULL_IMG)"
 	@echo "Golang ADK Image: $(GOLANG_ADK_IMG)"
-	@echo "Golang ADK Full Image: $(GOLANG_ADK_FULL_IMG)"
-	@echo "Skills Init Image: $(SKILLS_INIT_IMG)"
 
 .PHONY: build-monitor
 build-monitor: ## Watch BuildKit process list inside the buildx container
@@ -238,10 +251,12 @@ endif
 
 .PHONY: build-cli
 build-cli: ## Build the kagent CLI (cross-compiled via go sub-make)
+build-cli: proto-generate
 	make -C go build
 
 .PHONY: build-cli-local
 build-cli-local: ## Build the kagent CLI binary for the local machine
+build-cli-local: proto-generate
 	make -C go clean
 	make -C go core/bin/kagent-local
 
@@ -249,13 +264,8 @@ build-cli-local: ## Build the kagent CLI binary for the local machine
 build-img-versions: ## Print the fully-qualified image tags for all components
 	@echo controller=$(CONTROLLER_IMG)
 	@echo ui=$(UI_IMG)
-	@echo app=$(APP_IMG)
-	@echo app-full=$(APP_FULL_IMG)
 	@echo kagent-adk=$(KAGENT_ADK_IMG)
-	@echo kagent-adk-full=$(KAGENT_ADK_FULL_IMG)
 	@echo golang-adk=$(GOLANG_ADK_IMG)
-	@echo golang-adk-full=$(GOLANG_ADK_FULL_IMG)
-	@echo skills-init=$(SKILLS_INIT_IMG)
 	@echo acp-sandbox-base=$(ACP_SANDBOX_BASE_IMG)
 	@echo acp-sandbox-hermes=$(ACP_SANDBOX_HERMES_IMG)
 	@echo acp-sandbox-openclaw=$(ACP_SANDBOX_OPENCLAW_IMG)
@@ -267,70 +277,30 @@ controller-manifests: ## Regenerate CRD manifests and copy them into the Helm ch
 	cp go/api/config/crd/bases/* helm/kagent-crds/templates/
 
 .PHONY: build-controller
-build-controller: ## Build and push the controller image (embeds agent runtime + acp-sandbox digests via scripts/controller-digest-ldflags.sh)
-build-controller: buildx-create controller-manifests build-app build-app-full build-golang-adk build-golang-adk-full build-acp-sandbox-openclaw build-acp-sandbox-hermes
-	@set -e; \
-	DIGEST_LDFLAGS=$$(CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) \
-		APP_IMG=$(APP_IMG) \
-		APP_FULL_IMG=$(APP_FULL_IMG) \
-		GOLANG_ADK_IMG=$(GOLANG_ADK_IMG) \
-		GOLANG_ADK_FULL_IMG=$(GOLANG_ADK_FULL_IMG) \
-		ACP_SANDBOX_OPENCLAW_IMG=$(ACP_SANDBOX_OPENCLAW_IMG) \
-		ACP_SANDBOX_HERMES_IMG=$(ACP_SANDBOX_HERMES_IMG) \
-		./scripts/controller-digest-ldflags.sh); \
+build-controller: ## Build and push the API v2 controller image
+build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
-		--build-arg LDFLAGS="$(LDFLAGS)$$DIGEST_LDFLAGS" \
-		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
+		--build-arg BUILD_PACKAGE=core/cmd/controller-v2/main.go \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 
 .PHONY: build-ui
 build-ui: ## Build and push the UI image
-build-ui: buildx-create
+build-ui: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(UI_IMG) -f ui/Dockerfile ./ui
 	$(DOCKER_PUSH) $(UI_IMG)
 
 .PHONY: build-kagent-adk
 build-kagent-adk: ## Build and push the Python kagent ADK image
-build-kagent-adk: buildx-create
+build-kagent-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_IMG) -f python/Dockerfile ./python
 	$(DOCKER_PUSH) $(KAGENT_ADK_IMG)
 
-.PHONY: build-app
-build-app: ## Build and push the app image (distroless slim; depends on kagent-adk)
-build-app: buildx-create build-kagent-adk
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_IMG) -f python/Dockerfile.app ./python
-	$(DOCKER_PUSH) $(APP_IMG)
-
-.PHONY: build-kagent-adk-full
-build-kagent-adk-full: ## Build and push the full Python kagent ADK image (includes sandbox runtime)
-build-kagent-adk-full: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(KAGENT_ADK_FULL_IMG) -f python/Dockerfile.full ./python
-	$(DOCKER_PUSH) $(KAGENT_ADK_FULL_IMG)
-
-.PHONY: build-app-full
-build-app-full: ## Build and push the full app image (sandbox runtime; depends on kagent-adk-full)
-build-app-full: buildx-create build-kagent-adk-full
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg KAGENT_ADK_VERSION=$(KAGENT_ADK_FULL_IMAGE_TAG) --build-arg DOCKER_REGISTRY=$(DOCKER_REGISTRY) -t $(APP_FULL_IMG) -f python/Dockerfile.app ./python
-	$(DOCKER_PUSH) $(APP_FULL_IMG)
-
 .PHONY: build-golang-adk
 build-golang-adk: ## Build and push the Go ADK image
-build-golang-adk: buildx-create
+build-golang-adk: proto-generate buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(GOLANG_ADK_IMG)
-
-.PHONY: build-golang-adk-full
-build-golang-adk-full: ## Build and push the Go ADK full image (with extra tooling)
-build-golang-adk-full: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=adk/cmd/main.go -t $(GOLANG_ADK_FULL_IMG) -f go/Dockerfile.full ./go
-	$(DOCKER_PUSH) $(GOLANG_ADK_FULL_IMG)
-
-.PHONY: build-skills-init
-build-skills-init: ## Build and push the skills-init image
-build-skills-init: buildx-create
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) -t $(SKILLS_INIT_IMG) -f docker/skills-init/Dockerfile ./go
-	$(DOCKER_PUSH) $(SKILLS_INIT_IMG)
 
 .PHONY: build-acp-sandbox
 build-acp-sandbox: ## Build and push all ACP sandbox agent images (hermes, openclaw, claude)
@@ -361,8 +331,8 @@ build-acp-sandbox-claude: buildx-create
 	$(DOCKER_PUSH) $(ACP_SANDBOX_CLAUDE_IMG)
 
 .PHONY: push
-push: ## Push all component images (controller, ui, app, ADKs)
-push: push-controller push-ui push-app push-kagent-adk push-golang-adk push-golang-adk-full
+push: ## Push all component images (controller, ui, ADKs)
+push: push-controller push-ui push-kagent-adk push-golang-adk
 
 
 ##@ Testing
@@ -372,33 +342,14 @@ lint: ## Run linters for Go and Python
 	make -C go lint
 	make -C python lint
 
-.PHONY: push-test-agent
-push-test-agent: buildx-create build-kagent-adk build-kagent-adk-full ## Build and push E2E test agent images to the local registry
-	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kagent-adk:$(VERSION)-full"
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab:latest -f go/core/test/e2e/agents/kebab/Dockerfile ./go/core/test/e2e/agents/kebab
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab:latest
-	kubectl apply --namespace kagent --context kind-$(KIND_CLUSTER_NAME) -f go/core/test/e2e/agents/kebab/agent.yaml
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/poem-flow:latest -f python/samples/crewai/poem_flow/Dockerfile ./python
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/poem-flow:latest
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/basic-openai:latest -f python/samples/openai/basic_agent/Dockerfile ./python
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/basic-openai:latest
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/langgraph-kebab:latest -f python/samples/langgraph/kebab/Dockerfile ./python
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/langgraph-kebab:latest
-
-.PHONY: push-test-skill
-push-test-skill: buildx-create ## Build and push E2E test skill images to the local registry
-	echo "Building FROM DOCKER_REGISTRY=$(DOCKER_REGISTRY)/$(DOCKER_REPO)/kebab-maker:$(VERSION)"
-	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) -t $(DOCKER_REGISTRY)/kebab-maker:latest -f go/core/test/e2e/testdata/skills/kebab-maker/Dockerfile ./go/core/test/e2e/testdata/skills/kebab-maker
-	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/kebab-maker:latest
-
 
 ##@ Cluster
 
 .PHONY: create-kind-cluster
 
 create-kind-cluster: ## Create a local kind cluster with MetalLB
-	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-kind.sh
-	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) bash ./scripts/kind/setup-metallb.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) KIND_IMAGE_VERSION=$(KIND_IMAGE_VERSION) bash ./scripts/kind/setup-kind.sh
+	CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) bash ./scripts/kind/setup-metallb.sh
 
 .PHONY: use-kind-cluster
 use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
@@ -430,29 +381,6 @@ helm-test: helm-version
 	helm plugin ls | grep unittest || helm plugin install https://github.com/helm-unittest/helm-unittest.git
 	helm unittest helm/kagent
 
-.PHONY: helm-agents
-helm-agents: ## Package all agent Helm charts into the dist folder
-	VERSION=$(VERSION) envsubst < helm/agents/k8s/Chart-template.yaml > helm/agents/k8s/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/k8s
-	VERSION=$(VERSION) envsubst < helm/agents/kgateway/Chart-template.yaml > helm/agents/kgateway/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/kgateway
-	VERSION=$(VERSION) envsubst < helm/agents/istio/Chart-template.yaml > helm/agents/istio/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/istio
-	VERSION=$(VERSION) envsubst < helm/agents/promql/Chart-template.yaml > helm/agents/promql/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/promql
-	VERSION=$(VERSION) envsubst < helm/agents/observability/Chart-template.yaml > helm/agents/observability/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/observability
-	VERSION=$(VERSION) envsubst < helm/agents/helm/Chart-template.yaml > helm/agents/helm/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/helm
-	VERSION=$(VERSION) envsubst < helm/agents/argo-rollouts/Chart-template.yaml > helm/agents/argo-rollouts/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/argo-rollouts
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-policy/Chart-template.yaml > helm/agents/cilium-policy/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-policy
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-debug/Chart-template.yaml > helm/agents/cilium-debug/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-debug
-	VERSION=$(VERSION) envsubst < helm/agents/cilium-manager/Chart-template.yaml > helm/agents/cilium-manager/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/agents/cilium-manager
-
 .PHONY: helm-tools
 helm-tools: ## Package all tool Helm charts into the dist folder
 	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
@@ -462,7 +390,7 @@ helm-tools: ## Package all tool Helm charts into the dist folder
 
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
-helm-version: helm-cleanup helm-agents helm-tools
+helm-version: helm-cleanup helm-tools
 	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent-crds/Chart-template.yaml > helm/kagent-crds/Chart.yaml
 	VERSION=$(VERSION) KMCP_VERSION=$(KMCP_VERSION) SUBSTRATE_VERSION=$(SUBSTRATE_VERSION) SUBSTRATE_REPO=$(SUBSTRATE_REPO) envsubst < helm/kagent/Chart-template.yaml > helm/kagent/Chart.yaml
 	helm dependency update helm/kagent
@@ -651,15 +579,6 @@ helm-publish: ## Package and push all Helm charts to the OCI registry
 helm-publish: helm-version
 	helm push ./$(HELM_DIST_FOLDER)/kagent-crds-$(VERSION).tgz $(HELM_REPO)/kagent/helm
 	helm push ./$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz $(HELM_REPO)/kagent/helm
-	helm push ./$(HELM_DIST_FOLDER)/helm-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/istio-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/promql-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/observability-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/argo-rollouts-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/cilium-policy-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/cilium-manager-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/cilium-debug-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
-	helm push ./$(HELM_DIST_FOLDER)/kgateway-agent-$(VERSION).tgz $(HELM_REPO)/kagent/agents
 
 ##@ Dev
 
@@ -726,9 +645,8 @@ report/image-cve: ## Scan built images with grype and write CVE CSV reports to r
 report/image-cve: audit build
 	echo "Running CVE scan :: CVE -> CSV ... reports/$(SEMVER)/"
 	grype $(CONTAINER_RUNTIME):$(CONTROLLER_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/controller-cve.csv
-	grype $(CONTAINER_RUNTIME):$(APP_IMG)        -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/app-cve.csv
+	grype $(CONTAINER_RUNTIME):$(KAGENT_ADK_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/kagent-adk-cve.csv
 	grype $(CONTAINER_RUNTIME):$(UI_IMG)         -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/ui-cve.csv
-	grype $(CONTAINER_RUNTIME):$(SKILLS_INIT_IMG) -o template -t reports/cve-report.tmpl --file reports/$(SEMVER)/skills-init-cve.csv
 
 
 ##@ Cleanup

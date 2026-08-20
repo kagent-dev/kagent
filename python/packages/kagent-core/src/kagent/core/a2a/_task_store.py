@@ -2,26 +2,29 @@ import asyncio
 import logging
 from datetime import timezone
 
-import httpx
+import grpc
 from a2a.server.tasks import TaskStore
 from a2a.types import ListTasksRequest, ListTasksResponse, Task
+from a2a.types import a2a_pb2
 from a2a.utils.constants import DEFAULT_LIST_TASKS_PAGE_SIZE
-from google.protobuf.json_format import MessageToDict, ParseDict
+from kagent.api.v1alpha1 import sessions_pb2
 from typing_extensions import override
+
+from .._grpc import AsyncControllerClient
 
 logger = logging.getLogger(__name__)
 
 
 class KAgentTaskStore(TaskStore):
     """
-    A task store that persists A2A tasks to KAgent via REST API.
+    A task store that persists A2A tasks to KAgent via gRPC.
     """
 
-    def __init__(self, client: httpx.AsyncClient):
+    def __init__(self, client: AsyncControllerClient):
         """Initialize the task store.
 
         Args:
-            client: HTTP client configured with KAgent base URL
+            client: gRPC client configured with the KAgent controller address
         """
         self.client = client
         # Event-based sync: track pending save operations
@@ -38,11 +41,11 @@ class KAgentTaskStore(TaskStore):
         Raises:
             httpx.HTTPStatusError: If the API request fails
         """
-        response = await self.client.post(
-            "/api/tasks",
-            json=MessageToDict(task),
+        encoded = a2a_pb2.Task.FromString(task.SerializeToString())
+        await self.client.task_service.UpsertTask(
+            sessions_pb2.UpsertTaskRequest(task=encoded),
+            **await self.client.call_options(),
         )
-        response.raise_for_status()
 
         # Signal that save completed (event-based sync)
         if task.id in self._save_events:
@@ -62,17 +65,16 @@ class KAgentTaskStore(TaskStore):
         Raises:
             httpx.HTTPStatusError: If the API request fails (except 404)
         """
-        response = await self.client.get(f"/api/tasks/{task_id}")
-        if response.status_code == 404:
-            return None
-        response.raise_for_status()
-
-        # Unwrap the StandardResponse envelope from the Go controller
-        wrapped = response.json()
-        data = wrapped.get("data") if isinstance(wrapped, dict) else None
-        if not isinstance(data, dict):
-            return None
-        return ParseDict(data, Task())
+        try:
+            response = await self.client.task_service.GetTask(
+                sessions_pb2.GetTaskRequest(task_id=task_id),
+                **await self.client.call_options(),
+            )
+        except grpc.aio.AioRpcError as error:
+            if error.code() == grpc.StatusCode.NOT_FOUND:
+                return None
+            raise
+        return Task.FromString(response.task.SerializeToString())
 
     @override
     async def list(self, params: ListTasksRequest, context=None) -> ListTasksResponse:
@@ -81,22 +83,14 @@ class KAgentTaskStore(TaskStore):
         if not params.context_id:
             return ListTasksResponse(tasks=[], page_size=page_size, total_size=0)
 
-        response = await self.client.get(f"/api/sessions/{params.context_id}/tasks")
-        if response.status_code == 404:
-            return ListTasksResponse(tasks=[], page_size=page_size, total_size=0)
-        response.raise_for_status()
-
-        wrapped = response.json()
-        data = wrapped.get("data") if isinstance(wrapped, dict) else None
-        if not isinstance(data, list):
-            return ListTasksResponse(tasks=[], page_size=page_size, total_size=0)
-
         tasks: list[Task] = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
+        response = await self.client.task_service.ListTasks(
+            sessions_pb2.ListTasksRequest(session_id=params.context_id),
+            **await self.client.call_options(),
+        )
+        for item in response.tasks:
             try:
-                tasks.append(ParseDict(item, Task()))
+                tasks.append(Task.FromString(item.SerializeToString()))
             except Exception as err:
                 logger.warning("Failed to parse task from list response: %s", err)
 
@@ -143,8 +137,10 @@ class KAgentTaskStore(TaskStore):
         Raises:
             httpx.HTTPStatusError: If the API request fails
         """
-        response = await self.client.delete(f"/api/tasks/{task_id}")
-        response.raise_for_status()
+        await self.client.task_service.DeleteTask(
+            sessions_pb2.DeleteTaskRequest(task_id=task_id),
+            **await self.client.call_options(),
+        )
 
     async def wait_for_save(self, task_id: str, timeout: float = 5.0) -> None:
         """Wait for a task to be saved (event-based sync).

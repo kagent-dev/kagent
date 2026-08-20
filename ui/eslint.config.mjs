@@ -30,7 +30,6 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "storybook-static/**",
-    "public/mockServiceWorker.js",
   ]),
   ...storybook.configs["flat/recommended"],
 ]);

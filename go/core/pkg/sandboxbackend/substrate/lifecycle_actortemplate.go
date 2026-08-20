@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,7 +21,7 @@ import (
 // a multi-step recreate (e.g. golden-actor deletion) and callers should requeue.
 var ErrActorTemplateReconcilePending = errors.New("actor template reconciliation pending")
 
-func (p *Lifecycle) ensureActorTemplate(ctx context.Context, ah *v1alpha2.AgentHarness, wpKey types.NamespacedName) (types.NamespacedName, error) {
+func (p *Lifecycle) ensureActorTemplate(ctx context.Context, ah *v1alpha3.AgentHarness, wpKey types.NamespacedName) (types.NamespacedName, error) {
 	key := types.NamespacedName{Namespace: ah.Namespace, Name: actorTemplateName(ah)}
 	desired, err := p.buildActorTemplate(ctx, ah, wpKey)
 	if err != nil {
@@ -103,7 +103,7 @@ func reconcileActorTemplate(ctx context.Context, c client.Client, ate *Client, d
 	return nil
 }
 
-func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHarness, wpKey types.NamespacedName) (*atev1alpha1.ActorTemplate, error) {
+func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha3.AgentHarness, wpKey types.NamespacedName) (*atev1alpha1.ActorTemplate, error) {
 	key := types.NamespacedName{Namespace: ah.Namespace, Name: actorTemplateName(ah)}
 
 	var (
@@ -118,7 +118,7 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 	// openclaw sandbox image), other backends fall back to their own image.
 	clawBackend := false
 	switch ah.Spec.Backend {
-	case v1alpha2.AgentHarnessBackendOpenClaw:
+	case v1alpha3.AgentHarnessBackendOpenClaw:
 		clawBackend = true
 		defaultImageFn = acpSandboxOpenClawImage
 		containerName = defaultOpenClawContainer
@@ -164,7 +164,6 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha2.AgentHa
 			Labels:    lifecycleLabels(ah),
 		},
 		Spec: atev1alpha1.ActorTemplateSpec{
-			PauseImage:   p.Defaults.PauseImage,
 			SandboxClass: atev1alpha1.SandboxClassGvisor,
 			Containers: []atev1alpha1.Container{
 				{

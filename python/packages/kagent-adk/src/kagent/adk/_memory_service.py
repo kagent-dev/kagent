@@ -5,13 +5,15 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Union
 
-import httpx
 from google.adk.memory import BaseMemoryService
 from google.adk.memory.base_memory_service import SearchMemoryResponse
 from google.adk.memory.memory_entry import MemoryEntry
 from google.adk.models import BaseLlm
 from google.adk.sessions import Session
 from google.genai import types
+from google.protobuf import json_format, struct_pb2
+from kagent.api.v1alpha1 import memory_pb2
+from kagent.core import AsyncControllerClient
 
 from kagent.adk.models import KAgentEmbedding
 from kagent.adk.types import EmbeddingConfig
@@ -31,7 +33,7 @@ class KagentMemoryService(BaseMemoryService):
     def __init__(
         self,
         agent_name: str,
-        http_client: httpx.AsyncClient,
+        controller_client: AsyncControllerClient,
         embedding_config: Optional[EmbeddingConfig] = None,
         ttl_days: int = 0,
     ):
@@ -39,12 +41,12 @@ class KagentMemoryService(BaseMemoryService):
 
         Args:
             agent_name: Name of the agent (used as namespace in storage)
-            http_client: Async HTTP client configured with base_url for Kagent API
+            controller_client: Shared authenticated controller gRPC client
             embedding_config: Configuration for embedding model (EmbeddingConfig only).
             ttl_days: TTL for memory entries in days. 0 means use the server default.
         """
         self.agent_name = agent_name
-        self.client = http_client
+        self.client = controller_client
         self.embedding_config = embedding_config
         self.ttl_days = ttl_days
         self._embedding_client = KAgentEmbedding(embedding_config) if embedding_config else None
@@ -101,32 +103,31 @@ class KagentMemoryService(BaseMemoryService):
                 logger.warning("Failed to generate embeddings for session %s", session.id)
                 return
 
-            # Prepare batch items
-            batch_items = []
+            batch_items: list[memory_pb2.SessionMemoryInput] = []
 
             # Iterate over synced content and vectors
             for content_item, vector in zip(valid_contents, vectors, strict=True):
                 if not vector:
                     continue
 
-                item: Dict[str, Any] = {
-                    "agent_name": self.agent_name,
-                    "user_id": session.user_id,
-                    "content": content_item,
-                    "vector": vector,
-                }
+                item = memory_pb2.SessionMemoryInput(
+                    agent_name=self.agent_name,
+                    user_id=session.user_id,
+                    content=content_item,
+                    vector=vector,
+                )
                 if self.ttl_days > 0:
-                    item["ttl_days"] = self.ttl_days
+                    item.ttl_days = self.ttl_days
                 batch_items.append(item)
 
             if not batch_items:
                 return
 
-            response = await self.client.post("/api/memories/sessions/batch", json={"items": batch_items})
-            if response.status_code >= 400:
-                logger.error("Response body: %s", response.text)
-            response.raise_for_status()
-            logger.info("Successfully saved %d memory items via batch API", len(batch_items))
+            response = await self.client.memory_service.AddSessionBatch(
+                memory_pb2.MemoryServiceAddSessionBatchRequest(items=batch_items),
+                **await self.client.call_options(session.user_id),
+            )
+            logger.info("Successfully saved %d memory items via batch RPC", response.count)
         except Exception as e:
             logger.error("Failed to save session %s to memory in background: %s", session.id, e)
 
@@ -160,23 +161,25 @@ class KagentMemoryService(BaseMemoryService):
             logger.warning("Failed to generate embedding for memory content")
             return
 
-        # Send to Kagent API
-        payload: Dict[str, Any] = {
-            "agent_name": self.agent_name,
-            "user_id": user_id,
-            "content": content,
-            "vector": vector,
-        }
+        memory = memory_pb2.SessionMemoryInput(
+            agent_name=self.agent_name,
+            user_id=user_id,
+            content=content,
+            vector=vector,
+        )
+        if metadata:
+            protobuf_metadata = struct_pb2.Struct()
+            json_format.ParseDict(metadata, protobuf_metadata)
+            memory.metadata.CopyFrom(protobuf_metadata)
         if self.ttl_days > 0:
-            payload["ttl_days"] = self.ttl_days
+            memory.ttl_days = self.ttl_days
 
         try:
-            response = await self.client.post("/api/memories/sessions", json=payload)
-            if response.status_code >= 400:
-                logger.error("Response body: %s", response.text)
-            response.raise_for_status()
-            memory_id = response.json().get("id")
-            logger.info("Successfully saved memory item (id=%s)", memory_id)
+            response = await self.client.memory_service.AddSession(
+                memory_pb2.MemoryServiceAddSessionRequest(memory=memory),
+                **await self.client.call_options(user_id),
+            )
+            logger.info("Successfully saved memory item (id=%s)", response.id)
         except Exception as e:
             logger.error("Failed to save memory: %s", e)
 
@@ -206,28 +209,25 @@ class KagentMemoryService(BaseMemoryService):
             logger.warning("Failed to generate embedding for search query")
             return SearchMemoryResponse(memories=[])
 
-        payload = {
-            "agent_name": self.agent_name,
-            "user_id": user_id,
-            "vector": vector,
-            "limit": 5,
-            "min_score": 0.3,
-        }
-
         try:
-            response = await self.client.post("/api/memories/search", json=payload)
-            if response.status_code >= 400:
-                logger.error("Response body: %s", response.text)
-            response.raise_for_status()
-            results = response.json()
+            response = await self.client.memory_service.Search(
+                memory_pb2.MemoryServiceSearchRequest(
+                    agent_name=self.agent_name,
+                    user_id=user_id,
+                    vector=vector,
+                    limit=5,
+                    min_score=0.3,
+                ),
+                **await self.client.call_options(user_id),
+            )
 
             memories = []
-            for item in results:
+            for item in response.memories:
                 content = types.Content(
                     role="user",
-                    parts=[types.Part(text=item.get("content", ""))],
+                    parts=[types.Part(text=item.content)],
                 )
-                memory_entry = MemoryEntry(id=item.get("id"), content=content)
+                memory_entry = MemoryEntry(id=item.id, content=content)
                 memories.append(memory_entry)
 
             if len(memories) == 0:

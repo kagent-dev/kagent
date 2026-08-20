@@ -11968,3 +11968,1124 @@ spec:
     storage: true
     subresources:
       status: {}
+  - additionalPrinterColumns:
+    - description: Whether the sandbox workload is ready.
+      jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    - description: Whether configuration was accepted.
+      jsonPath: .status.conditions[?(@.type=='Accepted')].status
+      name: Accepted
+      type: string
+    name: v1alpha3
+    schema:
+      openAPIV3Schema:
+        description: SandboxAgent declares an agent that runs in an isolated sandbox
+          on Agent Substrate.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AgentSpec defines the desired state of Agent.
+            properties:
+              allowedNamespaces:
+                description: |-
+                  AllowedNamespaces defines which namespaces are allowed to reference this Agent as a tool.
+                  This follows the Gateway API pattern for cross-namespace route attachments.
+                  If not specified, only Agents in the same namespace can reference this Agent as a tool.
+                  This field only applies when this Agent is used as a tool by another Agent.
+                  See: https://gateway-api.sigs.k8s.io/guides/multiple-ns/#cross-namespace-route-attachment
+                properties:
+                  from:
+                    default: Same
+                    description: |-
+                      From indicates where references to this resource can originate.
+                      Possible values are:
+                      * All: References from all namespaces are allowed.
+                      * Same: Only references from the same namespace are allowed (default).
+                      * Selector: References from namespaces matching the selector are allowed.
+                    enum:
+                    - All
+                    - Same
+                    - Selector
+                    type: string
+                  selector:
+                    description: |-
+                      Selector is a label selector for namespaces that are allowed to reference this resource.
+                      Only used when From is set to "Selector".
+                    properties:
+                      matchExpressions:
+                        description: matchExpressions is a list of label selector
+                          requirements. The requirements are ANDed.
+                        items:
+                          description: |-
+                            A label selector requirement is a selector that contains values, a key, and an operator that
+                            relates the key and values.
+                          properties:
+                            key:
+                              description: key is the label key that the selector
+                                applies to.
+                              type: string
+                            operator:
+                              description: |-
+                                operator represents a key's relationship to a set of values.
+                                Valid operators are In, NotIn, Exists and DoesNotExist.
+                              type: string
+                            values:
+                              description: |-
+                                values is an array of string values. If the operator is In or NotIn,
+                                the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                the values array must be empty. This array is replaced during a strategic
+                                merge patch.
+                              items:
+                                type: string
+                              type: array
+                              x-kubernetes-list-type: atomic
+                          required:
+                          - key
+                          - operator
+                          type: object
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        description: |-
+                          matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                          map is equivalent to an element of matchExpressions, whose key field is "key", the
+                          operator is "In", and the values array contains only "value". The requirements are ANDed.
+                        type: object
+                    type: object
+                    x-kubernetes-map-type: atomic
+                type: object
+                x-kubernetes-validations:
+                - message: selector must be specified when from is Selector
+                  rule: '!(self.from == ''Selector'' && !has(self.selector))'
+              byo:
+                description: |-
+                  BYO configures a "bring your own" agent backed by a user-provided
+                  container image. Kagent runs the image through Agent Substrate and expects
+                  it to serve the agent over the A2A protocol on port 80.
+                  Required if type is BYO.
+                properties:
+                  args:
+                    description: Args are the arguments passed to the container entrypoint.
+                    items:
+                      type: string
+                    type: array
+                  cmd:
+                    description: Cmd overrides the container entrypoint (the container's
+                      command).
+                    type: string
+                  env:
+                    description: Env are additional environment variables set on the
+                      runtime container.
+                    items:
+                      description: EnvVar represents an environment variable present
+                        in a Container.
+                      properties:
+                        name:
+                          description: |-
+                            Name of the environment variable.
+                            May consist of any printable ASCII characters except '='.
+                          type: string
+                        value:
+                          description: |-
+                            Variable references $(VAR_NAME) are expanded
+                            using the previously defined environment variables in the container and
+                            any service environment variables. If a variable cannot be resolved,
+                            the reference in the input string will be unchanged. Double $$ are reduced
+                            to a single $, which allows for escaping the $(VAR_NAME) syntax: i.e.
+                            "$$(VAR_NAME)" will produce the string literal "$(VAR_NAME)".
+                            Escaped references will never be expanded, regardless of whether the variable
+                            exists or not.
+                            Defaults to "".
+                          type: string
+                        valueFrom:
+                          description: Source for the environment variable's value.
+                            Cannot be used if value is not empty.
+                          properties:
+                            configMapKeyRef:
+                              description: Selects a key of a ConfigMap.
+                              properties:
+                                key:
+                                  description: The key to select.
+                                  type: string
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                                optional:
+                                  description: Specify whether the ConfigMap or its
+                                    key must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            fieldRef:
+                              description: |-
+                                Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`,
+                                spec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.
+                              properties:
+                                apiVersion:
+                                  description: Version of the schema the FieldPath
+                                    is written in terms of, defaults to "v1".
+                                  type: string
+                                fieldPath:
+                                  description: Path of the field to select in the
+                                    specified API version.
+                                  type: string
+                              required:
+                              - fieldPath
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            fileKeyRef:
+                              description: |-
+                                FileKeyRef selects a key of the env file.
+                                Requires the EnvFiles feature gate to be enabled.
+                              properties:
+                                key:
+                                  description: |-
+                                    The key within the env file. An invalid key will prevent the pod from starting.
+                                    The keys defined within a source may consist of any printable ASCII characters except '='.
+                                    During Alpha stage of the EnvFiles feature gate, the key size is limited to 128 characters.
+                                  type: string
+                                optional:
+                                  default: false
+                                  description: |-
+                                    Specify whether the file or its key must be defined. If the file or key
+                                    does not exist, then the env var is not published.
+                                    If optional is set to true and the specified key does not exist,
+                                    the environment variable will not be set in the Pod's containers.
+
+                                    If optional is set to false and the specified key does not exist,
+                                    an error will be returned during Pod creation.
+                                  type: boolean
+                                path:
+                                  description: |-
+                                    The path within the volume from which to select the file.
+                                    Must be relative and may not contain the '..' path or start with '..'.
+                                  type: string
+                                volumeName:
+                                  description: The name of the volume mount containing
+                                    the env file.
+                                  type: string
+                              required:
+                              - key
+                              - path
+                              - volumeName
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            resourceFieldRef:
+                              description: |-
+                                Selects a resource of the container: only resources limits and requests
+                                (limits.cpu, limits.memory, limits.ephemeral-storage, requests.cpu, requests.memory and requests.ephemeral-storage) are currently supported.
+                              properties:
+                                containerName:
+                                  description: 'Container name: required for volumes,
+                                    optional for env vars'
+                                  type: string
+                                divisor:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: Specifies the output format of the
+                                    exposed resources, defaults to "1"
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                resource:
+                                  description: 'Required: resource to select'
+                                  type: string
+                              required:
+                              - resource
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            secretKeyRef:
+                              description: Selects a key of a secret in the pod's
+                                namespace
+                              properties:
+                                key:
+                                  description: The key of the secret to select from.  Must
+                                    be a valid secret key.
+                                  type: string
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                                optional:
+                                  description: Specify whether the Secret or its key
+                                    must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                              x-kubernetes-map-type: atomic
+                          type: object
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  image:
+                    description: |-
+                      Image is the container image of the BYO agent.
+                      The image must serve A2A on port 80.
+                    minLength: 1
+                    type: string
+                type: object
+              declarative:
+                description: |-
+                  Declarative configures an agent that is fully described by this resource
+                  (model, instructions, tools) and runs on one of kagent's built-in runtimes.
+                  Required if type is Declarative.
+                properties:
+                  a2aConfig:
+                    description: |-
+                      A2AConfig instantiates an A2A server for this agent,
+                      served on the HTTP port of the kagent kubernetes
+                      controller (default 8083).
+                      The A2A server URL will be served at
+                      <kagent-controller-ip>:8083/api/a2a-sandboxes/<agent-namespace>/<agent-name>
+                      Read more about the A2A protocol here: https://github.com/a2aproject/A2A
+                    properties:
+                      skills:
+                        items:
+                          description: AgentSkill describes a specific capability
+                            or function of the agent.
+                          properties:
+                            description:
+                              description: Description is an optional detailed description
+                                of the skill.
+                              type: string
+                            examples:
+                              description: Examples are optional usage examples.
+                              items:
+                                type: string
+                              maxItems: 20
+                              type: array
+                            id:
+                              description: ID is the unique identifier for the skill.
+                              type: string
+                            inputModes:
+                              description: InputModes are the supported input MIME
+                                types for this skill, overriding the agent's defaults.
+                              items:
+                                type: string
+                              type: array
+                            name:
+                              description: Name is the human-readable name of the
+                                skill.
+                              minLength: 1
+                              type: string
+                            outputModes:
+                              description: OutputModes are the supported output MIME
+                                types for this skill, overriding the agent's defaults.
+                              items:
+                                type: string
+                              type: array
+                            tags:
+                              description: Tags are optional tags for categorization.
+                              items:
+                                type: string
+                              maxItems: 20
+                              type: array
+                          required:
+                          - name
+                          type: object
+                        minItems: 1
+                        type: array
+                    type: object
+                  context:
+                    description: |-
+                      Context configures context management for this agent.
+                      This includes event compaction (compression) and context caching.
+                    properties:
+                      compaction:
+                        description: |-
+                          Compaction configures event history compaction.
+                          When enabled, older events in the conversation are compacted (compressed/summarized)
+                          to reduce context size while preserving key information.
+                        properties:
+                          compactionInterval:
+                            default: 5
+                            description: The number of *new* user-initiated invocations
+                              that, once fully represented in the session's events,
+                              will trigger a compaction.
+                            minimum: 1
+                            type: integer
+                          eventRetentionSize:
+                            description: EventRetentionSize is the number of most
+                              recent events to always retain.
+                            type: integer
+                          overlapSize:
+                            default: 2
+                            description: The number of preceding invocations to include
+                              from the end of the last compacted range. This creates
+                              an overlap between consecutive compacted summaries,
+                              maintaining context.
+                            minimum: 0
+                            type: integer
+                          summarizer:
+                            description: |-
+                              Summarizer configures an LLM-based summarizer for event compaction.
+                              If not specified, compacted events are dropped from the context without summarization.
+                            properties:
+                              modelConfig:
+                                description: |-
+                                  ModelConfig is the name of a ModelConfig resource to use for summarization.
+                                  Must be in the same namespace as the Agent.
+                                  If not specified, uses the agent's own model.
+                                type: string
+                              promptTemplate:
+                                description: |-
+                                  PromptTemplate is a custom prompt template for the summarizer.
+                                  See the ADK LlmEventSummarizer for template details:
+                                  https://github.com/google/adk-python/blob/main/src/google/adk/apps/llm_event_summarizer.py
+                                type: string
+                            type: object
+                          tokenThreshold:
+                            description: |-
+                              Post-invocation token threshold trigger. If set, ADK will attempt a post-invocation compaction when the most recently
+                              observed prompt token count meets or exceeds this threshold.
+                            type: integer
+                        type: object
+                    type: object
+                  env:
+                    description: Env are additional environment variables set on the
+                      runtime container.
+                    items:
+                      description: EnvVar represents an environment variable present
+                        in a Container.
+                      properties:
+                        name:
+                          description: |-
+                            Name of the environment variable.
+                            May consist of any printable ASCII characters except '='.
+                          type: string
+                        value:
+                          description: |-
+                            Variable references $(VAR_NAME) are expanded
+                            using the previously defined environment variables in the container and
+                            any service environment variables. If a variable cannot be resolved,
+                            the reference in the input string will be unchanged. Double $$ are reduced
+                            to a single $, which allows for escaping the $(VAR_NAME) syntax: i.e.
+                            "$$(VAR_NAME)" will produce the string literal "$(VAR_NAME)".
+                            Escaped references will never be expanded, regardless of whether the variable
+                            exists or not.
+                            Defaults to "".
+                          type: string
+                        valueFrom:
+                          description: Source for the environment variable's value.
+                            Cannot be used if value is not empty.
+                          properties:
+                            configMapKeyRef:
+                              description: Selects a key of a ConfigMap.
+                              properties:
+                                key:
+                                  description: The key to select.
+                                  type: string
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                                optional:
+                                  description: Specify whether the ConfigMap or its
+                                    key must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            fieldRef:
+                              description: |-
+                                Selects a field of the pod: supports metadata.name, metadata.namespace, `metadata.labels['<KEY>']`, `metadata.annotations['<KEY>']`,
+                                spec.nodeName, spec.serviceAccountName, status.hostIP, status.podIP, status.podIPs.
+                              properties:
+                                apiVersion:
+                                  description: Version of the schema the FieldPath
+                                    is written in terms of, defaults to "v1".
+                                  type: string
+                                fieldPath:
+                                  description: Path of the field to select in the
+                                    specified API version.
+                                  type: string
+                              required:
+                              - fieldPath
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            fileKeyRef:
+                              description: |-
+                                FileKeyRef selects a key of the env file.
+                                Requires the EnvFiles feature gate to be enabled.
+                              properties:
+                                key:
+                                  description: |-
+                                    The key within the env file. An invalid key will prevent the pod from starting.
+                                    The keys defined within a source may consist of any printable ASCII characters except '='.
+                                    During Alpha stage of the EnvFiles feature gate, the key size is limited to 128 characters.
+                                  type: string
+                                optional:
+                                  default: false
+                                  description: |-
+                                    Specify whether the file or its key must be defined. If the file or key
+                                    does not exist, then the env var is not published.
+                                    If optional is set to true and the specified key does not exist,
+                                    the environment variable will not be set in the Pod's containers.
+
+                                    If optional is set to false and the specified key does not exist,
+                                    an error will be returned during Pod creation.
+                                  type: boolean
+                                path:
+                                  description: |-
+                                    The path within the volume from which to select the file.
+                                    Must be relative and may not contain the '..' path or start with '..'.
+                                  type: string
+                                volumeName:
+                                  description: The name of the volume mount containing
+                                    the env file.
+                                  type: string
+                              required:
+                              - key
+                              - path
+                              - volumeName
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            resourceFieldRef:
+                              description: |-
+                                Selects a resource of the container: only resources limits and requests
+                                (limits.cpu, limits.memory, limits.ephemeral-storage, requests.cpu, requests.memory and requests.ephemeral-storage) are currently supported.
+                              properties:
+                                containerName:
+                                  description: 'Container name: required for volumes,
+                                    optional for env vars'
+                                  type: string
+                                divisor:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: Specifies the output format of the
+                                    exposed resources, defaults to "1"
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                resource:
+                                  description: 'Required: resource to select'
+                                  type: string
+                              required:
+                              - resource
+                              type: object
+                              x-kubernetes-map-type: atomic
+                            secretKeyRef:
+                              description: Selects a key of a secret in the pod's
+                                namespace
+                              properties:
+                                key:
+                                  description: The key of the secret to select from.  Must
+                                    be a valid secret key.
+                                  type: string
+                                name:
+                                  default: ""
+                                  description: |-
+                                    Name of the referent.
+                                    This field is effectively required, but due to backwards compatibility is
+                                    allowed to be empty. Instances of this type with an empty value here are
+                                    almost certainly wrong.
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                  type: string
+                                optional:
+                                  description: Specify whether the Secret or its key
+                                    must be defined
+                                  type: boolean
+                              required:
+                              - key
+                              type: object
+                              x-kubernetes-map-type: atomic
+                          type: object
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  imageRegistry:
+                    description: ImageRegistry overrides the registry used for the
+                      declarative runtime image.
+                    type: string
+                  memory:
+                    description: Memory configuration for the agent.
+                    properties:
+                      modelConfig:
+                        description: |-
+                          ModelConfig is the name of the ModelConfig object whose embedding
+                          provider will be used to generate memory vectors.
+                        type: string
+                      ttlDays:
+                        description: |-
+                          TTLDays controls how many days a stored memory entry remains valid before
+                          it is eligible for pruning. Defaults to 15 days when unset or zero.
+                        minimum: 1
+                        type: integer
+                    required:
+                    - modelConfig
+                    type: object
+                  modelConfig:
+                    description: |-
+                      The name of the model config to use.
+                      If not specified, the default value is "default-model-config".
+                      Must be in the same namespace as the Agent.
+                    type: string
+                  promptTemplate:
+                    description: |-
+                      PromptTemplate enables Go text/template processing on the systemMessage field.
+                      When set, systemMessage is treated as a Go template with access to the include function
+                      and agent context variables.
+                    properties:
+                      dataSources:
+                        description: |-
+                          DataSources defines the ConfigMaps whose keys can be included in the systemMessage
+                          using Go template syntax, e.g. include("alias/key") or include("name/key").
+                        items:
+                          description: |-
+                            PromptSource references a ConfigMap whose keys are available as prompt fragments.
+                            In systemMessage templates, use include("alias/key") (or include("name/key") if no alias is set)
+                            to insert the value of a specific key from this source.
+                          properties:
+                            alias:
+                              description: |-
+                                Alias is an optional short identifier for use in include directives.
+                                If set, use include("alias/key") instead of include("name/key").
+                              type: string
+                            apiGroup:
+                              type: string
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        maxItems: 20
+                        type: array
+                    type: object
+                  shareTools:
+                    description: |-
+                      ShareTools enables the built-in share link tools for this agent.
+                      When true, the agent gains create_share_link, list_share_links, and delete_share_link tools
+                      that allow it to manage share tokens for the current session.
+                    type: boolean
+                  stream:
+                    description: |-
+                      Whether to stream the response from the model.
+                      If not specified, the default value is false.
+                    type: boolean
+                  systemMessage:
+                    description: |-
+                      SystemMessage is a string specifying the system message for the agent.
+                      When PromptTemplate is set, this field is treated as a Go text/template
+                      with access to an include("source/key") function and agent context variables
+                      such as .AgentName, .AgentNamespace, .Description, .ToolNames, and .SkillNames.
+                    type: string
+                  systemMessageFrom:
+                    description: |-
+                      SystemMessageFrom is a reference to a ConfigMap or Secret containing the system message.
+                      When PromptTemplate is set, the resolved value is treated as a Go text/template.
+                    properties:
+                      key:
+                        description: The key of the ConfigMap or Secret.
+                        maxLength: 253
+                        type: string
+                      name:
+                        description: The name of the ConfigMap or Secret.
+                        maxLength: 253
+                        type: string
+                      type:
+                        enum:
+                        - ConfigMap
+                        - Secret
+                        type: string
+                    required:
+                    - key
+                    - name
+                    - type
+                    type: object
+                  tools:
+                    items:
+                      properties:
+                        agent:
+                          properties:
+                            apiGroup:
+                              type: string
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        headersFrom:
+                          description: |-
+                            HeadersFrom specifies a list of configuration values to be added as
+                            headers to requests sent to the Tool from this agent. The value of
+                            each header is resolved from either a Secret or ConfigMap in the same
+                            namespace as the Agent. Headers specified here will override any
+                            headers of the same name/key specified on the tool.
+                          items:
+                            description: ValueRef represents a configuration value
+                            properties:
+                              name:
+                                type: string
+                              value:
+                                type: string
+                              valueFrom:
+                                description: ValueSource defines a source for configuration
+                                  values from a Secret or ConfigMap
+                                properties:
+                                  key:
+                                    description: The key of the ConfigMap or Secret.
+                                    maxLength: 253
+                                    type: string
+                                  name:
+                                    description: The name of the ConfigMap or Secret.
+                                    maxLength: 253
+                                    type: string
+                                  type:
+                                    enum:
+                                    - ConfigMap
+                                    - Secret
+                                    type: string
+                                required:
+                                - key
+                                - name
+                                - type
+                                type: object
+                            required:
+                            - name
+                            type: object
+                            x-kubernetes-validations:
+                            - message: Exactly one of value or valueFrom must be specified
+                              rule: (has(self.value) && !has(self.valueFrom)) || (!has(self.value)
+                                && has(self.valueFrom))
+                          type: array
+                        isolateSessions:
+                          description: |-
+                            IsolateSessions controls per-call session isolation for Agent-type tools.
+                            Only valid when Type is Agent.
+
+                            When unset or false (default), every call this agent makes to the
+                            referenced sub-agent reuses the same A2A context_id, so all calls land
+                            in one shared sub-agent session (session continuity for stateful
+                            sub-agents).
+
+                            When true, each call mints a fresh context_id, so every invocation runs
+                            in its own isolated sub-agent session. This is required for parallel
+                            fan-out to a sub-agent: without it, N parallel calls in one turn
+                            collapse into a single shared sub-agent session instead of N
+                            independent ones.
+
+                            Cross-turn/conversation continuity for stateful sub-agents does not
+                            depend on this flag; it rides the x-kagent-root-context-id header,
+                            which stays stable regardless of IsolateSessions.
+                          type: boolean
+                        mcpServer:
+                          properties:
+                            allowedHeaders:
+                              description: |-
+                                AllowedHeaders specifies which headers from the A2A request should be
+                                propagated to MCP tool calls. Header names are case-insensitive.
+
+                                Authorization header behavior:
+                                - Authorization headers CAN be propagated if explicitly listed in allowedHeaders
+                                - When STS token propagation is enabled, STS-generated Authorization headers
+                                  will take precedence and replace any Authorization header from the A2A request
+                                - This is a security measure to prevent request headers from overwriting
+                                  authentication tokens generated by the STS integration
+
+                                Example: ["x-user-email", "x-tenant-id"]
+                              items:
+                                type: string
+                              type: array
+                            apiGroup:
+                              type: string
+                            kind:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              type: string
+                            requireApproval:
+                              description: |-
+                                RequireApproval lists tool names that require human approval before
+                                execution. Each name must also appear in ToolNames. When a tool in
+                                this list is invoked by the agent, execution pauses and the user is
+                                prompted to approve or reject the call.
+                              items:
+                                type: string
+                              maxItems: 50
+                              type: array
+                            toolNames:
+                              description: |-
+                                The names of the tools to be provided by the ToolServer
+                                For a list of all the tools provided by the server,
+                                the client can query the status of the ToolServer object after it has been created
+                              items:
+                                type: string
+                              maxItems: 50
+                              type: array
+                          required:
+                          - name
+                          type: object
+                          x-kubernetes-validations:
+                          - message: each RequireApproval entry must also appear in
+                              ToolNames
+                            rule: '!has(self.requireApproval) || self.requireApproval.all(x,
+                              has(self.toolNames) && x in self.toolNames)'
+                        type:
+                          description: ToolProviderType represents the tool provider
+                            type
+                          enum:
+                          - McpServer
+                          - Agent
+                          type: string
+                      type: object
+                      x-kubernetes-validations:
+                      - message: type.mcpServer must be nil if the type is not McpServer
+                        rule: '!(has(self.mcpServer) && self.type != ''McpServer'')'
+                      - message: type.mcpServer must be specified for McpServer filter.type
+                        rule: '!(!has(self.mcpServer) && self.type == ''McpServer'')'
+                      - message: type.agent must be nil if the type is not Agent
+                        rule: '!(has(self.agent) && self.type != ''Agent'')'
+                      - message: type.agent must be specified for Agent filter.type
+                        rule: '!(!has(self.agent) && self.type == ''Agent'')'
+                      - message: isolateSessions can only be set when type is Agent
+                        rule: '!(has(self.isolateSessions) && self.type != ''Agent'')'
+                    maxItems: 20
+                    type: array
+                type: object
+                x-kubernetes-validations:
+                - message: systemMessage and systemMessageFrom are mutually exclusive
+                  rule: '!has(self.systemMessage) || !has(self.systemMessageFrom)'
+              description:
+                type: string
+              documentationUrl:
+                description: |-
+                  DocumentationURL is a URL to human-readable documentation for the agent. It
+                  is surfaced on the agent's A2A AgentCard.
+                format: uri
+                type: string
+              iconUrl:
+                description: |-
+                  IconURL is a URL to an icon representing the agent. It is surfaced on the
+                  agent's A2A AgentCard.
+                format: uri
+                type: string
+              provider:
+                description: |-
+                  Provider identifies the organization responsible for the agent. It is
+                  surfaced on the agent's A2A AgentCard.
+                properties:
+                  organization:
+                    description: Organization is the name of the agent provider's
+                      organization.
+                    minLength: 1
+                    type: string
+                  url:
+                    description: URL is a URL for the agent provider's website or
+                      relevant documentation.
+                    format: uri
+                    type: string
+                required:
+                - organization
+                - url
+                type: object
+              sandbox:
+                description: |-
+                  Sandbox configures sandboxed execution behavior shared across runtimes.
+                  This is intended for sandboxed declarative execution today, and can also
+                  be consumed by BYO agents.
+                properties:
+                  network:
+                    description: |-
+                      Network configures outbound network access for sandboxed execution paths.
+                      When unset or when allowedDomains is empty, outbound access is denied by default.
+                    properties:
+                      allowedDomains:
+                        description: |-
+                          AllowedDomains lists the domains that sandboxed execution may contact.
+                          Wildcards such as *.example.com are supported by the sandbox runtime.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                type: object
+              skills:
+                description: |-
+                  Skills to load into the agent. They will be pulled from OCI images, git repos,
+                  and/or S3, and made available to the agent under the `/skills` folder.
+                properties:
+                  gitAuthSecretRef:
+                    description: |-
+                      Reference to a Secret containing git credentials.
+                      Applied to all gitRefs entries.
+                      The secret should contain a `token` key for HTTPS auth,
+                      or `ssh-privatekey` for SSH auth.
+                    properties:
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  gitRefs:
+                    description: Git repositories to fetch skills from.
+                    items:
+                      description: GitRepo specifies a single Git repository to fetch
+                        skills from.
+                      properties:
+                        name:
+                          description: |-
+                            Name for the skill directory under /skills. If omitted, defaults to the last
+                            segment of Path when Path is set; otherwise defaults to the repo name (last
+                            URL path segment, without .git).
+                          type: string
+                        path:
+                          description: |-
+                            Subdirectory within the repo to use as the skill root. The API validates
+                            this input path, but treats repository contents as trusted: symlinks under
+                            this path are dereferenced when materializing the skill.
+                          type: string
+                        ref:
+                          default: main
+                          description: 'Git reference: branch name, tag, or commit
+                            SHA.'
+                          type: string
+                        url:
+                          description: URL of the git repository (HTTPS or SSH).
+                          type: string
+                      required:
+                      - url
+                      type: object
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                  imagePullSecrets:
+                    description: |-
+                      ImagePullSecrets is a list of references to secrets in the same namespace to use for
+                      pulling skill images from private registries. Each referenced secret must be of type
+                      kubernetes.io/dockerconfigjson. The credentials from all secrets are merged when
+                      pulling images.
+                    items:
+                      description: |-
+                        LocalObjectReference contains enough information to let you locate the
+                        referenced object inside the same namespace.
+                      properties:
+                        name:
+                          default: ""
+                          description: |-
+                            Name of the referent.
+                            This field is effectively required, but due to backwards compatibility is
+                            allowed to be empty. Instances of this type with an empty value here are
+                            almost certainly wrong.
+                            More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                          type: string
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    maxItems: 20
+                    type: array
+                  insecureSkipVerify:
+                    description: |-
+                      Fetch images insecurely from registries (allowing HTTP and skipping TLS verification).
+                      Meant for development and testing purposes only.
+                    type: boolean
+                  refs:
+                    description: The list of skill images to fetch.
+                    items:
+                      type: string
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                  s3Refs:
+                    description: |-
+                      S3 object prefixes or archives to fetch skills from.
+                      Auth uses the AWS SDK default credential chain.
+                    items:
+                      description: |-
+                        S3SkillRef specifies a skill bundle in an S3 bucket.
+
+                        Two bundle shapes are supported:
+                          - Prefix: s3://bucket/path/to/skill/ containing SKILL.md (and siblings); synced recursively
+                          - Archive: a single .zip / .tgz / .tar.gz object; downloaded and extracted
+                      properties:
+                        name:
+                          description: |-
+                            Name for the skill directory under /skills. If omitted, defaults to the last
+                            non-empty path segment of the URI (archive extension stripped).
+                          type: string
+                        region:
+                          description: AWS region for the bucket. Optional when AWS_REGION
+                            / AWS_DEFAULT_REGION is set.
+                          type: string
+                        uri:
+                          description: 'S3 URI of the skill: s3://bucket/key-or-prefix'
+                          minLength: 1
+                          pattern: ^s3://.+
+                          type: string
+                      required:
+                      - uri
+                      type: object
+                    maxItems: 20
+                    minItems: 1
+                    type: array
+                type: object
+              substrate:
+                description: Substrate configures the Agent Substrate worker pool.
+                properties:
+                  snapshotsConfig:
+                    description: |-
+                      SnapshotsConfig configures actor memory snapshots.
+                      Defaults to gs://ate-snapshots/<namespace>/<agentname> when unset.
+                    properties:
+                      location:
+                        description: |-
+                          Location is the GCS URI prefix for golden and incremental snapshots.
+                          Example: gs://ate-snapshots/kagent/my-namespace/my-harness/
+                        pattern: ^gs://
+                        type: string
+                    required:
+                    - location
+                    type: object
+                  workerPoolRef:
+                    description: WorkerPoolRef references an existing ate.dev WorkerPool.
+                    properties:
+                      apiGroup:
+                        type: string
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+              type:
+                default: Declarative
+                description: AgentType represents the agent type
+                enum:
+                - Declarative
+                - BYO
+                type: string
+              version:
+                description: Version is the agent's version string, surfaced on the
+                  A2A AgentCard.
+                type: string
+            type: object
+            x-kubernetes-validations:
+            - message: type must be specified
+              rule: has(self.type)
+            - message: type must be either Declarative or BYO
+              rule: self.type == 'Declarative' || self.type == 'BYO'
+            - message: declarative must be specified if type is Declarative, or byo
+                must be specified if type is BYO
+              rule: (self.type == 'Declarative' && has(self.declarative)) || (self.type
+                == 'BYO' && has(self.byo))
+          status:
+            description: AgentStatus defines the observed state of Agent.
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: false
+    subresources:
+      status: {}

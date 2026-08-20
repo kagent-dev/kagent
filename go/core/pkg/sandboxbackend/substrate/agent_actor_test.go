@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -59,7 +59,7 @@ func (c *statusActorClient) ResumeActor(_ context.Context, in *ateapipb.ResumeAc
 	if !ok {
 		return nil, status.Error(codes.NotFound, "actor not found")
 	}
-	a.Status = ateapipb.Actor_STATUS_RUNNING
+	a.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	c.resumes = append(c.resumes, in.GetActor().GetName())
 	return &ateapipb.ResumeActorResponse{Actor: a}, nil
 }
@@ -72,7 +72,7 @@ func TestDeleteSandboxAgentSessionActor(t *testing.T) {
 	actorID := SandboxAgentSessionActorID(sa, "sess-1")
 
 	rec := &statusActorClient{actors: map[string]*ateapipb.Actor{}}
-	rec.add(&ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: actorID}, Status: ateapipb.Actor_STATUS_SUSPENDED})
+	rec.add(&ateapipb.Actor{Metadata: &ateapipb.ResourceMetadata{Name: actorID}, Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED}})
 	b := &SandboxAgentActorBackend{client: &Client{ControlClient: rec}}
 
 	// deleteActor performs at most one mutating step per call; requeue until done.
@@ -95,6 +95,6 @@ func TestDeleteSandboxAgentSessionActor(t *testing.T) {
 }
 
 // reapAgent is the SandboxAgent used by the reap tests.
-func reapAgent() *v1alpha2.SandboxAgent {
-	return &v1alpha2.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"}}
+func reapAgent() *v1alpha3.SandboxAgent {
+	return &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "kagent"}}
 }

@@ -59,6 +59,13 @@ var (
 		ComponentAgentRuntime,
 	)
 
+	KagentGRPCURL = RegisterStringVar(
+		"KAGENT_GRPC_URL",
+		"",
+		"Native gRPC target for kagent controller API calls.",
+		ComponentAgentRuntime,
+	)
+
 	KagentUIURL = RegisterStringVar(
 		"KAGENT_UI_URL",
 		"",
@@ -71,13 +78,6 @@ var (
 		"KAGENT_SKILLS_FOLDER",
 		"/skills",
 		"Directory path where agent skills are mounted.",
-		ComponentAgentRuntime,
-	)
-
-	KagentSRTSettingsPath = RegisterStringVar(
-		"KAGENT_SRT_SETTINGS_PATH",
-		"/config/srt-settings.json",
-		"Path to the mounted srt settings file used by sandboxed execution.",
 		ComponentAgentRuntime,
 	)
 

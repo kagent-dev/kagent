@@ -10,7 +10,7 @@ import (
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,7 +123,7 @@ func TestConcurrentRefreshToolsForServer(t *testing.T) {
 		go func(goroutineID int) {
 			defer wg.Done()
 			// Each goroutine refreshes with a different set of tools
-			tools := []*v1alpha2.MCPTool{
+			tools := []*v1alpha3.MCPTool{
 				{Name: fmt.Sprintf("tool-a-%d", goroutineID), Description: "Tool A"},
 				{Name: fmt.Sprintf("tool-b-%d", goroutineID), Description: "Tool B"},
 			}
@@ -619,7 +619,9 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 			agent, session, event, task, push_notification, feedback,
 			tool, toolserver, lg_checkpoint, lg_checkpoint_write,
 			crewai_agent_memory, crewai_flow_state, memory,
-			session_share, session_share_access
+			session_share, session_share_access,
+			agent_instance_share,
+			agent_instance, agent_template_harness_pair, runtime_revision
 		RESTART IDENTITY CASCADE
 	`)
 	require.NoError(t, err, "Failed to truncate test tables")

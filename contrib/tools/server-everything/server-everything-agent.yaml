@@ -1,5 +1,5 @@
-apiVersion: kagent.dev/v1alpha2
-kind: Agent
+apiVersion: kagent.dev/v1alpha3
+kind: SandboxAgent
 metadata:
   name: server-everything-agent
   namespace: kagent
@@ -8,7 +8,6 @@ spec:
   description: Demo agent exercising Server Everything MCP tools, including the weather-dashboard MCP App (UI widget).
   declarative:
     modelConfig: default-model-config
-    runtime: go
     stream: true
     systemMessage: |-
       You are a helpful assistant that demonstrates the Server Everything MCP tools,

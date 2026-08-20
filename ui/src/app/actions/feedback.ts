@@ -1,23 +1,19 @@
 'use server'
 
 import { FeedbackData, FeedbackIssueType } from "@/types";
-import { fetchApi } from "./utils";
+import { getFeedbackGrpcGateway } from "@/lib/grpc/client";
 
 /**
  * Submit feedback to the server
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function submitFeedback(feedbackData: FeedbackData): Promise<any> {
-    const body = {
-        is_positive: feedbackData.isPositive,
-        feedback_text: feedbackData.feedbackText,
-        issue_type: feedbackData.issueType,
-        message_id: feedbackData.messageId,
+async function submitFeedback(feedbackData: FeedbackData) {
+    const gateway = await getFeedbackGrpcGateway();
+    await gateway.submitFeedback(feedbackData);
+    return {
+        error: false,
+        data: {},
+        message: "Feedback submitted successfully",
     };
-    return await fetchApi('/feedback', {
-        method: 'POST',
-        body: JSON.stringify(body),
-    });
 }
 
 /**
@@ -53,4 +49,4 @@ export async function submitNegativeFeedback(
     };
 
     return await submitFeedback(feedbackData);
-} 
+}

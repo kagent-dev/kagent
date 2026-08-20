@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // ParseRemoteMCPServerURL parses spec.url accepting an explicit http(s)://
@@ -55,7 +55,7 @@ func ParseRemoteMCPServerURL(raw string) (*url.URL, error) {
 // by CRD validation. https:// with nil/empty spec.tls is admitted (defaults to
 // system trust on the agent side); the URL scheme alone carries the TLS
 // signal here.
-func EffectiveScheme(rms *v1alpha2.RemoteMCPServer) string {
+func EffectiveScheme(rms *v1alpha3.RemoteMCPServer) string {
 	if rms.Spec.TLS != nil {
 		return "https"
 	}
@@ -70,7 +70,7 @@ func EffectiveScheme(rms *v1alpha2.RemoteMCPServer) string {
 // typed k8s API port fields use). An explicit port in spec.url wins; otherwise the default is
 // 443 when EffectiveScheme is "https", else 80. Returns 0 when spec.url can't
 // be parsed, has no host, or carries an out-of-range / non-numeric port.
-func EffectivePort(rms *v1alpha2.RemoteMCPServer) int32 {
+func EffectivePort(rms *v1alpha3.RemoteMCPServer) int32 {
 	parsed, err := ParseRemoteMCPServerURL(rms.Spec.URL)
 	if err != nil || parsed.Hostname() == "" {
 		return 0
@@ -92,7 +92,7 @@ func EffectivePort(rms *v1alpha2.RemoteMCPServer) int32 {
 // resolved via EffectivePort (tls-aware). Returns "" when spec.url can't be
 // parsed, has no host, or carries a non-http(s) scheme. Scheme-less spec.url
 // values (e.g. `host.docker.internal:13443/mcp`) are accepted.
-func normalizedHostPort(rms *v1alpha2.RemoteMCPServer) string {
+func normalizedHostPort(rms *v1alpha3.RemoteMCPServer) string {
 	parsed, err := ParseRemoteMCPServerURL(rms.Spec.URL)
 	if err != nil {
 		return ""
@@ -137,7 +137,7 @@ func rewriteTo(raw, hostPort string) string {
 // tool-discovery dial call this on the same RMS, so they resolve to an identical
 // endpoint by construction. spec.urls that can't be parsed or carry a
 // non-http(s) scheme pass through unchanged.
-func RewriteURL(rms *v1alpha2.RemoteMCPServer) string {
+func RewriteURL(rms *v1alpha3.RemoteMCPServer) string {
 	effective := normalizedHostPort(rms)
 	if effective == "" {
 		return rms.Spec.URL

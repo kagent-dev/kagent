@@ -4,21 +4,33 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 type dependentRefFinder func(context.Context, client.Client, types.NamespacedName) []types.NamespacedName
+
+type ownedObjectPredicate = typedOwnedObjectPredicate[client.Object]
+
+type typedOwnedObjectPredicate[object metav1.Object] struct {
+	predicate.TypedFuncs[object]
+}
+
+func (typedOwnedObjectPredicate[object]) Create(event.TypedCreateEvent[object]) bool {
+	return false
+}
 
 type agentWatchFinders struct {
 	modelConfig     dependentRefFinder
@@ -47,7 +59,7 @@ func addOwnedResourceWatches(build *builder.Builder, mgr ctrl.Manager, owned []c
 
 func addCommonAgentWatches(build *builder.Builder, mgr ctrl.Manager, finders agentWatchFinders) (*builder.Builder, error) {
 	build = build.Watches(
-		&v1alpha2.ModelConfig{},
+		&v1alpha3.ModelConfig{},
 		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			return reconcileRequestsForRefs(finders.modelConfig(ctx, mgr.GetClient(), types.NamespacedName{
 				Name:      obj.GetName(),
@@ -56,7 +68,7 @@ func addCommonAgentWatches(build *builder.Builder, mgr ctrl.Manager, finders age
 		}),
 		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 	).Watches(
-		&v1alpha2.RemoteMCPServer{},
+		&v1alpha3.RemoteMCPServer{},
 		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
 			return reconcileRequestsForRefs(finders.remoteMCPServer(ctx, mgr.GetClient(), types.NamespacedName{
 				Name:      obj.GetName(),

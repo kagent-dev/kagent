@@ -321,142 +321,20 @@ func TestSessionRetentionDaysFlag(t *testing.T) {
 	assert.Equal(t, 30, cfg.Database.SessionRetentionDays)
 }
 
-func TestSubstrateAteAPITokenFileFlag(t *testing.T) {
+func TestSubstrateAteAPIMTLSFlags(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	cfg := Config{}
 	cfg.SetFlags(fs)
 
-	f := fs.Lookup("substrate-ate-api-token-file")
-	assert.NotNil(t, f, "substrate-ate-api-token-file flag should be registered")
-	assert.Equal(t, "", f.DefValue, "default should be empty string")
+	assert.NotNil(t, fs.Lookup("substrate-ate-api-ca-file"))
+	assert.NotNil(t, fs.Lookup("substrate-ate-api-client-cert-file"))
 
-	t.Setenv("SUBSTRATE_ATE_API_TOKEN_FILE", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+	t.Setenv("SUBSTRATE_ATE_API_CA_FILE", "/run/substrate-servicedns/trust-bundle.pem")
+	t.Setenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE", "/run/substrate-podidentity/credential-bundle.pem")
 	err := LoadFromEnv(fs)
 	assert.NoError(t, err)
-	assert.Equal(t, "/var/run/secrets/kubernetes.io/serviceaccount/token", cfg.Substrate.AteAPITokenFile)
-}
-
-func TestDefaultAgentBindHostFlag(t *testing.T) {
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	cfg := Config{}
-	cfg.SetFlags(fs)
-
-	f := fs.Lookup("default-agent-bind-host")
-	assert.NotNil(t, f, "default-agent-bind-host flag should be registered")
-	assert.Equal(t, "0.0.0.0", f.DefValue, "default should be 0.0.0.0")
-
-	t.Setenv("DEFAULT_AGENT_BIND_HOST", "::")
-	err := LoadFromEnv(fs)
-	assert.NoError(t, err)
-
-	got := fs.Lookup("default-agent-bind-host").Value.String()
-	assert.Equal(t, "::", got)
-}
-
-func TestMapValue(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		want    map[string]string
-		wantErr bool
-	}{
-		{
-			name:  "single label",
-			input: "team=platform",
-			want:  map[string]string{"team": "platform"},
-		},
-		{
-			name:  "multiple labels",
-			input: "team=platform,env=prod",
-			want:  map[string]string{"team": "platform", "env": "prod"},
-		},
-		{
-			name:  "labels with spaces",
-			input: " team = platform , env = prod ",
-			want:  map[string]string{"team": "platform", "env": "prod"},
-		},
-		{
-			name:  "empty string",
-			input: "",
-			want:  map[string]string{},
-		},
-		{
-			name:  "trailing comma",
-			input: "team=platform,",
-			want:  map[string]string{"team": "platform"},
-		},
-		{
-			name:  "empty value",
-			input: "team=",
-			want:  map[string]string{"team": ""},
-		},
-		{
-			name:  "value containing equals",
-			input: "annotation=key=value",
-			want:  map[string]string{"annotation": "key=value"},
-		},
-		{
-			name:    "missing equals",
-			input:   "teamplatform",
-			wantErr: true,
-		},
-		{
-			name:    "empty key",
-			input:   "=value",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var target map[string]string
-			mv := &MapValue{Target: &target}
-			err := mv.Set(tt.input)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("MapValue.Set() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr {
-				assert.Equal(t, tt.want, target)
-			}
-		})
-	}
-}
-
-func TestMapValueString(t *testing.T) {
-	var target map[string]string
-	mv := &MapValue{Target: &target}
-	assert.Equal(t, "", mv.String())
-
-	target = map[string]string{"team": "platform"}
-	assert.Equal(t, "team=platform", mv.String())
-
-	target = map[string]string{"team": "platform", "env": "prod"}
-	assert.Equal(t, "env=prod,team=platform", mv.String())
-}
-
-func TestMapValueWithLoadFromEnv(t *testing.T) {
-	t.Setenv("DEFAULT_AGENT_POD_LABELS", "team=platform,env=prod")
-
-	var target map[string]string
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	fs.Var(&MapValue{Target: &target}, "default-agent-pod-labels", "test flag")
-
-	err := LoadFromEnv(fs)
-	assert.NoError(t, err)
-	assert.Equal(t, map[string]string{"team": "platform", "env": "prod"}, target)
-}
-
-func TestMapValueWithLoadFromEnvEqualsInValue(t *testing.T) {
-	t.Setenv("DEFAULT_AGENT_POD_LABELS", "token=abc=def,team=platform")
-
-	var target map[string]string
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	fs.Var(&MapValue{Target: &target}, "default-agent-pod-labels", "test flag")
-
-	err := LoadFromEnv(fs)
-	assert.NoError(t, err)
-	assert.Equal(t, map[string]string{"token": "abc=def", "team": "platform"}, target)
+	assert.Equal(t, "/run/substrate-servicedns/trust-bundle.pem", cfg.Substrate.AteAPICAFile)
+	assert.Equal(t, "/run/substrate-podidentity/credential-bundle.pem", cfg.Substrate.AteAPIClientCertFile)
 }
 
 func TestLoadFromEnvIntegration(t *testing.T) {
@@ -469,6 +347,9 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 		"DEFAULT_MODEL_CONFIG_NAME":      "custom-model",
 		"DEFAULT_MODEL_CONFIG_NAMESPACE": "custom-ns",
 		"HTTP_SERVER_ADDRESS":            ":9000",
+		"GRPC_BIND_ADDRESS":              ":9001",
+		"GRPC_MAX_MESSAGE_BYTES":         "1048576",
+		"GRPC_REFLECTION":                "true",
 		"A2A_BASE_URL":                   "http://example.com:9000",
 		"PROXY_URL":                      "http://proxy.kagent.svc.cluster.local:8080",
 		"POSTGRES_DATABASE_URL":          "postgres://localhost:5432/testdb",
@@ -512,6 +393,15 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	if cfg.HttpServerAddr != ":9000" {
 		t.Errorf("HttpServerAddr = %v, want :9000", cfg.HttpServerAddr)
 	}
+	if cfg.GRPC.BindAddress != ":9001" {
+		t.Errorf("GRPC.BindAddress = %v, want :9001", cfg.GRPC.BindAddress)
+	}
+	if cfg.GRPC.MaxMessageBytes != 1048576 {
+		t.Errorf("GRPC.MaxMessageBytes = %v, want 1048576", cfg.GRPC.MaxMessageBytes)
+	}
+	if !cfg.GRPC.Reflection {
+		t.Error("GRPC.Reflection = false, want true")
+	}
 	if cfg.Proxy.URL != "http://proxy.kagent.svc.cluster.local:8080" {
 		t.Errorf("Proxy.URL = %v, want http://proxy.kagent.svc.cluster.local:8080", cfg.Proxy.URL)
 	}
@@ -524,16 +414,4 @@ func TestLoadFromEnvIntegration(t *testing.T) {
 	if cfg.WatchNamespaces != "ns1,ns2,ns3" {
 		t.Errorf("WatchNamespaces = %v, want ns1,ns2,ns3", cfg.WatchNamespaces)
 	}
-}
-
-func TestMapValueWithLoadFromEnvNodeSelector(t *testing.T) {
-	t.Setenv("DEFAULT_AGENT_NODE_SELECTOR", "kubernetes.io/os=linux,pool=agents")
-
-	var target map[string]string
-	fs := flag.NewFlagSet("test", flag.ContinueOnError)
-	fs.Var(&MapValue{Target: &target}, "default-agent-node-selector", "test flag")
-
-	err := LoadFromEnv(fs)
-	assert.NoError(t, err)
-	assert.Equal(t, map[string]string{"kubernetes.io/os": "linux", "pool": "agents"}, target)
 }

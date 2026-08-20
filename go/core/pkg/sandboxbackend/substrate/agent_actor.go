@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -49,7 +49,7 @@ func NewSandboxAgentActorBackend(client *Client, kube client.Client, atenetRoute
 // building a new golden, so a shape change can briefly make chat return "no free workers"; on a
 // multi-replica pool the spare workers keep serving existing actors, so a rollout does not hit
 // that error. Scaling the WorkerPool is the remedy for capacity pressure, not in-process retries.
-func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) (sandboxbackend.EnsureResult, error) {
+func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v1alpha3.SandboxAgent, sessionID string) (sandboxbackend.EnsureResult, error) {
 	if sa == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("SandboxAgent is required")
 	}
@@ -82,9 +82,9 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		}
 	}
 
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED,
-		ateapipb.Actor_STATUS_PAUSED, ateapipb.Actor_STATUS_PAUSING:
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED,
+		ateapipb.ActorState_ACTOR_STATE_PAUSED, ateapipb.ActorState_ACTOR_STATE_PAUSING:
 		// PAUSED/PAUSING keep a node-local snapshot; ResumeActor brings them back
 		// the same as a suspended actor. RUNNING/RESUMING actors need nothing.
 		_, err = b.client.ResumeActor(ctx, atespace, actorID)
@@ -105,7 +105,7 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 }
 
 // SuspendSessionActor checkpoints and frees the worker for a chat session actor.
-func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) error {
+func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *v1alpha3.SandboxAgent, sessionID string) error {
 	if sa == nil {
 		return nil
 	}
@@ -121,8 +121,8 @@ func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *
 		}
 		return fmt.Errorf("substrate GetActor %q: %w", actorID, err)
 	}
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING, ateapipb.Actor_STATUS_SUSPENDING:
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
 		if err := b.client.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return fmt.Errorf("substrate SuspendActor %q: %w", actorID, err)
 		}
@@ -141,7 +141,7 @@ func (b *SandboxAgentActorBackend) DeleteSandboxAgentActor(ctx context.Context, 
 // DeleteSandboxAgentSessionActor deletes the actor for a single chat session. One session ⇔ one
 // actor with a session-derived id, so a single deterministic delete covers the session's whole
 // life regardless of how many shape rollouts it survived.
-func (b *SandboxAgentActorBackend) DeleteSandboxAgentSessionActor(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) (bool, error) {
+func (b *SandboxAgentActorBackend) DeleteSandboxAgentSessionActor(ctx context.Context, sa *v1alpha3.SandboxAgent, sessionID string) (bool, error) {
 	if sa == nil {
 		return true, nil
 	}
@@ -153,7 +153,7 @@ func (b *SandboxAgentActorBackend) DeleteSandboxAgentSessionActor(ctx context.Co
 // actor is resumed under its original template — substrate stores the template name on the actor
 // record and rebuilds the workload spec from it — which is what pins a session to the shape it
 // was created under for its entire life.
-func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1alpha2.SandboxAgent, sessionID string) (actorID, templateName string, err error) {
+func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1alpha3.SandboxAgent, sessionID string) (actorID, templateName string, err error) {
 	tmpl, err := ResolveCurrentActorTemplate(ctx, b.kube, sa.Namespace, sa.Name)
 	if err != nil {
 		return "", "", err
@@ -165,7 +165,7 @@ func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1al
 }
 
 // DeleteAllSandboxAgentActors deletes legacy per-agent actors and all session actors for a SandboxAgent.
-func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Context, sa *v1alpha2.SandboxAgent) (bool, error) {
+func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Context, sa *v1alpha3.SandboxAgent) (bool, error) {
 	if sa == nil {
 		return true, nil
 	}
@@ -214,7 +214,7 @@ func (b *SandboxAgentActorBackend) DeleteAllSandboxAgentActors(ctx context.Conte
 // on the actor's source ActorTemplate first (robust: survives the prefix-less asr-<hash> id
 // fallback), then falls back to id-prefix matching as a backstop for orphaned actors whose
 // template was already deleted.
-func actorBelongsToSandboxAgent(sa *v1alpha2.SandboxAgent, actor *ateapipb.Actor, prefix string, ownedTemplates map[string]struct{}) bool {
+func actorBelongsToSandboxAgent(sa *v1alpha3.SandboxAgent, actor *ateapipb.Actor, prefix string, ownedTemplates map[string]struct{}) bool {
 	if actor.GetActorTemplateNamespace() == sa.Namespace {
 		if _, ok := ownedTemplates[actor.GetActorTemplateName()]; ok {
 			return true
@@ -224,7 +224,7 @@ func actorBelongsToSandboxAgent(sa *v1alpha2.SandboxAgent, actor *ateapipb.Actor
 	return id == SandboxAgentActorID(sa) || strings.HasPrefix(id, prefix+"-")
 }
 
-func sandboxAgentActorPrefix(sa *v1alpha2.SandboxAgent) string {
+func sandboxAgentActorPrefix(sa *v1alpha3.SandboxAgent) string {
 	return SandboxAgentActorID(sa)
 }
 
@@ -232,7 +232,7 @@ func sandboxAgentActorPrefix(sa *v1alpha2.SandboxAgent) string {
 // derived from the session alone: one session ⇔ one actor for the session's entire life, across
 // config AND shape rollouts (the actor's template binding lives on the actor record, not in the
 // id). The id keeps the agent prefix (asr-<ns>-<name>-) so per-agent cleanup still matches.
-func SandboxAgentSessionActorID(sa *v1alpha2.SandboxAgent, sessionID string) string {
+func SandboxAgentSessionActorID(sa *v1alpha3.SandboxAgent, sessionID string) string {
 	raw := fmt.Sprintf("%s-%s", sandboxAgentActorPrefix(sa), sanitizeSessionID(sessionID))
 	raw = strings.ToLower(strings.ReplaceAll(raw, "_", "-"))
 	if len(raw) <= 63 && dns1123Label.MatchString(raw) {
@@ -249,7 +249,7 @@ func sanitizeSessionID(sessionID string) string {
 }
 
 // SandboxAgentActorID returns the legacy stable actor id prefix for a SandboxAgent.
-func SandboxAgentActorID(sa *v1alpha2.SandboxAgent) string {
+func SandboxAgentActorID(sa *v1alpha3.SandboxAgent) string {
 	raw := fmt.Sprintf("%s-%s-%s", sandboxAgentIDPrefix, sa.Namespace, sa.Name)
 	raw = strings.ToLower(strings.ReplaceAll(raw, "_", "-"))
 	if len(raw) > 63 {

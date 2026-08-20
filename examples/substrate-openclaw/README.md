@@ -40,7 +40,7 @@ on the kagent chart), prefix these keys with `substrate.` — e.g.
 Then install the Substrate platform and kagent:
 
 ```bash
-export SUBSTRATE_VERSION=0.0.7
+export SUBSTRATE_VERSION=0.0.13
 
 helm upgrade --install substrate-crds \
   oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds \
@@ -55,7 +55,6 @@ helm upgrade --install substrate \
 make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.enabled=true \
   --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
-  --set controller.substrate.ateApiInsecure=true \
   --set substrateWorkerPool.create=true \
   --set substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
 ```
@@ -77,7 +76,7 @@ Create a harness. If `snapshotsConfig` is omitted, kagent defaults it to `gs://a
 - **Worker pool** — reference an existing pool (`workerPoolRef`) or configure a controller default WorkerPool. The target pool must carry label `kagent.dev/worker-pool: <pool-name>`. The kagent Helm-managed pool gets this label automatically; externally owned pools must add it manually.
 
 ```yaml
-apiVersion: kagent.dev/v1alpha2
+apiVersion: kagent.dev/v1alpha3
 kind: AgentHarness
 metadata:
   name: peterj-claw

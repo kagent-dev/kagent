@@ -1,10 +1,11 @@
 package substrate
 
 import (
+	"context"
 	"testing"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -43,10 +44,7 @@ func TestActorTemplateEnvFromPodEnv(t *testing.T) {
 	}
 
 	got := actorTemplateEnvFromPodEnv(env)
-	require.Len(t, got, 2)
-	require.NotNil(t, got[0].Value)
-	require.Equal(t, "ok", *got[0].Value)
-	require.NotNil(t, got[1].ValueFrom.SecretKeyRef)
+	require.Equal(t, []atev1alpha1.EnvVar{{Name: "LITERAL", Value: "ok"}}, got)
 }
 
 func TestBuildSubstrateDeclarativeCommand(t *testing.T) {
@@ -56,21 +54,15 @@ func TestBuildSubstrateDeclarativeCommand(t *testing.T) {
 	// no image-entrypoint fallback, so the declarative command must be explicit.
 	require.Equal(t,
 		[]string{"/app", "--host", "0.0.0.0", "--port", "80"},
-		buildSubstrateDeclarativeCommand(v1alpha2.DeclarativeRuntime_Go),
-	)
-	require.Equal(t,
-		[]string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"},
-		buildSubstrateDeclarativeCommand(v1alpha2.DeclarativeRuntime_Python),
+		buildSubstrateDeclarativeCommand(),
 	)
 }
 
-func declarativeSandboxAgent(runtime v1alpha2.DeclarativeRuntime) *v1alpha2.SandboxAgent {
-	sa := &v1alpha2.SandboxAgent{
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{
-				Type:        v1alpha2.AgentType_Declarative,
-				Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: runtime},
-			},
+func declarativeSandboxAgent() *v1alpha3.SandboxAgent {
+	sa := &v1alpha3.SandboxAgent{
+		Spec: v1alpha3.SandboxAgentSpec{
+			Type:        v1alpha3.AgentType_Declarative,
+			Declarative: &v1alpha3.DeclarativeAgentSpec{},
 		},
 	}
 	sa.Name = "my-agent"
@@ -81,57 +73,42 @@ func declarativeSandboxAgent(runtime v1alpha2.DeclarativeRuntime) *v1alpha2.Sand
 func TestBuildSubstrateKagentContainerCommandDeclarative(t *testing.T) {
 	t.Parallel()
 
-	for _, tc := range []struct {
-		name    string
-		runtime v1alpha2.DeclarativeRuntime
-		wantCmd []string
-	}{
-		{"go", v1alpha2.DeclarativeRuntime_Go, []string{"/app", "--host", "0.0.0.0", "--port", "80"}},
-		{"python", v1alpha2.DeclarativeRuntime_Python, []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			sa := declarativeSandboxAgent(tc.runtime)
-			cmd, env, err := buildSubstrateKagentContainerCommand(sa, &corev1.Container{}, "my-agent-abc123")
-			require.NoError(t, err)
-			require.Equal(t, tc.wantCmd, cmd)
+	sa := declarativeSandboxAgent()
+	cmd, env, err := buildSubstrateKagentContainerCommand(sa, &corev1.Container{}, "my-agent-abc123")
+	require.NoError(t, err)
+	require.Equal(t, []string{"/app", "--host", "0.0.0.0", "--port", "80"}, cmd)
 
-			// KAGENT_NAME / KAGENT_NAMESPACE must be literal values so the ADK can
-			// derive the correct app name (fieldRef env vars are dropped on Substrate).
-			envByName := map[string]string{}
-			for _, e := range env {
-				envByName[e.Name] = e.Value
-			}
-			require.Equal(t, "my-agent", envByName["KAGENT_NAME"])
-			require.Equal(t, "kagent", envByName["KAGENT_NAMESPACE"])
-
-			// Config env must reference the per-config-hash Secret (so a golden materializes its
-			// own config), not the shared per-agent Secret.
-			for _, e := range env {
-				if e.Name == "KAGENT_CONFIG_JSON" {
-					require.NotNil(t, e.ValueFrom)
-					require.NotNil(t, e.ValueFrom.SecretKeyRef)
-					require.Equal(t, "my-agent-abc123", e.ValueFrom.SecretKeyRef.Name)
-				}
-			}
-
-			// Substrate v0.0.9's atelet applies the image's ENV directives, so kagent no
-			// longer re-supplies LD_LIBRARY_PATH/PATH; neither runtime carries it.
-			_, ok := envByName["LD_LIBRARY_PATH"]
-			require.False(t, ok, "kagent must not re-supply the image runtime ENV")
-		})
+	// KAGENT_NAME / KAGENT_NAMESPACE must be literal values so the ADK can
+	// derive the correct app name (fieldRef env vars are dropped on Substrate).
+	envByName := map[string]string{}
+	for _, e := range env {
+		envByName[e.Name] = e.Value
 	}
+	require.Equal(t, "my-agent", envByName["KAGENT_NAME"])
+	require.Equal(t, "kagent", envByName["KAGENT_NAMESPACE"])
+
+	// Config env must reference the per-config-hash Secret (so a golden materializes its
+	// own config), not the shared per-agent Secret.
+	for _, e := range env {
+		if e.Name == "KAGENT_CONFIG_JSON" {
+			require.NotNil(t, e.ValueFrom)
+			require.NotNil(t, e.ValueFrom.SecretKeyRef)
+			require.Equal(t, "my-agent-abc123", e.ValueFrom.SecretKeyRef.Name)
+		}
+	}
+
+	_, ok := envByName["LD_LIBRARY_PATH"]
+	require.False(t, ok, "kagent must not re-supply the image runtime ENV")
 }
 
 func TestBuildSubstrateKagentContainerCommandBYO(t *testing.T) {
 	t.Parallel()
 
 	cmd := "/serve"
-	sa := &v1alpha2.SandboxAgent{
-		Spec: v1alpha2.SandboxAgentSpec{
-			AgentSpec: v1alpha2.AgentSpec{
-				Type: v1alpha2.AgentType_BYO,
-				BYO:  &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: "example/agent:latest", Cmd: &cmd}},
-			},
+	sa := &v1alpha3.SandboxAgent{
+		Spec: v1alpha3.SandboxAgentSpec{
+			Type: v1alpha3.AgentType_BYO,
+			BYO:  &v1alpha3.BYOAgentSpec{Image: "example/agent:latest", Cmd: &cmd},
 		},
 	}
 	sa.Name = "byo-agent"
@@ -162,13 +139,19 @@ func TestBuildSubstrateKagentContainerCommandBYO(t *testing.T) {
 func newTestLifecycle(t *testing.T) *Lifecycle {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	utilruntime.Must(v1alpha2.AddToScheme(scheme))
+	utilruntime.Must(corev1.AddToScheme(scheme))
+	utilruntime.Must(v1alpha3.AddToScheme(scheme))
 	utilruntime.Must(atev1alpha1.AddToScheme(scheme))
+	configSecret := func(name string) *corev1.Secret {
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "kagent"}, Data: map[string][]byte{
+			"config.json": []byte("{}"), "agent-card.json": []byte("{}"),
+		}}
+	}
 	return &Lifecycle{
-		Client: fake.NewClientBuilder().WithScheme(scheme).Build(),
-		Defaults: LifecycleDefaults{
-			PauseImage: "gcr.io/test/pause@sha256:deadbeef",
-		},
+		Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+			configSecret("go-agent"), configSecret("agent"), configSecret("byo-agent"), configSecret("my-agent"),
+		).Build(),
+		Defaults: LifecycleDefaults{},
 	}
 }
 
@@ -182,7 +165,7 @@ func actorEnvNames(env []atev1alpha1.EnvVar) map[string]bool {
 }
 
 // TestBuildSandboxAgentActorTemplate exercises the full ActorTemplate generation for each
-// supported runtime/type on substrate (Go declarative, Python declarative, BYO), asserting the
+// supported type on substrate (declarative and BYO), asserting the
 // pinned image, the explicit command, and the env wiring side by side.
 func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 	t.Parallel()
@@ -199,37 +182,23 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 
 	for _, tc := range []struct {
 		name        string
-		sa          *v1alpha2.SandboxAgent
+		sa          *v1alpha3.SandboxAgent
 		container   corev1.Container
 		wantCommand []string
 	}{
 		{
 			name: "go declarative",
-			sa: &v1alpha2.SandboxAgent{
+			sa: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "go-agent", Namespace: "kagent"},
-				Spec: v1alpha2.SandboxAgentSpec{
-					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}},
-				},
+				Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{}},
 			},
 			container:   corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
 			wantCommand: []string{"/app", "--host", "0.0.0.0", "--port", "80"}},
 		{
-			name: "python declarative",
-			sa: &v1alpha2.SandboxAgent{
-				ObjectMeta: metav1.ObjectMeta{Name: "py-agent", Namespace: "kagent"},
-				Spec: v1alpha2.SandboxAgentSpec{
-					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}},
-				},
-			},
-			container:   corev1.Container{Args: []string{"--host", "0.0.0.0", "--port", "8080", "--filepath", "/config"}},
-			wantCommand: []string{"/.kagent/.venv/bin/kagent-adk", "static", "--host", "0.0.0.0", "--port", "80"}},
-		{
 			name: "byo",
-			sa: &v1alpha2.SandboxAgent{
+			sa: &v1alpha3.SandboxAgent{
 				ObjectMeta: metav1.ObjectMeta{Name: "byo-agent", Namespace: "kagent"},
-				Spec: v1alpha2.SandboxAgentSpec{
-					AgentSpec: v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}},
-				},
+				Spec:       v1alpha3.SandboxAgentSpec{Type: v1alpha3.AgentType_BYO, BYO: &v1alpha3.BYOAgentSpec{Image: pinnedImage, Cmd: &cmd}},
 			},
 			container:   corev1.Container{Command: []string{"/serve"}, Args: []string{"--host", "0.0.0.0", "--port", "80"}},
 			wantCommand: []string{"/serve", "--host", "0.0.0.0", "--port", "80"}},
@@ -237,7 +206,7 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			p := newTestLifecycle(t)
-			tmpl, err := p.buildSandboxAgentActorTemplate(tc.sa, wpKey, podTemplateFor(tc.container))
+			tmpl, err := p.buildSandboxAgentActorTemplate(context.Background(), tc.sa, wpKey, podTemplateFor(tc.container), nil)
 			require.NoError(t, err)
 
 			require.Len(t, tmpl.Spec.Containers, 1)
@@ -277,23 +246,21 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 	cmd := "/serve"
 	wpKey := types.NamespacedName{Namespace: "kagent", Name: "kagent-default"}
 
-	agentFor := func(spec v1alpha2.AgentSpec, annotations map[string]string) *v1alpha2.SandboxAgent {
-		return &v1alpha2.SandboxAgent{
+	agentFor := func(spec v1alpha3.AgentSpec, annotations map[string]string) *v1alpha3.SandboxAgent {
+		return &v1alpha3.SandboxAgent{
 			ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent", Annotations: annotations},
-			Spec:       v1alpha2.SandboxAgentSpec{AgentSpec: spec},
+			Spec:       spec,
 		}
 	}
-	pythonSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Python}}
-	goSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_Declarative, Declarative: &v1alpha2.DeclarativeAgentSpec{Runtime: v1alpha2.DeclarativeRuntime_Go}}
-	byoSpec := v1alpha2.AgentSpec{Type: v1alpha2.AgentType_BYO, BYO: &v1alpha2.BYOAgentSpec{Deployment: &v1alpha2.ByoDeploymentSpec{Image: pinnedImage, Cmd: &cmd}}}
+	declarativeSpec := v1alpha3.AgentSpec{Type: v1alpha3.AgentType_Declarative, Declarative: &v1alpha3.DeclarativeAgentSpec{}}
+	byoSpec := v1alpha3.AgentSpec{Type: v1alpha3.AgentType_BYO, BYO: &v1alpha3.BYOAgentSpec{Image: pinnedImage, Cmd: &cmd}}
 	for _, tc := range []struct {
 		name      string
-		sa        *v1alpha2.SandboxAgent
+		sa        *v1alpha3.SandboxAgent
 		container corev1.Container
 	}{
-		{name: "python", sa: agentFor(pythonSpec, nil)},
-		{name: "python with unrelated annotations", sa: agentFor(pythonSpec, map[string]string{"kagent.dev/other": "x"})},
-		{name: "go", sa: agentFor(goSpec, nil)},
+		{name: "declarative", sa: agentFor(declarativeSpec, nil)},
+		{name: "declarative with unrelated annotations", sa: agentFor(declarativeSpec, map[string]string{"kagent.dev/other": "x"})},
 		{name: "byo", sa: agentFor(byoSpec, nil), container: corev1.Container{Command: []string{"/serve"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -304,7 +271,7 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 			container.Image = pinnedImage
 			podTemplate := corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{container}}}
 
-			tmpl, err := p.buildSandboxAgentActorTemplate(tc.sa, wpKey, podTemplate)
+			tmpl, err := p.buildSandboxAgentActorTemplate(context.Background(), tc.sa, wpKey, podTemplate, nil)
 			require.NoError(t, err)
 			require.Len(t, tmpl.Spec.Containers, 1)
 			c := tmpl.Spec.Containers[0]

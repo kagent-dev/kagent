@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/openclaw"
 	corev1 "k8s.io/api/core/v1"
@@ -43,8 +43,8 @@ type acpAgentSpec struct {
 // survives a Substrate checkpoint/restore, and Hermes transparently restores
 // those sessions across process restarts. The long-lived child is about live
 // in-memory fidelity and avoiding a per-reconnect reload, not about durability.
-var acpAgentSpecs = map[v1alpha2.AgentHarnessBackendType]acpAgentSpec{
-	v1alpha2.AgentHarnessBackendHermes: {
+var acpAgentSpecs = map[v1alpha3.AgentHarnessBackendType]acpAgentSpec{
+	v1alpha3.AgentHarnessBackendHermes: {
 		DefaultImage: acpSandboxHermesImage,
 		ChildCommand: []string{"hermes", "acp"},
 	},
@@ -57,7 +57,7 @@ var acpAgentSpecs = map[v1alpha2.AgentHarnessBackendType]acpAgentSpec{
 // agent child. Model credentials come from the harness ModelConfig as a
 // provider-conventional env var (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY)
 // resolved by ate-api from the referenced Secret.
-func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha2.AgentHarness, spec acpAgentSpec) (script string, env []atev1alpha1.EnvVar, err error) {
+func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha3.AgentHarness, spec acpAgentSpec) (script string, env []atev1alpha1.EnvVar, err error) {
 	if ah == nil {
 		return "", nil, fmt.Errorf("AgentHarness is required")
 	}
@@ -76,7 +76,7 @@ func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha2.
 		if parseErr != nil {
 			return "", nil, fmt.Errorf("parse modelConfigRef %q: %w", ref, parseErr)
 		}
-		mc := &v1alpha2.ModelConfig{}
+		mc := &v1alpha3.ModelConfig{}
 		if getErr := p.Client.Get(ctx, mcRef, mc); getErr != nil {
 			return "", nil, fmt.Errorf("get ModelConfig %s: %w", mcRef, getErr)
 		}
@@ -86,7 +86,7 @@ func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha2.
 		}
 		containerEnv = append(containerEnv, apiKeyEnv)
 
-		if ah.Spec.Backend == v1alpha2.AgentHarnessBackendHermes {
+		if ah.Spec.Backend == v1alpha3.AgentHarnessBackendHermes {
 			prelude = hermesConfigPrelude(mc)
 		}
 	}
@@ -96,7 +96,7 @@ func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha2.
 	// gateway. Translate channel credentials/allowlists into the unsuffixed
 	// env contract the gateway auto-detects.
 	runGateway := false
-	if ah.Spec.Backend == v1alpha2.AgentHarnessBackendHermes && len(ah.Spec.Channels) > 0 {
+	if ah.Spec.Backend == v1alpha3.AgentHarnessBackendHermes && len(ah.Spec.Channels) > 0 {
 		channelEnv, chErr := buildHermesChannelEnv(ctx, p.Client, ah.Namespace, ah.Spec.Channels)
 		if chErr != nil {
 			return "", nil, chErr
@@ -110,6 +110,10 @@ func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha2.
 	containerEnv = append(containerEnv, ah.Spec.Env...)
 
 	script = buildAcpStartupScript(prelude, spec.ChildCommand, runGateway)
+	containerEnv, err = resolvePodEnv(ctx, p.Client, ah.Namespace, containerEnv, nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve actor environment: %w", err)
+	}
 	return script, actorTemplateEnvFromPodEnv(containerEnv), nil
 }
 
@@ -141,23 +145,23 @@ func buildAcpStartupScript(prelude string, child []string, runGateway bool) stri
 // hermesProviderSlugs maps kagent ModelConfig providers to hermes provider
 // slugs (hermes_cli CANONICAL_PROVIDERS). Hermes authenticates these via the
 // provider-conventional env var already injected from the ModelConfig secret.
-var hermesProviderSlugs = map[v1alpha2.ModelProvider]string{
-	v1alpha2.ModelProviderOpenAI:    "openai-api",
-	v1alpha2.ModelProviderAnthropic: "anthropic",
-	v1alpha2.ModelProviderGemini:    "gemini",
+var hermesProviderSlugs = map[v1alpha3.ModelProvider]string{
+	v1alpha3.ModelProviderOpenAI:    "openai-api",
+	v1alpha3.ModelProviderAnthropic: "anthropic",
+	v1alpha3.ModelProviderGemini:    "gemini",
 }
 
 // hermesConfigPrelude returns shell lines that write ~/.hermes/config.yaml
 // selecting the ModelConfig's model and provider. Without it hermes defaults
 // to an unauthenticated provider and prompts silently produce no output.
 // Returns "" when the ModelConfig provider has no hermes equivalent.
-func hermesConfigPrelude(mc *v1alpha2.ModelConfig) string {
+func hermesConfigPrelude(mc *v1alpha3.ModelConfig) string {
 	slug, ok := hermesProviderSlugs[mc.Spec.Provider]
 	if !ok || strings.TrimSpace(mc.Spec.Model) == "" {
 		return ""
 	}
 	cfg := fmt.Sprintf("model:\n  default: %q\n  provider: %q\n", mc.Spec.Model, slug)
-	if mc.Spec.Provider == v1alpha2.ModelProviderOpenAI {
+	if mc.Spec.Provider == v1alpha3.ModelProviderOpenAI {
 		// Hermes auto-upgrades direct api.openai.com to its codex_responses
 		// transport, which requests reasoning.encrypted_content — rejected
 		// with HTTP 400 by non-reasoning models (e.g. gpt-4.1-mini), and the

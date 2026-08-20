@@ -2,7 +2,7 @@
 
 Kagent Human-in-the-Loop (HITL) lets an agent pause an A2A task, ask a human
 for a decision, and resume the same task after the decision arrives. The public
-contract is the framework-agnostic A2A Extension, defined in the [A2A spec](https://a2a-protocol.org/latest/specification/#46-extensions) 
+contract is the framework-agnostic A2A Extension, defined in the [A2A spec](https://a2a-protocol.org/latest/specification/#46-extensions)
 Google ADK confirmation events are implementation details of an adapter and are
 documented separately in the appendices.
 
@@ -85,8 +85,8 @@ for example `.../hitl/v2`; there is no silent version fallback.
 
 ## Where the payload lives
 
-HITL data is a [Message extension](https://a2a-protocol.org/latest/specification/#462-extensions-points). 
-This is because Kagent uses Messages in `TaskStatusUpdateEvents` on transition to `input-required` 
+HITL data is a [Message extension](https://a2a-protocol.org/latest/specification/#462-extensions-points).
+This is because Kagent uses Messages in `TaskStatusUpdateEvents` on transition to `input-required`
 states to signal HITL events instead of artifacts. The Message must contain both:
 
 ```json

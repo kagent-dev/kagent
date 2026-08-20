@@ -209,6 +209,20 @@ documented contract (see go/core/pkg/app/app.go).
 {{- end -}}
 
 {{/*
+Controller gRPC observability PrometheusRule name.
+*/}}
+{{- define "kagent.controller.grpcPrometheusRuleName" -}}
+{{- printf "%s-controller-grpc" (include "kagent.fullname" .) -}}
+{{- end -}}
+
+{{/*
+Controller gRPC observability Grafana dashboard ConfigMap name.
+*/}}
+{{- define "kagent.controller.grpcDashboardConfigMapName" -}}
+{{- printf "%s-controller-grpc-dashboard" (include "kagent.fullname" .) -}}
+{{- end -}}
+
+{{/*
 PostgreSQL service name for the bundled postgres instance
 */}}
 {{- define "kagent.postgresqlServiceName" -}}
@@ -243,6 +257,15 @@ The `name.namespace.svc` short form is used so the URL resolves regardless of th
 {{- end -}}
 {{- end -}}
 
+{{/* Public gRPC endpoint advertised by AgentInstance Agent Cards. */}}
+{{- define "kagent.a2aGatewayUrl" -}}
+{{- if .Values.controller.a2aGatewayUrl -}}
+{{- .Values.controller.a2aGatewayUrl -}}
+{{- else -}}
+{{- printf "http://%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.grpc | int) -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 Controller Service host:port for nginx upstream (no scheme).
 */}}
@@ -251,10 +274,18 @@ Controller Service host:port for nginx upstream (no scheme).
 {{- end -}}
 
 {{/*
-In-cluster HTTP API base for Next.js server-side calls (includes /api).
+In-cluster HTTP base for the Next.js A2A and other protocol-native routes (includes /api).
+The kagent application API uses kagent.controllerInternalGrpcBase instead.
 */}}
 {{- define "kagent.controllerInternalHttpApiBase" -}}
 {{- printf "http://%s/api" (include "kagent.controllerServiceAuthority" .) -}}
+{{- end -}}
+
+{{/*
+In-cluster native gRPC base URL for Next.js server-side calls.
+*/}}
+{{- define "kagent.controllerInternalGrpcBase" -}}
+{{- printf "http://%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.grpc | int) -}}
 {{- end -}}
 
 {{/*
@@ -268,4 +299,3 @@ imagePullSecrets:
 {{- toYaml $global | nindent 2 }}
 {{- end -}}
 {{- end -}}
-

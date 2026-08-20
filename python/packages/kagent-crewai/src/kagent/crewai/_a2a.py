@@ -3,14 +3,13 @@ import logging
 import os
 from typing import Union
 
-import httpx
 from a2a.server.request_handlers import DefaultRequestHandlerV2
 from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.types import AgentCard
 from fastapi import FastAPI, Request
 from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import KAgentConfig, configure_tracing
+from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig, configure_tracing
 from kagent.core.a2a import (
     A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
@@ -45,27 +44,32 @@ class KAgentApp:
         *,
         crew: Union[Crew, Flow],
         agent_card: AgentCard | dict,
-        config: KAgentConfig = KAgentConfig(),
+        config: KAgentConfig | None = None,
         executor_config: CrewAIAgentExecutorConfig | None = None,
+        controller_client: AsyncControllerClient | None = None,
         tracing: bool = True,
     ):
         self._crew = crew
         self.agent_card = ParseDict(agent_card, AgentCard()) if isinstance(agent_card, dict) else agent_card
-        self.config = config
+        self.config = config or KAgentConfig()
         self.executor_config = executor_config or CrewAIAgentExecutorConfig()
+        self._controller_client = controller_client
         self.tracing = tracing
 
     def build(self) -> FastAPI:
-        http_client = httpx.AsyncClient(base_url=self.config.url)
+        controller_client = self._controller_client or AsyncControllerClient(
+            self.config.grpc_url,
+            agent_name=self.config.app_name,
+            token_provider=AsyncFileTokenProvider(),
+        )
 
         agent_executor = CrewAIAgentExecutor(
             crew=self._crew,
             app_name=self.config.app_name,
             config=self.executor_config,
-            http_client=http_client,
         )
 
-        task_store = KAgentTaskStore(http_client)
+        task_store = KAgentTaskStore(controller_client)
         request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
         request_handler = DefaultRequestHandlerV2(
             agent_executor=agent_executor,
@@ -79,6 +83,7 @@ class KAgentApp:
             title=f"KAgent CrewAI: {self.config.app_name}",
             description=f"CrewAI agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,
+            lifespan=controller_client.lifespan(),
         )
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,

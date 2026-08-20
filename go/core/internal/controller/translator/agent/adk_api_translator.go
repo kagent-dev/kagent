@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/skillsinit"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
@@ -28,13 +28,10 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
 	"github.com/kagent-dev/kagent/go/core/pkg/translator"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -45,7 +42,7 @@ const (
 	MCPServiceProtocolAnnotation = "kagent.dev/mcp-service-protocol"
 
 	MCPServicePathDefault     = "/mcp"
-	MCPServiceProtocolDefault = v1alpha2.RemoteMCPServerProtocolStreamableHttp
+	MCPServiceProtocolDefault = v1alpha3.RemoteMCPServerProtocolStreamableHttp
 
 	ProxyHostHeader = "x-kagent-host"
 
@@ -79,8 +76,6 @@ type ImageConfig struct {
 	Registry   string `json:"registry,omitempty"`
 	Tag        string `json:"tag,omitempty"`
 	Digest     string `json:"digest,omitempty"` // OCI manifest digest (sha256:...), set at link time
-	PullPolicy string `json:"pullPolicy,omitempty"`
-	PullSecret string `json:"pullSecret,omitempty"`
 	Repository string `json:"repository,omitempty"`
 }
 
@@ -111,57 +106,12 @@ func normalizeImageDigest(digest string) string {
 var DefaultImageConfig = ImageConfig{
 	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
-	PullPolicy: string(corev1.PullIfNotPresent),
-	PullSecret: "",
-	Repository: "kagent-dev/kagent/app",
-}
-
-// PythonADKImageDigest, PythonADKFullImageDigest, GoADKImageDigest, and GoADKFullImageDigest
-// default to the pushed runtime image manifest digests baked in at controller link time, and
-// can be overridden at runtime via the --app[-full]-image-digest / --golang-adk[-full]-image-digest
-// flags (for mirrored registries that re-assign digests). They are only consulted for sandbox
-// agents — Substrate requires digest-pinned refs — while regular agents reference images by tag.
-// The "full" variants bundle the sandbox runtime (bash tools); the slim variants do not.
-var PythonADKImageDigest string
-var PythonADKFullImageDigest string
-var GoADKImageDigest string
-var GoADKFullImageDigest string
-
-// DefaultGoImageConfig is the image config for the Go (ADK) runtime agent.
-// Regular agents reference it by tag; sandbox agents pin by digest via
-// GoADKImageDigest / GoADKFullImageDigest.
-var DefaultGoImageConfig = ImageConfig{
-	Registry:   "ghcr.io",
-	Tag:        version.Get().Version,
-	PullPolicy: string(corev1.PullIfNotPresent),
 	Repository: "kagent-dev/kagent/golang-adk",
 }
 
-// DefaultSkillsInitImageConfig is the image config for the skills-init container
-// that clones skill repositories from Git and pulls OCI skill images.
-var DefaultSkillsInitImageConfig = ImageConfig{
-	Registry:   "ghcr.io",
-	Tag:        version.Get().Version,
-	PullPolicy: string(corev1.PullIfNotPresent),
-	Repository: "kagent-dev/kagent/skills-init",
-}
-
-// DefaultServiceAccountName is the global default ServiceAccount name for agent pods.
-// When set, agent pods that don't specify an explicit serviceAccountName will use this
-// instead of auto-creating a per-agent ServiceAccount.
-var DefaultServiceAccountName string
-
-// DefaultAgentPodLabels is a set of labels applied to all agent pod templates.
-// Per-agent labels from the Agent CRD spec take precedence over these defaults.
-var DefaultAgentPodLabels map[string]string
-
-// DefaultAgentNodeSelector is a node selector applied to all agent deployments.
-// A per-agent nodeSelector from the Agent CRD spec takes precedence over these defaults.
-var DefaultAgentNodeSelector map[string]string
-
-// DefaultAgentBindHost is the host address agent pods bind to.
-// Defaults to "0.0.0.0" (IPv4 only). Set to "::" for dual-stack (IPv4+IPv6) support.
-var DefaultAgentBindHost = "0.0.0.0"
+// AgentImageDigest defaults to the pushed runtime image manifest digest baked in at controller
+// link time. It can be overridden for mirrored registries that re-assign digests.
+var AgentImageDigest string
 
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
@@ -169,46 +119,14 @@ type AgentOutputs = translator.AgentOutputs
 type AdkApiTranslator interface {
 	CompileAgent(
 		ctx context.Context,
-		agent v1alpha2.AgentObject,
+		agent *v1alpha3.SandboxAgent,
 	) (*AgentManifestInputs, error)
 	BuildManifest(
 		ctx context.Context,
-		agent v1alpha2.AgentObject,
+		agent *v1alpha3.SandboxAgent,
 		inputs *AgentManifestInputs,
 	) (*AgentOutputs, error)
 	GetOwnedResourceTypes() []client.Object
-}
-
-// probeConfig holds readiness probe timing configuration
-type probeConfig struct {
-	InitialDelaySeconds int32
-	TimeoutSeconds      int32
-	PeriodSeconds       int32
-}
-
-// getRuntimeProbeConfig returns readiness probe configuration for a runtime
-func getRuntimeProbeConfig(runtime v1alpha2.DeclarativeRuntime) probeConfig {
-	switch runtime {
-	case v1alpha2.DeclarativeRuntime_Go:
-		return probeConfig{
-			InitialDelaySeconds: 1,
-			TimeoutSeconds:      5,
-			PeriodSeconds:       1,
-		}
-	case v1alpha2.DeclarativeRuntime_Python:
-		return probeConfig{
-			InitialDelaySeconds: 15,
-			TimeoutSeconds:      15,
-			PeriodSeconds:       15,
-		}
-	default:
-		// Default to Python timing (conservative)
-		return probeConfig{
-			InitialDelaySeconds: 15,
-			TimeoutSeconds:      15,
-			PeriodSeconds:       15,
-		}
-	}
 }
 
 type TranslatorPlugin = translator.TranslatorPlugin
@@ -249,11 +167,8 @@ type adkApiTranslator struct {
 // example structs rather than actual resources.
 func (r *adkApiTranslator) GetOwnedResourceTypes() []client.Object {
 	ownedResources := []client.Object{
-		&appsv1.Deployment{},
 		&corev1.ConfigMap{},
 		&corev1.Secret{},
-		&corev1.Service{},
-		&corev1.ServiceAccount{},
 	}
 
 	for _, plugin := range r.plugins {
@@ -306,7 +221,7 @@ func tlsCAPaths(secretName, key string) (volumeName, mountPath, certPath string)
 	return
 }
 
-// deriveTLSFields turns a v1alpha2.TLSConfig into the three pointer fields
+// deriveTLSFields turns a v1alpha3.TLSConfig into the three pointer fields
 // that every TLS-aware adk wire type carries (BaseModel,
 // StreamableHTTPConnectionParams, SseConnectionParams). Returns nils for
 // nil or all-zero configs so the caller can assign-through to all three
@@ -315,7 +230,7 @@ func tlsCAPaths(secretName, key string) (volumeName, mountPath, certPath string)
 // short-circuit and silently swap google-adk's default httpx client for
 // kagent's, which has the same SSL behavior but different
 // timeout/redirect defaults.
-func deriveTLSFields(tlsConfig *v1alpha2.TLSConfig) (*bool, *string, *bool) {
+func deriveTLSFields(tlsConfig *v1alpha3.TLSConfig) (*bool, *string, *bool) {
 	if tlsConfig.IsEmpty() {
 		return nil, nil, nil
 	}
@@ -335,7 +250,7 @@ func deriveTLSFields(tlsConfig *v1alpha2.TLSConfig) (*bool, *string, *bool) {
 // assignment at each site. The MCP-connection params (StreamableHTTPConnectionParams,
 // SseConnectionParams) carry the same three fields but do not embed BaseModel;
 // those callers assign through deriveTLSFields directly.
-func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) {
+func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha3.TLSConfig) {
 	baseModel.TLSInsecureSkipVerify, baseModel.TLSCACertPath, baseModel.TLSDisableSystemCAs = deriveTLSFields(tlsConfig)
 }
 
@@ -357,7 +272,7 @@ func populateTLSFields(baseModel *adk.BaseModel, tlsConfig *v1alpha2.TLSConfig) 
 // misconfiguration; mounting an absent key here would crash the agent at
 // startup, but the operator gets the early signal on the resource's own
 // Accepted condition.
-func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha2.TLSConfig) {
+func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1alpha3.TLSConfig) {
 	if tlsConfig == nil {
 		return
 	}
@@ -396,13 +311,13 @@ func addTLSConfiguration(modelDeploymentData *modelDeploymentData, tlsConfig *v1
 // model and mounts the service account secret (referenced by the top-level
 // apiKeySecret / apiKeySecretKey fields) as a file for google.auth to read.
 // Token exchange is only supported for OpenAI-compatible endpoints (e.g., GDCH).
-func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha2.ModelConfigSpec) {
+func addTokenExchangeConfiguration(openai *adk.OpenAI, mdd *modelDeploymentData, spec *v1alpha3.ModelConfigSpec) {
 	if spec.OpenAI == nil || spec.OpenAI.TokenExchange == nil {
 		return
 	}
 	tokenExchange := spec.OpenAI.TokenExchange
 	switch tokenExchange.Type {
-	case v1alpha2.TokenExchangeTypeGDCH:
+	case v1alpha3.TokenExchangeTypeGDCH:
 		cfg := tokenExchange.GDCHServiceAccount
 		if cfg == nil {
 			return
@@ -449,7 +364,7 @@ func (a *adkApiTranslator) translateEmbeddingConfig(ctx context.Context, namespa
 // resolveFoundryEndpoint returns the Foundry endpoint, preferring the inline
 // value and otherwise resolving it from the referenced ConfigMap (endpointFrom),
 // which lets Azure Service Operator own the account endpoint.
-func (a *adkApiTranslator) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha2.FoundryConfig) (string, error) {
+func (a *adkApiTranslator) resolveFoundryEndpoint(ctx context.Context, namespace string, cfg *v1alpha3.FoundryConfig) (string, error) {
 	if cfg.Endpoint != "" {
 		return cfg.Endpoint, nil
 	}
@@ -472,7 +387,7 @@ func (a *adkApiTranslator) resolveFoundryEndpoint(ctx context.Context, namespace
 }
 
 func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelConfig string) (adk.Model, *modelDeploymentData, []byte, error) {
-	model := &v1alpha2.ModelConfig{}
+	model := &v1alpha3.ModelConfig{}
 	err := a.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: modelConfig}, model)
 	if err != nil {
 		return nil, nil, nil, err
@@ -494,7 +409,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	addTLSConfiguration(modelDeploymentData, model.Spec.TLS)
 
 	switch model.Spec.Provider {
-	case v1alpha2.ModelProviderOpenAI:
+	case v1alpha3.ModelProviderOpenAI:
 		usingTokenExchange := model.Spec.OpenAI != nil && model.Spec.OpenAI.TokenExchange != nil
 		if !model.Spec.APIKeyPassthrough && !usingTokenExchange && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
@@ -559,7 +474,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			}
 		}
 		return openai, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderAnthropic:
+	case v1alpha3.ModelProviderAnthropic:
 		if !model.Spec.APIKeyPassthrough && model.Spec.APIKeySecret != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name: env.AnthropicAPIKey.Name(),
@@ -596,7 +511,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			}
 		}
 		return anthropic, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderAzureOpenAI:
+	case v1alpha3.ModelProviderAzureOpenAI:
 		if model.Spec.AzureOpenAI == nil {
 			return nil, nil, nil, fmt.Errorf("AzureOpenAI model config is required")
 		}
@@ -648,7 +563,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return azureOpenAI, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderGeminiVertexAI:
+	case v1alpha3.ModelProviderGeminiVertexAI:
 		if model.Spec.GeminiVertexAI == nil {
 			return nil, nil, nil, fmt.Errorf("GeminiVertexAI model config is required")
 		}
@@ -697,7 +612,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		}
 
 		return gemini, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderAnthropicVertexAI:
+	case v1alpha3.ModelProviderAnthropicVertexAI:
 		if model.Spec.AnthropicVertexAI == nil {
 			return nil, nil, nil, fmt.Errorf("AnthropicVertexAI model config is required")
 		}
@@ -738,7 +653,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		anthropic.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return anthropic, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderOllama:
+	case v1alpha3.ModelProviderOllama:
 		if model.Spec.Ollama == nil {
 			return nil, nil, nil, fmt.Errorf("ollama model config is required")
 		}
@@ -762,7 +677,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		ollama.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return ollama, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderGemini:
+	case v1alpha3.ModelProviderGemini:
 		modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 			Name: env.GoogleAPIKey.Name(),
 			ValueFrom: &corev1.EnvVarSource{
@@ -786,7 +701,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 			gemini.MaxOutputTokens = &model.Spec.Gemini.MaxOutputTokens
 		}
 		return gemini, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderBedrock:
+	case v1alpha3.ModelProviderBedrock:
 		if model.Spec.Bedrock == nil {
 			return nil, nil, nil, fmt.Errorf("bedrock model config is required")
 		}
@@ -887,7 +802,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		bedrock.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return bedrock, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderSAPAICore:
+	case v1alpha3.ModelProviderSAPAICore:
 		if model.Spec.SAPAICore == nil {
 			return nil, nil, nil, fmt.Errorf("sapAICore model config is required")
 		}
@@ -936,7 +851,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 		sapAICore.APIKeyPassthrough = model.Spec.APIKeyPassthrough
 
 		return sapAICore, modelDeploymentData, secretHashBytes, nil
-	case v1alpha2.ModelProviderFoundry:
+	case v1alpha3.ModelProviderFoundry:
 		if model.Spec.Foundry == nil {
 			return nil, nil, nil, fmt.Errorf("foundry model config is required")
 		}
@@ -1004,7 +919,7 @@ func (a *adkApiTranslator) translateModel(ctx context.Context, namespace, modelC
 	}
 }
 
-func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.StreamableHTTPConnectionParams, error) {
+func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, server *v1alpha3.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.StreamableHTTPConnectionParams, error) {
 	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
@@ -1043,7 +958,7 @@ func (a *adkApiTranslator) translateStreamableHttpTool(ctx context.Context, serv
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha2.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.SseConnectionParams, error) {
+func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1alpha3.RemoteMCPServer, agentHeaders map[string]string, proxyURL string, egressRewrite bool) (*adk.SseConnectionParams, error) {
 	headers, err := server.ResolveHeaders(ctx, a.kube)
 	if err != nil {
 		return nil, err
@@ -1078,7 +993,7 @@ func (a *adkApiTranslator) translateSseHttpTool(ctx context.Context, server *v1a
 	return params, nil
 }
 
-func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, agentNamespace string, toolServer *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string) ([]byte, error) {
+func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, agentNamespace string, toolServer *v1alpha3.McpServerTool, agentHeaders map[string]string, proxyURL string) ([]byte, error) {
 	gvk := toolServer.GroupKind()
 
 	switch gvk {
@@ -1120,7 +1035,7 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 		Group: "kagent.dev",
 		Kind:  "RemoteMCPServer",
 	}:
-		remoteMcpServer := &v1alpha2.RemoteMCPServer{}
+		remoteMcpServer := &v1alpha3.RemoteMCPServer{}
 		remoteMcpServerRef := toolServer.NamespacedName(agentNamespace)
 
 		err := a.kube.Get(ctx, remoteMcpServerRef, remoteMcpServer)
@@ -1170,9 +1085,9 @@ func (a *adkApiTranslator) translateMCPServerTarget(ctx context.Context, agent *
 	}
 }
 
-func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, remoteMcpServer *v1alpha2.RemoteMCPServer, mcpServerTool *v1alpha2.McpServerTool, agentHeaders map[string]string, proxyURL string, egressRewrite bool) ([]byte, error) {
+func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, agent *adk.AgentConfig, mdd *modelDeploymentData, remoteMcpServer *v1alpha3.RemoteMCPServer, mcpServerTool *v1alpha3.McpServerTool, agentHeaders map[string]string, proxyURL string, egressRewrite bool) ([]byte, error) {
 	switch remoteMcpServer.Spec.Protocol {
-	case v1alpha2.RemoteMCPServerProtocolSse:
+	case v1alpha3.RemoteMCPServerProtocolSse:
 		tool, err := a.translateSseHttpTool(ctx, remoteMcpServer, agentHeaders, proxyURL, egressRewrite)
 		if err != nil {
 			return nil, err
@@ -1211,7 +1126,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 // status hash is empty or malformed — the controller is responsible for
 // keeping Status.SecretHash in sync, and a transient missing/garbage
 // value should not block agent translation.
-func remoteMCPServerSecretHashBytes(remoteMcpServer *v1alpha2.RemoteMCPServer) []byte {
+func remoteMCPServerSecretHashBytes(remoteMcpServer *v1alpha3.RemoteMCPServer) []byte {
 	if remoteMcpServer == nil || remoteMcpServer.Status.SecretHash == "" {
 		return nil
 	}
@@ -1291,12 +1206,11 @@ func applyProxyURL(originalURL, proxyURL string, headers map[string]string) (tar
 	return targetURL, updatedHeaders, nil
 }
 
-func computeConfigHash(agentCfg, agentCard, secretData, skillsInitCfg []byte) uint64 {
+func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
 	hasher := sha256.New()
 	hasher.Write(agentCfg)
 	hasher.Write(agentCard)
 	hasher.Write(secretData)
-	hasher.Write(skillsInitCfg)
 	hash := hasher.Sum(nil)
 	return binary.BigEndian.Uint64(hash[:8])
 }
@@ -1376,7 +1290,7 @@ func isCommitSHA(ref string) bool {
 // last path segment of Path is used. If Path is empty, the last path segment of
 // the repo URL (with any .git suffix stripped) is used.
 // Query parameters and fragments are stripped before extracting the base name from the URL.
-func gitSkillName(ref v1alpha2.GitRepo) string {
+func gitSkillName(ref v1alpha3.GitRepo) string {
 	if n := strings.TrimSpace(ref.Name); n != "" {
 		return n
 	}
@@ -1399,12 +1313,8 @@ func gitSkillName(ref v1alpha2.GitRepo) string {
 var (
 	scpLikeGitURLRegex = regexp.MustCompile(`^(?:[^@/]+@)?([^:/]+):.+$`)
 
-	// validHostPattern and validPortPattern are input-hygiene patterns for SSH
-	// host/port values. They used to be a shell-injection boundary when these
-	// values were interpolated into the rendered shell script; the
-	// skills-init container is now driven by a structured JSON config so
-	// values reach ssh-keyscan as argv entries and shell metacharacters are
-	// inert. We keep the patterns to reject obvious garbage early.
+	// validHostPattern and validPortPattern reject malformed SSH targets before
+	// the downloader passes them to ssh-keyscan as arguments.
 	validHostPattern = regexp.MustCompile(`^[A-Za-z0-9.\-]+$`)
 	validPortPattern = regexp.MustCompile(`^[0-9]+$`)
 )
@@ -1503,7 +1413,7 @@ func ociSkillName(imageRef string) string {
 // s3SkillName returns the directory name for an S3 skill ref.
 // If Name is set, it is used. Otherwise the last path segment of the URI is
 // used, with archive extensions (.zip / .tgz / .tar.gz) stripped.
-func s3SkillName(ref v1alpha2.S3SkillRef) string {
+func s3SkillName(ref v1alpha3.S3SkillRef) string {
 	if n := strings.TrimSpace(ref.Name); n != "" {
 		return n
 	}
@@ -1522,18 +1432,18 @@ func s3SkillName(ref v1alpha2.S3SkillRef) string {
 	}
 }
 
-// prepareSkillsInitConfig converts CRD values into the JSON config consumed by
-// the skills-init binary. It validates subPaths and detects duplicate skill
+// prepareSkillsInitConfig converts CRD values into the downloader config. It
+// validates subPaths and detects duplicate skill
 // directory names. User-controlled strings (URL, ref, name, OCI image, S3 URI)
 // flow through this struct as data only — the binary passes them to
 // git/library/SDK calls as argv/API inputs, never as shell input.
 func prepareSkillsInitConfig(
-	gitRefs []v1alpha2.GitRepo,
+	gitRefs []v1alpha3.GitRepo,
 	authSecretRef *corev1.LocalObjectReference,
 	ociRefs []string,
 	insecureOCI bool,
 	imagePullSecrets []string,
-	s3Refs []v1alpha2.S3SkillRef,
+	s3Refs []v1alpha3.S3SkillRef,
 ) (skillsinit.Config, error) {
 	cfg := skillsinit.Config{
 		InsecureOCI:      insecureOCI,
@@ -1632,145 +1542,7 @@ func prepareSkillsInitConfig(
 	return cfg, nil
 }
 
-// SkillsInitConfigMapSuffix is appended to the Agent name to form the
-// ConfigMap that carries the skills-init container's JSON config.
-const SkillsInitConfigMapSuffix = "-skills-init"
-
-// SkillsInitConfigMapName returns the name of the skills-init ConfigMap for
-// the given Agent.
-func SkillsInitConfigMapName(agentName string) string {
-	return agentName + SkillsInitConfigMapSuffix
-}
-
-// validateSkillsInitConfigMapName enforces the K8s DNS-1123 subdomain rules
-// on the derived ConfigMap name. Agent names are already constrained by the
-// CRD, but the suffix can push borderline names over the 253-char limit, so
-// we fail fast here with a clear message rather than letting the apiserver
-// reject the eventual write.
-func validateSkillsInitConfigMapName(name string) error {
-	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
-		return fmt.Errorf("derived skills-init ConfigMap name %q is invalid: %s", name, strings.Join(errs, "; "))
-	}
-	return nil
-}
-
-// buildSkillsInitContainer assembles the init container, its volumes, and the
-// ConfigMap holding its JSON configuration. The container runs a kagent-owned
-// Go binary that consumes the ConfigMap; no shell is involved, so
-// user-controlled CRD fields cannot inject commands.
-//
-// If authSecretRef is non-nil a Secret is mounted at AuthMountPath.
-// If imagePullSecrets is non-empty, each kubernetes.io/dockerconfigjson secret
-// is mounted under DockerSecretsDir/<name>; the binary merges them into a
-// single config.json and sets DOCKER_CONFIG for the OCI client library.
-func buildSkillsInitContainer(
-	agentName, agentNamespace string,
-	gitRefs []v1alpha2.GitRepo,
-	authSecretRef *corev1.LocalObjectReference,
-	ociRefs []string,
-	insecureOCI bool,
-	securityContext *corev1.SecurityContext,
-	envVars []corev1.EnvVar,
-	resources corev1.ResourceRequirements,
-	imagePullSecrets []corev1.LocalObjectReference,
-	s3Refs []v1alpha2.S3SkillRef,
-) (containers []corev1.Container, volumes []corev1.Volume, configMap *corev1.ConfigMap, err error) {
-	pullSecretNames := make([]string, len(imagePullSecrets))
-	for i, s := range imagePullSecrets {
-		pullSecretNames[i] = s.Name
-	}
-
-	cfg, err := prepareSkillsInitConfig(gitRefs, authSecretRef, ociRefs, insecureOCI, pullSecretNames, s3Refs)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	cfgJSON, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("marshal skills-init config: %w", err)
-	}
-
-	cmName := SkillsInitConfigMapName(agentName)
-	if err := validateSkillsInitConfigMapName(cmName); err != nil {
-		return nil, nil, nil, err
-	}
-	configMap = &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cmName,
-			Namespace: agentNamespace,
-		},
-		Data: map[string]string{
-			skillsinit.ConfigMapKey: string(cfgJSON),
-		},
-	}
-
-	initSecCtx := securityContext
-	if initSecCtx != nil {
-		initSecCtx = initSecCtx.DeepCopy()
-	}
-
-	const configVolumeName = "skills-init-config"
-	volumes = append(volumes, corev1.Volume{
-		Name: configVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
-			},
-		},
-	})
-	volumeMounts := []corev1.VolumeMount{
-		{Name: "kagent-skills", MountPath: skillsinit.SkillsDir},
-		{Name: configVolumeName, MountPath: skillsinit.ConfigMountPath, ReadOnly: true},
-	}
-
-	if authSecretRef != nil {
-		volumes = append(volumes, corev1.Volume{
-			Name: "git-auth",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: authSecretRef.Name,
-				},
-			},
-		})
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "git-auth",
-			MountPath: skillsinit.AuthMountPath,
-			ReadOnly:  true,
-		})
-	}
-
-	for _, secret := range imagePullSecrets {
-		volName := "pull-secret-" + secret.Name
-		volumes = append(volumes, corev1.Volume{
-			Name: volName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: secret.Name,
-				},
-			},
-		})
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      volName,
-			MountPath: skillsinit.DockerSecretsDir + "/" + secret.Name,
-			ReadOnly:  true,
-		})
-	}
-
-	// Command is intentionally omitted: the skills-init image's ENTRYPOINT
-	// is the single source of truth for the binary path.
-	skillsInitContainer := corev1.Container{
-		Name:            "skills-init",
-		Image:           DefaultSkillsInitImageConfig.Image(),
-		VolumeMounts:    volumeMounts,
-		SecurityContext: initSecCtx,
-		Env:             envVars,
-		Resources:       resources,
-	}
-
-	containers = append(containers, skillsInitContainer)
-	return containers, volumes, configMap, nil
-}
-
-func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentObject, outputs *AgentOutputs) error {
+func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha3.SandboxAgent, outputs *AgentOutputs) error {
 	var errs error
 	for _, plugin := range a.plugins {
 		if err := plugin.ProcessAgent(ctx, agent, outputs); err != nil {
@@ -1778,12 +1550,4 @@ func (a *adkApiTranslator) runPlugins(ctx context.Context, agent v1alpha2.AgentO
 		}
 	}
 	return errs
-}
-
-// allowPrivilegeEscalationExplicitlyFalse reports whether the security context
-// has AllowPrivilegeEscalation explicitly set to false (PSS Restricted profile).
-// This is used to detect when adding Privileged:true would create an invalid
-// securityContext that Kubernetes refuses to admit.
-func allowPrivilegeEscalationExplicitlyFalse(sc *corev1.SecurityContext) bool {
-	return sc != nil && sc.AllowPrivilegeEscalation != nil && !*sc.AllowPrivilegeEscalation
 }

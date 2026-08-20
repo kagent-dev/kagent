@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/adk"
-	"github.com/kagent-dev/kagent/go/api/v1alpha2"
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,28 +15,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func foundryModelConfig(name string) *v1alpha2.ModelConfig {
-	return &v1alpha2.ModelConfig{
+func foundryModelConfig(name string) *v1alpha3.ModelConfig {
+	return &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-		Spec: v1alpha2.ModelConfigSpec{
+		Spec: v1alpha3.ModelConfigSpec{
 			Model:    "gpt-4.1-nano",
-			Provider: v1alpha2.ModelProviderFoundry,
-			Foundry: &v1alpha2.FoundryConfig{
+			Provider: v1alpha3.ModelProviderFoundry,
+			Foundry: &v1alpha3.FoundryConfig{
 				Endpoint:   "https://example.cognitiveservices.azure.com/",
 				Deployment: "gpt-4-1-nano",
 				APIVersion: "2024-10-21",
 			},
-		},
-	}
-}
-
-func openAIModelConfig(name string) *v1alpha2.ModelConfig {
-	return &v1alpha2.ModelConfig{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
-		Spec: v1alpha2.ModelConfigSpec{
-			Model:    "gpt-4o",
-			Provider: v1alpha2.ModelProviderOpenAI,
-			OpenAI:   &v1alpha2.OpenAIConfig{},
 		},
 	}
 }
@@ -46,7 +35,7 @@ func openAIModelConfig(name string) *v1alpha2.ModelConfig {
 // the runtime falls back to DefaultAzureCredential.
 func TestTranslateModelFoundryWorkloadIdentity(t *testing.T) {
 	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	modelConfig := foundryModelConfig("foundry-model")
 	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig).Build()
@@ -73,7 +62,7 @@ func TestTranslateModelFoundryWorkloadIdentity(t *testing.T) {
 // is preserved.
 func TestTranslateModelFoundryAPIKey(t *testing.T) {
 	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	modelConfig := foundryModelConfig("foundry-model")
 	modelConfig.Spec.APIKeySecret = "foundry-secret"
@@ -102,7 +91,7 @@ func TestTranslateModelFoundryAPIKey(t *testing.T) {
 // caller's token rather than silently falling back to Workload Identity.
 func TestTranslateModelFoundryPassthrough(t *testing.T) {
 	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	modelConfig := foundryModelConfig("foundry-passthrough")
 	modelConfig.Spec.APIKeyPassthrough = true
@@ -122,7 +111,7 @@ func TestTranslateModelFoundryPassthrough(t *testing.T) {
 // an inline value.
 func TestTranslateModelFoundryEndpointFrom(t *testing.T) {
 	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	modelConfig := foundryModelConfig("foundry-model")
 	modelConfig.Spec.Foundry.Endpoint = ""
@@ -150,7 +139,7 @@ func TestTranslateModelFoundryEndpointFrom(t *testing.T) {
 // endpointFrom key that is absent from the ConfigMap surfaces an error.
 func TestTranslateModelFoundryEndpointFromMissingKey(t *testing.T) {
 	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	modelConfig := foundryModelConfig("foundry-model")
 	modelConfig.Spec.Foundry.Endpoint = ""
@@ -175,7 +164,7 @@ func TestTranslateModelFoundryEndpointFromMissingKey(t *testing.T) {
 // fails fast rather than emitting an agent with no endpoint.
 func TestTranslateModelFoundryEndpointUnresolved(t *testing.T) {
 	scheme := schemev1.Scheme
-	require.NoError(t, v1alpha2.AddToScheme(scheme))
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
 
 	optional := true
 	modelConfig := foundryModelConfig("foundry-model")
@@ -196,86 +185,6 @@ func TestTranslateModelFoundryEndpointUnresolved(t *testing.T) {
 	require.ErrorContains(t, err, "endpoint could not be resolved")
 	require.Nil(t, model)
 }
-func TestRequireFoundryGoRuntime(t *testing.T) {
-	tests := []struct {
-		name      string
-		modelType string
-		runtime   v1alpha2.DeclarativeRuntime
-		wantErr   bool
-	}{
-		{"foundry python rejected", adk.ModelTypeFoundry, v1alpha2.DeclarativeRuntime_Python, true},
-		{"foundry go allowed", adk.ModelTypeFoundry, v1alpha2.DeclarativeRuntime_Go, false},
-		{"non-foundry python allowed", adk.ModelTypeOpenAI, v1alpha2.DeclarativeRuntime_Python, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			agent := &v1alpha2.Agent{
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						Runtime:       tt.runtime,
-						SystemMessage: "You are a test agent",
-						ModelConfig:   "m",
-					},
-				},
-			}
-			err := requireFoundryGoRuntime(agent, tt.modelType)
-			if tt.wantErr {
-				require.ErrorContains(t, err, `Foundry model provider requires declarative runtime "go"`)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TestTranslateInlineAgentFoundryMemoryRuntimeGate verifies the memory block
-// gates a Foundry embedding ModelConfig to the Go runtime, since the Foundry
-// embedding provider is Go-only.
-func TestTranslateInlineAgentFoundryMemoryRuntimeGate(t *testing.T) {
-	tests := []struct {
-		name    string
-		runtime v1alpha2.DeclarativeRuntime
-		wantErr bool
-	}{
-		{"python rejected", v1alpha2.DeclarativeRuntime_Python, true},
-		{"go allowed", v1alpha2.DeclarativeRuntime_Go, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			scheme := schemev1.Scheme
-			require.NoError(t, v1alpha2.AddToScheme(scheme))
-
-			mainModel := openAIModelConfig("openai-model")
-			memModel := foundryModelConfig("foundry-memory")
-			kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(mainModel, memModel).Build()
-			tr := &adkApiTranslator{kube: kubeClient}
-
-			agent := &v1alpha2.Agent{
-				ObjectMeta: metav1.ObjectMeta{Name: "agent", Namespace: "default"},
-				Spec: v1alpha2.AgentSpec{
-					Type: v1alpha2.AgentType_Declarative,
-					Declarative: &v1alpha2.DeclarativeAgentSpec{
-						Runtime:       tt.runtime,
-						SystemMessage: "You are a test agent",
-						ModelConfig:   "openai-model",
-						Memory: &v1alpha2.MemorySpec{
-							ModelConfig: "foundry-memory",
-						},
-					},
-				},
-			}
-
-			_, _, _, err := tr.translateInlineAgent(context.Background(), agent)
-			if tt.wantErr {
-				require.ErrorContains(t, err, `Foundry model provider requires declarative runtime "go"`)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
 func envVar(t *testing.T, envVars []corev1.EnvVar, name string) corev1.EnvVar {
 	t.Helper()
 	for _, e := range envVars {

@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
+	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/ollama/ollama/api"
 	"github.com/openai/openai-go/v3"
@@ -110,14 +111,14 @@ func newOpenAIProvider(cfg *adk.EmbeddingConfig) (*openAIProvider, error) {
 	}, nil
 }
 
-func generateEmbeddings(ctx context.Context, client openai.Client, model, provider string, texts []string) ([][]float32, error) {
+func generateEmbeddings(ctx context.Context, client openai.Client, cfg *adk.EmbeddingConfig, provider string, isAzureFamily bool, texts []string) ([][]float32, error) {
 	log := logr.FromContextOrDiscard(ctx)
 
 	resp, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
-		Model:      openai.EmbeddingModel(model),
+		Model:      openai.EmbeddingModel(cfg.Model),
 		Input:      openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
 		Dimensions: openai.Int(int64(TargetDimension)),
-	})
+	}, embeddingPassthroughOpts(ctx, cfg, isAzureFamily)...)
 	if err != nil {
 		return nil, fmt.Errorf("%s embeddings request failed: %w", provider, err)
 	}
@@ -129,8 +130,25 @@ func generateEmbeddings(ctx context.Context, client openai.Client, model, provid
 	return processEmbeddings(log, raw, provider)
 }
 
+// embeddingPassthroughOpts uses models.PassthroughToken so the embedding client
+// resolves API key passthrough the same way as the chat/completions clients in
+// go/adk/pkg/models.
+func embeddingPassthroughOpts(ctx context.Context, cfg *adk.EmbeddingConfig, isAzureFamily bool) []option.RequestOption {
+	if cfg == nil {
+		return nil
+	}
+	token, ok := models.PassthroughToken(ctx, cfg.APIKeyPassthrough)
+	if !ok {
+		return nil
+	}
+	if isAzureFamily {
+		return []option.RequestOption{option.WithHeader("Api-Key", token)}
+	}
+	return []option.RequestOption{option.WithAPIKey(token)}
+}
+
 func (p *openAIProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	return generateEmbeddings(ctx, p.client, p.config.Model, "openai", texts)
+	return generateEmbeddings(ctx, p.client, p.config, "openai", false, texts)
 }
 
 type azureOpenAIProvider struct {
@@ -171,8 +189,16 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredenti
 		APIVersion: apiVersion,
 		HTTPClient: defaultProviderHTTPClient(),
 	}
+	// Implicit auth mirrors NewAzureOpenAIModelWithLogger: the incoming bearer
+	// token when APIKeyPassthrough is enabled (a placeholder Api-Key is
+	// overwritten per request by embeddingPassthroughOpts), otherwise the
+	// AZURE_OPENAI_API_KEY Api-Key header, otherwise DefaultAzureCredential.
+	apiKey := os.Getenv("AZURE_OPENAI_API_KEY")
+	if cfg.APIKeyPassthrough {
+		apiKey = "passthrough"
+	}
 	if err := azureai.ApplyImplicitAuth(context.Background(), &clientCfg, azureai.AuthOptions{
-		APIKey:     os.Getenv("AZURE_OPENAI_API_KEY"),
+		APIKey:     apiKey,
 		Credential: cred,
 	}); err != nil {
 		return nil, err
@@ -189,7 +215,7 @@ func newAzureOpenAIProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredenti
 }
 
 func (p *azureOpenAIProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	return generateEmbeddings(ctx, p.client, p.config.Model, "azure_openai", texts)
+	return generateEmbeddings(ctx, p.client, p.config, "azure_openai", true, texts)
 }
 
 type ollamaProvider struct {
@@ -408,8 +434,14 @@ func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) 
 		APIVersion: apiVersion,
 		HTTPClient: defaultProviderHTTPClient(),
 	}
+	// See newAzureOpenAIProvider - the passthrough placeholder short-circuits
+	// past DefaultAzureCredential resolution the same way it does for chat.
+	apiKey := os.Getenv(azureai.FoundryAPIKeyEnvVar)
+	if cfg.APIKeyPassthrough {
+		apiKey = "passthrough"
+	}
 	if err := azureai.ApplyImplicitAuth(context.Background(), &clientCfg, azureai.AuthOptions{
-		APIKey:     os.Getenv(azureai.FoundryAPIKeyEnvVar),
+		APIKey:     apiKey,
 		Credential: cred,
 	}); err != nil {
 		return nil, err
@@ -423,5 +455,5 @@ func newFoundryProvider(cfg *adk.EmbeddingConfig, cred azureai.TokenCredential) 
 }
 
 func (p *foundryProvider) generate(ctx context.Context, texts []string) ([][]float32, error) {
-	return generateEmbeddings(ctx, p.client, p.config.Model, "foundry", texts)
+	return generateEmbeddings(ctx, p.client, p.config, "foundry", true, texts)
 }
