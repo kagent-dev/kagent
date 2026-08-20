@@ -361,10 +361,7 @@ func VisibleTools(approval *ToolApprovalRequest, ask *AskUserRequest) []HitlTool
 	return nil
 }
 
-// askUserQuestionText extracts the human-readable question text(s) from an
-// ask_user request's typed Questions field, or "" if none carry text. This is
-// the content RemoteHitlHint would otherwise discard, surfacing only the
-// tool name ("ask_user") instead of what is actually being asked.
+// askUserQuestionText joins the question text from a typed Questions field, or "" if none carry text.
 func askUserQuestionText(questions []map[string]any) string {
 	texts := make([]string, 0, len(questions))
 	for _, q := range questions {
@@ -379,12 +376,8 @@ func RemoteHitlHint(state *RemoteHitlState) string {
 	if state == nil {
 		return "Remote agent requires human input before continuing."
 	}
-	// AskUserRequest.Questions carries the real question text whether or not
-	// Nested is set (see BuildHITLStatusMessage), so read it directly rather
-	// than re-deriving from VisibleTools()'s nested HitlTool.Args: those args
-	// round-trip through JSON into a plain map[string]any, which decodes
-	// "questions" as []any rather than []map[string]any, silently losing the
-	// question in the nested case.
+	// Read Questions directly: VisibleTools()'s nested Args round-trip through
+	// JSON to []any, silently losing the question text in the nested case.
 	if state.AskUserRequest != nil {
 		if q := askUserQuestionText(state.AskUserRequest.Questions); q != "" {
 			return fmt.Sprintf("Remote agent '%s' asks: %s", state.SubagentName, q)
