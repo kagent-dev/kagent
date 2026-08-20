@@ -196,7 +196,7 @@ require (
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/envoyproxy/go-control-plane/contrib v1.36.1-0.20260731231718-6c0b035a1609 // indirect
-	github.com/envoyproxy/go-control-plane/envoy v1.37.1-0.20260731231718-6c0b035a1609 // indirect
+	github.com/envoyproxy/go-control-plane/envoy v1.37.1-0.20260812071801-353463cc7248 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
@@ -489,4 +489,4 @@ require (
 
 tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 
-replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.11
+replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.15
