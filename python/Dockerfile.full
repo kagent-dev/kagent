@@ -6,7 +6,7 @@
 # executeCodeBlocks) and for sandboxed BYO agents.
 
 ### STAGE 1: uv binary
-ARG UV_VERSION=0.11.15
+ARG UV_VERSION=0.12.3
 FROM ghcr.io/astral-sh/uv:${UV_VERSION} AS uv-bin
 
 ### STAGE 2: base os + sandbox runtime
@@ -97,7 +97,7 @@ ARG VERSION
 RUN --mount=type=cache,target=/.kagent/cache,uid=1001,gid=1001                \
     echo "Creating virtual environment and installing dependencies..."        \
     && uv venv --python=python$TOOLS_PYTHON_VERSION                           \
-    && uv lock && uv sync --package kagent-adk                                \
+    && uv sync --frozen --package kagent-adk                                  \
     && uv cache prune                                                         \
     && echo "Installation complete."
 
