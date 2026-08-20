@@ -57,8 +57,8 @@ class AskUserTool(BaseTool):
         super().__init__(
             name="ask_user",
             description=(
-                "Ask the user one or more questions and wait for their answers "
-                "before continuing. Use this when you need clarifying information, "
+                "Ask the user at least one question and wait for their answers before continuing. "
+                "Every question must include non-empty text. Use this when you need clarifying information, "
                 "preferences, or explicit confirmation from the user."
             ),
         )
@@ -88,10 +88,17 @@ class AskUserTool(BaseTool):
     ) -> Any:
         questions: list[dict] = args.get("questions", [])
 
+        if not questions:
+            raise ValueError("ask_user: at least one question is required")
+        for index, question in enumerate(questions, start=1):
+            question_text = question.get("question")
+            if not isinstance(question_text, str) or not question_text.strip():
+                raise ValueError(f"ask_user: question {index} must contain non-whitespace text")
+
         if tool_context.tool_confirmation is None:
             # First invocation — pause execution and ask the user.
-            summary = "; ".join(q.get("question", "") for q in questions if q.get("question"))
-            tool_context.request_confirmation(hint=summary or "Questions for the user.")
+            summary = "; ".join(q["question"] for q in questions)
+            tool_context.request_confirmation(hint=summary)
             logger.debug("ask_user: requesting confirmation with %d question(s)", len(questions))
             return {"status": "pending", "questions": questions}
 

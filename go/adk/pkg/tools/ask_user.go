@@ -20,8 +20,8 @@ type askUserInput struct {
 	Questions []askUserQuestion `json:"questions"`
 }
 
-const askUserDescription = "Ask the user one or more questions and wait for their answers " +
-	"before continuing. Use this when you need clarifying information, " +
+const askUserDescription = "Ask the user at least one question and wait for their answers before continuing. " +
+	"Every question must include non-empty text. Use this when you need clarifying information, " +
 	"preferences, or explicit confirmation from the user."
 
 // NewAskUserTool creates the ask_user tool using functiontool.New.
@@ -41,6 +41,15 @@ func NewAskUserTool() (tool.Tool, error) {
 		Name:        "ask_user",
 		Description: askUserDescription,
 	}, func(ctx adkagent.Context, in askUserInput) (map[string]any, error) {
+		if len(in.Questions) == 0 {
+			return nil, fmt.Errorf("ask_user: at least one question is required")
+		}
+		for i, q := range in.Questions {
+			if strings.TrimSpace(q.Question) == "" {
+				return nil, fmt.Errorf("ask_user: question %d must contain non-whitespace text", i+1)
+			}
+		}
+
 		if ctx.ToolConfirmation() == nil {
 			// Phase 1 — pause execution and ask the user.
 			var sb strings.Builder
@@ -51,9 +60,6 @@ func NewAskUserTool() (tool.Tool, error) {
 				sb.WriteString(q.Question)
 			}
 			hint := sb.String()
-			if hint == "" {
-				hint = "Questions for the user."
-			}
 
 			// Build questions slice for the pending response.
 			questionsSlice := make([]map[string]any, 0, len(in.Questions))
