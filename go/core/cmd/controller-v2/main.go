@@ -44,8 +44,6 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
-const defaultPauseImage = "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
-
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -79,9 +77,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("create controller manager: %v", err)
 	}
-	runtime, err := v2controller.NewRuntime(kubeConfig, namespaces(os.Getenv("WATCH_NAMESPACES")), v2controller.CollectionConfig{
-		PauseImage: env("SUBSTRATE_PAUSE_IMAGE", defaultPauseImage),
-	}, ctx.Done())
+	runtime, err := v2controller.NewRuntime(kubeConfig, namespaces(os.Getenv("WATCH_NAMESPACES")), ctx.Done())
 	if err != nil {
 		log.Fatal(err)
 	}

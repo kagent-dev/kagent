@@ -14,16 +14,7 @@ logger = logging.getLogger("kagent_adk." + __name__)
 
 
 class BashTool(BaseTool):
-    """Execute bash commands safely in the skills environment.
-
-    This tool uses the Anthropic Sandbox Runtime (srt) to execute commands with:
-    - Filesystem restrictions (controlled read/write access)
-    - Network restrictions (controlled domain access)
-    - Process isolation at the OS level
-
-    Use it for command-line operations like running scripts, installing packages, etc.
-    For file operations (read/write/edit), use the dedicated file tools instead.
-    """
+    """Execute bash commands in the agent runtime."""
 
     def __init__(self, skills_directory: str | Path):
         super().__init__(
@@ -55,7 +46,7 @@ class BashTool(BaseTool):
         )
 
     async def run_async(self, *, args: Dict[str, Any], tool_context: ToolContext) -> str:
-        """Execute a bash command safely using the Anthropic Sandbox Runtime."""
+        """Execute a bash command."""
         command = args.get("command", "").strip()
         description = args.get("description", "")
 
