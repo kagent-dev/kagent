@@ -848,17 +848,6 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha3.SandboxAgent)
 	}
 	decl := spec.Declarative
 
-	// Get runtime (defaults to python)
-	runtime := decl.Runtime
-	if runtime == "" {
-		runtime = v1alpha3.DeclarativeRuntime_Python
-	}
-
-	// Python runtime supports all features
-	if runtime != v1alpha3.DeclarativeRuntime_Go {
-		return ""
-	}
-
 	// Check for Go runtime unsupported features
 	var unsupported []string
 
@@ -872,8 +861,8 @@ func (a *kagentReconciler) validateRuntimeFeatures(agent *v1alpha3.SandboxAgent)
 		return ""
 	}
 
-	return fmt.Sprintf("The following features are not supported in Go runtime and will be ignored: %s. "+
-		"Consider using runtime: python or removing these configurations.",
+	return fmt.Sprintf("The following features are not supported in the declarative runtime and will be ignored: %s. "+
+		"Remove these configurations.",
 		strings.Join(unsupported, ", "))
 }
 

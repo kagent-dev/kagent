@@ -46,7 +46,6 @@ AgentSpec
 ├── allowedNamespaces: AllowedNamespaces
 │
 ├── declarative: DeclarativeAgentSpec (if type=Declarative)
-│   ├── runtime: python | go
 │   ├── systemMessage: string (or Go template if promptTemplate set)
 │   ├── systemMessageFrom: ValueSource (alternative: load from ConfigMap/Secret)
 │   ├── promptTemplate: PromptTemplateSpec

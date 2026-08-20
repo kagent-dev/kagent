@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -71,6 +72,10 @@ type mcpServerParams struct {
 	PropagateToken        bool                  // when true, Authorization is forwarded independently of AllowedHeaders
 	HeaderProvider        DynamicHeaderProvider // optional per-request headers derived from invocation context (e.g., STS exchanged access tokens)
 	ServerType            string                // "http" or "sse"
+	Command               string
+	Args                  []string
+	Env                   map[string]string
+	Dir                   string
 	Timeout               *float64
 	SseReadTimeout        *float64
 	TLSInsecureSkipVerify *bool
@@ -93,11 +98,24 @@ func CreateToolsets(
 	ctx context.Context,
 	httpTools []adk.HttpMcpServerConfig,
 	sseTools []adk.SseMcpServerConfig,
+	stdioTools []adk.StdioMcpServerConfig,
 	propagateToken bool,
 	headerProvider DynamicHeaderProvider,
 ) []tool.Toolset {
 	log := logr.FromContextOrDiscard(ctx)
 	var toolsets []tool.Toolset
+
+	log.Info("Processing stdio MCP tools", "stdioToolsCount", len(stdioTools))
+	for i, stdioTool := range stdioTools {
+		params := mcpServerParams{
+			URL: stdioTool.Command, ServerType: "stdio", Command: stdioTool.Command,
+			Args: stdioTool.Args, Env: stdioTool.Env, Dir: stdioTool.Dir,
+		}
+		ts, err := addToolset(ctx, log, params, nil, "stdio", i+1)
+		if err == nil {
+			toolsets = append(toolsets, ts)
+		}
+	}
 
 	log.Info("Processing HTTP MCP tools", "httpToolsCount", len(httpTools))
 	for i, httpTool := range httpTools {
@@ -176,6 +194,15 @@ func addToolset(ctx context.Context, log logr.Logger, params mcpServerParams, to
 // Uses the official MCP SDK (github.com/modelcontextprotocol/go-sdk/mcp).
 func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transport, error) {
 	log := logr.FromContextOrDiscard(ctx)
+	if params.ServerType == "stdio" {
+		command := exec.CommandContext(ctx, params.Command, params.Args...)
+		command.Dir = params.Dir
+		command.Env = os.Environ()
+		for key, value := range params.Env {
+			command.Env = append(command.Env, key+"="+value)
+		}
+		return &mcpsdk.CommandTransport{Command: command}, nil
+	}
 
 	operationTimeout := defaultTimeout
 	if params.Timeout != nil && *params.Timeout > 0 {
