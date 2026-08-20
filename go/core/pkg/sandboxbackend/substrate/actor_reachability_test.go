@@ -16,7 +16,7 @@ type stubActorGetter struct {
 }
 
 func (s *stubActorGetter) GetActor(context.Context, string, string) (*ateapipb.Actor, error) {
-	return &ateapipb.Actor{Status: ateapipb.Actor_Status(s.status.Load())}, nil
+	return &ateapipb.Actor{Status: &ateapipb.ActorStatus{State: ateapipb.ActorState(s.status.Load())}}, nil
 }
 
 func TestProbeActorViaAtenetRouterSetsActorHost(t *testing.T) {
@@ -60,7 +60,7 @@ func TestWaitForActorReachableViaAtenetRetriesUntilHealthy(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	actors := &stubActorGetter{}
-	actors.status.Store(int32(ateapipb.Actor_STATUS_RUNNING))
+	actors.status.Store(int32(ateapipb.ActorState_ACTOR_STATE_RUNNING))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
@@ -90,11 +90,11 @@ func TestWaitForActorReachableViaAtenetWaitsForRunningStatus(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	actors := &stubActorGetter{}
-	actors.status.Store(int32(ateapipb.Actor_STATUS_RESUMING))
+	actors.status.Store(int32(ateapipb.ActorState_ACTOR_STATE_RESUMING))
 
 	go func() {
 		time.Sleep(750 * time.Millisecond)
-		actors.status.Store(int32(ateapipb.Actor_STATUS_RUNNING))
+		actors.status.Store(int32(ateapipb.ActorState_ACTOR_STATE_RUNNING))
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -122,7 +122,7 @@ func TestWaitForActorReachableViaAtenetTimesOut(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	actors := &stubActorGetter{}
-	actors.status.Store(int32(ateapipb.Actor_STATUS_RUNNING))
+	actors.status.Store(int32(ateapipb.ActorState_ACTOR_STATE_RUNNING))
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	t.Cleanup(cancel)

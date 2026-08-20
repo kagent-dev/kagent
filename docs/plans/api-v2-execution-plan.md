@@ -196,16 +196,25 @@ Implement lifecycle across the complete member set:
 - Public history remains readable while suspended or failed.
 - Emit lifecycle audit records, traces, and member-level failure details without exposing Actor IDs through ordinary APIs.
 
-### K7 — Agent Plugins skills-only ingestion
+### K7 — Agent Plugins ingestion
 
 Implement the selected Agent Plugins 1.0.0 subset:
 
-- Immutable OCI digest, full Git commit, and versioned S3 ZIP sources.
+- Immutable OCI digest, full Git commit, and versioned S3-compatible ZIP sources.
 - Validate the canonical root `plugin.json`.
 - Materialize only explicitly selected Agent Skills and supporting files.
+- Use Go ADK's native `skilltoolset` for skill discovery, validation,
+  instruction loading, and resource loading. Keep only kagent's execution
+  tools (`read_file`, `write_file`, `edit_file`, and `bash`) rather than
+  maintaining duplicate skill-loading code.
+- Load standard `mcp.json` entries for stdio, Streamable HTTP, and legacy SSE
+  transports into the runtime configuration.
 - Reject path traversal, escaping symlinks, duplicate skill names, mutable references, and oversized packages.
-- Ignore `mcp.json`, client extensions, hooks, commands, apps, and other non-skill content.
-- Pin contents and digest in the prepared revision.
+- Ignore client extensions and content outside the Agent Plugins 1.0.0 skills
+  and MCP component types.
+- Pin immutable source identities in the prepared revision. Fetch and validate
+  package contents only in the runtime; destinations discovered in `mcp.json`
+  remain blocked unless explicitly allowed by a future API.
 
 Reuse existing artifact and skill materialization code where possible.
 

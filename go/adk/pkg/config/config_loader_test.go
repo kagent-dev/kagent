@@ -82,7 +82,6 @@ func TestMaterializeFromEnv(t *testing.T) {
 
 	t.Setenv("KAGENT_CONFIG_JSON", `{"model":{"type":"openai","model":"gpt-4","api_key":"k"},"instruction":"hi"}`)
 	t.Setenv("KAGENT_AGENT_CARD_JSON", `{"name":"test-agent","version":"1.0.0"}`)
-	t.Setenv("KAGENT_SRT_SETTINGS_JSON", `{"skills":[]}`)
 
 	if err := MaterializeFromEnv(tmpDir); err != nil {
 		t.Fatalf("MaterializeFromEnv() error = %v", err)
@@ -104,16 +103,8 @@ func TestMaterializeFromEnv(t *testing.T) {
 		t.Fatalf("card name = %q, want test-agent", card.Name)
 	}
 
-	srtData, err := os.ReadFile(filepath.Join(tmpDir, srtSettingsFile))
-	if err != nil {
-		t.Fatalf("read srt settings: %v", err)
-	}
-	if string(srtData) != `{"skills":[]}` {
-		t.Fatalf("srt settings = %q", string(srtData))
-	}
-
 	if runtime.GOOS != "windows" {
-		for _, name := range []string{"config.json", "agent-card.json", srtSettingsFile} {
+		for _, name := range []string{"config.json", "agent-card.json"} {
 			fi, err := os.Stat(filepath.Join(tmpDir, name))
 			if err != nil {
 				t.Fatalf("stat %s: %v", name, err)

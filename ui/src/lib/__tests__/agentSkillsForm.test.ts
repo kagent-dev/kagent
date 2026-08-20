@@ -22,8 +22,6 @@ import {
   isValidSkillContainerImage,
   newEmptyGitSkillRow,
   newEmptyS3SkillRow,
-  s3SkillsAuthEnvFromSecret,
-  s3SkillsAuthSecretNameFromEnv,
   validateDeclarativeAgentSkills,
   type GitSkillFormRow,
 } from "../agentSkillsForm";
@@ -397,23 +395,11 @@ describe("agentSkillsForm", () => {
         skillGitRepos: [newEmptyGitSkillRow()],
         skillsGitAuthSecretName: "",
         skillS3Repos: [{ uri: "https://bucket/key", region: "", name: "" }],
-        skillsS3AuthSecretName: "",
       });
       expect(msg).toMatch(/Invalid S3 URI/);
     });
 
-    it("errors when S3 auth secret set without S3 refs", () => {
-      const msg = validateDeclarativeAgentSkills({
-        skillRefs: ["ghcr.io/o/s:v1"],
-        skillGitRepos: [newEmptyGitSkillRow()],
-        skillsGitAuthSecretName: "",
-        skillS3Repos: [newEmptyS3SkillRow()],
-        skillsS3AuthSecretName: "aws-creds",
-      });
-      expect(msg).toMatch(/Add at least one S3 skill/);
-    });
-
-    it("allows valid S3 skill with auth secret", () => {
+    it("allows a valid S3 skill", () => {
       expect(
         validateDeclarativeAgentSkills({
           skillRefs: [],
@@ -422,7 +408,6 @@ describe("agentSkillsForm", () => {
           skillS3Repos: [
             { uri: "s3://bucket/team/skill", region: "us-east-1", name: "skill" },
           ],
-          skillsS3AuthSecretName: "aws-creds",
         }),
       ).toBeUndefined();
     });
@@ -450,7 +435,7 @@ describe("agentSkillsForm", () => {
       expect(isPlausibleS3Uri("https://bucket/key")).toBe(false);
     });
 
-    it("maps form rows and builds AWS initContainer env from secret", () => {
+    it("maps form rows", () => {
       expect(
         formRowToS3Ref({
           uri: "s3://bucket/team/skill",
@@ -463,15 +448,6 @@ describe("agentSkillsForm", () => {
         name: "skill",
       });
       expect(formRowsToS3Refs([newEmptyS3SkillRow()])).toEqual([]);
-
-      const env = s3SkillsAuthEnvFromSecret("aws-creds");
-      expect(env).toHaveLength(3);
-      expect(env[0]).toMatchObject({
-        name: "AWS_ACCESS_KEY_ID",
-        valueFrom: { secretKeyRef: { name: "aws-creds", key: "AWS_ACCESS_KEY_ID" } },
-      });
-      expect(env[2]?.valueFrom?.secretKeyRef?.optional).toBe(true);
-      expect(s3SkillsAuthSecretNameFromEnv(env)).toBe("aws-creds");
     });
   });
 

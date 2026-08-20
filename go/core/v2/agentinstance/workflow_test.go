@@ -36,8 +36,8 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if len(actors.actors) != 1 {
 		t.Fatalf("actors = %v", actors.actors)
 	}
-	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus() != ateapipb.Actor_STATUS_RUNNING {
-		t.Fatalf("created Actor status = %s", actor.GetStatus())
+	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
+		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
 
 	suspended, err := workflow.Suspend(context.Background(), created)
@@ -47,8 +47,8 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if suspended.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		t.Fatalf("suspended instance = %+v", suspended)
 	}
-	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus() != ateapipb.Actor_STATUS_SUSPENDED {
-		t.Fatalf("suspended Actor status = %s", actor.GetStatus())
+	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		t.Fatalf("suspended Actor status = %s", actor.GetStatus().GetState())
 	}
 
 	resumed, err := workflow.Resume(context.Background(), suspended)
@@ -117,7 +117,7 @@ func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, tem
 	actor := &ateapipb.Actor{
 		Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
 		ActorTemplateNamespace: templateNamespace, ActorTemplateName: templateName,
-		Status: ateapipb.Actor_STATUS_SUSPENDED,
+		Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
 	}
 	a.actors[actorKey(atespace, name)] = actor
 	return actor, nil
@@ -125,12 +125,12 @@ func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, tem
 
 func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	actor := a.actors[actorKey(atespace, name)]
-	actor.Status = ateapipb.Actor_STATUS_RUNNING
+	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	return actor, nil
 }
 
 func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name string) error {
-	a.actors[actorKey(atespace, name)].Status = ateapipb.Actor_STATUS_SUSPENDED
+	a.actors[actorKey(atespace, name)].Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
 	return nil
 }
 

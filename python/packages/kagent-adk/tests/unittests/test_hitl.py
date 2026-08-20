@@ -28,7 +28,9 @@ from kagent.adk._approval import make_approval_callback
 from kagent.adk._hitl import (
     RemoteHitlState,
     build_hitl_status_message,
+    build_remote_hitl_state,
     build_resume_hitl_message,
+    remote_hitl_hint,
 )
 
 
@@ -284,6 +286,54 @@ def test_resume_rejects_non_input_required_task():
             task,
             _incoming(ToolApprovalResponse(approvals=[ToolApproval(id="confirm-1", approved=True)])),
         )
+
+
+def test_remote_hitl_hint_tool_approval():
+    task = _stored_task(ToolApprovalRequest(tools=[_tool("child-confirm", "delete_pod")]))
+    state = build_remote_hitl_state(task, "k8s_agent")
+
+    assert state is not None
+    assert remote_hitl_hint(state) == "Remote agent 'k8s_agent' requires approval for tool(s): delete_pod"
+
+
+def test_remote_hitl_hint_ask_user():
+    task = _stored_task(
+        AskUserRequest(id="confirm-1", questions=[{"question": "What is the GitHub owner/org for the repo?"}])
+    )
+    state = build_remote_hitl_state(task, "github_agent")
+
+    assert state is not None
+    assert remote_hitl_hint(state) == "Remote agent 'github_agent' asks: What is the GitHub owner/org for the repo?"
+
+
+def test_remote_hitl_hint_ask_user_nested():
+    """A two-level nested ask_user pause should also surface the real question
+    from the top-level questions field, not just the bare 'ask_user' tool name."""
+    question = "What is the GitHub owner/org for the repo?"
+    task = _stored_task(
+        AskUserRequest(
+            id="confirm-1",
+            questions=[{"question": question}],
+            nested=NestedHitlRequest(
+                subagent_name="grandchild_agent",
+                task_id="grandchild-task",
+                context_id="grandchild-context",
+                tools=[
+                    HitlTool(
+                        id="confirm-2",
+                        call_id="confirm-2",
+                        name="ask_user",
+                        args={"questions": [{"question": question}]},
+                    )
+                ],
+            ),
+        )
+    )
+    state = build_remote_hitl_state(task, "github_agent")
+
+    assert state is not None
+    assert state.hitl_request.nested is not None
+    assert remote_hitl_hint(state) == f"Remote agent 'github_agent' asks: {question}"
 
 
 def test_resume_rejects_input_required_task_without_public_hitl_request():
