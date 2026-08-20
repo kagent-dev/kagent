@@ -31,8 +31,8 @@ type TaskStore interface {
 }
 
 // storeTaskQueryHandler answers GetTask and ListTasks from kagent's task
-// store, which is the source of truth for persisted tasks. Every other method
-// is delegated to the embedded handler unchanged.
+// store, which is the source of truth for persisted tasks. GetTask never falls
+// through to the embedded handler; every other method is delegated unchanged.
 type storeTaskQueryHandler struct {
 	a2asrv.RequestHandler
 	store TaskStore
@@ -43,19 +43,14 @@ func newStoreTaskQueryHandler(delegate a2asrv.RequestHandler, store TaskStore) *
 }
 
 func (h *storeTaskQueryHandler) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2atype.Task, error) {
-	userID := callerUserID(ctx)
-	if userID == "" {
-		return h.RequestHandler.GetTask(ctx, req)
+	task, err := h.store.GetTask(ctx, string(req.ID), callerUserID(ctx))
+	if err != nil {
+		if errors.Is(err, dbpkg.ErrNotFound) {
+			return nil, a2atype.ErrTaskNotFound
+		}
+		return nil, err
 	}
-
-	task, err := h.store.GetTask(ctx, string(req.ID), userID)
-	if err == nil {
-		return shapeTask(task, req.HistoryLength, true), nil
-	}
-	if errors.Is(err, dbpkg.ErrNotFound) {
-		return h.RequestHandler.GetTask(ctx, req)
-	}
-	return nil, err
+	return shapeTask(task, req.HistoryLength, true), nil
 }
 
 // callerUserID returns the authenticated principal's user id, or "" when the
