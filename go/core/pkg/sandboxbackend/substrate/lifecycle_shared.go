@@ -289,16 +289,24 @@ func resolvePodEnv(ctx context.Context, kube client.Reader, namespace string, en
 		}
 		ref := variable.ValueFrom.SecretKeyRef
 		secret := &corev1.Secret{}
+		var value []byte
+		var ok bool
 		if localSecret != nil && localSecret.Name == ref.Name {
 			secret = localSecret
+			if stringValue, found := secret.StringData[ref.Key]; found {
+				value, ok = []byte(stringValue), true
+			} else {
+				value, ok = secret.Data[ref.Key]
+			}
 		} else if err := kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, secret); err != nil {
 			if ref.Optional != nil && *ref.Optional && apierrors.IsNotFound(err) {
 				resolved[i].ValueFrom = nil
 				continue
 			}
 			return nil, err
+		} else {
+			value, ok = secret.Data[ref.Key]
 		}
-		value, ok := secret.Data[ref.Key]
 		if !ok {
 			if ref.Optional != nil && *ref.Optional {
 				resolved[i].ValueFrom = nil

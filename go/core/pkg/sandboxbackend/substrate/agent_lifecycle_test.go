@@ -47,6 +47,27 @@ func TestActorTemplateEnvFromPodEnv(t *testing.T) {
 	require.Equal(t, []atev1alpha1.EnvVar{{Name: "LITERAL", Value: "ok"}}, got)
 }
 
+func TestResolvePodEnvUsesStringDataFromDesiredSecret(t *testing.T) {
+	t.Parallel()
+
+	localSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "agent-config", Namespace: "kagent"},
+		StringData: map[string]string{"config.json": `{"app":"isolated"}`},
+	}
+	environment := []corev1.EnvVar{{
+		Name: "KAGENT_CONFIG_JSON",
+		ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+			LocalObjectReference: corev1.LocalObjectReference{Name: localSecret.Name},
+			Key:                  "config.json",
+		}},
+	}}
+
+	resolved, err := resolvePodEnv(context.Background(), nil, "kagent", environment, localSecret)
+	require.NoError(t, err)
+	require.Equal(t, `{"app":"isolated"}`, resolved[0].Value)
+	require.Nil(t, resolved[0].ValueFrom)
+}
+
 func TestBuildSubstrateDeclarativeCommand(t *testing.T) {
 	t.Parallel()
 
@@ -286,10 +307,12 @@ func TestBuildSandboxAgentActorTemplateDurableDirSessions(t *testing.T) {
 			require.NotNil(t, c.Readyz)
 			require.Equal(t, "/.well-known/agent-card.json", c.Readyz.HTTPGet.Path)
 			require.Equal(t, substrateKagentListenPort, c.Readyz.HTTPGet.Port)
+			require.Equal(t, int32(30), c.Readyz.TimeoutSeconds)
 			// Durable-dir sessions suspend with Data scope (cheap per-turn snapshots + config
 			// refresh on resume); pause keeps Full for the golden build.
 			require.Equal(t, atev1alpha1.SnapshotScopeData, tmpl.Spec.SnapshotsConfig.OnCommit)
 			require.Equal(t, atev1alpha1.SnapshotScopeFull, tmpl.Spec.SnapshotsConfig.OnPause)
+			require.Equal(t, atev1alpha1.ResumeSourceColdBoot, tmpl.Spec.SnapshotsConfig.OnResume.FromData)
 		})
 	}
 }

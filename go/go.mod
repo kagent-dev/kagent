@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	// core dependencies
 	dario.cat/mergo v1.0.2
-	github.com/a2aproject/a2a-go/v2 v2.3.1
+	github.com/a2aproject/a2a-go/v2 v2.5.0
 	github.com/abiosoft/ishell/v2 v2.0.2
 	github.com/anthropics/anthropic-sdk-go v1.61.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.33

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	coredatabase "github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 )
 
 func TestSuspendSessionActorOnClose(t *testing.T) {
@@ -143,6 +145,24 @@ func TestExtractA2AContextID(t *testing.T) {
 	}
 	if got != "sess-1" {
 		t.Fatalf("got %q, want sess-1", got)
+	}
+}
+
+func TestSubstrateSandboxTransportRequiresOwnerIdentity(t *testing.T) {
+	t.Parallel()
+
+	rt := &substrateSandboxSessionRoundTripper{
+		sandboxAgent: &v1alpha3.SandboxAgent{},
+		actorBackend: &substrate.SandboxAgentActorBackend{},
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://example.test", strings.NewReader(`{"params":{"message":{"contextId":"shared-session"}}}`))
+	if err != nil {
+		t.Fatalf("NewRequestWithContext: %v", err)
+	}
+
+	_, err = rt.RoundTrip(req)
+	if err == nil || !strings.Contains(err.Error(), "user identity") {
+		t.Fatalf("RoundTrip() error = %v, want missing user identity", err)
 	}
 }
 

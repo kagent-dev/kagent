@@ -47,26 +47,25 @@ func TestSandboxAgentActorTemplateNameWithHash(t *testing.T) {
 	require.LessOrEqual(t, len(sandboxAgentActorTemplateName(long, "deadbeefdeadbeef")), 63)
 }
 
-func TestSandboxAgentSessionActorIDIsSessionStable(t *testing.T) {
+func TestSandboxAgentSessionActorIDIsOwnerAndSessionStable(t *testing.T) {
 	t.Parallel()
 	sa := &v1alpha3.SandboxAgent{ObjectMeta: metav1.ObjectMeta{Name: "my-agent", Namespace: "kagent"}}
 
-	// One session ⇔ one actor: the id is derived from the session alone, so it survives config
-	// AND shape rollouts (the actor's template binding lives on the actor record, not in the id).
-	id := SandboxAgentSessionActorID(sa, "sess-1")
-	require.Equal(t, "asr-kagent-my-agent-sess-1", id)
-	require.Equal(t, id, SandboxAgentSessionActorID(sa, "sess-1"))
-	require.NotEqual(t, id, SandboxAgentSessionActorID(sa, "sess-2"), "sessions never share an actor")
+	// One owner/session pair maps to one stable actor across config and shape rollouts.
+	id := SandboxAgentPrincipalSessionActorID(sa, "alice@example.com", "sess-1")
+	require.Equal(t, id, SandboxAgentPrincipalSessionActorID(sa, "alice@example.com", "sess-1"))
+	require.NotEqual(t, id, SandboxAgentPrincipalSessionActorID(sa, "alice@example.com", "sess-2"))
+	require.NotEqual(t, id, SandboxAgentPrincipalSessionActorID(sa, "bob@example.com", "sess-1"))
 
 	// Keeps the per-agent prefix so agent-level cleanup still matches by prefix.
 	prefix := sandboxAgentActorPrefix(sa)
 	require.True(t, strings.HasPrefix(id, prefix+"-"))
 
 	// Over-budget ids fall back to a deterministic hashed form.
-	long := SandboxAgentSessionActorID(sa, strings.Repeat("s", 80))
+	long := SandboxAgentPrincipalSessionActorID(sa, "alice@example.com", strings.Repeat("s", 80))
 	require.LessOrEqual(t, len(long), 63)
 	require.True(t, strings.HasPrefix(long, sandboxAgentIDPrefix+"-"))
-	require.Equal(t, long, SandboxAgentSessionActorID(sa, strings.Repeat("s", 80)))
+	require.Equal(t, long, SandboxAgentPrincipalSessionActorID(sa, "alice@example.com", strings.Repeat("s", 80)))
 }
 
 func TestBuildActorTemplateShapeHashIdentity(t *testing.T) {

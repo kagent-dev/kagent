@@ -49,7 +49,7 @@ func NewSandboxAgentActorBackend(client *Client, kube client.Client, atenetRoute
 // building a new golden, so a shape change can briefly make chat return "no free workers"; on a
 // multi-replica pool the spare workers keep serving existing actors, so a rollout does not hit
 // that error. Scaling the WorkerPool is the remedy for capacity pressure, not in-process retries.
-func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v1alpha3.SandboxAgent, sessionID string) (sandboxbackend.EnsureResult, error) {
+func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v1alpha3.SandboxAgent, userID, sessionID string) (sandboxbackend.EnsureResult, error) {
 	if sa == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("SandboxAgent is required")
 	}
@@ -57,11 +57,15 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 	if sessionID == "" {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("session id is required")
 	}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return sandboxbackend.EnsureResult{}, fmt.Errorf("user identity is required")
+	}
 	if b == nil || b.client == nil {
 		return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate ate-api client is required")
 	}
 
-	actorID, tmplName, err := b.sessionActorRef(ctx, sa, sessionID)
+	actorID, tmplName, err := b.sessionActorRef(ctx, sa, userID, sessionID)
 	if err != nil {
 		return sandboxbackend.EnsureResult{}, err
 	}
@@ -105,11 +109,14 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 }
 
 // SuspendSessionActor checkpoints and frees the worker for a chat session actor.
-func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *v1alpha3.SandboxAgent, sessionID string) error {
+func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *v1alpha3.SandboxAgent, userID, sessionID string) error {
 	if sa == nil {
 		return nil
 	}
-	actorID, _, err := b.sessionActorRef(ctx, sa, sessionID)
+	if strings.TrimSpace(userID) == "" {
+		return fmt.Errorf("user identity is required")
+	}
+	actorID, _, err := b.sessionActorRef(ctx, sa, userID, sessionID)
 	if err != nil {
 		return err
 	}
@@ -138,22 +145,24 @@ func (b *SandboxAgentActorBackend) DeleteSandboxAgentActor(ctx context.Context, 
 	return deleteActor(ctx, b.client, atespace, actorID)
 }
 
-// DeleteSandboxAgentSessionActor deletes the actor for a single chat session. One session ⇔ one
-// actor with a session-derived id, so a single deterministic delete covers the session's whole
-// life regardless of how many shape rollouts it survived.
-func (b *SandboxAgentActorBackend) DeleteSandboxAgentSessionActor(ctx context.Context, sa *v1alpha3.SandboxAgent, sessionID string) (bool, error) {
+// DeleteSandboxAgentSessionActor deletes the actor for one owner/session pair. A single
+// deterministic delete covers that pair's whole life across shape rollouts.
+func (b *SandboxAgentActorBackend) DeleteSandboxAgentSessionActor(ctx context.Context, sa *v1alpha3.SandboxAgent, userID, sessionID string) (bool, error) {
 	if sa == nil {
 		return true, nil
 	}
-	return b.DeleteSandboxAgentActor(ctx, sa.Namespace, SandboxAgentSessionActorID(sa, sessionID))
+	if strings.TrimSpace(userID) == "" {
+		return false, fmt.Errorf("user identity is required")
+	}
+	return b.DeleteSandboxAgentActor(ctx, sa.Namespace, SandboxAgentPrincipalSessionActorID(sa, userID, sessionID))
 }
 
-// sessionActorRef returns the session's stable actor id plus the agent's CURRENT template name.
+// sessionActorRef returns the owner/session pair's stable actor id plus the agent's CURRENT template name.
 // The template name is only used when the actor does not exist yet (first message): an existing
 // actor is resumed under its original template — substrate stores the template name on the actor
 // record and rebuilds the workload spec from it — which is what pins a session to the shape it
 // was created under for its entire life.
-func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1alpha3.SandboxAgent, sessionID string) (actorID, templateName string, err error) {
+func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1alpha3.SandboxAgent, userID, sessionID string) (actorID, templateName string, err error) {
 	tmpl, err := ResolveCurrentActorTemplate(ctx, b.kube, sa.Namespace, sa.Name)
 	if err != nil {
 		return "", "", err
@@ -161,7 +170,7 @@ func (b *SandboxAgentActorBackend) sessionActorRef(ctx context.Context, sa *v1al
 	if tmpl == nil {
 		return "", "", fmt.Errorf("no ActorTemplate generated yet for SandboxAgent %s/%s", sa.Namespace, sa.Name)
 	}
-	return SandboxAgentSessionActorID(sa, sessionID), tmpl.Name, nil
+	return SandboxAgentPrincipalSessionActorID(sa, userID, sessionID), tmpl.Name, nil
 }
 
 // DeleteAllSandboxAgentActors deletes legacy per-agent actors and all session actors for a SandboxAgent.
@@ -228,17 +237,22 @@ func sandboxAgentActorPrefix(sa *v1alpha3.SandboxAgent) string {
 	return SandboxAgentActorID(sa)
 }
 
-// SandboxAgentSessionActorID returns the ate-api actor id for a SandboxAgent chat session,
-// derived from the session alone: one session ⇔ one actor for the session's entire life, across
-// config AND shape rollouts (the actor's template binding lives on the actor record, not in the
-// id). The id keeps the agent prefix (asr-<ns>-<name>-) so per-agent cleanup still matches.
-func SandboxAgentSessionActorID(sa *v1alpha3.SandboxAgent, sessionID string) string {
-	raw := fmt.Sprintf("%s-%s", sandboxAgentActorPrefix(sa), sanitizeSessionID(sessionID))
+// SandboxAgentPrincipalSessionActorID returns an opaque actor ID scoped to both
+// the authenticated owner and the caller-visible session ID.
+func SandboxAgentPrincipalSessionActorID(sa *v1alpha3.SandboxAgent, userID, sessionID string) string {
+	userID = strings.TrimSpace(userID)
+	owner := sha256.Sum256([]byte(userID))
+	raw := fmt.Sprintf(
+		"%s-u%x-%s",
+		sandboxAgentActorPrefix(sa),
+		owner[:6],
+		sanitizeSessionID(sessionID),
+	)
 	raw = strings.ToLower(strings.ReplaceAll(raw, "_", "-"))
 	if len(raw) <= 63 && dns1123Label.MatchString(raw) {
 		return raw
 	}
-	sum := sha256.Sum256([]byte(sa.Namespace + "/" + sa.Name + "/" + sessionID))
+	sum := sha256.Sum256([]byte(sa.Namespace + "/" + sa.Name + "/" + userID + "/" + sessionID))
 	return fmt.Sprintf("%s-%x", sandboxAgentIDPrefix, sum[:12])
 }
 

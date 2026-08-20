@@ -98,6 +98,7 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 					Path: "/.well-known/agent-card.json",
 					Port: substrateKagentListenPort,
 				},
+				TimeoutSeconds: 30,
 			},
 		}},
 		WorkerSelector: workerSelectorForPool(wpKey),
@@ -175,6 +176,7 @@ func applyDurableDirSessionStore(spec *atev1alpha1.ActorTemplateSpec) {
 		MountPath: durableDataMount,
 	})
 	spec.SnapshotsConfig.OnCommit = atev1alpha1.SnapshotScopeData
+	spec.SnapshotsConfig.OnResume = atev1alpha1.OnResumeConfig{FromData: atev1alpha1.ResumeSourceColdBoot}
 }
 
 func findKagentContainer(containers []corev1.Container) *corev1.Container {
