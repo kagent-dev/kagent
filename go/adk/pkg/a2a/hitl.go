@@ -20,6 +20,9 @@ const (
 	HITLTypeToolApprovalResponse = "tool_approval_response"
 	HITLTypeAskUserResponse      = "ask_user_response"
 	KAgentMetadataKeyPrefix      = "kagent_"
+
+	// genericHITLText is the status text for a pause that names no tool.
+	genericHITLText = "Human input is required before the agent can continue."
 )
 
 var hitlAgentExtension = a2atype.AgentExtension{URI: HITLExtensionURI, Required: false}
@@ -429,6 +432,60 @@ func (tool confirmationTool) asHitlTool() HitlTool {
 	return HitlTool{ID: tool.approvalID, CallID: tool.callID, Name: tool.name, Args: tool.args}
 }
 
+// askUserQuestions returns the question objects carried by an ask_user tool call.
+func askUserQuestions(tool HitlTool) []map[string]any {
+	switch raw := tool.Args["questions"].(type) {
+	case []map[string]any:
+		return raw
+	case []any:
+		questions := make([]map[string]any, 0, len(raw))
+		for _, item := range raw {
+			if question, ok := item.(map[string]any); ok {
+				questions = append(questions, question)
+			}
+		}
+		return questions
+	}
+	return nil
+}
+
+// askUserQuestionText joins the questions an ask_user call is waiting on.
+func askUserQuestionText(tool HitlTool) string {
+	questions := askUserQuestions(tool)
+	texts := make([]string, 0, len(questions))
+	for _, question := range questions {
+		if text := stringValue(question["question"]); text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return strings.Join(texts, "; ")
+}
+
+// hitlStatusText renders a pause as one human-readable line. An ask_user pause speaks
+// for itself; every other pause names its tools so no pending tool stays hidden.
+func hitlStatusText(tools []HitlTool, hints []string) string {
+	if len(tools) == 1 && tools[0].Name == "ask_user" {
+		if questions := askUserQuestionText(tools[0]); questions != "" {
+			return questions
+		}
+	}
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Name != "" {
+			names = append(names, tool.Name)
+		}
+	}
+	switch {
+	case len(hints) > 0 && len(names) > 0:
+		return fmt.Sprintf("%s (%s)", strings.Join(hints, "; "), strings.Join(names, ", "))
+	case len(hints) > 0:
+		return strings.Join(hints, "; ")
+	case len(names) > 0:
+		return fmt.Sprintf("Approval is required for tool(s): %s", strings.Join(names, ", "))
+	}
+	return genericHITLText
+}
+
 // BuildHITLStatusMessage: ADK confirmation DataParts → public HITL Message extension.
 func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.Message {
 	if message == nil {
@@ -436,7 +493,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 	}
 	var tools []HitlTool
 	var remote *RemoteHitlState
-	hint := "Human input is required before the agent can continue."
+	var hints []string
 	for _, part := range message.Parts {
 		data := asDataPart(part)
 		if data == nil || part.Metadata == nil {
@@ -450,7 +507,7 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		tool := parseConfirmationTool(data)
 		tools = append(tools, tool.asHitlTool())
 		if tool.hint != "" {
-			hint = tool.hint
+			hints = append(hints, tool.hint)
 		}
 		if candidate := ParseRemoteHitlState(tool.payload); candidate != nil {
 			remote = candidate
@@ -460,7 +517,11 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		return message
 	}
 
-	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(hint))
+	// The text part carries the same information as the typed payload, so a client
+	// that did not activate the extension still learns what it is being asked.
+	text := hitlStatusText(tools, hints)
+
+	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(text))
 	public.TaskID, public.ContextID = message.TaskID, message.ContextID
 	if !activated {
 		return public
@@ -483,22 +544,12 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 		})
 	}
 	if len(tools) == 1 && tools[0].Name == "ask_user" {
-		var questions []map[string]any
-		if raw, ok := tools[0].Args["questions"].([]any); ok {
-			for _, item := range raw {
-				if m, ok := item.(map[string]any); ok {
-					questions = append(questions, m)
-				}
-			}
-		} else if typed, ok := tools[0].Args["questions"].([]map[string]any); ok {
-			questions = typed
-		}
 		return AttachHitlExtension(public, &AskUserRequest{
-			Type: HITLTypeAskUserRequest, ID: tools[0].ID, Questions: questions,
+			Type: HITLTypeAskUserRequest, ID: tools[0].ID, Questions: askUserQuestions(tools[0]),
 		})
 	}
 	return AttachHitlExtension(public, &ToolApprovalRequest{
-		Type: HITLTypeToolApprovalRequest, Hint: hint, Tools: tools, Nested: nested,
+		Type: HITLTypeToolApprovalRequest, Hint: text, Tools: tools, Nested: nested,
 	})
 }
 

@@ -7,6 +7,7 @@ Remote: store/forward public payloads via RemoteHitlState (not ADK-shaped parts)
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Annotated, Any
 
@@ -28,10 +29,13 @@ from kagent.core.a2a import (
     get_ask_user_response,
     get_tool_approval_request,
     get_tool_approval_response,
+    hitl_status_text,
     require_ask_user_response,
     require_tool_approval_response,
 )
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+logger = logging.getLogger(__name__)
 
 HitlRequest = Annotated[ToolApprovalRequest | AskUserRequest, Field(discriminator="type")]
 HitlResponse = Annotated[ToolApprovalResponse | AskUserResponse, Field(discriminator="type")]
@@ -121,9 +125,16 @@ def remote_hitl_hint(state: RemoteHitlState) -> str:
     return f"Remote agent '{state.subagent_name}' requires human input before continuing."
 
 
+def _confirmation_args(data: dict[str, Any], key: str) -> dict[str, Any]:
+    """Return one sub-object of an ADK confirmation call, or an empty one."""
+    args = data.get("args")
+    value = args.get(key) if isinstance(args, dict) else None
+    return value if isinstance(value, dict) else {}
+
+
 def _tool_from_confirmation_data(data: dict[str, Any]) -> HitlTool:
     """Parse one ADK adk_request_confirmation DataPart into a public HitlTool."""
-    original = data.get("args", {}).get("originalFunctionCall", {})
+    original = _confirmation_args(data, "originalFunctionCall")
     return HitlTool(
         id=str(data.get("id") or ""),
         call_id=str(original.get("id") or data.get("id") or ""),
@@ -139,13 +150,8 @@ def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, 
     the confirmation payload. Without activation, only human-readable text is returned.
     """
     message = Message(message_id=str(uuid.uuid4()), role=Role.ROLE_AGENT, task_id=task_id, context_id=context_id)
-    default_hint = "Human input is required before the agent can continue."
-    if not activated:
-        message.parts.append(Part(text=default_hint))
-        return message
-
     tools: list[HitlTool] = []
-    hint: str | None = None
+    hints: list[str] = []
     remote_state: RemoteHitlState | None = None
     for part in parts:
         if not part.HasField("data"):
@@ -153,17 +159,28 @@ def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, 
         data = MessageToDict(part.data)
         if data.get("name") != REQUEST_CONFIRMATION_FUNCTION_CALL_NAME:
             continue
-        tools.append(_tool_from_confirmation_data(data))
-        tool_confirmation = data.get("args", {}).get("toolConfirmation", {})
-        hint = hint or tool_confirmation.get("hint")
+        try:
+            tool = _tool_from_confirmation_data(data)
+        except ValidationError:
+            logger.warning("Skipping an ADK confirmation part that carries no usable tool call")
+            continue
+        tools.append(tool)
+        tool_confirmation = _confirmation_args(data, "toolConfirmation")
+        hint = tool_confirmation.get("hint")
+        if isinstance(hint, str) and hint:
+            hints.append(hint)
         candidate = get_remote_hitl_state(tool_confirmation.get("payload"))
         if candidate is not None:
             remote_state = candidate
 
+    # The text part carries the same information as the typed payload, so a client
+    # that did not activate the extension still learns what it is being asked.
+    text = hitl_status_text(tools, hints)
+
     # Auth-required parts can share the long-running path without being HITL
     # confirmations. Leave those messages unextended.
-    if not tools:
-        message.parts.append(Part(text=hint or default_hint))
+    if not tools or not activated:
+        message.parts.append(Part(text=text))
         return message
 
     nested: NestedHitlRequest | None = None
@@ -188,10 +205,10 @@ def build_hitl_status_message(parts: list[Part], task_id: str, context_id: str, 
             questions=tools[0].args.get("questions") or [],
         )
     else:
-        request = ToolApprovalRequest(hint=hint, tools=tools, nested=nested)
+        request = ToolApprovalRequest(hint=text, tools=tools, nested=nested)
 
     attach_hitl_extension(message, request)
-    message.parts.append(Part(text=hint or default_hint))
+    message.parts.append(Part(text=text))
     return message
 
 

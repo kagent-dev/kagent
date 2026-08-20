@@ -83,6 +83,19 @@ for example `.../hitl/v2`; there is no silent version fallback.
 
 **Because version 1 is optional (`required: false`), a client that does not opt in can still receive an ordinary `input-required` task with human-readable text. It cannot safely submit a structured HITL decision and must use a client that supports the extension or avoid invoking HITL features.**
 
+That text is built the same way in every runtime, and is identical whether or not the
+extension was activated:
+
+- an `ask_user` pause renders its questions, joined with `; `;
+- any other pause renders the hints its tools supplied, followed by the tool names in
+  parentheses: `Deleting this file requires approval (delete_file, restart_pod)`;
+- with no hints, it names the tools: `Approval is required for tool(s): delete_file`;
+- a pause carrying no tool call at all renders `Human input is required before the agent
+  can continue.`
+
+The `hint` field of an activated payload carries the same string, so a client can render
+either one without checking the other.
+
 ## Where the payload lives
 
 HITL data is a [Message extension](https://a2a-protocol.org/latest/specification/#462-extensions-points).
@@ -144,7 +157,7 @@ The server sends a final status update for the current stream segment:
       "metadata": {
         "https://kagent.dev/extensions/hitl/v1": {
           "type": "tool_approval_request",
-          "hint": "Deleting this file requires approval",
+          "hint": "Deleting this file requires approval (delete_file)",
           "tools": [
             {
               "id": "approval-1",
@@ -156,7 +169,7 @@ The server sends a final status update for the current stream segment:
         }
       },
       "parts": [
-        {"kind": "text", "text": "Approval required for delete_file"}
+        {"kind": "text", "text": "Deleting this file requires approval (delete_file)"}
       ]
     }
   }
@@ -183,7 +196,7 @@ resumable approvals:
 ```json
 {
   "type": "tool_approval_request",
-  "hint": "Two operations require approval",
+  "hint": "Approval is required for tool(s): delete_file, restart_deployment",
   "tools": [
     {
       "id": "approval-21",
@@ -495,7 +508,7 @@ These objects are internal to the ADK adapter. At the A2A boundary:
 | Confirmation function-call ID | `id` |
 | Original function-call ID | `call_id` |
 | Original function name and arguments | `tools[].name` and `tools[].args` |
-| Confirmation hint | `hint` or the status TextPart |
+| Confirmation hint | Part of both `hint` and the status TextPart |
 | Several confirmation calls | Flat `tools[]` list |
 | Confirmation FunctionResponse | Adapter-generated local continuation response |
 

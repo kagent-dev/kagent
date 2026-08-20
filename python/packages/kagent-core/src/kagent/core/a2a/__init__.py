@@ -33,6 +33,7 @@ from ._hitl import (
     get_tool_approval_request,
     get_tool_approval_response,
     hitl_activated,
+    hitl_status_text,
     require_ask_user_response,
     require_tool_approval_response,
 )
@@ -74,6 +75,7 @@ __all__ = [
     "ToolApprovalResponse",
     "AskUserResponse",
     "hitl_activated",
+    "hitl_status_text",
     "get_hitl_payload",
     "get_tool_approval_request",
     "get_ask_user_request",
