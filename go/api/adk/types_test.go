@@ -925,6 +925,42 @@ func TestEmbeddingConfig_UnmarshalJSON_ProviderOverridesType(t *testing.T) {
 	}
 }
 
+func TestEmbeddingConfig_UnmarshalJSON_APIKeyPassthrough(t *testing.T) {
+	data := []byte(`{"provider":"openai","model":"m","api_key_passthrough":true}`)
+	var cfg EmbeddingConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("UnmarshalJSON() error = %v", err)
+	}
+	if !cfg.APIKeyPassthrough {
+		t.Error("APIKeyPassthrough = false, want true")
+	}
+}
+
+func TestModelToEmbeddingConfig_APIKeyPassthrough(t *testing.T) {
+	tests := []struct {
+		name string
+		m    Model
+		want bool
+	}{
+		{"OpenAI", &OpenAI{BaseModel: BaseModel{APIKeyPassthrough: true}}, true},
+		{"AzureOpenAI", &AzureOpenAI{BaseModel: BaseModel{APIKeyPassthrough: true}}, true},
+		{"Foundry", &Foundry{BaseModel: BaseModel{APIKeyPassthrough: true}}, true},
+		{"OpenAI disabled", &OpenAI{}, false},
+		// Bedrock has no embedding-side passthrough support (see
+		// go/adk/pkg/embedding), so the field is never propagated for it even
+		// when set on the chat model.
+		{"Bedrock ignored", &Bedrock{BaseModel: BaseModel{APIKeyPassthrough: true}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ModelToEmbeddingConfig(tt.m)
+			if got.APIKeyPassthrough != tt.want {
+				t.Errorf("APIKeyPassthrough = %v, want %v", got.APIKeyPassthrough, tt.want)
+			}
+		})
+	}
+}
+
 func TestAgentConfig_ScanAndValue(t *testing.T) {
 	original := AgentConfig{
 		Model:       &OpenAI{BaseModel: BaseModel{Model: "gpt-4o"}},

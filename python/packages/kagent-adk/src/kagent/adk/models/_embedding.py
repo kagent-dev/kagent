@@ -12,10 +12,11 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, List, Union
+from typing import Any, List, Optional, Union
 
 import numpy as np
 
+from kagent.adk._bearer_token import bearer_token
 from kagent.adk.types import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
@@ -142,9 +143,20 @@ class KAgentEmbedding:
             norm = np.linalg.norm(x, 2, axis=1, keepdims=True)
             return np.where(norm == 0, x, x / norm)
 
+    def _passthrough_api_key(self) -> Optional[str]:
+        """Bearer token to use as the API key when api_key_passthrough is
+        enabled, mirroring BaseOpenAI.set_passthrough_key for chat models.
+        None falls back to the SDK's own env var lookup (OPENAI_API_KEY /
+        AZURE_OPENAI_API_KEY).
+        """
+        if not self.config.api_key_passthrough:
+            return None
+        return bearer_token.get()
+
     async def _embed_openai(self, texts: List[str]) -> List[List[float]]:
         """Embed using the OpenAI or Azure OpenAI SDK."""
         provider = self.config.provider.lower()
+        api_key = self._passthrough_api_key()
 
         if provider == "azure_openai":
             from openai import AsyncAzureOpenAI
@@ -153,11 +165,11 @@ class KAgentEmbedding:
             api_base = self.config.base_url or os.environ.get("AZURE_OPENAI_ENDPOINT")
             if not api_base:
                 raise ValueError("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
-            client = AsyncAzureOpenAI(api_version=api_version, azure_endpoint=api_base)
+            client = AsyncAzureOpenAI(api_version=api_version, azure_endpoint=api_base, api_key=api_key)
         else:
             from openai import AsyncOpenAI
 
-            client = AsyncOpenAI(base_url=self.config.base_url or None)
+            client = AsyncOpenAI(base_url=self.config.base_url or None, api_key=api_key)
 
         response = await client.embeddings.create(
             model=self.config.model,

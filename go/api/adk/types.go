@@ -445,9 +445,10 @@ type RemoteAgentConfig struct {
 // EmbeddingConfig is the embedding model config for memory tools.
 // JSON uses "provider" to match Python EmbeddingConfig; unmarshaling accepts "type" for backward compat.
 type EmbeddingConfig struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	BaseUrl  string `json:"base_url,omitempty"`
+	Provider          string `json:"provider"`
+	Model             string `json:"model"`
+	BaseUrl           string `json:"base_url,omitempty"`
+	APIKeyPassthrough bool   `json:"api_key_passthrough,omitempty"`
 	// Endpoint, Deployment, and APIVersion are the Azure data-plane settings,
 	// populated for the providers that use the shared azureai client.
 	Endpoint   string `json:"endpoint,omitempty"`
@@ -457,19 +458,21 @@ type EmbeddingConfig struct {
 
 func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Type       string `json:"type"`
-		Provider   string `json:"provider"`
-		Model      string `json:"model"`
-		BaseUrl    string `json:"base_url"`
-		Endpoint   string `json:"endpoint"`
-		Deployment string `json:"deployment"`
-		APIVersion string `json:"api_version"`
+		Type              string `json:"type"`
+		Provider          string `json:"provider"`
+		Model             string `json:"model"`
+		BaseUrl           string `json:"base_url"`
+		APIKeyPassthrough bool   `json:"api_key_passthrough"`
+		Endpoint          string `json:"endpoint"`
+		Deployment        string `json:"deployment"`
+		APIVersion        string `json:"api_version"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
 	e.Model = tmp.Model
 	e.BaseUrl = tmp.BaseUrl
+	e.APIKeyPassthrough = tmp.APIKeyPassthrough
 	e.Endpoint = tmp.Endpoint
 	e.Deployment = tmp.Deployment
 	e.APIVersion = tmp.APIVersion
@@ -492,8 +495,10 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 	case *OpenAI:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+		e.APIKeyPassthrough = v.APIKeyPassthrough
 	case *AzureOpenAI:
 		e.Model = v.Model
+		e.APIKeyPassthrough = v.APIKeyPassthrough
 		e.Endpoint = v.Endpoint
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
@@ -515,6 +520,7 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		e.BaseUrl = v.BaseUrl
 	case *Foundry:
 		e.Model = v.Model
+		e.APIKeyPassthrough = v.APIKeyPassthrough
 		e.Endpoint = v.Endpoint
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion

@@ -373,6 +373,7 @@ class EmbeddingConfig(BaseModel):
     model: str
     provider: str
     base_url: str | None = None
+    api_key_passthrough: bool = False
 
 
 class MemoryConfig(BaseModel):
