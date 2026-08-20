@@ -146,6 +146,26 @@ async def test_remote_agent_with_proxy_url():
         )
 
 
+def test_remote_agent_isolate_sessions_is_forwarded_to_toolset():
+    config = AgentConfig(
+        model=OpenAI(model="gpt-3.5-turbo", type="openai", api_key="fake"),
+        description="Test agent",
+        instruction="You are a test agent",
+        remote_agents=[
+            RemoteAgentConfig(
+                name="remote_agent",
+                url="http://remote-agent.kagent:8080",
+                isolate_sessions=True,
+            )
+        ],
+    )
+
+    agent = config.to_agent("test_agent")
+
+    remote_agent_toolset = next(tool for tool in agent.tools if isinstance(tool, KAgentRemoteA2AToolset))
+    assert remote_agent_toolset._tool._isolate_sessions is True
+
+
 def test_remote_agent_no_proxy_when_not_configured():
     """Test that KAgentRemoteA2AToolset HTTP client works without proxy."""
 
