@@ -1,11 +1,30 @@
 package a2a
 
 import (
+	"context"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/a2a"
 	"github.com/a2aproject/a2a-go/a2asrv"
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 )
+
+func TestUserIDCallInterceptor_SetsCtxUserID(t *testing.T) {
+	meta := a2asrv.NewRequestMeta(map[string][]string{"x-user-id": {"real-user"}})
+	ctx, callCtx := a2asrv.WithCallContext(context.Background(), meta)
+
+	returned, err := (&userIDInterceptor{}).Before(ctx, callCtx, &a2asrv.Request{})
+	if err != nil {
+		t.Fatalf("Before() error = %v", err)
+	}
+
+	if got := callCtx.User.Name(); got != "real-user" {
+		t.Errorf("callCtx.User.Name() = %q, want %q", got, "real-user")
+	}
+	if got := auth.UserIDFromContext(returned); got != "real-user" {
+		t.Errorf("auth.UserIDFromContext(returned) = %q, want %q", got, "real-user")
+	}
+}
 
 // TestNewAgentMessage_StampsContextAndTaskID verifies agent messages carry the
 // request's context and task ids. A2A allows omitting them (the task is the
