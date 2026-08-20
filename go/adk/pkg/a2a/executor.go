@@ -94,7 +94,7 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 	}
 	// Set the authenticated user so downstream code picks up the real identity.
 	callCtx.User = &a2asrv.AuthenticatedUser{UserName: vals[0]}
-	return ctx, nil
+	return auth.WithUserID(ctx, vals[0]), nil
 }
 
 // newAgentMessage builds an agent message stamped with the request's context
@@ -134,10 +134,8 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.RequestCont
 
 	// 1. Derive userID / sessionID.
 	userID := "A2A_USER_" + reqCtx.ContextID
-	if callCtx, ok := a2asrv.CallContextFrom(ctx); ok {
-		if callCtx.User != nil && callCtx.User.Name() != "" {
-			userID = callCtx.User.Name()
-		}
+	if id := auth.UserIDFromContext(ctx); id != "" {
+		userID = id
 	}
 	sessionID := reqCtx.ContextID
 
