@@ -77,10 +77,11 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	}
 	stream := true
 	cfg := &adk.AgentConfig{
-		Model:       modelRuntime.Model,
-		Description: template.Spec.Description,
-		Instruction: instruction,
-		Stream:      &stream,
+		Model:        modelRuntime.Model,
+		Description:  template.Spec.Description,
+		Instruction:  instruction,
+		Stream:       &stream,
+		SessionDBURL: "sqlite:////data/sessions.db",
 	}
 
 	for _, binding := range template.Spec.Tools {

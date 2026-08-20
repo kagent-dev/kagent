@@ -71,6 +71,9 @@ func TestCompileAgentTemplatePinsAgentPluginSources(t *testing.T) {
 	if err := json.Unmarshal(spec.ConfigJSON, &config); err != nil {
 		t.Fatal(err)
 	}
+	if config.SessionDBURL != "sqlite:////data/sessions.db" {
+		t.Fatalf("session DB URL = %q", config.SessionDBURL)
+	}
 	plugins := config.AgentPlugins
 	if plugins == nil || len(plugins.Skills) != 2 || len(plugins.Plugins) != 2 || plugins.Plugins[0].Source.Git.Commit != "cccccccccccccccccccccccccccccccccccccccc" {
 		t.Fatalf("compiled Agent Plugins config = %#v", config)

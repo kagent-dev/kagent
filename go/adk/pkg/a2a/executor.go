@@ -101,7 +101,7 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 	}
 	// Set the authenticated user so downstream code picks up the real identity.
 	callCtx.User = a2asrv.NewAuthenticatedUser(vals[0], nil)
-	return ctx, nil, nil
+	return auth.WithUserID(ctx, vals[0]), nil, nil
 }
 
 // Execute applies kagent-specific request setup and delegates event generation

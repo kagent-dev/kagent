@@ -715,7 +715,7 @@ func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace
 	return nil
 }
 
-func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
+func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID, userID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
 	if task == nil || len(task.History) == 0 || task.History[0] == nil || task.History[0].ID == "" {
 		return nil, false, fmt.Errorf("AgentInstance task requires an initial message")
 	}
@@ -757,6 +757,17 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 			return err
 		}
 		created = true
+		legacyTaskData, err := json.Marshal(task)
+		if err != nil {
+			return fmt.Errorf("serialize runtime task: %w", err)
+		}
+		protocolVersion := string(a2a.Version)
+		if _, err := q.UpsertTask(ctx, dbgen.UpsertTaskParams{
+			ID: string(task.ID), Data: string(legacyTaskData), SessionID: strPtrIfNotEmpty(task.ContextID),
+			ProtocolVersion: &protocolVersion, UserID: &userID,
+		}); err != nil {
+			return fmt.Errorf("seed runtime task %s: %w", task.ID, err)
+		}
 		return q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
 			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(task.ID)), Data: eventData,
 		})

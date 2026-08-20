@@ -45,6 +45,7 @@ type gatewayTestStore struct {
 	replay                *a2atype.Task
 	stored                []a2atype.Event
 	namespace, id, userID string
+	taskUserID            string
 }
 
 func (s *gatewayTestStore) GetAgentInstance(_ context.Context, namespace, id, userID string) (*apiv1alpha1.AgentInstance, error) {
@@ -65,7 +66,8 @@ func (s *gatewayTestStore) StoreAgentInstanceTaskEvent(_ context.Context, _ stri
 	return nil
 }
 
-func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, _ []byte, task *a2atype.Task) (*a2atype.Task, bool, error) {
+func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _, userID string, _ []byte, task *a2atype.Task) (*a2atype.Task, bool, error) {
+	s.taskUserID = userID
 	if s.taskErr != nil {
 		return nil, false, s.taskErr
 	}
@@ -187,6 +189,9 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	}
 	if store.namespace != "team-a" || store.id != gatewayTestID || store.userID != "alice" {
 		t.Fatalf("store lookup = %q/%q user %q", store.namespace, store.id, store.userID)
+	}
+	if store.taskUserID != "alice" {
+		t.Fatalf("task user = %q, want alice", store.taskUserID)
 	}
 	if authorizer.verb != auth.VerbCreate || authorizer.resource != (auth.Resource{Type: "AgentInstance", Name: "team-a/" + gatewayTestID}) {
 		t.Fatalf("authorization = %q %#v", authorizer.verb, authorizer.resource)

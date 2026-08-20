@@ -40,7 +40,7 @@ const (
 type instanceStore interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
-	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
+	CreateAgentInstanceTask(context.Context, string, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error)
@@ -390,7 +390,8 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	}
 	req.Message.TaskID = a2atype.NewTaskID()
 	submitted := a2atype.NewSubmittedTask(req.Message, req.Message)
-	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
+	session, _ := auth.AuthSessionFrom(ctx)
+	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), session.Principal().User.ID, requestHash, submitted)
 	if err != nil {
 		return nil, nil, false, g.storeError(ctx, err)
 	}

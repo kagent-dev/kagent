@@ -52,16 +52,16 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 		Status:  a2a.TaskStatus{State: a2a.TaskStateSubmitted, Timestamp: &now},
 		History: []*a2a.Message{{ID: "message-1", Role: a2a.MessageRoleUser}},
 	}
-	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), first)
+	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", "alice", []byte("request-1"), first)
 	if err != nil || !created || stored.ID != first.ID {
 		t.Fatalf("CreateAgentInstanceTask() = %#v, created %v, error %v", stored, created, err)
 	}
-	replayed, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"),
+	replayed, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", "alice", []byte("request-1"),
 		&a2a.Task{ID: "ignored", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}, History: first.History})
 	if err != nil || created || replayed.ID != first.ID {
 		t.Fatalf("replayed CreateAgentInstanceTask() = %#v, created %v, error %v", replayed, created, err)
 	}
-	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("different"), first); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", "alice", []byte("different"), first); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting message error = %v", err)
 	}
 	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 1 {
@@ -74,6 +74,10 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	got, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
 	if err != nil || got.ID != first.ID || got.Status.State != first.Status.State || len(got.History) != 1 {
 		t.Fatalf("GetAgentInstanceTask() = %#v, %v", got, err)
+	}
+	legacy, err := client.GetTask(ctx, "task-1", "alice")
+	if err != nil || legacy.ID != first.ID || legacy.ContextID != first.ContextID {
+		t.Fatalf("GetTask() = %#v, %v", legacy, err)
 	}
 
 	second := &a2a.Task{ID: "task-2", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}}
@@ -123,7 +127,7 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 			<-start
 			message := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: taskID, ContextID: "instance-1"}
 			task := a2a.NewSubmittedTask(message, message)
-			stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), task)
+			stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", "alice", []byte("request-1"), task)
 			results <- result{stored, created, err}
 		}()
 	}
