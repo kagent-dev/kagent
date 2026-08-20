@@ -76,8 +76,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	collections.Pairs = newPairCollection(collections.AgentTemplates, collections.Harnesses, opts)
 	collections.Reconciliations = newPairReconciliations(
 		collections.Pairs, collections.ModelConfigs, collections.RemoteMCPServers,
-		collections.ConfigMaps, collections.Secrets, collections.WorkerPools, collections.ActorTemplates,
-		CollectionConfig{PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, opts,
+		collections.ConfigMaps, collections.Secrets, collections.WorkerPools, collections.ActorTemplates, opts,
 	)
 	collections.AgentTemplateStatuses = newAgentTemplateStatuses(collections.AgentTemplates, collections.Reconciliations, opts)
 

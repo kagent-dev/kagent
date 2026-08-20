@@ -86,7 +86,7 @@ func TestEnsureSessionRow(t *testing.T) {
 	sa := &v1alpha3.SandboxAgent{
 		Spec: v1alpha3.SandboxAgentSpec{
 			Type:        v1alpha3.AgentType_Declarative,
-			Declarative: &v1alpha3.DeclarativeAgentSpec{Runtime: v1alpha3.DeclarativeRuntime_Python},
+			Declarative: &v1alpha3.DeclarativeAgentSpec{},
 		},
 	}
 	sa.Name = "my-agent"

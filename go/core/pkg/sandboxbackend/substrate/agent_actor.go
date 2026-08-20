@@ -82,9 +82,9 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		}
 	}
 
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED,
-		ateapipb.Actor_STATUS_PAUSED, ateapipb.Actor_STATUS_PAUSING:
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_UNSPECIFIED,
+		ateapipb.ActorState_ACTOR_STATE_PAUSED, ateapipb.ActorState_ACTOR_STATE_PAUSING:
 		// PAUSED/PAUSING keep a node-local snapshot; ResumeActor brings them back
 		// the same as a suspended actor. RUNNING/RESUMING actors need nothing.
 		_, err = b.client.ResumeActor(ctx, atespace, actorID)
@@ -121,8 +121,8 @@ func (b *SandboxAgentActorBackend) SuspendSessionActor(ctx context.Context, sa *
 		}
 		return fmt.Errorf("substrate GetActor %q: %w", actorID, err)
 	}
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING, ateapipb.Actor_STATUS_SUSPENDING:
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
 		if err := b.client.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return fmt.Errorf("substrate SuspendActor %q: %w", actorID, err)
 		}

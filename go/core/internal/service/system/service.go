@@ -389,19 +389,19 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 }
 
 func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
-	assignment := actor.GetWorkerAssignment()
+	assignment := actor.GetStatus().GetWorkerAssignment()
 	return SubstrateActor{
 		ActorID:                actor.GetMetadata().GetName(),
 		Atespace:               actor.GetMetadata().GetAtespace(),
-		Status:                 substrate.ActorStatusLabel(actor.GetStatus()),
+		Status:                 substrate.ActorStatusLabel(actor.GetStatus().GetState()),
 		ActorTemplateNamespace: actor.GetActorTemplateNamespace(),
 		ActorTemplateName:      actor.GetActorTemplateName(),
 		AteomPodNamespace:      assignment.GetWorkerNamespace(),
 		AteomPodName:           assignment.GetWorkerPod(),
 		AteomPodIP:             assignment.GetWorkerPodIp(),
-		LatestSnapshot:         actor.GetLatestSnapshot().GetName(),
+		LatestSnapshot:         actor.GetStatus().GetLatestSnapshot().GetName(),
 		WorkerPoolName:         assignment.GetWorkerPool(),
-		InProgressSnapshot:     actor.GetInProgressSnapshotName(),
+		InProgressSnapshot:     actor.GetStatus().GetInProgressSnapshotName(),
 		Version:                actor.GetMetadata().GetVersion(),
 	}
 }

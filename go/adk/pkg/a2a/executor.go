@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"iter"
-	"os"
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -12,7 +11,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
-	"github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -23,43 +21,31 @@ import (
 )
 
 const (
-	defaultSkillsDirectory = "/skills"
-	envSkillsFolder        = "KAGENT_SKILLS_FOLDER"
-	sessionNameMaxLength   = 20
+	sessionNameMaxLength = 20
 )
 
 // KAgentExecutorConfig holds the configuration for KAgentExecutor.
 type KAgentExecutorConfig struct {
-	RunnerConfig    runner.Config
-	SessionService  adksession.Service
-	Stream          bool
-	AppName         string
-	SkillsDirectory string
-	Logger          logr.Logger
+	RunnerConfig   runner.Config
+	SessionService adksession.Service
+	Stream         bool
+	AppName        string
+	Logger         logr.Logger
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
 // A2A executor. Event conversion and artifact streaming are delegated to ADK.
 type KAgentExecutor struct {
-	builtin         a2asrv.AgentExecutor
-	sessionService  adksession.Service
-	appName         string
-	skillsDirectory string
-	logger          logr.Logger
+	builtin        a2asrv.AgentExecutor
+	sessionService adksession.Service
+	appName        string
+	logger         logr.Logger
 }
 
 var _ a2asrv.AgentExecutor = (*KAgentExecutor)(nil)
 
 // NewKAgentExecutor creates a KAgentExecutor from config.
 func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
-	skillsDir := cfg.SkillsDirectory
-	if skillsDir == "" {
-		skillsDir = os.Getenv(envSkillsFolder)
-	}
-	if skillsDir == "" {
-		skillsDir = defaultSkillsDirectory
-	}
-
 	var runConfig adkagent.RunConfig
 	if cfg.Stream {
 		runConfig.StreamingMode = adkagent.StreamingModeSSE
@@ -83,11 +69,10 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) *KAgentExecutor {
 	})
 
 	return &KAgentExecutor{
-		builtin:         builtin,
-		sessionService:  runnerConfig.SessionService,
-		appName:         cfg.AppName,
-		skillsDirectory: skillsDir,
-		logger:          cfg.Logger.WithName("kagent-executor"),
+		builtin:        builtin,
+		sessionService: runnerConfig.SessionService,
+		appName:        cfg.AppName,
+		logger:         cfg.Logger.WithName("kagent-executor"),
 	}
 }
 
@@ -165,13 +150,6 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			"appName", e.appName,
 			"userID", userID,
 		)
-
-		if e.skillsDirectory != "" && sessionID != "" {
-			if _, err := skills.InitializeSessionPath(sessionID, e.skillsDirectory); err != nil {
-				e.logger.V(1).Info("Skills session path init failed (continuing)",
-					"error", err, "sessionID", sessionID)
-			}
-		}
 
 		// Run our own session management before upstream executor runs its prepareSession function.
 		// This ensures that we create a session that contains metadata like x-kagent-source,

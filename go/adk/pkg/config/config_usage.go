@@ -31,10 +31,6 @@ import (
 //   - Tools with Agent -> RemoteAgents
 //   - Used in AgentConfig.to_agent() to add tools to the agent
 //
-// Agent.Spec.Sandbox.Network -> AgentConfig.Network
-//   - Translated into the mounted srt-settings.json consumed by sandboxed execution
-//   - When omitted, sandboxed execution remains deny-by-default for outbound network access
-//
 // Agent.Spec.A2AConfig.Skills -> Not in config.json, handled separately
 //   - Skills are added via SkillsPlugin in Python
 //   - In go-adk, skills are handled via KAGENT_SKILLS_FOLDER env var
