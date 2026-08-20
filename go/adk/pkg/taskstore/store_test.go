@@ -8,7 +8,6 @@ import (
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
-	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
@@ -123,25 +122,6 @@ func TestGetDecodesCanonicalTask(t *testing.T) {
 	assert.Equal(t, a2a.TaskStateCompleted, stored.Task.Status.State)
 	require.Len(t, stored.Task.History, 1)
 	assert.Equal(t, "done", stored.Task.History[0].Parts[0].Text())
-}
-
-func TestGetResolvesUserFromA2ACallContext(t *testing.T) {
-	encoded, err := pbconv.ToProtoTask(&a2a.Task{ID: a2a.TaskID("task-4"), ContextID: "session-4"})
-	require.NoError(t, err)
-
-	var gotUserID []string
-	service := newTaskStore(t, &taskTestServer{get: func(ctx context.Context, _ *apiv1alpha1.GetTaskRequest) (*apiv1alpha1.GetTaskResponse, error) {
-		values, _ := metadata.FromIncomingContext(ctx)
-		gotUserID = values.Get("x-user-id")
-		return &apiv1alpha1.GetTaskResponse{Task: encoded}, nil
-	}})
-
-	ctx, callCtx := a2asrv.NewCallContext(t.Context(), nil)
-	callCtx.User = a2asrv.NewAuthenticatedUser("call-context-user", nil)
-
-	_, err = service.Get(ctx, a2a.TaskID("task-4"))
-	require.NoError(t, err)
-	assert.Equal(t, []string{"call-context-user"}, gotUserID)
 }
 
 func TestGetMapsNotFound(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
@@ -123,6 +124,24 @@ func TestKAgentExecutor_ForwardsCleanup(t *testing.T) {
 	executor.Cleanup(context.Background(), &a2asrv.ExecutorContext{}, nil, nil)
 	if !builtin.cleanupCalled {
 		t.Fatal("Cleanup() was not forwarded to the upstream executor")
+	}
+}
+
+func TestUserIDCallInterceptor_SetsCtxUserID(t *testing.T) {
+	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
+		"x-user-id": {"real-user"},
+	}))
+
+	returned, _, err := UserIDCallInterceptor().Before(ctx, callCtx, &a2asrv.Request{})
+	if err != nil {
+		t.Fatalf("Before() error = %v", err)
+	}
+
+	if got := callCtx.User.Name; got != "real-user" {
+		t.Fatalf("callCtx.User.Name = %q, want %q", got, "real-user")
+	}
+	if got := auth.UserIDFromContext(returned); got != "real-user" {
+		t.Fatalf("auth.UserIDFromContext(returned) = %q, want %q", got, "real-user")
 	}
 }
 
