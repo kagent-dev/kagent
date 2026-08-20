@@ -221,7 +221,7 @@ Kagent addresses data sovereignty through:
 
 **Compliance:**
 
-- **Apache 2.0 License**: Clear open-source [licensing](LICENSE.md)
+- **Apache 2.0 License**: Clear open-source [licensing](../../LICENSE)
 - **OpenSSF Best Practices**: Badge at [https://www.bestpractices.dev/projects/10723](https://www.bestpractices.dev/projects/10723)
 - **Dependency Scanning**: Automated [CVE scanning via Trivy in CI/CD](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/.github/workflows/image-scan.yaml)
 - **SBOM Generation**: Part of the [future state of the project](https://github.com/kagent-dev/kagent/blob/9438c9c0f2c79daf632555df1d7d3cb2d04b7b81/contrib/cncf/security-self-assessment.md#future-state)

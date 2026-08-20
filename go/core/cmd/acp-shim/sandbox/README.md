@@ -1,10 +1,10 @@
 # acp-sandbox launcher scripts
 
 Small POSIX `sh` launchers baked into the agent images defined by
-[docker/acp-sandbox/Dockerfile](../../../../docker/acp-sandbox/Dockerfile). They
-are kept here, next to the `acp-shim` binary they wrap
-([main.go](main.go)), and `COPY`'d into `/usr/local/bin/` by the relevant agent
-target. The Dockerfile build context is `go/`, so the copy paths are
+[docker/acp-sandbox/Dockerfile](../../../../../docker/acp-sandbox/Dockerfile).
+They are kept here, next to the `acp-shim` binary they wrap
+([main.go](../main.go)), and `COPY`'d into `/usr/local/bin/` by the relevant
+agent target. The Dockerfile build context is `go/`, so the copy paths are
 `core/cmd/acp-shim/sandbox/<script>`.
 
 ## Why these scripts exist
