@@ -1,0 +1,31 @@
+apiVersion: kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: kagent
+  namespace: kagent
+spec:
+  kagent: {}
+  workload:
+    image: ${KAGENT_E2E_RUNTIME_IMAGE}
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+    snapshotPolicy:
+      location: gs://ate-snapshots/kagent/
+  allowedAgentTemplates:
+    selector:
+      matchLabels:
+        kagent.dev/e2e-runtime: kagent
+---
+apiVersion: kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata:
+  name: smoke
+  namespace: kagent
+  labels:
+    kagent.dev/e2e-runtime: kagent
+spec:
+  description: Minimal AgentInstance lifecycle fixture
+  modelConfig:
+    name: default-model-config
+  systemPrompt: Reply briefly.

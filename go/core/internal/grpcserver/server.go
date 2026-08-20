@@ -8,6 +8,8 @@ import (
 	"net"
 	"time"
 
+	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
@@ -56,6 +58,7 @@ type Config struct {
 	SessionService        *sessionservice.Service
 	TaskService           *taskservice.Service
 	AgentInstanceService  *agentinstance.Service
+	A2AHandler            a2asrv.RequestHandler
 	MethodPolicies        MethodPolicies
 	Listener              net.Listener
 }
@@ -143,6 +146,9 @@ func New(config Config) (*Server, error) {
 	}
 	if config.AgentInstanceService != nil {
 		agentinstance.RegisterGRPC(grpcServer, config.AgentInstanceService)
+	}
+	if config.A2AHandler != nil {
+		a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
 	}
 	if config.Reflection {
 		reflection.Register(grpcServer)

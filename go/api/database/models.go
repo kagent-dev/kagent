@@ -261,6 +261,7 @@ type RuntimeRevision struct {
 	HarnessName            string
 	HarnessUID             string
 	SourceSnapshot         json.RawMessage
+	AgentCard              json.RawMessage
 	EgressDestinations     []string
 	ActorTemplateNamespace string
 	ActorTemplateName      string

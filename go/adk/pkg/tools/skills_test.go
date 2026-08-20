@@ -43,9 +43,8 @@ func TestResolveWritePath_BlocksSkillsSymlink(t *testing.T) {
 	}
 }
 
-func TestNewSkillsTools_ReturnsExpectedToolSet(t *testing.T) {
+func TestNewSkillExecutionTools_ReturnsExpectedToolSet(t *testing.T) {
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
 	skillDir := filepath.Join(skillsDir, "demo")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		t.Fatalf("failed to create skill dir: %v", err)
@@ -58,9 +57,9 @@ description: Demo skill.
 		t.Fatalf("failed to write skill metadata: %v", err)
 	}
 
-	tools, err := NewSkillsTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir)
 	if err != nil {
-		t.Fatalf("NewSkillsTools() error = %v", err)
+		t.Fatalf("NewSkillExecutionTools() error = %v", err)
 	}
 
 	got := map[string]bool{}
@@ -68,7 +67,7 @@ description: Demo skill.
 		got[tool.Name()] = true
 	}
 
-	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "bash"} {
+	for _, name := range []string{"read_file", "write_file", "edit_file", "bash"} {
 		if !got[name] {
 			t.Errorf("expected tool %q to be present", name)
 		}

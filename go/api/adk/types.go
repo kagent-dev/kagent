@@ -44,6 +44,14 @@ type SseMcpServerConfig struct {
 	RequireApproval []string            `json:"require_approval,omitempty"`
 }
 
+// StdioMcpServerConfig starts one local MCP server without invoking a shell.
+type StdioMcpServerConfig struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	Dir     string            `json:"dir,omitempty"`
+}
+
 type Model interface {
 	GetType() string
 }
@@ -445,9 +453,10 @@ type RemoteAgentConfig struct {
 // EmbeddingConfig is the embedding model config for memory tools.
 // JSON uses "provider" to match Python EmbeddingConfig; unmarshaling accepts "type" for backward compat.
 type EmbeddingConfig struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	BaseUrl  string `json:"base_url,omitempty"`
+	Provider          string `json:"provider"`
+	Model             string `json:"model"`
+	BaseUrl           string `json:"base_url,omitempty"`
+	APIKeyPassthrough bool   `json:"api_key_passthrough,omitempty"`
 	// Endpoint, Deployment, and APIVersion are the Azure data-plane settings,
 	// populated for the providers that use the shared azureai client.
 	Endpoint   string `json:"endpoint,omitempty"`
@@ -457,19 +466,21 @@ type EmbeddingConfig struct {
 
 func (e *EmbeddingConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Type       string `json:"type"`
-		Provider   string `json:"provider"`
-		Model      string `json:"model"`
-		BaseUrl    string `json:"base_url"`
-		Endpoint   string `json:"endpoint"`
-		Deployment string `json:"deployment"`
-		APIVersion string `json:"api_version"`
+		Type              string `json:"type"`
+		Provider          string `json:"provider"`
+		Model             string `json:"model"`
+		BaseUrl           string `json:"base_url"`
+		APIKeyPassthrough bool   `json:"api_key_passthrough"`
+		Endpoint          string `json:"endpoint"`
+		Deployment        string `json:"deployment"`
+		APIVersion        string `json:"api_version"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
 	e.Model = tmp.Model
 	e.BaseUrl = tmp.BaseUrl
+	e.APIKeyPassthrough = tmp.APIKeyPassthrough
 	e.Endpoint = tmp.Endpoint
 	e.Deployment = tmp.Deployment
 	e.APIVersion = tmp.APIVersion
@@ -492,8 +503,10 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 	case *OpenAI:
 		e.Model = v.Model
 		e.BaseUrl = v.BaseUrl
+		e.APIKeyPassthrough = v.APIKeyPassthrough
 	case *AzureOpenAI:
 		e.Model = v.Model
+		e.APIKeyPassthrough = v.APIKeyPassthrough
 		e.Endpoint = v.Endpoint
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
@@ -515,6 +528,7 @@ func ModelToEmbeddingConfig(m Model) *EmbeddingConfig {
 		e.BaseUrl = v.BaseUrl
 	case *Foundry:
 		e.Model = v.Model
+		e.APIKeyPassthrough = v.APIKeyPassthrough
 		e.Endpoint = v.Endpoint
 		e.Deployment = v.Deployment
 		e.APIVersion = v.APIVersion
@@ -532,6 +546,45 @@ type MemoryConfig struct {
 
 type NetworkConfig struct {
 	AllowedDomains []string `json:"allowed_domains,omitempty"`
+}
+
+// AgentPluginConfig describes immutable Agent Plugin and standalone skill
+// packages that the runtime must download before starting the agent.
+type AgentPluginConfig struct {
+	Skills  []StandaloneSkill   `json:"skills,omitempty"`
+	Plugins []AgentPluginBundle `json:"plugins,omitempty"`
+}
+
+// StandaloneSkill identifies one independently sourced skill, rather than a
+// skill selected from an Agent Plugin bundle.
+type StandaloneSkill struct {
+	Name   string            `json:"name"`
+	Source AgentPluginSource `json:"source"`
+}
+
+type AgentPluginBundle struct {
+	Source AgentPluginSource `json:"source"`
+	Skills []string          `json:"skills,omitempty"`
+}
+
+type AgentPluginSource struct {
+	OCI  string          `json:"oci,omitempty"`
+	Git  *AgentPluginGit `json:"git,omitempty"`
+	S3   *AgentPluginS3  `json:"s3,omitempty"`
+	Path string          `json:"path,omitempty"`
+}
+
+type AgentPluginGit struct {
+	URL    string `json:"url"`
+	Commit string `json:"commit"`
+}
+
+type AgentPluginS3 struct {
+	Endpoint  string `json:"endpoint"`
+	Bucket    string `json:"bucket"`
+	Key       string `json:"key"`
+	VersionID string `json:"versionId"`
+	Region    string `json:"region,omitempty"`
 }
 
 // AgentContextConfig is the context management configuration that flows through config.json to the Python runtime.
@@ -578,18 +631,20 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model         Model                 `json:"model"`
-	Description   string                `json:"description"`
-	Instruction   string                `json:"instruction"`
-	HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
-	SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
-	RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
-	Stream        *bool                 `json:"stream,omitempty"`
-	Memory        *MemoryConfig         `json:"memory,omitempty"`
-	Network       *NetworkConfig        `json:"network,omitempty"`
-	ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
-	ShareTools    *bool                 `json:"share_tools,omitempty"`
-	SessionDBURL  string                `json:"session_db_url,omitempty"`
+	Model         Model                  `json:"model"`
+	Description   string                 `json:"description"`
+	Instruction   string                 `json:"instruction"`
+	HttpTools     []HttpMcpServerConfig  `json:"http_tools,omitempty"`
+	SseTools      []SseMcpServerConfig   `json:"sse_tools,omitempty"`
+	StdioTools    []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
+	RemoteAgents  []RemoteAgentConfig    `json:"remote_agents,omitempty"`
+	Stream        *bool                  `json:"stream,omitempty"`
+	Memory        *MemoryConfig          `json:"memory,omitempty"`
+	Network       *NetworkConfig         `json:"network,omitempty"`
+	AgentPlugins  *AgentPluginConfig     `json:"agent_plugins,omitempty"`
+	ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
+	ShareTools    *bool                  `json:"share_tools,omitempty"`
+	SessionDBURL  string                 `json:"session_db_url,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -602,18 +657,20 @@ func (a *AgentConfig) GetStream() bool {
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model         json.RawMessage       `json:"model"`
-		Description   string                `json:"description"`
-		Instruction   string                `json:"instruction"`
-		HttpTools     []HttpMcpServerConfig `json:"http_tools,omitempty"`
-		SseTools      []SseMcpServerConfig  `json:"sse_tools,omitempty"`
-		RemoteAgents  []RemoteAgentConfig   `json:"remote_agents,omitempty"`
-		Stream        *bool                 `json:"stream,omitempty"`
-		Memory        json.RawMessage       `json:"memory"`
-		Network       *NetworkConfig        `json:"network,omitempty"`
-		ContextConfig *AgentContextConfig   `json:"context_config,omitempty"`
-		ShareTools    *bool                 `json:"share_tools,omitempty"`
-		SessionDBURL  string                `json:"session_db_url,omitempty"`
+		Model         json.RawMessage        `json:"model"`
+		Description   string                 `json:"description"`
+		Instruction   string                 `json:"instruction"`
+		HttpTools     []HttpMcpServerConfig  `json:"http_tools,omitempty"`
+		SseTools      []SseMcpServerConfig   `json:"sse_tools,omitempty"`
+		StdioTools    []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
+		RemoteAgents  []RemoteAgentConfig    `json:"remote_agents,omitempty"`
+		Stream        *bool                  `json:"stream,omitempty"`
+		Memory        json.RawMessage        `json:"memory"`
+		Network       *NetworkConfig         `json:"network,omitempty"`
+		AgentPlugins  *AgentPluginConfig     `json:"agent_plugins,omitempty"`
+		ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
+		ShareTools    *bool                  `json:"share_tools,omitempty"`
+		SessionDBURL  string                 `json:"session_db_url,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -643,10 +700,12 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.Instruction = tmp.Instruction
 	a.HttpTools = tmp.HttpTools
 	a.SseTools = tmp.SseTools
+	a.StdioTools = tmp.StdioTools
 	a.RemoteAgents = tmp.RemoteAgents
 	a.Stream = tmp.Stream
 	a.Memory = memory
 	a.Network = tmp.Network
+	a.AgentPlugins = tmp.AgentPlugins
 	a.ContextConfig = tmp.ContextConfig
 	a.ShareTools = tmp.ShareTools
 	a.SessionDBURL = tmp.SessionDBURL

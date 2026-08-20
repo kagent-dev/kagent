@@ -77,6 +77,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.44.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0
 	go.opentelemetry.io/otel/sdk/log v0.20.0
+	golang.org/x/sync v0.22.0
 	google.golang.org/grpc v1.83.0
 	istio.io/istio v0.0.0-20260813103411-08b6897f9095
 	k8s.io/apiextensions-apiserver v0.36.3
@@ -194,7 +195,7 @@ require (
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/envoyproxy/go-control-plane/contrib v1.36.1-0.20260731231718-6c0b035a1609 // indirect
-	github.com/envoyproxy/go-control-plane/envoy v1.37.1-0.20260731231718-6c0b035a1609 // indirect
+	github.com/envoyproxy/go-control-plane/envoy v1.37.1-0.20260812071801-353463cc7248 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
@@ -446,7 +447,6 @@ require (
 	golang.org/x/mod v0.37.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
@@ -489,4 +489,4 @@ require (
 
 tool sigs.k8s.io/kube-api-linter/cmd/golangci-lint-kube-api-linter
 
-replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.11
+replace github.com/agent-substrate/substrate => github.com/kagent-dev/substrate v0.0.15

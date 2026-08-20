@@ -26,8 +26,17 @@ manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDef
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=api/config/crd/bases
 
 .PHONY: generate
-generate: controller-gen sqlc-generate ## Generate DeepCopy methods and sqlc query code.
+generate: controller-gen client-generate sqlc-generate ## Generate DeepCopy methods, Kubernetes clients, and sqlc query code.
 	$(CONTROLLER_GEN) object:headerFile="api/hack/boilerplate.go.txt" paths="./api/..."
+
+.PHONY: client-generate
+client-generate: ## Generate the typed v1alpha3 Kubernetes clientset.
+	go run k8s.io/code-generator/cmd/client-gen@v0.36.3 \
+		--clientset-name versioned \
+		--input-base github.com/kagent-dev/kagent/go \
+		--input api/v1alpha3 \
+		--output-dir api/clientset \
+		--output-pkg github.com/kagent-dev/kagent/go/api/clientset
 
 .PHONY: sqlc-generate
 sqlc-generate: sqlc ## Generate type-safe Go code from SQL queries.

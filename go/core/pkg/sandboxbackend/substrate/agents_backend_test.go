@@ -9,9 +9,8 @@ import (
 )
 
 // TestSessionDBURL covers the runtime dialect of the durable-dir session-store URL the
-// translator bakes into the rendered config (AgentConfig.session_db_url): python's SQLAlchemy
-// async engine needs the aiosqlite driver segment; the Go store accepts either form, and BYO
-// gets the python form.
+// translator bakes into the rendered config (AgentConfig.session_db_url): Python BYO agents may
+// need the aiosqlite driver segment, while the declarative Go runtime uses the native form.
 func TestSessionDBURL(t *testing.T) {
 	t.Parallel()
 
@@ -23,18 +22,10 @@ func TestSessionDBURL(t *testing.T) {
 		want string
 	}{
 		{
-			name: "python",
+			name: "declarative",
 			spec: v1alpha3.AgentSpec{
 				Type:        v1alpha3.AgentType_Declarative,
-				Declarative: &v1alpha3.DeclarativeAgentSpec{Runtime: v1alpha3.DeclarativeRuntime_Python},
-			},
-			want: "sqlite+aiosqlite:////data/sessions.db",
-		},
-		{
-			name: "go",
-			spec: v1alpha3.AgentSpec{
-				Type:        v1alpha3.AgentType_Declarative,
-				Declarative: &v1alpha3.DeclarativeAgentSpec{Runtime: v1alpha3.DeclarativeRuntime_Go},
+				Declarative: &v1alpha3.DeclarativeAgentSpec{},
 			},
 			want: "sqlite:////data/sessions.db",
 		},

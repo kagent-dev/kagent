@@ -46,7 +46,6 @@ AgentSpec
 ├── allowedNamespaces: AllowedNamespaces
 │
 ├── declarative: DeclarativeAgentSpec (if type=Declarative)
-│   ├── runtime: python | go
 │   ├── systemMessage: string (or Go template if promptTemplate set)
 │   ├── systemMessageFrom: ValueSource (alternative: load from ConfigMap/Secret)
 │   ├── promptTemplate: PromptTemplateSpec
@@ -157,6 +156,7 @@ ModelConfigSpec
 - Provider-specific config (e.g. `openAI`) must only be set when provider matches
 - `apiKeyPassthrough` and `apiKeySecret` are mutually exclusive
 - `apiKeyPassthrough` not allowed for Gemini/VertexAI providers
+- `apiKeyPassthrough` on a ModelConfig referenced via `memory.modelConfig` is only honored for openai, azure_openai, and foundry (other embedding providers ignore it)
 - TLS `caCertSecretRef` and `caCertSecretKey` must be set together
 
 ---
