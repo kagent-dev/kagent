@@ -43,7 +43,12 @@ func newStoreTaskQueryHandler(delegate a2asrv.RequestHandler, store TaskStore) *
 }
 
 func (h *storeTaskQueryHandler) GetTask(ctx context.Context, req *a2atype.GetTaskRequest) (*a2atype.Task, error) {
-	task, err := h.store.GetTask(ctx, string(req.ID), callerUserID(ctx))
+	userID := callerUserID(ctx)
+	if userID == "" {
+		return nil, a2atype.ErrTaskNotFound
+	}
+
+	task, err := h.store.GetTask(ctx, string(req.ID), userID)
 	if err != nil {
 		if errors.Is(err, dbpkg.ErrNotFound) {
 			return nil, a2atype.ErrTaskNotFound

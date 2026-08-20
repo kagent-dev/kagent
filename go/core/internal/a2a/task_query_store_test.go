@@ -205,8 +205,8 @@ func TestGetTask_AbsentIdentityReturnsNotFoundWithoutDelegation(t *testing.T) {
 	got, err := h.GetTask(context.Background(), req)
 	require.Nil(t, got)
 	require.ErrorIs(t, err, a2atype.ErrTaskNotFound)
-	require.Equal(t, []string{"runtime"}, store.getTaskIDs)
-	require.Equal(t, []string{""}, store.getTaskUsers)
+	require.Empty(t, store.getTaskIDs)
+	require.Empty(t, store.getTaskUsers)
 	require.Zero(t, delegate.calls)
 }
 
