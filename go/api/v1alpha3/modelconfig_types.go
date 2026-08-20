@@ -595,6 +595,7 @@ type ModelConfigStatus struct {
 	SecretHash string `json:"secretHash,omitempty"`
 }
 
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:categories=kagent,shortName=mc
 // +kubebuilder:subresource:status

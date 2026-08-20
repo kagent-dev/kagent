@@ -198,6 +198,7 @@ func TestMapError(t *testing.T) {
 		{"service already exists", serviceerrors.NewAlreadyExists("exists", nil), codes.AlreadyExists},
 		{"service failed precondition", serviceerrors.NewFailedPrecondition("precondition", nil), codes.FailedPrecondition},
 		{"service resource exhausted", serviceerrors.NewResourceExhausted("exhausted", nil), codes.ResourceExhausted},
+		{"service aborted", serviceerrors.NewAborted("aborted", nil), codes.Aborted},
 		{"service unavailable", serviceerrors.NewUnavailable("unavailable", nil), codes.Unavailable},
 		{"service internal", serviceerrors.NewInternal("internal detail", nil), codes.Internal},
 		{"unknown redacted", errors.New("database secret"), codes.Internal},

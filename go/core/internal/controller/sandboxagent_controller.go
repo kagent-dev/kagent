@@ -79,10 +79,8 @@ func (r *SandboxAgentController) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("get SandboxAgent: %w", err)
 	}
 
-	if r.substrateConfigured() {
-		if res, err := r.reconcileSubstrateSandboxAgent(ctx, &sa); err != nil || !res.IsZero() {
-			return res, err
-		}
+	if res, err := r.reconcileSubstrateSandboxAgent(ctx, &sa); err != nil || !res.IsZero() {
+		return res, err
 	}
 
 	if err := r.Reconciler.ReconcileKagentSandboxAgent(ctx, req); err != nil {
@@ -111,12 +109,10 @@ func (r *SandboxAgentController) SetupWithManager(mgr ctrl.Manager) error {
 	if err != nil {
 		return err
 	}
-	if r.substrateConfigured() {
-		build = build.Watches(
-			&atev1alpha1.ActorTemplate{},
-			handler.EnqueueRequestsFromMapFunc(r.enqueueSandboxAgentForSubstrateResource),
-		)
-	}
+	build = build.Watches(
+		&atev1alpha1.ActorTemplate{},
+		handler.EnqueueRequestsFromMapFunc(r.enqueueSandboxAgentForSubstrateResource),
+	)
 	build, err = addCommonAgentWatches(build, mgr, agentWatchFinders{
 		modelConfig:     r.sandboxAgentDependencyFinder("failed to list sandboxagents for ModelConfig watch", usesModelConfig),
 		remoteMCPServer: r.sandboxAgentDependencyFinder("failed to list sandboxagents for RemoteMCPServer watch", usesRemoteMCPServer),

@@ -20,12 +20,14 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/loadmemorytool"
 	"google.golang.org/adk/v2/tool/preloadmemorytool"
+	"google.golang.org/adk/v2/tool/skilltoolset"
+	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 	"google.golang.org/genai"
 )
 
 // Default model names used when not specified in configuration
 const (
-	DefaultGeminiModel    = "gemini-2.0-flash"
+	DefaultGeminiModel    = "gemini-2.5-flash"
 	DefaultAnthropicModel = "claude-sonnet-4-20250514"
 	DefaultOllamaModel    = "llama3.2"
 )
@@ -47,7 +49,29 @@ func CreateGoogleADKAgent(ctx context.Context, agentConfig *adk.AgentConfig, age
 	if stsPlugin != nil {
 		dynamicHeaderProvider = stsPlugin.HeaderProvider
 	}
-	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, propagateToken, dynamicHeaderProvider)
+	toolsets := mcp.CreateToolsets(ctx, agentConfig.HttpTools, agentConfig.SseTools, agentConfig.StdioTools, propagateToken, dynamicHeaderProvider)
+	skillsDirectory := strings.TrimSpace(os.Getenv("KAGENT_SKILLS_FOLDER"))
+	if skillsDirectory != "" {
+		skillsSource := skill.NewFileSystemSource(os.DirFS(skillsDirectory))
+		skills, err := skillsSource.ListFrontmatters(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load skills: %w", err)
+		}
+		if len(skills) > 0 {
+			executionTools, err := tools.NewSkillExecutionTools(skillsDirectory)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create skill execution tools: %w", err)
+			}
+			extraTools = append(extraTools, executionTools...)
+
+			skillsToolset, err := skilltoolset.New(ctx, skilltoolset.Config{Source: skillsSource})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create skill toolset: %w", err)
+			}
+			toolsets = append(toolsets, skillsToolset)
+			log.Info("Wired local skills", "skillsDirectory", skillsDirectory, "skillCount", len(skills), "executionToolCount", len(executionTools))
+		}
+	}
 	mcpAppToolNames := mcp.MCPAppToolNamesFromToolsets(toolsets)
 
 	var remoteAgentTools []tool.Tool
@@ -160,16 +184,6 @@ func buildAgentTools(agentConfig *adk.AgentConfig, remoteAgentTools, extraTools 
 	}
 	localTools = append(localTools, remoteAgentTools...)
 	localTools = append(localTools, extraTools...)
-
-	skillsDirectory := strings.TrimSpace(os.Getenv("KAGENT_SKILLS_FOLDER"))
-	if skillsDirectory != "" {
-		skillsTools, err := tools.NewSkillsTools(skillsDirectory)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create skills tools: %w", err)
-		}
-		localTools = append(localTools, skillsTools...)
-		log.Info("Wired local skills tools", "skillsDirectory", skillsDirectory, "toolCount", len(skillsTools))
-	}
 
 	askUserTool, err := tools.NewAskUserTool()
 	if err != nil {

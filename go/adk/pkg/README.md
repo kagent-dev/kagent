@@ -13,7 +13,7 @@ Shared types, interfaces, and implementations for the Kagent Go ADK.
 - **models/** - LLM model adapters (OpenAI, Anthropic) implementing Google ADK's `model.LLM`
 - **runner/** - Google ADK `runner.Config` creation from `AgentConfig`
 - **session/** - Session management, persistence, and ADK session service adapter
-- **skills/** - Agent skills discovery and shell execution
+- **tools/** - Agent tools, including skill filesystem and shell execution
 - **taskstore/** - A2A task persistence through the kagent controller API
 - **telemetry/** - OpenTelemetry tracing utilities
 

@@ -82,7 +82,7 @@ def static(
 ):
     app_cfg = KAgentConfig()
 
-    # On Agent Substrate the config is injected as secret-backed env vars rather than mounted
+    # On Agent Substrate the config is injected as env vars rather than mounted
     # files; materialize them into `filepath` before loading. No-op on the Deployment path.
     materialize_from_env(filepath)
 
