@@ -261,9 +261,7 @@ func TestBuildRemoteHitlStateAndHint(t *testing.T) {
 	}
 }
 
-// A sub-agent's ask_user pause should surface the actual question in the
-// hint, not just "requires approval for tool(s): ask_user" — a human can't
-// act on a tool name alone.
+// A sub-agent's ask_user pause should surface the question, not just the tool name.
 func TestBuildRemoteHitlStateAndHintAskUser(t *testing.T) {
 	task := &a2atype.Task{
 		ID: "child-task", ContextID: "child-context",
@@ -287,11 +285,8 @@ func TestBuildRemoteHitlStateAndHintAskUser(t *testing.T) {
 	}
 }
 
-// A two-level nested ask_user pause (grandchild agent, relayed through the
-// child) should also surface the real question. The nested HitlTool's Args
-// round-trip through JSON into a plain map[string]any, decoding "questions"
-// as []any rather than []map[string]any — the hint must read
-// AskUserRequest.Questions directly instead of re-deriving from those args.
+// A two-level nested ask_user pause should also surface the question, since
+// the nested HitlTool's Args round-trip through JSON and lose their type.
 func TestBuildRemoteHitlStateAndHintAskUserNested(t *testing.T) {
 	question := "What is the GitHub owner/org for the repo?"
 	task := &a2atype.Task{
