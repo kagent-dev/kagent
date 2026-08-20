@@ -10,6 +10,9 @@ memory:
 # -- Optional runtime specification for the agent. If not specified, it will default to "go". Supported runtimes include "python" and "go".
 runtime: ""
 
+# -- Additional environment variables set on the agent container.
+env: []
+
 imagePullSecrets: []
 
 resources:

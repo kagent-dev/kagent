@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -77,6 +78,21 @@ func withConnectTimeout(base http.RoundTripper, connectTimeout time.Duration) (h
 
 // BearerTokenKey is the context key for storing the bearer token for API key passthrough
 var BearerTokenKey = &contextKey{}
+
+// PassthroughToken returns the caller's bearer token from ctx when apiKeyPassthrough
+// is enabled, so every model/embedding provider resolves passthrough the same way.
+// Each caller wraps the returned token in its own SDK's request-option type, since
+// that varies by provider (e.g. Authorization vs Api-Key header).
+func PassthroughToken(ctx context.Context, apiKeyPassthrough bool) (token string, ok bool) {
+	if !apiKeyPassthrough {
+		return "", false
+	}
+	token, ok = ctx.Value(BearerTokenKey).(string)
+	if !ok || token == "" {
+		return "", false
+	}
+	return token, true
+}
 
 type contextKey struct{}
 

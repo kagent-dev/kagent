@@ -1,0 +1,36 @@
+suite: test agent environment configuration
+templates:
+  - charts/k8s-agent/templates/agent.yaml
+tests:
+  - it: should not set env by default
+    set:
+      k8s-agent.enabled: true
+    asserts:
+      - isNull:
+          path: spec.declarative.deployment.env
+
+  - it: should set env when provided
+    set:
+      k8s-agent.enabled: true
+      k8s-agent.env:
+        - name: LOG_LEVEL
+          value: debug
+        - name: TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: agent-secret
+              key: token
+    asserts:
+      - equal:
+          path: spec.declarative.deployment.env[0]
+          value:
+            name: LOG_LEVEL
+            value: debug
+      - equal:
+          path: spec.declarative.deployment.env[1]
+          value:
+            name: TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: agent-secret
+                key: token
