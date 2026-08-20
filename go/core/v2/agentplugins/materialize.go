@@ -86,7 +86,7 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 				return MCPConfig{}, fmt.Errorf("plugin %q skill %q: %w", manifest.Name, name, err)
 			}
 		}
-		mcp := loadMCP(ctx, pluginRoot, filepath.Join(paths.Data, manifest.Name))
+		mcp := loadMCP(ctx, manifest.Name, pluginRoot, filepath.Join(paths.Data, manifest.Name))
 		result.HTTP = append(result.HTTP, mcp.HTTP...)
 		result.SSE = append(result.SSE, mcp.SSE...)
 		result.Stdio = append(result.Stdio, mcp.Stdio...)
@@ -326,7 +326,7 @@ type mcpServer struct {
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
-func loadMCP(ctx context.Context, root, dataRoot string) MCPConfig {
+func loadMCP(ctx context.Context, pluginName, root, dataRoot string) MCPConfig {
 	raw, err := os.ReadFile(filepath.Join(root, "mcp.json"))
 	if os.IsNotExist(err) {
 		return MCPConfig{}
@@ -370,11 +370,11 @@ func loadMCP(ctx context.Context, root, dataRoot string) MCPConfig {
 		}
 		switch server.Type {
 		case "stdio":
-			result.Stdio = append(result.Stdio, adk.StdioMcpServerConfig{Command: server.Command, Args: server.Args, Env: server.Env, Dir: server.CWD})
+			result.Stdio = append(result.Stdio, adk.StdioMcpServerConfig{Name: pluginName + "/" + name, Command: server.Command, Args: server.Args, Env: server.Env, Dir: server.CWD})
 		case "streamable-http":
-			result.HTTP = append(result.HTTP, adk.HttpMcpServerConfig{Params: adk.StreamableHTTPConnectionParams{Url: server.URL, Headers: server.Headers}})
+			result.HTTP = append(result.HTTP, adk.HttpMcpServerConfig{Name: pluginName + "/" + name, Params: adk.StreamableHTTPConnectionParams{Url: server.URL, Headers: server.Headers}})
 		case "sse":
-			result.SSE = append(result.SSE, adk.SseMcpServerConfig{Params: adk.SseConnectionParams{Url: server.URL, Headers: server.Headers}})
+			result.SSE = append(result.SSE, adk.SseMcpServerConfig{Name: pluginName + "/" + name, Params: adk.SseConnectionParams{Url: server.URL, Headers: server.Headers}})
 		}
 	}
 	return result
