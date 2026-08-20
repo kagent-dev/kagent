@@ -33,9 +33,6 @@ def get_call_context_user_id(context: ServerCallContext | None) -> str | None:
 @contextmanager
 def scoped_request_user_id(user_id: str | None) -> Iterator[None]:
     """Temporarily expose a scoped user to controller HTTP request hooks."""
-    if not user_id:
-        yield
-        return
     token = _current_user_id.set(user_id)
     try:
         yield

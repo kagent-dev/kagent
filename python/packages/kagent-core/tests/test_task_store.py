@@ -48,7 +48,7 @@ async def test_get_restores_user_when_request_fails():
 
 
 @pytest.mark.asyncio
-async def test_get_without_scoped_user_preserves_ambient_user():
+async def test_get_without_scoped_user_clears_then_restores_ambient_user():
     observed_users: list[str | None] = []
 
     async def get_task(_: str):
@@ -64,7 +64,7 @@ async def test_get_without_scoped_user_preserves_ambient_user():
         result = await store.get("task-1", context=context)
 
         assert result is None
-        assert observed_users == ["ambient-user"]
+        assert observed_users == [None]
         assert get_request_user_id() == "ambient-user"
     finally:
         set_request_user_id(None)
