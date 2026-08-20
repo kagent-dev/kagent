@@ -14,7 +14,6 @@
 
 from unittest import mock
 
-import httpx
 import pytest
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
