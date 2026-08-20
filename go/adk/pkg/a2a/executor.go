@@ -101,17 +101,7 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 	}
 	// Set the authenticated user so downstream code picks up the real identity.
 	callCtx.User = a2asrv.NewAuthenticatedUser(vals[0], nil)
-	return ctx, nil, nil
-}
-
-// CallerUserID returns the authenticated user name from the a2asrv
-// CallContext attached to ctx, or "" if none is set.
-func CallerUserID(ctx context.Context) string {
-	callCtx, ok := a2asrv.CallContextFrom(ctx)
-	if !ok || callCtx.User == nil {
-		return ""
-	}
-	return callCtx.User.Name
+	return auth.WithUserID(ctx, vals[0]), nil, nil
 }
 
 // Execute applies kagent-specific request setup and delegates event generation
@@ -124,7 +114,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		}
 
 		userID := "A2A_USER_" + reqCtx.ContextID
-		if id := CallerUserID(ctx); id != "" {
+		if id := auth.UserIDFromContext(ctx); id != "" {
 			userID = id
 		}
 		sessionID := reqCtx.ContextID
