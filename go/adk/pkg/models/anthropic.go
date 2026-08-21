@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -11,7 +12,15 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/vertex"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/go-logr/logr"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
+
+// vertexAIScope is the OAuth2 scope required for Vertex AI. This mirrors the
+// scope used internally by anthropic-sdk-go's vertex.WithGoogleAuth when no
+// scopes are supplied, so behavior stays consistent when we resolve
+// credentials ourselves via composeVertexHTTPClient.
+const vertexAIScope = "https://www.googleapis.com/auth/cloud-platform"
 
 // anthropicPassthroughOpts returns a per-request option that sets the Anthropic API key
 // from the bearer token in ctx when APIKeyPassthrough is enabled. The Anthropic SDK sends
@@ -86,20 +95,63 @@ func newAnthropicModelFromConfig(config *AnthropicConfig, apiKey string, logger 
 	}, nil
 }
 
+// composeVertexHTTPClient returns an *http.Client that layers OAuth2 token
+// injection on top of the caller-supplied base transport (custom TLS, custom
+// headers, connect timeout, etc.). It preserves base.Timeout so the request
+// timeout from TransportConfig is honored.
+//
+// The composed client is what makes it safe to hand a fully-customized
+// *http.Client to the Anthropic SDK for Vertex: without this, either the
+// Vertex option would wipe our custom transport stack, or a naive
+// WithHTTPClient would wipe the SDK's OAuth2-wrapped client.
+func composeVertexHTTPClient(base *http.Client, tokenSource oauth2.TokenSource) *http.Client {
+	baseTransport := base.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	return &http.Client{
+		Timeout: base.Timeout,
+		Transport: &oauth2.Transport{
+			Base:   baseTransport,
+			Source: tokenSource,
+		},
+	}
+}
+
 // NewAnthropicVertexAIModelWithLogger creates an Anthropic model that authenticates
 // via Google Cloud Vertex AI using Application Default Credentials (ADC).
 // This is used for the GeminiAnthropic / AnthropicVertexAI provider type.
+//
+// We resolve ADC ourselves and compose a single *http.Client carrying both the
+// caller's TransportConfig (TLS, headers, timeout) and the Google OAuth2 token.
+// Ordering matters: vertex.WithCredentials must come before option.WithHTTPClient
+// so the Vertex endpoint setup is applied while our composed client remains the
+// one used on the wire (the last WithHTTPClient wins).
 func NewAnthropicVertexAIModelWithLogger(ctx context.Context, config *AnthropicConfig, region, projectID string, logger logr.Logger) (*AnthropicModel, error) {
-	opts := []option.RequestOption{
-		vertex.WithGoogleAuth(ctx, region, projectID),
-	}
-
-	// Create HTTP client with timeout, custom headers, TLS, and passthrough
+	// Build the caller's HTTP client (TLS, headers, timeout).
 	httpClient, err := BuildHTTPClient(config.TransportConfig)
 	if err != nil {
 		return nil, err
 	}
-	opts = append(opts, option.WithHTTPClient(httpClient))
+
+	// Resolve Google Application Default Credentials ourselves so we can
+	// wrap the token source into our transport stack. This mirrors what
+	// vertex.WithGoogleAuth does internally, but avoids its panic-on-error
+	// behavior and avoids the double credential lookup that would happen
+	// if we let WithGoogleAuth build its own HTTP client only to discard it.
+	creds, err := google.FindDefaultCredentials(ctx, vertexAIScope)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find Google default credentials for Vertex AI: %w", err)
+	}
+
+	composedClient := composeVertexHTTPClient(httpClient, creds.TokenSource)
+
+	opts := []option.RequestOption{
+		// Configure the Vertex AI endpoint first.
+		vertex.WithCredentials(ctx, region, projectID, creds),
+		// Apply our composed client last so it is the one used on the wire.
+		option.WithHTTPClient(composedClient),
+	}
 
 	client := anthropic.NewClient(opts...)
 	logger.Info("Initialized Anthropic Vertex AI model", "model", config.Model, "region", region, "project", projectID)
