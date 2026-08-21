@@ -156,10 +156,6 @@ spec:
               value: {{ .Values.controller.substrate.defaultWorkerPool.namespace | default (include "kagent.namespace" .) | quote }}
             - name: SUBSTRATE_DEFAULT_WORKERPOOL_NAME
               value: {{ .Values.controller.substrate.defaultWorkerPool.name | default (ternary .Values.substrateWorkerPool.name "" .Values.substrateWorkerPool.create) | quote }}
-            {{- with .Values.controller.substrate.pauseImage }}
-            - name: SUBSTRATE_PAUSE_IMAGE
-              value: {{ . | quote }}
-            {{- end }}
             {{- end }}
           envFrom:
             - configMapRef:

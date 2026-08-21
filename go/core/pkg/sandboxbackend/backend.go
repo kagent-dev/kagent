@@ -14,6 +14,7 @@ import (
 type BuildInput struct {
 	Agent        *v1alpha3.SandboxAgent
 	PodTemplate  corev1.PodTemplateSpec
+	ConfigSecret *corev1.Secret
 	WorkloadName string
 	ExtraLabels  map[string]string
 }
