@@ -78,8 +78,9 @@ func TestAgentInstanceInteraction(t *testing.T) {
 		t.Fatalf("created AgentInstance state = %s, want READY", instance.GetState())
 	}
 
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?"))
 	request, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{
-		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?")),
+		Message: message,
 	})
 	if err != nil {
 		t.Fatalf("build A2A request: %v", err)
@@ -88,7 +89,8 @@ func TestAgentInstanceInteraction(t *testing.T) {
 		"x-kagent-agent-instance-namespace", "kagent",
 		"x-kagent-agent-instance-id", instance.GetId(),
 	)
-	response, err := a2apb.NewA2AServiceClient(conn).SendMessage(interactionCtx, request)
+	a2aClient := a2apb.NewA2AServiceClient(conn)
+	response, err := a2aClient.SendMessage(interactionCtx, request)
 	if err != nil {
 		t.Fatalf("send A2A message: %v", err)
 	}
@@ -105,6 +107,61 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	}
 	if text := taskText(task); !strings.Contains(text, "The answer is 4.") {
 		t.Fatalf("A2A response text = %q, want mock LLM response", text)
+	}
+
+	getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: task.ID})
+	if err != nil {
+		t.Fatalf("build GetTask request: %v", err)
+	}
+	gotProto, err := a2aClient.GetTask(interactionCtx, getRequest)
+	if err != nil {
+		t.Fatalf("get persisted task: %v", err)
+	}
+	got, err := pbconv.FromProtoTask(gotProto)
+	if err != nil {
+		t.Fatalf("decode persisted task: %v", err)
+	}
+	if got.ID != task.ID || got.ContextID != instance.GetId() || got.Status.State != a2atype.TaskStateCompleted {
+		t.Fatalf("persisted task = %#v, want completed task %s in context %s", got, task.ID, instance.GetId())
+	}
+
+	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: instance.GetId()})
+	if err != nil {
+		t.Fatalf("build ListTasks request: %v", err)
+	}
+	listedProto, err := a2aClient.ListTasks(interactionCtx, listRequest)
+	if err != nil {
+		t.Fatalf("list persisted tasks: %v", err)
+	}
+	listed, err := pbconv.FromProtoListTasksResponse(listedProto)
+	if err != nil {
+		t.Fatalf("decode listed tasks: %v", err)
+	}
+	if listed.TotalSize != 1 || len(listed.Tasks) != 1 || listed.Tasks[0].ID != task.ID || listed.Tasks[0].ContextID != instance.GetId() {
+		t.Fatalf("listed tasks = %#v, want only task %s in context %s", listed, task.ID, instance.GetId())
+	}
+
+	replayedProto, err := a2aClient.SendMessage(interactionCtx, request)
+	if err != nil {
+		t.Fatalf("replay A2A message: %v", err)
+	}
+	replayed, err := pbconv.FromProtoSendMessageResponse(replayedProto)
+	if err != nil {
+		t.Fatalf("decode replayed response: %v", err)
+	}
+	replayedTask, ok := replayed.(*a2atype.Task)
+	if !ok || replayedTask.ID != task.ID {
+		t.Fatalf("replayed response = %#v, want task %s", replayed, task.ID)
+	}
+
+	conflictingMessage := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 3+3?"))
+	conflictingMessage.ID = message.ID
+	conflictingRequest, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: conflictingMessage})
+	if err != nil {
+		t.Fatalf("build conflicting A2A request: %v", err)
+	}
+	if _, err := a2aClient.SendMessage(interactionCtx, conflictingRequest); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("conflicting message error = %v, want %s", err, codes.InvalidArgument)
 	}
 }
 
