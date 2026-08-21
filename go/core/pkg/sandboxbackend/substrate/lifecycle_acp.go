@@ -110,6 +110,10 @@ func (p *Lifecycle) buildAcpAgentActorStartup(ctx context.Context, ah *v1alpha3.
 	containerEnv = append(containerEnv, ah.Spec.Env...)
 
 	script = buildAcpStartupScript(prelude, spec.ChildCommand, runGateway)
+	containerEnv, err = resolvePodEnv(ctx, p.Client, ah.Namespace, containerEnv, nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("resolve actor environment: %w", err)
+	}
 	return script, actorTemplateEnvFromPodEnv(containerEnv), nil
 }
 

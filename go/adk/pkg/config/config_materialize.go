@@ -11,11 +11,9 @@ import (
 const (
 	envAgentConfigJSON = "KAGENT_CONFIG_JSON"
 	envAgentCardJSON   = "KAGENT_AGENT_CARD_JSON"
-	envSRTSettingsJSON = "KAGENT_SRT_SETTINGS_JSON"
 	envKagentToken     = "KAGENT_TOKEN"
 	kagentTokenDir     = "/var/run/secrets/tokens"
 	kagentTokenFile    = "kagent-token"
-	srtSettingsFile    = "srt-settings.json"
 )
 
 // MaterializeFromEnv writes Agent Substrate environment variables to
@@ -26,9 +24,6 @@ func MaterializeFromEnv(configDir string) error {
 	}
 	if err := materializeEnvToFile(envAgentCardJSON, filepath.Join(configDir, "agent-card.json")); err != nil {
 		return fmt.Errorf("materialize agent card: %w", err)
-	}
-	if err := materializeEnvToFile(envSRTSettingsJSON, filepath.Join(configDir, srtSettingsFile)); err != nil {
-		return fmt.Errorf("materialize srt settings: %w", err)
 	}
 	if err := materializeEnvToFile(envKagentToken, filepath.Join(kagentTokenDir, kagentTokenFile)); err != nil {
 		return fmt.Errorf("materialize kagent token: %w", err)

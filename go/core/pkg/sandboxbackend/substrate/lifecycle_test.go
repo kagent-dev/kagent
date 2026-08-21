@@ -153,7 +153,6 @@ func TestReconcileActorTemplateRecreatesOnSpecDrift(t *testing.T) {
 	key := types.NamespacedName{Namespace: "kagent", Name: "claw"}
 	baseSpec := func(image string) atev1alpha1.ActorTemplateSpec {
 		return atev1alpha1.ActorTemplateSpec{
-			PauseImage:   "registry.example/pause@sha256:" + "a0",
 			SandboxClass: atev1alpha1.SandboxClassGvisor,
 			Containers: []atev1alpha1.Container{{
 				Name:  "openclaw",
@@ -212,7 +211,6 @@ func TestReconcileActorTemplatePatchesAnnotationsWhenSpecMatches(t *testing.T) {
 
 	key := types.NamespacedName{Namespace: "kagent", Name: "agent-openai"}
 	spec := atev1alpha1.ActorTemplateSpec{
-		PauseImage:   "registry.example/pause@sha256:a0",
 		SandboxClass: atev1alpha1.SandboxClassGvisor,
 		Containers: []atev1alpha1.Container{{
 			Name:  "kagent",
@@ -278,7 +276,6 @@ func TestReconcileActorTemplatePendingDuringGoldenActorDelete(t *testing.T) {
 	newImage := "registry.example/acp@sha256:2222222222222222222222222222222222222222222222222222222222222222"
 	spec := func(image string) atev1alpha1.ActorTemplateSpec {
 		return atev1alpha1.ActorTemplateSpec{
-			PauseImage:   "registry.example/pause@sha256:" + "a0",
 			SandboxClass: atev1alpha1.SandboxClassGvisor,
 			Containers: []atev1alpha1.Container{{
 				Name:  "openclaw",

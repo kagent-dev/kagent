@@ -127,6 +127,7 @@ type AgentTemplateSkill struct {
 
 // GitArtifact identifies immutable content at a full Git commit ID.
 type GitArtifact struct {
+	// +kubebuilder:validation:Pattern=`^https?://[^[:space:]]+$`
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	URL string `json:"url"`
@@ -137,6 +138,10 @@ type GitArtifact struct {
 
 // S3Object identifies one immutable S3 object version.
 type S3Object struct {
+	// Endpoint is the HTTP(S) endpoint of an AWS or S3-compatible service.
+	// +kubebuilder:validation:Pattern=`^https?://[^[:space:]]+$`
+	// +required
+	Endpoint string `json:"endpoint"`
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	Bucket string `json:"bucket"`
@@ -146,6 +151,9 @@ type S3Object struct {
 	// +kubebuilder:validation:MinLength=1
 	// +required
 	VersionID string `json:"versionId"`
+	// Region is used for request signing when required by the service.
+	// +optional
+	Region string `json:"region,omitempty"`
 }
 
 // BucketArtifact selects the supported object-store provider.
