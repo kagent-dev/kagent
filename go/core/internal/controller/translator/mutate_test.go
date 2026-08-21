@@ -134,7 +134,7 @@ func TestMutateFuncFor_Deployment(t *testing.T) {
 	replicas := int32(3)
 	existing := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
-			Replicas:        int32Ptr(1),
+			Replicas:        new(int32(1)),
 			MinReadySeconds: 1,
 			Paused:          false,
 			Template: corev1.PodTemplateSpec{
@@ -165,7 +165,7 @@ func TestMutateFuncFor_Deployment(t *testing.T) {
 
 func TestMutateFuncFor_Deployment_NilReplicasPreservesExisting(t *testing.T) {
 	existing := &appsv1.Deployment{
-		Spec: appsv1.DeploymentSpec{Replicas: int32Ptr(7)},
+		Spec: appsv1.DeploymentSpec{Replicas: new(int32(7))},
 	}
 	desired := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{Replicas: nil},
@@ -177,5 +177,3 @@ func TestMutateFuncFor_Deployment_NilReplicasPreservesExisting(t *testing.T) {
 	require.NotNil(t, existing.Spec.Replicas)
 	assert.Equal(t, int32(7), *existing.Spec.Replicas, "replicas should be preserved (e.g. for HPA) when desired is nil")
 }
-
-func int32Ptr(i int32) *int32 { return &i }

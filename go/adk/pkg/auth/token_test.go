@@ -62,7 +62,7 @@ func TestKAgentTokenService_Stop_SafeMultipleCalls(t *testing.T) {
 
 func TestKAgentTokenService_Start_MissingTokenFile(t *testing.T) {
 	svc := NewKAgentTokenService("my-agent")
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	err := svc.Start(ctx)
