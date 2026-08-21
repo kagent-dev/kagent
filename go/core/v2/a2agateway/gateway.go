@@ -424,27 +424,6 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 	}
 	defer client.Destroy()
 
-	runtimeTask, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: active.ID})
-	if errors.Is(err, a2atype.ErrTaskNotFound) {
-		// The request that created the public task may not have reached the
-		// runtime yet. Without a dispatch fence, absence is not safe to reclaim.
-		return dbpkg.ErrAgentInstanceTaskConflict
-	}
-	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to query active runtime task", "task", active.ID)
-		return dbpkg.ErrAgentInstanceTaskConflict
-	}
-	if runtimeTask == nil {
-		return dbpkg.ErrAgentInstanceTaskConflict
-	}
-	if err := validateTaskInfo(runtimeTask, active); err != nil {
-		ctrllog.FromContext(ctx).Error(err, "runtime returned invalid active task", "task", active.ID)
-		return dbpkg.ErrAgentInstanceTaskConflict
-	}
-	if runtimeTask.Status.State.Terminal() {
-		return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), runtimeTask, runtimeTask)
-	}
-
 	// An active execution immediately yields its current event. TaskNotFound
 	// means no execution remains, so only the first result is needed.
 	for event, eventErr := range client.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: active.ID}) {
