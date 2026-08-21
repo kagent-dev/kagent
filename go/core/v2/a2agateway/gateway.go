@@ -42,7 +42,7 @@ type instanceStore interface {
 	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
 	GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error)
-	ReclaimAgentInstanceTask(context.Context, string, string) (bool, error)
+	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error)
@@ -426,7 +426,9 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 
 	runtimeTask, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: active.ID})
 	if errors.Is(err, a2atype.ErrTaskNotFound) {
-		return g.reclaimTask(ctx, instance.GetId(), active.ID)
+		// The request that created the public task may not have reached the
+		// runtime yet. Without a dispatch fence, absence is not safe to reclaim.
+		return dbpkg.ErrAgentInstanceTaskConflict
 	}
 	if err != nil {
 		ctrllog.FromContext(ctx).Error(err, "failed to query active runtime task", "task", active.ID)
@@ -443,9 +445,22 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 		return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), runtimeTask, runtimeTask)
 	}
 
+	// An active execution immediately yields its current event. TaskNotFound
+	// means no execution remains, so only the first result is needed.
 	for event, eventErr := range client.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: active.ID}) {
 		if errors.Is(eventErr, a2atype.ErrTaskNotFound) {
-			return g.reclaimTask(ctx, instance.GetId(), active.ID)
+			latest, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: active.ID})
+			if err != nil || latest == nil {
+				return dbpkg.ErrAgentInstanceTaskConflict
+			}
+			if err := validateTaskInfo(latest, active); err != nil {
+				ctrllog.FromContext(ctx).Error(err, "runtime returned invalid active task", "task", active.ID)
+				return dbpkg.ErrAgentInstanceTaskConflict
+			}
+			if latest.Status.State.Terminal() {
+				return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), latest, latest)
+			}
+			return g.interruptTask(ctx, instance.GetId(), active.ID)
 		}
 		if eventErr != nil {
 			ctrllog.FromContext(ctx).Error(eventErr, "failed to query active runtime execution", "task", active.ID)
@@ -463,12 +478,12 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 	return dbpkg.ErrAgentInstanceTaskConflict
 }
 
-func (g *Gateway) reclaimTask(ctx context.Context, instanceID string, taskID a2atype.TaskID) error {
-	reclaimed, err := g.store.ReclaimAgentInstanceTask(ctx, instanceID, string(taskID))
+func (g *Gateway) interruptTask(ctx context.Context, instanceID string, taskID a2atype.TaskID) error {
+	interrupted, err := g.store.InterruptActiveAgentInstanceTask(ctx, instanceID, string(taskID))
 	if err != nil {
 		return err
 	}
-	if !reclaimed {
+	if !interrupted {
 		return dbpkg.ErrAgentInstanceTaskConflict
 	}
 	return nil

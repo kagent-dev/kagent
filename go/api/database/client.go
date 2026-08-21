@@ -131,7 +131,9 @@ type Client interface {
 	// CreateAgentInstanceTask reserves the instance's single active-task slot.
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2a.Task) (*a2a.Task, bool, error)
 	GetActiveAgentInstanceTask(context.Context, string) (*a2a.Task, error)
-	ReclaimAgentInstanceTask(context.Context, string, string) (bool, error)
+	// InterruptActiveAgentInstanceTask fails the expected task and records an
+	// interruption. It returns false if that task is no longer active.
+	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2a.Task, a2a.Event) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2a.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)

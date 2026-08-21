@@ -44,8 +44,8 @@ type gatewayTestStore struct {
 	taskErr               error
 	replay                *a2atype.Task
 	active                *a2atype.Task
-	reclaimResult         bool
-	reclaimed             bool
+	interruptResult       bool
+	interrupted           bool
 	stored                []a2atype.Event
 	namespace, id, userID string
 }
@@ -94,12 +94,12 @@ func (s *gatewayTestStore) GetActiveAgentInstanceTask(context.Context, string) (
 	return s.active, nil
 }
 
-func (s *gatewayTestStore) ReclaimAgentInstanceTask(_ context.Context, _ string, taskID string) (bool, error) {
-	if !s.reclaimResult || s.active == nil || string(s.active.ID) != taskID {
+func (s *gatewayTestStore) InterruptActiveAgentInstanceTask(_ context.Context, _ string, taskID string) (bool, error) {
+	if !s.interruptResult || s.active == nil || string(s.active.ID) != taskID {
 		return false, nil
 	}
 	s.active = nil
-	s.reclaimed = true
+	s.interrupted = true
 	return true, nil
 }
 
@@ -138,11 +138,18 @@ type gatewayTestRuntime struct {
 	destroyed      bool
 	task           *a2atype.Task
 	taskErr        error
+	taskResults    []*a2atype.Task
+	getTaskCalls   int
 	subscribeEvent a2atype.Event
 	subscribeErr   error
 }
 
 func (r *gatewayTestRuntime) GetTask(context.Context, a2aclient.ServiceParams, *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+	if r.getTaskCalls < len(r.taskResults) {
+		call := r.getTaskCalls
+		r.getTaskCalls++
+		return r.taskResults[call], nil
+	}
 	return r.task, r.taskErr
 }
 
@@ -417,29 +424,51 @@ func TestGatewayKeepsLiveRuntimeTaskBusy(t *testing.T) {
 	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
 		t.Fatal("SendMessage() accepted a second active task")
 	}
-	if dialer.instance == nil || runtime.sent || store.reclaimed {
-		t.Fatalf("live task reconciliation: dialed=%v sent=%v reclaimed=%v", dialer.instance != nil, runtime.sent, store.reclaimed)
+	if dialer.instance == nil || runtime.sent || store.interrupted {
+		t.Fatalf("live task reconciliation: dialed=%v sent=%v interrupted=%v", dialer.instance != nil, runtime.sent, store.interrupted)
 	}
 }
 
-func TestGatewayReclaimsTaskWithoutRuntimeExecution(t *testing.T) {
-	for _, missing := range []string{"task", "execution"} {
-		t.Run(missing, func(t *testing.T) {
-			active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
-			runtime := &gatewayTestRuntime{task: active, subscribeErr: a2atype.ErrTaskNotFound}
-			if missing == "task" {
-				runtime.task, runtime.taskErr = nil, a2atype.ErrTaskNotFound
-			}
-			store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, reclaimResult: true}
-			gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+func TestGatewayInterruptsTaskWithoutRuntimeExecution(t *testing.T) {
+	active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	runtime := &gatewayTestRuntime{taskResults: []*a2atype.Task{active, active}, subscribeErr: a2atype.ErrTaskNotFound}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, interruptResult: true}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 
-			if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err != nil {
-				t.Fatal(err)
-			}
-			if !store.reclaimed || !runtime.sent {
-				t.Fatalf("orphan reconciliation: reclaimed=%v sent=%v", store.reclaimed, runtime.sent)
-			}
-		})
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err != nil {
+		t.Fatal(err)
+	}
+	if !store.interrupted || !runtime.sent || runtime.getTaskCalls != 2 {
+		t.Fatalf("orphan reconciliation: interrupted=%v sent=%v GetTask calls=%d", store.interrupted, runtime.sent, runtime.getTaskCalls)
+	}
+}
+
+func TestGatewayDoesNotInterruptTaskBeforeRuntimeDispatch(t *testing.T) {
+	active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateSubmitted}}
+	runtime := &gatewayTestRuntime{taskErr: a2atype.ErrTaskNotFound}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, interruptResult: true}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
+		t.Fatal("SendMessage() replaced a task that had not reached the runtime")
+	}
+	if store.interrupted || runtime.sent {
+		t.Fatalf("pre-dispatch task: interrupted=%v sent replacement=%v", store.interrupted, runtime.sent)
+	}
+}
+
+func TestGatewayPersistsCompletionAfterExecutionDisappears(t *testing.T) {
+	active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	terminal := &a2atype.Task{ID: active.ID, ContextID: active.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+	runtime := &gatewayTestRuntime{taskResults: []*a2atype.Task{active, terminal}, subscribeErr: a2atype.ErrTaskNotFound}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, interruptResult: true}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err != nil {
+		t.Fatal(err)
+	}
+	if store.interrupted || len(store.stored) < 2 || store.stored[0] != terminal || !runtime.sent {
+		t.Fatalf("completion reconciliation: interrupted=%v stored=%#v sent=%v", store.interrupted, store.stored, runtime.sent)
 	}
 }
 
@@ -458,16 +487,16 @@ func TestGatewayPersistsTerminalRuntimeTaskBeforeRetry(t *testing.T) {
 	}
 }
 
-func TestGatewayDoesNotReclaimWhenRuntimeIsUnavailable(t *testing.T) {
+func TestGatewayDoesNotInterruptWhenRuntimeIsUnavailable(t *testing.T) {
 	active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
-	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, reclaimResult: true}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, interruptResult: true}
 	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{err: errors.New("runtime unavailable")}, gatewayTestURL)
 
 	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
 		t.Fatal("SendMessage() accepted a second task while runtime state was unknown")
 	}
-	if store.reclaimed {
-		t.Fatal("unavailable runtime task was reclaimed")
+	if store.interrupted {
+		t.Fatal("unavailable runtime task was interrupted")
 	}
 }
 

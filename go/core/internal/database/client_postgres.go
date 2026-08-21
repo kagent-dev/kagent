@@ -779,10 +779,10 @@ func (c *postgresClient) GetActiveAgentInstanceTask(ctx context.Context, instanc
 	return unmarshalAgentInstanceTask(row.Data)
 }
 
-// ReclaimAgentInstanceTask atomically fails taskID only if it is still the
+// InterruptActiveAgentInstanceTask atomically fails taskID only if it is still the
 // instance's active task.
-func (c *postgresClient) ReclaimAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
-	reclaimed := false
+func (c *postgresClient) InterruptActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
+	interruptedTask := false
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		row, err := q.LockActiveAgentInstanceTask(ctx, instanceID)
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -810,7 +810,7 @@ func (c *postgresClient) ReclaimAgentInstanceTask(ctx context.Context, instanceI
 			InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
 			StatusTimestamp: task.Status.Timestamp, Data: data,
 		}); err != nil {
-			return fmt.Errorf("reclaim AgentInstance task %s: %w", task.ID, err)
+			return fmt.Errorf("interrupt AgentInstance task %s: %w", task.ID, err)
 		}
 		eventData, err := marshalAgentInstanceTaskEvent(interrupted)
 		if err != nil {
@@ -821,13 +821,13 @@ func (c *postgresClient) ReclaimAgentInstanceTask(ctx context.Context, instanceI
 		}); err != nil {
 			return fmt.Errorf("record AgentInstance task interruption: %w", err)
 		}
-		reclaimed = true
+		interruptedTask = true
 		return nil
 	})
 	if err != nil {
 		return false, err
 	}
-	return reclaimed, nil
+	return interruptedTask, nil
 }
 
 func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event) error {

@@ -243,7 +243,7 @@ func newAgentInstanceTask(id, messageID string) *a2a.Task {
 	}
 }
 
-func TestReclaimAgentInstanceTaskIsAtomicAndReusesTheSlot(t *testing.T) {
+func TestInterruptActiveAgentInstanceTaskRequiresMatchingTaskAndReusesSlot(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
@@ -263,27 +263,27 @@ func TestReclaimAgentInstanceTaskIsAtomicAndReusesTheSlot(t *testing.T) {
 	if err != nil || active.ID != interrupted.ID {
 		t.Fatalf("GetActiveAgentInstanceTask() = %#v, %v", active, err)
 	}
-	if reclaimed, err := client.ReclaimAgentInstanceTask(ctx, "instance-1", "different-task"); err != nil || reclaimed {
-		t.Fatalf("ReclaimAgentInstanceTask(wrong task) = %v, %v", reclaimed, err)
+	if interruptedTask, err := client.InterruptActiveAgentInstanceTask(ctx, "instance-1", "different-task"); err != nil || interruptedTask {
+		t.Fatalf("InterruptActiveAgentInstanceTask(wrong task) = %v, %v", interruptedTask, err)
 	}
-	if reclaimed, err := client.ReclaimAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || !reclaimed {
-		t.Fatalf("ReclaimAgentInstanceTask() = %v, %v", reclaimed, err)
+	if interruptedTask, err := client.InterruptActiveAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || !interruptedTask {
+		t.Fatalf("InterruptActiveAgentInstanceTask() = %v, %v", interruptedTask, err)
 	}
 
 	replacement := newAgentInstanceTask("task-2", "message-2")
 	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"), replacement)
 	if err != nil || !created || stored.ID != "task-2" {
-		t.Fatalf("send after reclaim = %#v, created %v, error %v", stored, created, err)
+		t.Fatalf("send after interruption = %#v, created %v, error %v", stored, created, err)
 	}
-	if reclaimed, err := client.ReclaimAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || reclaimed {
-		t.Fatalf("ReclaimAgentInstanceTask(replaced task) = %v, %v", reclaimed, err)
+	if interruptedTask, err := client.InterruptActiveAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || interruptedTask {
+		t.Fatalf("InterruptActiveAgentInstanceTask(replaced task) = %v, %v", interruptedTask, err)
 	}
 	replacement.Status.State = a2a.TaskStateCompleted
 	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", replacement, replacement); err != nil {
 		t.Fatal(err)
 	}
-	if reclaimed, err := client.ReclaimAgentInstanceTask(ctx, "instance-1", "task-2"); err != nil || reclaimed {
-		t.Fatalf("ReclaimAgentInstanceTask(terminal task) = %v, %v", reclaimed, err)
+	if interruptedTask, err := client.InterruptActiveAgentInstanceTask(ctx, "instance-1", "task-2"); err != nil || interruptedTask {
+		t.Fatalf("InterruptActiveAgentInstanceTask(terminal task) = %v, %v", interruptedTask, err)
 	}
 
 	terminated, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
