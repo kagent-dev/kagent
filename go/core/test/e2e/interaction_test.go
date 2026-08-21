@@ -3,11 +3,15 @@ package e2e_test
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	goruntime "runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,6 +41,175 @@ var interactionMocks embed.FS
 // TestAgentInstanceInteraction verifies the complete public interaction path:
 // gateway routing, Substrate Actor transport, Go ADK execution, and the model call.
 func TestAgentInstanceInteraction(t *testing.T) {
+	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
+	_, _, task := fixture.send(t, "What is 2+2?")
+	if task.Status.State != a2atype.TaskStateCompleted {
+		t.Fatalf("A2A task state = %s, want COMPLETED", task.Status.State)
+	}
+	if text := taskText(task); !strings.Contains(text, "The answer is 4.") {
+		t.Fatalf("A2A response text = %q, want mock LLM response", text)
+	}
+}
+
+func TestAgentInstanceTaskPersistenceAndIdempotency(t *testing.T) {
+	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
+	message, request, task := fixture.send(t, "What is 2+2?")
+
+	getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: task.ID})
+	if err != nil {
+		t.Fatalf("build GetTask request: %v", err)
+	}
+	gotProto, err := fixture.client.GetTask(fixture.ctx, getRequest)
+	if err != nil {
+		t.Fatalf("get persisted task: %v", err)
+	}
+	got, err := pbconv.FromProtoTask(gotProto)
+	if err != nil {
+		t.Fatalf("decode persisted task: %v", err)
+	}
+	if got.ID != task.ID || got.ContextID != fixture.instanceID || got.Status.State != a2atype.TaskStateCompleted {
+		t.Fatalf("persisted task = %#v, want completed task %s in context %s", got, task.ID, fixture.instanceID)
+	}
+
+	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.instanceID})
+	if err != nil {
+		t.Fatalf("build ListTasks request: %v", err)
+	}
+	listedProto, err := fixture.client.ListTasks(fixture.ctx, listRequest)
+	if err != nil {
+		t.Fatalf("list persisted tasks: %v", err)
+	}
+	listed, err := pbconv.FromProtoListTasksResponse(listedProto)
+	if err != nil {
+		t.Fatalf("decode listed tasks: %v", err)
+	}
+	if listed.TotalSize != 1 || len(listed.Tasks) != 1 || listed.Tasks[0].ID != task.ID || listed.Tasks[0].ContextID != fixture.instanceID {
+		t.Fatalf("listed tasks = %#v, want only task %s in context %s", listed, task.ID, fixture.instanceID)
+	}
+
+	replayedProto, err := fixture.client.SendMessage(fixture.ctx, request)
+	if err != nil {
+		t.Fatalf("replay A2A message: %v", err)
+	}
+	replayed, err := pbconv.FromProtoSendMessageResponse(replayedProto)
+	if err != nil {
+		t.Fatalf("decode replayed response: %v", err)
+	}
+	replayedTask, ok := replayed.(*a2atype.Task)
+	if !ok || replayedTask.ID != task.ID {
+		t.Fatalf("replayed response = %#v, want task %s", replayed, task.ID)
+	}
+
+	conflictingMessage := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 3+3?"))
+	conflictingMessage.ID = message.ID
+	conflictingRequest, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: conflictingMessage})
+	if err != nil {
+		t.Fatalf("build conflicting A2A request: %v", err)
+	}
+	if _, err := fixture.client.SendMessage(fixture.ctx, conflictingRequest); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("conflicting message error = %v, want %s", err, codes.InvalidArgument)
+	}
+}
+
+func TestAgentInstanceActiveTask(t *testing.T) {
+	target := interactionTarget(t)
+	modelURL, started := startBlockingInteractionMock(t)
+	fixture := newInteractionFixture(t, target, modelURL)
+	_, request := newMessageRequest(t, "Wait for cancellation")
+	stream, err := fixture.client.SendStreamingMessage(fixture.ctx, request)
+	if err != nil {
+		t.Fatalf("start streaming A2A message: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Minute):
+		t.Fatal("runtime did not call the blocking model")
+	}
+
+	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: fixture.instanceID})
+	if err != nil {
+		t.Fatalf("build ListTasks request: %v", err)
+	}
+	listedProto, err := fixture.client.ListTasks(fixture.ctx, listRequest)
+	if err != nil {
+		t.Fatalf("list active tasks: %v", err)
+	}
+	listed, err := pbconv.FromProtoListTasksResponse(listedProto)
+	if err != nil {
+		t.Fatalf("decode active tasks: %v", err)
+	}
+	if len(listed.Tasks) != 1 || listed.Tasks[0].Status.State.Terminal() {
+		t.Fatalf("active tasks = %#v, want one non-terminal task", listed.Tasks)
+	}
+	task := listed.Tasks[0]
+
+	_, busyRequest := newMessageRequest(t, "Second concurrent request")
+	if _, err := fixture.client.SendMessage(fixture.ctx, busyRequest); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("concurrent message error = %v, want %s", err, codes.FailedPrecondition)
+	}
+
+	subscribeRequest, err := pbconv.ToProtoSubscribeToTaskRequest(&a2atype.SubscribeToTaskRequest{ID: task.ID})
+	if err != nil {
+		t.Fatalf("build SubscribeToTask request: %v", err)
+	}
+	subscription, err := fixture.client.SubscribeToTask(fixture.ctx, subscribeRequest)
+	if err != nil {
+		t.Fatalf("subscribe to active task: %v", err)
+	}
+	firstEventProto, err := subscription.Recv()
+	if err != nil {
+		t.Fatalf("receive initial subscribed task event: %v", err)
+	}
+	firstEvent, err := pbconv.FromProtoStreamResponse(firstEventProto)
+	if err != nil {
+		t.Fatalf("decode initial subscribed task event: %v", err)
+	}
+	if firstEvent.TaskInfo().TaskID != task.ID {
+		t.Fatalf("subscribed task = %s, want %s", firstEvent.TaskInfo().TaskID, task.ID)
+	}
+
+	cancelRequest, err := pbconv.ToProtoCancelTaskRequest(&a2atype.CancelTaskRequest{ID: task.ID})
+	if err != nil {
+		t.Fatalf("build CancelTask request: %v", err)
+	}
+	canceledProto, err := fixture.client.CancelTask(fixture.ctx, cancelRequest)
+	if err != nil {
+		t.Fatalf("cancel active task: %v", err)
+	}
+	canceled, err := pbconv.FromProtoTask(canceledProto)
+	if err != nil {
+		t.Fatalf("decode canceled task: %v", err)
+	}
+	if canceled.ID != task.ID || canceled.Status.State != a2atype.TaskStateCanceled {
+		t.Fatalf("canceled task = %#v, want task %s in CANCELED", canceled, task.ID)
+	}
+	waitForTaskState(t, subscription, a2atype.TaskStateCanceled)
+	waitForTaskState(t, stream, a2atype.TaskStateCanceled)
+	getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: task.ID})
+	if err != nil {
+		t.Fatalf("build GetTask request: %v", err)
+	}
+	persistedProto, err := fixture.client.GetTask(fixture.ctx, getRequest)
+	if err != nil {
+		t.Fatalf("get canceled task: %v", err)
+	}
+	persisted, err := pbconv.FromProtoTask(persistedProto)
+	if err != nil {
+		t.Fatalf("decode canceled task: %v", err)
+	}
+	if persisted.Status.State != a2atype.TaskStateCanceled {
+		t.Fatalf("persisted task state = %s, want CANCELED", persisted.Status.State)
+	}
+}
+
+type interactionFixture struct {
+	ctx        context.Context
+	client     a2apb.A2AServiceClient
+	instanceID string
+}
+
+func interactionTarget(t *testing.T) string {
+	t.Helper()
 	target := os.Getenv("KAGENT_E2E_GRPC_TARGET")
 	if target == "" {
 		target = os.Getenv("KAGENT_GRPC_URL")
@@ -44,18 +217,19 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	if target == "" {
 		t.Skip("KAGENT_E2E_GRPC_TARGET is not set")
 	}
+	return target
+}
 
-	modelURL := startInteractionMock(t)
+func newInteractionFixture(t *testing.T, target, modelURL string) *interactionFixture {
+	t.Helper()
 	templateName := createInteractionTemplate(t, modelURL)
-
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatalf("connect to kagent gRPC API: %v", err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
-
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e"), 4*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 	instances := apiv1alpha1.NewAgentInstanceServiceClient(conn)
 	created, err := instances.CreateAgentInstance(ctx, &apiv1alpha1.CreateAgentInstanceRequest{
 		Namespace: "kagent", AgentTemplate: templateName, Harness: "kagent", RequestId: uuid.NewString(),
@@ -77,20 +251,20 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
 		t.Fatalf("created AgentInstance state = %s, want READY", instance.GetState())
 	}
-
-	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 2+2?"))
-	request, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{
-		Message: message,
-	})
-	if err != nil {
-		t.Fatalf("build A2A request: %v", err)
+	return &interactionFixture{
+		ctx: metadata.AppendToOutgoingContext(ctx,
+			"x-kagent-agent-instance-namespace", "kagent",
+			"x-kagent-agent-instance-id", instance.GetId(),
+		),
+		client:     a2apb.NewA2AServiceClient(conn),
+		instanceID: instance.GetId(),
 	}
-	interactionCtx := metadata.AppendToOutgoingContext(ctx,
-		"x-kagent-agent-instance-namespace", "kagent",
-		"x-kagent-agent-instance-id", instance.GetId(),
-	)
-	a2aClient := a2apb.NewA2AServiceClient(conn)
-	response, err := a2aClient.SendMessage(interactionCtx, request)
+}
+
+func (f *interactionFixture) send(t *testing.T, text string) (*a2atype.Message, *a2apb.SendMessageRequest, *a2atype.Task) {
+	t.Helper()
+	message, request := newMessageRequest(t, text)
+	response, err := f.client.SendMessage(f.ctx, request)
 	if err != nil {
 		t.Fatalf("send A2A message: %v", err)
 	}
@@ -102,66 +276,44 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	if !ok {
 		t.Fatalf("A2A response = %T, want Task", result)
 	}
-	if task.Status.State != a2atype.TaskStateCompleted {
-		t.Fatalf("A2A task state = %s, want COMPLETED", task.Status.State)
-	}
-	if text := taskText(task); !strings.Contains(text, "The answer is 4.") {
-		t.Fatalf("A2A response text = %q, want mock LLM response", text)
-	}
+	return message, request, task
+}
 
-	getRequest, err := pbconv.ToProtoGetTaskRequest(&a2atype.GetTaskRequest{ID: task.ID})
+func newMessageRequest(t *testing.T, text string) (*a2atype.Message, *a2apb.SendMessageRequest) {
+	t.Helper()
+	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(text))
+	request, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: message})
 	if err != nil {
-		t.Fatalf("build GetTask request: %v", err)
+		t.Fatalf("build A2A request: %v", err)
 	}
-	gotProto, err := a2aClient.GetTask(interactionCtx, getRequest)
-	if err != nil {
-		t.Fatalf("get persisted task: %v", err)
-	}
-	got, err := pbconv.FromProtoTask(gotProto)
-	if err != nil {
-		t.Fatalf("decode persisted task: %v", err)
-	}
-	if got.ID != task.ID || got.ContextID != instance.GetId() || got.Status.State != a2atype.TaskStateCompleted {
-		t.Fatalf("persisted task = %#v, want completed task %s in context %s", got, task.ID, instance.GetId())
-	}
+	return message, request
+}
 
-	listRequest, err := pbconv.ToProtoListTasksRequest(&a2atype.ListTasksRequest{ContextID: instance.GetId()})
-	if err != nil {
-		t.Fatalf("build ListTasks request: %v", err)
-	}
-	listedProto, err := a2aClient.ListTasks(interactionCtx, listRequest)
-	if err != nil {
-		t.Fatalf("list persisted tasks: %v", err)
-	}
-	listed, err := pbconv.FromProtoListTasksResponse(listedProto)
-	if err != nil {
-		t.Fatalf("decode listed tasks: %v", err)
-	}
-	if listed.TotalSize != 1 || len(listed.Tasks) != 1 || listed.Tasks[0].ID != task.ID || listed.Tasks[0].ContextID != instance.GetId() {
-		t.Fatalf("listed tasks = %#v, want only task %s in context %s", listed, task.ID, instance.GetId())
-	}
+type streamReceiver interface {
+	Recv() (*a2apb.StreamResponse, error)
+}
 
-	replayedProto, err := a2aClient.SendMessage(interactionCtx, request)
-	if err != nil {
-		t.Fatalf("replay A2A message: %v", err)
-	}
-	replayed, err := pbconv.FromProtoSendMessageResponse(replayedProto)
-	if err != nil {
-		t.Fatalf("decode replayed response: %v", err)
-	}
-	replayedTask, ok := replayed.(*a2atype.Task)
-	if !ok || replayedTask.ID != task.ID {
-		t.Fatalf("replayed response = %#v, want task %s", replayed, task.ID)
-	}
-
-	conflictingMessage := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("What is 3+3?"))
-	conflictingMessage.ID = message.ID
-	conflictingRequest, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: conflictingMessage})
-	if err != nil {
-		t.Fatalf("build conflicting A2A request: %v", err)
-	}
-	if _, err := a2aClient.SendMessage(interactionCtx, conflictingRequest); status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("conflicting message error = %v, want %s", err, codes.InvalidArgument)
+func waitForTaskState(t *testing.T, stream streamReceiver, want a2atype.TaskState) {
+	t.Helper()
+	for {
+		response, err := stream.Recv()
+		if err != nil {
+			t.Fatalf("receive task stream: %v", err)
+		}
+		event, err := pbconv.FromProtoStreamResponse(response)
+		if err != nil {
+			t.Fatalf("decode task stream: %v", err)
+		}
+		switch event := event.(type) {
+		case *a2atype.Task:
+			if event.Status.State == want {
+				return
+			}
+		case *a2atype.TaskStatusUpdateEvent:
+			if event.Status.State == want {
+				return
+			}
+		}
 	}
 }
 
@@ -181,7 +333,45 @@ func startInteractionMock(t *testing.T) string {
 			t.Errorf("stop mock LLM: %v", err)
 		}
 	})
+	return reachableModelURL(t, baseURL)
+}
 
+func startBlockingInteractionMock(t *testing.T) (string, <-chan struct{}) {
+	t.Helper()
+	cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_golang_adk_agent.json", interactionMocks)
+	if err != nil {
+		t.Fatalf("load mock LLM response: %v", err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce, releaseOnce sync.Once
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startedOnce.Do(func() { close(started) })
+		select {
+		case <-r.Context().Done():
+			return
+		case <-release:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(cfg.OpenAI[0].Response); err != nil {
+			t.Errorf("write mock LLM response: %v", err)
+		}
+	}))
+	_ = server.Listener.Close()
+	server.Listener, err = net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		t.Fatalf("listen for blocking mock LLM: %v", err)
+	}
+	server.Start()
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		server.Close()
+	})
+	return reachableModelURL(t, server.URL), started
+}
+
+func reachableModelURL(t *testing.T, baseURL string) string {
+	t.Helper()
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
 		t.Fatalf("parse mock LLM URL: %v", err)
