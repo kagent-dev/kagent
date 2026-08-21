@@ -1100,6 +1100,16 @@ spec:
               azureOpenAI:
                 description: Azure OpenAI-specific configuration
                 properties:
+                  apiFormat:
+                    default: chatCompletions
+                    description: |-
+                      APIFormat selects which Azure OpenAI HTTP API the runtime uses for this model.
+                      chatCompletions (default) uses the deployments API.
+                      responses uses the Azure OpenAI v1 Responses API.
+                    enum:
+                    - chatCompletions
+                    - responses
+                    type: string
                   apiVersion:
                     description: API version for the Azure OpenAI API
                     type: string

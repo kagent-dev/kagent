@@ -244,6 +244,7 @@ func CreateLLM(ctx context.Context, m adk.Model, log logr.Logger) (adkmodel.LLM,
 			Endpoint:        m.Endpoint,
 			Deployment:      m.Deployment,
 			APIVersion:      m.APIVersion,
+			APIFormat:       m.APIFormat,
 		}
 		return models.NewAzureOpenAIModelWithLogger(ctx, cfg, log)
 

@@ -139,6 +139,7 @@ type AzureOpenAI struct {
 	Endpoint    string   `json:"endpoint,omitempty"`
 	Deployment  string   `json:"deployment,omitempty"`
 	APIVersion  string   `json:"api_version,omitempty"`
+	APIFormat   string   `json:"api_format,omitempty"`
 	MaxTokens   *int     `json:"max_tokens,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
 	TopP        *float64 `json:"top_p,omitempty"`

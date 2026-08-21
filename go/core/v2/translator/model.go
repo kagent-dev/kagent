@@ -389,6 +389,9 @@ func (c *Compiler) translateModel(ctx context.Context, model *v1alpha3.ModelConf
 			TopP:        utils.ParseStringToFloat64(model.Spec.AzureOpenAI.TopP),
 			MaxTokens:   model.Spec.AzureOpenAI.MaxTokens,
 		}
+		if model.Spec.AzureOpenAI.APIFormat != nil && *model.Spec.AzureOpenAI.APIFormat != "" {
+			azureOpenAI.APIFormat = string(*model.Spec.AzureOpenAI.APIFormat)
+		}
 		// Populate TLS fields in BaseModel
 		populateTLSFields(&azureOpenAI.BaseModel, model.Spec.TLS)
 		azureOpenAI.APIKeyPassthrough = model.Spec.APIKeyPassthrough

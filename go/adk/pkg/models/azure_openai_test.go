@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 )
 
@@ -115,6 +116,44 @@ func TestAzureOpenAIAPIKeySendsApiKeyHeader(t *testing.T) {
 	}
 	if got.apiVersion != "2024-06-01" {
 		t.Fatalf("api-version = %q, want 2024-06-01", got.apiVersion)
+	}
+}
+
+func TestAzureOpenAIResponsesUsesV1Endpoint(t *testing.T) {
+	t.Setenv("AZURE_OPENAI_API_KEY", "test-key")
+
+	var gotPath, gotAPIVersion string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAPIVersion = r.URL.Query().Get("api-version")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"id":"resp-test","object":"response","created_at":0,"status":"completed","model":"gpt-4o-deploy","output":[{"type":"message","id":"msg-1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	model, err := NewAzureOpenAIModelWithLogger(context.Background(), &AzureOpenAIConfig{
+		Model:      "gpt-4o-deploy",
+		Endpoint:   server.URL,
+		Deployment: "gpt-4o-deploy",
+		APIVersion: "2024-06-01",
+		APIFormat:  OpenAIAPIFormatResponses,
+	}, logr.Discard())
+	if err != nil {
+		t.Fatalf("NewAzureOpenAIModelWithLogger() error = %v", err)
+	}
+
+	_, err = model.Client.Responses.New(context.Background(), responses.ResponseNewParams{
+		Model: shared.ResponsesModel("gpt-4o-deploy"),
+		Input: responses.ResponseNewParamsInputUnion{OfString: openai.String("hello")},
+	})
+	if err != nil {
+		t.Fatalf("responses request error = %v", err)
+	}
+	if gotPath != "/openai/v1/responses" {
+		t.Fatalf("path = %q, want /openai/v1/responses", gotPath)
+	}
+	if gotAPIVersion != "" {
+		t.Fatalf("api-version = %q, want empty", gotAPIVersion)
 	}
 }
 

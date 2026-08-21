@@ -30,6 +30,7 @@ export interface AzureOpenAIConfig {
   temperature?: string;
   maxTokens?: number;
   topP?: string;
+  apiFormat?: "chatCompletions" | "responses";
 }
 
 export interface OllamaConfig {

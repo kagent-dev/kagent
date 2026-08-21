@@ -42,6 +42,7 @@ type AzureOpenAIConfig struct {
 	Endpoint   string
 	Deployment string
 	APIVersion string
+	APIFormat  string
 
 	// credential overrides the Azure credential used for the implicit Workload
 	// Identity auth path. When nil, azureai.NewDefaultCredential is used. It is
@@ -118,10 +119,10 @@ func newOpenAIModelFromConfig(config *OpenAIConfig, apiKey string, logger logr.L
 }
 
 // NewAzureOpenAIModelWithLogger creates a new Azure OpenAI model instance with a logger.
-// It targets the Azure OpenAI OpenAI-compatible data plane
-// (POST {endpoint}/openai/deployments/{deployment}/chat/completions) through the
-// shared azureai client. Endpoint, api-version, and deployment come from the
-// model config, with AZURE_OPENAI_ENDPOINT / OPENAI_API_VERSION env fallbacks.
+// It targets the Azure OpenAI OpenAI-compatible data plane through the shared
+// azureai client. Chat Completions uses the deployments endpoint; Responses uses
+// the Azure OpenAI v1 endpoint. Endpoint, api-version, and deployment come from
+// the model config, with AZURE_OPENAI_ENDPOINT / OPENAI_API_VERSION env fallbacks.
 //
 // Authentication is implicit and mirrors Foundry: the incoming bearer token when
 // APIKeyPassthrough is enabled; otherwise the AZURE_OPENAI_API_KEY Api-Key header
@@ -161,6 +162,7 @@ func NewAzureOpenAIModelWithLogger(ctx context.Context, config *AzureOpenAIConfi
 		Deployment: deployment,
 		APIVersion: apiVersion,
 		HTTPClient: httpClient,
+		Responses:  config.APIFormat == OpenAIAPIFormatResponses,
 	}
 
 	// Implicit auth: the incoming bearer token when APIKeyPassthrough is enabled
@@ -190,6 +192,7 @@ func NewAzureOpenAIModelWithLogger(ctx context.Context, config *AzureOpenAIConfi
 		Config: &OpenAIConfig{
 			TransportConfig: config.TransportConfig,
 			Model:           deployment,
+			APIFormat:       config.APIFormat,
 		},
 		Client:  client,
 		IsAzure: true,

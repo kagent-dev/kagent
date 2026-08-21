@@ -184,6 +184,43 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			},
 			wantReject: "reasoningEffort",
 		},
+		{
+			name: "Azure OpenAI Responses format accepted",
+			build: func() ctrl_client.Object {
+				format := OpenAIAPIFormatResponses
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-azure-responses", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:    "gpt-4o",
+						Provider: ModelProviderAzureOpenAI,
+						AzureOpenAI: &AzureOpenAIConfig{
+							Endpoint:   "https://example.openai.azure.com",
+							APIVersion: "2024-06-01",
+							APIFormat:  &format,
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "Azure OpenAI unknown format rejected",
+			build: func() ctrl_client.Object {
+				format := OpenAIAPIFormat("invalid")
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-azure-invalid-format", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:    "gpt-4o",
+						Provider: ModelProviderAzureOpenAI,
+						AzureOpenAI: &AzureOpenAIConfig{
+							Endpoint:   "https://example.openai.azure.com",
+							APIVersion: "2024-06-01",
+							APIFormat:  &format,
+						},
+					},
+				}
+			},
+			wantReject: "apiFormat",
+		},
 	}
 
 	for _, c := range cases {

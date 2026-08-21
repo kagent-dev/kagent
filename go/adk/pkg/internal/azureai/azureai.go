@@ -113,13 +113,17 @@ type ClientConfig struct {
 	// HTTPClient is the transport used by the client. Defaults to
 	// http.DefaultClient when nil.
 	HTTPClient *http.Client
+	// Responses selects the Azure OpenAI v1 Responses API base URL instead of
+	// the deployments-based API used by chat completions and embeddings.
+	Responses bool
 }
 
 // NewOpenAIClient builds an openai-go client for the Azure providers'
-// OpenAI-compatible surface (chat + embeddings), rooted at
-// {endpoint}/openai/deployments/{deployment}/ with the api-version query and
-// implicit auth: the Api-Key header when APIKey is set, otherwise an Azure AD
-// bearer token from Credential.
+// OpenAI-compatible surface. The default mode is rooted at
+// {endpoint}/openai/deployments/{deployment}/ with the api-version query; the
+// Responses mode is rooted at {endpoint}/openai/v1/. Both modes use implicit
+// auth: the Api-Key header when APIKey is set, otherwise an Azure AD bearer
+// token from Credential.
 //
 // A NewAnthropicClient for the Anthropic (Claude) surface is planned and will
 // live alongside this constructor, reusing the same credential and token helpers.
@@ -139,11 +143,18 @@ func NewOpenAIClient(cfg ClientConfig) (openai.Client, error) {
 		httpClient = http.DefaultClient
 	}
 
-	baseURL := strings.TrimSuffix(cfg.Endpoint, "/") + "/openai/deployments/" + url.PathEscape(cfg.Deployment) + "/"
+	baseURL := strings.TrimSuffix(cfg.Endpoint, "/") + "/openai/v1/"
 	opts := []option.RequestOption{
 		option.WithBaseURL(baseURL),
-		option.WithQueryAdd("api-version", cfg.APIVersion),
 		option.WithHTTPClient(httpClient),
+	}
+	if !cfg.Responses {
+		baseURL = strings.TrimSuffix(cfg.Endpoint, "/") + "/openai/deployments/" + url.PathEscape(cfg.Deployment) + "/"
+		opts = []option.RequestOption{
+			option.WithBaseURL(baseURL),
+			option.WithQueryAdd("api-version", cfg.APIVersion),
+			option.WithHTTPClient(httpClient),
+		}
 	}
 	if cfg.APIKey != "" {
 		// Azure authenticates via the Api-Key header. openai-go otherwise derives

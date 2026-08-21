@@ -264,6 +264,13 @@ type AzureOpenAIConfig struct {
 	// Top-p sampling parameter
 	// +optional
 	TopP string `json:"topP,omitempty"`
+
+	// APIFormat selects which Azure OpenAI HTTP API the runtime uses for this model.
+	// chatCompletions (default) uses the deployments API.
+	// responses uses the Azure OpenAI v1 Responses API.
+	// +optional
+	// +kubebuilder:default=chatCompletions
+	APIFormat *OpenAIAPIFormat `json:"apiFormat,omitempty"`
 }
 
 // OllamaConfig contains Ollama-specific configuration options

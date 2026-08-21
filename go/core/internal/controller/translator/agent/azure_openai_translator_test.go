@@ -21,6 +21,7 @@ import (
 func TestTranslateModelAzureOpenAISettings(t *testing.T) {
 	scheme := schemev1.Scheme
 	require.NoError(t, v1alpha3.AddToScheme(scheme))
+	apiFormat := v1alpha3.OpenAIAPIFormatResponses
 
 	modelConfig := &v1alpha3.ModelConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "azure-model", Namespace: "default"},
@@ -31,6 +32,7 @@ func TestTranslateModelAzureOpenAISettings(t *testing.T) {
 				Endpoint:       "https://example.openai.azure.com/",
 				DeploymentName: "gpt-4o-deploy",
 				APIVersion:     "2024-06-01",
+				APIFormat:      &apiFormat,
 			},
 		},
 	}
@@ -46,6 +48,7 @@ func TestTranslateModelAzureOpenAISettings(t *testing.T) {
 	assert.Equal(t, "https://example.openai.azure.com/", azureModel.Endpoint)
 	assert.Equal(t, "gpt-4o-deploy", azureModel.Deployment)
 	assert.Equal(t, "2024-06-01", azureModel.APIVersion)
+	assert.Equal(t, "responses", azureModel.APIFormat)
 
 	assert.Equal(t, "https://example.openai.azure.com/", envVarValue(t, deploymentData.EnvVars, env.AzureOpenAIEndpoint.Name()))
 	assert.Equal(t, "2024-06-01", envVarValue(t, deploymentData.EnvVars, env.OpenAIAPIVersion.Name()))

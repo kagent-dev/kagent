@@ -86,7 +86,7 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 		"tokenExchange",
 	}, modelProviders[0].OptionalParams)
 	assert.Equal(t, []string{"azureEndpoint", "apiVersion"}, modelProviders[2].RequiredParams)
-	assert.Equal(t, []string{"azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP"}, modelProviders[2].OptionalParams)
+	assert.Equal(t, []string{"azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP", "apiFormat"}, modelProviders[2].OptionalParams)
 	assert.Equal(t, []string{"deployment", "endpoint"}, modelProviders[3].RequiredParams)
 	assert.Equal(t, []string{"apiVersion"}, modelProviders[3].OptionalParams)
 	assert.Equal(t, []string{"", "maxOutputTokens", "candidateCount", "responseMimeType"}, modelProviders[6].OptionalParams)
