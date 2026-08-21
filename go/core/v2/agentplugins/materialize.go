@@ -95,9 +95,6 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 }
 
 func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination string) (string, error) {
-	if err := os.RemoveAll(destination); err != nil {
-		return "", err
-	}
 	selected := 0
 	if source.OCI != "" {
 		selected++
@@ -110,6 +107,17 @@ func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination 
 	}
 	if selected != 1 {
 		return "", fmt.Errorf("exactly one artifact source is required")
+	}
+	if _, err := os.Stat(destination); err == nil {
+		if err := validatePackage(destination); err != nil {
+			return "", err
+		}
+		return containedPath(destination, source.Path)
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	if err := os.RemoveAll(destination); err != nil {
+		return "", err
 	}
 	switch {
 	case source.OCI != "":
