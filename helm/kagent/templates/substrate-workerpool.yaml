@@ -1,19 +1,14 @@
 {{- if and .Values.controller.substrate.enabled .Values.substrateWorkerPool.create }}
 {{- $ateomImage := .Values.substrateWorkerPool.ateomImage }}
 {{- if not $ateomImage }}
-  {{- range .Chart.Dependencies }}
-    {{- if eq .Name "substrate" }}
-      {{- $ateomImage = printf "ghcr.io/kagent-dev/substrate/ateom-gvisor:v%s" .Version }}
+  {{- if .Values.substrate.enabled }}
+    {{- $substrateVersion := index .Chart.Annotations "substrate.kagent.dev/version" }}
+    {{- if $substrateVersion }}
+      {{- $ateomImage = printf "ghcr.io/kagent-dev/substrate/ateom-gvisor:v%s" $substrateVersion }}
     {{- end }}
   {{- end }}
 {{- end }}
 {{- if not $ateomImage }}
-  {{/* .Chart.Dependencies only lists sub-charts whose own "condition" is
-       currently true (here, the top-level substrate.enabled) - so this is
-       reached when substrate/ate-system isn't bundled by this release, e.g.
-       installed separately and possibly at a different version. Don't guess
-       this chart's own pinned version in that case - require an explicit
-       value instead. */}}
   {{- fail "substrateWorkerPool.ateomImage is required when substrateWorkerPool.create=true and the \"substrate\" chart dependency isn't enabled (substrate.enabled=false) - set it explicitly to match your ate-system version" }}
 {{- end }}
 apiVersion: ate.dev/v1alpha1

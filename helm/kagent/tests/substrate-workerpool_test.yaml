@@ -29,15 +29,18 @@ tests:
           path: spec.ateomImage
           value: "ghcr.io/example/custom-ateom:v9.9.9"
 
-  - it: should default ateomImage from the substrate chart dependency version when unset and substrate.enabled is true
+  - it: should default ateomImage from the substrate version stamped into Chart.yaml's annotations when unset and substrate.enabled is true
+    # Matches the image + tag shape rather than a pinned version literal, so
+    # this doesn't need updating every time go.mod's substrate version bumps
+    # (see Makefile SUBSTRATE_VERSION / Chart-template.yaml annotations).
     set:
       controller.substrate.enabled: true
       substrateWorkerPool.create: true
       substrate.enabled: true
     asserts:
-      - equal:
+      - matchRegex:
           path: spec.ateomImage
-          value: "ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.0.9"
+          pattern: "^ghcr\\.io/kagent-dev/substrate/ateom-gvisor:v\\d+\\.\\d+\\.\\d+$"
 
   - it: should fail with a clear message when ateomImage is unset and the substrate dependency isn't enabled
     set:
