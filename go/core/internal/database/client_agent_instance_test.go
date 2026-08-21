@@ -75,7 +75,6 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	if err != nil || got.ID != first.ID || got.Status.State != first.Status.State || len(got.History) != 1 {
 		t.Fatalf("GetAgentInstanceTask() = %#v, %v", got, err)
 	}
-
 	second := &a2a.Task{ID: "task-2", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}}
 	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", second, second); !errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
 		t.Fatalf("second active task error = %v", err)
