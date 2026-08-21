@@ -1,6 +1,6 @@
 version: "2"
 run:
-  go: "1.26"
+  go: "1.27"
   timeout: 10m
   allow-parallel-runners: true
 linters:
@@ -91,7 +91,9 @@ linters:
     modernize:
       disable:
         - omitzero
-        - fmtappendf
+        - embedlit
+        - errorsastype
+        - stringscut
     revive:
       rules:
         # The following rules are recommended https://github.com/mgechev/revive#recommended-configuration

@@ -95,7 +95,7 @@ func (r *SubstrateAgentHarnessController) Reconcile(ctx context.Context, req ctr
 		if err := r.Client.Update(ctx, &ah); err != nil {
 			return ctrl.Result{}, fmt.Errorf("add finalizer: %w", err)
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	backend := r.backendFor(&ah)

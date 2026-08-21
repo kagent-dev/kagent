@@ -23,7 +23,12 @@ KAGENT_E2E_RUNTIME_IMAGE=<registry>/kagent-dev/kagent/golang-adk@sha256:<digest>
 KAGENT_E2E_GRPC_TARGET=<controller-address>:8084 make -C go e2e
 ```
 
-`mocks/` contains deterministic LLM responses retained for interaction tests.
+`TestAgentInstanceInteraction` starts the deterministic mock LLM on the test
+host and translates its listener to the host address reachable from the
+cluster (`172.17.0.1` on Linux and `host.docker.internal` on macOS). Set
+`KAGENT_LOCAL_HOST` when the cluster uses a different host address.
+
+`mocks/` contains the deterministic LLM responses used by interaction tests.
 `manifests/everything-mcp-server.yaml` retains the deterministic MCP server
 fixture; its legacy Kubernetes wrapper will be replaced when the new
 RemoteMCPServer interaction test is added.
