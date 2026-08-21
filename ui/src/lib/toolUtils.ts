@@ -276,3 +276,25 @@ export const getDiscoveredToolCategory = (tool: DiscoveredTool, serverRef: strin
 export const getDiscoveredToolIdentifier = (tool: DiscoveredTool, serverRef: string): string => {
   return `${serverRef}-${tool.name}`;
 };
+
+// Adds toolResponse to an existing entry for its server (deduping
+// toolNames), or appends a new entry if none exists yet.
+export const mergeToolIntoServerEntry = (tools: Tool[], toolResponse: ToolsResponse): Tool[] => {
+  const existing = tools
+    .filter(isMcpTool)
+    .find((t) => serverNamesMatch(t.mcpServer.name, toolResponse.server_name));
+  if (!existing) {
+    return [...tools, toolResponseToAgentTool(toolResponse, toolResponse.server_name)];
+  }
+  const merged: Tool = {
+    ...existing,
+    mcpServer: {
+      ...existing.mcpServer,
+      // Callers may seed this from an existing agent's persisted tools
+      // (e.g. hand-edited YAML), which isn't guaranteed to satisfy
+      // toolNames: string[] at runtime despite the type - fall back to [].
+      toolNames: Array.from(new Set([...(existing.mcpServer.toolNames || []), toolResponse.id])),
+    },
+  };
+  return tools.map((t) => (t === existing ? merged : t));
+};

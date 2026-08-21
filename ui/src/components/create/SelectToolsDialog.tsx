@@ -36,7 +36,7 @@ import {
   isAgentTool,
   isAgentResponse,
   isMcpTool,
-  toolResponseToAgentTool,
+  mergeToolIntoServerEntry,
   groupMcpToolsByServer,
   serverNamesMatch,
 } from "@/lib/toolUtils";
@@ -326,37 +326,7 @@ export const SelectToolsDialog: React.FC<SelectToolsDialogProps> = ({
       setLocalSelectedTools((prev) => [...prev, toolToAdd]);
     } else {
       const tool = item as ToolsResponse;
-
-      const existingServerToolIndex = localSelectedTools.findIndex(
-        (t) =>
-          isMcpTool(t) &&
-          serverNamesMatch(t.mcpServer?.name || "", tool.server_name),
-      );
-
-      if (existingServerToolIndex >= 0) {
-        const existingTool = localSelectedTools[existingServerToolIndex];
-
-        if (existingTool.mcpServer?.toolNames?.includes(tool.id)) {
-          return;
-        }
-
-        const updatedTool = {
-          ...existingTool,
-          mcpServer: {
-            ...existingTool.mcpServer!,
-            toolNames: [...(existingTool.mcpServer!.toolNames || []), tool.id],
-          },
-        };
-
-        setLocalSelectedTools((prev) =>
-          prev.map((t, idx) =>
-            idx === existingServerToolIndex ? updatedTool : t,
-          ),
-        );
-      } else {
-        toolToAdd = toolResponseToAgentTool(tool, tool.server_name);
-        setLocalSelectedTools((prev) => [...prev, toolToAdd]);
-      }
+      setLocalSelectedTools((prev) => mergeToolIntoServerEntry(prev, tool));
     }
   };
 

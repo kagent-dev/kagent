@@ -6,6 +6,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, FunctionSquare } from 'lucide-react';
+import { isMcpTool, isAgentTool } from "@/lib/toolUtils";
 import type { Tool } from "@/types";
 
 interface OnboardingDataForReview {
@@ -74,12 +75,25 @@ export function ReviewStep({ onboardingData, isLoading, onBack, onSubmit }: Revi
                     {onboardingData.selectedTools && onboardingData.selectedTools.length > 0 ? (
                         <ScrollArea className="h-[100px] w-full rounded-md border p-3 bg-muted/50">
                             <div className="flex flex-wrap gap-2">
-                                {onboardingData.selectedTools.map((tool, index) => (
-                                    <Badge variant="secondary" key={`${tool.mcpServer?.name}-${index}`} className="flex items-center gap-1">
-                                        <FunctionSquare className="h-3 w-3" />
-                                        {tool.mcpServer?.name}
-                                    </Badge>
-                                ))}
+                                {onboardingData.selectedTools.flatMap((tool) => {
+                                    if (isMcpTool(tool)) {
+                                        return tool.mcpServer.toolNames.map((toolName) => (
+                                            <Badge variant="secondary" key={`${tool.mcpServer.name}-${toolName}`} className="flex items-center gap-1">
+                                                <FunctionSquare className="h-3 w-3" />
+                                                {toolName}
+                                            </Badge>
+                                        ));
+                                    }
+                                    if (isAgentTool(tool)) {
+                                        return [(
+                                            <Badge variant="secondary" key={`${tool.agent.namespace}-${tool.agent.name}`} className="flex items-center gap-1">
+                                                <FunctionSquare className="h-3 w-3" />
+                                                {tool.agent.name}
+                                            </Badge>
+                                        )];
+                                    }
+                                    return [];
+                                })}
                             </div>
                         </ScrollArea>
                     ) : (
