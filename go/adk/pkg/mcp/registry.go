@@ -66,6 +66,7 @@ func allowedRequestHeaders(ctx context.Context, allowed []string) map[string]str
 // mcpServerParams groups connection parameters for an MCP server,
 // reducing parameter sprawl across createTransport / initializeToolSet.
 type mcpServerParams struct {
+	Name                  string
 	URL                   string
 	Headers               map[string]string
 	AllowedHeaders        []string              // header names to forward from incoming request
@@ -108,7 +109,7 @@ func CreateToolsets(
 	log.Info("Processing stdio MCP tools", "stdioToolsCount", len(stdioTools))
 	for i, stdioTool := range stdioTools {
 		params := mcpServerParams{
-			URL: stdioTool.Command, ServerType: "stdio", Command: stdioTool.Command,
+			Name: stdioTool.Name, URL: stdioTool.Command, ServerType: "stdio", Command: stdioTool.Command,
 			Args: stdioTool.Args, Env: stdioTool.Env, Dir: stdioTool.Dir,
 		}
 		ts, err := addToolset(ctx, log, params, nil, "stdio", i+1)
@@ -120,6 +121,7 @@ func CreateToolsets(
 	log.Info("Processing HTTP MCP tools", "httpToolsCount", len(httpTools))
 	for i, httpTool := range httpTools {
 		params := mcpServerParams{
+			Name:                  httpTool.Name,
 			URL:                   httpTool.Params.Url,
 			Headers:               httpTool.Params.Headers,
 			AllowedHeaders:        httpTool.AllowedHeaders,
@@ -142,6 +144,7 @@ func CreateToolsets(
 	log.Info("Processing SSE MCP tools", "sseToolsCount", len(sseTools))
 	for i, sseTool := range sseTools {
 		params := mcpServerParams{
+			Name:                  sseTool.Name,
 			URL:                   sseTool.Params.Url,
 			Headers:               sseTool.Params.Headers,
 			AllowedHeaders:        sseTool.AllowedHeaders,
@@ -176,17 +179,17 @@ func addToolset(ctx context.Context, log logr.Logger, params mcpServerParams, to
 	}
 
 	if len(toolFilter) > 0 {
-		log.Info(fmt.Sprintf("Adding %s MCP tool", label), "index", index, "url", params.URL, "toolFilterCount", len(toolFilter), "tools", tools)
+		log.Info(fmt.Sprintf("Adding %s MCP tool", label), "index", index, "serverName", params.Name, "url", params.URL, "toolFilterCount", len(toolFilter), "tools", tools)
 	} else {
-		log.Info(fmt.Sprintf("Adding %s MCP tool", label), "index", index, "url", params.URL, "toolFilterCount", "all")
+		log.Info(fmt.Sprintf("Adding %s MCP tool", label), "index", index, "serverName", params.Name, "url", params.URL, "toolFilterCount", "all")
 	}
 
 	ts, err := initializeToolSet(ctx, params, toolFilter)
 	if err != nil {
-		log.Error(err, fmt.Sprintf("Failed to fetch tools from %s MCP server", label), "url", params.URL)
+		log.Error(err, fmt.Sprintf("Failed to fetch tools from %s MCP server", label), "serverName", params.Name, "url", params.URL)
 		return nil, err
 	}
-	log.Info(fmt.Sprintf("Successfully added %s MCP toolset", label), "url", params.URL)
+	log.Info(fmt.Sprintf("Successfully added %s MCP toolset", label), "serverName", params.Name, "url", params.URL)
 	return ts, nil
 }
 

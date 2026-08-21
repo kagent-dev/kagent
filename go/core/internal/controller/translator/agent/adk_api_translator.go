@@ -1093,6 +1093,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			return nil, err
 		}
 		agent.SseTools = append(agent.SseTools, adk.SseMcpServerConfig{
+			Name:            remoteMcpServer.Name,
 			Params:          *tool,
 			Tools:           mcpServerTool.ToolNames,
 			AllowedHeaders:  mcpServerTool.AllowedHeaders,
@@ -1104,6 +1105,7 @@ func (a *adkApiTranslator) translateRemoteMCPServerTarget(ctx context.Context, a
 			return nil, err
 		}
 		agent.HttpTools = append(agent.HttpTools, adk.HttpMcpServerConfig{
+			Name:            remoteMcpServer.Name,
 			Params:          *tool,
 			Tools:           mcpServerTool.ToolNames,
 			AllowedHeaders:  mcpServerTool.AllowedHeaders,
