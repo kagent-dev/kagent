@@ -154,7 +154,11 @@ jobs:
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller
           kubectl get pods,actortemplates,workerpools -A
-          kubectl logs -n ate-system deployment/ate-controller --tail=200 || true
+          echo "::error::Substrate logs"
+          kubectl logs -n ate-system -l app --all-containers --prefix --tail=200 || true
+          kubectl logs -n ate-system -l app --all-containers --prefix --previous --tail=200 || true
+          kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --tail=200 || true
+          kubectl logs -n kagent -l ate.dev/worker-pool --all-containers --prefix --previous --tail=200 || true
 
   query-contraction-check:
     name: Query Contraction Check
