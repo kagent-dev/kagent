@@ -8,7 +8,6 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/jackc/pgx/v5/pgxpool"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	dbgen "github.com/kagent-dev/kagent/go/core/internal/database/gen"
@@ -53,16 +52,16 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 		Status:  a2a.TaskStatus{State: a2a.TaskStateSubmitted, Timestamp: &now},
 		History: []*a2a.Message{{ID: "message-1", Role: a2a.MessageRoleUser}},
 	}
-	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), first, time.Hour)
+	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), first)
 	if err != nil || !created || stored.ID != first.ID {
 		t.Fatalf("CreateAgentInstanceTask() = %#v, created %v, error %v", stored, created, err)
 	}
 	replayed, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"),
-		&a2a.Task{ID: "ignored", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}, History: first.History}, time.Hour)
+		&a2a.Task{ID: "ignored", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}, History: first.History})
 	if err != nil || created || replayed.ID != first.ID {
 		t.Fatalf("replayed CreateAgentInstanceTask() = %#v, created %v, error %v", replayed, created, err)
 	}
-	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("different"), first, time.Hour); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("different"), first); !errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		t.Fatalf("conflicting message error = %v", err)
 	}
 	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 1 {
@@ -123,7 +122,7 @@ func TestConcurrentAgentInstanceMessageReplay(t *testing.T) {
 			<-start
 			message := &a2a.Message{ID: "message-1", Role: a2a.MessageRoleUser, TaskID: taskID, ContextID: "instance-1"}
 			task := a2a.NewSubmittedTask(message, message)
-			stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), task, time.Hour)
+			stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), task)
 			results <- result{stored, created, err}
 		}()
 	}
@@ -235,15 +234,6 @@ func TestAgentInstanceCreateAndTransitions(t *testing.T) {
 	}
 }
 
-func ageAgentInstanceTask(t *testing.T, db *pgxpool.Pool, instanceID, taskID string, updatedAt time.Time) {
-	t.Helper()
-	if _, err := db.Exec(context.Background(),
-		`UPDATE agent_instance_task SET updated_at = $1 WHERE instance_id = $2 AND id = $3`,
-		updatedAt, instanceID, taskID); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func newAgentInstanceTask(id, messageID string) *a2a.Task {
 	now := time.Now()
 	return &a2a.Task{
@@ -253,7 +243,7 @@ func newAgentInstanceTask(id, messageID string) *a2a.Task {
 	}
 }
 
-func TestStaleActiveAgentInstanceTaskIsTerminatedSoTheSlotIsReusable(t *testing.T) {
+func TestReclaimAgentInstanceTaskIsAtomicAndReusesTheSlot(t *testing.T) {
 	db := setupTestDB(t)
 	ctx := context.Background()
 	if _, err := db.Exec(ctx, `
@@ -265,28 +255,35 @@ func TestStaleActiveAgentInstanceTaskIsTerminatedSoTheSlotIsReusable(t *testing.
 	client := NewClient(db)
 
 	interrupted := newAgentInstanceTask("task-1", "message-1")
-	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), interrupted, time.Hour); err != nil {
+	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-1"), interrupted); err != nil {
 		t.Fatal(err)
 	}
 
-	// While the first task is still reporting progress it keeps the slot.
-	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"),
-		newAgentInstanceTask("task-2", "message-2"), time.Hour); !errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
-		t.Fatalf("send during a live task = %v, want %v", err, dbpkg.ErrAgentInstanceTaskConflict)
+	active, err := client.GetActiveAgentInstanceTask(ctx, "instance-1")
+	if err != nil || active.ID != interrupted.ID {
+		t.Fatalf("GetActiveAgentInstanceTask() = %#v, %v", active, err)
+	}
+	if reclaimed, err := client.ReclaimAgentInstanceTask(ctx, "instance-1", "different-task"); err != nil || reclaimed {
+		t.Fatalf("ReclaimAgentInstanceTask(wrong task) = %v, %v", reclaimed, err)
+	}
+	if reclaimed, err := client.ReclaimAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || !reclaimed {
+		t.Fatalf("ReclaimAgentInstanceTask() = %v, %v", reclaimed, err)
 	}
 
-	ageAgentInstanceTask(t, db, "instance-1", "task-1", time.Now().Add(-2*time.Hour))
-
-	// A zero bound leaves the interrupted task in place, so the slot stays blocked.
-	if _, _, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"),
-		newAgentInstanceTask("task-2", "message-2"), 0); !errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
-		t.Fatalf("send with the takeover disabled = %v, want %v", err, dbpkg.ErrAgentInstanceTaskConflict)
-	}
-
-	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"),
-		newAgentInstanceTask("task-2", "message-2"), time.Hour)
+	replacement := newAgentInstanceTask("task-2", "message-2")
+	stored, created, err := client.CreateAgentInstanceTask(ctx, "instance-1", []byte("request-2"), replacement)
 	if err != nil || !created || stored.ID != "task-2" {
-		t.Fatalf("send after the bound = %#v, created %v, error %v", stored, created, err)
+		t.Fatalf("send after reclaim = %#v, created %v, error %v", stored, created, err)
+	}
+	if reclaimed, err := client.ReclaimAgentInstanceTask(ctx, "instance-1", "task-1"); err != nil || reclaimed {
+		t.Fatalf("ReclaimAgentInstanceTask(replaced task) = %v, %v", reclaimed, err)
+	}
+	replacement.Status.State = a2a.TaskStateCompleted
+	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", replacement, replacement); err != nil {
+		t.Fatal(err)
+	}
+	if reclaimed, err := client.ReclaimAgentInstanceTask(ctx, "instance-1", "task-2"); err != nil || reclaimed {
+		t.Fatalf("ReclaimAgentInstanceTask(terminal task) = %v, %v", reclaimed, err)
 	}
 
 	terminated, err := client.GetAgentInstanceTask(ctx, "instance-1", "task-1")

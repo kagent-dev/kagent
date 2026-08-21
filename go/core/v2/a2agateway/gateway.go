@@ -40,7 +40,9 @@ const (
 type instanceStore interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error)
-	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task, time.Duration) (*a2atype.Task, bool, error)
+	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
+	GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error)
+	ReclaimAgentInstanceTask(context.Context, string, string) (bool, error)
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error)
@@ -58,21 +60,17 @@ type Gateway struct {
 	authorizer auth.Authorizer
 	dialer     runtimeDialer
 	gatewayURL string
-	// taskStaleAfter bounds how long an active task may go without progress
-	// before a new send terminates it and claims the slot. Zero disables the
-	// takeover, leaving an interrupted task to block the instance.
-	taskStaleAfter time.Duration
 }
 
 var _ a2asrv.RequestHandler = (*Gateway)(nil)
 
 // New returns the upstream A2A handler independently of any listener or gRPC
 // server, keeping deployment topology outside the gateway package.
-func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, gatewayURL string, taskStaleAfter time.Duration) a2asrv.RequestHandler {
+func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, gatewayURL string) a2asrv.RequestHandler {
 	return &a2asrv.InterceptedHandler{
 		Handler: &Gateway{
 			store: store, authorizer: authorizer, dialer: dialer,
-			gatewayURL: gatewayURL, taskStaleAfter: taskStaleAfter,
+			gatewayURL: gatewayURL,
 		},
 		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
 	}
@@ -397,11 +395,83 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	}
 	req.Message.TaskID = a2atype.NewTaskID()
 	submitted := a2atype.NewSubmittedTask(req.Message, req.Message)
-	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted, g.taskStaleAfter)
+	stored, created, err := g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
+	if errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
+		if err = g.reconcileActiveTask(ctx, instance); err == nil {
+			stored, created, err = g.store.CreateAgentInstanceTask(ctx, instance.GetId(), requestHash, submitted)
+		}
+	}
 	if err != nil {
 		return nil, nil, false, g.storeError(ctx, err)
 	}
 	return instance, stored, created, nil
+}
+
+// reconcileActiveTask frees the task slot only when the runtime authoritatively
+// reports that the exact active task has no execution, or reports it terminal.
+func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1.AgentInstance) error {
+	active, err := g.store.GetActiveAgentInstanceTask(ctx, instance.GetId())
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	client, err := g.dialer.Dial(ctx, instance)
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to reconcile active AgentInstance task", "task", active.ID)
+		return dbpkg.ErrAgentInstanceTaskConflict
+	}
+	defer client.Destroy()
+
+	runtimeTask, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: active.ID})
+	if errors.Is(err, a2atype.ErrTaskNotFound) {
+		return g.reclaimTask(ctx, instance.GetId(), active.ID)
+	}
+	if err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to query active runtime task", "task", active.ID)
+		return dbpkg.ErrAgentInstanceTaskConflict
+	}
+	if runtimeTask == nil {
+		return dbpkg.ErrAgentInstanceTaskConflict
+	}
+	if err := validateTaskInfo(runtimeTask, active); err != nil {
+		ctrllog.FromContext(ctx).Error(err, "runtime returned invalid active task", "task", active.ID)
+		return dbpkg.ErrAgentInstanceTaskConflict
+	}
+	if runtimeTask.Status.State.Terminal() {
+		return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), runtimeTask, runtimeTask)
+	}
+
+	for event, eventErr := range client.SubscribeToTask(ctx, &a2atype.SubscribeToTaskRequest{ID: active.ID}) {
+		if errors.Is(eventErr, a2atype.ErrTaskNotFound) {
+			return g.reclaimTask(ctx, instance.GetId(), active.ID)
+		}
+		if eventErr != nil {
+			ctrllog.FromContext(ctx).Error(eventErr, "failed to query active runtime execution", "task", active.ID)
+			return dbpkg.ErrAgentInstanceTaskConflict
+		}
+		if event == nil {
+			return dbpkg.ErrAgentInstanceTaskConflict
+		}
+		if err := validateTaskInfo(event, active); err != nil {
+			ctrllog.FromContext(ctx).Error(err, "runtime returned invalid active task event", "task", active.ID)
+			return dbpkg.ErrAgentInstanceTaskConflict
+		}
+		return dbpkg.ErrAgentInstanceTaskConflict
+	}
+	return dbpkg.ErrAgentInstanceTaskConflict
+}
+
+func (g *Gateway) reclaimTask(ctx context.Context, instanceID string, taskID a2atype.TaskID) error {
+	reclaimed, err := g.store.ReclaimAgentInstanceTask(ctx, instanceID, string(taskID))
+	if err != nil {
+		return err
+	}
+	if !reclaimed {
+		return dbpkg.ErrAgentInstanceTaskConflict
+	}
+	return nil
 }
 
 func hashSendRequest(req *a2atype.SendMessageRequest) ([]byte, error) {

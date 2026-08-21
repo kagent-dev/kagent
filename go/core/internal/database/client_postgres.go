@@ -715,7 +715,7 @@ func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace
 	return nil
 }
 
-func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task, staleAfter time.Duration) (*a2a.Task, bool, error) {
+func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID string, requestHash []byte, task *a2a.Task) (*a2a.Task, bool, error) {
 	if task == nil || len(task.History) == 0 || task.History[0] == nil || task.History[0].ID == "" {
 		return nil, false, fmt.Errorf("AgentInstance task requires an initial message")
 	}
@@ -732,9 +732,6 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 	result := task
 	created := false
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
-		if err := terminateStaleAgentInstanceTask(ctx, q, instanceID, staleAfter); err != nil {
-			return err
-		}
 		rows, err := q.CreateAgentInstanceTask(ctx, dbgen.CreateAgentInstanceTaskParams{
 			InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
 			StatusTimestamp: task.Status.Timestamp, Data: taskData,
@@ -770,58 +767,67 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 	return result, created, nil
 }
 
-// taskInterruptedMessage explains a task terminated because the process running
-// it stopped reporting progress.
+// taskInterruptedMessage explains a task terminated because its runtime no
+// longer has an active execution for it.
 const taskInterruptedMessage = "The turn was interrupted before it completed, and the process running it is no longer reporting progress."
 
-// terminateStaleAgentInstanceTask fails the instance's active task when it has
-// gone silent for longer than staleAfter. An AgentInstance holds one
-// non-terminal task at a time, so a task orphaned by a process that stopped
-// mid-turn would otherwise block every later send with no way to clear it. The
-// interruption is appended to history, not only written to status, so readers
-// render it without needing to interpret the terminal state themselves.
-func terminateStaleAgentInstanceTask(ctx context.Context, q *dbgen.Queries, instanceID string, staleAfter time.Duration) error {
-	if staleAfter <= 0 {
+func (c *postgresClient) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
+	row, err := c.q.GetActiveAgentInstanceTask(ctx, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("get active AgentInstance task: %w", notFoundOr(err))
+	}
+	return unmarshalAgentInstanceTask(row.Data)
+}
+
+// ReclaimAgentInstanceTask atomically fails taskID only if it is still the
+// instance's active task.
+func (c *postgresClient) ReclaimAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
+	reclaimed := false
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockActiveAgentInstanceTask(ctx, instanceID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("lock active AgentInstance task: %w", err)
+		}
+		if row.ID != taskID {
+			return nil
+		}
+		task, err := unmarshalAgentInstanceTask(row.Data)
+		if err != nil {
+			return err
+		}
+		interrupted := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart(taskInterruptedMessage))
+		now := time.Now()
+		task.History = append(task.History, interrupted)
+		task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Message: interrupted, Timestamp: &now}
+		data, err := marshalAgentInstanceTask(task)
+		if err != nil {
+			return err
+		}
+		if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
+			InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
+			StatusTimestamp: task.Status.Timestamp, Data: data,
+		}); err != nil {
+			return fmt.Errorf("reclaim AgentInstance task %s: %w", task.ID, err)
+		}
+		eventData, err := marshalAgentInstanceTaskEvent(interrupted)
+		if err != nil {
+			return err
+		}
+		if err := q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
+			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(task.ID)), Data: eventData,
+		}); err != nil {
+			return fmt.Errorf("record AgentInstance task interruption: %w", err)
+		}
+		reclaimed = true
 		return nil
-	}
-	row, err := q.LockActiveAgentInstanceTask(ctx, instanceID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
+	})
 	if err != nil {
-		return fmt.Errorf("lock active AgentInstance task: %w", err)
+		return false, err
 	}
-	if row.UpdatedAt.After(time.Now().Add(-staleAfter)) {
-		return nil
-	}
-	task, err := unmarshalAgentInstanceTask(row.Data)
-	if err != nil {
-		return err
-	}
-	interrupted := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart(taskInterruptedMessage))
-	now := time.Now()
-	task.History = append(task.History, interrupted)
-	task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Message: interrupted, Timestamp: &now}
-	data, err := marshalAgentInstanceTask(task)
-	if err != nil {
-		return err
-	}
-	if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
-		InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
-		StatusTimestamp: task.Status.Timestamp, Data: data,
-	}); err != nil {
-		return fmt.Errorf("terminate stale AgentInstance task %s: %w", task.ID, err)
-	}
-	eventData, err := marshalAgentInstanceTaskEvent(interrupted)
-	if err != nil {
-		return err
-	}
-	if err := q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
-		InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(task.ID)), Data: eventData,
-	}); err != nil {
-		return fmt.Errorf("record stale AgentInstance task interruption: %w", err)
-	}
-	return nil
+	return reclaimed, nil
 }
 
 func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event) error {

@@ -26,9 +26,6 @@ import (
 const (
 	gatewayTestID  = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
 	gatewayTestURL = "https://gateway.example"
-	// gatewayTestStaleAfter keeps the active-task takeover enabled without any
-	// test task ever reaching the bound.
-	gatewayTestStaleAfter = time.Hour
 )
 
 type gatewayTestSession struct{}
@@ -46,6 +43,9 @@ type gatewayTestStore struct {
 	total                 int
 	taskErr               error
 	replay                *a2atype.Task
+	active                *a2atype.Task
+	reclaimResult         bool
+	reclaimed             bool
 	stored                []a2atype.Event
 	namespace, id, userID string
 }
@@ -65,19 +65,42 @@ func (s *gatewayTestStore) StoreAgentInstanceTaskEvent(_ context.Context, _ stri
 	}
 	s.task = task
 	s.stored = append(s.stored, event)
+	if task != nil && task.Status.State.Terminal() && s.active != nil && task.ID == s.active.ID {
+		s.active = nil
+	}
 	return nil
 }
 
-func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, _ []byte, task *a2atype.Task, _ time.Duration) (*a2atype.Task, bool, error) {
+func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, _ []byte, task *a2atype.Task) (*a2atype.Task, bool, error) {
 	if s.taskErr != nil {
 		return nil, false, s.taskErr
 	}
 	if s.replay != nil {
 		return s.replay, false, nil
 	}
+	if s.active != nil {
+		return nil, false, dbpkg.ErrAgentInstanceTaskConflict
+	}
 	s.task = task
+	s.active = task
 	s.stored = append(s.stored, task.History[0])
 	return task, true, nil
+}
+
+func (s *gatewayTestStore) GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error) {
+	if s.active == nil {
+		return nil, dbpkg.ErrNotFound
+	}
+	return s.active, nil
+}
+
+func (s *gatewayTestStore) ReclaimAgentInstanceTask(_ context.Context, _ string, taskID string) (bool, error) {
+	if !s.reclaimResult || s.active == nil || string(s.active.ID) != taskID {
+		return false, nil
+	}
+	s.active = nil
+	s.reclaimed = true
+	return true, nil
 }
 
 func (s *gatewayTestStore) GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error) {
@@ -111,8 +134,24 @@ func (d *gatewayTestDialer) Dial(_ context.Context, instance *apiv1alpha1.AgentI
 
 type gatewayTestRuntime struct {
 	a2aclient.Transport
-	sent      bool
-	destroyed bool
+	sent           bool
+	destroyed      bool
+	task           *a2atype.Task
+	taskErr        error
+	subscribeEvent a2atype.Event
+	subscribeErr   error
+}
+
+func (r *gatewayTestRuntime) GetTask(context.Context, a2aclient.ServiceParams, *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+	return r.task, r.taskErr
+}
+
+func (r *gatewayTestRuntime) SubscribeToTask(context.Context, a2aclient.ServiceParams, *a2atype.SubscribeToTaskRequest) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		if r.subscribeEvent != nil || r.subscribeErr != nil {
+			yield(r.subscribeEvent, r.subscribeErr)
+		}
+	}
 }
 
 func (r *gatewayTestRuntime) SendMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
@@ -179,7 +218,7 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	store := &gatewayTestStore{instance: instance}
 	authorizer := &gatewayTestAuthorizer{}
 	runtime := &gatewayTestRuntime{}
-	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL, gatewayTestStaleAfter)
+	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 
 	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
 	if err != nil {
@@ -199,7 +238,7 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 	instance := gatewayTestInstance()
 	runtime := &gatewayTestRuntime{}
-	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL, gatewayTestStaleAfter)
+	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 
 	var events int
 	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
@@ -214,7 +253,7 @@ func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 }
 
 func TestGatewayRequiresValidRoutingHeaders(t *testing.T) {
-	gateway := New(&gatewayTestStore{instance: gatewayTestInstance()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, gatewayTestURL, gatewayTestStaleAfter)
+	gateway := New(&gatewayTestStore{instance: gatewayTestInstance()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, gatewayTestURL)
 	for _, ctx := range []context.Context{
 		auth.AuthSessionTo(context.Background(), gatewayTestSession{}),
 		gatewayTestContextWithRoute("INVALID", gatewayTestID),
@@ -238,7 +277,7 @@ func TestGatewayHidesInternalErrors(t *testing.T) {
 		{name: "dialer", store: &gatewayTestStore{instance: instance}, dialer: &gatewayTestDialer{err: errors.New("internal.host:1234")}, message: "failed to connect to AgentInstance runtime"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			gateway := New(test.store, &gatewayTestAuthorizer{}, test.dialer, gatewayTestURL, gatewayTestStaleAfter)
+			gateway := New(test.store, &gatewayTestAuthorizer{}, test.dialer, gatewayTestURL)
 			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
 			if err == nil || !strings.Contains(err.Error(), test.message) {
 				t.Fatalf("SendMessage() error = %v, want %q", err, test.message)
@@ -253,7 +292,7 @@ func TestGatewayHidesInternalErrors(t *testing.T) {
 func TestGatewayReadsRoutingHeadersFromGRPC(t *testing.T) {
 	instance := gatewayTestInstance()
 	runtime := &gatewayTestRuntime{}
-	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL, gatewayTestStaleAfter)
+	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		return handler(auth.AuthSessionTo(ctx, gatewayTestSession{}), req)
@@ -302,7 +341,7 @@ func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
 	}
 	store := &gatewayTestStore{instance: gatewayTestInstance(), task: task, tasks: []*a2atype.Task{task}, total: 1}
 	dialer := &gatewayTestDialer{}
-	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL, gatewayTestStaleAfter)
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
 	historyLength := 1
 
 	got, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: task.ID, HistoryLength: &historyLength})
@@ -333,7 +372,7 @@ func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 	}
 	authorizer := &gatewayTestAuthorizer{}
 	dialer := &gatewayTestDialer{}
-	gateway := New(store, authorizer, dialer, gatewayTestURL, gatewayTestStaleAfter)
+	gateway := New(store, authorizer, dialer, gatewayTestURL)
 
 	card, err := gateway.GetExtendedAgentCard(gatewayTestContext(), &a2atype.GetExtendedAgentCardRequest{})
 	if err != nil {
@@ -356,7 +395,7 @@ func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
 
 func TestGatewayPersistsBeforePublishing(t *testing.T) {
 	store := &gatewayTestStore{instance: gatewayTestInstance()}
-	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, &gatewayTestRuntime{})}, gatewayTestURL, gatewayTestStaleAfter)
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, &gatewayTestRuntime{})}, gatewayTestURL)
 
 	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
 		if err != nil {
@@ -368,16 +407,67 @@ func TestGatewayPersistsBeforePublishing(t *testing.T) {
 	}
 }
 
-func TestGatewayRejectsConcurrentTaskBeforeDialing(t *testing.T) {
-	store := &gatewayTestStore{instance: gatewayTestInstance(), taskErr: dbpkg.ErrAgentInstanceTaskConflict}
-	dialer := &gatewayTestDialer{}
-	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL, gatewayTestStaleAfter)
+func TestGatewayKeepsLiveRuntimeTaskBusy(t *testing.T) {
+	active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	runtime := &gatewayTestRuntime{task: active, subscribeEvent: active}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active}
+	dialer := &gatewayTestDialer{client: gatewayTestClient(t, runtime)}
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
 
 	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
 		t.Fatal("SendMessage() accepted a second active task")
 	}
-	if dialer.instance != nil {
-		t.Fatal("conflicting task dialed the private runtime")
+	if dialer.instance == nil || runtime.sent || store.reclaimed {
+		t.Fatalf("live task reconciliation: dialed=%v sent=%v reclaimed=%v", dialer.instance != nil, runtime.sent, store.reclaimed)
+	}
+}
+
+func TestGatewayReclaimsTaskWithoutRuntimeExecution(t *testing.T) {
+	for _, missing := range []string{"task", "execution"} {
+		t.Run(missing, func(t *testing.T) {
+			active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+			runtime := &gatewayTestRuntime{task: active, subscribeErr: a2atype.ErrTaskNotFound}
+			if missing == "task" {
+				runtime.task, runtime.taskErr = nil, a2atype.ErrTaskNotFound
+			}
+			store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, reclaimResult: true}
+			gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+
+			if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err != nil {
+				t.Fatal(err)
+			}
+			if !store.reclaimed || !runtime.sent {
+				t.Fatalf("orphan reconciliation: reclaimed=%v sent=%v", store.reclaimed, runtime.sent)
+			}
+		})
+	}
+}
+
+func TestGatewayPersistsTerminalRuntimeTaskBeforeRetry(t *testing.T) {
+	active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	terminal := &a2atype.Task{ID: active.ID, ContextID: active.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+	runtime := &gatewayTestRuntime{task: terminal}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.stored) < 2 || store.stored[0] != terminal || !runtime.sent {
+		t.Fatalf("terminal reconciliation: stored=%#v sent=%v", store.stored, runtime.sent)
+	}
+}
+
+func TestGatewayDoesNotReclaimWhenRuntimeIsUnavailable(t *testing.T) {
+	active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), active: active, reclaimResult: true}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{err: errors.New("runtime unavailable")}, gatewayTestURL)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
+		t.Fatal("SendMessage() accepted a second task while runtime state was unknown")
+	}
+	if store.reclaimed {
+		t.Fatal("unavailable runtime task was reclaimed")
 	}
 }
 
@@ -385,7 +475,7 @@ func TestGatewayReplaysDuplicateMessageWithoutDialing(t *testing.T) {
 	existing := &a2atype.Task{ID: "existing-task", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
 	store := &gatewayTestStore{instance: gatewayTestInstance(), replay: existing}
 	dialer := &gatewayTestDialer{}
-	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL, gatewayTestStaleAfter)
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
 
 	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
 	if err != nil || result != existing {
@@ -399,7 +489,7 @@ func TestGatewayReplaysDuplicateMessageWithoutDialing(t *testing.T) {
 func TestGatewayRejectsConflictingMessageIDWithoutDialing(t *testing.T) {
 	store := &gatewayTestStore{instance: gatewayTestInstance(), taskErr: dbpkg.ErrIdempotencyConflict}
 	dialer := &gatewayTestDialer{}
-	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL, gatewayTestStaleAfter)
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
 
 	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
 		t.Fatal("SendMessage() accepted a reused message ID with different content")
