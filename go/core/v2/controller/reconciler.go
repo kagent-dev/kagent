@@ -24,12 +24,6 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// CollectionConfig contains the controller settings that affect compiled
-// desired state. They are inputs to KRT rather than hidden global state.
-type CollectionConfig struct {
-	PauseImage string
-}
-
 // PairReconciliation is the complete desired and observed state for one
 // AgentTemplate/Harness pair. Failure is data so invalid pairs still produce
 // status instead of disappearing from the graph.
@@ -59,7 +53,6 @@ func newPairReconciliations(
 	secrets krt.Collection[*corev1.Secret],
 	workerPools krt.Collection[*atev1alpha1.WorkerPool],
 	actorTemplates krt.Collection[*atev1alpha1.ActorTemplate],
-	config CollectionConfig,
 	opts krt.OptionsBuilder,
 ) krt.Collection[PairReconciliation] {
 	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
@@ -91,7 +84,7 @@ func newPairReconciliations(
 			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionResolvedRefs, Reason: "WorkerPoolNotFound", Message: err.Error()}
 			return state
 		}
-		state.DesiredActorTemplate, err = substrate.ActorTemplateForRevision(revision, state.RevisionID, config.PauseImage)
+		state.DesiredActorTemplate, err = substrate.ActorTemplateForRevision(revision, state.RevisionID)
 		if err != nil {
 			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 			return state
@@ -252,7 +245,8 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	revision := dbpkg.RuntimeRevision{
 		Revision: state.RevisionID.String(), Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
 		AgentTemplateUID: pair.AgentTemplateUID, HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID,
-		SourceSnapshot: state.Revision.Provenance, EgressDestinations: state.Revision.EgressDestinations,
+		SourceSnapshot: state.Revision.Provenance, AgentCard: state.Revision.AgentCardJSON,
+		EgressDestinations:     state.Revision.EgressDestinations,
 		ActorTemplateNamespace: observed.Namespace, ActorTemplateName: observed.Name, ActorTemplateUID: string(observed.UID),
 		Phase: string(observed.Status.Phase), GoldenSnapshot: observed.Status.GoldenSnapshot,
 	}

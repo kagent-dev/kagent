@@ -7,12 +7,14 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"google.golang.org/grpc"
@@ -21,7 +23,10 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-const gatewayTestID = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
+const (
+	gatewayTestID  = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
+	gatewayTestURL = "https://gateway.example"
+)
 
 type gatewayTestSession struct{}
 
@@ -31,13 +36,53 @@ func (gatewayTestSession) Principal() auth.Principal {
 
 type gatewayTestStore struct {
 	instance              *apiv1alpha1.AgentInstance
+	revision              *dbpkg.RuntimeRevision
 	err                   error
+	task                  *a2atype.Task
+	tasks                 []*a2atype.Task
+	total                 int
+	taskErr               error
+	replay                *a2atype.Task
+	stored                []a2atype.Event
 	namespace, id, userID string
 }
 
 func (s *gatewayTestStore) GetAgentInstance(_ context.Context, namespace, id, userID string) (*apiv1alpha1.AgentInstance, error) {
 	s.namespace, s.id, s.userID = namespace, id, userID
 	return s.instance, s.err
+}
+
+func (s *gatewayTestStore) GetRuntimeRevision(context.Context, string) (*dbpkg.RuntimeRevision, error) {
+	return s.revision, nil
+}
+
+func (s *gatewayTestStore) StoreAgentInstanceTaskEvent(_ context.Context, _ string, task *a2atype.Task, event a2atype.Event) error {
+	if s.taskErr != nil {
+		return s.taskErr
+	}
+	s.task = task
+	s.stored = append(s.stored, event)
+	return nil
+}
+
+func (s *gatewayTestStore) CreateAgentInstanceTask(_ context.Context, _ string, _ []byte, task *a2atype.Task) (*a2atype.Task, bool, error) {
+	if s.taskErr != nil {
+		return nil, false, s.taskErr
+	}
+	if s.replay != nil {
+		return s.replay, false, nil
+	}
+	s.task = task
+	s.stored = append(s.stored, task.History[0])
+	return task, true, nil
+}
+
+func (s *gatewayTestStore) GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error) {
+	return s.task, s.taskErr
+}
+
+func (s *gatewayTestStore) ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error) {
+	return s.tasks, s.total, s.taskErr
 }
 
 type gatewayTestAuthorizer struct {
@@ -67,14 +112,14 @@ type gatewayTestRuntime struct {
 	destroyed bool
 }
 
-func (r *gatewayTestRuntime) SendMessage(context.Context, a2aclient.ServiceParams, *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+func (r *gatewayTestRuntime) SendMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
 	r.sent = true
-	return &a2atype.Task{ID: "task-1"}, nil
+	return &a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, nil
 }
 
-func (r *gatewayTestRuntime) SendStreamingMessage(context.Context, a2aclient.ServiceParams, *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+func (r *gatewayTestRuntime) SendStreamingMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
-		yield(&a2atype.Task{ID: "task-1"}, nil)
+		yield(&a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, nil)
 	}
 }
 
@@ -116,9 +161,14 @@ func gatewayTestContextWithRoute(namespace, id string) context.Context {
 func gatewayTestInstance() *apiv1alpha1.AgentInstance {
 	return &apiv1alpha1.AgentInstance{
 		Id: gatewayTestID, Namespace: "team-a", Creator: "alice",
-		A2AAuthority: "private-runtime-authority",
-		State:        apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
+		PreparedRevision: "revision-1",
+		A2AAuthority:     "private-runtime-authority",
+		State:            apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
 	}
+}
+
+func gatewayTestRequest() *a2atype.SendMessageRequest {
+	return &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))}
 }
 
 func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
@@ -126,13 +176,13 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	store := &gatewayTestStore{instance: instance}
 	authorizer := &gatewayTestAuthorizer{}
 	runtime := &gatewayTestRuntime{}
-	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)})
+	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 
-	result, err := gateway.SendMessage(gatewayTestContext(), &a2atype.SendMessageRequest{})
+	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.(*a2atype.Task).ID != "task-1" || !runtime.sent || !runtime.destroyed {
+	if result.(*a2atype.Task).ID == "" || !runtime.sent || !runtime.destroyed {
 		t.Fatalf("runtime result = %#v, sent %v, destroyed %v", result, runtime.sent, runtime.destroyed)
 	}
 	if store.namespace != "team-a" || store.id != gatewayTestID || store.userID != "alice" {
@@ -146,10 +196,10 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 	instance := gatewayTestInstance()
 	runtime := &gatewayTestRuntime{}
-	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)})
+	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 
 	var events int
-	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), &a2atype.SendMessageRequest{}) {
+	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +211,7 @@ func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 }
 
 func TestGatewayRequiresValidRoutingHeaders(t *testing.T) {
-	gateway := New(&gatewayTestStore{instance: gatewayTestInstance()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{})
+	gateway := New(&gatewayTestStore{instance: gatewayTestInstance()}, &gatewayTestAuthorizer{}, &gatewayTestDialer{}, gatewayTestURL)
 	for _, ctx := range []context.Context{
 		auth.AuthSessionTo(context.Background(), gatewayTestSession{}),
 		gatewayTestContextWithRoute("INVALID", gatewayTestID),
@@ -185,8 +235,8 @@ func TestGatewayHidesInternalErrors(t *testing.T) {
 		{name: "dialer", store: &gatewayTestStore{instance: instance}, dialer: &gatewayTestDialer{err: errors.New("internal.host:1234")}, message: "failed to connect to AgentInstance runtime"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			gateway := New(test.store, &gatewayTestAuthorizer{}, test.dialer)
-			_, err := gateway.SendMessage(gatewayTestContext(), &a2atype.SendMessageRequest{})
+			gateway := New(test.store, &gatewayTestAuthorizer{}, test.dialer, gatewayTestURL)
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
 			if err == nil || !strings.Contains(err.Error(), test.message) {
 				t.Fatalf("SendMessage() error = %v, want %q", err, test.message)
 			}
@@ -200,7 +250,7 @@ func TestGatewayHidesInternalErrors(t *testing.T) {
 func TestGatewayReadsRoutingHeadersFromGRPC(t *testing.T) {
 	instance := gatewayTestInstance()
 	runtime := &gatewayTestRuntime{}
-	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)})
+	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		return handler(auth.AuthSessionTo(ctx, gatewayTestSession{}), req)
@@ -238,5 +288,120 @@ func TestGatewayReadsRoutingHeadersFromGRPC(t *testing.T) {
 func TestRuntimeDialerRequiresAuthority(t *testing.T) {
 	if _, err := (&RuntimeDialer{}).Dial(t.Context(), &apiv1alpha1.AgentInstance{}); err == nil {
 		t.Fatal("Dial() accepted an empty runtime authority")
+	}
+}
+
+func TestGatewayReadsTasksWithoutDialingRuntime(t *testing.T) {
+	task := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		History:   []*a2atype.Message{{ID: "one"}, {ID: "two"}},
+		Artifacts: []*a2atype.Artifact{{Name: "result"}},
+	}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), task: task, tasks: []*a2atype.Task{task}, total: 1}
+	dialer := &gatewayTestDialer{}
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
+	historyLength := 1
+
+	got, err := gateway.GetTask(gatewayTestContext(), &a2atype.GetTaskRequest{ID: task.ID, HistoryLength: &historyLength})
+	if err != nil || len(got.History) != 1 || len(got.Artifacts) != 1 {
+		t.Fatalf("GetTask() = %#v, %v", got, err)
+	}
+	listed, err := gateway.ListTasks(gatewayTestContext(), &a2atype.ListTasksRequest{HistoryLength: &historyLength})
+	if err != nil || len(listed.Tasks) != 1 || len(listed.Tasks[0].History) != 1 || listed.Tasks[0].Artifacts != nil {
+		t.Fatalf("ListTasks() = %#v, %v", listed, err)
+	}
+	if dialer.instance != nil {
+		t.Fatal("task reads dialed the private runtime")
+	}
+}
+
+func TestGatewayBuildsAgentCardFromPinnedRevision(t *testing.T) {
+	store := &gatewayTestStore{
+		instance: gatewayTestInstance(),
+		revision: &dbpkg.RuntimeRevision{
+			Revision: "revision-1",
+			AgentCard: []byte(`{
+				"name":"assistant","description":"pinned description","version":"v1",
+				"supportedInterfaces":[{"url":"http://127.0.0.1:80","protocolBinding":"GRPC","protocolVersion":"1.0"}],
+				"capabilities":{"pushNotifications":true},"skills":[],
+				"defaultInputModes":["text"],"defaultOutputModes":["text"]
+			}`),
+		},
+	}
+	authorizer := &gatewayTestAuthorizer{}
+	dialer := &gatewayTestDialer{}
+	gateway := New(store, authorizer, dialer, gatewayTestURL)
+
+	card, err := gateway.GetExtendedAgentCard(gatewayTestContext(), &a2atype.GetExtendedAgentCardRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Name != "assistant" || card.Description != "pinned description" || card.Version != "v1" {
+		t.Fatalf("template metadata = %#v", card)
+	}
+	if len(card.SupportedInterfaces) != 1 || card.SupportedInterfaces[0].URL != gatewayTestURL ||
+		card.SupportedInterfaces[0].ProtocolBinding != a2atype.TransportProtocolGRPC {
+		t.Fatalf("public interfaces = %#v", card.SupportedInterfaces)
+	}
+	if !card.Capabilities.Streaming || !card.Capabilities.ExtendedAgentCard || card.Capabilities.PushNotifications {
+		t.Fatalf("gateway capabilities = %#v", card.Capabilities)
+	}
+	if authorizer.verb != auth.VerbGet || dialer.instance != nil {
+		t.Fatalf("authorization verb = %q, runtime dialed = %v", authorizer.verb, dialer.instance != nil)
+	}
+}
+
+func TestGatewayPersistsBeforePublishing(t *testing.T) {
+	store := &gatewayTestStore{instance: gatewayTestInstance()}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, &gatewayTestRuntime{})}, gatewayTestURL)
+
+	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(store.stored) != 2 {
+			t.Fatalf("published event after %d durable writes, want 2", len(store.stored))
+		}
+	}
+}
+
+func TestGatewayRejectsConcurrentTaskBeforeDialing(t *testing.T) {
+	store := &gatewayTestStore{instance: gatewayTestInstance(), taskErr: dbpkg.ErrAgentInstanceTaskConflict}
+	dialer := &gatewayTestDialer{}
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
+		t.Fatal("SendMessage() accepted a second active task")
+	}
+	if dialer.instance != nil {
+		t.Fatal("conflicting task dialed the private runtime")
+	}
+}
+
+func TestGatewayReplaysDuplicateMessageWithoutDialing(t *testing.T) {
+	existing := &a2atype.Task{ID: "existing-task", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), replay: existing}
+	dialer := &gatewayTestDialer{}
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
+
+	result, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	if err != nil || result != existing {
+		t.Fatalf("SendMessage() = %#v, %v", result, err)
+	}
+	if dialer.instance != nil {
+		t.Fatal("duplicate message dialed the private runtime")
+	}
+}
+
+func TestGatewayRejectsConflictingMessageIDWithoutDialing(t *testing.T) {
+	store := &gatewayTestStore{instance: gatewayTestInstance(), taskErr: dbpkg.ErrIdempotencyConflict}
+	dialer := &gatewayTestDialer{}
+	gateway := New(store, &gatewayTestAuthorizer{}, dialer, gatewayTestURL)
+
+	if _, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest()); err == nil {
+		t.Fatal("SendMessage() accepted a reused message ID with different content")
+	}
+	if dialer.instance != nil {
+		t.Fatal("conflicting message dialed the private runtime")
 	}
 }

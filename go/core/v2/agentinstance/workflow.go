@@ -80,13 +80,13 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	// Substrate's resume RPC is an imperative workflow and returns only after
 	// the Actor is running.
-	if actor.GetStatus() != ateapipb.Actor_STATUS_RUNNING {
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
 		actor, err = w.actors.ResumeActor(ctx, atespace, name)
 		if err != nil {
 			return nil, fmt.Errorf("resume Actor %s/%s: %w", atespace, name, err)
 		}
-		if actor.GetStatus() != ateapipb.Actor_STATUS_RUNNING {
-			return nil, fmt.Errorf("resume Actor %s/%s returned status %s", atespace, name, actor.GetStatus())
+		if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
+			return nil, fmt.Errorf("resume Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
 		}
 	}
 
@@ -111,12 +111,12 @@ func (w *ActorWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.Agent
 	}
 	actor, err := w.lifecycleActor(ctx, instance)
 	if err == nil {
-		switch actor.GetStatus() {
-		case ateapipb.Actor_STATUS_SUSPENDED:
-		case ateapipb.Actor_STATUS_RUNNING, ateapipb.Actor_STATUS_RESUMING, ateapipb.Actor_STATUS_SUSPENDING:
+		switch actor.GetStatus().GetState() {
+		case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
+		case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
 			err = w.actors.SuspendActor(ctx, instance.GetNamespace(), actorName(instance.GetId()))
 		default:
-			err = fmt.Errorf("actor %s/%s cannot be suspended from status %s", instance.GetNamespace(), actorName(instance.GetId()), actor.GetStatus())
+			err = fmt.Errorf("actor %s/%s cannot be suspended from status %s", instance.GetNamespace(), actorName(instance.GetId()), actor.GetStatus().GetState())
 		}
 	}
 	if err != nil {
@@ -142,15 +142,15 @@ func (w *ActorWorkflow) Resume(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	actor, err := w.lifecycleActor(ctx, instance)
 	if err == nil {
-		switch actor.GetStatus() {
-		case ateapipb.Actor_STATUS_RUNNING:
-		case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_SUSPENDING, ateapipb.Actor_STATUS_RESUMING:
+		switch actor.GetStatus().GetState() {
+		case ateapipb.ActorState_ACTOR_STATE_RUNNING:
+		case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_SUSPENDING, ateapipb.ActorState_ACTOR_STATE_RESUMING:
 			actor, err = w.actors.ResumeActor(ctx, instance.GetNamespace(), actorName(instance.GetId()))
-			if err == nil && actor.GetStatus() != ateapipb.Actor_STATUS_RUNNING {
-				err = fmt.Errorf("resume Actor %s/%s returned status %s", instance.GetNamespace(), actorName(instance.GetId()), actor.GetStatus())
+			if err == nil && actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
+				err = fmt.Errorf("resume Actor %s/%s returned status %s", instance.GetNamespace(), actorName(instance.GetId()), actor.GetStatus().GetState())
 			}
 		default:
-			err = fmt.Errorf("actor %s/%s cannot be resumed from status %s", instance.GetNamespace(), actorName(instance.GetId()), actor.GetStatus())
+			err = fmt.Errorf("actor %s/%s cannot be resumed from status %s", instance.GetNamespace(), actorName(instance.GetId()), actor.GetStatus().GetState())
 		}
 	}
 	if err != nil {
@@ -278,8 +278,8 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	// Substrate's suspend and delete RPCs each run their workflows to
 	// completion, so no local status polling is needed between them.
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_CRASHED, ateapipb.Actor_STATUS_DELETING:
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_DELETING:
 	default:
 		if err := w.actors.SuspendActor(ctx, atespace, name); err != nil && status.Code(err) != codes.NotFound {
 			return nil, w.release(ctx, instance, originalState, claimed, fmt.Errorf("suspend Actor %s/%s before deletion: %w", atespace, name, err))

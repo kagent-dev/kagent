@@ -217,7 +217,6 @@ spec:
   type: Declarative  # or BYO (Bring Your Own)
   description: "Agent description"
   declarative:
-    runtime: python    # or go
     systemMessage: "You are a helpful agent..."
     modelConfig: my-model-config  # reference to ModelConfig
     stream: true
@@ -479,7 +478,7 @@ Kagent is deployed via two Helm charts:
 
 4. **Config via Secret** — Agent configuration (system prompt, model credentials, MCP connections) is serialized in a Kubernetes Secret and materialized by the actor runtime. This decouples CRD reconciliation from runtime configuration.
 
-5. **Dual runtime** — Agents can use either Python ADK or Go ADK. The `runtime` field controls the ActorTemplate image and command.
+5. **Runtime boundary** — Declarative agents use the Go ADK. Python and other runtimes use BYO images and commands.
 
 6. **Template resolution at reconciliation time** — Prompt templates are resolved by the controller, not at runtime. The agent receives a fully resolved string. This makes debugging easier and keeps the runtime simple.
 

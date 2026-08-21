@@ -181,17 +181,11 @@ controller:
   # -- The base URL of the A2A Server endpoint, as advertised to clients.
   # @default -- `http://<fullname>-controller.<namespace>.svc:<port>`
   a2aBaseUrl: ""
+  # -- Public gRPC URL advertised by AgentInstance Agent Cards.
+  # @default -- `http://<fullname>-controller.<namespace>.svc:<grpc-port>`
+  a2aGatewayUrl: ""
+  # -- The image used for declarative agents.
   agentImage:
-    registry: ""
-    repository: kagent-dev/kagent/app
-    tag: "" # Will default to global, then Chart version
-  # -- The image used by the skills-init container to clone skills from Git and pull OCI skill images.
-  skillsInitImage:
-    registry: ""
-    repository: kagent-dev/kagent/skills-init
-    tag: "" # Will default to global, then Chart version
-  # -- The image used for the Go (ADK) runtime agent.
-  goAgentImage:
     registry: ""
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
@@ -334,7 +328,6 @@ controller:
     defaultWorkerPool:
       namespace: ""
       name: ""
-    # pauseImage: "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da"
     # Example when enabled:
     #   enabled: true
     #   ateApiEndpoint: "dns:///api.ate-system.svc:443"
@@ -644,7 +637,7 @@ providers:
       azureEndpoint: ""
   gemini:
     provider: Gemini
-    model: "gemini-2.0-flash-lite"
+    model: "gemini-2.5-flash-lite"
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""

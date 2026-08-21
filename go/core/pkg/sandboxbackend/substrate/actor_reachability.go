@@ -54,7 +54,7 @@ func waitForActorReachableViaAtenet(
 
 	for {
 		actor, getErr := actors.GetActor(waitCtx, atespace, actorID)
-		if getErr == nil && actor.GetStatus() == ateapipb.Actor_STATUS_RUNNING {
+		if getErr == nil && actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_RUNNING {
 			statusCode, probeErr := probeActorViaAtenetRouter(waitCtx, httpClient, probeURL, host)
 			if probeErr == nil && statusCode < http.StatusInternalServerError {
 				return nil
@@ -66,10 +66,10 @@ func waitForActorReachableViaAtenet(
 			if getErr != nil {
 				return fmt.Errorf("substrate session actor %q not reachable via atenet-router: %w", actorID, waitCtx.Err())
 			}
-			if actor != nil && actor.GetStatus() != ateapipb.Actor_STATUS_RUNNING {
+			if actor != nil && actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
 				return fmt.Errorf(
 					"substrate session actor %q not reachable via atenet-router: actor status %s: %w",
-					actorID, ActorStatusLabel(actor.GetStatus()), waitCtx.Err(),
+					actorID, ActorStatusLabel(actor.GetStatus().GetState()), waitCtx.Err(),
 				)
 			}
 			return fmt.Errorf("substrate session actor %q not reachable via atenet-router: %w", actorID, waitCtx.Err())

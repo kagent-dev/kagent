@@ -25,101 +25,43 @@ type resolvedDeployment struct {
 	Env   []corev1.EnvVar
 }
 
-// getRuntimeImageRepository returns the image repository for a given runtime:
-// DefaultGoImageConfig.Repository for the Go runtime, DefaultImageConfig.Repository
-// otherwise.
-func getRuntimeImageRepository(runtime v1alpha3.DeclarativeRuntime) string {
-	if runtime == v1alpha3.DeclarativeRuntime_Go {
-		return DefaultGoImageConfig.Repository
-	}
-	return DefaultImageConfig.Repository
-}
-
-func resolvePythonRuntimeImage(registry string, full, pinDigest bool) (string, error) {
-	repo := DefaultImageConfig.Repository
-	digest := PythonADKImageDigest
-	imageLabel := "app"
-	if full {
-		digest = PythonADKFullImageDigest
-		imageLabel = "app-full"
-	}
-	return resolveRuntimeImage(registry, repo, DefaultImageConfig.Tag, digest, imageLabel, full, pinDigest)
-}
-
-func resolveGoRuntimeImage(registry string, full, pinDigest bool) (string, error) {
-	repo := getRuntimeImageRepository(v1alpha3.DeclarativeRuntime_Go)
-	digest := GoADKImageDigest
-	imageLabel := "golang-adk"
-	if full {
-		digest = GoADKFullImageDigest
-		imageLabel = "golang-adk-full"
-	}
-	return resolveRuntimeImage(registry, repo, DefaultGoImageConfig.Tag, digest, imageLabel, full, pinDigest)
+func resolveGoRuntimeImage(registry string, pinDigest bool) (string, error) {
+	return resolveRuntimeImage(registry, DefaultImageConfig.Repository, DefaultImageConfig.Tag, AgentImageDigest, pinDigest)
 }
 
 // resolveRuntimeImage builds the image reference for a declarative agent runtime.
 //
 // Regular agents get a tag reference (registry/repository:tag) so mirrored
 // registries that do not preserve upstream manifest digests still resolve
-// (https://github.com/kagent-dev/kagent/issues/2055). Full-variant images share
-// the repository and are published under "<tag>-full" (see APP_FULL_IMAGE_TAG /
-// GOLANG_ADK_FULL_IMAGE_TAG in the Makefile).
+// (https://github.com/kagent-dev/kagent/issues/2055).
 //
 // Sandbox agents require pinDigest: Substrate ActorTemplate validation rejects
 // image refs without a digest, so those use the link-time (or flag-overridden)
 // runtime image digests.
-func resolveRuntimeImage(registry, repository, tag, digest, imageLabel string, full, pinDigest bool) (string, error) {
+func resolveRuntimeImage(registry, repository, tag, digest string, pinDigest bool) (string, error) {
 	if !pinDigest {
-		if full {
-			tag += "-full"
-		}
 		return fmt.Sprintf("%s/%s:%s", registry, repository, tag), nil
 	}
 	if d := normalizeImageDigest(digest); d != "" {
 		return fmt.Sprintf("%s/%s@%s", registry, repository, d), nil
 	}
-	return "", fmt.Errorf(
-		"%s image digest is not set; rebuild the controller after pushing agent runtime images, or override it via --%s-image-digest",
-		imageLabel, imageLabel,
-	)
+	return "", fmt.Errorf("agent image digest is not set; rebuild the controller after pushing the agent image, or override it via --image-digest")
 }
 
 func resolveInlineDeployment(agent *v1alpha3.SandboxAgent, mdd *modelDeploymentData) (*resolvedDeployment, error) {
 	specRef := agent.GetAgentSpec()
 	spec := specRef.Declarative
 
-	// Determine runtime (defaults to python when spec.declarative.runtime is unset).
-	runtime := v1alpha3.EffectiveDeclarativeRuntime(agent.GetAgentSpec())
-
-	// Resolve the runtime image registry.
-	baseRegistry := DefaultImageConfig.Registry
-	if runtime == v1alpha3.DeclarativeRuntime_Go {
-		baseRegistry = DefaultGoImageConfig.Registry
-	}
-
 	// Per-agent spec overrides take precedence over all defaults.
-	registry := baseRegistry
+	registry := DefaultImageConfig.Registry
 	if spec.ImageRegistry != "" {
 		registry = spec.ImageRegistry
 	}
 
-	var image string
-	full := needsSRTSettings(agent, specRef.Sandbox)
 	// Substrate ActorTemplates reject tag refs, so runtime images are pinned.
-	pinDigest := true
-	switch runtime {
-	case v1alpha3.DeclarativeRuntime_Go:
-		var err error
-		image, err = resolveGoRuntimeImage(registry, full, pinDigest)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		var err error
-		image, err = resolvePythonRuntimeImage(registry, full, pinDigest)
-		if err != nil {
-			return nil, err
-		}
+	image, err := resolveGoRuntimeImage(registry, true)
+	if err != nil {
+		return nil, err
 	}
 
 	dep := &resolvedDeployment{

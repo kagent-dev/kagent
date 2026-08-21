@@ -1,4 +1,4 @@
-package skills
+package tools
 
 import (
 	"bufio"
@@ -12,10 +12,43 @@ import (
 	"time"
 )
 
-const srtSettingsPathEnv = "KAGENT_SRT_SETTINGS_PATH"
+type CommandExecutor struct{}
 
-type CommandExecutor struct {
-	srtArgs []string
+// GetSessionPath creates the working directory used by skill execution tools.
+func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
+	if sessionID == "" {
+		return "", fmt.Errorf("sessionID cannot be empty")
+	}
+
+	basePath := filepath.Join(os.TempDir(), "kagent")
+	sessionPath := filepath.Clean(filepath.Join(basePath, sessionID))
+	if !strings.HasPrefix(sessionPath, filepath.Clean(basePath)+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid sessionID: path traversal detected")
+	}
+
+	if err := os.MkdirAll(filepath.Join(sessionPath, "uploads"), 0755); err != nil {
+		return "", fmt.Errorf("failed to create uploads directory: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(sessionPath, "outputs"), 0755); err != nil {
+		return "", fmt.Errorf("failed to create outputs directory: %w", err)
+	}
+
+	absSkillsDir, err := filepath.Abs(skillsDirectory)
+	if err != nil {
+		absSkillsDir = skillsDirectory
+	}
+	skillsLink := filepath.Join(sessionPath, "skills")
+	if target, err := os.Readlink(skillsLink); err == nil {
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(skillsLink), target)
+		}
+		if filepath.Clean(target) == filepath.Clean(absSkillsDir) {
+			return sessionPath, nil
+		}
+	}
+	_ = os.Remove(skillsLink)
+	_ = os.Symlink(absSkillsDir, skillsLink)
+	return sessionPath, nil
 }
 
 // ReadFileContent reads a file with line numbers.
@@ -108,20 +141,8 @@ func EditFileContent(path string, oldString, newString string, replaceAll bool) 
 	return os.WriteFile(path, []byte(newContent), 0644)
 }
 
-func resolveSRTSettingsArgs() ([]string, error) {
-	settingsPath := strings.TrimSpace(os.Getenv(srtSettingsPathEnv))
-	if settingsPath == "" {
-		return nil, fmt.Errorf("%s is not set", srtSettingsPathEnv)
-	}
-	return []string{"--settings", settingsPath}, nil
-}
-
-func NewCommandExecutorFromEnv() (*CommandExecutor, error) {
-	srtArgs, err := resolveSRTSettingsArgs()
-	if err != nil {
-		return nil, err
-	}
-	return &CommandExecutor{srtArgs: srtArgs}, nil
+func NewCommandExecutor() *CommandExecutor {
+	return &CommandExecutor{}
 }
 
 // ExecuteCommand executes a shell command.
@@ -134,8 +155,7 @@ func (e *CommandExecutor) ExecuteCommand(ctx context.Context, command string, wo
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	args := append(append([]string{}, e.srtArgs...), "bash", "-c", command)
-	cmd := exec.CommandContext(ctx, "srt", args...)
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Dir = workingDir
 
 	var stdout, stderr bytes.Buffer

@@ -7,20 +7,15 @@ metadata:
     {{- include "kagent.controller.labels" . | nindent 4 }}
 data:
   A2A_BASE_URL: {{ include "kagent.a2aBaseUrl" . | quote }}
+  A2A_GATEWAY_URL: {{ include "kagent.a2aGatewayUrl" . | quote }}
   DEFAULT_MODEL_CONFIG_NAME: {{ include "kagent.defaultModelConfigName" . | quote }}
   KAGENT_CONTROLLER_NAME: {{ include "kagent.fullname" . }}-controller
   {{- if .Values.ui.externalUrl }}
   KAGENT_UI_URL: {{ .Values.ui.externalUrl | quote }}
   {{- end }}
-  IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry | default .Values.registry  | quote }}
+  IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry | default .Values.registry | quote }}
   IMAGE_REPOSITORY: {{ .Values.controller.agentImage.repository | quote }}
   IMAGE_TAG: {{ coalesce .Values.controller.agentImage.tag .Values.tag .Chart.Version | quote }}
-  SKILLS_INIT_IMAGE_REGISTRY: {{ .Values.controller.skillsInitImage.registry | default .Values.registry | quote }}
-  SKILLS_INIT_IMAGE_REPOSITORY: {{ .Values.controller.skillsInitImage.repository | quote }}
-  SKILLS_INIT_IMAGE_TAG: {{ coalesce .Values.controller.skillsInitImage.tag .Values.tag .Chart.Version | quote }}
-  GO_IMAGE_REGISTRY: {{ .Values.controller.goAgentImage.registry | default .Values.registry | quote }}
-  GO_IMAGE_REPOSITORY: {{ .Values.controller.goAgentImage.repository | quote }}
-  GO_IMAGE_TAG: {{ coalesce .Values.controller.goAgentImage.tag .Values.tag .Chart.Version | quote }}
   LEADER_ELECT: {{ include "kagent.leaderElectionEnabled" . | quote }}
   # OpenTelemetry Configuration
   OTEL_TRACING_ENABLED: {{ .Values.otel.tracing.enabled | quote }}
