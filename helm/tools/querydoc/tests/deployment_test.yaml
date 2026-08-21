@@ -35,7 +35,7 @@ tests:
           value: querydoc
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/kagent-dev/doc2vec/mcp:1.1.10
+          value: ghcr.io/kagent-dev/doc2vec/mcp:v2.15.1
 
   - it: should use custom image tag when set
     template: deployment.yaml
@@ -55,7 +55,7 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: kagent-dev/doc2vec/mcp:1.1.10
+          value: kagent-dev/doc2vec/mcp:v2.15.1
       - notMatchRegex:
           path: spec.template.spec.containers[0].image
           pattern: "^/"          # no leading slash
