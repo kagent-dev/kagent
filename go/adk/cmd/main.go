@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"os"
@@ -56,7 +57,7 @@ func setupLogger(logLevel string) (logr.Logger, *zap.Logger) {
 }
 
 func main() {
-	logLevel := flag.String("log-level", "info", "Set the logging level (debug, info, warn, error)")
+	logLevel := flag.String("log-level", cmp.Or(os.Getenv("LOG_LEVEL"), "info"), "Set the logging level (debug, info, warn, error)")
 	host := flag.String("host", "", "Set the host address to bind to (default: empty, binds to all interfaces)")
 	portFlag := flag.String("port", "", "Set the port to listen on (overrides PORT environment variable)")
 	filepathFlag := flag.String("filepath", "", "Set the config directory path (overrides CONFIG_DIR environment variable)")
