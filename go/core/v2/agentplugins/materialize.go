@@ -56,7 +56,7 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 	var result MCPConfig
 	for i, skill := range config.Skills {
 		root := filepath.Join(paths.Plugins, fmt.Sprintf("standalone-%d", i))
-		sourceRoot, err := fetchSource(ctx, skill.Source, root)
+		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
 		if err != nil {
 			return MCPConfig{}, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
 		}
@@ -68,7 +68,7 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 	pluginNames := make(map[string]struct{})
 	for i, plugin := range config.Plugins {
 		root := filepath.Join(paths.Plugins, fmt.Sprintf("plugin-%d", i))
-		pluginRoot, err := fetchSource(ctx, plugin.Source, root)
+		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json")
 		if err != nil {
 			return MCPConfig{}, fmt.Errorf("materialize plugin %d: %w", i, err)
 		}
@@ -94,7 +94,7 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 	return result, nil
 }
 
-func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination string) (string, error) {
+func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination, requiredFile string) (string, error) {
 	selected := 0
 	if source.OCI != "" {
 		selected++
@@ -112,7 +112,16 @@ func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination 
 		if err := validatePackage(destination); err != nil {
 			return "", err
 		}
-		return containedPath(destination, source.Path)
+		root, err := containedPath(destination, source.Path)
+		if err == nil {
+			if info, err := os.Stat(filepath.Join(root, requiredFile)); err == nil && info.Mode().IsRegular() {
+				return root, nil
+			} else if err != nil && !os.IsNotExist(err) {
+				return "", err
+			}
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}

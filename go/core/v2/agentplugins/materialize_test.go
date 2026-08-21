@@ -66,12 +66,23 @@ func TestFetchSourceReusesExistingMaterialization(t *testing.T) {
 
 	root, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
 		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
-	}}, destination)
+	}}, destination, "SKILL.md")
 	if err != nil {
 		t.Fatalf("fetchSource() redownloaded existing materialization: %v", err)
 	}
 	if root != destination {
 		t.Fatalf("fetchSource() root = %q, want %q", root, destination)
+	}
+}
+
+func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
+	destination := t.TempDir()
+
+	_, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
+		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
+	}}, destination, "SKILL.md")
+	if err == nil {
+		t.Fatal("fetchSource() reused incomplete materialization")
 	}
 }
 
