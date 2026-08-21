@@ -110,7 +110,7 @@ jobs:
             --set controller.substrate.defaultWorkerPool.name=kagent-default
             --set substrateWorkerPool.create=true
             --set substrateWorkerPool.replicas=1
-            --set-string substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor@sha256:dbc40a126d5ff196d4cbd30b370995596ed2a0d4aa4135ba2e8f3e57934f2454
+            --set-string substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${{ env.SUBSTRATE_VERSION }}
           DOCKER_BUILD_ARGS: >-
             --cache-from=type=gha,scope=${{ needs.setup.outputs.cache-key }}-e2e
             --cache-from=type=gha,scope=${{ env.CACHE_KEY_PREFIX }}-main-e2e
