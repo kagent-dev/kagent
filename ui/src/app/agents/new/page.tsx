@@ -214,7 +214,11 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
         formData.systemPrompt = value;
         break;
       case "model":
+        // Shared error slot for both paths: Declarative reads modelName,
+        // BYO reads byoImage - set both since only one is actually
+        // inspected by validateAgentData, based on state.agentType.
         formData.modelName = value;
+        formData.byoImage = value;
         break;
       case "tools":
         formData.tools = value;
