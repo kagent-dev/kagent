@@ -55,6 +55,32 @@ func TestTranslateModelFoundryWorkloadIdentity(t *testing.T) {
 	assert.Equal(t, "gpt-4-1-nano", envVarValue(t, deploymentData.EnvVars, env.FoundryDeployment.Name()))
 	assert.Equal(t, "2024-10-21", envVarValue(t, deploymentData.EnvVars, env.FoundryAPIVersion.Name()))
 	assertNoEnvVar(t, deploymentData.EnvVars, env.FoundryAPIKey.Name())
+
+	// Default format is OpenAI.
+	assert.Equal(t, adk.FoundryAPIFormatOpenAI, foundryModel.APIFormat)
+}
+
+// TestTranslateModelFoundryAnthropic covers the Anthropic API format: with
+// apiFormat=Anthropic the translated model reports the anthropic format.
+func TestTranslateModelFoundryAnthropic(t *testing.T) {
+	scheme := schemev1.Scheme
+	require.NoError(t, v1alpha3.AddToScheme(scheme))
+
+	modelConfig := foundryModelConfig("foundry-anthropic")
+	modelConfig.Spec.Model = "claude-haiku-4-5"
+	modelConfig.Spec.Foundry.Endpoint = "https://example.services.ai.azure.com/"
+	modelConfig.Spec.Foundry.Deployment = "claude-haiku-4-5"
+	modelConfig.Spec.Foundry.APIFormat = v1alpha3.FoundryAPIFormatAnthropic
+	kubeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(modelConfig).Build()
+	tr := &adkApiTranslator{kube: kubeClient}
+
+	model, _, _, err := tr.translateModel(context.Background(), "default", "foundry-anthropic")
+	require.NoError(t, err)
+
+	foundryModel, ok := model.(*adk.Foundry)
+	require.True(t, ok)
+	assert.Equal(t, adk.FoundryAPIFormatAnthropic, foundryModel.APIFormat)
+	assert.Equal(t, "claude-haiku-4-5", foundryModel.Deployment)
 }
 
 // TestTranslateModelFoundryAPIKey covers the API-key path: apiKeySecret is set,

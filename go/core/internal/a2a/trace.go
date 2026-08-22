@@ -9,7 +9,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/types"
-	crcache "sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
@@ -46,7 +46,7 @@ func (m *a2aTracingMiddleware) Wrap(next http.Handler) http.Handler {
 // resolveProviderName looks up the ModelConfig for a declarative agent and
 // returns the corresponding gen_ai.provider.name attribute. Falls back to "kagent"
 // for BYO agents or if the ModelConfig cannot be fetched.
-func resolveProviderName(ctx context.Context, cache crcache.Cache, agent *v1alpha3.SandboxAgent) attribute.KeyValue {
+func resolveProviderName(ctx context.Context, reader client.Reader, agent *v1alpha3.SandboxAgent) attribute.KeyValue {
 	spec := agent.GetAgentSpec()
 	if spec.Declarative == nil {
 		return semconv.GenAIProviderNameKey.String("kagent")
@@ -56,8 +56,16 @@ func resolveProviderName(ctx context.Context, cache crcache.Cache, agent *v1alph
 		mcName = "default-model-config"
 	}
 	mc := &v1alpha3.ModelConfig{}
-	if err := cache.Get(ctx, types.NamespacedName{Namespace: agent.GetNamespace(), Name: mcName}, mc); err != nil {
+	if err := reader.Get(ctx, types.NamespacedName{Namespace: agent.GetNamespace(), Name: mcName}, mc); err != nil {
 		return semconv.GenAIProviderNameKey.String("kagent")
+	}
+	// Foundry serves multiple API formats. For the Anthropic (Claude) format the
+	// span's gen_ai.provider.name is set to the model vendor ("anthropic"); the
+	// OpenAI-compatible surface falls through to the platform name
+	// ("azure.ai.inference") in genAIProviderName.
+	if mc.Spec.Provider == v1alpha3.ModelProviderFoundry &&
+		mc.Spec.Foundry != nil && mc.Spec.Foundry.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {
+		return semconv.GenAIProviderNameAnthropic
 	}
 	return genAIProviderName(mc.Spec.Provider)
 }
@@ -71,6 +79,8 @@ func genAIProviderName(p v1alpha3.ModelProvider) attribute.KeyValue {
 		return semconv.GenAIProviderNameOpenAI
 	case v1alpha3.ModelProviderAzureOpenAI:
 		return semconv.GenAIProviderNameAzureAIOpenAI
+	case v1alpha3.ModelProviderFoundry:
+		return semconv.GenAIProviderNameAzureAIInference
 	case v1alpha3.ModelProviderAnthropic:
 		return semconv.GenAIProviderNameAnthropic
 	case v1alpha3.ModelProviderGemini:

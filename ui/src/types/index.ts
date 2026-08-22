@@ -81,6 +81,7 @@ export interface FoundryConfig {
   endpoint?: string;
   deployment: string;
   apiVersion?: string;
+  apiFormat?: "OpenAI" | "Anthropic";
 }
 
 export interface TLSConfig {
