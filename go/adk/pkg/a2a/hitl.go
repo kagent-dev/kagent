@@ -361,9 +361,27 @@ func VisibleTools(approval *ToolApprovalRequest, ask *AskUserRequest) []HitlTool
 	return nil
 }
 
+// askUserQuestionText joins the question text from a typed Questions field, or "" if none carry text.
+func askUserQuestionText(questions []map[string]any) string {
+	texts := make([]string, 0, len(questions))
+	for _, q := range questions {
+		if text, ok := q["question"].(string); ok && text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return strings.Join(texts, " ")
+}
+
 func RemoteHitlHint(state *RemoteHitlState) string {
 	if state == nil {
 		return "Remote agent requires human input before continuing."
+	}
+	// Read Questions directly: VisibleTools()'s nested Args round-trip through
+	// JSON to []any, silently losing the question text in the nested case.
+	if state.AskUserRequest != nil {
+		if q := askUserQuestionText(state.AskUserRequest.Questions); q != "" {
+			return fmt.Sprintf("Remote agent '%s' asks: %s", state.SubagentName, q)
+		}
 	}
 	tools := VisibleTools(state.ToolApprovalRequest, state.AskUserRequest)
 	names := make([]string, 0, len(tools))
