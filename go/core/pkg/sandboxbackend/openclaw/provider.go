@@ -2,39 +2,13 @@ package openclaw
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/modelconfig"
 )
 
-func modelConfigExplicitBaseURL(mc *v1alpha3.ModelConfig) string {
-	switch mc.Spec.Provider {
-	case v1alpha3.ModelProviderOpenAI:
-		if mc.Spec.OpenAI != nil && strings.TrimSpace(mc.Spec.OpenAI.BaseURL) != "" {
-			return strings.TrimSpace(mc.Spec.OpenAI.BaseURL)
-		}
-	case v1alpha3.ModelProviderAnthropic:
-		if mc.Spec.Anthropic != nil && strings.TrimSpace(mc.Spec.Anthropic.BaseURL) != "" {
-			return strings.TrimSpace(mc.Spec.Anthropic.BaseURL)
-		}
-	case v1alpha3.ModelProviderAzureOpenAI:
-		if mc.Spec.AzureOpenAI != nil && strings.TrimSpace(mc.Spec.AzureOpenAI.Endpoint) != "" {
-			return strings.TrimSpace(mc.Spec.AzureOpenAI.Endpoint)
-		}
-	case v1alpha3.ModelProviderOllama:
-		if mc.Spec.Ollama != nil && strings.TrimSpace(mc.Spec.Ollama.Host) != "" {
-			return strings.TrimSpace(mc.Spec.Ollama.Host)
-		}
-	case v1alpha3.ModelProviderSAPAICore:
-		if mc.Spec.SAPAICore != nil && strings.TrimSpace(mc.Spec.SAPAICore.BaseURL) != "" {
-			return strings.TrimSpace(mc.Spec.SAPAICore.BaseURL)
-		}
-	}
-	return ""
-}
-
 func bootstrapProviderBaseURL(mc *v1alpha3.ModelConfig, defaultWhenUnset string) string {
-	if u := modelConfigExplicitBaseURL(mc); u != "" {
+	if u := modelconfig.ExplicitBaseURL(mc); u != "" {
 		return u
 	}
 	return defaultWhenUnset
