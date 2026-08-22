@@ -265,8 +265,25 @@ func TestKagentMemoryServiceExtractSessionContent(t *testing.T) {
 			wantContent: "user: Hello",
 		},
 		{
-			name:   "function call only",
-			events: []*adksession.Event{newMockEventWithFunctionCall("agent", "get_weather")},
+			name:        "function call is extracted",
+			events:      []*adksession.Event{newMockEventWithFunctionCall("agent", "get_weather")},
+			wantContent: "[tool call to get_weather]",
+		},
+		{
+			name: "function response is extracted",
+			events: []*adksession.Event{
+				newMockEventWithFunctionResponse("agent", "get_weather", map[string]any{"temperature": 72, "condition": "sunny"}),
+			},
+			wantContent: `"condition":"sunny"`,
+		},
+		{
+			name: "long function response is truncated",
+			events: []*adksession.Event{
+				newMockEventWithFunctionResponse("agent", "get_weather", map[string]any{
+					"forecast": strings.Repeat("x", 1000),
+				}),
+			},
+			wantContent: "...(truncated)",
 		},
 	}
 
@@ -376,5 +393,16 @@ func newMockEvent(author, text string) *adksession.Event {
 func newMockEventWithFunctionCall(author, functionName string) *adksession.Event {
 	event := newMockEvent(author, "")
 	event.Content = &genai.Content{Role: author, Parts: []*genai.Part{{FunctionCall: &genai.FunctionCall{Name: functionName}}}}
+	return event
+}
+
+func newMockEventWithFunctionResponse(author, functionName string, response map[string]any) *adksession.Event {
+	event := newMockEvent(author, "")
+	event.Content = &genai.Content{
+		Role: author,
+		Parts: []*genai.Part{{
+			FunctionResponse: &genai.FunctionResponse{Name: functionName, Response: response},
+		}},
+	}
 	return event
 }
