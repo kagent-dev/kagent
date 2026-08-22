@@ -86,6 +86,41 @@ func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
 	}
 }
 
+func TestMaterializeAgentConfigIsolatesSubagentSkills(t *testing.T) {
+	root := t.TempDir()
+	paths := Paths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")}
+	source := adk.AgentPluginSource{Git: &adk.AgentPluginGit{URL: "unused", Commit: strings.Repeat("a", 40)}}
+	config := &adk.AgentConfig{
+		AgentPlugins: &adk.AgentPluginConfig{Skills: []adk.StandaloneSkill{{Name: "root", Source: source}}},
+		SubAgents:    []*adk.AgentConfig{{Name: "child", AgentPlugins: &adk.AgentPluginConfig{Skills: []adk.StandaloneSkill{{Name: "child", Source: source}}}}},
+	}
+	for _, path := range []string{
+		filepath.Join(paths.Plugins, "standalone-0"),
+		filepath.Join(paths.Plugins, "subagents", "0", "standalone-0"),
+	} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("# Skill"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := MaterializeAgentConfig(context.Background(), config, paths); err != nil {
+		t.Fatal(err)
+	}
+	if config.SkillsDirectory == config.SubAgents[0].SkillsDirectory {
+		t.Fatalf("root and child share skills directory %q", config.SkillsDirectory)
+	}
+	for _, path := range []string{
+		filepath.Join(config.SkillsDirectory, "root", "SKILL.md"),
+		filepath.Join(config.SubAgents[0].SkillsDirectory, "child", "SKILL.md"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("materialized skill %q: %v", path, err)
+		}
+	}
+}
+
 func TestLoadManifestUsesAgentPluginsV1Schema(t *testing.T) {
 	root := t.TempDir()
 	raw := `{

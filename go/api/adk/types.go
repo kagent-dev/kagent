@@ -631,20 +631,23 @@ func (c *AgentCompressionConfig) UnmarshalJSON(data []byte) error {
 
 // See `python/packages/kagent-adk/src/kagent/adk/types.py` for the python version of this
 type AgentConfig struct {
-	Model         Model                  `json:"model"`
-	Description   string                 `json:"description"`
-	Instruction   string                 `json:"instruction"`
-	HttpTools     []HttpMcpServerConfig  `json:"http_tools,omitempty"`
-	SseTools      []SseMcpServerConfig   `json:"sse_tools,omitempty"`
-	StdioTools    []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
-	RemoteAgents  []RemoteAgentConfig    `json:"remote_agents,omitempty"`
-	Stream        *bool                  `json:"stream,omitempty"`
-	Memory        *MemoryConfig          `json:"memory,omitempty"`
-	Network       *NetworkConfig         `json:"network,omitempty"`
-	AgentPlugins  *AgentPluginConfig     `json:"agent_plugins,omitempty"`
-	ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
-	ShareTools    *bool                  `json:"share_tools,omitempty"`
-	SessionDBURL  string                 `json:"session_db_url,omitempty"`
+	Name            string                 `json:"name,omitempty"`
+	Model           Model                  `json:"model"`
+	Description     string                 `json:"description"`
+	Instruction     string                 `json:"instruction"`
+	HttpTools       []HttpMcpServerConfig  `json:"http_tools,omitempty"`
+	SseTools        []SseMcpServerConfig   `json:"sse_tools,omitempty"`
+	StdioTools      []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
+	RemoteAgents    []RemoteAgentConfig    `json:"remote_agents,omitempty"`
+	Stream          *bool                  `json:"stream,omitempty"`
+	Memory          *MemoryConfig          `json:"memory,omitempty"`
+	Network         *NetworkConfig         `json:"network,omitempty"`
+	AgentPlugins    *AgentPluginConfig     `json:"agent_plugins,omitempty"`
+	ContextConfig   *AgentContextConfig    `json:"context_config,omitempty"`
+	ShareTools      *bool                  `json:"share_tools,omitempty"`
+	SessionDBURL    string                 `json:"session_db_url,omitempty"`
+	SkillsDirectory string                 `json:"skills_directory,omitempty"`
+	SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
 }
 
 // GetStream returns the stream value or default if not set
@@ -657,20 +660,23 @@ func (a *AgentConfig) GetStream() bool {
 
 func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
-		Model         json.RawMessage        `json:"model"`
-		Description   string                 `json:"description"`
-		Instruction   string                 `json:"instruction"`
-		HttpTools     []HttpMcpServerConfig  `json:"http_tools,omitempty"`
-		SseTools      []SseMcpServerConfig   `json:"sse_tools,omitempty"`
-		StdioTools    []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
-		RemoteAgents  []RemoteAgentConfig    `json:"remote_agents,omitempty"`
-		Stream        *bool                  `json:"stream,omitempty"`
-		Memory        json.RawMessage        `json:"memory"`
-		Network       *NetworkConfig         `json:"network,omitempty"`
-		AgentPlugins  *AgentPluginConfig     `json:"agent_plugins,omitempty"`
-		ContextConfig *AgentContextConfig    `json:"context_config,omitempty"`
-		ShareTools    *bool                  `json:"share_tools,omitempty"`
-		SessionDBURL  string                 `json:"session_db_url,omitempty"`
+		Name            string                 `json:"name,omitempty"`
+		Model           json.RawMessage        `json:"model"`
+		Description     string                 `json:"description"`
+		Instruction     string                 `json:"instruction"`
+		HttpTools       []HttpMcpServerConfig  `json:"http_tools,omitempty"`
+		SseTools        []SseMcpServerConfig   `json:"sse_tools,omitempty"`
+		StdioTools      []StdioMcpServerConfig `json:"stdio_tools,omitempty"`
+		RemoteAgents    []RemoteAgentConfig    `json:"remote_agents,omitempty"`
+		Stream          *bool                  `json:"stream,omitempty"`
+		Memory          json.RawMessage        `json:"memory"`
+		Network         *NetworkConfig         `json:"network,omitempty"`
+		AgentPlugins    *AgentPluginConfig     `json:"agent_plugins,omitempty"`
+		ContextConfig   *AgentContextConfig    `json:"context_config,omitempty"`
+		ShareTools      *bool                  `json:"share_tools,omitempty"`
+		SessionDBURL    string                 `json:"session_db_url,omitempty"`
+		SkillsDirectory string                 `json:"skills_directory,omitempty"`
+		SubAgents       []*AgentConfig         `json:"sub_agents,omitempty"`
 	}
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
@@ -695,6 +701,7 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 		memory = &m
 	}
 
+	a.Name = tmp.Name
 	a.Model = model
 	a.Description = tmp.Description
 	a.Instruction = tmp.Instruction
@@ -709,6 +716,8 @@ func (a *AgentConfig) UnmarshalJSON(data []byte) error {
 	a.ContextConfig = tmp.ContextConfig
 	a.ShareTools = tmp.ShareTools
 	a.SessionDBURL = tmp.SessionDBURL
+	a.SkillsDirectory = tmp.SkillsDirectory
+	a.SubAgents = tmp.SubAgents
 	return nil
 }
 

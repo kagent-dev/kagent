@@ -47,6 +47,7 @@ type ReconciliationFailure struct {
 
 func newPairReconciliations(
 	pairs krt.Collection[AgentTemplateHarnessPair],
+	agentTemplates krt.Collection[*kagentv1alpha3.AgentTemplate],
 	modelConfigs krt.Collection[*kagentv1alpha3.ModelConfig],
 	remoteMCPServers krt.Collection[*kagentv1alpha3.RemoteMCPServer],
 	configMaps krt.Collection[*corev1.ConfigMap],
@@ -58,7 +59,7 @@ func newPairReconciliations(
 	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
 		state := &PairReconciliation{Pair: pair}
 		reader := collectionReader{
-			ctx: ctx, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
+			ctx: ctx, agentTemplates: agentTemplates, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
 			configMaps: configMaps, secrets: secrets, workerPools: workerPools,
 		}
 		revision, err := v2translator.NewCompiler(reader).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)

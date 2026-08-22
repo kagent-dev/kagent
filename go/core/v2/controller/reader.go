@@ -19,6 +19,7 @@ import (
 // every object fetched by a transformation as a recomputation dependency.
 type collectionReader struct {
 	ctx              krt.HandlerContext
+	agentTemplates   krt.Collection[*kagentv1alpha3.AgentTemplate]
 	modelConfigs     krt.Collection[*kagentv1alpha3.ModelConfig]
 	remoteMCPServers krt.Collection[*kagentv1alpha3.RemoteMCPServer]
 	configMaps       krt.Collection[*corev1.ConfigMap]
@@ -28,6 +29,12 @@ type collectionReader struct {
 
 func (r collectionReader) Get(_ context.Context, key types.NamespacedName, object runtime.Object) error {
 	switch target := object.(type) {
+	case *kagentv1alpha3.AgentTemplate:
+		source, err := r.fetchObject(r.agentTemplates, key, kagentv1alpha3.GroupVersion.WithResource("agenttemplates").GroupResource())
+		if err == nil {
+			*target = *source.DeepCopy()
+		}
+		return err
 	case *kagentv1alpha3.ModelConfig:
 		source, err := r.fetchObject(r.modelConfigs, key, kagentv1alpha3.GroupVersion.WithResource("modelconfigs").GroupResource())
 		if err == nil {

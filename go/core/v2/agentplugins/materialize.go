@@ -42,6 +42,31 @@ type MCPConfig struct {
 	Stdio []adk.StdioMcpServerConfig
 }
 
+// MaterializeAgentConfig materializes plugins independently for every agent.
+func MaterializeAgentConfig(ctx context.Context, config *adk.AgentConfig, paths Paths) error {
+	if config.AgentPlugins != nil {
+		plugins, err := Materialize(ctx, *config.AgentPlugins, paths)
+		if err != nil {
+			return err
+		}
+		config.HttpTools = append(config.HttpTools, plugins.HTTP...)
+		config.SseTools = append(config.SseTools, plugins.SSE...)
+		config.StdioTools = append(config.StdioTools, plugins.Stdio...)
+		config.SkillsDirectory = paths.Skills
+	}
+	for i, child := range config.SubAgents {
+		childRoot := filepath.Join("subagents", fmt.Sprintf("%d", i))
+		if err := MaterializeAgentConfig(ctx, child, Paths{
+			Plugins: filepath.Join(paths.Plugins, childRoot),
+			Skills:  filepath.Join(paths.Skills, childRoot),
+			Data:    filepath.Join(paths.Data, childRoot),
+		}); err != nil {
+			return fmt.Errorf("materialize sub-agent %q: %w", child.Name, err)
+		}
+	}
+	return nil
+}
+
 func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths) (MCPConfig, error) {
 	if err := os.MkdirAll(paths.Skills, 0o755); err != nil {
 		return MCPConfig{}, fmt.Errorf("create skills directory: %w", err)
