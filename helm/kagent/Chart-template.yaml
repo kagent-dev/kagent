@@ -3,6 +3,8 @@ name: kagent
 description: A Helm chart for kagent, built with Google ADK
 type: application
 version: ${VERSION}
+annotations:
+  substrate.kagent.dev/version: ${SUBSTRATE_VERSION}
 dependencies:
   - name: kmcp
     version: ${KMCP_VERSION}
