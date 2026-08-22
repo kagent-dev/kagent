@@ -34,115 +34,61 @@ type provenanceEntry struct {
 // revision. It owns the v2 translation boundary rather than delegating to an
 // earlier API translator.
 type Compiler struct {
-	kube Reader
+	kube             Reader
+	harnessCompilers []HarnessCompiler
 }
 
 // NewCompiler constructs the v2 runtime compiler.
-func NewCompiler(kube Reader) *Compiler {
-	return &Compiler{kube: kube}
+func NewCompiler(kube Reader, harnessCompilers ...HarnessCompiler) *Compiler {
+	compiler := &Compiler{kube: kube, harnessCompilers: harnessCompilers}
+	compiler.harnessCompilers = append(compiler.harnessCompilers, kagentCompiler{Compiler: compiler})
+	return compiler
 }
 
 // CompileAgentTemplate resolves an API v2 attachment into an immutable runtime
 // revision. Nothing below this boundary needs to read the public API objects.
 func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*Revision, error) {
-	// Reject API features that the K3 runtime cannot represent before resolving
-	// references or reading credentials.
-	if harness.Namespace != template.Namespace {
-		return nil, newValidationError("Harness and AgentTemplate must be in the same namespace")
-	}
-	if harness.Spec.Kagent == nil {
-		return nil, newValidationError("Harness runtime is not supported by the K3 kagent adapter")
-	}
-	for _, tool := range template.Spec.Tools {
-		if tool.Agent != nil {
-			return nil, newValidationError("AgentTemplate-backed tools are not supported yet")
+	var harnessCompiler HarnessCompiler
+	for _, candidate := range c.harnessCompilers {
+		if candidate.Supports(harness) {
+			harnessCompiler = candidate
+			break
 		}
 	}
-
-	modelConfig := &v1alpha3.ModelConfig{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.ModelConfig.Name}, modelConfig); err != nil {
-		return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
+	if harnessCompiler == nil {
+		return nil, newValidationError("Harness runtime is not supported by any compiler")
 	}
-	modelRuntime, err := c.resolveModel(ctx, modelConfig)
-	if err != nil {
-		return nil, fmt.Errorf("resolve ModelConfig %q: %w", template.Spec.ModelConfig.Name, err)
-	}
-	if modelRuntime.HasUnsupportedVolumes {
-		return nil, newValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
-	}
-
-	instruction, err := c.resolveAgentTemplatePrompt(ctx, template)
+	tree, err := c.resolveTree(ctx, harness, template)
 	if err != nil {
 		return nil, err
 	}
-	stream := true
-	cfg := &adk.AgentConfig{
-		Model:        modelRuntime.Model,
-		Description:  template.Spec.Description,
-		Instruction:  instruction,
-		Stream:       &stream,
-		SessionDBURL: "sqlite:////data/sessions.db",
-	}
-
-	for _, binding := range template.Spec.Tools {
-		if binding.MCP == nil {
-			return nil, newValidationError("tool binding must select an MCP server")
-		}
-		ref := &v1alpha3.McpServerTool{
-			TypedReference: v1alpha3.TypedReference{
-				ApiGroup: "kagent.dev",
-				Kind:     binding.MCP.Server.Kind,
-				Name:     binding.MCP.Server.Name,
-			},
-			ToolNames: append([]string(nil), binding.MCP.Tools...),
-		}
-		server, headers, credentialEnv, err := c.resolveAgentTemplateMCPServer(ctx, template.Namespace, binding.MCP.Server)
-		if err != nil {
-			return nil, fmt.Errorf("resolve %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
-		}
-		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, ref, headers); err != nil {
-			return nil, fmt.Errorf("compile %s %q: %w", binding.MCP.Server.Kind, binding.MCP.Server.Name, err)
-		}
-		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
-	}
-	if modelRuntime.HasUnsupportedVolumes {
-		return nil, newValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
-	}
-
-	if template.Spec.PromptTemplate != nil {
-		// Execute after tool resolution so templates see the final enabled tool
-		// names rather than the unresolved API bindings.
-		refs := make([]promptSourceRef, 0, len(template.Spec.PromptTemplate.DataSources))
-		for _, source := range template.Spec.PromptTemplate.DataSources {
-			refs = append(refs, promptSourceRef{Name: source.Name, Alias: source.Alias})
-		}
-		lookup, err := resolvePromptSourceRefs(ctx, c.kube, template.Namespace, refs)
-		if err != nil {
-			return nil, fmt.Errorf("resolve prompt sources: %w", err)
-		}
-		toolNames := make([]string, 0)
-		for _, binding := range template.Spec.Tools {
-			if binding.MCP != nil {
-				toolNames = append(toolNames, binding.MCP.Tools...)
-			}
-		}
-		cfg.Instruction, err = executeSystemMessageTemplate(cfg.Instruction, lookup, PromptTemplateContext{
-			AgentTemplateName:      template.Name,
-			AgentTemplateNamespace: template.Namespace,
-			Description:            template.Spec.Description,
-			ToolNames:              toolNames,
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-	pluginConfig, err := agentPluginConfig(template)
+	input, err := c.buildInputs(ctx, tree)
 	if err != nil {
 		return nil, err
 	}
-	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		cfg.AgentPlugins = &pluginConfig
+	return harnessCompiler.Compile(ctx, input)
+}
+
+type kagentCompiler struct{ *Compiler }
+
+type compiledAgent struct {
+	config      *adk.AgentConfig
+	models      []*v1alpha3.ModelConfig
+	templates   []*v1alpha3.AgentTemplate
+	environment []corev1.EnvVar
+	egress      []string
+}
+
+func (kagentCompiler) Supports(harness *v1alpha3.Harness) bool { return harness.Spec.Kagent != nil }
+
+func (c kagentCompiler) Compile(ctx context.Context, input *HarnessInput) (*Revision, error) {
+	compiled, err := c.compileAgent(ctx, input.Root)
+	if err != nil {
+		return nil, err
 	}
+	template, harness := input.Root.Template, input.Harness
+	cfg := compiled.config
+	cfg.SessionDBURL = "sqlite:////data/sessions.db"
 
 	configJSON, err := json.Marshal(cfg)
 	if err != nil {
@@ -155,7 +101,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 
 	// Harness env is applied after provider env. dedupeEnv deliberately gives
 	// later entries precedence, allowing the Harness to override defaults.
-	environment := append([]corev1.EnvVar(nil), modelRuntime.Environment...)
+	environment := append([]corev1.EnvVar(nil), compiled.environment...)
 	for _, value := range harness.Spec.Env {
 		envVar := corev1.EnvVar{Name: value.Name}
 		if value.Value != nil {
@@ -178,7 +124,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 
 	// One provenance list covers every Kubernetes input, including hashed Secret
 	// keys, so it both explains and participates in revision identity.
-	provenance, err := c.buildProvenance(ctx, harness, template, modelConfig, environment)
+	provenance, err := c.buildProvenance(ctx, harness, compiled.templates, compiled.models, environment)
 	if err != nil {
 		return nil, fmt.Errorf("build revision provenance: %w", err)
 	}
@@ -187,10 +133,7 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		return nil, fmt.Errorf("resolve runtime environment: %w", err)
 	}
 
-	egressDestinations := agentConfigDestinations(cfg, modelConfig, modelRuntime.Model)
-	// Package sources are explicit API inputs. Destinations found inside a
-	// package remain blocked by the revision's network policy.
-	egressDestinations = append(egressDestinations, agentPluginSourceDestinations(pluginConfig)...)
+	egressDestinations := compiled.egress
 	slices.Sort(egressDestinations)
 	egressDestinations = slices.Compact(egressDestinations)
 
@@ -207,6 +150,61 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 		Provenance:         provenance,
 		EgressDestinations: egressDestinations,
 	}, nil
+}
+
+func (c kagentCompiler) compileAgent(ctx context.Context, input *AgentInput) (*compiledAgent, error) {
+	modelRuntime, err := c.resolveModel(ctx, input.ModelConfig)
+	if err != nil {
+		return nil, fmt.Errorf("resolve ModelConfig %q: %w", input.ModelConfig.Name, err)
+	}
+	if modelRuntime.HasUnsupportedVolumes {
+		return nil, newValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+	}
+	stream := true
+	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
+	pluginConfig, err := agentPluginConfig(input.Template)
+	if err != nil {
+		return nil, err
+	}
+	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
+		cfg.AgentPlugins = &pluginConfig
+	}
+	for _, tool := range input.MCPTools {
+		ref := &v1alpha3.McpServerTool{TypedReference: v1alpha3.TypedReference{
+			ApiGroup: "kagent.dev", Kind: tool.Binding.Server.Kind, Name: tool.Binding.Server.Name,
+		}, ToolNames: append([]string(nil), tool.Binding.Tools...)}
+		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
+		}
+		server := tool.Server.DeepCopy()
+		server.Spec.HeadersFrom = nil
+		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, ref, headers); err != nil {
+			return nil, fmt.Errorf("compile %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
+		}
+		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
+	}
+	if modelRuntime.HasUnsupportedVolumes {
+		return nil, newValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
+	}
+	result := &compiledAgent{
+		config: cfg, models: []*v1alpha3.ModelConfig{input.ModelConfig}, templates: []*v1alpha3.AgentTemplate{input.Template},
+		environment: modelRuntime.Environment,
+		egress:      append(agentConfigDestinations(cfg, input.ModelConfig, modelRuntime.Model), agentPluginSourceDestinations(pluginConfig)...),
+	}
+	for _, binding := range input.Shared {
+		child, err := c.compileAgent(ctx, binding.Agent)
+		if err != nil {
+			return nil, err
+		}
+		child.config.Name, child.config.Description = binding.Name, binding.Description
+		cfg.SubAgents = append(cfg.SubAgents, child.config)
+		result.models = append(result.models, child.models...)
+		result.templates = append(result.templates, child.templates...)
+		result.environment = append(result.environment, child.environment...)
+		result.egress = append(result.egress, child.egress...)
+	}
+	return result, nil
 }
 
 func agentPluginSourceDestinations(config adk.AgentPluginConfig) []string {
@@ -303,39 +301,43 @@ func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, env
 
 // buildProvenance records every Kubernetes input that can change the compiled
 // runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate, model *v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
-	entries := []provenanceEntry{
-		objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec),
-		objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec),
-		objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec),
-	}
+func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harness, templates []*v1alpha3.AgentTemplate, models []*v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
+	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
 	configMaps := map[string]struct{}{}
-	if template.Spec.SystemPromptFrom != nil {
-		configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
-	}
-	if template.Spec.PromptTemplate != nil {
-		for _, source := range template.Spec.PromptTemplate.DataSources {
-			configMaps[source.Name] = struct{}{}
+	for _, template := range templates {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec))
+		if template.Spec.SystemPromptFrom != nil {
+			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
 		}
+		if template.Spec.PromptTemplate != nil {
+			for _, source := range template.Spec.PromptTemplate.DataSources {
+				configMaps[source.Name] = struct{}{}
+			}
+		}
+	}
+	for _, model := range models {
+		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec))
 	}
 	for name := range configMaps {
 		configMap := &corev1.ConfigMap{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: name}, configMap); err != nil {
+		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: name}, configMap); err != nil {
 			return nil, err
 		}
 		entries = append(entries, objectProvenance("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
 	}
-	for _, binding := range template.Spec.Tools {
-		if binding.MCP == nil {
-			continue
-		}
-		switch binding.MCP.Server.Kind {
-		case "RemoteMCPServer":
-			server := &v1alpha3.RemoteMCPServer{}
-			if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}, server); err != nil {
-				return nil, err
+	for _, template := range templates {
+		for _, binding := range template.Spec.Tools {
+			if binding.MCP == nil {
+				continue
 			}
-			entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
+			switch binding.MCP.Server.Kind {
+			case "RemoteMCPServer":
+				server := &v1alpha3.RemoteMCPServer{}
+				if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}, server); err != nil {
+					return nil, err
+				}
+				entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
+			}
 		}
 	}
 	// Secret provenance contains only UID and value hash. Name+key deduplication
@@ -352,7 +354,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harnes
 		}
 		seenSecrets[identity] = struct{}{}
 		secret := &corev1.Secret{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, secret); err != nil {
+		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: ref.Name}, secret); err != nil {
 			return nil, err
 		}
 		value, ok := secret.Data[ref.Key]
@@ -365,6 +367,7 @@ func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harnes
 	slices.SortFunc(entries, func(a, b provenanceEntry) int {
 		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)
 	})
+	entries = slices.Compact(entries)
 	return json.Marshal(entries)
 }
 
@@ -374,28 +377,6 @@ func objectProvenance(apiVersion, kind, name string, uid types.UID, generation i
 	raw, _ := json.Marshal(content)
 	hash := sha256.Sum256(raw)
 	return provenanceEntry{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
-}
-
-// resolveAgentTemplateMCPServer separates public server configuration from
-// credentials. The returned copy has HeadersFrom cleared because the runtime
-// receives resolved header placeholders and Secret-backed environment entries.
-func (c *Compiler) resolveAgentTemplateMCPServer(ctx context.Context, namespace string, ref v1alpha3.AgentTemplateTypedLocalReference) (*v1alpha3.RemoteMCPServer, map[string]string, []corev1.EnvVar, error) {
-	switch ref.Kind {
-	case "RemoteMCPServer":
-		server := &v1alpha3.RemoteMCPServer{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, server); err != nil {
-			return nil, nil, nil, err
-		}
-		headers, environment, err := c.resolveAgentTemplateHeaders(ctx, namespace, server.Spec.HeadersFrom)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		server = server.DeepCopy()
-		server.Spec.HeadersFrom = nil
-		return server, headers, environment, nil
-	default:
-		return nil, nil, nil, newValidationError("unsupported MCP server kind %q", ref.Kind)
-	}
 }
 
 // resolveAgentTemplateHeaders keeps Secret values out of serialized agent
