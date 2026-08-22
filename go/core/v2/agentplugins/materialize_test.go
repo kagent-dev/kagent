@@ -122,7 +122,7 @@ func TestParseMCPServerSupportsLocalAndRemoteTransports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stdio.Command != command || stdio.Args[0] != "--root="+root || stdio.Env["STATE"] != filepath.Join(data, "state") || stdio.CWD != filepath.Join(data, "work") {
+	if stdio.Command != canonicalPath(command) || stdio.Args[0] != "--root="+root || stdio.Env["STATE"] != filepath.Join(data, "state") || stdio.CWD != filepath.Join(data, "work") {
 		t.Fatalf("stdio server = %#v", stdio)
 	}
 
@@ -193,5 +193,36 @@ func TestCopySkillRejectsSymlinkOutsideSkill(t *testing.T) {
 	}
 	if err := copySkill(source, destination); err == nil {
 		t.Fatal("copySkill() accepted a symlink outside the skill root")
+	}
+}
+
+func TestValidateSkillNameRejectsPathTraversal(t *testing.T) {
+	for _, name := range []string{"../escape", "nested/skill", `nested\skill`, ".", ".."} {
+		if err := validateSkillName(name); err == nil {
+			t.Fatalf("validateSkillName(%q) accepted a path-like name", name)
+		}
+	}
+}
+
+func TestValidateSkillSelectionsRejectsDuplicateNames(t *testing.T) {
+	err := validateSkillSelections([]string{"review", "lint", "review"})
+	if err == nil || !strings.Contains(err.Error(), `duplicate skill name "review"`) {
+		t.Fatalf("validateSkillSelections() error = %v, want duplicate skill error", err)
+	}
+}
+
+func TestPathWithinCanonicalizesRootAliases(t *testing.T) {
+	actualRoot := t.TempDir()
+	child := filepath.Join(actualRoot, "child")
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "root-alias")
+	if err := os.Symlink(actualRoot, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	if !pathWithin(alias, child) {
+		t.Fatalf("pathWithin(%q, %q) rejected a path under the aliased root", alias, child)
 	}
 }

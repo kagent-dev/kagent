@@ -43,6 +43,17 @@ type MCPConfig struct {
 }
 
 func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths) (MCPConfig, error) {
+	selectedSkills := make([]string, 0, len(config.Skills))
+	for _, skill := range config.Skills {
+		selectedSkills = append(selectedSkills, skill.Name)
+	}
+	for _, plugin := range config.Plugins {
+		selectedSkills = append(selectedSkills, plugin.Skills...)
+	}
+	if err := validateSkillSelections(selectedSkills); err != nil {
+		return MCPConfig{}, err
+	}
+
 	if err := os.MkdirAll(paths.Skills, 0o755); err != nil {
 		return MCPConfig{}, fmt.Errorf("create skills directory: %w", err)
 	}
@@ -92,6 +103,27 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 		result.Stdio = append(result.Stdio, mcp.Stdio...)
 	}
 	return result, nil
+}
+
+func validateSkillSelections(names []string) error {
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		if err := validateSkillName(name); err != nil {
+			return err
+		}
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("duplicate skill name %q", name)
+		}
+		seen[name] = struct{}{}
+	}
+	return nil
+}
+
+func validateSkillName(name string) error {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\\`) {
+		return fmt.Errorf("skill name %q must be a single relative path component", name)
+	}
+	return nil
 }
 
 func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination, requiredFile string) (string, error) {
@@ -216,8 +248,22 @@ func containedPath(root, relative string) (string, error) {
 }
 
 func pathWithin(root, path string) bool {
-	relative, err := filepath.Rel(root, path)
+	root = canonicalPath(root)
+	path = canonicalPath(path)
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func canonicalPath(path string) string {
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path
+	}
+	return filepath.Join(canonicalPath(parent), filepath.Base(path))
 }
 
 func copySkill(source, destination string) error {
