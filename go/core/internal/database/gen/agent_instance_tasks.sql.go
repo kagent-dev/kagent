@@ -67,6 +67,34 @@ func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentIn
 	return result.RowsAffected(), nil
 }
 
+const getActiveAgentInstanceTask = `-- name: GetActiveAgentInstanceTask :one
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
+WHERE instance_id = $1
+  AND state NOT IN (
+      'TASK_STATE_COMPLETED',
+      'TASK_STATE_CANCELED',
+      'TASK_STATE_FAILED',
+      'TASK_STATE_REJECTED'
+  )
+`
+
+func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, getActiveAgentInstanceTask, instanceID)
+	var i AgentInstanceTask
+	err := row.Scan(
+		&i.InstanceID,
+		&i.ID,
+		&i.State,
+		&i.StatusTimestamp,
+		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitialMessageID,
+		&i.RequestHash,
+	)
+	return i, err
+}
+
 const getAgentInstanceTask = `-- name: GetAgentInstanceTask :one
 SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
 WHERE instance_id = $1 AND id = $2
@@ -190,6 +218,37 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockActiveAgentInstanceTask = `-- name: LockActiveAgentInstanceTask :one
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
+WHERE instance_id = $1
+  AND state NOT IN (
+      'TASK_STATE_COMPLETED',
+      'TASK_STATE_CANCELED',
+      'TASK_STATE_FAILED',
+      'TASK_STATE_REJECTED'
+  )
+FOR UPDATE
+`
+
+// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
+// rest of the transaction so reclamation cannot overwrite concurrent progress.
+func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, lockActiveAgentInstanceTask, instanceID)
+	var i AgentInstanceTask
+	err := row.Scan(
+		&i.InstanceID,
+		&i.ID,
+		&i.State,
+		&i.StatusTimestamp,
+		&i.Data,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.InitialMessageID,
+		&i.RequestHash,
+	)
+	return i, err
 }
 
 const upsertAgentInstanceTask = `-- name: UpsertAgentInstanceTask :exec

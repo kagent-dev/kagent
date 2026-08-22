@@ -58,6 +58,34 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	}
 }
 
+func TestFetchSourceReusesExistingMaterialization(t *testing.T) {
+	destination := t.TempDir()
+	if err := os.WriteFile(filepath.Join(destination, "SKILL.md"), []byte("# Existing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
+		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
+	}}, destination, "SKILL.md")
+	if err != nil {
+		t.Fatalf("fetchSource() redownloaded existing materialization: %v", err)
+	}
+	if root != destination {
+		t.Fatalf("fetchSource() root = %q, want %q", root, destination)
+	}
+}
+
+func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
+	destination := t.TempDir()
+
+	_, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
+		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
+	}}, destination, "SKILL.md")
+	if err == nil {
+		t.Fatal("fetchSource() reused incomplete materialization")
+	}
+}
+
 func TestLoadManifestUsesAgentPluginsV1Schema(t *testing.T) {
 	root := t.TempDir()
 	raw := `{

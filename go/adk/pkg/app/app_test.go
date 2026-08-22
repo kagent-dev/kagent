@@ -8,6 +8,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	a2ataskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 )
 
 // fakeExecutor implements a2asrv.AgentExecutor for testing.
@@ -43,26 +44,20 @@ func TestNew_Success(t *testing.T) {
 	if app == nil {
 		t.Fatal("expected non-nil app")
 	}
-	if app.SessionService() != nil {
-		t.Error("expected nil session service when KAgentGRPCURL is empty")
-	}
 }
 
-func TestNew_WithKAgentGRPCURL(t *testing.T) {
-	t.Setenv("KAGENT_GRPC_URL", "")
-
-	app, err := New(AppConfig{
-		AgentCard:     a2atype.AgentCard{Name: "test-agent"},
-		Port:          "0",
-		KAgentGRPCURL: "localhost:9999",
-	}, &fakeExecutor{})
+func TestSeedTaskInterceptor(t *testing.T) {
+	store := a2ataskstore.NewInMemory(nil)
+	message := &a2atype.Message{ID: "message-1", TaskID: "task-1", ContextID: "instance-1", Role: a2atype.MessageRoleUser}
+	interceptor := seedTaskInterceptor{store: store}
+	_, _, err := interceptor.Before(t.Context(), nil, &a2asrv.Request{Payload: &a2atype.SendMessageRequest{Message: message}})
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Before() error = %v", err)
 	}
-	if app.SessionService() == nil {
-		t.Error("expected non-nil session service when KAgentGRPCURL is set")
+	stored, err := store.Get(t.Context(), message.TaskID)
+	if err != nil || stored.Task.ID != message.TaskID || stored.Task.ContextID != message.ContextID || len(stored.Task.History) != 1 {
+		t.Fatalf("stored task = %#v, error = %v", stored, err)
 	}
-	app.stop()
 }
 
 func TestApplyDefaults_Port(t *testing.T) {
@@ -100,22 +95,6 @@ func TestApplyDefaults_ShutdownTimeoutExplicit(t *testing.T) {
 	cfg := applyDefaults(AppConfig{ShutdownTimeout: 10 * time.Second})
 	if cfg.ShutdownTimeout != 10*time.Second {
 		t.Errorf("expected shutdown timeout %v, got %v", 10*time.Second, cfg.ShutdownTimeout)
-	}
-}
-
-func TestApplyDefaults_KAgentGRPCURLFromEnv(t *testing.T) {
-	t.Setenv("KAGENT_GRPC_URL", "env-url:8084")
-	cfg := applyDefaults(AppConfig{})
-	if cfg.KAgentGRPCURL != "env-url:8084" {
-		t.Errorf("expected KAgentGRPCURL from env, got %q", cfg.KAgentGRPCURL)
-	}
-}
-
-func TestApplyDefaults_KAgentGRPCURLExplicit(t *testing.T) {
-	t.Setenv("KAGENT_GRPC_URL", "env-url:8084")
-	cfg := applyDefaults(AppConfig{KAgentGRPCURL: "explicit:8084"})
-	if cfg.KAgentGRPCURL != "explicit:8084" {
-		t.Errorf("expected explicit KAgentGRPCURL, got %q", cfg.KAgentGRPCURL)
 	}
 }
 

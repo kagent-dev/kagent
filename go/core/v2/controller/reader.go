@@ -29,31 +29,31 @@ type collectionReader struct {
 func (r collectionReader) Get(_ context.Context, key types.NamespacedName, object runtime.Object) error {
 	switch target := object.(type) {
 	case *kagentv1alpha3.ModelConfig:
-		source, err := fetchObject(r.ctx, r.modelConfigs, key, kagentv1alpha3.GroupVersion.WithResource("modelconfigs").GroupResource())
+		source, err := r.fetchObject(r.modelConfigs, key, kagentv1alpha3.GroupVersion.WithResource("modelconfigs").GroupResource())
 		if err == nil {
 			*target = *source.DeepCopy()
 		}
 		return err
 	case *kagentv1alpha3.RemoteMCPServer:
-		source, err := fetchObject(r.ctx, r.remoteMCPServers, key, kagentv1alpha3.GroupVersion.WithResource("remotemcpservers").GroupResource())
+		source, err := r.fetchObject(r.remoteMCPServers, key, kagentv1alpha3.GroupVersion.WithResource("remotemcpservers").GroupResource())
 		if err == nil {
 			*target = *source.DeepCopy()
 		}
 		return err
 	case *corev1.ConfigMap:
-		source, err := fetchObject(r.ctx, r.configMaps, key, schema.GroupResource{Resource: "configmaps"})
+		source, err := r.fetchObject(r.configMaps, key, schema.GroupResource{Resource: "configmaps"})
 		if err == nil {
 			*target = *source.DeepCopy()
 		}
 		return err
 	case *corev1.Secret:
-		source, err := fetchObject(r.ctx, r.secrets, key, schema.GroupResource{Resource: "secrets"})
+		source, err := r.fetchObject(r.secrets, key, schema.GroupResource{Resource: "secrets"})
 		if err == nil {
 			*target = *source.DeepCopy()
 		}
 		return err
 	case *atev1alpha1.WorkerPool:
-		source, err := fetchObject(r.ctx, r.workerPools, key, atev1alpha1.GroupVersion.WithResource("workerpools").GroupResource())
+		source, err := r.fetchObject(r.workerPools, key, atev1alpha1.GroupVersion.WithResource("workerpools").GroupResource())
 		if err == nil {
 			*target = *source.DeepCopy()
 		}
@@ -63,8 +63,8 @@ func (r collectionReader) Get(_ context.Context, key types.NamespacedName, objec
 	}
 }
 
-func fetchObject[T controllers.ComparableObject](ctx krt.HandlerContext, collection krt.Collection[T], key types.NamespacedName, resource schema.GroupResource) (T, error) {
-	object := krt.FetchOne(ctx, collection, krt.FilterObjectName(key))
+func (r collectionReader) fetchObject[T controllers.ComparableObject](collection krt.Collection[T], key types.NamespacedName, resource schema.GroupResource) (T, error) {
+	object := krt.FetchOne(r.ctx, collection, krt.FilterObjectName(key))
 	if object == nil {
 		var zero T
 		return zero, apierrors.NewNotFound(resource, key.Name)

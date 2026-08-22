@@ -24,6 +24,7 @@ type Querier interface {
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
 	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
+	GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error)
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
@@ -88,6 +89,9 @@ type Querier interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
+	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
+	// rest of the transaction so reclamation cannot overwrite concurrent progress.
+	LockActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error

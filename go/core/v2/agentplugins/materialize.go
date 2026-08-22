@@ -67,7 +67,7 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 	var result MCPConfig
 	for i, skill := range config.Skills {
 		root := filepath.Join(paths.Plugins, fmt.Sprintf("standalone-%d", i))
-		sourceRoot, err := fetchSource(ctx, skill.Source, root)
+		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
 		if err != nil {
 			return MCPConfig{}, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
 		}
@@ -79,7 +79,7 @@ func Materialize(ctx context.Context, config adk.AgentPluginConfig, paths Paths)
 	pluginNames := make(map[string]struct{})
 	for i, plugin := range config.Plugins {
 		root := filepath.Join(paths.Plugins, fmt.Sprintf("plugin-%d", i))
-		pluginRoot, err := fetchSource(ctx, plugin.Source, root)
+		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json")
 		if err != nil {
 			return MCPConfig{}, fmt.Errorf("materialize plugin %d: %w", i, err)
 		}
@@ -126,10 +126,7 @@ func validateSkillName(name string) error {
 	return nil
 }
 
-func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination string) (string, error) {
-	if err := os.RemoveAll(destination); err != nil {
-		return "", err
-	}
+func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination, requiredFile string) (string, error) {
 	selected := 0
 	if source.OCI != "" {
 		selected++
@@ -142,6 +139,26 @@ func fetchSource(ctx context.Context, source adk.AgentPluginSource, destination 
 	}
 	if selected != 1 {
 		return "", fmt.Errorf("exactly one artifact source is required")
+	}
+	if _, err := os.Stat(destination); err == nil {
+		if err := validatePackage(destination); err != nil {
+			return "", err
+		}
+		root, err := containedPath(destination, source.Path)
+		if err == nil {
+			if info, err := os.Stat(filepath.Join(root, requiredFile)); err == nil && info.Mode().IsRegular() {
+				return root, nil
+			} else if err != nil && !os.IsNotExist(err) {
+				return "", err
+			}
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	if err := os.RemoveAll(destination); err != nil {
+		return "", err
 	}
 	switch {
 	case source.OCI != "":

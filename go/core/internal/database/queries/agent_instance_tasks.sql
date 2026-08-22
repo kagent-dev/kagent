@@ -24,6 +24,16 @@ VALUES ($1, $2, $3);
 SELECT * FROM agent_instance_task
 WHERE instance_id = $1 AND id = $2;
 
+-- name: GetActiveAgentInstanceTask :one
+SELECT * FROM agent_instance_task
+WHERE instance_id = $1
+  AND state NOT IN (
+      'TASK_STATE_COMPLETED',
+      'TASK_STATE_CANCELED',
+      'TASK_STATE_FAILED',
+      'TASK_STATE_REJECTED'
+  );
+
 -- name: GetAgentInstanceTaskByMessageID :one
 SELECT * FROM agent_instance_task
 WHERE instance_id = $1 AND initial_message_id = $2;
@@ -44,3 +54,16 @@ WHERE instance_id = sqlc.arg(instance_id)
        OR status_timestamp > sqlc.narg(status_timestamp_after))
 ORDER BY id
 LIMIT sqlc.arg(page_size);
+
+-- LockActiveAgentInstanceTask holds the instance's non-terminal task for the
+-- rest of the transaction so reclamation cannot overwrite concurrent progress.
+-- name: LockActiveAgentInstanceTask :one
+SELECT * FROM agent_instance_task
+WHERE instance_id = $1
+  AND state NOT IN (
+      'TASK_STATE_COMPLETED',
+      'TASK_STATE_CANCELED',
+      'TASK_STATE_FAILED',
+      'TASK_STATE_REJECTED'
+  )
+FOR UPDATE;
