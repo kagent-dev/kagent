@@ -135,6 +135,24 @@ func TestKAgentExecutor_ForwardsCleanup(t *testing.T) {
 	}
 }
 
+func TestUserIDCallInterceptor_SetsCtxUserID(t *testing.T) {
+	ctx, callCtx := a2asrv.NewCallContext(context.Background(), a2asrv.NewServiceParams(map[string][]string{
+		"x-user-id": {"real-user"},
+	}))
+
+	returned, _, err := UserIDCallInterceptor().Before(ctx, callCtx, &a2asrv.Request{})
+	if err != nil {
+		t.Fatalf("Before() error = %v", err)
+	}
+
+	if got := callCtx.User.Name; got != "real-user" {
+		t.Fatalf("callCtx.User.Name = %q, want %q", got, "real-user")
+	}
+	if got := auth.UserIDFromContext(returned); got != "real-user" {
+		t.Fatalf("auth.UserIDFromContext(returned) = %q, want %q", got, "real-user")
+	}
+}
+
 func TestKAgentExecutor_TranslatesADKPauseAtA2ABoundary(t *testing.T) {
 	reqCtx := &a2asrv.ExecutorContext{
 		TaskID: "task-1", ContextID: "ctx-1",
