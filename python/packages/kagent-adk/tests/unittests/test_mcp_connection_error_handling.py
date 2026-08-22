@@ -49,7 +49,7 @@ async def test_connection_reset_error_returns_error_dict():
 
     assert "error" in result
     assert "ConnectionResetError" in result["error"]
-    assert "Connection reset by peer" in result["error"]
+    assert "Connection reset by peer" not in result["error"]
     assert "Do not retry" in result["error"]
 
 
@@ -117,7 +117,7 @@ async def test_transport_mcp_error_returns_error_dict():
 
     assert "error" in result
     assert "McpError" in result["error"]
-    assert "session read timeout" in result["error"]
+    assert "session read timeout" not in result["error"]
 
 
 @pytest.mark.asyncio
@@ -197,3 +197,103 @@ async def test_get_tools_hides_app_only_tools_from_model():
     # Model-visible app tool is recorded; app-only tool is not.
     assert "get_weather" in app_tool_names
     assert "refresh_dashboard" not in app_tool_names
+
+
+@pytest.mark.asyncio
+async def test_http_status_error_returns_sanitized_error_dict_and_logs_warning():
+    """HTTP status failures are returned without leaking request metadata."""
+    credential = "super-secret-token"
+    request = httpx.Request(
+        "POST",
+        "http://x",
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    response = httpx.Response(401, request=request)
+    tool = _make_connection_safe_tool(
+        httpx.HTTPStatusError("Unauthorized", request=request, response=response)
+    )
+
+    with patch("kagent.adk._mcp_toolset.logger") as mock_logger:
+        result = await tool.run_async(args={}, tool_context=MagicMock())
+
+    assert isinstance(result, dict)
+    assert "error" in result
+    assert "401" in result["error"]
+    assert credential not in result["error"]
+    assert "Authorization" not in result["error"]
+    mock_logger.warning.assert_called_once()
+    assert credential not in str(mock_logger.warning.call_args)
+    assert "Authorization" not in str(mock_logger.warning.call_args)
+
+
+@pytest.mark.asyncio
+async def test_mcp_error_wrapping_http_status_returns_sanitized_dict():
+    """An McpError whose cause is an httpx.HTTPStatusError is reported as an HTTP
+    status failure without leaking the Authorization header."""
+    credential = "super-secret-token"
+    request = httpx.Request(
+        "POST",
+        "http://x",
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    response = httpx.Response(403, request=request)
+    http_error = httpx.HTTPStatusError("Forbidden", request=request, response=response)
+    mcp_error = McpError(ErrorData(code=-1, message="upstream error"))
+    mcp_error.__cause__ = http_error
+    tool = _make_connection_safe_tool(mcp_error)
+
+    result = await tool.run_async(args={}, tool_context=MagicMock())
+
+    assert "error" in result
+    assert "403" in result["error"]
+    assert credential not in result["error"]
+    assert "Authorization" not in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_exception_group_wrapping_http_status_returns_sanitized_dict():
+    """An ExceptionGroup carrying an httpx.HTTPStatusError is reported as an HTTP
+    status failure without leaking the Authorization header."""
+    credential = "super-secret-token"
+    request = httpx.Request(
+        "POST",
+        "http://x",
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    response = httpx.Response(502, request=request)
+    http_error = httpx.HTTPStatusError("Bad Gateway", request=request, response=response)
+    group = ExceptionGroup("mcp session failed", [http_error])
+    tool = _make_connection_safe_tool(group)
+
+    result = await tool.run_async(args={}, tool_context=MagicMock())
+
+    assert "error" in result
+    assert "502" in result["error"]
+    assert credential not in result["error"]
+    assert "Authorization" not in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_connection_error_response_does_not_leak_wrapped_credentials():
+    """A connection error carrying an httpx request with an Authorization header
+    must not leak that header via str(error) or exc_info."""
+    credential = "super-secret-token"
+    request = httpx.Request(
+        "GET",
+        "http://x",
+        headers={"Authorization": f"Bearer {credential}"},
+    )
+    error = httpx.ConnectError("connection refused", request=request)
+
+    tool = _make_connection_safe_tool(error)
+    with patch("kagent.adk._mcp_toolset.logger") as mock_logger:
+        result = await tool.run_async(args={}, tool_context=MagicMock())
+
+    assert "error" in result
+    assert "ConnectError" in result["error"]
+    assert credential not in result["error"]
+    assert "Authorization" not in result["error"]
+    mock_logger.error.assert_called_once()
+    assert mock_logger.error.call_args.kwargs.get("exc_info") is None
+    assert credential not in str(mock_logger.error.call_args)
+    assert "Authorization" not in str(mock_logger.error.call_args)
