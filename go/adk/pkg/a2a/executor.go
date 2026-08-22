@@ -230,6 +230,9 @@ func (e *KAgentExecutor) Cleanup(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 }
 
 // extractSessionName extracts session name from the first text part of a message.
+// Truncation is rune-aware: cutting on a byte boundary can split a multi-byte
+// UTF-8 rune and yield an invalid-UTF-8 name, which the Postgres session store
+// rejects on session create. sessionNameMaxLength is therefore counted in runes.
 func extractSessionName(message *a2atype.Message) string {
 	if message == nil {
 		return ""
@@ -239,8 +242,13 @@ func extractSessionName(message *a2atype.Message) string {
 			continue
 		}
 		if text := part.Text(); text != "" {
-			if len(text) > sessionNameMaxLength {
-				return text[:sessionNameMaxLength] + "..."
+			text = strings.TrimSpace(text)
+			runeCount := 0
+			for byteIndex := range text {
+				if runeCount == sessionNameMaxLength {
+					return text[:byteIndex] + "..."
+				}
+				runeCount++
 			}
 			return text
 		}
