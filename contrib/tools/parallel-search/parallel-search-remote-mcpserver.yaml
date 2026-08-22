@@ -1,0 +1,14 @@
+## Parallel Search MCP
+## https://search.parallel.ai/mcp
+## Provides live web search and URL fetching without an account or API key.
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: parallel-search
+  namespace: kagent
+spec:
+  url: "https://search.parallel.ai/mcp"
+  protocol: STREAMABLE_HTTP
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  description: "Live web search and URL fetching through Parallel Search MCP"
