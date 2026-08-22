@@ -178,6 +178,9 @@ func (s *Service) Create(ctx context.Context, request CreateRequest) (*database.
 		Source:  request.Source,
 	}
 	if err := s.store.StoreSession(ctx, value); err != nil {
+		if errors.Is(err, database.ErrSessionIDRetired) {
+			return nil, serviceerrors.NewAlreadyExists("Session ID belongs to a deleted session", err)
+		}
 		return nil, serviceerrors.NewInternal("Failed to create session", err)
 	}
 	stored, err := s.store.GetSession(ctx, id, userID)
@@ -245,6 +248,9 @@ func (s *Service) Update(ctx context.Context, request UpdateRequest) (*database.
 		session.AgentID = &agent.ID
 	}
 	if err := s.store.StoreSession(ctx, session); err != nil {
+		if errors.Is(err, database.ErrSessionIDRetired) {
+			return nil, serviceerrors.NewNotFound("Session not found", err)
+		}
 		return nil, serviceerrors.NewInternal("Failed to update session", err)
 	}
 	return session, nil

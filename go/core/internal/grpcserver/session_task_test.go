@@ -40,6 +40,9 @@ type generatedClientSessionTaskStore struct {
 	lastTaskListUserID    string
 	recordedShareUserID   string
 	recordedShareID       int64
+	// retired maps a deleted session id to its owner: a soft delete keeps the
+	// row, so the id stays burned for that user.
+	retired map[string]string
 }
 
 func newGeneratedClientSessionTaskStore() *generatedClientSessionTaskStore {
@@ -50,10 +53,14 @@ func newGeneratedClientSessionTaskStore() *generatedClientSessionTaskStore {
 		shares:     make(map[string]*database.SessionShare),
 		tasks:      make(map[string]*a2a.Task),
 		taskOwners: make(map[string]string),
+		retired:    make(map[string]string),
 	}
 }
 
 func (s *generatedClientSessionTaskStore) StoreSession(_ context.Context, value *database.Session) error {
+	if owner, ok := s.retired[value.ID]; ok && owner == value.UserID {
+		return database.ErrSessionIDRetired
+	}
 	copy := *value
 	if copy.CreatedAt.IsZero() {
 		copy.CreatedAt = time.Date(2026, time.August, 2, 10, 0, 0, 0, time.UTC)
@@ -111,6 +118,7 @@ func (s *generatedClientSessionTaskStore) DeleteSession(_ context.Context, id, u
 		return database.ErrNotFound
 	}
 	delete(s.sessions, id)
+	s.retired[id] = userID
 	return nil
 }
 
@@ -410,6 +418,17 @@ func TestSessionAndTaskGeneratedClients(t *testing.T) {
 	}
 	if _, err := sessionClient.DeleteSession(userContext, &apiv1alpha1.DeleteSessionRequest{SessionId: sessionID}); err != nil {
 		t.Fatalf("DeleteSession() error = %v", err)
+	}
+
+	// Recreating a deleted id must conflict rather than report a server fault,
+	// so a client can tell a retired id from an unhealthy server.
+	_, err = sessionClient.CreateSession(userContext, &apiv1alpha1.CreateSessionRequest{
+		Id:       &sessionID,
+		AgentRef: "default/agent",
+		Name:     &name,
+	})
+	if status.Code(err) != codes.AlreadyExists {
+		t.Fatalf("CreateSession() on a deleted id error = %v, want already exists", err)
 	}
 }
 

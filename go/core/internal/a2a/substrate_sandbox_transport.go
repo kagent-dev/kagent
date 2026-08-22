@@ -72,9 +72,13 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 		return nil, fmt.Errorf("message contextId (session id) is required for substrate sandbox agents")
 	}
 
-	// non blocking attempt to ensure that sandbox agent session metadata is persisted to postgres
-	// to support session list and delete cleanup.
+	// Best-effort attempt to persist sandbox agent session metadata to postgres so the session
+	// supports list and delete cleanup. A retired session id is the exception: it can never hold
+	// a visible row again, so serving the request would leave an actor no read path can reach.
 	if err := t.ensureSessionRow(req.Context(), sessionID, req.Header.Get("X-User-Id")); err != nil {
+		if errors.Is(err, database.ErrSessionIDRetired) {
+			return nil, err
+		}
 		ctrllog.FromContext(req.Context()).WithName("substrate-sandbox-transport").Error(err,
 			"failed to ensure session row; continuing without it", "sessionID", sessionID)
 	}
@@ -109,8 +113,10 @@ func (t *substrateSandboxSessionRoundTripper) RoundTrip(req *http.Request) (*htt
 }
 
 // ensureSessionRow materializes the controller-side session row for sessions created by direct
-// A2A calls that never went through POST /api/sessions (no UI involvement). Without the row the
-// session is invisible to the sessions API: absent from listings, tasks unreadable, undeletable.
+// A2A calls that never went through SessionService.CreateSession (no UI involvement). Without
+// the row the session is invisible to the sessions API: absent from listings, tasks unreadable,
+// undeletable. A retired session id is rejected by the store and no row is written; RoundTrip
+// fails the request rather than serving it.
 func (t *substrateSandboxSessionRoundTripper) ensureSessionRow(ctx context.Context, sessionID, userID string) error {
 	if t.db == nil {
 		return nil
