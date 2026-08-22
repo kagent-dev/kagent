@@ -19,6 +19,13 @@ import numpy as np
 from kagent.adk._bearer_token import bearer_token
 from kagent.adk.types import EmbeddingConfig
 
+from ._azure import (
+    build_azure_openai_client,
+    resolve_azure_api_key,
+    resolve_azure_openai_config,
+    resolve_foundry_config,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,6 +92,8 @@ class KAgentEmbedding:
 
         if provider in ("openai", "azure_openai"):
             return await self._embed_openai(texts)
+        if provider == "foundry":
+            return await self._embed_foundry(texts)
         if provider == "ollama":
             return await self._embed_ollama(texts)
         if provider in ("vertex_ai", "gemini"):
@@ -146,8 +155,8 @@ class KAgentEmbedding:
     def _passthrough_api_key(self) -> Optional[str]:
         """Bearer token to use as the API key when api_key_passthrough is
         enabled, mirroring BaseOpenAI.set_passthrough_key for chat models.
-        None falls back to the SDK's own env var lookup (OPENAI_API_KEY /
-        AZURE_OPENAI_API_KEY).
+        Azure providers treat a missing token as an error rather than falling
+        back to a provider environment key.
         """
         if not self.config.api_key_passthrough:
             return None
@@ -159,13 +168,20 @@ class KAgentEmbedding:
         api_key = self._passthrough_api_key()
 
         if provider == "azure_openai":
-            from openai import AsyncAzureOpenAI
-
-            api_version = os.environ.get("OPENAI_API_VERSION", "2024-02-15-preview")
-            api_base = self.config.base_url or os.environ.get("AZURE_OPENAI_ENDPOINT")
-            if not api_base:
-                raise ValueError("Azure OpenAI endpoint must be set via base_url or AZURE_OPENAI_ENDPOINT env var")
-            client = AsyncAzureOpenAI(api_version=api_version, azure_endpoint=api_base, api_key=api_key)
+            api_base, api_version = resolve_azure_openai_config(
+                self.config.endpoint or self.config.base_url, self.config.api_version
+            )
+            api_key = resolve_azure_api_key(
+                api_key,
+                api_key_passthrough=self.config.api_key_passthrough,
+                environment_variable="AZURE_OPENAI_API_KEY",
+            )
+            client = self._build_azure_client(
+                api_version=api_version,
+                endpoint=api_base,
+                deployment=self.config.deployment,
+                api_key=api_key,
+            )
         else:
             from openai import AsyncOpenAI
 
@@ -177,6 +193,53 @@ class KAgentEmbedding:
             dimensions=self.TARGET_DIMENSION,
         )
         return [item.embedding for item in response.data]
+
+    async def _embed_foundry(self, texts: List[str]) -> List[List[float]]:
+        """Embed using the Azure AI Foundry OpenAI-compatible surface."""
+        endpoint, deployment, api_version = resolve_foundry_config(
+            self.config.endpoint, self.config.deployment, self.config.api_version
+        )
+        api_key = resolve_azure_api_key(
+            self._passthrough_api_key(),
+            api_key_passthrough=self.config.api_key_passthrough,
+            environment_variable="FOUNDRY_API_KEY",
+        )
+
+        client = self._build_azure_client(
+            api_version=api_version,
+            endpoint=endpoint,
+            deployment=deployment,
+            api_key=api_key,
+        )
+        response = await client.embeddings.create(
+            model=self.config.model,
+            input=texts,
+            dimensions=self.TARGET_DIMENSION,
+        )
+        return [item.embedding for item in response.data]
+
+    def _build_azure_client(
+        self,
+        *,
+        api_version: str,
+        endpoint: str,
+        deployment: Optional[str],
+        api_key: Optional[str],
+    ):
+        """Build an Azure embeddings client with implicit Workload Identity auth."""
+        return build_azure_openai_client(
+            api_version=api_version,
+            azure_endpoint=endpoint,
+            azure_deployment=deployment,
+            api_key=api_key,
+            api_key_passthrough=self.config.api_key_passthrough,
+            default_headers=None,
+            http_client=None,
+            missing_credential_hint=(
+                "No Azure credential resolved for embeddings: set an API key, enable "
+                "api_key_passthrough, or configure Azure Workload Identity"
+            ),
+        )
 
     async def _embed_ollama(self, texts: List[str]) -> List[List[float]]:
         """Embed using the Ollama SDK."""
