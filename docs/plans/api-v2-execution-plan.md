@@ -234,11 +234,17 @@ Add Dedicated boundaries:
 
 - Produce a prepared runtime bundle and ActorTemplate per Dedicated boundary.
 - Provision every member through K5’s existing state machine.
-- Generate a binding-scoped private MCP server exposing only `invoke(task)`.
+- Give each Dedicated binding a private A2A endpoint and credentials scoped to
+  exactly that binding and child.
+- Stream child A2A events through the parent Task, including progress and
+  cancellation, while returning terminal child output to the parent model as
+  the tool result.
+- Let harness adapters expose the binding through their native mechanism. Use
+  an MCP-to-A2A adapter only for harnesses that cannot invoke A2A directly.
 - Hide Actor identity, credentials, and arbitrary target selection.
 - Persist private binding and conversation handles inside snapshot-covered storage.
 - Apply lifecycle and deletion atomically to the complete member set.
-- Keep child interaction terminal and tool-shaped; child streaming Tasks and child `INPUT_REQUIRED` remain deferred.
+- Keep child interaction tool-shaped; child `INPUT_REQUIRED` remains deferred.
 
 ### K10 — Public AgentInstance A2A gateway
 
@@ -320,7 +326,8 @@ Content:
 Implement the second release-blocking adapter:
 
 - Render Shared children into private `CODEX_HOME/agents/*.toml`.
-- Render explicit MCP and Dedicated bindings into Codex configuration.
+- Render explicit MCP bindings into Codex configuration and adapt Dedicated
+  A2A bindings to Codex tools.
 - Materialize selected skills into the pinned runtime layout.
 - Drive `codex exec --json` and `codex exec resume`.
 - Preserve threads, workspace, MCP handles, and adapter state in DurableDir.
@@ -333,7 +340,8 @@ OpenClaw, Hermes, hosted profiles, and shared-host topology are separate future 
 
 Implement the third release-blocking adapter:
 
-- Render Shared children, explicit MCP bindings, and Dedicated bindings into Claude's native configuration.
+- Render Shared children and explicit MCP bindings into Claude's native
+  configuration, and adapt Dedicated A2A bindings to Claude tools.
 - Materialize selected skills into the pinned runtime layout.
 - Drive the pinned Claude runtime through its non-interactive streaming interface.
 - Preserve conversations, workspace, MCP handles, and adapter state in DurableDir.
