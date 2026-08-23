@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
@@ -22,6 +23,7 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
+	"github.com/kagent-dev/mockmcp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -35,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-//go:embed mocks/invoke_golang_adk_agent.json mocks/invoke_shared_agent.json
+//go:embed mocks/invoke_golang_adk_agent.json mocks/invoke_mcp_agent.json mocks/invoke_shared_agent.json
 var interactionMocks embed.FS
 
 // TestAgentInstanceInteraction verifies the complete public interaction path:
@@ -49,6 +51,22 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	if text := taskText(task); !strings.Contains(text, "The answer is 4.") {
 		t.Fatalf("A2A response text = %q, want mock LLM response", text)
 	}
+}
+
+func TestMCPInteraction(t *testing.T) {
+	mcpURL, mcpServer := startMCPMock(t)
+	template := createMCPInteractionTemplate(t, startMockLLM(t, "mocks/invoke_mcp_agent.json"), mcpURL)
+	fixture := newInteractionFixtureForTemplate(t, interactionTarget(t), template)
+	_, _, task := fixture.send(t, "add 3 and 5")
+	if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "result is 8") {
+		t.Fatalf("A2A task state = %s, text = %q, want completed task with MCP result", task.Status.State, taskText(task))
+	}
+	for _, request := range mcpServer.Requests() {
+		if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) && bytes.Contains(request.Body, []byte(`"name":"add_numbers"`)) {
+			return
+		}
+	}
+	t.Fatal("mock MCP server did not receive an add_numbers tool call")
 }
 
 func TestSharedAgentInteraction(t *testing.T) {
@@ -375,8 +393,12 @@ func waitForTaskState(t *testing.T, stream streamReceiver, want a2atype.TaskStat
 }
 
 func startInteractionMock(t *testing.T) string {
+	return startMockLLM(t, "mocks/invoke_golang_adk_agent.json")
+}
+
+func startMockLLM(t *testing.T, fixture string) string {
 	t.Helper()
-	cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_golang_adk_agent.json", interactionMocks)
+	cfg, err := mockllm.LoadConfigFromFile(fixture, interactionMocks)
 	if err != nil {
 		t.Fatalf("load mock LLM response: %v", err)
 	}
@@ -428,25 +450,32 @@ func startBlockingInteractionMock(t *testing.T) (string, <-chan struct{}) {
 }
 
 func startSharedInteractionMock(t *testing.T) string {
+	return startMockLLM(t, "mocks/invoke_shared_agent.json")
+}
+
+func startMCPMock(t *testing.T) (string, *mockmcp.Server) {
 	t.Helper()
-	cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_shared_agent.json", interactionMocks)
+	server, err := mockmcp.NewServer(mockmcp.Options{Addr: "0.0.0.0:0", RecordRequests: true})
 	if err != nil {
-		t.Fatalf("load shared agent mock: %v", err)
+		t.Fatalf("create mock MCP server: %v", err)
 	}
-	server := mockllm.NewServer(cfg)
 	baseURL, err := server.Start(t.Context())
 	if err != nil {
-		t.Fatalf("start shared agent mock: %v", err)
+		t.Fatalf("start mock MCP server: %v", err)
 	}
 	t.Cleanup(func() {
 		if err := server.Stop(context.Background()); err != nil {
-			t.Errorf("stop shared agent mock: %v", err)
+			t.Errorf("stop mock MCP server: %v", err)
 		}
 	})
-	return reachableModelURL(t, baseURL)
+	return reachableServerURL(t, baseURL, mockmcp.MCPPath), server
 }
 
 func reachableModelURL(t *testing.T, baseURL string) string {
+	return reachableServerURL(t, baseURL, "/v1")
+}
+
+func reachableServerURL(t *testing.T, baseURL, path string) string {
 	t.Helper()
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
@@ -468,7 +497,8 @@ func reachableModelURL(t *testing.T, baseURL string) string {
 		}
 	}
 	parsed.Host = net.JoinHostPort(host, port)
-	return strings.TrimSuffix(parsed.String(), "/") + "/v1"
+	parsed.Path = path
+	return parsed.String()
 }
 
 func createInteractionTemplate(t *testing.T, modelURL string) string {
@@ -484,6 +514,45 @@ func createInteractionTemplate(t *testing.T, modelURL string) string {
 			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
 			Description:  "Agent interaction E2E fixture",
 			SystemPrompt: "Reply briefly.",
+		},
+	}
+	createAndWaitInteractionTemplate(t, kube, template)
+	return template.Name
+}
+
+func createMCPInteractionTemplate(t *testing.T, modelURL, mcpURL string) string {
+	t.Helper()
+	kube := interactionKubeClient(t)
+	model := createInteractionModel(t, kube, modelURL, nil)
+	server := &v1alpha3.RemoteMCPServer{
+		ObjectMeta: metav1.ObjectMeta{GenerateName: "interaction-mcp-", Namespace: "kagent"},
+		Spec: v1alpha3.RemoteMCPServerSpec{
+			Description: "MCP interaction E2E fixture",
+			Protocol:    v1alpha3.RemoteMCPServerProtocolStreamableHttp,
+			URL:         mcpURL,
+		},
+	}
+	if err := kube.Create(t.Context(), server); err != nil {
+		t.Fatalf("create interaction RemoteMCPServer: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := kube.Delete(context.Background(), server); err != nil && !apierrors.IsNotFound(err) {
+			t.Errorf("delete interaction RemoteMCPServer: %v", err)
+		}
+	})
+	template := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: "mcp-interaction-", Namespace: "kagent",
+			Labels: map[string]string{"kagent.dev/e2e-runtime": "kagent"},
+		},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig:  v1alpha3.AgentTemplateLocalReference{Name: model.Name},
+			Description:  "MCP interaction E2E fixture",
+			SystemPrompt: "Use add_numbers to answer arithmetic questions.",
+			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
+				Server: v1alpha3.AgentTemplateTypedLocalReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Tools:  []string{"add_numbers"},
+			}}},
 		},
 	}
 	createAndWaitInteractionTemplate(t, kube, template)
