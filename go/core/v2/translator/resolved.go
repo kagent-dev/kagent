@@ -57,12 +57,6 @@ type AgentInputBinding struct {
 	Agent       *AgentInput
 }
 
-// HarnessCompiler converts resolved, harness-neutral inputs into one runtime revision.
-type HarnessCompiler interface {
-	Supports(*v1alpha3.Harness) bool
-	Compile(context.Context, *HarnessInput) (*Revision, error)
-}
-
 func (c *Compiler) resolveTree(ctx context.Context, harness *v1alpha3.Harness, root *v1alpha3.AgentTemplate) (*ResolvedTree, error) {
 	selector, err := harnessSelector(harness)
 	if err != nil {

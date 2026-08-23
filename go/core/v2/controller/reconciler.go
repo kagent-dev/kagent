@@ -62,7 +62,7 @@ func newPairReconciliations(
 			ctx: ctx, agentTemplates: agentTemplates, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
 			configMaps: configMaps, secrets: secrets, workerPools: workerPools,
 		}
-		revision, err := v2translator.NewCompiler(reader).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
+		revision, err := v2translator.NewCompiler(reader, nil).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
 		if err != nil {
 			condition, reason := kagentv1alpha3.AgentTemplateConditionResolvedRefs, "ReferenceResolutionFailed"
 			var validation *v2translator.ValidationError

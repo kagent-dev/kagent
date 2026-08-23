@@ -96,7 +96,7 @@ func compiler(t *testing.T, objects ...client.Object) *v2translator.Compiler {
 	t.Helper()
 	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
 	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(objects...).Build()
-	return v2translator.NewCompiler(testReader{kube})
+	return v2translator.NewCompiler(testReader{kube}, nil)
 }
 
 type testReader struct{ client.Client }
@@ -106,10 +106,6 @@ func (r testReader) Get(ctx context.Context, key types.NamespacedName, object ru
 }
 
 type testHarnessCompiler struct{ input *v2translator.HarnessInput }
-
-func (*testHarnessCompiler) Supports(harness *v1alpha3.Harness) bool {
-	return harness.Spec.Codex != nil
-}
 
 func (c *testHarnessCompiler) Compile(_ context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
 	c.input = input
@@ -126,7 +122,9 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: v1alpha3.AgentTemplateLocalReference{Name: "default-model"}}}
 
-	revision, err := v2translator.NewCompiler(testReader{kube}, adapter).CompileAgentTemplate(context.Background(), harness, template)
+	revision, err := v2translator.NewCompiler(testReader{kube}, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeCodex: adapter,
+	}).CompileAgentTemplate(context.Background(), harness, template)
 	require.NoError(t, err)
 	require.Equal(t, "assistant", revision.AgentTemplateName)
 	require.Equal(t, template.Name, adapter.input.Root.Template.Name)

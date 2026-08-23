@@ -2,59 +2,50 @@ package translator
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
-	"fmt"
-	"net/url"
-	"slices"
-	"strings"
+	"maps"
 
-	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/utils"
-	"github.com/kagent-dev/kagent/go/core/pkg/env"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
-
-// provenanceEntry records one Kubernetes input to a compiled revision. Secret
-// entries identify a single key and hash its value; secret values are never stored.
-type provenanceEntry struct {
-	APIVersion string    `json:"apiVersion"`
-	Kind       string    `json:"kind"`
-	Name       string    `json:"name"`
-	Key        string    `json:"key,omitempty"`
-	UID        types.UID `json:"uid"`
-	Generation int64     `json:"generation,omitempty"`
-	Hash       string    `json:"hash"`
-}
 
 // Compiler resolves public API objects into a complete, immutable runtime
 // revision. It owns the v2 translation boundary rather than delegating to an
 // earlier API translator.
 type Compiler struct {
 	kube             Reader
-	harnessCompilers []HarnessCompiler
+	harnessCompilers map[HarnessType]HarnessCompiler
+}
+
+// HarnessType identifies the runtime selected by a Harness.
+type HarnessType string
+
+// Supported Harness runtime types.
+const (
+	HarnessTypeKagent HarnessType = "kagent"
+	HarnessTypeCodex  HarnessType = "codex"
+	HarnessTypeClaude HarnessType = "claude"
+)
+
+// HarnessCompiler converts resolved, harness-neutral inputs into one runtime revision.
+type HarnessCompiler interface {
+	Compile(context.Context, *HarnessInput) (*Revision, error)
 }
 
 // NewCompiler constructs the v2 runtime compiler.
-func NewCompiler(kube Reader, harnessCompilers ...HarnessCompiler) *Compiler {
-	compiler := &Compiler{kube: kube, harnessCompilers: harnessCompilers}
-	compiler.harnessCompilers = append(compiler.harnessCompilers, kagentCompiler{Compiler: compiler})
+func NewCompiler(kube Reader, harnessCompilers map[HarnessType]HarnessCompiler) *Compiler {
+	compiler := &Compiler{kube: kube, harnessCompilers: maps.Clone(harnessCompilers)}
+	if compiler.harnessCompilers == nil {
+		compiler.harnessCompilers = make(map[HarnessType]HarnessCompiler)
+	}
+	if _, registered := compiler.harnessCompilers[HarnessTypeKagent]; !registered {
+		compiler.harnessCompilers[HarnessTypeKagent] = kagentCompiler{Compiler: compiler}
+	}
 	return compiler
 }
 
 // CompileAgentTemplate resolves an API v2 attachment into an immutable runtime
 // revision. Nothing below this boundary needs to read the public API objects.
 func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*Revision, error) {
-	var harnessCompiler HarnessCompiler
-	for _, candidate := range c.harnessCompilers {
-		if candidate.Supports(harness) {
-			harnessCompiler = candidate
-			break
-		}
-	}
+	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
 		return nil, newValidationError("Harness runtime is not supported by any compiler")
 	}
@@ -69,460 +60,15 @@ func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.H
 	return harnessCompiler.Compile(ctx, input)
 }
 
-type kagentCompiler struct{ *Compiler }
-
-type compiledAgent struct {
-	config      *adk.AgentConfig
-	models      []*v1alpha3.ModelConfig
-	templates   []*v1alpha3.AgentTemplate
-	environment []corev1.EnvVar
-	egress      []string
-}
-
-func (kagentCompiler) Supports(harness *v1alpha3.Harness) bool { return harness.Spec.Kagent != nil }
-
-func (c kagentCompiler) Compile(ctx context.Context, input *HarnessInput) (*Revision, error) {
-	compiled, err := c.compileAgent(ctx, input.Root)
-	if err != nil {
-		return nil, err
+func harnessType(harness *v1alpha3.Harness) HarnessType {
+	switch {
+	case harness.Spec.Kagent != nil:
+		return HarnessTypeKagent
+	case harness.Spec.Codex != nil:
+		return HarnessTypeCodex
+	case harness.Spec.Claude != nil:
+		return HarnessTypeClaude
+	default:
+		return ""
 	}
-	template, harness := input.Root.Template, input.Harness
-	cfg := compiled.config
-	cfg.SessionDBURL = "sqlite:////data/sessions.db"
-
-	configJSON, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("marshal agent config: %w", err)
-	}
-	cardJSON, err := json.Marshal(agentTemplateCard(template))
-	if err != nil {
-		return nil, fmt.Errorf("marshal agent card: %w", err)
-	}
-
-	// Harness env is applied after provider env. dedupeEnv deliberately gives
-	// later entries precedence, allowing the Harness to override defaults.
-	environment := append([]corev1.EnvVar(nil), compiled.environment...)
-	for _, value := range harness.Spec.Env {
-		envVar := corev1.EnvVar{Name: value.Name}
-		if value.Value != nil {
-			envVar.Value = *value.Value
-		} else {
-			envVar.ValueFrom = &corev1.EnvVarSource{SecretKeyRef: value.CredentialRef.DeepCopy()}
-		}
-		environment = append(environment, envVar)
-	}
-	environment = append(environment,
-		corev1.EnvVar{Name: env.KagentName.Name(), Value: template.Name + "-" + harness.Name},
-		corev1.EnvVar{Name: env.KagentNamespace.Name(), Value: template.Namespace},
-		corev1.EnvVar{Name: env.KagentURL.Name(), Value: fmt.Sprintf("http://%s.%s:8083", utils.GetControllerName(), utils.GetResourceNamespace())},
-		corev1.EnvVar{Name: env.KagentGRPCURL.Name(), Value: fmt.Sprintf("%s.%s:8084", utils.GetControllerName(), utils.GetResourceNamespace())},
-		corev1.EnvVar{Name: "PORT", Value: "80"},
-		corev1.EnvVar{Name: "KAGENT_A2A_GRPC_ADDRESS", Value: "[::]:80"},
-		corev1.EnvVar{Name: "KAGENT_PRE_RESPONSE_TRACE_FLUSH", Value: "true"},
-	)
-	environment = dedupeEnv(environment)
-
-	// One provenance list covers every Kubernetes input, including hashed Secret
-	// keys, so it both explains and participates in revision identity.
-	provenance, err := c.buildProvenance(ctx, harness, compiled.templates, compiled.models, environment)
-	if err != nil {
-		return nil, fmt.Errorf("build revision provenance: %w", err)
-	}
-	environment, err = c.resolveEnvironment(ctx, template.Namespace, environment)
-	if err != nil {
-		return nil, fmt.Errorf("resolve runtime environment: %w", err)
-	}
-
-	egressDestinations := compiled.egress
-	slices.Sort(egressDestinations)
-	egressDestinations = slices.Compact(egressDestinations)
-
-	return &Revision{
-		Namespace:          template.Namespace,
-		AgentTemplateName:  template.Name,
-		HarnessName:        harness.Name,
-		Image:              harness.Spec.Workload.Image,
-		Environment:        environment,
-		ConfigJSON:         configJSON,
-		AgentCardJSON:      cardJSON,
-		WorkerPoolName:     harness.Spec.Substrate.WorkerPoolRef.Name,
-		SnapshotLocation:   harness.Spec.Substrate.SnapshotPolicy.Location,
-		Provenance:         provenance,
-		EgressDestinations: egressDestinations,
-	}, nil
-}
-
-func (c kagentCompiler) compileAgent(ctx context.Context, input *AgentInput) (*compiledAgent, error) {
-	modelRuntime, err := c.resolveModel(ctx, input.ModelConfig)
-	if err != nil {
-		return nil, fmt.Errorf("resolve ModelConfig %q: %w", input.ModelConfig.Name, err)
-	}
-	if modelRuntime.HasUnsupportedVolumes {
-		return nil, newValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
-	}
-	stream := true
-	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
-	pluginConfig, err := agentPluginConfig(input.Template)
-	if err != nil {
-		return nil, err
-	}
-	if len(pluginConfig.Skills) > 0 || len(pluginConfig.Plugins) > 0 {
-		cfg.AgentPlugins = &pluginConfig
-	}
-	for _, tool := range input.MCPTools {
-		ref := &v1alpha3.McpServerTool{TypedReference: v1alpha3.TypedReference{
-			ApiGroup: "kagent.dev", Kind: tool.Binding.Server.Kind, Name: tool.Binding.Server.Name,
-		}, ToolNames: append([]string(nil), tool.Binding.Tools...)}
-		headers, credentialEnv, err := c.resolveAgentTemplateHeaders(ctx, input.Template.Namespace, tool.Server.Spec.HeadersFrom)
-		if err != nil {
-			return nil, fmt.Errorf("resolve %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
-		}
-		server := tool.Server.DeepCopy()
-		server.Spec.HeadersFrom = nil
-		if err := c.addRemoteMCPServer(cfg, modelRuntime, server, ref, headers); err != nil {
-			return nil, fmt.Errorf("compile %s %q: %w", tool.Binding.Server.Kind, tool.Binding.Server.Name, err)
-		}
-		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
-	}
-	if modelRuntime.HasUnsupportedVolumes {
-		return nil, newValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
-	}
-	result := &compiledAgent{
-		config: cfg, models: []*v1alpha3.ModelConfig{input.ModelConfig}, templates: []*v1alpha3.AgentTemplate{input.Template},
-		environment: modelRuntime.Environment,
-		egress:      append(agentConfigDestinations(cfg, input.ModelConfig, modelRuntime.Model), agentPluginSourceDestinations(pluginConfig)...),
-	}
-	for _, binding := range input.Shared {
-		child, err := c.compileAgent(ctx, binding.Agent)
-		if err != nil {
-			return nil, err
-		}
-		child.config.Name, child.config.Description = binding.Name, binding.Description
-		cfg.SubAgents = append(cfg.SubAgents, child.config)
-		result.models = append(result.models, child.models...)
-		result.templates = append(result.templates, child.templates...)
-		result.environment = append(result.environment, child.environment...)
-		result.egress = append(result.egress, child.egress...)
-	}
-	return result, nil
-}
-
-func agentPluginSourceDestinations(config adk.AgentPluginConfig) []string {
-	var result []string
-	appendSource := func(source adk.AgentPluginSource) {
-		switch {
-		case source.Git != nil:
-			result = appendURLHost(result, source.Git.URL)
-		case source.OCI != "":
-			repository := strings.SplitN(source.OCI, "@", 2)[0]
-			first, _, found := strings.Cut(repository, "/")
-			if found && (strings.Contains(first, ".") || strings.Contains(first, ":") || first == "localhost") {
-				result = append(result, first)
-			} else {
-				result = append(result, "registry-1.docker.io")
-			}
-		case source.S3 != nil:
-			result = appendURLHost(result, source.S3.Endpoint)
-		}
-	}
-	for _, skill := range config.Skills {
-		appendSource(skill.Source)
-	}
-	for _, plugin := range config.Plugins {
-		appendSource(plugin.Source)
-	}
-	return result
-}
-
-func agentPluginConfig(template *v1alpha3.AgentTemplate) (adk.AgentPluginConfig, error) {
-	result := adk.AgentPluginConfig{
-		Skills:  make([]adk.StandaloneSkill, 0, len(template.Spec.Skills)),
-		Plugins: make([]adk.AgentPluginBundle, 0, len(template.Spec.Plugins)),
-	}
-	names := make(map[string]struct{})
-	for _, skill := range template.Spec.Skills {
-		if _, exists := names[skill.Name]; exists {
-			return adk.AgentPluginConfig{}, newValidationError("duplicate skill name %q", skill.Name)
-		}
-		names[skill.Name] = struct{}{}
-		result.Skills = append(result.Skills, adk.StandaloneSkill{Name: skill.Name, Source: agentPluginSource(skill.Source)})
-	}
-	for _, plugin := range template.Spec.Plugins {
-		for _, name := range plugin.Skills {
-			if _, exists := names[name]; exists {
-				return adk.AgentPluginConfig{}, newValidationError("duplicate skill name %q", name)
-			}
-			names[name] = struct{}{}
-		}
-		result.Plugins = append(result.Plugins, adk.AgentPluginBundle{Source: agentPluginSource(plugin.Source), Skills: append([]string(nil), plugin.Skills...)})
-	}
-	return result, nil
-}
-
-func agentPluginSource(source v1alpha3.ArtifactSource) adk.AgentPluginSource {
-	result := adk.AgentPluginSource{OCI: source.OCI, Path: source.Path}
-	if source.Git != nil {
-		result.Git = &adk.AgentPluginGit{URL: source.Git.URL, Commit: source.Git.Commit}
-	}
-	if source.Bucket != nil {
-		result.S3 = &adk.AgentPluginS3{
-			Endpoint: source.Bucket.S3.Endpoint, Bucket: source.Bucket.S3.Bucket, Key: source.Bucket.S3.Key,
-			VersionID: source.Bucket.S3.VersionID, Region: source.Bucket.S3.Region,
-		}
-	}
-	return result
-}
-
-// resolveEnvironment replaces Kubernetes Secret references with literals
-// because Substrate ActorTemplates accept only literal environment values.
-func (c *Compiler) resolveEnvironment(ctx context.Context, namespace string, environment []corev1.EnvVar) ([]corev1.EnvVar, error) {
-	resolved := append([]corev1.EnvVar(nil), environment...)
-	for i, variable := range resolved {
-		if variable.ValueFrom == nil {
-			continue
-		}
-		if variable.ValueFrom.SecretKeyRef == nil {
-			return nil, fmt.Errorf("environment variable %q uses an unsupported value source", variable.Name)
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		secret := &corev1.Secret{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, secret); err != nil {
-			return nil, err
-		}
-		value, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
-		}
-		resolved[i].Value = string(value)
-		resolved[i].ValueFrom = nil
-	}
-	return resolved, nil
-}
-
-// buildProvenance records every Kubernetes input that can change the compiled
-// runtime. Sorting makes the JSON stable across map iteration order.
-func (c *Compiler) buildProvenance(ctx context.Context, harness *v1alpha3.Harness, templates []*v1alpha3.AgentTemplate, models []*v1alpha3.ModelConfig, environment []corev1.EnvVar) ([]byte, error) {
-	entries := []provenanceEntry{objectProvenance(v1alpha3.GroupVersion.String(), "Harness", harness.Name, harness.UID, harness.Generation, harness.Spec)}
-	configMaps := map[string]struct{}{}
-	for _, template := range templates {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "AgentTemplate", template.Name, template.UID, template.Generation, template.Spec))
-		if template.Spec.SystemPromptFrom != nil {
-			configMaps[template.Spec.SystemPromptFrom.Name] = struct{}{}
-		}
-		if template.Spec.PromptTemplate != nil {
-			for _, source := range template.Spec.PromptTemplate.DataSources {
-				configMaps[source.Name] = struct{}{}
-			}
-		}
-	}
-	for _, model := range models {
-		entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "ModelConfig", model.Name, model.UID, model.Generation, model.Spec))
-	}
-	for name := range configMaps {
-		configMap := &corev1.ConfigMap{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: name}, configMap); err != nil {
-			return nil, err
-		}
-		entries = append(entries, objectProvenance("v1", "ConfigMap", name, configMap.UID, configMap.Generation, configMap.Data))
-	}
-	for _, template := range templates {
-		for _, binding := range template.Spec.Tools {
-			if binding.MCP == nil {
-				continue
-			}
-			switch binding.MCP.Server.Kind {
-			case "RemoteMCPServer":
-				server := &v1alpha3.RemoteMCPServer{}
-				if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: binding.MCP.Server.Name}, server); err != nil {
-					return nil, err
-				}
-				entries = append(entries, objectProvenance(v1alpha3.GroupVersion.String(), "RemoteMCPServer", server.Name, server.UID, server.Generation, server.Spec))
-			}
-		}
-	}
-	// Secret provenance contains only UID and value hash. Name+key deduplication
-	// keeps repeated references from changing the digest.
-	seenSecrets := map[string]struct{}{}
-	for _, variable := range environment {
-		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
-			continue
-		}
-		ref := variable.ValueFrom.SecretKeyRef
-		identity := ref.Name + "\x00" + ref.Key
-		if _, ok := seenSecrets[identity]; ok {
-			continue
-		}
-		seenSecrets[identity] = struct{}{}
-		secret := &corev1.Secret{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: harness.Namespace, Name: ref.Name}, secret); err != nil {
-			return nil, err
-		}
-		value, ok := secret.Data[ref.Key]
-		if !ok {
-			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
-		}
-		hash := sha256.Sum256(value)
-		entries = append(entries, provenanceEntry{APIVersion: "v1", Kind: "Secret", Name: ref.Name, Key: ref.Key, UID: secret.UID, Hash: fmt.Sprintf("%x", hash[:])})
-	}
-	slices.SortFunc(entries, func(a, b provenanceEntry) int {
-		return strings.Compare(a.APIVersion+"\x00"+a.Kind+"\x00"+a.Name+"\x00"+a.Key, b.APIVersion+"\x00"+b.Kind+"\x00"+b.Name+"\x00"+b.Key)
-	})
-	entries = slices.Compact(entries)
-	return json.Marshal(entries)
-}
-
-// objectProvenance hashes the relevant object content rather than relying
-// on generation alone, which is not available or meaningful for every input.
-func objectProvenance(apiVersion, kind, name string, uid types.UID, generation int64, content any) provenanceEntry {
-	raw, _ := json.Marshal(content)
-	hash := sha256.Sum256(raw)
-	return provenanceEntry{APIVersion: apiVersion, Kind: kind, Name: name, UID: uid, Generation: generation, Hash: fmt.Sprintf("%x", hash[:])}
-}
-
-// resolveAgentTemplateHeaders keeps Secret values out of serialized agent
-// config. The runtime expands __KAGENT_ENV[...]__ from the corresponding
-// Secret-backed environment variable when it constructs the MCP request.
-func (c *Compiler) resolveAgentTemplateHeaders(ctx context.Context, namespace string, refs []v1alpha3.ValueRef) (map[string]string, []corev1.EnvVar, error) {
-	headers := make(map[string]string, len(refs))
-	var environment []corev1.EnvVar
-	for _, ref := range refs {
-		if ref.ValueFrom == nil || ref.ValueFrom.Type != v1alpha3.SecretValueSource {
-			name, value, err := c.resolveValueRef(ctx, namespace, ref)
-			if err != nil {
-				return nil, nil, err
-			}
-			headers[name] = value
-			continue
-		}
-		selector := &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: ref.ValueFrom.Name}, Key: ref.ValueFrom.Key}
-		sum := sha256.Sum256([]byte(namespace + "\x00" + selector.Name + "\x00" + selector.Key))
-		envName := "KAGENT_CREDENTIAL_" + strings.ToUpper(fmt.Sprintf("%x", sum[:8]))
-		headers[ref.Name] = "__KAGENT_ENV[" + envName + "]__"
-		environment = append(environment, corev1.EnvVar{Name: envName, ValueFrom: &corev1.EnvVarSource{SecretKeyRef: selector}})
-	}
-	return headers, environment, nil
-}
-
-func (c *Compiler) resolveValueRef(ctx context.Context, namespace string, ref v1alpha3.ValueRef) (string, string, error) {
-	if ref.ValueFrom == nil {
-		return ref.Name, ref.Value, nil
-	}
-	if ref.ValueFrom.Type != v1alpha3.ConfigMapValueSource {
-		return "", "", fmt.Errorf("unsupported value source type %q", ref.ValueFrom.Type)
-	}
-	configMap := &corev1.ConfigMap{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}, configMap); err != nil {
-		return "", "", err
-	}
-	value, found := configMap.Data[ref.ValueFrom.Key]
-	if !found {
-		return "", "", fmt.Errorf("ConfigMap %q does not contain key %q", ref.ValueFrom.Name, ref.ValueFrom.Key)
-	}
-	return ref.Name, value, nil
-}
-
-func (c *Compiler) resolveAgentTemplatePrompt(ctx context.Context, template *v1alpha3.AgentTemplate) (string, error) {
-	if template.Spec.SystemPromptFrom != nil {
-		ref := template.Spec.SystemPromptFrom
-		configMap := &corev1.ConfigMap{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, configMap); err != nil {
-			return "", fmt.Errorf("resolve systemPromptFrom: %w", err)
-		}
-		value, found := configMap.Data[ref.Key]
-		if !found {
-			return "", fmt.Errorf("resolve systemPromptFrom: ConfigMap %q does not contain key %q", ref.Name, ref.Key)
-		}
-		return value, nil
-	}
-	return template.Spec.SystemPrompt, nil
-}
-
-// agentTemplateCard describes the runtime-local A2A server. Substrate routes
-// public traffic to this loopback interface; the card must not advertise a
-// cluster-specific external address.
-func agentTemplateCard(template *v1alpha3.AgentTemplate) *a2atype.AgentCard {
-	return &a2atype.AgentCard{
-		Name:        strings.ReplaceAll(template.Name, "-", "_"),
-		Description: template.Spec.Description,
-		Version:     "v1",
-		SupportedInterfaces: []*a2atype.AgentInterface{{
-			URL:             "http://127.0.0.1:80",
-			ProtocolBinding: a2atype.TransportProtocolGRPC,
-			ProtocolVersion: a2atype.Version,
-		}},
-		Capabilities:       a2atype.AgentCapabilities{Streaming: true},
-		Skills:             []a2atype.AgentSkill{},
-		DefaultInputModes:  []string{"text"},
-		DefaultOutputModes: []string{"text"},
-	}
-}
-
-// dedupeEnv preserves first-seen ordering but gives the last value for a name
-// precedence, matching how compiler layers are applied.
-func dedupeEnv(values []corev1.EnvVar) []corev1.EnvVar {
-	result := make([]corev1.EnvVar, 0, len(values))
-	index := map[string]int{}
-	for _, value := range values {
-		if i, ok := index[value.Name]; ok {
-			result[i] = value
-			continue
-		}
-		index[value.Name] = len(result)
-		result = append(result, value)
-	}
-	return result
-}
-
-// agentConfigDestinations extracts the network allowlist required by the
-// resolved model and MCP configuration. Provider defaults are included when
-// no explicit endpoint appears in the serialized model.
-func agentConfigDestinations(cfg *adk.AgentConfig, modelConfig *v1alpha3.ModelConfig, model adk.Model) []string {
-	destinations := make([]string, 0, len(cfg.HttpTools)+len(cfg.SseTools)+1)
-	for _, tool := range cfg.HttpTools {
-		destinations = appendURLHost(destinations, tool.Params.Url)
-	}
-	for _, tool := range cfg.SseTools {
-		destinations = appendURLHost(destinations, tool.Params.Url)
-	}
-	modelJSON, _ := json.Marshal(model)
-	var values any
-	if json.Unmarshal(modelJSON, &values) == nil {
-		destinations = appendURLValues(destinations, values)
-	}
-	switch modelConfig.Spec.Provider {
-	case v1alpha3.ModelProviderOpenAI:
-		destinations = append(destinations, "api.openai.com")
-	case v1alpha3.ModelProviderAnthropic:
-		destinations = append(destinations, "api.anthropic.com")
-	case v1alpha3.ModelProviderGemini:
-		destinations = append(destinations, "generativelanguage.googleapis.com")
-	}
-	slices.Sort(destinations)
-	return slices.Compact(destinations)
-}
-
-// appendURLValues walks serialized provider config because endpoint fields are
-// provider-specific but all URLs reduce to the same hostname allowlist.
-func appendURLValues(destinations []string, value any) []string {
-	switch value := value.(type) {
-	case string:
-		return appendURLHost(destinations, value)
-	case []any:
-		for _, item := range value {
-			destinations = appendURLValues(destinations, item)
-		}
-	case map[string]any:
-		for _, item := range value {
-			destinations = appendURLValues(destinations, item)
-		}
-	}
-	return destinations
-}
-
-func appendURLHost(destinations []string, raw string) []string {
-	parsed, err := url.Parse(raw)
-	if err == nil && parsed.Hostname() != "" {
-		return append(destinations, parsed.Hostname())
-	}
-	return destinations
 }
