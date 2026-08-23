@@ -300,6 +300,17 @@ func resolvePodEnv(ctx context.Context, kube client.Reader, namespace string, en
 		}
 		value, ok := secret.Data[ref.Key]
 		if !ok {
+			// localSecret (the substrate SandboxAgent config Secret built by
+			// manifest_builder.go's buildConfigSecretData) is used purely in-memory
+			// here and never round-tripped through the API server, so the usual
+			// StringData -> Data conversion the apiserver performs on Create/Update
+			// never happens. Fall back to StringData so this path doesn't
+			// unconditionally fail for every substrate SandboxAgent.
+			if stringValue, stringOK := secret.StringData[ref.Key]; stringOK {
+				resolved[i].Value = stringValue
+				resolved[i].ValueFrom = nil
+				continue
+			}
 			if ref.Optional != nil && *ref.Optional {
 				resolved[i].ValueFrom = nil
 				continue
