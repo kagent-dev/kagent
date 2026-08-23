@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
@@ -38,6 +39,7 @@ type agentWatchFinders struct {
 	mcpService      dependentRefFinder
 	configMap       dependentRefFinder
 	mcpServer       dependentRefFinder
+	secret          dependentRefFinder
 }
 
 func addOwnedResourceWatches(build *builder.Builder, mgr ctrl.Manager, owned []client.Object) (*builder.Builder, error) {
@@ -93,6 +95,15 @@ func addCommonAgentWatches(build *builder.Builder, mgr ctrl.Manager, finders age
 			}))
 		}),
 		builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+	).Watches(
+		&corev1.Secret{},
+		handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+			return reconcileRequestsForRefs(finders.secret(ctx, mgr.GetClient(), types.NamespacedName{
+				Name:      obj.GetName(),
+				Namespace: obj.GetNamespace(),
+			}))
+		}),
+		builder.WithPredicates(secretDataChangedPredicate()),
 	)
 
 	if _, err := mgr.GetRESTMapper().RESTMapping(mcpServerGK); err == nil {
@@ -111,4 +122,21 @@ func addCommonAgentWatches(build *builder.Builder, mgr ctrl.Manager, finders age
 	}
 
 	return build, nil
+}
+
+func secretDataChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event.CreateEvent) bool { return true },
+		DeleteFunc: func(event.DeleteEvent) bool { return true },
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldSecret, oldOK := e.ObjectOld.(*corev1.Secret)
+			newSecret, newOK := e.ObjectNew.(*corev1.Secret)
+			if !oldOK || !newOK {
+				return true
+			}
+
+			return !reflect.DeepEqual(oldSecret.Data, newSecret.Data) ||
+				!reflect.DeepEqual(oldSecret.StringData, newSecret.StringData)
+		},
+	}
 }
