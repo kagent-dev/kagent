@@ -32,14 +32,7 @@ type HarnessCompiler interface {
 
 // NewCompiler constructs the v2 runtime compiler.
 func NewCompiler(kube Reader, harnessCompilers map[HarnessType]HarnessCompiler) *Compiler {
-	compiler := &Compiler{kube: kube, harnessCompilers: maps.Clone(harnessCompilers)}
-	if compiler.harnessCompilers == nil {
-		compiler.harnessCompilers = make(map[HarnessType]HarnessCompiler)
-	}
-	if _, registered := compiler.harnessCompilers[HarnessTypeKagent]; !registered {
-		compiler.harnessCompilers[HarnessTypeKagent] = kagentCompiler{Compiler: compiler}
-	}
-	return compiler
+	return &Compiler{kube: kube, harnessCompilers: maps.Clone(harnessCompilers)}
 }
 
 // CompileAgentTemplate resolves an API v2 attachment into an immutable runtime
@@ -47,7 +40,7 @@ func NewCompiler(kube Reader, harnessCompilers map[HarnessType]HarnessCompiler) 
 func (c *Compiler) CompileAgentTemplate(ctx context.Context, harness *v1alpha3.Harness, template *v1alpha3.AgentTemplate) (*Revision, error) {
 	harnessCompiler := c.harnessCompilers[harnessType(harness)]
 	if harnessCompiler == nil {
-		return nil, newValidationError("Harness runtime is not supported by any compiler")
+		return nil, NewValidationError("Harness runtime is not supported by any compiler")
 	}
 	tree, err := c.resolveTree(ctx, harness, template)
 	if err != nil {

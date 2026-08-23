@@ -1,4 +1,4 @@
-package translator
+package kagent
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -30,7 +31,11 @@ type provenanceEntry struct {
 	Hash       string    `json:"hash"`
 }
 
-type kagentCompiler struct{ *Compiler }
+// Compiler translates resolved inputs into a kagent runtime revision.
+type Compiler struct{ kube v2translator.Reader }
+
+// NewCompiler constructs a kagent harness compiler.
+func NewCompiler(kube v2translator.Reader) *Compiler { return &Compiler{kube: kube} }
 
 type compiledAgent struct {
 	config      *adk.AgentConfig
@@ -40,7 +45,7 @@ type compiledAgent struct {
 	egress      []string
 }
 
-func (c kagentCompiler) Compile(ctx context.Context, input *HarnessInput) (*Revision, error) {
+func (c *Compiler) Compile(ctx context.Context, input *v2translator.HarnessInput) (*v2translator.Revision, error) {
 	compiled, err := c.compileAgent(ctx, input.Root)
 	if err != nil {
 		return nil, err
@@ -96,7 +101,7 @@ func (c kagentCompiler) Compile(ctx context.Context, input *HarnessInput) (*Revi
 	slices.Sort(egressDestinations)
 	egressDestinations = slices.Compact(egressDestinations)
 
-	return &Revision{
+	return &v2translator.Revision{
 		Namespace:          template.Namespace,
 		AgentTemplateName:  template.Name,
 		HarnessName:        harness.Name,
@@ -111,13 +116,13 @@ func (c kagentCompiler) Compile(ctx context.Context, input *HarnessInput) (*Revi
 	}, nil
 }
 
-func (c kagentCompiler) compileAgent(ctx context.Context, input *AgentInput) (*compiledAgent, error) {
+func (c *Compiler) compileAgent(ctx context.Context, input *v2translator.AgentInput) (*compiledAgent, error) {
 	modelRuntime, err := c.resolveModel(ctx, input.ModelConfig)
 	if err != nil {
 		return nil, fmt.Errorf("resolve ModelConfig %q: %w", input.ModelConfig.Name, err)
 	}
 	if modelRuntime.HasUnsupportedVolumes {
-		return nil, newValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
+		return nil, v2translator.NewValidationError("ModelConfig requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	stream := true
 	cfg := &adk.AgentConfig{Model: modelRuntime.Model, Description: input.Template.Spec.Description, Instruction: input.Instruction, Stream: &stream}
@@ -144,7 +149,7 @@ func (c kagentCompiler) compileAgent(ctx context.Context, input *AgentInput) (*c
 		modelRuntime.Environment = append(modelRuntime.Environment, credentialEnv...)
 	}
 	if modelRuntime.HasUnsupportedVolumes {
-		return nil, newValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
+		return nil, v2translator.NewValidationError("resolved model or MCP configuration requires volume mounts unsupported by Substrate ActorTemplate")
 	}
 	result := &compiledAgent{
 		config: cfg, models: []*v1alpha3.ModelConfig{input.ModelConfig}, templates: []*v1alpha3.AgentTemplate{input.Template},
@@ -201,7 +206,7 @@ func agentPluginConfig(template *v1alpha3.AgentTemplate) (adk.AgentPluginConfig,
 	names := make(map[string]struct{})
 	for _, skill := range template.Spec.Skills {
 		if _, exists := names[skill.Name]; exists {
-			return adk.AgentPluginConfig{}, newValidationError("duplicate skill name %q", skill.Name)
+			return adk.AgentPluginConfig{}, v2translator.NewValidationError("duplicate skill name %q", skill.Name)
 		}
 		names[skill.Name] = struct{}{}
 		result.Skills = append(result.Skills, adk.StandaloneSkill{Name: skill.Name, Source: agentPluginSource(skill.Source)})
@@ -209,7 +214,7 @@ func agentPluginConfig(template *v1alpha3.AgentTemplate) (adk.AgentPluginConfig,
 	for _, plugin := range template.Spec.Plugins {
 		for _, name := range plugin.Skills {
 			if _, exists := names[name]; exists {
-				return adk.AgentPluginConfig{}, newValidationError("duplicate skill name %q", name)
+				return adk.AgentPluginConfig{}, v2translator.NewValidationError("duplicate skill name %q", name)
 			}
 			names[name] = struct{}{}
 		}
@@ -378,22 +383,6 @@ func (c *Compiler) resolveValueRef(ctx context.Context, namespace string, ref v1
 		return "", "", fmt.Errorf("ConfigMap %q does not contain key %q", ref.ValueFrom.Name, ref.ValueFrom.Key)
 	}
 	return ref.Name, value, nil
-}
-
-func (c *Compiler) resolveAgentTemplatePrompt(ctx context.Context, template *v1alpha3.AgentTemplate) (string, error) {
-	if template.Spec.SystemPromptFrom != nil {
-		ref := template.Spec.SystemPromptFrom
-		configMap := &corev1.ConfigMap{}
-		if err := c.kube.Get(ctx, types.NamespacedName{Namespace: template.Namespace, Name: ref.Name}, configMap); err != nil {
-			return "", fmt.Errorf("resolve systemPromptFrom: %w", err)
-		}
-		value, found := configMap.Data[ref.Key]
-		if !found {
-			return "", fmt.Errorf("resolve systemPromptFrom: ConfigMap %q does not contain key %q", ref.Name, ref.Key)
-		}
-		return value, nil
-	}
-	return template.Spec.SystemPrompt, nil
 }
 
 // agentTemplateCard describes the runtime-local A2A server. Substrate routes

@@ -66,16 +66,16 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *v1alpha3.Harness, r
 	var resolve func(*v1alpha3.AgentTemplate, bool) (*ResolvedAgent, error)
 	resolve = func(template *v1alpha3.AgentTemplate, child bool) (*ResolvedAgent, error) {
 		if template.Namespace != harness.Namespace {
-			return nil, newValidationError("Harness and AgentTemplate must be in the same namespace")
+			return nil, NewValidationError("Harness and AgentTemplate must be in the same namespace")
 		}
 		if !selector.Matches(labels.Set(template.Labels)) {
-			return nil, newValidationError("AgentTemplate %q is not admitted by Harness %q", template.Name, harness.Name)
+			return nil, NewValidationError("AgentTemplate %q is not admitted by Harness %q", template.Name, harness.Name)
 		}
 		if _, ok := path[template.Name]; ok {
-			return nil, newValidationError("AgentTemplate tool cycle includes %q", template.Name)
+			return nil, NewValidationError("AgentTemplate tool cycle includes %q", template.Name)
 		}
 		if _, ok := seen[template.Name]; ok {
-			return nil, newValidationError("AgentTemplate %q is referenced more than once in the Shared tree", template.Name)
+			return nil, NewValidationError("AgentTemplate %q is referenced more than once in the Shared tree", template.Name)
 		}
 		seen[template.Name], path[template.Name] = struct{}{}, struct{}{}
 		defer delete(path, template.Name)
@@ -87,10 +87,10 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *v1alpha3.Harness, r
 			}
 			binding := tool.Agent
 			if binding.Isolation == v1alpha3.AgentToolIsolationDedicated {
-				return nil, newValidationError("Dedicated AgentTemplate tools are not supported yet")
+				return nil, NewValidationError("Dedicated AgentTemplate tools are not supported yet")
 			}
 			if _, ok := names[binding.Name]; ok {
-				return nil, newValidationError("duplicate Shared AgentTemplate binding name %q", binding.Name)
+				return nil, NewValidationError("duplicate Shared AgentTemplate binding name %q", binding.Name)
 			}
 			names[binding.Name] = struct{}{}
 			childTemplate := &v1alpha3.AgentTemplate{}
@@ -103,7 +103,7 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *v1alpha3.Harness, r
 				return nil, err
 			}
 			if child {
-				return nil, newValidationError("consecutive Shared AgentTemplate tools exceed the kagent runtime boundary")
+				return nil, NewValidationError("consecutive Shared AgentTemplate tools exceed the kagent runtime boundary")
 			}
 			resolved.Shared = append(resolved.Shared, ResolvedAgentBinding{Name: binding.Name, Description: binding.Description, Agent: agent})
 		}
@@ -119,11 +119,11 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *v1alpha3.Harness, r
 
 func harnessSelector(harness *v1alpha3.Harness) (labels.Selector, error) {
 	if harness.Spec.AllowedAgentTemplates == nil {
-		return labels.Nothing(), newValidationError("Harness %q admits no AgentTemplates", harness.Name)
+		return labels.Nothing(), NewValidationError("Harness %q admits no AgentTemplates", harness.Name)
 	}
 	selector, err := metav1.LabelSelectorAsSelector(&harness.Spec.AllowedAgentTemplates.Selector)
 	if err != nil {
-		return nil, newValidationError("Harness %q has an invalid AgentTemplate selector: %v", harness.Name, err)
+		return nil, NewValidationError("Harness %q has an invalid AgentTemplate selector: %v", harness.Name, err)
 	}
 	return selector, nil
 }
@@ -145,12 +145,12 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *ResolvedTree) (*Harnes
 		for _, tool := range template.Spec.Tools {
 			if tool.MCP == nil {
 				if tool.Agent == nil {
-					return nil, newValidationError("tool binding must select an MCP server or AgentTemplate")
+					return nil, NewValidationError("tool binding must select an MCP server or AgentTemplate")
 				}
 				continue
 			}
 			if tool.MCP.Server.Kind != "RemoteMCPServer" {
-				return nil, newValidationError("unsupported MCP server kind %q", tool.MCP.Server.Kind)
+				return nil, NewValidationError("unsupported MCP server kind %q", tool.MCP.Server.Kind)
 			}
 			server := &v1alpha3.RemoteMCPServer{}
 			key := types.NamespacedName{Namespace: template.Namespace, Name: tool.MCP.Server.Name}

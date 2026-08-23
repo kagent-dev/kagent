@@ -1,4 +1,4 @@
-package translator
+package kagent
 
 import (
 	"github.com/kagent-dev/kagent/go/api/adk"

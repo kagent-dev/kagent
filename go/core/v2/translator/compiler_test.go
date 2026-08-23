@@ -10,6 +10,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	kagenttranslator "github.com/kagent-dev/kagent/go/core/v2/translator/kagent"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -96,7 +97,10 @@ func compiler(t *testing.T, objects ...client.Object) *v2translator.Compiler {
 	t.Helper()
 	require.NoError(t, v1alpha3.AddToScheme(schemev1.Scheme))
 	kube := fake.NewClientBuilder().WithScheme(schemev1.Scheme).WithObjects(objects...).Build()
-	return v2translator.NewCompiler(testReader{kube}, nil)
+	reader := testReader{kube}
+	return v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+		v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(reader),
+	})
 }
 
 type testReader struct{ client.Client }
