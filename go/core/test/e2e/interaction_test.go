@@ -54,9 +54,10 @@ func TestAgentInstanceInteraction(t *testing.T) {
 }
 
 func TestMCPInteraction(t *testing.T) {
+	target := interactionTarget(t)
 	mcpURL, mcpServer := startMCPMock(t)
 	template := createMCPInteractionTemplate(t, startMockLLM(t, "mocks/invoke_mcp_agent.json"), mcpURL)
-	fixture := newInteractionFixtureForTemplate(t, interactionTarget(t), template)
+	fixture := newInteractionFixtureForTemplate(t, target, template)
 	_, _, task := fixture.send(t, "add 3 and 5")
 	if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "result is 8") {
 		t.Fatalf("A2A task state = %s, text = %q, want completed task with MCP result", task.Status.State, taskText(task))

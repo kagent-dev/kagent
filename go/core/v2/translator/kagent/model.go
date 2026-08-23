@@ -1,7 +1,5 @@
 package kagent
 
-import v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
-
 import (
 	"context"
 	"crypto/sha256"
@@ -16,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
