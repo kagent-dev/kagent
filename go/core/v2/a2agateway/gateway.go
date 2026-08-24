@@ -13,13 +13,16 @@ import (
 	"fmt"
 	"iter"
 	"strings"
+	"sync"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2aevent"
 	"github.com/a2aproject/a2a-go/v2/a2aext"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/a2aproject/a2a-go/v2/a2asrv/eventqueue"
 	"github.com/google/uuid"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -65,6 +68,8 @@ type Gateway struct {
 	dialer     runtimeDialer
 	workflow   instanceWorkflow
 	gatewayURL string
+	events     eventqueue.Manager
+	runs       sync.Map
 }
 
 var _ a2asrv.RequestHandler = (*Gateway)(nil)
@@ -75,7 +80,7 @@ func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, 
 	return &a2asrv.InterceptedHandler{
 		Handler: &Gateway{
 			store: store, authorizer: authorizer, dialer: dialer, workflow: workflow,
-			gatewayURL: gatewayURL,
+			gatewayURL: gatewayURL, events: eventqueue.NewInMemoryManager(),
 		},
 		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
 	}
@@ -210,9 +215,6 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	if err := validateTaskInfo(canceled, task); err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, err.Error())
 	}
-	if err := g.storeEvent(ctx, instance, canceled, canceled); err != nil {
-		return nil, g.storeError(ctx, err)
-	}
 	return canceled, nil
 }
 
@@ -266,32 +268,23 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 	if isQuiescent(task.Status.State) {
 		return func(yield func(a2atype.Event, error) bool) { yield(task, nil) }
 	}
+	if run, ok := g.taskRun(instance.GetId(), task.ID); ok {
+		return run.observe(ctx, task)
+	}
 	client, err := g.dialer.Dial(ctx, instance)
 	if err != nil {
 		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
 		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime"))
 	}
-	return func(yield func(a2atype.Event, error) bool) {
-		defer client.Destroy()
-		for event, eventErr := range client.SubscribeToTask(ctx, req) {
-			if eventErr != nil {
-				yield(nil, eventErr)
-				return
-			}
-			updated, err := g.taskForEvent(ctx, client, instance.GetId(), task, event)
-			if err == nil {
-				err = g.storeEvent(ctx, instance, updated, event)
-			}
-			if err != nil {
-				yield(nil, g.storeError(ctx, err))
-				return
-			}
-			task = updated
-			if !yield(event, nil) {
-				return
-			}
+	run, reader, err := g.startTaskRun(ctx, instance, task, client, client.SubscribeToTask(context.WithoutCancel(ctx), req))
+	if err != nil {
+		_ = client.Destroy()
+		if run, ok := g.taskRun(instance.GetId(), task.ID); ok {
+			return run.observe(ctx, task)
 		}
+		return errorEvents(g.storeError(ctx, err))
 	}
+	return run.observeReader(ctx, task, reader)
 }
 
 func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
@@ -308,27 +301,13 @@ func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMes
 		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
 		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime"))
 	}
-	return func(yield func(a2atype.Event, error) bool) {
-		defer client.Destroy()
-		for event, eventErr := range client.SendStreamingMessage(ctx, req) {
-			if eventErr != nil {
-				g.failTask(ctx, instance.GetId(), submitted)
-				yield(nil, eventErr)
-				return
-			}
-			task, err := g.taskForEvent(ctx, client, instance.GetId(), submitted, event)
-			if err == nil {
-				err = g.storeEvent(ctx, instance, task, event)
-			}
-			if err != nil {
-				yield(nil, g.storeError(ctx, err))
-				return
-			}
-			if !yield(event, nil) {
-				return
-			}
-		}
+	run, reader, err := g.startTaskRun(ctx, instance, submitted, client, client.SendStreamingMessage(context.WithoutCancel(ctx), req))
+	if err != nil {
+		_ = client.Destroy()
+		g.failTask(ctx, instance.GetId(), submitted)
+		return errorEvents(g.storeError(ctx, err))
 	}
+	return run.observeReader(ctx, nil, reader)
 }
 
 func (g *Gateway) GetTaskPushConfig(ctx context.Context, req *a2atype.GetTaskPushConfigRequest) (*a2atype.PushConfig, error) {
@@ -511,44 +490,33 @@ func taskForResult(submitted *a2atype.Task, result a2atype.SendMessageResult) (*
 	}
 }
 
-func (g *Gateway) taskForEvent(ctx context.Context, client *a2aclient.Client, instanceID string, submitted *a2atype.Task, event a2atype.Event) (*a2atype.Task, error) {
+func taskForEvent(task *a2atype.Task, event a2atype.Event) (*a2atype.Task, error) {
 	if event == nil {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "runtime returned an empty event")
 	}
 	if message, ok := event.(*a2atype.Message); ok {
 		if message.TaskID == "" {
-			message.TaskID = submitted.ID
+			message.TaskID = task.ID
 		}
 		if message.ContextID == "" {
-			message.ContextID = submitted.ContextID
+			message.ContextID = task.ContextID
 		}
 	}
-	if err := validateTaskInfo(event, submitted); err != nil {
+	if err := validateTaskInfo(event, task); err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, err.Error())
 	}
-	if task, ok := event.(*a2atype.Task); ok {
-		return task, nil
-	}
 	if message, ok := event.(*a2atype.Message); ok {
-		task, err := g.store.GetAgentInstanceTask(ctx, instanceID, string(submitted.ID))
-		if err != nil {
-			return nil, err
-		}
 		copy := *task
 		copy.History = append(append([]*a2atype.Message{}, task.History...), message)
 		now := time.Now()
 		copy.Status = a2atype.TaskStatus{State: a2atype.TaskStateCompleted, Timestamp: &now}
 		return &copy, nil
 	}
-	// The private runtime already folds status and artifact events; persist its projection.
-	task, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: submitted.ID})
+	updated, err := a2aevent.ApplyUpdate(task, event)
 	if err != nil {
-		return nil, fmt.Errorf("load runtime task projection: %w", err)
+		return nil, a2atype.NewError(a2atype.ErrInternalError, fmt.Sprintf("apply runtime task event: %v", err))
 	}
-	if err := validateTaskInfo(task, submitted); err != nil {
-		return nil, a2atype.NewError(a2atype.ErrInternalError, err.Error())
-	}
-	return task, nil
+	return updated, nil
 }
 
 func validateTaskInfo(value a2atype.TaskInfoProvider, expected *a2atype.Task) error {
@@ -561,8 +529,8 @@ func validateTaskInfo(value a2atype.TaskInfoProvider, expected *a2atype.Task) er
 
 func (g *Gateway) storeEvent(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, event a2atype.Event) error {
 	var snapshot *dbpkg.AgentInstanceTaskSnapshot
-	var err error
 	if task != nil && isQuiescent(task.Status.State) {
+		var err error
 		snapshot, err = g.workflow.Quiesce(ctx, instance)
 		if err != nil {
 			return fmt.Errorf("quiesce AgentInstance runtime: %w", err)

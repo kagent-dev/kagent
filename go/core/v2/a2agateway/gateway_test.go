@@ -6,6 +6,7 @@ import (
 	"iter"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -197,7 +198,7 @@ func (r *gatewayTestRuntime) Destroy() error {
 	return nil
 }
 
-func gatewayTestClient(t *testing.T, runtime *gatewayTestRuntime) *a2aclient.Client {
+func gatewayTestClient(t *testing.T, runtime a2aclient.Transport) *a2aclient.Client {
 	t.Helper()
 	client, err := a2aclient.NewFromEndpoints(t.Context(), []*a2atype.AgentInterface{{
 		URL:             "runtime.test",
@@ -214,6 +215,39 @@ func gatewayTestClient(t *testing.T, runtime *gatewayTestRuntime) *a2aclient.Cli
 	}
 	return client
 }
+
+type blockingGatewayRuntime struct {
+	a2aclient.Transport
+	started  chan struct{}
+	canceled chan struct{}
+	once     sync.Once
+
+	mu   sync.Mutex
+	task *a2atype.Task
+}
+
+func (r *blockingGatewayRuntime) SendStreamingMessage(_ context.Context, _ a2aclient.ServiceParams, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) {
+		task := &a2atype.Task{ID: req.Message.TaskID, ContextID: req.Message.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+		r.mu.Lock()
+		r.task = task
+		r.mu.Unlock()
+		close(r.started)
+		<-r.canceled
+		yield(a2atype.NewStatusUpdateEvent(task, a2atype.TaskStateCanceled, nil), nil)
+	}
+}
+
+func (r *blockingGatewayRuntime) CancelTask(_ context.Context, _ a2aclient.ServiceParams, _ *a2atype.CancelTaskRequest) (*a2atype.Task, error) {
+	r.mu.Lock()
+	task := *r.task
+	r.mu.Unlock()
+	task.Status.State = a2atype.TaskStateCanceled
+	r.once.Do(func() { close(r.canceled) })
+	return &task, nil
+}
+
+func (r *blockingGatewayRuntime) Destroy() error { return nil }
 
 func gatewayTestContext() context.Context {
 	return gatewayTestContextWithRoute("team-a", gatewayTestID)
@@ -276,6 +310,27 @@ func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 	}
 	if events != 1 || !runtime.destroyed {
 		t.Fatalf("stream events = %d, destroyed %v", events, runtime.destroyed)
+	}
+}
+
+func TestTaskForEventFoldsStatusIntoLocalProjection(t *testing.T) {
+	message := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("canceled"))
+	task := &a2atype.Task{
+		ID: gatewayTestID, ContextID: gatewayTestID,
+		Status:    a2atype.TaskStatus{State: a2atype.TaskStateWorking},
+		Artifacts: []*a2atype.Artifact{{Name: "partial"}},
+	}
+	event := a2atype.NewStatusUpdateEvent(task, a2atype.TaskStateCanceled, message)
+
+	updated, err := taskForEvent(task, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status.State != a2atype.TaskStateCanceled || updated.Status.Message != message || len(updated.Artifacts) != 1 {
+		t.Fatalf("updated task = %#v", updated)
+	}
+	if task.Status.State != a2atype.TaskStateWorking {
+		t.Fatalf("input task state = %s, want WORKING", task.Status.State)
 	}
 }
 
@@ -440,6 +495,107 @@ func TestGatewayPersistsBeforePublishing(t *testing.T) {
 	}
 	if workflow.quiesceCalls != 1 || store.snapshot == nil || store.snapshot.UID != "snapshot-uid" {
 		t.Fatalf("quiescence calls = %d, stored snapshot = %#v", workflow.quiesceCalls, store.snapshot)
+	}
+}
+
+func TestGatewayTaskRunOwnsTerminalEventSideEffects(t *testing.T) {
+	runtime := &blockingGatewayRuntime{started: make(chan struct{}), canceled: make(chan struct{})}
+	store := &gatewayTestStore{instance: gatewayTestInstance()}
+	workflow := &gatewayTestWorkflow{}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
+
+	stream := gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest())
+	streamResult := make(chan a2atype.TaskState, 1)
+	go collectTerminalState(stream, streamResult)
+	select {
+	case <-runtime.started:
+	case <-time.After(time.Second):
+		t.Fatal("runtime stream did not start")
+	}
+	task := store.task
+	subscription := gateway.SubscribeToTask(gatewayTestContext(), &a2atype.SubscribeToTaskRequest{ID: task.ID})
+
+	subscriptionStarted := make(chan struct{})
+	subscriptionResult := make(chan a2atype.TaskState, 1)
+	go func() {
+		first := true
+		for event, err := range subscription {
+			if err != nil {
+				subscriptionResult <- a2atype.TaskStateUnspecified
+				return
+			}
+			if first {
+				close(subscriptionStarted)
+				first = false
+			}
+			if task, ok := event.(*a2atype.Task); ok && task.Status.State.Terminal() {
+				subscriptionResult <- task.Status.State
+				return
+			}
+			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && update.Status.State.Terminal() {
+				subscriptionResult <- update.Status.State
+				return
+			}
+		}
+	}()
+	select {
+	case <-subscriptionStarted:
+	case <-time.After(time.Second):
+		t.Fatal("task subscription did not start")
+	}
+
+	canceled, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: task.ID})
+	if err != nil || canceled.Status.State != a2atype.TaskStateCanceled {
+		t.Fatalf("CancelTask() = %#v, %v", canceled, err)
+	}
+	for name, result := range map[string]<-chan a2atype.TaskState{"send stream": streamResult, "subscription": subscriptionResult} {
+		select {
+		case state := <-result:
+			if state != a2atype.TaskStateCanceled {
+				t.Fatalf("%s state = %s, want CANCELED", name, state)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("%s did not receive cancellation", name)
+		}
+	}
+	if workflow.quiesceCalls != 1 || len(store.stored) != 2 {
+		t.Fatalf("quiescence calls = %d, stored events = %d; want 1 and 2", workflow.quiesceCalls, len(store.stored))
+	}
+}
+
+func TestGatewaySubscriptionRecoversTaskRun(t *testing.T) {
+	active := &a2atype.Task{ID: "active", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+	runtime := &gatewayTestRuntime{subscribeEvent: a2atype.NewStatusUpdateEvent(active, a2atype.TaskStateCanceled, nil)}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), task: active, active: active}
+	workflow := &gatewayTestWorkflow{}
+	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
+
+	var events []a2atype.Event
+	for event, err := range gateway.SubscribeToTask(gatewayTestContext(), &a2atype.SubscribeToTaskRequest{ID: active.ID}) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		events = append(events, event)
+	}
+	if len(events) != 2 || workflow.quiesceCalls != 1 || len(store.stored) != 1 || !runtime.destroyed {
+		t.Fatalf("events = %d, quiescence calls = %d, stored events = %d, runtime destroyed = %v", len(events), workflow.quiesceCalls, len(store.stored), runtime.destroyed)
+	}
+}
+
+func collectTerminalState(events iter.Seq2[a2atype.Event, error], result chan<- a2atype.TaskState) {
+	for event, err := range events {
+		if err != nil {
+			result <- a2atype.TaskStateUnspecified
+			return
+		}
+		if task, ok := event.(*a2atype.Task); ok && task.Status.State.Terminal() {
+			result <- task.Status.State
+			return
+		}
+		if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && update.Status.State.Terminal() {
+			result <- update.Status.State
+			return
+		}
 	}
 }
 
