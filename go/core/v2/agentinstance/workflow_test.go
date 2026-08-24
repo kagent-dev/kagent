@@ -144,7 +144,10 @@ func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name str
 }
 
 func (a *lifecycleTestActors) GetActorSnapshot(_ context.Context, atespace, name string) (*ateapipb.ActorSnapshot, error) {
-	return &ateapipb.ActorSnapshot{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "snapshot-uid"}}, nil
+	return &ateapipb.ActorSnapshot{
+		Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "snapshot-uid"},
+		Status:   &ateapipb.ActorSnapshotStatus{ContentScope: ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA},
+	}, nil
 }
 
 func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string) error {

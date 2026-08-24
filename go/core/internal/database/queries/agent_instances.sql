@@ -45,9 +45,16 @@ RETURNING *;
 -- name: TransitionAgentInstance :one
 UPDATE agent_instance
 SET state = sqlc.arg(next_state), operation = sqlc.arg(next_operation), data = sqlc.arg(data)
-WHERE id = sqlc.arg(id)
-  AND state = sqlc.arg(expected_state)
-  AND operation = sqlc.arg(expected_operation)
+WHERE agent_instance.id = sqlc.arg(id)
+  AND agent_instance.state = sqlc.arg(expected_state)
+  AND agent_instance.operation = sqlc.arg(expected_operation)
+  AND (
+    sqlc.arg(expected_operation)::text <> 'NONE'
+    OR NOT EXISTS (
+      SELECT 1 FROM agent_instance_checkpoint c
+      WHERE c.source_instance_id = agent_instance.id AND c.state = 'CREATING'
+    )
+  )
 RETURNING *;
 
 -- name: DeleteAgentInstance :exec

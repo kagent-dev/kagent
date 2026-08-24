@@ -25,11 +25,12 @@ const (
 )
 
 type store interface {
-	PrepareAgentInstanceCheckpoint(context.Context, dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, bool, error)
+	PrepareAgentInstanceCheckpoint(context.Context, dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error)
 	MarkAgentInstanceCheckpointReady(context.Context, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
 	MarkAgentInstanceCheckpointFailed(context.Context, string, string) error
 	GetAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
 	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceCheckpoint, error)
+	PrepareDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string, string) error
 }
 
@@ -74,9 +75,9 @@ func (s *Service) Create(ctx context.Context, namespace, instanceID, requestID s
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
 	}
-	checkpoint, _, err := s.store.PrepareAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
-		ID: id.String(), Namespace: namespace, InstanceID: instanceID, UserID: userID,
-		RequestID: requestID, TagName: "checkpoint-" + id.String(),
+	checkpoint, err := s.store.PrepareAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
+		ID: id.String(), Namespace: namespace, SourceInstanceID: instanceID, UserID: userID,
+		RequestID: requestID,
 	})
 	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
 		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different checkpoint", err)
@@ -96,7 +97,10 @@ func (s *Service) Create(ctx context.Context, namespace, instanceID, requestID s
 
 	tag, err := s.ensureTag(ctx, checkpoint)
 	if err != nil {
-		_ = s.store.MarkAgentInstanceCheckpointFailed(ctx, checkpoint.ID, err.Error())
+		cleanupErr := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID))
+		if cleanupErr == nil || status.Code(cleanupErr) == codes.NotFound {
+			_ = s.store.MarkAgentInstanceCheckpointFailed(ctx, checkpoint.ID, err.Error())
+		}
 		return nil, serviceerrors.NewUnavailable("Failed to retain checkpoint snapshot", err)
 	}
 	checkpoint, err = s.store.MarkAgentInstanceCheckpointReady(ctx, checkpoint.ID, tag.GetMetadata().GetUid())
@@ -110,18 +114,19 @@ func (s *Service) ensureTag(ctx context.Context, checkpoint *dbpkg.AgentInstance
 	if err := s.verifySnapshot(ctx, checkpoint); err != nil {
 		return nil, err
 	}
-	tag, err := s.tags.CreateActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, checkpoint.TagName, checkpoint.SnapshotName)
+	name := tagName(checkpoint.ID)
+	tag, err := s.tags.CreateActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, name, checkpoint.SnapshotName)
 	if err != nil {
-		tag, err = s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, checkpoint.TagName)
+		tag, err = s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, name)
 		if err != nil {
 			return nil, fmt.Errorf("create snapshot tag: %w", err)
 		}
 	}
 	metadata, snapshot := tag.GetMetadata(), tag.GetSnapshot()
-	if metadata.GetAtespace() != checkpoint.SnapshotAtespace || metadata.GetName() != checkpoint.TagName || metadata.GetUid() == "" ||
+	if metadata.GetAtespace() != checkpoint.SnapshotAtespace || metadata.GetName() != name || metadata.GetUid() == "" ||
 		snapshot.GetAtespace() != checkpoint.SnapshotAtespace || snapshot.GetName() != checkpoint.SnapshotName ||
 		tag.GetScope() != ateapipb.ActorSnapshotTagScope_ACTOR_SNAPSHOT_TAG_SCOPE_ATESPACE {
-		return nil, fmt.Errorf("snapshot tag %s/%s returned invalid identity", checkpoint.SnapshotAtespace, checkpoint.TagName)
+		return nil, fmt.Errorf("snapshot tag %s/%s returned invalid identity", checkpoint.SnapshotAtespace, name)
 	}
 	if err := s.verifySnapshot(ctx, checkpoint); err != nil {
 		return nil, err
@@ -137,6 +142,9 @@ func (s *Service) verifySnapshot(ctx context.Context, checkpoint *dbpkg.AgentIns
 	metadata := snapshot.GetMetadata()
 	if metadata.GetAtespace() != checkpoint.SnapshotAtespace || metadata.GetName() != checkpoint.SnapshotName || metadata.GetUid() != checkpoint.SnapshotUID {
 		return fmt.Errorf("checkpoint snapshot %s/%s identity changed", checkpoint.SnapshotAtespace, checkpoint.SnapshotName)
+	}
+	if scope := strings.TrimPrefix(snapshot.GetStatus().GetContentScope().String(), "SNAPSHOT_CONTENT_SCOPE_"); scope != checkpoint.SnapshotContentScope {
+		return fmt.Errorf("checkpoint snapshot %s/%s content scope changed", checkpoint.SnapshotAtespace, checkpoint.SnapshotName)
 	}
 	return nil
 }
@@ -163,7 +171,7 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	if err := validateIdentity(request.Namespace, request.InstanceID); err != nil {
 		return ListResult{}, err
 	}
-	userID, err := s.authorize(ctx, auth.VerbGet, "AgentInstance", request.Namespace+"/"+request.InstanceID)
+	userID, err := s.authorize(ctx, auth.VerbGet, "Checkpoint", request.Namespace)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -200,14 +208,22 @@ func (s *Service) Delete(ctx context.Context, namespace, checkpointID string) er
 	if err != nil {
 		return err
 	}
-	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
+	checkpoint, err := s.store.PrepareDeleteAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
-		return serviceerrors.NewInternal("Failed to get checkpoint", err)
+		return serviceerrors.NewInternal("Failed to prepare checkpoint deletion", err)
 	}
-	if err := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, checkpoint.TagName); err != nil && status.Code(err) != codes.NotFound {
+	tag, err := s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID))
+	if err != nil && status.Code(err) != codes.NotFound {
+		return serviceerrors.NewUnavailable("Failed to get checkpoint snapshot tag", err)
+	}
+	if err == nil && (tag.GetMetadata().GetUid() != checkpoint.TagUID ||
+		tag.GetSnapshot().GetAtespace() != checkpoint.SnapshotAtespace || tag.GetSnapshot().GetName() != checkpoint.SnapshotName) {
+		return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
+	}
+	if err := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID)); err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
 	}
 	if err := s.store.DeleteAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID); err != nil {
@@ -230,7 +246,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, n
 
 func checkpointProto(checkpoint *dbpkg.AgentInstanceCheckpoint) *apiv1alpha1.Checkpoint {
 	result := &apiv1alpha1.Checkpoint{
-		Id: checkpoint.ID, Namespace: checkpoint.Namespace, AgentInstanceId: checkpoint.InstanceID,
+		Id: checkpoint.ID, Namespace: checkpoint.Namespace, AgentInstanceId: checkpoint.SourceInstanceID,
 		HeadTaskId: checkpoint.HeadTaskID, HistorySequence: uint64(checkpoint.HistorySequence),
 		State: checkpointState(checkpoint.State), CreatedAt: timestamppb.New(checkpoint.CreatedAt),
 	}
@@ -248,6 +264,8 @@ func checkpointState(state string) apiv1alpha1.CheckpointState {
 		return apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY
 	case "FAILED":
 		return apiv1alpha1.CheckpointState_CHECKPOINT_STATE_FAILED
+	case "DELETING":
+		return apiv1alpha1.CheckpointState_CHECKPOINT_STATE_DELETING
 	default:
 		return apiv1alpha1.CheckpointState_CHECKPOINT_STATE_UNSPECIFIED
 	}
@@ -276,6 +294,8 @@ func validateIdentity(namespace, id string) error {
 func encodePageToken(id string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(id))
 }
+
+func tagName(checkpointID string) string { return "checkpoint-" + checkpointID }
 
 func decodePageToken(token string) (string, error) {
 	if token == "" {

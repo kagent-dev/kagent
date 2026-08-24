@@ -398,6 +398,11 @@ Implement checkpoints as retained turn boundaries:
   verifying its identity and UID.
 - Publish a Checkpoint only after its snapshot tag and matching history head
   and sequence are committed.
+- Keep the source AgentInstance ID as provenance rather than checkpoint ownership;
+  deleting the source must not delete its retained checkpoint or tag.
+- Record the immutable snapshot content scope. Future sharing may publish only
+  `DATA` snapshots, which contain durable data without process memory or root
+  filesystem changes.
 - Do not suspend or resume the Actor as part of checkpoint creation.
 - Keep partial checkpoints invisible and mark ambiguous failures explicitly.
 - Delete only when no fork or retained lineage references its snapshots.

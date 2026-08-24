@@ -26,7 +26,8 @@ UPDATE agent_instance_task SET
     snapshot_atespace = $3,
     snapshot_name = $4,
     snapshot_uid = $5,
-    history_sequence = $6
+    snapshot_content_scope = $6,
+    history_sequence = $7
 WHERE instance_id = $1 AND id = $2;
 
 -- name: GetAgentInstanceTask :one

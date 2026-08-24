@@ -10,6 +10,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS agent_instance_one_active_task_idx
 
 ALTER TABLE agent_instance_task
     DROP COLUMN IF EXISTS history_sequence,
+    DROP COLUMN IF EXISTS snapshot_content_scope,
     DROP COLUMN IF EXISTS snapshot_uid,
     DROP COLUMN IF EXISTS snapshot_name,
     DROP COLUMN IF EXISTS snapshot_atespace;

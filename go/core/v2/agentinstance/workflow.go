@@ -68,7 +68,14 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.Agent
 	if metadata.GetAtespace() != ref.GetAtespace() || metadata.GetName() != ref.GetName() || metadata.GetUid() == "" {
 		return nil, fmt.Errorf("ActorSnapshot %s/%s returned invalid identity", ref.GetAtespace(), ref.GetName())
 	}
-	return &dbpkg.AgentInstanceTaskSnapshot{Atespace: metadata.GetAtespace(), Name: metadata.GetName(), UID: metadata.GetUid()}, nil
+	scope := snapshot.GetStatus().GetContentScope()
+	if scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_FULL && scope != ateapipb.SnapshotContentScope_SNAPSHOT_CONTENT_SCOPE_DATA {
+		return nil, fmt.Errorf("ActorSnapshot %s/%s returned invalid content scope %s", ref.GetAtespace(), ref.GetName(), scope)
+	}
+	return &dbpkg.AgentInstanceTaskSnapshot{
+		Atespace: metadata.GetAtespace(), Name: metadata.GetName(), UID: metadata.GetUid(),
+		ContentScope: strings.TrimPrefix(scope.String(), "SNAPSHOT_CONTENT_SCOPE_"),
+	}, nil
 }
 
 // Create converges a persisted CREATING instance to READY. Retries discover

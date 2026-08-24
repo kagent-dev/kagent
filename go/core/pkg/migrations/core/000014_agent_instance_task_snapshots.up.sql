@@ -2,6 +2,7 @@ ALTER TABLE agent_instance_task
     ADD COLUMN IF NOT EXISTS snapshot_atespace TEXT,
     ADD COLUMN IF NOT EXISTS snapshot_name TEXT,
     ADD COLUMN IF NOT EXISTS snapshot_uid TEXT,
+    ADD COLUMN IF NOT EXISTS snapshot_content_scope TEXT,
     ADD COLUMN IF NOT EXISTS history_sequence BIGINT;
 
 DROP INDEX IF EXISTS agent_instance_one_active_task_idx;

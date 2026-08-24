@@ -30,13 +30,15 @@ type Querier interface {
 	GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error)
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
 	GetAgentInstanceCheckpoint(ctx context.Context, arg GetAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
+	GetAgentInstanceCheckpointByID(ctx context.Context, id string) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceCheckpointByRequest(ctx context.Context, arg GetAgentInstanceCheckpointByRequestParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
 	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
 	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
+	GetCreatingAgentInstanceCheckpoint(ctx context.Context, sourceInstanceID string) (AgentInstanceCheckpoint, error)
 	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
-	GetLatestAgentInstanceTaskBoundary(ctx context.Context, instanceID string) (AgentInstanceTask, error)
+	GetLatestAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
 	GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error)
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
@@ -103,6 +105,7 @@ type Querier interface {
 	MarkAgentInstanceCheckpointReady(ctx context.Context, arg MarkAgentInstanceCheckpointReadyParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
+	PrepareDeleteAgentInstanceCheckpoint(ctx context.Context, arg PrepareDeleteAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error
 	RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error
 	RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg RetireOtherAgentTemplateHarnessPairsParams) error

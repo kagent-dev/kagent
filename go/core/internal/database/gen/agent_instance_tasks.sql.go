@@ -68,7 +68,7 @@ func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentIn
 }
 
 const getActiveAgentInstanceTask = `-- name: GetActiveAgentInstanceTask :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE instance_id = $1
   AND state NOT IN (
       'TASK_STATE_COMPLETED',
@@ -96,13 +96,14 @@ func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, instanceID str
 		&i.SnapshotAtespace,
 		&i.SnapshotName,
 		&i.SnapshotUid,
+		&i.SnapshotContentScope,
 		&i.HistorySequence,
 	)
 	return i, err
 }
 
 const getAgentInstanceTask = `-- name: GetAgentInstanceTask :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE instance_id = $1 AND id = $2
 `
 
@@ -127,13 +128,14 @@ func (q *Queries) GetAgentInstanceTask(ctx context.Context, arg GetAgentInstance
 		&i.SnapshotAtespace,
 		&i.SnapshotName,
 		&i.SnapshotUid,
+		&i.SnapshotContentScope,
 		&i.HistorySequence,
 	)
 	return i, err
 }
 
 const getAgentInstanceTaskByMessageID = `-- name: GetAgentInstanceTaskByMessageID :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE instance_id = $1 AND initial_message_id = $2
 `
 
@@ -158,6 +160,7 @@ func (q *Queries) GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAg
 		&i.SnapshotAtespace,
 		&i.SnapshotName,
 		&i.SnapshotUid,
+		&i.SnapshotContentScope,
 		&i.HistorySequence,
 	)
 	return i, err
@@ -183,7 +186,7 @@ func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAg
 }
 
 const listAgentInstanceTasks = `-- name: ListAgentInstanceTasks :many
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE instance_id = $1
   AND id > $2
   AND ($3::text = '' OR state = $3)
@@ -229,6 +232,7 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 			&i.SnapshotAtespace,
 			&i.SnapshotName,
 			&i.SnapshotUid,
+			&i.SnapshotContentScope,
 			&i.HistorySequence,
 		); err != nil {
 			return nil, err
@@ -242,7 +246,7 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 }
 
 const lockActiveAgentInstanceTask = `-- name: LockActiveAgentInstanceTask :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
 WHERE instance_id = $1
   AND state NOT IN (
       'TASK_STATE_COMPLETED',
@@ -273,6 +277,7 @@ func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, instanceID st
 		&i.SnapshotAtespace,
 		&i.SnapshotName,
 		&i.SnapshotUid,
+		&i.SnapshotContentScope,
 		&i.HistorySequence,
 	)
 	return i, err
@@ -283,17 +288,19 @@ UPDATE agent_instance_task SET
     snapshot_atespace = $3,
     snapshot_name = $4,
     snapshot_uid = $5,
-    history_sequence = $6
+    snapshot_content_scope = $6,
+    history_sequence = $7
 WHERE instance_id = $1 AND id = $2
 `
 
 type SetAgentInstanceTaskSnapshotParams struct {
-	InstanceID       string
-	ID               string
-	SnapshotAtespace *string
-	SnapshotName     *string
-	SnapshotUid      *string
-	HistorySequence  *int64
+	InstanceID           string
+	ID                   string
+	SnapshotAtespace     *string
+	SnapshotName         *string
+	SnapshotUid          *string
+	SnapshotContentScope *string
+	HistorySequence      *int64
 }
 
 func (q *Queries) SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgentInstanceTaskSnapshotParams) error {
@@ -303,6 +310,7 @@ func (q *Queries) SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgent
 		arg.SnapshotAtespace,
 		arg.SnapshotName,
 		arg.SnapshotUid,
+		arg.SnapshotContentScope,
 		arg.HistorySequence,
 	)
 	return err
