@@ -128,7 +128,6 @@ updates:
       - "/go"
       - "/python"
       - "/ui"
-      - "/docker/skills-init"
       - "/.devcontainer"
     schedule:
       interval: "weekly"

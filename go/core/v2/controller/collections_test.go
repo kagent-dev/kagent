@@ -75,9 +75,8 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	}
 	collections.Pairs = newPairCollection(collections.AgentTemplates, collections.Harnesses, opts)
 	collections.Reconciliations = newPairReconciliations(
-		collections.Pairs, collections.ModelConfigs, collections.RemoteMCPServers,
-		collections.ConfigMaps, collections.Secrets, collections.WorkerPools, collections.ActorTemplates,
-		CollectionConfig{PauseImage: "pause.example/image@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, opts,
+		collections.Pairs, collections.AgentTemplates, collections.ModelConfigs, collections.RemoteMCPServers,
+		collections.ConfigMaps, collections.Secrets, collections.WorkerPools, collections.ActorTemplates, opts,
 	)
 	collections.AgentTemplateStatuses = newAgentTemplateStatuses(collections.AgentTemplates, collections.Reconciliations, opts)
 
@@ -117,6 +116,61 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	waitFor(t, func() bool {
 		states := collections.Reconciliations.List()
 		return len(states) == 1 && states[0].RevisionID != state.RevisionID && states[0].ObservedActorTemplate == nil
+	})
+}
+
+func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
+	stop := make(chan struct{})
+	t.Cleanup(func() { close(stop) })
+	opts := krt.NewOptionsBuilder(stop, "test", nil)
+	child := &kagentv1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "child", Labels: map[string]string{"runtime": "python"}},
+		Spec:       kagentv1alpha3.AgentTemplateSpec{ModelConfig: kagentv1alpha3.AgentTemplateLocalReference{Name: "model"}, SystemPrompt: "before"},
+	}
+	root := &kagentv1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "root", Labels: map[string]string{"runtime": "python"}},
+		Spec: kagentv1alpha3.AgentTemplateSpec{
+			ModelConfig: kagentv1alpha3.AgentTemplateLocalReference{Name: "model"},
+			Tools: []kagentv1alpha3.ToolBinding{{Agent: &kagentv1alpha3.AgentToolBinding{
+				Name: "child", Description: "delegate", TemplateRef: kagentv1alpha3.AgentTemplateLocalReference{Name: child.Name},
+			}}},
+		},
+	}
+	harness := harness("team-a", "kagent", map[string]string{"runtime": "python"})
+	harness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
+	harness.Spec.Workload.Image = "example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	harness.Spec.Substrate = kagentv1alpha3.HarnessSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.HarnessSnapshotPolicy{Location: "snapshots"}}
+	templates := krt.NewStaticCollection(nil, []*kagentv1alpha3.AgentTemplate{root, child}, opts.WithName("AgentTemplates")...)
+	pairs := newPairCollection(templates, krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{harness}, opts.WithName("Harnesses")...), opts)
+	reconciliations := newPairReconciliations(
+		pairs, templates,
+		krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5"}}}, opts.WithName("ModelConfigs")...),
+		krt.NewStaticCollection[*kagentv1alpha3.RemoteMCPServer](nil, nil, opts.WithName("RemoteMCPServers")...),
+		krt.NewStaticCollection[*corev1.ConfigMap](nil, nil, opts.WithName("ConfigMaps")...),
+		krt.NewStaticCollection[*corev1.Secret](nil, nil, opts.WithName("Secrets")...),
+		krt.NewStaticCollection(nil, []*atev1alpha1.WorkerPool{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "default"}}}, opts.WithName("WorkerPools")...),
+		krt.NewStaticCollection[*atev1alpha1.ActorTemplate](nil, nil, opts.WithName("ActorTemplates")...), opts,
+	)
+	var initial string
+	waitFor(t, func() bool {
+		for _, state := range reconciliations.List() {
+			if state.Pair.AgentTemplate.Name == root.Name && state.Failure == nil {
+				initial = state.RevisionID.String()
+				return true
+			}
+		}
+		return false
+	})
+	updated := child.DeepCopy()
+	updated.Spec.SystemPrompt = "after"
+	templates.UpdateObject(updated)
+	waitFor(t, func() bool {
+		for _, state := range reconciliations.List() {
+			if state.Pair.AgentTemplate.Name == root.Name {
+				return state.Failure == nil && state.RevisionID.String() != initial
+			}
+		}
+		return false
 	})
 }
 

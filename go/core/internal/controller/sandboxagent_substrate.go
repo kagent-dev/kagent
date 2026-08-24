@@ -24,7 +24,7 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Cont
 		if err := r.Client.Update(ctx, sa); err != nil {
 			return ctrl.Result{}, fmt.Errorf("add substrate finalizer: %w", err)
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	return ctrl.Result{}, nil

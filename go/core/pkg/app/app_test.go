@@ -321,19 +321,20 @@ func TestSessionRetentionDaysFlag(t *testing.T) {
 	assert.Equal(t, 30, cfg.Database.SessionRetentionDays)
 }
 
-func TestSubstrateAteAPITokenFileFlag(t *testing.T) {
+func TestSubstrateAteAPIMTLSFlags(t *testing.T) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	cfg := Config{}
 	cfg.SetFlags(fs)
 
-	f := fs.Lookup("substrate-ate-api-token-file")
-	assert.NotNil(t, f, "substrate-ate-api-token-file flag should be registered")
-	assert.Equal(t, "", f.DefValue, "default should be empty string")
+	assert.NotNil(t, fs.Lookup("substrate-ate-api-ca-file"))
+	assert.NotNil(t, fs.Lookup("substrate-ate-api-client-cert-file"))
 
-	t.Setenv("SUBSTRATE_ATE_API_TOKEN_FILE", "/var/run/secrets/kubernetes.io/serviceaccount/token")
+	t.Setenv("SUBSTRATE_ATE_API_CA_FILE", "/run/substrate-servicedns/trust-bundle.pem")
+	t.Setenv("SUBSTRATE_ATE_API_CLIENT_CERT_FILE", "/run/substrate-podidentity/credential-bundle.pem")
 	err := LoadFromEnv(fs)
 	assert.NoError(t, err)
-	assert.Equal(t, "/var/run/secrets/kubernetes.io/serviceaccount/token", cfg.Substrate.AteAPITokenFile)
+	assert.Equal(t, "/run/substrate-servicedns/trust-bundle.pem", cfg.Substrate.AteAPICAFile)
+	assert.Equal(t, "/run/substrate-podidentity/credential-bundle.pem", cfg.Substrate.AteAPIClientCertFile)
 }
 
 func TestLoadFromEnvIntegration(t *testing.T) {

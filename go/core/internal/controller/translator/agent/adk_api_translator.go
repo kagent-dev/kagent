@@ -30,10 +30,8 @@ import (
 	"github.com/kagent-dev/kmcp/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -108,36 +106,12 @@ func normalizeImageDigest(digest string) string {
 var DefaultImageConfig = ImageConfig{
 	Registry:   "ghcr.io",
 	Tag:        version.Get().Version,
-	Repository: "kagent-dev/kagent/app",
-}
-
-// PythonADKImageDigest, PythonADKFullImageDigest, GoADKImageDigest, and GoADKFullImageDigest
-// default to the pushed runtime image manifest digests baked in at controller link time, and
-// can be overridden at runtime via the --app[-full]-image-digest / --golang-adk[-full]-image-digest
-// flags (for mirrored registries that re-assign digests). They are only consulted for sandbox
-// agents, since Substrate requires digest-pinned refs, while regular agents reference images by tag.
-// The "full" variants bundle the sandbox runtime (bash tools); the slim variants do not.
-var PythonADKImageDigest string
-var PythonADKFullImageDigest string
-var GoADKImageDigest string
-var GoADKFullImageDigest string
-
-// DefaultGoImageConfig is the image config for the Go (ADK) runtime agent.
-// Regular agents reference it by tag; sandbox agents pin by digest via
-// GoADKImageDigest / GoADKFullImageDigest.
-var DefaultGoImageConfig = ImageConfig{
-	Registry:   "ghcr.io",
-	Tag:        version.Get().Version,
 	Repository: "kagent-dev/kagent/golang-adk",
 }
 
-// DefaultSkillsInitImageConfig is the image config for the skills-init container
-// that clones skill repositories from Git and pulls OCI skill images.
-var DefaultSkillsInitImageConfig = ImageConfig{
-	Registry:   "ghcr.io",
-	Tag:        version.Get().Version,
-	Repository: "kagent-dev/kagent/skills-init",
-}
+// AgentImageDigest defaults to the pushed runtime image manifest digest baked in at controller
+// link time. It can be overridden for mirrored registries that re-assign digests.
+var AgentImageDigest string
 
 // TODO(ilackarms): migrate this whole package to pkg/translator
 type AgentOutputs = translator.AgentOutputs
@@ -1235,12 +1209,11 @@ func applyProxyURL(originalURL, proxyURL string, headers map[string]string) (tar
 	return targetURL, updatedHeaders, nil
 }
 
-func computeConfigHash(agentCfg, agentCard, secretData, skillsInitCfg []byte) uint64 {
+func computeConfigHash(agentCfg, agentCard, secretData []byte) uint64 {
 	hasher := sha256.New()
 	hasher.Write(agentCfg)
 	hasher.Write(agentCard)
 	hasher.Write(secretData)
-	hasher.Write(skillsInitCfg)
 	hash := hasher.Sum(nil)
 	return binary.BigEndian.Uint64(hash[:8])
 }
@@ -1343,12 +1316,8 @@ func gitSkillName(ref v1alpha3.GitRepo) string {
 var (
 	scpLikeGitURLRegex = regexp.MustCompile(`^(?:[^@/]+@)?([^:/]+):.+$`)
 
-	// validHostPattern and validPortPattern are input-hygiene patterns for SSH
-	// host/port values. They used to be a shell-injection boundary when these
-	// values were interpolated into the rendered shell script; the
-	// skills-init container is now driven by a structured JSON config so
-	// values reach ssh-keyscan as argv entries and shell metacharacters are
-	// inert. We keep the patterns to reject obvious garbage early.
+	// validHostPattern and validPortPattern reject malformed SSH targets before
+	// the downloader passes them to ssh-keyscan as arguments.
 	validHostPattern = regexp.MustCompile(`^[A-Za-z0-9.\-]+$`)
 	validPortPattern = regexp.MustCompile(`^[0-9]+$`)
 )
@@ -1466,8 +1435,8 @@ func s3SkillName(ref v1alpha3.S3SkillRef) string {
 	}
 }
 
-// prepareSkillsInitConfig converts CRD values into the JSON config consumed by
-// the skills-init binary. It validates subPaths and detects duplicate skill
+// prepareSkillsInitConfig converts CRD values into the downloader config. It
+// validates subPaths and detects duplicate skill
 // directory names. User-controlled strings (URL, ref, name, OCI image, S3 URI)
 // flow through this struct as data only, the binary passes them to
 // git/library/SDK calls as argv/API inputs, never as shell input.
@@ -1576,144 +1545,6 @@ func prepareSkillsInitConfig(
 	return cfg, nil
 }
 
-// SkillsInitConfigMapSuffix is appended to the Agent name to form the
-// ConfigMap that carries the skills-init container's JSON config.
-const SkillsInitConfigMapSuffix = "-skills-init"
-
-// SkillsInitConfigMapName returns the name of the skills-init ConfigMap for
-// the given Agent.
-func SkillsInitConfigMapName(agentName string) string {
-	return agentName + SkillsInitConfigMapSuffix
-}
-
-// validateSkillsInitConfigMapName enforces the K8s DNS-1123 subdomain rules
-// on the derived ConfigMap name. Agent names are already constrained by the
-// CRD, but the suffix can push borderline names over the 253-char limit, so
-// we fail fast here with a clear message rather than letting the apiserver
-// reject the eventual write.
-func validateSkillsInitConfigMapName(name string) error {
-	if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
-		return fmt.Errorf("derived skills-init ConfigMap name %q is invalid: %s", name, strings.Join(errs, "; "))
-	}
-	return nil
-}
-
-// buildSkillsInitContainer assembles the init container, its volumes, and the
-// ConfigMap holding its JSON configuration. The container runs a kagent-owned
-// Go binary that consumes the ConfigMap; no shell is involved, so
-// user-controlled CRD fields cannot inject commands.
-//
-// If authSecretRef is non-nil a Secret is mounted at AuthMountPath.
-// If imagePullSecrets is non-empty, each kubernetes.io/dockerconfigjson secret
-// is mounted under DockerSecretsDir/<name>; the binary merges them into a
-// single config.json and sets DOCKER_CONFIG for the OCI client library.
-func buildSkillsInitContainer(
-	agentName, agentNamespace string,
-	gitRefs []v1alpha3.GitRepo,
-	authSecretRef *corev1.LocalObjectReference,
-	ociRefs []string,
-	insecureOCI bool,
-	securityContext *corev1.SecurityContext,
-	envVars []corev1.EnvVar,
-	resources corev1.ResourceRequirements,
-	imagePullSecrets []corev1.LocalObjectReference,
-	s3Refs []v1alpha3.S3SkillRef,
-) (containers []corev1.Container, volumes []corev1.Volume, configMap *corev1.ConfigMap, err error) {
-	pullSecretNames := make([]string, len(imagePullSecrets))
-	for i, s := range imagePullSecrets {
-		pullSecretNames[i] = s.Name
-	}
-
-	cfg, err := prepareSkillsInitConfig(gitRefs, authSecretRef, ociRefs, insecureOCI, pullSecretNames, s3Refs)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	cfgJSON, err := json.Marshal(cfg)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("marshal skills-init config: %w", err)
-	}
-
-	cmName := SkillsInitConfigMapName(agentName)
-	if err := validateSkillsInitConfigMapName(cmName); err != nil {
-		return nil, nil, nil, err
-	}
-	configMap = &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cmName,
-			Namespace: agentNamespace,
-		},
-		Data: map[string]string{
-			skillsinit.ConfigMapKey: string(cfgJSON),
-		},
-	}
-
-	initSecCtx := securityContext
-	if initSecCtx != nil {
-		initSecCtx = initSecCtx.DeepCopy()
-	}
-
-	const configVolumeName = "skills-init-config"
-	volumes = append(volumes, corev1.Volume{
-		Name: configVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: cmName},
-			},
-		},
-	})
-	volumeMounts := []corev1.VolumeMount{
-		{Name: "kagent-skills", MountPath: skillsinit.SkillsDir},
-		{Name: configVolumeName, MountPath: skillsinit.ConfigMountPath, ReadOnly: true},
-	}
-
-	if authSecretRef != nil {
-		volumes = append(volumes, corev1.Volume{
-			Name: "git-auth",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: authSecretRef.Name,
-				},
-			},
-		})
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "git-auth",
-			MountPath: skillsinit.AuthMountPath,
-			ReadOnly:  true,
-		})
-	}
-
-	for _, secret := range imagePullSecrets {
-		volName := "pull-secret-" + secret.Name
-		volumes = append(volumes, corev1.Volume{
-			Name: volName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: secret.Name,
-				},
-			},
-		})
-		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      volName,
-			MountPath: skillsinit.DockerSecretsDir + "/" + secret.Name,
-			ReadOnly:  true,
-		})
-	}
-
-	// Command is intentionally omitted: the skills-init image's ENTRYPOINT
-	// is the single source of truth for the binary path.
-	skillsInitContainer := corev1.Container{
-		Name:            "skills-init",
-		Image:           DefaultSkillsInitImageConfig.Image(),
-		VolumeMounts:    volumeMounts,
-		SecurityContext: initSecCtx,
-		Env:             envVars,
-		Resources:       resources,
-	}
-
-	containers = append(containers, skillsInitContainer)
-	return containers, volumes, configMap, nil
-}
-
 func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha3.SandboxAgent, outputs *AgentOutputs) error {
 	var errs error
 	for _, plugin := range a.plugins {
@@ -1722,12 +1553,4 @@ func (a *adkApiTranslator) runPlugins(ctx context.Context, agent *v1alpha3.Sandb
 		}
 	}
 	return errs
-}
-
-// allowPrivilegeEscalationExplicitlyFalse reports whether the security context
-// has AllowPrivilegeEscalation explicitly set to false (PSS Restricted profile).
-// This is used to detect when adding Privileged:true would create an invalid
-// securityContext that Kubernetes refuses to admit.
-func allowPrivilegeEscalationExplicitlyFalse(sc *corev1.SecurityContext) bool {
-	return sc != nil && sc.AllowPrivilegeEscalation != nil && !*sc.AllowPrivilegeEscalation
 }

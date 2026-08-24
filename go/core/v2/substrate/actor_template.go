@@ -29,21 +29,24 @@ const (
 // ActorTemplateForRevision constructs the immutable Kubernetes object for a
 // compiled revision. It performs no reads or writes, which makes it safe to use
 // inside a KRT transformation.
-func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID, pauseImage string) (*atev1alpha1.ActorTemplate, error) {
+func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.RevisionID) (*atev1alpha1.ActorTemplate, error) {
 	if revisionID.IsZero() {
 		return nil, fmt.Errorf("runtime revision ID is required")
 	}
 	workerKey := types.NamespacedName{Namespace: spec.Namespace, Name: spec.WorkerPoolName}
 	name := revisionActorTemplateName(spec.AgentTemplateName, spec.HarnessName, revisionID)
-	// Config is passed inline because Substrate ActorTemplates support literal
-	// and Secret-backed environment variables but not generated ConfigMaps or
-	// Secrets. The revision digest already covers both JSON documents.
+	// Config is passed inline because Substrate ActorTemplates support only
+	// literal environment variables. The revision digest already covers both
+	// JSON documents.
 	environment := append([]corev1.EnvVar(nil), spec.Environment...)
 	environment = append(environment,
 		corev1.EnvVar{Name: "KAGENT_CONFIG_JSON", Value: string(spec.ConfigJSON)},
 		corev1.EnvVar{Name: "KAGENT_AGENT_CARD_JSON", Value: string(spec.AgentCardJSON)},
 	)
-	actorEnv := actorTemplateEnvFromPodEnv(environment)
+	actorEnv, err := actorTemplateEnvFromPodEnv(environment)
+	if err != nil {
+		return nil, err
+	}
 	if len(actorEnv) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d environment variables; Substrate supports at most 32", len(actorEnv))
 	}
@@ -61,7 +64,6 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		},
 		Spec: atev1alpha1.ActorTemplateSpec{
 			// The v2 API intentionally has one default sandbox policy for now.
-			PauseImage:   pauseImage,
 			SandboxClass: atev1alpha1.SandboxClassGvisor,
 			Containers: []atev1alpha1.Container{{
 				Name:  defaultContainerName,
@@ -70,7 +72,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				Readyz: &atev1alpha1.ContainerReadyz{HTTPGet: &atev1alpha1.HTTPGetAction{
 					Path: "/readyz",
 					Port: 8081,
-				}},
+				}, TimeoutSeconds: 30},
 				VolumeMounts: []atev1alpha1.VolumeMount{{Name: durableDataVolume, MountPath: durableDataMount}},
 			}},
 			WorkerSelector: workerSelectorForPool(workerKey),
@@ -78,6 +80,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 				Location: spec.SnapshotLocation,
 				OnPause:  atev1alpha1.SnapshotScopeFull,
 				OnCommit: atev1alpha1.SnapshotScopeData,
+				OnResume: atev1alpha1.OnResumeConfig{FromData: atev1alpha1.ResumeSourceColdBoot},
 			},
 			Volumes: []atev1alpha1.Volume{{
 				Name:         durableDataVolume,
@@ -112,32 +115,23 @@ func truncateDNS1123To(value string, limit int) string {
 	return value
 }
 
-func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) []atev1alpha1.EnvVar {
-	// The Substrate type supports only literal values and Secret keys. Other Pod
-	// env sources are skipped because they cannot be represented faithfully.
+func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]atev1alpha1.EnvVar, error) {
+	// Substrate ActorTemplates accept only literal values. The compiler resolves
+	// Secret references before revisions reach this boundary.
 	result := make([]atev1alpha1.EnvVar, 0, len(environment))
 	seen := make(map[string]struct{}, len(environment))
 	for _, value := range environment {
 		if value.Name == "" {
 			continue
 		}
-		var converted atev1alpha1.EnvVar
-		switch {
-		case value.ValueFrom == nil:
-			converted = atev1alpha1.EnvVar{Name: value.Name, Value: &value.Value}
-		case value.ValueFrom.SecretKeyRef != nil:
-			ref := value.ValueFrom.SecretKeyRef
-			converted = atev1alpha1.EnvVar{Name: value.Name, ValueFrom: &atev1alpha1.EnvVarSource{
-				SecretKeyRef: &atev1alpha1.SecretKeySelector{Name: ref.Name, Key: ref.Key, Optional: ref.Optional},
-			}}
-		default:
-			continue
+		if value.ValueFrom != nil {
+			return nil, fmt.Errorf("runtime environment variable %q is not resolved to a literal value", value.Name)
 		}
 		if _, exists := seen[value.Name]; exists {
 			continue
 		}
 		seen[value.Name] = struct{}{}
-		result = append(result, converted)
+		result = append(result, atev1alpha1.EnvVar{Name: value.Name, Value: value.Value})
 	}
-	return result
+	return result, nil
 }

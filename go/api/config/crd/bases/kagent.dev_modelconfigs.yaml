@@ -748,6 +748,7 @@ spec:
                     - medium
                     - high
                     - xhigh
+                    - max
                     type: string
                   seed:
                     description: Seed value

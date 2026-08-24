@@ -9,7 +9,9 @@ import (
 )
 
 type Querier interface {
+	CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error)
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
+	CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error)
 	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
 	DeleteAgentInstance(ctx context.Context, id string) error
 	DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error)
@@ -22,10 +24,13 @@ type Querier interface {
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
 	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
+	GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error)
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
+	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
+	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
 	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
@@ -55,10 +60,12 @@ type Querier interface {
 	// Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
 	IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error
 	InsertAgentInstance(ctx context.Context, arg InsertAgentInstanceParams) (AgentInstance, error)
+	InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) error
 	InsertEvent(ctx context.Context, arg InsertEventParams) error
 	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
 	ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error)
+	ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error)
 	ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error)
 	ListAgentMemories(ctx context.Context, arg ListAgentMemoriesParams) ([]Memory, error)
 	ListAgents(ctx context.Context) ([]Agent, error)
@@ -82,6 +89,9 @@ type Querier interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
+	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
+	// rest of the transaction so reclamation cannot overwrite concurrent progress.
+	LockActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error
@@ -102,7 +112,9 @@ type Querier interface {
 	SoftDeleteToolServer(ctx context.Context, arg SoftDeleteToolServerParams) error
 	SoftDeleteToolsForServer(ctx context.Context, arg SoftDeleteToolsForServerParams) error
 	TaskExists(ctx context.Context, id string) (bool, error)
+	TransitionAgentInstance(ctx context.Context, arg TransitionAgentInstanceParams) (AgentInstance, error)
 	UpsertAgent(ctx context.Context, arg UpsertAgentParams) error
+	UpsertAgentInstanceTask(ctx context.Context, arg UpsertAgentInstanceTaskParams) error
 	UpsertAgentTemplateHarnessPair(ctx context.Context, arg UpsertAgentTemplateHarnessPairParams) error
 	UpsertCheckpoint(ctx context.Context, arg UpsertCheckpointParams) error
 	UpsertCheckpointWrite(ctx context.Context, arg UpsertCheckpointWriteParams) error

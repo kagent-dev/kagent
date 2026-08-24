@@ -32,13 +32,11 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 		require.Contains(t, err.Error(), substrateSandboxSkillsUnsupportedMsg)
 	})
 
-	t.Run("allows python runtime", func(t *testing.T) {
+	t.Run("allows declarative agents", func(t *testing.T) {
 		agent := &SandboxAgent{
 			Spec: SandboxAgentSpec{
-				Type: AgentType_Declarative,
-				Declarative: &DeclarativeAgentSpec{
-					Runtime: DeclarativeRuntime_Python,
-				},
+				Type:        AgentType_Declarative,
+				Declarative: &DeclarativeAgentSpec{},
 			},
 		}
 		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
@@ -75,18 +73,6 @@ func TestValidateSubstrateSandboxAgentSpec(t *testing.T) {
 			Spec: SandboxAgentSpec{
 				Type: AgentType_BYO,
 				BYO:  &BYOAgentSpec{Image: "example/agent:latest", Cmd: &cmd},
-			},
-		}
-		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))
-	})
-
-	t.Run("allows go runtime", func(t *testing.T) {
-		agent := &SandboxAgent{
-			Spec: SandboxAgentSpec{
-				Type: AgentType_Declarative,
-				Declarative: &DeclarativeAgentSpec{
-					Runtime: DeclarativeRuntime_Go,
-				},
 			},
 		}
 		require.NoError(t, ValidateSubstrateSandboxAgentSpec(agent))

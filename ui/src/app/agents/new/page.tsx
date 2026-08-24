@@ -37,7 +37,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { FormSection, FieldRoot, FieldLabel, FieldHint, FieldError } from "@/components/agent-form/form-primitives";
 import { ByoDeploymentFields } from "@/components/agent-form/ByoDeploymentFields";
 import { AgentSkillsFormSection } from "@/components/agent-form/AgentSkillsFormSection";
-import { DeclarativeRuntimeField } from "@/components/agent-form/DeclarativeRuntimeField";
 import { AgentFormValidationErrors } from "@/components/agent-form/agent-form-types";
 import { focusFirstFormError } from "@/components/agent-form/focusFirstFormError";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -86,9 +85,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
   const substrateEnabled = useSubstrateEnabled();
 
   const useDeclarativeAgentFields = formUsesDeclarativeSections(state.agentType);
-  // Substrate supports both Python and Go declarative runtimes, so the runtime selector is
-  // shown for declarative agents.
-  const showDeclarativeRuntimeField = useDeclarativeAgentFields;
   const showByoFields = formUsesByoSections(state.agentType);
   const showModelAndBehaviorSection = useDeclarativeAgentFields;
   const skillsEnabled = false;
@@ -452,14 +448,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                 </FieldRoot>
               )}
 
-              {showDeclarativeRuntimeField && (
-                <DeclarativeRuntimeField
-                  value={state.declarativeRuntime}
-                  onChange={(declarativeRuntime) => setState((prev) => ({ ...prev, declarativeRuntime }))}
-                  disabled={disabled}
-                />
-              )}
-
               <FieldRoot>
                 <FieldLabel htmlFor="agent-desc">Description</FieldLabel>
                 <FieldHint>Internal note only; not sent to the model as instructions.</FieldHint>
@@ -643,7 +631,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                   skillGitRepos={state.skillGitRepos}
                   skillsGitAuthSecretName={state.skillsGitAuthSecretName}
                   skillS3Repos={state.skillS3Repos}
-                  skillsS3AuthSecretName={state.skillsS3AuthSecretName}
                   skillsError={state.errors.skills}
                   disabled={disabled}
                   resolvedGitSkillRepos={resolvedGitSkillRepos}
@@ -700,7 +687,6 @@ function AgentPageContent({ isEditMode, agentName, agentNamespace }: AgentPageCo
                           : prev.skillS3Repos.filter((_, i) => i !== index),
                     }))
                   }
-                  onS3AuthSecretChange={(value) => setState((prev) => ({ ...prev, skillsS3AuthSecretName: value }))}
                   onClearSkillsError={clearSkillsError}
                 />
                 ) : null}

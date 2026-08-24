@@ -32,6 +32,7 @@ type AgentInstance struct {
 	State            string
 	Labels           []byte
 	Data             []byte
+	Operation        string
 }
 
 type AgentInstanceShare struct {
@@ -41,6 +42,26 @@ type AgentInstanceShare struct {
 	Creator    string
 	Permission string
 	TokenHash  []byte
+	CreatedAt  time.Time
+}
+
+type AgentInstanceTask struct {
+	InstanceID       string
+	ID               string
+	State            string
+	StatusTimestamp  *time.Time
+	Data             []byte
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	InitialMessageID *string
+	RequestHash      []byte
+}
+
+type AgentInstanceTaskEvent struct {
+	Sequence   int64
+	InstanceID string
+	TaskID     *string
+	Data       []byte
 	CreatedAt  time.Time
 }
 
@@ -167,6 +188,7 @@ type RuntimeRevision struct {
 	GoldenSnapshot         string
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	AgentCard              []byte
 }
 
 type Session struct {

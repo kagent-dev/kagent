@@ -30,10 +30,12 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags "$LDFLAGS" -o /app "$BUILD_PACKAGE"
 
 ### STAGE 2: final image
-# Use distroless as minimal base image to package the manager binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
+FROM alpine:3.22
 ARG TARGETPLATFORM
+
+RUN apk add --no-cache bash ca-certificates git && \
+    mkdir -p /skills /plugins /data/plugins && \
+    chown -R 65532:65532 /skills /plugins /data
 
 WORKDIR /
 COPY --from=builder /app /app

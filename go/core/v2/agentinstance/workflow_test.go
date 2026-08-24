@@ -9,9 +9,10 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
-func TestActorWorkflowCreatesAndDeletesActor(t *testing.T) {
+func TestActorWorkflowLifecycle(t *testing.T) {
 	instance := &apiv1alpha1.AgentInstance{
 		Id: "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", Namespace: "team-a",
 		PreparedRevision: "revision-1", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
@@ -35,11 +36,30 @@ func TestActorWorkflowCreatesAndDeletesActor(t *testing.T) {
 	if len(actors.actors) != 1 {
 		t.Fatalf("actors = %v", actors.actors)
 	}
-	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus() != ateapipb.Actor_STATUS_RUNNING {
-		t.Fatalf("created Actor status = %s", actor.GetStatus())
+	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
+		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
 
-	deleted, err := workflow.Delete(context.Background(), instance)
+	suspended, err := workflow.Suspend(context.Background(), created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suspended.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_SUSPENDED || suspended.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+		t.Fatalf("suspended instance = %+v", suspended)
+	}
+	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		t.Fatalf("suspended Actor status = %s", actor.GetStatus().GetState())
+	}
+
+	resumed, err := workflow.Resume(context.Background(), suspended)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || resumed.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
+		t.Fatalf("resumed instance = %+v", resumed)
+	}
+
+	deleted, err := workflow.Delete(context.Background(), resumed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +79,16 @@ func (s *lifecycleTestStore) GetRuntimeRevision(context.Context, string) (*dbpkg
 
 func (s *lifecycleTestStore) MarkAgentInstanceReady(_ context.Context, _ string, authority string) (*apiv1alpha1.AgentInstance, error) {
 	s.instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY
+	s.instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED
 	s.instance.A2AAuthority = authority
+	return s.instance, nil
+}
+
+func (s *lifecycleTestStore) TransitionAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, expectedState apiv1alpha1.AgentInstanceState, expectedOperation apiv1alpha1.AgentInstanceOperation) (*apiv1alpha1.AgentInstance, error) {
+	if s.instance.GetState() != expectedState || s.instance.GetOperation() != expectedOperation {
+		return s.instance, dbpkg.ErrAgentInstanceConflict
+	}
+	s.instance = proto.Clone(instance).(*apiv1alpha1.AgentInstance)
 	return s.instance, nil
 }
 
@@ -88,7 +117,7 @@ func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, tem
 	actor := &ateapipb.Actor{
 		Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
 		ActorTemplateNamespace: templateNamespace, ActorTemplateName: templateName,
-		Status: ateapipb.Actor_STATUS_SUSPENDED,
+		Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
 	}
 	a.actors[actorKey(atespace, name)] = actor
 	return actor, nil
@@ -96,12 +125,12 @@ func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, tem
 
 func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
 	actor := a.actors[actorKey(atespace, name)]
-	actor.Status = ateapipb.Actor_STATUS_RUNNING
+	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
 	return actor, nil
 }
 
 func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name string) error {
-	a.actors[actorKey(atespace, name)].Status = ateapipb.Actor_STATUS_SUSPENDED
+	a.actors[actorKey(atespace, name)].Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
 	return nil
 }
 

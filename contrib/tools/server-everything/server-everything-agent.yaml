@@ -8,7 +8,6 @@ spec:
   description: Demo agent exercising Server Everything MCP tools, including the weather-dashboard MCP App (UI widget).
   declarative:
     modelConfig: default-model-config
-    runtime: go
     stream: true
     systemMessage: |-
       You are a helpful assistant that demonstrates the Server Everything MCP tools,
