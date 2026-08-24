@@ -20,10 +20,6 @@ dependencies:
     version: ${VERSION}
     repository: file://../tools/grafana-mcp
     condition: grafana-mcp.enabled, observability-agent.enabled
-  - name: querydoc
-    version: ${VERSION}
-    repository: file://../tools/querydoc
-    condition: querydoc.enabled
   - name: k8s-agent
     version: ${VERSION}
     repository: file://../agents/k8s

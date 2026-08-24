@@ -457,8 +457,6 @@ helm-agents: ## Package all agent Helm charts into the dist folder
 helm-tools: ## Package all tool Helm charts into the dist folder
 	VERSION=$(VERSION) envsubst < helm/tools/grafana-mcp/Chart-template.yaml > helm/tools/grafana-mcp/Chart.yaml
 	helm package -d $(HELM_DIST_FOLDER) helm/tools/grafana-mcp
-	VERSION=$(VERSION) envsubst < helm/tools/querydoc/Chart-template.yaml > helm/tools/querydoc/Chart.yaml
-	helm package -d $(HELM_DIST_FOLDER) helm/tools/querydoc
 
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
@@ -503,7 +501,6 @@ helm-install-provider: helm-version check-api-key
 		--set providers.default=$(KAGENT_DEFAULT_MODEL_PROVIDER) \
 		--set kmcp.enabled=$(KMCP_ENABLED) \
 		--set kmcp.image.tag=$(KMCP_VERSION) \
-		--set querydoc.openai.apiKey=$(OPENAI_API_KEY) \
 		--set database.postgres.bundled.image.repository=pgvector \
 		--set database.postgres.bundled.image.name=pgvector \
 		--set database.postgres.bundled.image.tag=pg18-trixie \

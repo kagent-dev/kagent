@@ -31,9 +31,6 @@ ENABLED TOOLS:
 {{- if and (index .Values "grafana-mcp" "enabled") (index .Values "observability-agent" "enabled") }}
   - Tool Server: Grafana MCP
 {{- end }}
-{{- if .Values.querydoc.enabled }}
-  - Tool Server: QueryDoc
-{{- end }}
 
 ENABLED AGENTS:
 {{- $agents := list "k8s-agent" "kgateway-agent" "istio-agent" "promql-agent" "observability-agent" "argo-rollouts-agent" "helm-agent" "cilium-policy-agent" "cilium-manager-agent" "cilium-debug-agent" }}

@@ -307,7 +307,6 @@ jobs:
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-          helm unittest helm/tools/querydoc
           helm unittest helm/tools/grafana-mcp
 
   ui-tests:
