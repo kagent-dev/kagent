@@ -15,6 +15,7 @@ import (
 
 	"github.com/abiosoft/ishell/v2"
 	"github.com/briandowns/spinner"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 )
@@ -65,7 +66,7 @@ func installChart(ctx context.Context, chartName string, namespace string, regis
 	return "", nil
 }
 
-func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
+func InstallCmd(ctx context.Context, cfg *InstallCfg) *connection.PortForward {
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
@@ -105,7 +106,7 @@ func InstallCmd(ctx context.Context, cfg *InstallCfg) *PortForward {
 	return install(ctx, cfg.Config, helmConfig, modelProvider)
 }
 
-func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *PortForward {
+func InteractiveInstallCmd(ctx context.Context, c *ishell.Context) *connection.PortForward {
 	if version.Version == "dev" {
 		fmt.Fprintln(os.Stderr, "Installation requires released version of kagent")
 		return nil
@@ -180,7 +181,7 @@ func setupHelmConfig(modelProvider v1alpha3.ModelProvider, apiKeyValue string) h
 }
 
 // install installs kagent and kagent-crds using the helm config
-func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, modelProvider v1alpha3.ModelProvider) *PortForward {
+func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, modelProvider v1alpha3.ModelProvider) *connection.PortForward {
 	// spinner for installation progress
 	s := spinner.New(spinner.CharSets[35], 100*time.Millisecond)
 
@@ -232,7 +233,7 @@ func install(ctx context.Context, cfg *config.Config, helmConfig helmConfig, mod
 	s.Stop()
 	fmt.Fprintln(os.Stdout, "kagent installed successfully")
 
-	pf, err := NewPortForward(ctx, cfg)
+	pf, err := connection.NewPortForward(ctx, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
 		return nil

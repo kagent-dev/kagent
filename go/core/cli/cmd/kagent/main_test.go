@@ -32,6 +32,7 @@ namespace: configured-ns
 output_format: json
 verbose: true
 timeout: 45s
+user_id: configured-user
 `), 0600))
 
 	cfg, err := loadConfig()
@@ -46,6 +47,42 @@ timeout: 45s
 	assert.Equal(t, "json", cfg.OutputFormat)
 	assert.True(t, cfg.Verbose)
 	assert.Equal(t, 45*time.Second, cfg.Timeout)
+	assert.Equal(t, "configured-user", cfg.UserID)
+}
+
+func TestLoadConfigDoesNotWriteDefaults(t *testing.T) {
+	resetConfigState(t)
+
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	cfg, err := loadConfig()
+	require.NoError(t, err)
+	assert.Equal(t, config.DefaultUserID, cfg.UserID)
+	_, err = os.Stat(filepath.Join(homeDir, ".kagent"))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestLoadConfigReadsUserIDFromEnvironment(t *testing.T) {
+	resetConfigState(t)
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("KAGENT_USER_ID", "environment-user")
+
+	cfg, err := loadConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "environment-user", cfg.UserID)
+}
+
+func TestLoadConfigRejectsInvalidUserID(t *testing.T) {
+	resetConfigState(t)
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("KAGENT_USER_ID", "invalid user")
+
+	_, err := loadConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "caller identity must not contain whitespace")
 }
 
 func TestRootCommandUsesConfigValuesAsFlagDefaults(t *testing.T) {
@@ -59,6 +96,7 @@ func TestRootCommandUsesConfigValuesAsFlagDefaults(t *testing.T) {
 		OutputFormat:         "json",
 		Verbose:              true,
 		Timeout:              45 * time.Second,
+		UserID:               "configured-user",
 	}
 
 	rootCmd := newRootCommand(context.Background(), cfg)
@@ -72,6 +110,7 @@ func TestRootCommandUsesConfigValuesAsFlagDefaults(t *testing.T) {
 	assert.Equal(t, "json", rootCmd.PersistentFlags().Lookup("output-format").DefValue)
 	assert.Equal(t, "true", rootCmd.PersistentFlags().Lookup("verbose").DefValue)
 	assert.Equal(t, "45s", rootCmd.PersistentFlags().Lookup("timeout").DefValue)
+	assert.Equal(t, "configured-user", rootCmd.PersistentFlags().Lookup("user-id").DefValue)
 
 	deployCmd, _, err := rootCmd.Find([]string{"deploy"})
 	require.NoError(t, err)
@@ -102,6 +141,7 @@ func TestRootCommandFlagsOverrideConfigValues(t *testing.T) {
 		"--output-format", "yaml",
 		"--verbose",
 		"--timeout", "10s",
+		"--user-id", "flag-user",
 	}))
 
 	assert.Equal(t, "http://flag.example.test", cfg.KAgentURL)
@@ -113,6 +153,33 @@ func TestRootCommandFlagsOverrideConfigValues(t *testing.T) {
 	assert.Equal(t, "yaml", cfg.OutputFormat)
 	assert.True(t, cfg.Verbose)
 	assert.Equal(t, 10*time.Second, cfg.Timeout)
+	assert.Equal(t, "flag-user", cfg.UserID)
+}
+
+func TestRootCommandRejectsInvalidUserIDFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "empty", args: []string{"--user-id=", "version"}},
+		{name: "whitespace", args: []string{"--user-id", "invalid user", "version"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				KAgentURL:     config.DefaultKAgentURL,
+				KAgentGRPCURL: config.DefaultKAgentGRPCURL,
+				UserID:        config.DefaultUserID,
+			}
+			rootCmd := newRootCommand(t.Context(), cfg)
+			rootCmd.SetArgs(tt.args)
+
+			err := rootCmd.ExecuteContext(t.Context())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "caller identity")
+		})
+	}
 }
 
 func resetConfigState(t *testing.T) {

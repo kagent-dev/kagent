@@ -13,6 +13,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 )
 
@@ -40,17 +41,17 @@ func (t *bearerTokenTransport) RoundTrip(req *http.Request) (*http.Response, err
 }
 
 func InvokeCmd(ctx context.Context, cfg *InvokeCfg) {
-	clientSet := cfg.Config.Client()
-
-	if err := CheckServerConnection(ctx, clientSet); err != nil {
-		// If a connection does not exist, start a short-lived port-forward.
-		pf, err := NewPortForward(ctx, cfg.Config)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-			return
-		}
+	pf, err := connection.Connect(ctx, cfg.Config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+		return
+	}
+	if pf != nil {
 		defer pf.Stop()
 	}
+
+	clientSet := cfg.Config.Client()
+	defer clientSet.Close() //nolint:errcheck
 
 	var task string
 	// If task is set, use it. Otherwise, read from file or stdin.

@@ -25,7 +25,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/eventqueue"
 	"github.com/google/uuid"
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -35,14 +35,8 @@ import (
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const (
-	// AgentInstanceNamespaceHeader selects the Kubernetes namespace containing the AgentInstance.
-	AgentInstanceNamespaceHeader = "x-kagent-agent-instance-namespace"
-	// AgentInstanceIDHeader selects the AgentInstance within that namespace.
-	AgentInstanceIDHeader = "x-kagent-agent-instance-id"
-	// TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
-	TaskCreatedAtMetadataKey = "kagent.dev/task-created-at"
-)
+// TaskCreatedAtMetadataKey preserves the gateway's durable task creation time.
+const TaskCreatedAtMetadataKey = "kagent.dev/task-created-at"
 
 type instanceStore interface {
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
@@ -195,17 +189,17 @@ func (g *Gateway) storedInstance(ctx context.Context, verb auth.Verb) (*apiv1alp
 }
 
 func route(ctx context.Context) (namespace, id string, err error) {
-	namespaces := metadata.ValueFromIncomingContext(ctx, AgentInstanceNamespaceHeader)
-	ids := metadata.ValueFromIncomingContext(ctx, AgentInstanceIDHeader)
+	namespaces := metadata.ValueFromIncomingContext(ctx, kagenta2a.AgentInstanceNamespaceHeader)
+	ids := metadata.ValueFromIncomingContext(ctx, kagenta2a.AgentInstanceIDHeader)
 	if len(namespaces) != 1 || len(ids) != 1 {
-		return "", "", fmt.Errorf("exactly one %s and %s header is required", AgentInstanceNamespaceHeader, AgentInstanceIDHeader)
+		return "", "", fmt.Errorf("exactly one %s and %s header is required", kagenta2a.AgentInstanceNamespaceHeader, kagenta2a.AgentInstanceIDHeader)
 	}
 	if problems := utilvalidation.IsDNS1123Label(namespaces[0]); len(problems) > 0 {
-		return "", "", fmt.Errorf("invalid %s header: %s", AgentInstanceNamespaceHeader, strings.Join(problems, "; "))
+		return "", "", fmt.Errorf("invalid %s header: %s", kagenta2a.AgentInstanceNamespaceHeader, strings.Join(problems, "; "))
 	}
 	parsedID, err := uuid.Parse(ids[0])
 	if err != nil {
-		return "", "", fmt.Errorf("invalid %s header: %w", AgentInstanceIDHeader, err)
+		return "", "", fmt.Errorf("invalid %s header: %w", kagenta2a.AgentInstanceIDHeader, err)
 	}
 	return namespaces[0], parsedID.String(), nil
 }
@@ -462,7 +456,7 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 	if req == nil || req.Message == nil {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message is required")
 	}
-	apia2a.ClearStoredTask(req.Message)
+	kagenta2a.ClearStoredTask(req.Message)
 	if req.Message.ID == "" {
 		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message ID is required")
 	}
@@ -525,7 +519,7 @@ func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentI
 	}
 	runtimeMessage := *message
 	runtimeMessage.Metadata = maps.Clone(message.Metadata)
-	if err := apia2a.AttachStoredTask(&runtimeMessage, stored); err != nil {
+	if err := kagenta2a.AttachStoredTask(&runtimeMessage, stored); err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to prepare task continuation")
 	}
 	req.Message = &runtimeMessage

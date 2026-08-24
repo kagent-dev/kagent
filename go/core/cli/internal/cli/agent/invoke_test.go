@@ -11,7 +11,7 @@ import (
 func TestInvokeCmd_ServerError(t *testing.T) {
 	// This behavior is exercised in integration tests, which can safely depend on
 	// Kubernetes port-forwarding and external tooling like kubectl.
-	// Invoking InvokeCmd here would trigger CheckServerConnection and may start a
+	// Invoking InvokeCmd here would check the server connection and may start a
 	// real kubectl port-forward, which is not appropriate for unit tests.
 	t.Skip("Skipping InvokeCmd server error test in unit suite; covered by integration tests without requiring kubectl/port-forwarding")
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	cli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agent"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/envdoc"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/mcp"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
@@ -66,6 +67,9 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Use:   "kagent",
 		Short: "kagent is a CLI and TUI for kagent",
 		Long:  "kagent is a CLI and TUI for kagent",
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			return cfg.Validate()
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 			runInteractive(cmd, args, cfg)
 		},
@@ -81,6 +85,7 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 	rootCmd.PersistentFlags().StringVarP(&cfg.OutputFormat, "output-format", "o", cfg.OutputFormat, "Output format")
 	rootCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", cfg.Verbose, "Verbose output")
 	rootCmd.PersistentFlags().DurationVar(&cfg.Timeout, "timeout", cfg.Timeout, "Timeout")
+	rootCmd.PersistentFlags().StringVar(&cfg.UserID, "user-id", cfg.UserID, "Caller identity used to select the server-side data partition")
 	installCfg := &cli.InstallCfg{
 		Config: cfg,
 	}
@@ -135,12 +140,12 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Short: "Generate a bug report",
 		Long:  `Generate a bug report`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				pf, err := cli.NewPortForward(cmd.Context(), cfg)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-					return
-				}
+			pf, err := connection.Connect(cmd.Context(), cfg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+				return
+			}
+			if pf != nil {
 				defer pf.Stop()
 			}
 			cli.BugReportCmd(cfg)
@@ -156,10 +161,8 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 			// versions unable to obtain from the remote kagent will be reported as "unknown"
 			defer cli.VersionCmd(cfg)
 
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				if pf, e := cli.NewPortForward(cmd.Context(), cfg); e == nil {
-					defer pf.Stop()
-				}
+			if pf, _ := connection.Connect(cmd.Context(), cfg); pf != nil {
+				defer pf.Stop()
 			}
 		},
 	}
@@ -189,12 +192,12 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Short: "Get a session or list all sessions",
 		Long:  `Get a session by ID or list all sessions`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				pf, err := cli.NewPortForward(cmd.Context(), cfg)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-					return
-				}
+			pf, err := connection.Connect(cmd.Context(), cfg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+				return
+			}
+			if pf != nil {
 				defer pf.Stop()
 			}
 			resourceName := ""
@@ -210,11 +213,12 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Short: "Get an agent or list all agents",
 		Long:  `Get an agent by name or list all agents`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				pf, err := cli.NewPortForward(cmd.Context(), cfg)
-				if err != nil {
-					return
-				}
+			pf, err := connection.Connect(cmd.Context(), cfg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+				return
+			}
+			if pf != nil {
 				defer pf.Stop()
 			}
 			resourceName := ""
@@ -230,12 +234,12 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Short: "Get tools",
 		Long:  `List all available tools`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := cli.CheckServerConnection(cmd.Context(), cfg.Client()); err != nil {
-				pf, err := cli.NewPortForward(cmd.Context(), cfg)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-					return
-				}
+			pf, err := connection.Connect(cmd.Context(), cfg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+				return
+			}
+			if pf != nil {
 				defer pf.Stop()
 			}
 			cli.GetToolCmd(cfg)
@@ -540,14 +544,12 @@ func runInteractive(cmd *cobra.Command, args []string, cfg *config.Config) {
 	client := cfg.Client()
 	defer client.Close() //nolint:errcheck
 
-	// Start port forward and ensure it is healthy.
-	var pf *cli.PortForward
-	if err := cli.CheckServerConnection(cmd.Context(), client); err != nil {
-		pf, err = cli.NewPortForward(cmd.Context(), cfg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-			return
-		}
+	pf, err := connection.Connect(cmd.Context(), cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+		return
+	}
+	if pf != nil {
 		defer pf.Stop()
 	}
 

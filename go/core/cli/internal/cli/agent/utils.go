@@ -1,18 +1,14 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"time"
 
-	"github.com/kagent-dev/kagent/go/api/client"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	pygen "github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/adk/python"
@@ -20,75 +16,10 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 )
 
-var (
-	ErrServerConnection = fmt.Errorf("error connecting to server. Please run 'install' command first")
-)
-
 const (
 	DockerComposeFilename = "docker-compose.yaml"
 	DockerComposeTemplate = "templates/docker-compose.yaml.tmpl"
 )
-
-func CheckServerConnection(ctx context.Context, client *client.ClientSet) error {
-	// Only check if we have a valid client
-	if client == nil {
-		return ErrServerConnection
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-	_, err := client.Version.GetVersion(ctx)
-	if err != nil {
-		return ErrServerConnection
-	}
-	return nil
-}
-
-type PortForward struct {
-	cmd    *exec.Cmd
-	cancel context.CancelFunc
-}
-
-func NewPortForward(ctx context.Context, cfg *config.Config) (*PortForward, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	cmd := exec.CommandContext(ctx, "kubectl", "-n", cfg.Namespace, "port-forward", "service/kagent-controller", "8083:8083", "8084:8084")
-
-	go func() {
-		if err := cmd.Start(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error starting port-forward: %v\n", err)
-			os.Exit(1)
-		}
-	}()
-
-	client := cfg.Client()
-	var err error
-	for range 10 {
-		err = CheckServerConnection(ctx, client)
-		if err == nil {
-			// Connection successful, port-forward is working
-			return &PortForward{
-				cmd:    cmd,
-				cancel: cancel,
-			}, nil
-		}
-
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	cancel()
-	return nil, fmt.Errorf("failed to establish connection to kagent-controller. %w", err)
-}
-
-func (p *PortForward) Stop() {
-	p.cancel()
-	// This will terminate the kubectl process in case the cancel does not work.
-	if p.cmd.Process != nil {
-		p.cmd.Process.Kill() //nolint:errcheck
-	}
-
-	// Don't wait for the process - just cancel the context and let it die
-	// The kubectl process will terminate when the context is canceled
-}
 
 func StreamA2AEvents(ch <-chan clia2a.StreamResult, verbose bool) error {
 	_ = verbose
