@@ -82,6 +82,14 @@ spec:
         - name: controller
           image: "{{ .Values.controller.image.registry | default .Values.registry  }}/{{ .Values.controller.image.repository }}:{{ coalesce .Values.tag .Values.controller.image.tag .Chart.Version }}"
           imagePullPolicy: {{ .Values.controller.image.pullPolicy | default .Values.imagePullPolicy }}
+          {{- if .Values.controller.imageDigest }}
+          # --image-digest has no build-time equivalent today: scripts/controller-digest-ldflags.sh,
+          # which would stamp AgentImageDigest via ldflags, is never invoked by `make build-controller`
+          # or any CI workflow. Until that's wired in, set this value explicitly (the digest of the
+          # pushed golang-adk image) or SandboxAgent compilation fails with "agent image digest is not set".
+          args:
+          - --image-digest={{ .Values.controller.imageDigest }}
+          {{- end }}
           env:
             - name: KAGENT_NAMESPACE
               valueFrom:
