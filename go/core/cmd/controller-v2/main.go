@@ -29,7 +29,7 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
-	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
+	"github.com/kagent-dev/kagent/go/core/pkg/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	sessionservice "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"

@@ -44,7 +44,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	reconcilerutils "github.com/kagent-dev/kagent/go/core/internal/controller/reconciler/utils"
 	agent_translator "github.com/kagent-dev/kagent/go/core/internal/controller/translator/agent"
-	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
+	"github.com/kagent-dev/kagent/go/core/pkg/grpcserver"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
 	feedbackservice "github.com/kagent-dev/kagent/go/core/internal/service/feedback"
