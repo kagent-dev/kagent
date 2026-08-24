@@ -3,9 +3,9 @@ package substrate
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/agent-substrate/substrate/pkg/proto/ateapipb"
@@ -35,15 +35,11 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 
-	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(credentials.NewTLS(ateAPITLSConfig(cfg.Insecure))),
+	tlsConfig, err := ateAPITLSConfig(cfg)
+	if err != nil {
+		return nil, err
 	}
-	if cfg.TokenFile != "" {
-		opts = append(opts, grpc.WithPerRPCCredentials(bearerTokenFile{
-			path:       cfg.TokenFile,
-			requireTLS: !cfg.Insecure,
-		}))
-	}
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}
 
 	conn, err := grpc.NewClient(cfg.AteAPIEndpoint, opts...)
 	if err != nil {
@@ -63,32 +59,28 @@ func Dial(ctx context.Context, cfg Config) (*Client, error) {
 	}, nil
 }
 
-type bearerTokenFile struct {
-	path       string
-	requireTLS bool
-}
-
-func (b bearerTokenFile) GetRequestMetadata(_ context.Context, _ ...string) (map[string]string, error) {
-	raw, err := os.ReadFile(b.path)
-	if err != nil {
-		return nil, fmt.Errorf("read bearer token file %q: %w", b.path, err)
-	}
-	token := strings.TrimSpace(string(raw))
-	if token == "" {
-		return nil, fmt.Errorf("bearer token file %q is empty", b.path)
-	}
-	return map[string]string{"authorization": "Bearer " + token}, nil
-}
-
-func (b bearerTokenFile) RequireTransportSecurity() bool { return b.requireTLS }
-
-func ateAPITLSConfig(insecure bool) *tls.Config {
+func ateAPITLSConfig(cfg Config) (*tls.Config, error) {
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
-	if insecure {
-		// Kind/local ate-api uses pod-issued certs; skip verification (same as grpcurl -insecure).
-		tlsCfg.InsecureSkipVerify = true
+	if cfg.CAFile != "" {
+		pem, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("substrate: read ate-api CA file: %w", err)
+		}
+		tlsCfg.RootCAs = x509.NewCertPool()
+		if !tlsCfg.RootCAs.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("substrate: ate-api CA file %q contains no certificates", cfg.CAFile)
+		}
 	}
-	return tlsCfg
+	if cfg.ClientCertFile != "" {
+		tlsCfg.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+			cert, err := tls.LoadX509KeyPair(cfg.ClientCertFile, cfg.ClientCertFile)
+			if err != nil {
+				return nil, fmt.Errorf("substrate: load ate-api client certificate: %w", err)
+			}
+			return &cert, nil
+		}
+	}
+	return tlsCfg, nil
 }
 
 func waitConnReady(ctx context.Context, conn *grpc.ClientConn) error {

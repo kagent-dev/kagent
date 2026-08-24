@@ -16,17 +16,6 @@ import (
 
 const sandboxAgentSubstrateFinalizer = "kagent.dev/sandbox-agent-substrate-cleanup"
 
-// substrateConfigured reports whether the substrate backend is wired. The lifecycle and actor
-// backend are constructed together (only when an ate-api endpoint is set), so they are
-// all-or-nothing; gating once here lets the substrate reconcile path and its helpers assume both
-// are present rather than nil-checking each dependency at every call site.
-func (r *SandboxAgentController) substrateConfigured() bool {
-	return r.SubstrateLifecycle != nil && r.SubstrateActorBackend != nil
-}
-
-// reconcileSubstrateSandboxAgent is only reached when substrateConfigured() is true (see
-// Reconcile), so SubstrateLifecycle and SubstrateActorBackend are guaranteed non-nil here and in
-// the helpers it calls.
 func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Context, sa *v1alpha3.SandboxAgent) (ctrl.Result, error) {
 	if !sa.DeletionTimestamp.IsZero() {
 		return r.reconcileSubstrateSandboxAgentDelete(ctx, sa)
@@ -35,7 +24,7 @@ func (r *SandboxAgentController) reconcileSubstrateSandboxAgent(ctx context.Cont
 		if err := r.Client.Update(ctx, sa); err != nil {
 			return ctrl.Result{}, fmt.Errorf("add substrate finalizer: %w", err)
 		}
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{}, nil
 	}
 
 	return ctrl.Result{}, nil

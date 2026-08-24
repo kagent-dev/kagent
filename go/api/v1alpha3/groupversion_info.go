@@ -28,6 +28,8 @@ import (
 var (
 	// GroupVersion is group version used to register these objects.
 	GroupVersion = schema.GroupVersion{Group: "kagent.dev", Version: "v1alpha3"}
+	// SchemeGroupVersion is the conventional client-go name for GroupVersion.
+	SchemeGroupVersion = GroupVersion
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
 	SchemeBuilder = runtime.NewSchemeBuilder(func(scheme *runtime.Scheme) error {

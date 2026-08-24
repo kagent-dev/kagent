@@ -308,14 +308,6 @@ def file_search_tools_enabled() -> bool:
     return os.environ.get(_ENABLE_FILE_SEARCH_TOOLS_ENV, "").strip().lower() in ("1", "t", "true")
 
 
-def _get_srt_settings_args() -> list[str]:
-    """Return srt settings args using the mounted config path."""
-    settings_path_env = os.environ.get("KAGENT_SRT_SETTINGS_PATH", "").strip()
-    if not settings_path_env:
-        raise ValueError("KAGENT_SRT_SETTINGS_PATH is not set")
-    return ["--settings", settings_path_env]
-
-
 def _get_command_timeout_seconds(command: str) -> float:
     """Determine appropriate timeout for a command."""
     if "python " in command or "python3 " in command:
@@ -329,7 +321,7 @@ async def execute_command(
     working_dir: Path,
     skills_dir: Path = Path("/skills"),
 ) -> str:
-    """Executes a shell command in a sandboxed environment."""
+    """Execute a shell command inside the agent runtime."""
     timeout = _get_command_timeout_seconds(command)
 
     env = _sanitize_env()
@@ -348,13 +340,9 @@ async def execute_command(
         env["PATH"] = f"{bash_venv_bin}:{env.get('PATH', '')}"
         env["VIRTUAL_ENV"] = bash_venv_path
 
-    srt_args = _get_srt_settings_args()
-
     try:
         process = await asyncio.create_subprocess_exec(
-            "srt",
-            *srt_args,
-            "sh",
+            "bash",
             "-c",
             command,
             stdout=asyncio.subprocess.PIPE,

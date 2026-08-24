@@ -31,7 +31,7 @@ type s3API interface {
 //
 // Auth uses the AWS SDK default credential chain (env static keys, etc.).
 func FetchS3(ctx context.Context, ref S3Ref) error {
-	client, err := newS3Client(ctx, ref.Region)
+	client, err := newS3Client(ctx, ref.Region, ref.Endpoint)
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func FetchS3(ctx context.Context, ref S3Ref) error {
 }
 
 // newS3Client creates a new S3 client with the given region.
-func newS3Client(ctx context.Context, region string) (*s3.Client, error) {
+func newS3Client(ctx context.Context, region, endpoint string) (*s3.Client, error) {
 	var opts []func(*awsconfig.LoadOptions) error
 	if region != "" {
 		opts = append(opts, awsconfig.WithRegion(region))
@@ -48,7 +48,12 @@ func newS3Client(ctx context.Context, region string) (*s3.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load aws config: %w", err)
 	}
-	return s3.NewFromConfig(cfg), nil
+	return s3.NewFromConfig(cfg, func(options *s3.Options) {
+		if endpoint != "" {
+			options.BaseEndpoint = aws.String(endpoint)
+			options.UsePathStyle = true
+		}
+	}), nil
 }
 
 // fetchS3 downloads a skill bundle from S3 into ref.Dest.
@@ -61,7 +66,10 @@ func fetchS3(ctx context.Context, client s3API, ref S3Ref) error {
 		return fmt.Errorf("mkdir %s: %w", ref.Dest, err)
 	}
 	if isArchiveKey(key) {
-		return fetchS3Archive(ctx, client, bucket, key, ref.Dest)
+		return fetchS3Archive(ctx, client, bucket, key, ref.Dest, ref.VersionID)
+	}
+	if ref.VersionID != "" {
+		return fmt.Errorf("versionId requires an S3 archive object")
 	}
 	return fetchS3Prefix(ctx, client, bucket, key, ref.Dest)
 }
@@ -96,11 +104,15 @@ func isArchiveKey(key string) bool {
 }
 
 // fetchS3Archive downloads a single S3 archive into dest.
-func fetchS3Archive(ctx context.Context, client s3API, bucket, key, dest string) error {
-	out, err := client.GetObject(ctx, &s3.GetObjectInput{
+func fetchS3Archive(ctx context.Context, client s3API, bucket, key, dest, versionID string) error {
+	input := &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
-	})
+	}
+	if versionID != "" {
+		input.VersionId = aws.String(versionID)
+	}
+	out, err := client.GetObject(ctx, input)
 	if err != nil {
 		return fmt.Errorf("get s3://%s/%s: %w", bucket, key, err)
 	}

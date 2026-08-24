@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	skillruntime "github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
@@ -85,9 +84,8 @@ func TestResolveWritePath_BlocksSkillsSymlink(t *testing.T) {
 	}
 }
 
-func TestNewSkillsTools_ReturnsExpectedToolSet(t *testing.T) {
+func TestNewSkillExecutionTools_ReturnsExpectedToolSet(t *testing.T) {
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
 	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 	skillDir := filepath.Join(skillsDir, "demo")
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
@@ -101,9 +99,9 @@ description: Demo skill.
 		t.Fatalf("failed to write skill metadata: %v", err)
 	}
 
-	tools, err := NewSkillsTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir)
 	if err != nil {
-		t.Fatalf("NewSkillsTools() error = %v", err)
+		t.Fatalf("NewSkillExecutionTools() error = %v", err)
 	}
 
 	got := map[string]bool{}
@@ -111,46 +109,20 @@ description: Demo skill.
 		got[tool.Name()] = true
 	}
 
-	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "list_files", "grep_file", "bash"} {
+	for _, name := range []string{"read_file", "write_file", "edit_file", "list_files", "grep_file", "bash"} {
 		if !got[name] {
 			t.Errorf("expected tool %q to be present", name)
 		}
 	}
 }
 
-func TestNewSkillsTools_OmitsBashWithoutSRTSettings(t *testing.T) {
+func TestNewSkillExecutionTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_SRT_SETTINGS_PATH", "")
-	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
-
-	tools, err := NewSkillsTools(skillsDir)
-	if err != nil {
-		t.Fatalf("NewSkillsTools() error = %v, want nil (bash should be omitted, not fatal)", err)
-	}
-
-	got := map[string]bool{}
-	for _, tool := range tools {
-		got[tool.Name()] = true
-	}
-
-	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "list_files", "grep_file"} {
-		if !got[name] {
-			t.Errorf("expected tool %q to be present even without SRT settings", name)
-		}
-	}
-	if got["bash"] {
-		t.Error("expected bash tool to be omitted without SRT settings")
-	}
-}
-
-func TestNewSkillsTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
-	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
 	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
 
-	tools, err := NewSkillsTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir)
 	if err != nil {
-		t.Fatalf("NewSkillsTools() error = %v, want nil (list_files/grep_file should be omitted, not fatal)", err)
+		t.Fatalf("NewSkillExecutionTools() error = %v, want nil (list_files/grep_file should be omitted, not fatal)", err)
 	}
 
 	got := map[string]bool{}
@@ -158,7 +130,7 @@ func TestNewSkillsTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
 		got[tool.Name()] = true
 	}
 
-	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "bash"} {
+	for _, name := range []string{"read_file", "write_file", "edit_file", "bash"} {
 		if !got[name] {
 			t.Errorf("expected tool %q to be present even without KAGENT_ENABLE_FILE_SEARCH_TOOLS", name)
 		}
@@ -171,9 +143,8 @@ func TestNewSkillsTools_OmitsListFilesAndGrepFileByDefault(t *testing.T) {
 	}
 }
 
-func TestNewSkillsTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t *testing.T) {
+func TestNewSkillExecutionTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t *testing.T) {
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_SRT_SETTINGS_PATH", filepath.Join(t.TempDir(), "srt-settings.json"))
 
 	findBash := func(t *testing.T, tools []tool.Tool) tool.Tool {
 		t.Helper()
@@ -188,9 +159,9 @@ func TestNewSkillsTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t 
 
 	t.Run("disabled by default", func(t *testing.T) {
 		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "")
-		tools, err := NewSkillsTools(skillsDir)
+		tools, err := NewSkillExecutionTools(skillsDir)
 		if err != nil {
-			t.Fatalf("NewSkillsTools() error = %v", err)
+			t.Fatalf("NewSkillExecutionTools() error = %v", err)
 		}
 		desc := findBash(t, tools).Description()
 		if strings.Contains(desc, "list_files") || strings.Contains(desc, "grep_file") {
@@ -200,9 +171,9 @@ func TestNewSkillsTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t 
 
 	t.Run("mentioned when enabled", func(t *testing.T) {
 		t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
-		tools, err := NewSkillsTools(skillsDir)
+		tools, err := NewSkillExecutionTools(skillsDir)
 		if err != nil {
-			t.Fatalf("NewSkillsTools() error = %v", err)
+			t.Fatalf("NewSkillExecutionTools() error = %v", err)
 		}
 		desc := findBash(t, tools).Description()
 		if !strings.Contains(desc, "list_files and grep_file") {
@@ -214,17 +185,16 @@ func TestNewSkillsTools_BashDescriptionMentionsFileSearchToolsOnlyWhenEnabled(t 
 // TestListFilesAndGrepFileTools_RunThroughADK invokes the real functiontool.Run()
 // path (the same one the ADK flow engine uses to execute a model's tool call),
 // rather than calling ListDirContent/GrepContent directly, to verify the
-// closures in NewSkillsTools correctly wire path resolution and argument
-// parsing end-to-end.
+// closures in NewSkillExecutionTools correctly wire path resolution and
+// argument parsing end-to-end.
 func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	skillsDir := t.TempDir()
-	t.Setenv("KAGENT_SRT_SETTINGS_PATH", "")
 	t.Setenv("KAGENT_ENABLE_FILE_SEARCH_TOOLS", "true")
 
-	tools, err := NewSkillsTools(skillsDir)
+	tools, err := NewSkillExecutionTools(skillsDir)
 	if err != nil {
-		t.Fatalf("NewSkillsTools() error = %v", err)
+		t.Fatalf("NewSkillExecutionTools() error = %v", err)
 	}
 
 	var listFilesTool, grepFileTool tool.Tool
@@ -241,7 +211,7 @@ func TestListFilesAndGrepFileTools_RunThroughADK(t *testing.T) {
 	}
 
 	sessionID := fmt.Sprintf("%s-session", t.Name())
-	sessionPath, err := skillruntime.GetSessionPath(sessionID, skillsDir)
+	sessionPath, err := GetSessionPath(sessionID, skillsDir)
 	if err != nil {
 		t.Fatalf("GetSessionPath() error = %v", err)
 	}

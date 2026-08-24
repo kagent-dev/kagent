@@ -56,6 +56,8 @@ import (
 	taskservice "github.com/kagent-dev/kagent/go/core/internal/service/task"
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	common "github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
+	v2controller "github.com/kagent-dev/kagent/go/core/v2/controller"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -166,14 +168,13 @@ type Config struct {
 	}
 	Substrate struct {
 		AteAPIEndpoint             string
-		AteAPITokenFile            string
+		AteAPICAFile               string
+		AteAPIClientCertFile       string
 		AtenetRouterURL            string
-		Insecure                   bool
 		DialTimeout                time.Duration
 		CallTimeout                time.Duration
 		DefaultWorkerPoolNamespace string
 		DefaultWorkerPoolName      string
-		PauseImage                 string
 	}
 }
 
@@ -229,26 +230,16 @@ func (cfg *Config) SetFlags(commandLine *flag.FlagSet) {
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Registry, "image-registry", agent_translator.DefaultImageConfig.Registry, "The registry to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Tag, "image-tag", agent_translator.DefaultImageConfig.Tag, "The tag to use for the image.")
 	commandLine.StringVar(&agent_translator.DefaultImageConfig.Repository, "image-repository", agent_translator.DefaultImageConfig.Repository, "The repository to use for the agent image.")
-	commandLine.StringVar(&agent_translator.PythonADKImageDigest, "app-image-digest", agent_translator.PythonADKImageDigest, "Manifest digest (sha256:...) for the Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
-	commandLine.StringVar(&agent_translator.PythonADKFullImageDigest, "app-full-image-digest", agent_translator.PythonADKFullImageDigest, "Manifest digest (sha256:...) for the full Python agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
-	commandLine.StringVar(&agent_translator.GoADKImageDigest, "golang-adk-image-digest", agent_translator.GoADKImageDigest, "Manifest digest (sha256:...) for the Go agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
-	commandLine.StringVar(&agent_translator.GoADKFullImageDigest, "golang-adk-full-image-digest", agent_translator.GoADKFullImageDigest, "Manifest digest (sha256:...) for the full Go agent runtime image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
-	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Registry, "skills-init-image-registry", agent_translator.DefaultSkillsInitImageConfig.Registry, "The registry to use for the skills init image.")
-	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Tag, "skills-init-image-tag", agent_translator.DefaultSkillsInitImageConfig.Tag, "The tag to use for the skills init image.")
-	commandLine.StringVar(&agent_translator.DefaultSkillsInitImageConfig.Repository, "skills-init-image-repository", agent_translator.DefaultSkillsInitImageConfig.Repository, "The repository to use for the skills init image.")
-	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Registry, "go-image-registry", agent_translator.DefaultGoImageConfig.Registry, "The registry to use for the Go (ADK) runtime agent image.")
-	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Repository, "go-image-repository", agent_translator.DefaultGoImageConfig.Repository, "The repository to use for the Go (ADK) runtime agent image.")
-	commandLine.StringVar(&agent_translator.DefaultGoImageConfig.Tag, "go-image-tag", agent_translator.DefaultGoImageConfig.Tag, "The tag to use for the Go (ADK) runtime agent image.")
+	commandLine.StringVar(&agent_translator.AgentImageDigest, "image-digest", agent_translator.AgentImageDigest, "Manifest digest (sha256:...) for the agent image used by sandbox agents. Defaults to the digest baked in at build time; override when a mirrored registry re-assigns digests.")
 
-	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443). Enables substrate AgentHarness runtime when set.")
-	commandLine.StringVar(&cfg.Substrate.AteAPITokenFile, "substrate-ate-api-token-file", "", "Path to a Kubernetes projected service account token used as an ate-api bearer token.")
+	commandLine.StringVar(&cfg.Substrate.AteAPIEndpoint, "substrate-ate-api-endpoint", "", "gRPC target for Agent Substrate ate-api (e.g. dns:///api.ate-system.svc:443).")
+	commandLine.StringVar(&cfg.Substrate.AteAPICAFile, "substrate-ate-api-ca-file", "", "Path to the CA certificates used to verify ate-api.")
+	commandLine.StringVar(&cfg.Substrate.AteAPIClientCertFile, "substrate-ate-api-client-cert-file", "", "Path to the PEM client certificate and private key used for ate-api mTLS.")
 	commandLine.StringVar(&cfg.Substrate.AtenetRouterURL, "substrate-atenet-router-url", "", "HTTP URL for Substrate atenet-router (Envoy). Defaults to http://atenet-router.ate-system.svc:80 when unset.")
-	commandLine.BoolVar(&cfg.Substrate.Insecure, "substrate-ate-api-insecure", false, "Dial ate-api without TLS (local dev only).")
 	commandLine.DurationVar(&cfg.Substrate.DialTimeout, "substrate-dial-timeout", 10*time.Second, "Timeout for the initial dial to ate-api.")
 	commandLine.DurationVar(&cfg.Substrate.CallTimeout, "substrate-call-timeout", 30*time.Second, "Per-RPC timeout for ate-api calls.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolNamespace, "substrate-default-workerpool-namespace", kagentNamespace, "Default Agent Substrate WorkerPool namespace when spec.substrate.workerPoolRef is unset.")
 	commandLine.StringVar(&cfg.Substrate.DefaultWorkerPoolName, "substrate-default-workerpool-name", "", "Default Agent Substrate WorkerPool name when spec.substrate.workerPoolRef is unset.")
-	commandLine.StringVar(&cfg.Substrate.PauseImage, "substrate-pause-image", "gcr.io/gke-release/pause@sha256:bcbd57ba5653580ec647b16d8163cdd1112df3609129b01f912a8032e48265da", "Pause image for generated ActorTemplates.")
 }
 
 // postgresConfigFromApp builds a database.PostgresConfig from app flags.
@@ -354,15 +345,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}()
 
 	setupLog.Info("Starting KAgent Controller", "version", Version, "git_commit", GitCommit, "build_date", BuildDate, "config", cfg)
-
-	// The Go (ADK) runtime image is configured independently of the agent image.
-	// Warn operators who mirror only the agent image so a Go-runtime pod does not
-	// silently pull from the public registry.
-	if agent_translator.DefaultGoImageConfig.Registry != agent_translator.DefaultImageConfig.Registry {
-		setupLog.Info("Go (ADK) runtime image registry differs from the agent image registry; set --go-image-registry (GO_IMAGE_REGISTRY) to mirror it",
-			"goImageRegistry", agent_translator.DefaultGoImageConfig.Registry,
-			"agentImageRegistry", agent_translator.DefaultImageConfig.Registry)
-	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will
@@ -483,7 +465,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		setupLog.Error(err, "unable to create manager")
 		os.Exit(1)
 	}
-
 	// Resolve the database URL once so both the migration runner and the pool
 	// connection use exactly the same value.
 	dbURL, err := database.ResolveURL(cfg.Database.Url, cfg.Database.UrlFile)
@@ -535,27 +516,40 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	var substrateAteClient *substrate.Client
-	var substrateLifecycle *substrate.Lifecycle
-	var substrateSandboxActorBackend *substrate.SandboxAgentActorBackend
-	var agentHarnessSessionActorBackend *substrate.AgentHarnessSessionActorBackend
-	if cfg.Substrate.AteAPIEndpoint != "" {
-		var dialErr error
-		substrateAteClient, dialErr = substrate.Dial(ctx, substrateAppConfig(&cfg))
-		if dialErr != nil {
-			setupLog.Error(dialErr, "unable to dial substrate ate-api for sandbox agents")
-			os.Exit(1)
-		}
-		substrateLifecycle = substrateLifecycleFromConfig(mgr.GetClient(), &cfg, substrateAteClient)
-		atenetRouterURL := cfg.Substrate.AtenetRouterURL
-		if atenetRouterURL == "" {
-			atenetRouterURL = substrate.DefaultAtenetRouterURL
-		}
-		substrateSandboxActorBackend = substrate.NewSandboxAgentActorBackend(substrateAteClient, mgr.GetClient(), atenetRouterURL)
-		agentHarnessSessionActorBackend = substrate.NewAgentHarnessSessionActorBackend(substrateAteClient, atenetRouterURL)
-		agentsSubstrate := substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
-		extensionCfg.SandboxBackend = agentsSubstrate
+	substrateAteClient, err := substrate.Dial(ctx, substrateAppConfig(&cfg))
+	if err != nil {
+		setupLog.Error(err, "unable to dial substrate ate-api for sandbox agents")
+		os.Exit(1)
 	}
+	substrateLifecycle := substrateLifecycleFromConfig(mgr.GetClient(), &cfg, substrateAteClient)
+	atenetRouterURL := cfg.Substrate.AtenetRouterURL
+	if atenetRouterURL == "" {
+		atenetRouterURL = substrate.DefaultAtenetRouterURL
+	}
+	substrateSandboxActorBackend := substrate.NewSandboxAgentActorBackend(substrateAteClient, mgr.GetClient(), atenetRouterURL)
+	agentHarnessSessionActorBackend := substrate.NewAgentHarnessSessionActorBackend(substrateAteClient, atenetRouterURL)
+	extensionCfg.SandboxBackend = substrate.NewAgentsBackend(substrateLifecycle, substrateAteClient)
+
+	v2Runtime, err := v2controller.NewRuntime(mgr.GetConfig(), watchNamespacesList, ctx.Done())
+	if err != nil {
+		setupLog.Error(err, "unable to initialize v2 KRT runtime")
+		os.Exit(1)
+	}
+	preparationReconciler, err := v2controller.NewReconciler(mgr.GetConfig(), v2Runtime.Collections, dbClient)
+	if err != nil {
+		setupLog.Error(err, "unable to initialize AgentTemplate preparation")
+		os.Exit(1)
+	}
+	instanceWorkflow := agentinstance.NewActorWorkflow(dbClient, substrateAteClient)
+	if err := mgr.Add(v2Runtime); err != nil {
+		setupLog.Error(err, "unable to register v2 KRT runtime")
+		os.Exit(1)
+	}
+	if err := mgr.Add(preparationReconciler); err != nil {
+		setupLog.Error(err, "unable to register AgentTemplate preparation")
+		os.Exit(1)
+	}
+	agentInstanceService := agentinstance.NewService(dbClient, extensionCfg.Authorizer, instanceWorkflow)
 
 	apiTranslator := agent_translator.NewAdkApiTranslatorWithWatchedNamespaces(
 		mgr.GetClient(),
@@ -566,7 +560,6 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		extensionCfg.SandboxBackend,
 		cfg.MCPEgressPlaintext,
 	)
-
 	rcnclr := reconciler.NewKagentReconciler(
 		apiTranslator,
 		mgr.GetClient(),
@@ -594,15 +587,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 
 	kubeClient := mgr.GetClient()
-	var substrateHarnessBackends map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend
-	if cfg.Substrate.AteAPIEndpoint != "" {
-		var err error
-		substrateHarnessBackends, err = buildSubstrateHarnessBackends(ctx, &cfg, substrateAteClient)
-		if err != nil {
-			setupLog.Error(err, "unable to build substrate harness backends")
-			os.Exit(1)
-		}
-	}
+	substrateHarnessBackends := buildSubstrateHarnessBackends(substrateAteClient)
 
 	if err = (&controller.SandboxAgentController{
 		Client:                mgr.GetClient(),
@@ -615,21 +600,16 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		setupLog.Error(err, "unable to create controller", "controller", "SandboxAgent")
 		os.Exit(1)
 	}
-	if len(substrateHarnessBackends) > 0 {
-		if err := (&controller.SubstrateAgentHarnessController{
-			Client:              kubeClient,
-			Recorder:            mgr.GetEventRecorder("agentharness-substrate-controller"),
-			Backends:            substrateHarnessBackends,
-			SubstrateLifecycle:  substrateLifecycle,
-			SessionActorBackend: agentHarnessSessionActorBackend,
-			DbClient:            dbClient,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
-			os.Exit(1)
-		}
-	}
-	if len(substrateHarnessBackends) == 0 {
-		setupLog.Info("AgentHarness controller disabled: set --substrate-ate-api-endpoint")
+	if err := (&controller.SubstrateAgentHarnessController{
+		Client:              kubeClient,
+		Recorder:            mgr.GetEventRecorder("agentharness-substrate-controller"),
+		Backends:            substrateHarnessBackends,
+		SubstrateLifecycle:  substrateLifecycle,
+		SessionActorBackend: agentHarnessSessionActorBackend,
+		DbClient:            dbClient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SubstrateAgentHarness")
+		os.Exit(1)
 	}
 
 	if err = (&controller.ModelConfigController{
@@ -732,11 +712,8 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		os.Exit(1)
 	}
 
-	var agentHarnessGateway *handlers.AgentHarnessGatewayConfig
-	if cfg.Substrate.AteAPIEndpoint != "" {
-		agentHarnessGateway = &handlers.AgentHarnessGatewayConfig{
-			AtenetRouterURL: cfg.Substrate.AtenetRouterURL,
-		}
+	agentHarnessGateway := &handlers.AgentHarnessGatewayConfig{
+		AtenetRouterURL: cfg.Substrate.AtenetRouterURL,
 	}
 	modelConfigService := modelservice.NewService(
 		mgr.GetClient(),
@@ -755,9 +732,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 			MCPEgressPlaintext: cfg.MCPEgressPlaintext,
 		})),
 	}
-	if agentHarnessSessionActorBackend != nil {
-		agentServiceOptions = append(agentServiceOptions, agentservice.WithActorLifecycle(agentHarnessSessionActorBackend))
-	}
+	agentServiceOptions = append(agentServiceOptions, agentservice.WithActorLifecycle(agentHarnessSessionActorBackend))
 	agentService := agentservice.NewService(
 		mgr.GetClient(),
 		extensionCfg.Authorizer,
@@ -772,15 +747,11 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		nil,
 	)
 	promptTemplateService := prompttemplateservice.NewService(mgr.GetClient(), extensionCfg.Authorizer)
-	var inventoryClient systemservice.ATEClient
-	if substrateAteClient != nil {
-		inventoryClient = substrateAteClient
-	}
 	systemService := systemservice.NewService(systemservice.WithInventory(
 		mgr.GetClient(),
 		watchNamespacesList,
 		extensionCfg.Authorizer,
-		inventoryClient,
+		substrateAteClient,
 	))
 	feedbackService := feedbackservice.NewService(dbClient)
 	memoryService := memoryservice.NewService(dbClient)
@@ -828,6 +799,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		MemoryService:         memoryService,
 		SessionService:        sessionService,
 		TaskService:           taskService,
+		AgentInstanceService:  agentInstanceService,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create gRPC server")
@@ -852,12 +824,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 	}
 }
 
-func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *substrate.Client) (map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend, error) {
-	if client == nil {
-		return nil, fmt.Errorf("substrate ate-api client is required")
-	}
-	_ = ctx
-	_ = cfg
+func buildSubstrateHarnessBackends(client *substrate.Client) map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend {
 	backends := make(map[v1alpha3.AgentHarnessBackendType]sandboxbackend.AsyncBackend)
 	for _, b := range []v1alpha3.AgentHarnessBackendType{
 		v1alpha3.AgentHarnessBackendOpenClaw,
@@ -865,14 +832,14 @@ func buildSubstrateHarnessBackends(ctx context.Context, cfg *Config, client *sub
 	} {
 		backends[b] = substrate.NewOpenClawBackend(client, b, nil)
 	}
-	return backends, nil
+	return backends
 }
 
 func substrateAppConfig(cfg *Config) substrate.Config {
 	sc := substrate.Config{
 		AteAPIEndpoint: cfg.Substrate.AteAPIEndpoint,
-		TokenFile:      cfg.Substrate.AteAPITokenFile,
-		Insecure:       cfg.Substrate.Insecure,
+		CAFile:         cfg.Substrate.AteAPICAFile,
+		ClientCertFile: cfg.Substrate.AteAPIClientCertFile,
 		DialTimeout:    cfg.Substrate.DialTimeout,
 		CallTimeout:    cfg.Substrate.CallTimeout,
 	}
@@ -881,7 +848,6 @@ func substrateAppConfig(cfg *Config) substrate.Config {
 
 func substrateLifecycleFromConfig(kubeClient client.Client, cfg *Config, ate *substrate.Client) *substrate.Lifecycle {
 	return substrate.NewLifecycle(kubeClient, substrate.LifecycleDefaults{
-		PauseImage: cfg.Substrate.PauseImage,
 		// ImageRegistry/ImageRepository mirror the declarative-agent image config
 		// (--image-registry/--image-repository) so digest-pinned acp-sandbox
 		// workload images resolve against the same (possibly private/mirrored)

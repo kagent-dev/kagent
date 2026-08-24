@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	skillruntime "github.com/kagent-dev/kagent/go/adk/pkg/skills"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
@@ -121,10 +120,6 @@ Timeouts:
 	fileSearchToolsBashHint = "\nAlso available: list_files and grep_file, for exploring the filesystem without a full shell command."
 )
 
-type skillsInput struct {
-	Command string `json:"command"`
-}
-
 type bashInput struct {
 	Command     string `json:"command"`
 	Description string `json:"description,omitempty"`
@@ -159,7 +154,9 @@ type grepFileInput struct {
 	IgnoreCase bool   `json:"ignore_case,omitempty"`
 }
 
-func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
+// NewSkillExecutionTools creates the filesystem and shell tools used to execute
+// skills. Skill discovery and loading are provided by Go ADK's skilltoolset.
+func NewSkillExecutionTools(skillsDirectory string) ([]tool.Tool, error) {
 	skillsDirectory = strings.TrimSpace(skillsDirectory)
 	if skillsDirectory == "" {
 		return nil, nil
@@ -173,35 +170,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 		return nil, fmt.Errorf("failed to access skills directory %q: %w", absSkillsDir, err)
 	}
 
-	discoveredSkills, err := skillruntime.DiscoverSkills(absSkillsDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to discover skills: %w", err)
-	}
-
-	skillsTool, err := functiontool.New(functiontool.Config{
-		Name:        "skills",
-		Description: skillruntime.GenerateSkillsToolDescription(discoveredSkills),
-	}, func(ctx adkagent.Context, in skillsInput) (string, error) {
-		skillName := strings.TrimSpace(in.Command)
-		if skillName == "" {
-			return "Error: No skill name provided", nil
-		}
-
-		content, err := skillruntime.LoadSkillContent(absSkillsDir, skillName)
-		if err != nil {
-			return fmt.Sprintf("Error loading skill '%s': %v", skillName, err), nil
-		}
-
-		return fmt.Sprintf(
-			"<command-message>The %q skill is loading</command-message>\n\nBase directory for this skill: %s\n\n%s\n\n---\nThe skill has been loaded. Follow the instructions above and use the bash tool to execute commands.",
-			skillName,
-			filepath.Join(absSkillsDir, skillName),
-			content,
-		), nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create skills tool: %w", err)
-	}
+	commandExecutor := NewCommandExecutor()
 
 	readFileTool, err := functiontool.New(functiontool.Config{
 		Name:        "read_file",
@@ -212,7 +181,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 			return fmt.Sprintf("Error reading file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
 
-		content, err := skillruntime.ReadFileContent(path, in.Offset, in.Limit)
+		content, err := ReadFileContent(path, in.Offset, in.Limit)
 		if err != nil {
 			return fmt.Sprintf("Error reading file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
@@ -231,7 +200,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 			return fmt.Sprintf("Error writing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
 
-		if err := skillruntime.WriteFileContent(path, in.Content); err != nil {
+		if err := WriteFileContent(path, in.Content); err != nil {
 			return fmt.Sprintf("Error writing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
 		return fmt.Sprintf("Successfully wrote file: %s", path), nil
@@ -249,7 +218,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 			return fmt.Sprintf("Error editing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
 
-		if err := skillruntime.EditFileContent(path, in.OldString, in.NewString, in.ReplaceAll); err != nil {
+		if err := EditFileContent(path, in.OldString, in.NewString, in.ReplaceAll); err != nil {
 			return fmt.Sprintf("Error editing file %s: %v", strings.TrimSpace(in.FilePath), err), nil
 		}
 		return fmt.Sprintf("Successfully edited file: %s", path), nil
@@ -258,7 +227,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 		return nil, fmt.Errorf("failed to create edit_file tool: %w", err)
 	}
 
-	tools := []tool.Tool{skillsTool, readFileTool, writeFileTool, editFileTool}
+	tools := []tool.Tool{readFileTool, writeFileTool, editFileTool}
 
 	// list_files/grep_file are opt-in: they give an agent broad filesystem
 	// visibility, so some deployments want them off unless explicitly
@@ -279,7 +248,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 				return fmt.Sprintf("Error listing %s: %v", requestedPath, err), nil
 			}
 
-			content, err := skillruntime.ListDirContent(path)
+			content, err := ListDirContent(path)
 			if err != nil {
 				return fmt.Sprintf("Error listing %s: %v", requestedPath, err), nil
 			}
@@ -305,7 +274,7 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 				return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
 			}
 
-			content, err := skillruntime.GrepContent(path, in.Pattern, in.Recursive, in.IgnoreCase)
+			content, err := GrepContent(path, in.Pattern, in.Recursive, in.IgnoreCase)
 			if err != nil {
 				return fmt.Sprintf("Error searching %s: %v", strings.TrimSpace(in.Path), err), nil
 			}
@@ -320,47 +289,40 @@ func NewSkillsTools(skillsDirectory string) ([]tool.Tool, error) {
 		slog.Debug("omitting list_files/grep_file tools: " + enableFileSearchToolsEnv + " not enabled")
 	}
 
-	// bash requires the sandbox-runtime (KAGENT_SRT_SETTINGS_PATH); when that's not
-	// configured (e.g. bash is intentionally disabled), skip only this tool rather
-	// than failing the whole toolset.
-	if commandExecutor, err := skillruntime.NewCommandExecutorFromEnv(); err == nil {
-		desc := bashDescription
-		if fileSearchEnabled {
-			desc += fileSearchToolsBashHint
-		}
-		bashTool, err := functiontool.New(functiontool.Config{
-			Name:        "bash",
-			Description: desc,
-		}, func(ctx adkagent.Context, in bashInput) (string, error) {
-			command := strings.TrimSpace(in.Command)
-			if command == "" {
-				return "Error: No command provided", nil
-			}
-
-			sessionPath, err := skillruntime.GetSessionPath(ctx.SessionID(), absSkillsDir)
-			if err != nil {
-				return fmt.Sprintf("Error executing command %q: %v", command, err), nil
-			}
-
-			result, err := commandExecutor.ExecuteCommand(ctx, command, sessionPath)
-			if err != nil {
-				return fmt.Sprintf("Error executing command %q: %v", command, err), nil
-			}
-			return result, nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create bash tool: %w", err)
-		}
-		tools = append(tools, bashTool)
-	} else {
-		slog.Debug("omitting bash tool: sandbox-runtime not configured", "error", err)
+	desc := bashDescription
+	if fileSearchEnabled {
+		desc += fileSearchToolsBashHint
 	}
+	bashTool, err := functiontool.New(functiontool.Config{
+		Name:        "bash",
+		Description: desc,
+	}, func(ctx adkagent.Context, in bashInput) (string, error) {
+		command := strings.TrimSpace(in.Command)
+		if command == "" {
+			return "Error: No command provided", nil
+		}
+
+		sessionPath, err := GetSessionPath(ctx.SessionID(), absSkillsDir)
+		if err != nil {
+			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
+		}
+
+		result, err := commandExecutor.ExecuteCommand(ctx, command, sessionPath)
+		if err != nil {
+			return fmt.Sprintf("Error executing command %q: %v", command, err), nil
+		}
+		return result, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bash tool: %w", err)
+	}
+	tools = append(tools, bashTool)
 
 	return tools, nil
 }
 
 func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
-	sessionPath, err := skillruntime.GetSessionPath(sessionID, skillsDirectory)
+	sessionPath, err := GetSessionPath(sessionID, skillsDirectory)
 	if err != nil {
 		return "", err
 	}
@@ -384,7 +346,7 @@ func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, 
 		return "", err
 	}
 
-	if !skillruntime.WithinRoot(resolvedCandidate, sessionRoot) && !skillruntime.WithinRoot(resolvedCandidate, skillsRoot) {
+	if !WithinRoot(resolvedCandidate, sessionRoot) && !WithinRoot(resolvedCandidate, skillsRoot) {
 		return "", fmt.Errorf("path %q is outside the allowed roots", requestedPath)
 	}
 
@@ -392,7 +354,7 @@ func resolveReadPath(sessionID, skillsDirectory, requestedPath string) (string, 
 }
 
 func resolveEditPath(sessionID, skillsDirectory, requestedPath string) (string, error) {
-	sessionPath, err := skillruntime.GetSessionPath(sessionID, skillsDirectory)
+	sessionPath, err := GetSessionPath(sessionID, skillsDirectory)
 	if err != nil {
 		return "", err
 	}
@@ -411,7 +373,7 @@ func resolveEditPath(sessionID, skillsDirectory, requestedPath string) (string, 
 	if err != nil {
 		return "", err
 	}
-	if !skillruntime.WithinRoot(resolvedCandidate, sessionRoot) {
+	if !WithinRoot(resolvedCandidate, sessionRoot) {
 		return "", fmt.Errorf("path %q is outside the writable session directory", requestedPath)
 	}
 
@@ -419,7 +381,7 @@ func resolveEditPath(sessionID, skillsDirectory, requestedPath string) (string, 
 }
 
 func resolveWritePath(sessionID, skillsDirectory, requestedPath string) (string, error) {
-	sessionPath, err := skillruntime.GetSessionPath(sessionID, skillsDirectory)
+	sessionPath, err := GetSessionPath(sessionID, skillsDirectory)
 	if err != nil {
 		return "", err
 	}
@@ -438,7 +400,7 @@ func resolveWritePath(sessionID, skillsDirectory, requestedPath string) (string,
 	if err != nil {
 		return "", err
 	}
-	if !skillruntime.WithinRoot(resolvedCandidate, sessionRoot) {
+	if !WithinRoot(resolvedCandidate, sessionRoot) {
 		return "", fmt.Errorf("path %q is outside the writable session directory", requestedPath)
 	}
 

@@ -389,46 +389,35 @@ func (s *Service) listATEState(ctx context.Context, namespaces []string) ([]Subs
 }
 
 func actorFromProto(actor *ateapipb.Actor) SubstrateActor {
+	assignment := actor.GetStatus().GetWorkerAssignment()
 	return SubstrateActor{
 		ActorID:                actor.GetMetadata().GetName(),
 		Atespace:               actor.GetMetadata().GetAtespace(),
-		Status:                 substrate.ActorStatusLabel(actor.GetStatus()),
+		Status:                 substrate.ActorStatusLabel(actor.GetStatus().GetState()),
 		ActorTemplateNamespace: actor.GetActorTemplateNamespace(),
 		ActorTemplateName:      actor.GetActorTemplateName(),
-		AteomPodNamespace:      actor.GetAteomPodNamespace(),
-		AteomPodName:           actor.GetAteomPodName(),
-		AteomPodIP:             actor.GetAteomPodIp(),
-		LatestSnapshot:         snapshotInfoString(actor.GetLatestSnapshotInfo()),
-		WorkerPoolName:         actor.GetWorkerPoolName(),
-		InProgressSnapshot:     actor.GetInProgressSnapshot(),
+		AteomPodNamespace:      assignment.GetWorkerNamespace(),
+		AteomPodName:           assignment.GetWorkerPod(),
+		AteomPodIP:             assignment.GetWorkerPodIp(),
+		LatestSnapshot:         actor.GetStatus().GetLatestSnapshot().GetName(),
+		WorkerPoolName:         assignment.GetWorkerPool(),
+		InProgressSnapshot:     actor.GetStatus().GetInProgressSnapshotName(),
 		Version:                actor.GetMetadata().GetVersion(),
 	}
 }
 
 func workerFromProto(worker *ateapipb.Worker) SubstrateWorker {
+	assignment := worker.GetStatus().GetAssignment()
 	return SubstrateWorker{
 		WorkerNamespace: worker.GetWorkerNamespace(),
 		WorkerPool:      worker.GetWorkerPool(),
 		WorkerPod:       worker.GetWorkerPod(),
-		ActorNamespace:  worker.GetAssignment().GetActorTemplate().GetNamespace(),
-		ActorTemplate:   worker.GetAssignment().GetActorTemplate().GetName(),
-		ActorID:         worker.GetAssignment().GetActor().GetName(),
+		ActorNamespace:  assignment.GetActorTemplate().GetNamespace(),
+		ActorTemplate:   assignment.GetActorTemplate().GetName(),
+		ActorID:         assignment.GetActor().GetName(),
 		IP:              worker.GetIp(),
-		Version:         worker.GetVersion(),
+		Version:         worker.GetMetadata().GetVersion(),
 	}
-}
-
-func snapshotInfoString(snapshot *ateapipb.SnapshotInfo) string {
-	if snapshot == nil {
-		return ""
-	}
-	if external := snapshot.GetExternal(); external != nil {
-		return external.GetSnapshotUriPrefix()
-	}
-	if local := snapshot.GetLocal(); local != nil {
-		return local.GetSnapshotPrefix()
-	}
-	return ""
 }
 
 func labelSelectorString(ctx context.Context, selector *metav1.LabelSelector) string {

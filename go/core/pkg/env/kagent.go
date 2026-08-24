@@ -81,13 +81,6 @@ var (
 		ComponentAgentRuntime,
 	)
 
-	KagentSRTSettingsPath = RegisterStringVar(
-		"KAGENT_SRT_SETTINGS_PATH",
-		"/config/srt-settings.json",
-		"Path to the mounted srt settings file used by sandboxed execution.",
-		ComponentAgentRuntime,
-	)
-
 	KagentPropagateToken = RegisterStringVar(
 		"KAGENT_PROPAGATE_TOKEN",
 		"",

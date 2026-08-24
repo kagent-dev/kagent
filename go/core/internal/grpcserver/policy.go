@@ -1,6 +1,7 @@
 package grpcserver
 
 import (
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -18,7 +19,7 @@ const (
 type MethodPolicies map[string]AccessMode
 
 func DefaultMethodPolicies() MethodPolicies {
-	return MethodPolicies{
+	policies := MethodPolicies{
 		apiv1alpha1.SystemService_GetVersion_FullMethodName:                     AccessPublic,
 		apiv1alpha1.SystemService_GetCurrentUser_FullMethodName:                 AccessRead,
 		apiv1alpha1.SystemService_ListNamespaces_FullMethodName:                 AccessRead,
@@ -84,4 +85,25 @@ func DefaultMethodPolicies() MethodPolicies {
 		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo":             AccessPublic,
 		"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo":        AccessPublic,
 	}
+	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName] = AccessCreate
+	policies[apiv1alpha1.AgentInstanceService_GetAgentInstance_FullMethodName] = AccessRead
+	policies[apiv1alpha1.AgentInstanceService_ListAgentInstances_FullMethodName] = AccessRead
+	policies[apiv1alpha1.AgentInstanceService_SuspendAgentInstance_FullMethodName] = AccessUpdate
+	policies[apiv1alpha1.AgentInstanceService_ResumeAgentInstance_FullMethodName] = AccessUpdate
+	policies[apiv1alpha1.AgentInstanceService_DeleteAgentInstance_FullMethodName] = AccessDelete
+	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName] = AccessCreate
+	policies[apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName] = AccessRead
+	policies[apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName] = AccessDelete
+	policies[a2apb.A2AService_SendMessage_FullMethodName] = AccessCreate
+	policies[a2apb.A2AService_SendStreamingMessage_FullMethodName] = AccessCreate
+	policies[a2apb.A2AService_GetTask_FullMethodName] = AccessRead
+	policies[a2apb.A2AService_ListTasks_FullMethodName] = AccessRead
+	policies[a2apb.A2AService_CancelTask_FullMethodName] = AccessUpdate
+	policies[a2apb.A2AService_SubscribeToTask_FullMethodName] = AccessRead
+	policies[a2apb.A2AService_CreateTaskPushNotificationConfig_FullMethodName] = AccessCreate
+	policies[a2apb.A2AService_GetTaskPushNotificationConfig_FullMethodName] = AccessRead
+	policies[a2apb.A2AService_ListTaskPushNotificationConfigs_FullMethodName] = AccessRead
+	policies[a2apb.A2AService_DeleteTaskPushNotificationConfig_FullMethodName] = AccessDelete
+	policies[a2apb.A2AService_GetExtendedAgentCard_FullMethodName] = AccessRead
+	return policies
 }
