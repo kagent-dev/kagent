@@ -99,7 +99,7 @@ database:
     # of no activity. Uses session.updated_at as a sliding idle clock (writes refresh it).
     # 0 disables cleanup (default, existing installs unchanged).
     sessionRetentionDays: 0
-    # -- Bundled PostgreSQL instance — for development and evaluation only.
+    # -- Bundled PostgreSQL instance, for development and evaluation only.
     # Not suitable for production. Deployed when enabled is true and url/urlFile are not set.
     bundled:
       # -- Set to false to disable the bundled database and provide your own via url or urlFile.
@@ -189,6 +189,10 @@ controller:
     registry: ""
     repository: kagent-dev/kagent/golang-adk
     tag: "" # Will default to global, then Chart version
+    # -- Manifest digest (sha256:...) for the agent image. Sandbox agents require a
+    # digest-pinned image ref; set this when the controller binary was not built with
+    # a digest baked in, or when a mirrored registry re-assigns digests.
+    digest: ""
   # -- @deprecated Removed in 0.10.0. The A2A SDK now handles SSE buffering and timeouts
   # internally. These values have no effect and will be removed in a future release.
   streaming: null
@@ -292,8 +296,8 @@ controller:
   # template time, so overriding `METRICS_BIND_ADDRESS` via
   # `controller.env` shifts only the runtime listener and leaves the
   # rendered Service pointing at the chart-time port. Setting
-  # `bindAddress: "0"` (or empty) is treated as a disable signal —
-  # equivalent to `enabled: false` — to keep faith with the controller
+  # `bindAddress: "0"` (or empty) is treated as a disable signal,
+  # equivalent to `enabled: false`, to keep faith with the controller
   # binary's documented contract for `--metrics-bind-address`.
   # @default -- disabled
   metrics:
@@ -350,13 +354,13 @@ controller:
   #   readOnly: true
 
   # -- Custom startup probe for the controller container.
-  # Setting a value replaces the default probe entirely — include a handler
+  # Setting a value replaces the default probe entirely, include a handler
   # (httpGet / exec / tcpSocket / grpc) when overriding.
   # @default -- httpGet /health on port http, periodSeconds=15, initialDelaySeconds=15
   startupProbe: {}
 
   # -- Custom readiness probe for the controller container.
-  # Setting a value replaces the default probe entirely — include a handler
+  # Setting a value replaces the default probe entirely, include a handler
   # (httpGet / exec / tcpSocket / grpc) when overriding.
   # @default -- httpGet /health on port http, periodSeconds=30
   readinessProbe: {}

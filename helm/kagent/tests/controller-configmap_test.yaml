@@ -1,0 +1,21 @@
+suite: test controller configmap
+templates:
+  - controller-configmap.yaml
+tests:
+  - it: should default IMAGE_DIGEST to empty
+    template: controller-configmap.yaml
+    asserts:
+      - equal:
+          path: data.IMAGE_DIGEST
+          value: ""
+
+  - it: should render IMAGE_DIGEST from controller.agentImage.digest
+    template: controller-configmap.yaml
+    set:
+      controller:
+        agentImage:
+          digest: sha256:deadbeef
+    asserts:
+      - equal:
+          path: data.IMAGE_DIGEST
+          value: "sha256:deadbeef"
