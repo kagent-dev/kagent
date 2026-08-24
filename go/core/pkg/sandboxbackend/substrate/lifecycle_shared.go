@@ -161,7 +161,7 @@ func truncateDNS1123To(s string, max int) string {
 // ResolveCurrentActorTemplate returns the ActorTemplate a SandboxAgent should currently serve
 // from: the template matching the agent's CURRENT desired config whose golden is Ready, else the
 // most-recently-desired Ready template (the previous config) while the desired one is still
-// building — the blue-green pivot, with no downtime and an atomic flip once the new golden is
+// building, the blue-green pivot, with no downtime and an atomic flip once the new golden is
 // Ready.
 //
 // "Desired" is tracked by the kagent.dev/desired-generation annotation (the agent generation that
@@ -299,6 +299,15 @@ func resolvePodEnv(ctx context.Context, kube client.Reader, namespace string, en
 			return nil, err
 		}
 		value, ok := secret.Data[ref.Key]
+		if !ok {
+			// localSecret is often the translator's freshly-built, not-yet-applied Secret
+			// object, which the API server would normally fold StringData into Data on
+			// write. Since it never round-trips through the API server here, fall back to
+			// StringData directly.
+			var strValue string
+			strValue, ok = secret.StringData[ref.Key]
+			value = []byte(strValue)
+		}
 		if !ok {
 			if ref.Optional != nil && *ref.Optional {
 				resolved[i].ValueFrom = nil
