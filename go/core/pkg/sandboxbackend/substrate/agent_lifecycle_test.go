@@ -219,6 +219,12 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			require.NotNil(t, c.Readyz.HTTPGet)
 			require.Equal(t, "/.well-known/agent-card.json", c.Readyz.HTTPGet.Path)
 			require.Equal(t, substrateKagentListenPort, c.Readyz.HTTPGet.Port)
+			// TimeoutSeconds must mirror ActorTemplateSpec's own +kubebuilder:default=30:
+			// it's a non-pointer field, so leaving it unset here would serialize a desired
+			// spec with TimeoutSeconds=0 that permanently disagrees with the apiserver's
+			// defaulted stored value, driving reconcileActorTemplate into a delete+recreate
+			// loop (see the TimeoutSeconds field comment above for the full mechanism).
+			require.Equal(t, int32(30), c.Readyz.TimeoutSeconds)
 
 			names := actorEnvNames(c.Env)
 			require.True(t, names["KAGENT_NAME"], "KAGENT_NAME must be a literal env var")
