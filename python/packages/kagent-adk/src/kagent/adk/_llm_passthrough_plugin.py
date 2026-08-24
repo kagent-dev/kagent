@@ -14,6 +14,8 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.plugins.base_plugin import BasePlugin
 
+from ._bearer_token import extract_bearer_token
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,16 +28,6 @@ class SupportsPassthroughAuth(Protocol):
     def set_passthrough_key(self, token: str) -> None: ...
 
 
-def _extract_bearer_token(callback_context: CallbackContext) -> Optional[str]:
-    """Extract the Bearer token from session state headers."""
-    headers = callback_context.state.get("headers", {})
-    auth_header = headers.get("authorization") or headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return None
-    token = auth_header[7:].strip()
-    return token or None
-
-
 class LLMPassthroughPlugin(BasePlugin):
     """Sets the LLM API key from the incoming request's Bearer token."""
 
@@ -45,7 +37,7 @@ class LLMPassthroughPlugin(BasePlugin):
     async def before_model_callback(
         self, *, callback_context: CallbackContext, llm_request: LlmRequest
     ) -> Optional[LlmResponse]:
-        token = _extract_bearer_token(callback_context)
+        token = extract_bearer_token(callback_context.state.get("headers", {}))
         if not token:
             return None
 

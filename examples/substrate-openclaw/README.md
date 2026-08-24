@@ -10,7 +10,7 @@ This assumes you've configured a kind cluster using `make create-kind-cluster`.
 
 atelet is what pulls the ActorTemplate container image for each golden actor. It uses
 `go-containerregistry` directly (not containerd), so containerd's registry-mirror
-config on the kind node does **not** apply to atelet — you have to tell atelet how to
+config on the kind node does **not** apply to atelet, you have to tell atelet how to
 reach the local kind registry with its own flags:
 
 ```yaml
@@ -25,8 +25,8 @@ atelet:
   # that atelet's puller can actually resolve from inside its pod. atelet also
   # applies `name.Insecure` for any ref that was originally `localhost:*`, so
   # the rewritten `kind-registry:5000` ref is fetched over HTTP (kind-registry
-  # is `registry:2` with no TLS by default). Without both parts of this — the
-  # rewrite AND the insecure flag it triggers — atelet errors out with either
+  # is `registry:2` with no TLS by default). Without both parts of this, the
+  # rewrite AND the insecure flag it triggers, atelet errors out with either
   #   `dial tcp [::1]:5001: connect: connection refused`  (no rewrite), or
   #   `http: server gave HTTP response to HTTPS client`   (rewrite without Insecure).
   extraArgs:
@@ -34,13 +34,13 @@ atelet:
 ```
 
 When installing Substrate as a **subchart** of kagent (i.e. `--set substrate.enabled=true`
-on the kagent chart), prefix these keys with `substrate.` — e.g.
+on the kagent chart), prefix these keys with `substrate.`, e.g.
 `--set-json 'substrate.atelet.extraArgs=["--localhost-registry-replacement=kind-registry:5000"]'`.
 
 Then install the Substrate platform and kagent:
 
 ```bash
-export SUBSTRATE_VERSION=0.0.8
+export SUBSTRATE_VERSION=0.0.20
 
 helm upgrade --install substrate-crds \
   oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds \
@@ -55,7 +55,6 @@ helm upgrade --install substrate \
 make helm-install KAGENT_HELM_EXTRA_ARGS="\
   --set controller.substrate.enabled=true \
   --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443 \
-  --set controller.substrate.ateApiInsecure=true \
   --set substrateWorkerPool.create=true \
   --set substrateWorkerPool.ateomImage=ghcr.io/kagent-dev/substrate/ateom-gvisor:v${SUBSTRATE_VERSION}"
 ```
@@ -74,7 +73,7 @@ kagent generates a per-harness `ActorTemplate` and schedules actors onto an exis
 
 Create a harness. If `snapshotsConfig` is omitted, kagent defaults it to `gs://ate-snapshots/<namespace>/<agentharnessname>`.
 
-- **Worker pool** — reference an existing pool (`workerPoolRef`) or configure a controller default WorkerPool. The target pool must carry label `kagent.dev/worker-pool: <pool-name>`. The kagent Helm-managed pool gets this label automatically; externally owned pools must add it manually.
+- **Worker pool**: reference an existing pool (`workerPoolRef`) or configure a controller default WorkerPool. The target pool must carry label `kagent.dev/worker-pool: <pool-name>`. The kagent Helm-managed pool gets this label automatically; externally owned pools must add it manually.
 
 ```yaml
 apiVersion: kagent.dev/v1alpha3

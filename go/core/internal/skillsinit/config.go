@@ -57,9 +57,11 @@ type Config struct {
 
 // S3Ref describes a single S3 fetch into Dest.
 type S3Ref struct {
-	URI    string `json:"uri"`
-	Dest   string `json:"dest"`
-	Region string `json:"region,omitempty"`
+	URI       string `json:"uri"`
+	Dest      string `json:"dest"`
+	Endpoint  string `json:"endpoint,omitempty"`
+	Region    string `json:"region,omitempty"`
+	VersionID string `json:"versionId,omitempty"`
 }
 
 // GitRef describes a single git clone operation.

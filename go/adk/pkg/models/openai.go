@@ -201,14 +201,15 @@ func NewAzureOpenAIModelWithLogger(ctx context.Context, config *AzureOpenAIConfi
 // For OpenAI the SDK sends this as "Authorization: Bearer <token>".
 // For Azure the SDK sends this as "Api-Key: <token>" via option.WithHeader.
 func openAIPassthroughOpts(ctx context.Context, m *OpenAIModel) []option.RequestOption {
-	if m.Config == nil || !m.Config.APIKeyPassthrough {
+	if m.Config == nil {
 		return nil
 	}
-	if token, ok := ctx.Value(BearerTokenKey).(string); ok && token != "" {
-		if m.IsAzure {
-			return []option.RequestOption{option.WithHeader("Api-Key", token)}
-		}
-		return []option.RequestOption{option.WithAPIKey(token)}
+	token, ok := PassthroughToken(ctx, m.Config.APIKeyPassthrough)
+	if !ok {
+		return nil
 	}
-	return nil
+	if m.IsAzure {
+		return []option.RequestOption{option.WithHeader("Api-Key", token)}
+	}
+	return []option.RequestOption{option.WithAPIKey(token)}
 }

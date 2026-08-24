@@ -74,14 +74,22 @@ func (*serviceTestStore) DeleteAgentInstanceShare(context.Context, string, strin
 	return nil
 }
 
-type serviceTestWorkflow struct{}
+type serviceTestWorkflow struct{ err error }
 
-func (serviceTestWorkflow) Create(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, nil
+func (w serviceTestWorkflow) Create(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	return instance, w.err
 }
 
-func (serviceTestWorkflow) Delete(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
-	return instance, nil
+func (w serviceTestWorkflow) Suspend(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	return instance, w.err
+}
+
+func (w serviceTestWorkflow) Resume(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	return instance, w.err
+}
+
+func (w serviceTestWorkflow) Delete(_ context.Context, instance *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error) {
+	return instance, w.err
 }
 
 func serviceTestContext(userID string) context.Context {
@@ -141,6 +149,25 @@ func TestServiceCreateRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
 			_, err := service.Create(test.ctx, test.namespace, "kagent", "assistant", "request-1")
 			if !serviceerrors.IsCode(err, test.code) {
 				t.Fatalf("Create() error = %v, want code %s", err, test.code)
+			}
+		})
+	}
+}
+
+func TestServiceLifecycleMethodsMapConflictToAborted(t *testing.T) {
+	service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{err: dbpkg.ErrAgentInstanceConflict})
+	for _, test := range []struct {
+		name string
+		call func(*Service, context.Context, string, string) (*apiv1alpha1.AgentInstance, error)
+	}{
+		{name: "suspend", call: (*Service).Suspend},
+		{name: "resume", call: (*Service).Resume},
+		{name: "delete", call: (*Service).Delete},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.call(service, serviceTestContext("alice"), "team-a", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
+			if !serviceerrors.IsCode(err, serviceerrors.CodeAborted) {
+				t.Fatalf("error = %v, want code %s", err, serviceerrors.CodeAborted)
 			}
 		})
 	}

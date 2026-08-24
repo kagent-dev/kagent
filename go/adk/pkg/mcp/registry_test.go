@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -14,6 +15,20 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/genai"
 )
+
+func TestCreateTransportBuildsStdioCommand(t *testing.T) {
+	dir := t.TempDir()
+	transport, err := createTransport(t.Context(), mcpServerParams{
+		ServerType: "stdio", Command: "server", Args: []string{"--stdio"}, Env: map[string]string{"PLUGIN_ROOT": dir}, Dir: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdio, ok := transport.(*mcpsdk.CommandTransport)
+	if !ok || filepath.Base(stdio.Command.Path) != "server" || len(stdio.Command.Args) != 2 || stdio.Command.Dir != dir {
+		t.Fatalf("stdio transport = %#v", transport)
+	}
+}
 
 // newTestTransport returns a transport private to the test. These parallel
 // tests must not share newTestTransport(t): httptest.Server.Close (deferred

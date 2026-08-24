@@ -179,6 +179,7 @@ type HarnessStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=harnesses,singular=harness,categories=kagent
 // +kubebuilder:subresource:status

@@ -3,7 +3,6 @@ import {
   newEmptyGitSkillRow,
   newEmptyS3SkillRow,
   s3RefToFormRow,
-  s3SkillsAuthSecretNameFromEnv,
   type GitSkillFormRow,
   type S3SkillFormRow,
 } from "@/lib/agentSkillsForm";
@@ -34,7 +33,6 @@ import type {
   AgentResponse,
   AgentSpec,
   ContextConfig,
-  DeclarativeRuntime,
   EnvVar,
   GitRepo,
   ModelConfig,
@@ -67,7 +65,6 @@ export interface AgentFormData {
   namespace: string;
   description: string;
   type?: AgentType;
-  declarativeRuntime?: DeclarativeRuntime;
   systemPrompt?: string;
   modelName?: string;
   tools: Tool[];
@@ -76,7 +73,6 @@ export interface AgentFormData {
   skillGitRepos?: GitRepo[];
   skillsGitAuthSecretName?: string;
   skillS3Repos?: S3SkillRef[];
-  skillsS3AuthSecretName?: string;
   memory?: {
     modelConfig?: string;
     ttlDays?: number;
@@ -123,14 +119,12 @@ export interface AgentFormFields {
   skillGitRepos: GitSkillFormRow[];
   skillsGitAuthSecretName: string;
   skillS3Repos: S3SkillFormRow[];
-  skillsS3AuthSecretName: string;
   byoImage: string;
   byoCmd: string;
   byoArgs: string;
   envPairs: AgentFormEnvRow[];
   stream: boolean;
   shareTools: boolean;
-  declarativeRuntime: DeclarativeRuntime;
   contextConfig: ContextConfig | undefined;
   promptSourceRows: PromptSourceRow[];
   substrateWorkerPoolRefName: string;
@@ -168,14 +162,12 @@ export function createInitialAgentFormState({
     skillGitRepos: [newEmptyGitSkillRow()],
     skillsGitAuthSecretName: "",
     skillS3Repos: [newEmptyS3SkillRow()],
-    skillsS3AuthSecretName: "",
     byoImage: "",
     byoCmd: "",
     byoArgs: "",
     envPairs: [{ name: "", value: "", isSecret: false }],
     stream: false,
     shareTools: false,
-    declarativeRuntime: "go",
     contextConfig: undefined,
     promptSourceRows: [newPromptSourceRow()],
     isSubmitting: false,
@@ -322,12 +314,8 @@ export function agentResponseToFormState(
       skillS3Repos: agent.spec.skills?.s3Refs?.length
         ? agent.spec.skills.s3Refs.map(s3RefToFormRow)
         : [newEmptyS3SkillRow()],
-      skillsS3AuthSecretName: s3SkillsAuthSecretNameFromEnv(
-        agent.spec.skills?.initContainer?.env,
-      ),
       stream: declarative?.stream ?? false,
       shareTools: declarative?.shareTools ?? false,
-      declarativeRuntime: declarative?.runtime === "go" ? "go" : "python",
       selectedMemoryModel: memoryModelRef
         ? {
             ref: memoryModelRef,
@@ -434,7 +422,6 @@ export function agentFormStateToData(
           }
         : undefined,
     context: declarative ? state.contextConfig : undefined,
-    declarativeRuntime: declarative ? state.declarativeRuntime : undefined,
     byoImage: state.byoImage,
     byoCmd: state.byoCmd || undefined,
     byoArgs: state.byoArgs
@@ -470,12 +457,6 @@ function qualifiedResourceRef(namespace: string | undefined, ref: string): strin
     return ref;
   }
   return k8sRefUtils.toRef(namespace || "default", ref);
-}
-
-function declarativeRuntimeFromForm(
-  data: AgentWorkloadFormData,
-): DeclarativeRuntime {
-  return data.declarativeRuntime === "python" ? "python" : "go";
 }
 
 function resolveNamespacedRef(
@@ -575,7 +556,6 @@ function declarativeSpecFromForm(
   data: AgentWorkloadFormData,
 ): DeclarativeAgentSpec {
   const declarative: DeclarativeAgentSpec = {
-    runtime: declarativeRuntimeFromForm(data),
     systemMessage: data.systemPrompt || "",
     modelConfig: resourceNameFromRef(data.modelName),
     stream: data.stream ?? true,

@@ -18,9 +18,16 @@ networking:
   # Using a random port makes it easier to spin up multiple clusters.
   # apiServerPort: 6443
 
+# Substrate WorkerPools project pod identities and trust bundles into ateom.
+featureGates:
+  ClusterTrustBundle: true
+  ClusterTrustBundleProjection: true
+  PodCertificateRequest: true
+
 # this may be used to e.g. disable beta / alpha APIs.
 runtimeConfig:
   "api/alpha": "false"
+  "certificates.k8s.io/v1beta1": "true"
 
 # add to the apiServer certSANs the name of the docker (dind) service in order to be able to reach the cluster through it
 kubeadmConfigPatchesJSON6902:

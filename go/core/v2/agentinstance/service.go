@@ -33,6 +33,8 @@ type store interface {
 
 type instanceWorkflow interface {
 	Create(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
+	Suspend(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
+	Resume(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
 	Delete(context.Context, *apiv1alpha1.AgentInstance) (*apiv1alpha1.AgentInstance, error)
 }
 
@@ -163,8 +165,61 @@ func (s *Service) Delete(ctx context.Context, namespace, id string) (*apiv1alpha
 		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
 	}
 	instance, err = s.workflow.Delete(ctx, instance)
+	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
+	}
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to delete AgentInstance", err)
+	}
+	return instance, nil
+}
+
+func (s *Service) Suspend(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateIdentity(namespace, id); err != nil {
+		return nil, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbUpdate, namespace+"/"+id)
+	if err != nil {
+		return nil, err
+	}
+	instance, err := s.store.GetAgentInstance(ctx, namespace, id, creator)
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
+	}
+	instance, err = s.workflow.Suspend(ctx, instance)
+	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to suspend AgentInstance", err)
+	}
+	return instance, nil
+}
+
+func (s *Service) Resume(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateIdentity(namespace, id); err != nil {
+		return nil, err
+	}
+	creator, err := s.authorize(ctx, auth.VerbUpdate, namespace+"/"+id)
+	if err != nil {
+		return nil, err
+	}
+	instance, err := s.store.GetAgentInstance(ctx, namespace, id, creator)
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("AgentInstance not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get AgentInstance", err)
+	}
+	instance, err = s.workflow.Resume(ctx, instance)
+	if errors.Is(err, dbpkg.ErrAgentInstanceConflict) {
+		return nil, serviceerrors.NewAborted("AgentInstance has a conflicting lifecycle operation", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to resume AgentInstance", err)
 	}
 	return instance, nil
 }

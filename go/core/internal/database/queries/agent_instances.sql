@@ -13,8 +13,8 @@ WHERE p.namespace = $1
 
 -- name: InsertAgentInstance :one
 INSERT INTO agent_instance (
-    id, namespace, user_id, request_id, prepared_revision, state, labels, data
-) VALUES ($1, $2, $3, $4, $5, 'CREATING', $6, $7)
+    id, namespace, user_id, request_id, prepared_revision, state, operation, labels, data
+) VALUES ($1, $2, $3, $4, $5, 'CREATING', 'CREATE', $6, $7)
 ON CONFLICT (user_id, namespace, request_id) DO NOTHING
 RETURNING *;
 
@@ -35,8 +35,16 @@ LIMIT sqlc.arg(page_size);
 
 -- name: MarkAgentInstanceReady :one
 UPDATE agent_instance
-SET state = 'READY', data = $2
-WHERE id = $1 AND state = 'CREATING'
+SET state = 'READY', operation = 'NONE', data = $2
+WHERE id = $1 AND state = 'CREATING' AND operation = 'CREATE'
+RETURNING *;
+
+-- name: TransitionAgentInstance :one
+UPDATE agent_instance
+SET state = sqlc.arg(next_state), operation = sqlc.arg(next_operation), data = sqlc.arg(data)
+WHERE id = sqlc.arg(id)
+  AND state = sqlc.arg(expected_state)
+  AND operation = sqlc.arg(expected_operation)
 RETURNING *;
 
 -- name: DeleteAgentInstance :exec
