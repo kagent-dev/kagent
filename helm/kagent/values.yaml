@@ -281,6 +281,19 @@ controller:
   # unless the controller image was built with the digest already stamped)
   imageDigest: ""
 
+  # -- Registry for the golang-adk runtime image (--image-registry). Compiled-in
+  # default is "ghcr.io". Set this together with agentImageRepository and
+  # imageDigest to point every declarative SandboxAgent at your own build
+  # instead of upstream's.
+  # @default -- "" (uses the compiled-in default, ghcr.io)
+  agentImageRegistry: ""
+
+  # -- Repository for the golang-adk runtime image (--image-repository).
+  # Compiled-in default is "kagent-dev/kagent/golang-adk". e.g. set to
+  # "yourfork/kagent/golang-adk" to test against your own fork's release.
+  # @default -- "" (uses the compiled-in default)
+  agentImageRepository: ""
+
   resources:
     requests:
       cpu: 100m
