@@ -58,13 +58,12 @@ func NewA2AHttpMux(agentPathPrefix, sandboxPathPrefix string, authenticator auth
 
 // newTaskQueryHandlers builds the request handler and the legacy (v0) JSON-RPC
 // handler for one agent. kagent persists tasks and is their source of truth,
-// so with a store ListTasks is served from it instead of proxying to the agent
-// runtime (whose legacy 0.3 transport returns ErrUnsupportedOperation for it);
-// every other method, GetTask included, still delegates to the passthrough
-// proxy. v0 has no native tasks/list, so the legacy handler is wrapped to
-// serve that method from the store too (lowercase TaskState). Without a store
-// both wires keep their native behavior, including v0's method-not-found for
-// tasks/list.
+// so with a store GetTask and ListTasks are served from it instead of proxying
+// to the agent runtime; GetTask never falls through on a miss. v0 has no native
+// tasks/list, so the legacy handler is
+// wrapped to serve that method from the store too (lowercase TaskState).
+// Without a store both wires keep their native behavior, including v0's
+// method-not-found for tasks/list.
 func newTaskQueryHandlers(requestHandler a2asrv.RequestHandler, store TaskStore) (a2asrv.RequestHandler, http.Handler) {
 	if store == nil {
 		return requestHandler, a2av0.NewJSONRPCHandler(requestHandler)

@@ -21,8 +21,10 @@ import (
 // fakeTaskStore is an in-memory TaskStore. Sessions are keyed by (id, userID)
 // so cross-user isolation is exercised the same way the real store enforces it.
 type fakeTaskStore struct {
-	sessions map[string]dbpkg.Session // key: sessionID -> session (carries UserID)
-	tasks    map[string][]*a2atype.Task
+	sessions     map[string]dbpkg.Session // key: sessionID -> session (carries UserID)
+	tasks        map[string][]*a2atype.Task
+	getTaskIDs   []string
+	getTaskUsers []string
 }
 
 func newFakeStore() *fakeTaskStore {
@@ -38,6 +40,23 @@ func (f *fakeTaskStore) addSession(id, userID string) {
 
 func (f *fakeTaskStore) addTask(sessionID string, task *a2atype.Task) {
 	f.tasks[sessionID] = append(f.tasks[sessionID], task)
+}
+
+func (f *fakeTaskStore) GetTask(_ context.Context, taskID, userID string) (*a2atype.Task, error) {
+	f.getTaskIDs = append(f.getTaskIDs, taskID)
+	f.getTaskUsers = append(f.getTaskUsers, userID)
+	for sessionID, tasks := range f.tasks {
+		session, ok := f.sessions[sessionID]
+		if !ok || session.UserID != userID {
+			continue
+		}
+		for _, task := range tasks {
+			if string(task.ID) == taskID {
+				return task, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("task %s for user %s: %w", taskID, userID, dbpkg.ErrNotFound)
 }
 
 func (f *fakeTaskStore) GetSession(_ context.Context, sessionID, userID string) (*dbpkg.Session, error) {
@@ -100,6 +119,106 @@ func storeWith(t *testing.T, user, session string, tasks ...*a2atype.Task) *stor
 		store.addTask(session, tk)
 	}
 	return newStoreTaskQueryHandler(&PassthroughRequestHandler{}, store)
+}
+
+type recordingGetTaskDelegate struct {
+	a2asrv.RequestHandler
+	calls int
+	task  *a2atype.Task
+	err   error
+}
+
+func (d *recordingGetTaskDelegate) GetTask(context.Context, *a2atype.GetTaskRequest) (*a2atype.Task, error) {
+	d.calls++
+	return d.task, d.err
+}
+
+func TestGetTask_PersistentHitShapesHistoryAndIncludesArtifacts(t *testing.T) {
+	stored := newTask("t1", "s1", a2atype.TaskStateCompleted, 4, 2)
+	wantStored := newTask("t1", "s1", a2atype.TaskStateCompleted, 4, 2)
+	store := newFakeStore()
+	store.addSession("s1", "alice")
+	store.addTask("s1", stored)
+	delegate := &recordingGetTaskDelegate{}
+	h := newStoreTaskQueryHandler(delegate, store)
+	historyLength := 2
+
+	got, err := h.GetTask(userCtx("alice"), &a2atype.GetTaskRequest{ID: "t1", HistoryLength: &historyLength})
+	require.NoError(t, err)
+	require.Equal(t, a2atype.TaskID("t1"), got.ID)
+	require.Len(t, got.History, 2)
+	require.Equal(t, []string{"t1-msg-2", "t1-msg-3"}, []string{got.History[0].ID, got.History[1].ID})
+	require.Len(t, got.Artifacts, 2)
+	require.Equal(t, []a2atype.ArtifactID{"t1-art-0", "t1-art-1"}, []a2atype.ArtifactID{got.Artifacts[0].ID, got.Artifacts[1].ID})
+	require.Equal(t, []string{"t1"}, store.getTaskIDs)
+	require.Equal(t, []string{"alice"}, store.getTaskUsers)
+	require.Zero(t, delegate.calls)
+	require.Equal(t, wantStored, stored)
+}
+
+func TestGetTask_OtherOwnerReturnsNotFoundWithoutDelegation(t *testing.T) {
+	store := newFakeStore()
+	store.addSession("s1", "alice")
+	store.addTask("s1", newTask("persisted", "s1", a2atype.TaskStateCompleted, 1, 1))
+	delegate := &recordingGetTaskDelegate{task: newTask("runtime", "s1", a2atype.TaskStateWorking, 0, 0)}
+	h := newStoreTaskQueryHandler(delegate, store)
+	req := &a2atype.GetTaskRequest{ID: "persisted"}
+
+	got, err := h.GetTask(userCtx("mallory"), req)
+	require.Nil(t, got)
+	require.ErrorIs(t, err, a2atype.ErrTaskNotFound)
+	require.Equal(t, []string{"mallory"}, store.getTaskUsers)
+	require.Zero(t, delegate.calls)
+}
+
+func TestGetTask_ShareContextStillUsesAuthenticatedCallerWithoutDelegation(t *testing.T) {
+	store := newFakeStore()
+	store.addSession("s1", "alice")
+	store.addTask("s1", newTask("persisted", "s1", a2atype.TaskStateCompleted, 1, 1))
+	delegate := &recordingGetTaskDelegate{task: newTask("runtime", "s1", a2atype.TaskStateWorking, 0, 0)}
+	h := newStoreTaskQueryHandler(delegate, store)
+	ctx := auth.ShareContextTo(userCtx("bob"), &auth.ShareContext{SessionID: "s1", UserID: "alice"})
+
+	got, err := h.GetTask(ctx, &a2atype.GetTaskRequest{ID: "persisted"})
+	require.Nil(t, got)
+	require.ErrorIs(t, err, a2atype.ErrTaskNotFound)
+	require.Equal(t, []string{"bob"}, store.getTaskUsers)
+	require.Zero(t, delegate.calls)
+}
+
+func TestGetTask_PersistentMissReturnsNotFoundWithoutDelegation(t *testing.T) {
+	delegate := &recordingGetTaskDelegate{task: newTask("runtime", "s1", a2atype.TaskStateWorking, 0, 0)}
+	h := newStoreTaskQueryHandler(delegate, failingTaskStore{err: fmt.Errorf("lookup: %w", dbpkg.ErrNotFound)})
+
+	got, err := h.GetTask(userCtx("alice"), &a2atype.GetTaskRequest{ID: "missing"})
+	require.Nil(t, got)
+	require.ErrorIs(t, err, a2atype.ErrTaskNotFound)
+	require.Zero(t, delegate.calls)
+}
+
+func TestGetTask_AbsentIdentityReturnsNotFoundWithoutDelegation(t *testing.T) {
+	store := newFakeStore()
+	delegate := &recordingGetTaskDelegate{task: newTask("runtime", "s1", a2atype.TaskStateWorking, 0, 0)}
+	h := newStoreTaskQueryHandler(delegate, store)
+	req := &a2atype.GetTaskRequest{ID: "runtime"}
+
+	got, err := h.GetTask(context.Background(), req)
+	require.Nil(t, got)
+	require.ErrorIs(t, err, a2atype.ErrTaskNotFound)
+	require.Empty(t, store.getTaskIDs)
+	require.Empty(t, store.getTaskUsers)
+	require.Zero(t, delegate.calls)
+}
+
+func TestGetTask_BackendFailurePropagatesWithoutDelegation(t *testing.T) {
+	backendErr := fmt.Errorf("database connection refused")
+	delegate := &recordingGetTaskDelegate{}
+	h := newStoreTaskQueryHandler(delegate, failingTaskStore{err: backendErr})
+
+	got, err := h.GetTask(userCtx("alice"), &a2atype.GetTaskRequest{ID: "t1"})
+	require.Nil(t, got)
+	require.ErrorIs(t, err, backendErr)
+	require.Zero(t, delegate.calls)
 }
 
 func TestListTasks_Pagination(t *testing.T) {
@@ -266,6 +385,10 @@ func TestListTasks_AcrossAllUserSessions(t *testing.T) {
 // failingTaskStore fails every read with a backend error.
 type failingTaskStore struct{ err error }
 
+func (f failingTaskStore) GetTask(context.Context, string, string) (*a2atype.Task, error) {
+	return nil, f.err
+}
+
 func (f failingTaskStore) GetSession(context.Context, string, string) (*dbpkg.Session, error) {
 	return nil, f.err
 }
@@ -348,6 +471,41 @@ func TestWire_ListTasksStateCasing(t *testing.T) {
 	require.Contains(t, v0result, "nextPageToken")
 	v0state := v0list[0].(map[string]any)["status"].(map[string]any)["state"].(string)
 	require.Equal(t, "input-required", v0state)
+}
+
+func TestWire_GetTaskStoreErrorSemantics(t *testing.T) {
+	tests := []struct {
+		name     string
+		storeErr error
+		wantCode float64
+	}{
+		{name: "not found", storeErr: fmt.Errorf("lookup: %w", dbpkg.ErrNotFound), wantCode: -32001},
+		{name: "backend failure", storeErr: fmt.Errorf("database connection refused"), wantCode: -32603},
+	}
+	wires := []struct {
+		name string
+		body string
+		new  func(a2asrv.RequestHandler) http.Handler
+	}{
+		{name: "v1", body: `{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"missing"}}`, new: func(h a2asrv.RequestHandler) http.Handler { return a2asrv.NewJSONRPCHandler(h) }},
+		{name: "v0", body: `{"jsonrpc":"2.0","id":1,"method":"tasks/get","params":{"id":"missing"}}`, new: func(h a2asrv.RequestHandler) http.Handler { return a2av0.NewJSONRPCHandler(h) }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, wire := range wires {
+				t.Run(wire.name, func(t *testing.T) {
+					delegate := &recordingGetTaskDelegate{task: newTask("runtime", "s1", a2atype.TaskStateWorking, 0, 0)}
+					h := newStoreTaskQueryHandler(delegate, failingTaskStore{err: tt.storeErr})
+
+					resp := rpcCall(t, withUser(wire.new(h), "alice"), wire.body)
+					errObj := resp["error"].(map[string]any)
+					require.Equal(t, tt.wantCode, errObj["code"])
+					require.Zero(t, delegate.calls)
+				})
+			}
+		})
+	}
 }
 
 func TestWire_V0UnknownMethodDelegates(t *testing.T) {
