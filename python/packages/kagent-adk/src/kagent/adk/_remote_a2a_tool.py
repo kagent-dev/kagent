@@ -120,15 +120,23 @@ class KAgentRemoteA2ATool(BaseTool):
         agent_card_url: str,
         httpx_client: Optional[httpx.AsyncClient] = None,
         header_provider: Optional[Callable[[Optional[ReadonlyContext]], dict[str, str]]] = None,
+        isolate_sessions: bool = False,
     ) -> None:
         super().__init__(name=name, description=description)
         self._agent_card_url = agent_card_url
         self._httpx_client = httpx_client
         self._header_provider = header_provider
+        self._isolate_sessions = isolate_sessions
         self._a2a_client: Optional[A2AClient] = None
         self._agent_card: Optional[AgentCard] = None
         # Pre-generate context_id for UI session polling
         self._last_context_id: str = str(uuid.uuid4())
+
+    def _context_id_for_call(self) -> str:
+        """Return the sub-agent session for one outbound invocation."""
+        if self._isolate_sessions:
+            return str(uuid.uuid4())
+        return self._last_context_id
 
     async def _ensure_client(self) -> A2AClient:
         """Lazily initialize the A2A client."""
@@ -263,10 +271,11 @@ class KAgentRemoteA2ATool(BaseTool):
         client = await self._ensure_client()
 
         request_text = args.get("request", "")
+        context_id = self._context_id_for_call()
         message = new_text_message(
             request_text,
             role=Role.ROLE_USER,
-            context_id=self._last_context_id,
+            context_id=context_id,
         )
         send_request = SendMessageRequest(message=message)
 
@@ -301,7 +310,7 @@ class KAgentRemoteA2ATool(BaseTool):
         state = task.status.state if task.status else None
 
         if state == TaskState.TASK_STATE_INPUT_REQUIRED:
-            return self._handle_input_required(task, tool_context)
+            return self._handle_input_required(task, tool_context, context_id)
 
         if state == TaskState.TASK_STATE_FAILED:
             error_text = _extract_text_from_task(task)
@@ -312,10 +321,12 @@ class KAgentRemoteA2ATool(BaseTool):
         result_text = _extract_text_from_task(task)
         usage = _extract_usage_from_task(task)
         if usage:
-            return {"result": result_text, "kagent_usage_metadata": usage, "subagent_session_id": self._last_context_id}
-        return {"result": result_text or "", "subagent_session_id": self._last_context_id}
+            return {"result": result_text, "kagent_usage_metadata": usage, "subagent_session_id": context_id}
+        return {"result": result_text or "", "subagent_session_id": context_id}
 
-    def _handle_input_required(self, task: Task, tool_context: ToolContext) -> dict[str, Any]:
+    def _handle_input_required(
+        self, task: Task, tool_context: ToolContext, context_id: str | None = None
+    ) -> dict[str, Any]:
         """Handle a subagent that returned input_required (HITL).
 
         Calls request_confirmation() to pause the parent agent and surface
@@ -329,6 +340,7 @@ class KAgentRemoteA2ATool(BaseTool):
             return {
                 "status": "failed",
                 "error": f"Remote agent '{self.name}' requested input without a valid HITL extension.",
+                "subagent_session_id": task.context_id or context_id,
             }
         hint = remote_hitl_hint(state)
 
@@ -339,7 +351,12 @@ class KAgentRemoteA2ATool(BaseTool):
         )
 
         tool_context.request_confirmation(hint=hint, payload=state.model_dump(exclude_none=True))
-        return {"status": "pending", "waiting_for": "subagent_approval", "subagent": self.name}
+        return {
+            "status": "pending",
+            "waiting_for": "subagent_approval",
+            "subagent": self.name,
+            "subagent_session_id": task.context_id or context_id,
+        }
 
     async def _handle_resume(self, tool_context: ToolContext) -> Any:
         """Phase 2: Forward the user's decision to the remote agent's pending task."""
@@ -450,6 +467,7 @@ class KAgentRemoteA2AToolset(BaseToolset):
         agent_card_url: str,
         httpx_client: httpx.AsyncClient,
         header_provider: Optional[Callable[[Optional[ReadonlyContext]], dict[str, str]]] = None,
+        isolate_sessions: bool = False,
     ) -> None:
         super().__init__()
         self._httpx_client = httpx_client
@@ -459,6 +477,7 @@ class KAgentRemoteA2AToolset(BaseToolset):
             agent_card_url=agent_card_url,
             httpx_client=httpx_client,
             header_provider=header_provider,
+            isolate_sessions=isolate_sessions,
         )
 
     @property

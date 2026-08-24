@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 _ENV_TO_CONFIG_FILE = {
     "KAGENT_CONFIG_JSON": "config.json",
     "KAGENT_AGENT_CARD_JSON": "agent-card.json",
-    "KAGENT_SRT_SETTINGS_JSON": "srt-settings.json",
 }
 
 # The bearer token is materialized to a fixed path outside the config dir, matching the Go ADK.

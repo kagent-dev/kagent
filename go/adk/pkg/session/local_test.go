@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/model"
 	adksession "google.golang.org/adk/v2/session"
@@ -35,26 +34,18 @@ func TestSqlitePathFromURL(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestNewService covers the runtime session-service selection shared by the declarative binary
-// and BYO agents: AgentConfig.session_db_url (local sqlite store) > controller gRPC client > nil
-// (in-memory fallback).
+// TestNewService covers actor-local session-service selection.
 func TestNewService(t *testing.T) {
 	t.Parallel()
-	controllerClient := &controllerclient.Client{}
-
-	svc, err := NewService("sqlite:///"+filepath.Join(t.TempDir(), "sessions.db"), controllerClient)
+	svc, err := NewService("sqlite:///" + filepath.Join(t.TempDir(), "sessions.db"))
 	require.NoError(t, err)
-	require.IsType(t, &LocalSessionService{}, svc, "session_db_url must win over controller client")
+	require.IsType(t, &LocalSessionService{}, svc)
 
-	svc, err = NewService("", controllerClient)
-	require.NoError(t, err)
-	require.IsType(t, &KAgentSessionService{}, svc)
-
-	svc, err = NewService("", nil)
+	svc, err = NewService("")
 	require.NoError(t, err)
 	require.Nil(t, svc)
 
-	_, err = NewService("postgres://nope", nil)
+	_, err = NewService("postgres://nope")
 	require.Error(t, err, "an invalid session DB URL must fail loud, not fall back")
 }
 

@@ -8,10 +8,12 @@ import (
 
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	ateclient "github.com/agent-substrate/substrate/pkg/client/clientset/versioned/typed/api/v1alpha1"
+	kagentclient "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/v2/substrate"
 	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
+	kagenttranslator "github.com/kagent-dev/kagent/go/core/v2/translator/kagent"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
@@ -19,16 +21,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 )
-
-// CollectionConfig contains the controller settings that affect compiled
-// desired state. They are inputs to KRT rather than hidden global state.
-type CollectionConfig struct {
-	PauseImage string
-}
 
 // PairReconciliation is the complete desired and observed state for one
 // AgentTemplate/Harness pair. Failure is data so invalid pairs still produce
@@ -53,22 +48,24 @@ type ReconciliationFailure struct {
 
 func newPairReconciliations(
 	pairs krt.Collection[AgentTemplateHarnessPair],
+	agentTemplates krt.Collection[*kagentv1alpha3.AgentTemplate],
 	modelConfigs krt.Collection[*kagentv1alpha3.ModelConfig],
 	remoteMCPServers krt.Collection[*kagentv1alpha3.RemoteMCPServer],
 	configMaps krt.Collection[*corev1.ConfigMap],
 	secrets krt.Collection[*corev1.Secret],
 	workerPools krt.Collection[*atev1alpha1.WorkerPool],
 	actorTemplates krt.Collection[*atev1alpha1.ActorTemplate],
-	config CollectionConfig,
 	opts krt.OptionsBuilder,
 ) krt.Collection[PairReconciliation] {
 	return krt.NewCollection(pairs, func(ctx krt.HandlerContext, pair AgentTemplateHarnessPair) *PairReconciliation {
 		state := &PairReconciliation{Pair: pair}
 		reader := collectionReader{
-			ctx: ctx, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
+			ctx: ctx, agentTemplates: agentTemplates, modelConfigs: modelConfigs, remoteMCPServers: remoteMCPServers,
 			configMaps: configMaps, secrets: secrets, workerPools: workerPools,
 		}
-		revision, err := v2translator.NewCompiler(reader).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
+		revision, err := v2translator.NewCompiler(reader, map[v2translator.HarnessType]v2translator.HarnessCompiler{
+			v2translator.HarnessTypeKagent: kagenttranslator.NewCompiler(reader),
+		}).CompileAgentTemplate(context.Background(), pair.Harness, pair.AgentTemplate)
 		if err != nil {
 			condition, reason := kagentv1alpha3.AgentTemplateConditionResolvedRefs, "ReferenceResolutionFailed"
 			var validation *v2translator.ValidationError
@@ -91,7 +88,7 @@ func newPairReconciliations(
 			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionResolvedRefs, Reason: "WorkerPoolNotFound", Message: err.Error()}
 			return state
 		}
-		state.DesiredActorTemplate, err = substrate.ActorTemplateForRevision(revision, state.RevisionID, config.PauseImage)
+		state.DesiredActorTemplate, err = substrate.ActorTemplateForRevision(revision, state.RevisionID)
 		if err != nil {
 			state.Failure = &ReconciliationFailure{Condition: kagentv1alpha3.AgentTemplateConditionCompatible, Reason: "ActorTemplateInvalid", Message: err.Error()}
 			return state
@@ -149,14 +146,13 @@ func NewReconciler(config *rest.Config, collections Collections, store runtimeRe
 	if err != nil {
 		return nil, fmt.Errorf("create Substrate client: %w", err)
 	}
-	statusClient, err := kagentRESTClient(config)
+	statusClient, err := kagentclient.NewForConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create kagent status client: %w", err)
 	}
 	return newReconciler(collections, actors, store, func(ctx context.Context, template *kagentv1alpha3.AgentTemplate) error {
-		result := &kagentv1alpha3.AgentTemplate{}
-		return statusClient.Put().Namespace(template.Namespace).Resource("agenttemplates").Name(template.Name).
-			SubResource("status").Body(template).Do(ctx).Into(result)
+		_, err := statusClient.AgentTemplates(template.Namespace).UpdateStatus(ctx, template, metav1.UpdateOptions{})
+		return err
 	}), nil
 }
 
@@ -253,7 +249,8 @@ func (r *Reconciler) reconcilePair(ctx context.Context, key string) error {
 	revision := dbpkg.RuntimeRevision{
 		Revision: state.RevisionID.String(), Namespace: pair.Namespace, AgentTemplateName: pair.AgentTemplateName,
 		AgentTemplateUID: pair.AgentTemplateUID, HarnessName: pair.HarnessName, HarnessUID: pair.HarnessUID,
-		SourceSnapshot: state.Revision.Provenance, EgressDestinations: state.Revision.EgressDestinations,
+		SourceSnapshot: state.Revision.Provenance, AgentCard: state.Revision.AgentCardJSON,
+		EgressDestinations:     state.Revision.EgressDestinations,
 		ActorTemplateNamespace: observed.Namespace, ActorTemplateName: observed.Name, ActorTemplateUID: string(observed.UID),
 		Phase: string(observed.Status.Phase), GoldenSnapshot: observed.Status.GoldenSnapshot,
 	}
@@ -341,12 +338,4 @@ func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentTemplateStat
 		}
 	}
 	return desired
-}
-
-func kagentRESTClient(config *rest.Config) (rest.Interface, error) {
-	scheme := runtime.NewScheme()
-	if err := kagentv1alpha3.AddToScheme(scheme); err != nil {
-		return nil, fmt.Errorf("register kagent API types: %w", err)
-	}
-	return restClient(config, kagentv1alpha3.GroupVersion, scheme)
 }

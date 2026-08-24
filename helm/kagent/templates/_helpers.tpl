@@ -257,6 +257,15 @@ The `name.namespace.svc` short form is used so the URL resolves regardless of th
 {{- end -}}
 {{- end -}}
 
+{{/* Public gRPC endpoint advertised by AgentInstance Agent Cards. */}}
+{{- define "kagent.a2aGatewayUrl" -}}
+{{- if .Values.controller.a2aGatewayUrl -}}
+{{- .Values.controller.a2aGatewayUrl -}}
+{{- else -}}
+{{- printf "http://%s-controller.%s.svc:%d" (include "kagent.fullname" .) (include "kagent.namespace" .) (.Values.controller.service.ports.grpc | int) -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 Controller Service host:port for nginx upstream (no scheme).
 */}}
@@ -290,4 +299,3 @@ imagePullSecrets:
 {{- toYaml $global | nindent 2 }}
 {{- end -}}
 {{- end -}}
-

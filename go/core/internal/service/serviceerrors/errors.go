@@ -12,6 +12,7 @@ const (
 	CodeAlreadyExists      Code = "already_exists"
 	CodeFailedPrecondition Code = "failed_precondition"
 	CodeResourceExhausted  Code = "resource_exhausted"
+	CodeAborted            Code = "aborted"
 	CodeUnavailable        Code = "unavailable"
 	CodeInternal           Code = "internal"
 )
@@ -77,6 +78,10 @@ func NewFailedPrecondition(message string, cause error) *Error {
 
 func NewResourceExhausted(message string, cause error) *Error {
 	return New(CodeResourceExhausted, message, cause)
+}
+
+func NewAborted(message string, cause error) *Error {
+	return New(CodeAborted, message, cause)
 }
 
 func NewUnavailable(message string, cause error) *Error {

@@ -164,7 +164,6 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha3.AgentHa
 			Labels:    lifecycleLabels(ah),
 		},
 		Spec: atev1alpha1.ActorTemplateSpec{
-			PauseImage:   p.Defaults.PauseImage,
 			SandboxClass: atev1alpha1.SandboxClassGvisor,
 			Containers: []atev1alpha1.Container{
 				{

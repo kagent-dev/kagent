@@ -48,6 +48,22 @@ func (s *grpcServer) ListAgentInstances(ctx context.Context, request *apiv1alpha
 	}, nil
 }
 
+func (s *grpcServer) SuspendAgentInstance(ctx context.Context, request *apiv1alpha1.SuspendAgentInstanceRequest) (*apiv1alpha1.SuspendAgentInstanceResponse, error) {
+	instance, err := s.service.Suspend(ctx, request.GetNamespace(), request.GetAgentInstanceId())
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1alpha1.SuspendAgentInstanceResponse{AgentInstance: instance}, nil
+}
+
+func (s *grpcServer) ResumeAgentInstance(ctx context.Context, request *apiv1alpha1.ResumeAgentInstanceRequest) (*apiv1alpha1.ResumeAgentInstanceResponse, error) {
+	instance, err := s.service.Resume(ctx, request.GetNamespace(), request.GetAgentInstanceId())
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1alpha1.ResumeAgentInstanceResponse{AgentInstance: instance}, nil
+}
+
 func (s *grpcServer) DeleteAgentInstance(ctx context.Context, request *apiv1alpha1.DeleteAgentInstanceRequest) (*apiv1alpha1.DeleteAgentInstanceResponse, error) {
 	instance, err := s.service.Delete(ctx, request.GetNamespace(), request.GetAgentInstanceId())
 	if err != nil {

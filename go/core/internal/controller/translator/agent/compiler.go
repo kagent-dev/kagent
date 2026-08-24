@@ -192,25 +192,12 @@ func (a *adkApiTranslator) validateAgent(ctx context.Context, agent *v1alpha3.Sa
 	return nil
 }
 
-// requireFoundryGoRuntime returns an error if a Foundry model is used with a
-// non-go declarative runtime. Foundry is only supported by the Go ADK runtime.
-func requireFoundryGoRuntime(agent *v1alpha3.SandboxAgent, modelType string) error {
-	if modelType == adk.ModelTypeFoundry && v1alpha3.EffectiveDeclarativeRuntime(agent.GetAgentSpec()) != v1alpha3.DeclarativeRuntime_Go {
-		return fmt.Errorf("the Foundry model provider requires declarative runtime %q", v1alpha3.DeclarativeRuntime_Go)
-	}
-	return nil
-}
-
 func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1alpha3.SandboxAgent) (*adk.AgentConfig, *modelDeploymentData, []byte, error) {
 	spec := agent.GetAgentSpec()
 	model, mdd, secretHashBytes, err := a.translateModel(ctx, agent.GetNamespace(), spec.Declarative.ModelConfig)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if err := requireFoundryGoRuntime(agent, model.GetType()); err != nil {
-		return nil, nil, nil, err
-	}
-
 	// Resolve the raw system message (template processing happens after tools are translated).
 	rawSystemMessage, err := a.resolveRawSystemMessage(ctx, agent)
 	if err != nil {
@@ -260,9 +247,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 					if err != nil {
 						return nil, nil, nil, fmt.Errorf("failed to translate summarizer model config %q: %w", summarizerModelName, err)
 					}
-					if err := requireFoundryGoRuntime(agent, summarizerModel.GetType()); err != nil {
-						return nil, nil, nil, err
-					}
 					compCfg.SummarizerModel = summarizerModel
 					mergeDeploymentData(mdd, summarizerMdd)
 					if len(summarizerSecretHash) > 0 {
@@ -277,7 +261,7 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		cfg.ContextConfig = contextCfg
 	}
 
-	// ShareTools: pass the flag through to AgentConfig; the Python runtime injects the tools.
+	// ShareTools: pass the flag through to AgentConfig so the runtime injects the tools.
 	if spec.Declarative.ShareTools != nil && *spec.Declarative.ShareTools {
 		t := true
 		cfg.ShareTools = &t
@@ -289,12 +273,6 @@ func (a *adkApiTranslator) translateInlineAgent(ctx context.Context, agent *v1al
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to resolve embedding config: %w", err)
 		}
-		// The Foundry embedding provider is implemented only in the Go ADK, so a
-		// Foundry memory ModelConfig requires the Go declarative runtime.
-		if err := requireFoundryGoRuntime(agent, embCfg.Provider); err != nil {
-			return nil, nil, nil, err
-		}
-
 		cfg.Memory = &adk.MemoryConfig{
 			TTLDays:   spec.Declarative.Memory.TTLDays,
 			Embedding: embCfg,

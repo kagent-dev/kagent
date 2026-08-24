@@ -9,6 +9,7 @@ import (
 	atev1alpha1 "github.com/agent-substrate/substrate/pkg/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,7 +27,6 @@ const (
 
 // LifecycleDefaults are cluster-wide defaults for generated ActorTemplate lifecycle.
 type LifecycleDefaults struct {
-	PauseImage           string
 	DefaultWorkloadImage string
 	DefaultWorkerPool    types.NamespacedName
 	// ImageRegistry and ImageRepository are the runtime registry/repository used
@@ -253,8 +253,7 @@ func pinImageRef(image string) (string, error) {
 	return image, nil
 }
 
-// actorTemplateEnvFromPodEnv converts pod env vars into ActorTemplate env vars.
-// Substrate ActorTemplates only support literal values, secretKeyRef, and configMapKeyRef.
+// actorTemplateEnvFromPodEnv converts resolved pod env vars into ActorTemplate env vars.
 func actorTemplateEnvFromPodEnv(env []corev1.EnvVar) []atev1alpha1.EnvVar {
 	out := make([]atev1alpha1.EnvVar, 0, len(env))
 	seen := make(map[string]struct{}, len(env))
@@ -276,24 +275,39 @@ func actorTemplateEnvFromPodEnv(env []corev1.EnvVar) []atev1alpha1.EnvVar {
 }
 
 func sanitizeActorTemplateEnvVar(e corev1.EnvVar) *atev1alpha1.EnvVar {
-	if e.ValueFrom == nil {
-		return &atev1alpha1.EnvVar{
-			Name:      e.Name,
-			ValueFrom: nil,
-			Value:     &e.Value,
-		}
+	if e.ValueFrom != nil {
+		return nil
 	}
-	if ref := e.ValueFrom.SecretKeyRef; ref != nil {
-		return &atev1alpha1.EnvVar{
-			Name: e.Name,
-			ValueFrom: &atev1alpha1.EnvVarSource{
-				SecretKeyRef: &atev1alpha1.SecretKeySelector{
-					Name:     ref.Name,
-					Key:      ref.Key,
-					Optional: ref.Optional,
-				},
-			},
+	return &atev1alpha1.EnvVar{Name: e.Name, Value: e.Value}
+}
+
+func resolvePodEnv(ctx context.Context, kube client.Reader, namespace string, env []corev1.EnvVar, localSecret *corev1.Secret) ([]corev1.EnvVar, error) {
+	resolved := append([]corev1.EnvVar(nil), env...)
+	for i, variable := range resolved {
+		if variable.ValueFrom == nil || variable.ValueFrom.SecretKeyRef == nil {
+			continue
 		}
+		ref := variable.ValueFrom.SecretKeyRef
+		secret := &corev1.Secret{}
+		if localSecret != nil && localSecret.Name == ref.Name {
+			secret = localSecret
+		} else if err := kube.Get(ctx, types.NamespacedName{Namespace: namespace, Name: ref.Name}, secret); err != nil {
+			if ref.Optional != nil && *ref.Optional && apierrors.IsNotFound(err) {
+				resolved[i].ValueFrom = nil
+				continue
+			}
+			return nil, err
+		}
+		value, ok := secret.Data[ref.Key]
+		if !ok {
+			if ref.Optional != nil && *ref.Optional {
+				resolved[i].ValueFrom = nil
+				continue
+			}
+			return nil, fmt.Errorf("secret %q does not contain key %q", ref.Name, ref.Key)
+		}
+		resolved[i].Value = string(value)
+		resolved[i].ValueFrom = nil
 	}
-	return nil
+	return resolved, nil
 }

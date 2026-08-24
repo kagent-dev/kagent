@@ -26,8 +26,17 @@ manifests: controller-gen generate ## Generate ClusterRole and CustomResourceDef
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./api/..." output:crd:artifacts:config=api/config/crd/bases
 
 .PHONY: generate
-generate: controller-gen sqlc-generate ## Generate DeepCopy methods and sqlc query code.
+generate: controller-gen client-generate sqlc-generate ## Generate DeepCopy methods, Kubernetes clients, and sqlc query code.
 	$(CONTROLLER_GEN) object:headerFile="api/hack/boilerplate.go.txt" paths="./api/..."
+
+.PHONY: client-generate
+client-generate: ## Generate the typed v1alpha3 Kubernetes clientset.
+	go run k8s.io/code-generator/cmd/client-gen@v0.36.3 \
+		--clientset-name versioned \
+		--input-base github.com/kagent-dev/kagent/go \
+		--input api/v1alpha3 \
+		--output-dir api/clientset \
+		--output-pkg github.com/kagent-dev/kagent/go/api/clientset
 
 .PHONY: sqlc-generate
 sqlc-generate: sqlc ## Generate type-safe Go code from SQL queries.
@@ -166,7 +175,7 @@ CONTROLLER_TOOLS_VERSION ?= v0.19.0
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
 #ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
 ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
-GOLANGCI_LINT_VERSION ?= v2.12.2
+GOLANGCI_LINT_VERSION ?= v2.13.0
 KAL_VERSION ?= v0.0.0-20260423112246-3fa174937a6b
 SQLC_VERSION ?= v1.30.0
 
