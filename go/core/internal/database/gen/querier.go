@@ -9,6 +9,7 @@ import (
 )
 
 type Querier interface {
+	BeginDeleteAgentInstanceCheckpoint(ctx context.Context, arg BeginDeleteAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	CountAgentInstanceTasks(ctx context.Context, arg CountAgentInstanceTasksParams) (int64, error)
 	CreateAgentInstanceShare(ctx context.Context, arg CreateAgentInstanceShareParams) (AgentInstanceShare, error)
 	CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error)
@@ -105,7 +106,6 @@ type Querier interface {
 	MarkAgentInstanceCheckpointReady(ctx context.Context, arg MarkAgentInstanceCheckpointReadyParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
-	PrepareDeleteAgentInstanceCheckpoint(ctx context.Context, arg PrepareDeleteAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error
 	RetireAgentTemplateHarnessPairs(ctx context.Context, arg RetireAgentTemplateHarnessPairsParams) error
 	RetireOtherAgentTemplateHarnessPairs(ctx context.Context, arg RetireOtherAgentTemplateHarnessPairsParams) error

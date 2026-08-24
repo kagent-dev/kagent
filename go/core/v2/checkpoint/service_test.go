@@ -26,7 +26,7 @@ type testStore struct {
 	deleted  bool
 }
 
-func (s *testStore) PrepareAgentInstanceCheckpoint(_ context.Context, checkpoint dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error) {
+func (s *testStore) ReserveAgentInstanceCheckpoint(_ context.Context, checkpoint dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error) {
 	checkpoint.HeadTaskID = "task-1"
 	checkpoint.HistorySequence = 7
 	checkpoint.SnapshotAtespace = "team-a"
@@ -57,7 +57,7 @@ func (*testStore) ListAgentInstanceCheckpoints(context.Context, string, string, 
 	return nil, nil
 }
 
-func (s *testStore) PrepareDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error) {
+func (s *testStore) BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error) {
 	if s.prepared == nil {
 		return nil, dbpkg.ErrNotFound
 	}

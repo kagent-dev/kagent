@@ -189,12 +189,12 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	checkpoint, err := client.PrepareAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
+	checkpoint, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
 		ID: "checkpoint-1", Namespace: "team-a", SourceInstanceID: "instance-1", UserID: "alice",
 		RequestID: "checkpoint-request",
 	})
 	if err != nil {
-		t.Fatalf("PrepareAgentInstanceCheckpoint() = %+v, error %v", checkpoint, err)
+		t.Fatalf("ReserveAgentInstanceCheckpoint() = %+v, error %v", checkpoint, err)
 	}
 	if checkpoint.HeadTaskID != "task-1" || checkpoint.SnapshotUID != "snapshot-uid" ||
 		checkpoint.SnapshotContentScope != "DATA" || checkpoint.HistorySequence == 0 {
@@ -209,7 +209,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if !errors.Is(err, dbpkg.ErrAgentInstanceConflict) || current.GetOperation() != apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_UNSPECIFIED {
 		t.Fatalf("lifecycle transition during checkpoint = %+v, error %v", current, err)
 	}
-	replayed, err := client.PrepareAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
+	replayed, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
 		ID: "ignored", Namespace: "team-a", SourceInstanceID: "instance-1", UserID: "alice",
 		RequestID: "checkpoint-request",
 	})
@@ -226,7 +226,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err := client.DeleteAgentInstance(ctx, "instance-1"); err != nil {
 		t.Fatal(err)
 	}
-	replayed, err = client.PrepareAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
+	replayed, err = client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
 		ID: "ignored-again", Namespace: "team-a", SourceInstanceID: "instance-1", UserID: "alice",
 		RequestID: "checkpoint-request",
 	})
@@ -237,7 +237,7 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil || len(listed) != 1 || listed[0].ID != checkpoint.ID {
 		t.Fatalf("listed checkpoints = %+v, error %v", listed, err)
 	}
-	if _, err := client.PrepareDeleteAgentInstanceCheckpoint(ctx, "team-a", checkpoint.ID, "alice"); err != nil {
+	if _, err := client.BeginDeleteAgentInstanceCheckpoint(ctx, "team-a", checkpoint.ID, "alice"); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.DeleteAgentInstanceCheckpoint(ctx, "team-a", checkpoint.ID, "alice"); err != nil {

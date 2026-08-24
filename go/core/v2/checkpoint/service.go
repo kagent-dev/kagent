@@ -25,12 +25,12 @@ const (
 )
 
 type store interface {
-	PrepareAgentInstanceCheckpoint(context.Context, dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error)
+	ReserveAgentInstanceCheckpoint(context.Context, dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error)
 	MarkAgentInstanceCheckpointReady(context.Context, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
 	MarkAgentInstanceCheckpointFailed(context.Context, string, string) error
 	GetAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
 	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceCheckpoint, error)
-	PrepareDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
+	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string, string) error
 }
 
@@ -75,7 +75,7 @@ func (s *Service) Create(ctx context.Context, namespace, instanceID, requestID s
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
 	}
-	checkpoint, err := s.store.PrepareAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
+	checkpoint, err := s.store.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
 		ID: id.String(), Namespace: namespace, SourceInstanceID: instanceID, UserID: userID,
 		RequestID: requestID,
 	})
@@ -208,12 +208,12 @@ func (s *Service) Delete(ctx context.Context, namespace, checkpointID string) er
 	if err != nil {
 		return err
 	}
-	checkpoint, err := s.store.PrepareDeleteAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
+	checkpoint, err := s.store.BeginDeleteAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
 	if errors.Is(err, dbpkg.ErrNotFound) {
 		return serviceerrors.NewNotFound("Checkpoint not found", err)
 	}
 	if err != nil {
-		return serviceerrors.NewInternal("Failed to prepare checkpoint deletion", err)
+		return serviceerrors.NewInternal("Failed to begin checkpoint deletion", err)
 	}
 	tag, err := s.tags.GetActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID))
 	if err != nil && status.Code(err) != codes.NotFound {

@@ -139,11 +139,11 @@ type Client interface {
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2a.Task, a2a.Event, *AgentInstanceTaskSnapshot) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2a.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)
-	PrepareAgentInstanceCheckpoint(context.Context, AgentInstanceCheckpoint) (*AgentInstanceCheckpoint, error)
+	ReserveAgentInstanceCheckpoint(context.Context, AgentInstanceCheckpoint) (*AgentInstanceCheckpoint, error)
 	MarkAgentInstanceCheckpointReady(context.Context, string, string) (*AgentInstanceCheckpoint, error)
 	MarkAgentInstanceCheckpointFailed(context.Context, string, string) error
 	GetAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
 	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]AgentInstanceCheckpoint, error)
-	PrepareDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
+	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string, string) error
 }

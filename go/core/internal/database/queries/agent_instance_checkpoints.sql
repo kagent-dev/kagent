@@ -47,7 +47,7 @@ WHERE namespace = sqlc.arg(namespace)
 ORDER BY id
 LIMIT sqlc.arg(page_size);
 
--- name: PrepareDeleteAgentInstanceCheckpoint :one
+-- name: BeginDeleteAgentInstanceCheckpoint :one
 UPDATE agent_instance_checkpoint
 SET state = 'DELETING'
 WHERE namespace = $1 AND id = $2 AND user_id = $3

@@ -9,6 +9,43 @@ import (
 	"context"
 )
 
+const beginDeleteAgentInstanceCheckpoint = `-- name: BeginDeleteAgentInstanceCheckpoint :one
+UPDATE agent_instance_checkpoint
+SET state = 'DELETING'
+WHERE namespace = $1 AND id = $2 AND user_id = $3
+  AND state IN ('READY', 'DELETING')
+RETURNING id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at
+`
+
+type BeginDeleteAgentInstanceCheckpointParams struct {
+	Namespace string
+	ID        string
+	UserID    string
+}
+
+func (q *Queries) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, arg BeginDeleteAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error) {
+	row := q.db.QueryRow(ctx, beginDeleteAgentInstanceCheckpoint, arg.Namespace, arg.ID, arg.UserID)
+	var i AgentInstanceCheckpoint
+	err := row.Scan(
+		&i.ID,
+		&i.Namespace,
+		&i.SourceInstanceID,
+		&i.UserID,
+		&i.RequestID,
+		&i.HeadTaskID,
+		&i.HistorySequence,
+		&i.SnapshotAtespace,
+		&i.SnapshotName,
+		&i.SnapshotUid,
+		&i.SnapshotContentScope,
+		&i.TagUid,
+		&i.State,
+		&i.Failure,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const deleteAgentInstanceCheckpoint = `-- name: DeleteAgentInstanceCheckpoint :execrows
 DELETE FROM agent_instance_checkpoint
 WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state = 'DELETING'
@@ -328,43 +365,6 @@ type MarkAgentInstanceCheckpointReadyParams struct {
 
 func (q *Queries) MarkAgentInstanceCheckpointReady(ctx context.Context, arg MarkAgentInstanceCheckpointReadyParams) (AgentInstanceCheckpoint, error) {
 	row := q.db.QueryRow(ctx, markAgentInstanceCheckpointReady, arg.ID, arg.TagUid)
-	var i AgentInstanceCheckpoint
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.SourceInstanceID,
-		&i.UserID,
-		&i.RequestID,
-		&i.HeadTaskID,
-		&i.HistorySequence,
-		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
-		&i.SnapshotContentScope,
-		&i.TagUid,
-		&i.State,
-		&i.Failure,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const prepareDeleteAgentInstanceCheckpoint = `-- name: PrepareDeleteAgentInstanceCheckpoint :one
-UPDATE agent_instance_checkpoint
-SET state = 'DELETING'
-WHERE namespace = $1 AND id = $2 AND user_id = $3
-  AND state IN ('READY', 'DELETING')
-RETURNING id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at
-`
-
-type PrepareDeleteAgentInstanceCheckpointParams struct {
-	Namespace string
-	ID        string
-	UserID    string
-}
-
-func (q *Queries) PrepareDeleteAgentInstanceCheckpoint(ctx context.Context, arg PrepareDeleteAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error) {
-	row := q.db.QueryRow(ctx, prepareDeleteAgentInstanceCheckpoint, arg.Namespace, arg.ID, arg.UserID)
 	var i AgentInstanceCheckpoint
 	err := row.Scan(
 		&i.ID,

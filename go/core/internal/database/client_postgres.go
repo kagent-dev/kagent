@@ -922,7 +922,7 @@ func (c *postgresClient) ListAgentInstanceTasks(ctx context.Context, instanceID,
 	return tasks, int(total), nil
 }
 
-func (c *postgresClient) PrepareAgentInstanceCheckpoint(ctx context.Context, checkpoint dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error) {
+func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error) {
 	var result *dbpkg.AgentInstanceCheckpoint
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
 		existing, err := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
@@ -986,7 +986,7 @@ func (c *postgresClient) PrepareAgentInstanceCheckpoint(ctx context.Context, che
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("prepare AgentInstance checkpoint: %w", err)
+		return nil, fmt.Errorf("reserve AgentInstance checkpoint: %w", err)
 	}
 	return result, nil
 }
@@ -1034,12 +1034,12 @@ func (c *postgresClient) ListAgentInstanceCheckpoints(ctx context.Context, names
 	return result, nil
 }
 
-func (c *postgresClient) PrepareDeleteAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
-	row, err := c.q.PrepareDeleteAgentInstanceCheckpoint(ctx, dbgen.PrepareDeleteAgentInstanceCheckpointParams{
+func (c *postgresClient) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
+	row, err := c.q.BeginDeleteAgentInstanceCheckpoint(ctx, dbgen.BeginDeleteAgentInstanceCheckpointParams{
 		Namespace: namespace, ID: id, UserID: userID,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("prepare delete AgentInstance checkpoint: %w", notFoundOr(err))
+		return nil, fmt.Errorf("begin delete AgentInstance checkpoint: %w", notFoundOr(err))
 	}
 	return toAgentInstanceCheckpoint(row), nil
 }
