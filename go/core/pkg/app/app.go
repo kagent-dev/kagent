@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/gorilla/mux"
 
 	"github.com/hashicorp/go-multierror"
@@ -302,6 +303,13 @@ type ExtensionConfig struct {
 	AgentPlugins     []agent_translator.TranslatorPlugin
 	MCPServerPlugins []translator.MCPTranslatorPlugin
 	SandboxBackend   sandboxbackend.Backend
+	// A2AHandler serves the A2A API. grpcserver registers that service only
+	// when this is non-nil, so leaving it unset keeps today's behaviour: the
+	// AgentInstance API is available but nothing can talk to an instance.
+	//
+	// An extension can build one with a2agateway.New, using the DbClient it is
+	// handed in BootstrapConfig.
+	A2AHandler a2asrv.RequestHandler
 }
 
 type GetExtensionConfig func(bootstrap BootstrapConfig) (*ExtensionConfig, error)
@@ -800,6 +808,7 @@ func Start(getExtensionConfig GetExtensionConfig, extraSources []migrations.Sour
 		SessionService:        sessionService,
 		TaskService:           taskService,
 		AgentInstanceService:  agentInstanceService,
+		A2AHandler:            extensionCfg.A2AHandler,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to create gRPC server")
