@@ -2,36 +2,46 @@
 SELECT * FROM agent_instance_checkpoint
 WHERE user_id = $1 AND namespace = $2 AND request_id = $3;
 
--- name: GetLatestAgentInstanceTask :one
-SELECT * FROM agent_instance_task
-WHERE instance_id = $1
-ORDER BY created_at DESC, id DESC
-LIMIT 1;
+-- name: GetLatestQuiescentAgentInstanceTask :one
+SELECT latest.*
+FROM (
+    SELECT * FROM agent_instance_task
+    WHERE agent_instance_task.instance_id = $1
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+) latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM agent_instance_task active
+    WHERE active.instance_id = $1
+      AND active.state NOT IN (
+          'TASK_STATE_COMPLETED',
+          'TASK_STATE_CANCELED',
+          'TASK_STATE_FAILED',
+          'TASK_STATE_REJECTED',
+          'TASK_STATE_INPUT_REQUIRED',
+          'TASK_STATE_AUTH_REQUIRED'
+      )
+);
 
 -- name: InsertAgentInstanceCheckpoint :one
 INSERT INTO agent_instance_checkpoint (
     id, namespace, source_instance_id, user_id, request_id, head_task_id,
     history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, state
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'CREATING')
+ON CONFLICT DO NOTHING
 RETURNING *;
-
--- name: GetCreatingAgentInstanceCheckpoint :one
-SELECT * FROM agent_instance_checkpoint
-WHERE source_instance_id = $1 AND state = 'CREATING';
 
 -- name: MarkAgentInstanceCheckpointReady :one
 UPDATE agent_instance_checkpoint
 SET state = 'READY', tag_uid = $2, failure = ''
-WHERE id = $1 AND state = 'CREATING'
+WHERE id = $1
+  AND (state = 'CREATING' OR (state = 'READY' AND tag_uid = $2))
 RETURNING *;
 
 -- name: MarkAgentInstanceCheckpointFailed :exec
 UPDATE agent_instance_checkpoint
 SET state = 'FAILED', failure = $2
 WHERE id = $1 AND state = 'CREATING';
-
--- name: GetAgentInstanceCheckpointByID :one
-SELECT * FROM agent_instance_checkpoint WHERE id = $1;
 
 -- name: GetAgentInstanceCheckpoint :one
 SELECT * FROM agent_instance_checkpoint

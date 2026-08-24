@@ -99,33 +99,6 @@ func (q *Queries) GetAgentInstanceCheckpoint(ctx context.Context, arg GetAgentIn
 	return i, err
 }
 
-const getAgentInstanceCheckpointByID = `-- name: GetAgentInstanceCheckpointByID :one
-SELECT id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at FROM agent_instance_checkpoint WHERE id = $1
-`
-
-func (q *Queries) GetAgentInstanceCheckpointByID(ctx context.Context, id string) (AgentInstanceCheckpoint, error) {
-	row := q.db.QueryRow(ctx, getAgentInstanceCheckpointByID, id)
-	var i AgentInstanceCheckpoint
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.SourceInstanceID,
-		&i.UserID,
-		&i.RequestID,
-		&i.HeadTaskID,
-		&i.HistorySequence,
-		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
-		&i.SnapshotContentScope,
-		&i.TagUid,
-		&i.State,
-		&i.Failure,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getAgentInstanceCheckpointByRequest = `-- name: GetAgentInstanceCheckpointByRequest :one
 SELECT id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at FROM agent_instance_checkpoint
 WHERE user_id = $1 AND namespace = $2 AND request_id = $3
@@ -160,43 +133,30 @@ func (q *Queries) GetAgentInstanceCheckpointByRequest(ctx context.Context, arg G
 	return i, err
 }
 
-const getCreatingAgentInstanceCheckpoint = `-- name: GetCreatingAgentInstanceCheckpoint :one
-SELECT id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at FROM agent_instance_checkpoint
-WHERE source_instance_id = $1 AND state = 'CREATING'
+const getLatestQuiescentAgentInstanceTask = `-- name: GetLatestQuiescentAgentInstanceTask :one
+SELECT latest.instance_id, latest.id, latest.state, latest.status_timestamp, latest.data, latest.created_at, latest.updated_at, latest.initial_message_id, latest.request_hash, latest.snapshot_atespace, latest.snapshot_name, latest.snapshot_uid, latest.snapshot_content_scope, latest.history_sequence
+FROM (
+    SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
+    WHERE agent_instance_task.instance_id = $1
+    ORDER BY created_at DESC, id DESC
+    LIMIT 1
+) latest
+WHERE NOT EXISTS (
+    SELECT 1 FROM agent_instance_task active
+    WHERE active.instance_id = $1
+      AND active.state NOT IN (
+          'TASK_STATE_COMPLETED',
+          'TASK_STATE_CANCELED',
+          'TASK_STATE_FAILED',
+          'TASK_STATE_REJECTED',
+          'TASK_STATE_INPUT_REQUIRED',
+          'TASK_STATE_AUTH_REQUIRED'
+      )
+)
 `
 
-func (q *Queries) GetCreatingAgentInstanceCheckpoint(ctx context.Context, sourceInstanceID string) (AgentInstanceCheckpoint, error) {
-	row := q.db.QueryRow(ctx, getCreatingAgentInstanceCheckpoint, sourceInstanceID)
-	var i AgentInstanceCheckpoint
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.SourceInstanceID,
-		&i.UserID,
-		&i.RequestID,
-		&i.HeadTaskID,
-		&i.HistorySequence,
-		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
-		&i.SnapshotContentScope,
-		&i.TagUid,
-		&i.State,
-		&i.Failure,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
-const getLatestAgentInstanceTask = `-- name: GetLatestAgentInstanceTask :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
-WHERE instance_id = $1
-ORDER BY created_at DESC, id DESC
-LIMIT 1
-`
-
-func (q *Queries) GetLatestAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error) {
-	row := q.db.QueryRow(ctx, getLatestAgentInstanceTask, instanceID)
+func (q *Queries) GetLatestQuiescentAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, getLatestQuiescentAgentInstanceTask, instanceID)
 	var i AgentInstanceTask
 	err := row.Scan(
 		&i.InstanceID,
@@ -222,6 +182,7 @@ INSERT INTO agent_instance_checkpoint (
     id, namespace, source_instance_id, user_id, request_id, head_task_id,
     history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, state
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'CREATING')
+ON CONFLICT DO NOTHING
 RETURNING id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at
 `
 
@@ -354,7 +315,8 @@ func (q *Queries) MarkAgentInstanceCheckpointFailed(ctx context.Context, arg Mar
 const markAgentInstanceCheckpointReady = `-- name: MarkAgentInstanceCheckpointReady :one
 UPDATE agent_instance_checkpoint
 SET state = 'READY', tag_uid = $2, failure = ''
-WHERE id = $1 AND state = 'CREATING'
+WHERE id = $1
+  AND (state = 'CREATING' OR (state = 'READY' AND tag_uid = $2))
 RETURNING id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at
 `
 

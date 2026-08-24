@@ -11,7 +11,11 @@ ON CONFLICT (instance_id, id) DO UPDATE SET
 INSERT INTO agent_instance_task (
     instance_id, id, state, status_timestamp, data, initial_message_id, request_hash
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+SELECT $1, $2, $3, $4, $5, $6, $7
+WHERE NOT EXISTS (
+    SELECT 1 FROM agent_instance_checkpoint
+    WHERE source_instance_id = $1 AND state = 'CREATING'
+)
 ON CONFLICT (instance_id, initial_message_id)
     WHERE initial_message_id IS NOT NULL
 DO NOTHING;

@@ -739,11 +739,6 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 		if instance.State != "READY" || instance.Operation != "NONE" {
 			return dbpkg.ErrAgentInstanceTaskConflict
 		}
-		if _, err := q.GetCreatingAgentInstanceCheckpoint(ctx, instanceID); err == nil {
-			return dbpkg.ErrAgentInstanceTaskConflict
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("get creating AgentInstance checkpoint: %w", err)
-		}
 		rows, err := q.CreateAgentInstanceTask(ctx, dbgen.CreateAgentInstanceTaskParams{
 			InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
 			StatusTimestamp: task.Status.Timestamp, Data: taskData,
@@ -759,6 +754,9 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 			row, err := q.GetAgentInstanceTaskByMessageID(ctx, dbgen.GetAgentInstanceTaskByMessageIDParams{
 				InstanceID: instanceID, InitialMessageID: &message.ID,
 			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return dbpkg.ErrAgentInstanceTaskConflict
+			}
 			if err != nil {
 				return fmt.Errorf("get AgentInstance task for message %s: %w", message.ID, err)
 			}
@@ -949,18 +947,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 		if instance.State != "READY" || instance.Operation != "NONE" {
 			return dbpkg.ErrAgentInstanceConflict
 		}
-		if _, err := q.GetCreatingAgentInstanceCheckpoint(ctx, checkpoint.SourceInstanceID); err == nil {
-			return dbpkg.ErrAgentInstanceConflict
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("get creating AgentInstance checkpoint: %w", err)
-		}
-
-		if _, err := q.GetActiveAgentInstanceTask(ctx, checkpoint.SourceInstanceID); err == nil {
-			return dbpkg.ErrAgentInstanceNotQuiescent
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("get active AgentInstance task: %w", err)
-		}
-		boundary, err := q.GetLatestAgentInstanceTask(ctx, checkpoint.SourceInstanceID)
+		boundary, err := q.GetLatestQuiescentAgentInstanceTask(ctx, checkpoint.SourceInstanceID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return dbpkg.ErrAgentInstanceNotQuiescent
 		}
@@ -979,6 +966,22 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 			SnapshotName: *boundary.SnapshotName, SnapshotUid: *boundary.SnapshotUid,
 			SnapshotContentScope: *boundary.SnapshotContentScope,
 		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			existing, existingErr := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
+				UserID: checkpoint.UserID, Namespace: checkpoint.Namespace, RequestID: checkpoint.RequestID,
+			})
+			if existingErr == nil {
+				if existing.SourceInstanceID != checkpoint.SourceInstanceID {
+					return dbpkg.ErrIdempotencyConflict
+				}
+				result = toAgentInstanceCheckpoint(existing)
+				return nil
+			}
+			if errors.Is(existingErr, pgx.ErrNoRows) {
+				return dbpkg.ErrAgentInstanceConflict
+			}
+			return fmt.Errorf("get conflicting AgentInstance checkpoint request: %w", existingErr)
+		}
 		if err != nil {
 			return fmt.Errorf("insert AgentInstance checkpoint: %w", err)
 		}
@@ -993,12 +996,6 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 
 func (c *postgresClient) MarkAgentInstanceCheckpointReady(ctx context.Context, id, tagUID string) (*dbpkg.AgentInstanceCheckpoint, error) {
 	row, err := c.q.MarkAgentInstanceCheckpointReady(ctx, dbgen.MarkAgentInstanceCheckpointReadyParams{ID: id, TagUid: tagUID})
-	if errors.Is(err, pgx.ErrNoRows) {
-		row, err = c.q.GetAgentInstanceCheckpointByID(ctx, id)
-		if err == nil && (row.State != "READY" || row.TagUid != tagUID) {
-			err = pgx.ErrNoRows
-		}
-	}
 	if err != nil {
 		return nil, fmt.Errorf("mark AgentInstance checkpoint ready: %w", notFoundOr(err))
 	}
