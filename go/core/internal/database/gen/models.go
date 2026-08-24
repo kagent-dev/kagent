@@ -35,6 +35,24 @@ type AgentInstance struct {
 	Operation        string
 }
 
+type AgentInstanceCheckpoint struct {
+	ID               string
+	Namespace        string
+	InstanceID       string
+	UserID           string
+	RequestID        string
+	HeadTaskID       string
+	HistorySequence  int64
+	SnapshotAtespace string
+	SnapshotName     string
+	SnapshotUid      string
+	TagName          string
+	TagUid           string
+	State            string
+	Failure          string
+	CreatedAt        time.Time
+}
+
 type AgentInstanceShare struct {
 	ID         string
 	Namespace  string
@@ -55,6 +73,10 @@ type AgentInstanceTask struct {
 	UpdatedAt        time.Time
 	InitialMessageID *string
 	RequestHash      []byte
+	SnapshotAtespace *string
+	SnapshotName     *string
+	SnapshotUid      *string
+	HistorySequence  *int64
 }
 
 type AgentInstanceTaskEvent struct {

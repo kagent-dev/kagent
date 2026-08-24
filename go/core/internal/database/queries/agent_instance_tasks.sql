@@ -16,9 +16,18 @@ ON CONFLICT (instance_id, initial_message_id)
     WHERE initial_message_id IS NOT NULL
 DO NOTHING;
 
--- name: InsertAgentInstanceTaskEvent :exec
+-- name: InsertAgentInstanceTaskEvent :one
 INSERT INTO agent_instance_task_event (instance_id, task_id, data)
-VALUES ($1, $2, $3);
+VALUES ($1, $2, $3)
+RETURNING sequence;
+
+-- name: SetAgentInstanceTaskSnapshot :exec
+UPDATE agent_instance_task SET
+    snapshot_atespace = $3,
+    snapshot_name = $4,
+    snapshot_uid = $5,
+    history_sequence = $6
+WHERE instance_id = $1 AND id = $2;
 
 -- name: GetAgentInstanceTask :one
 SELECT * FROM agent_instance_task
@@ -31,7 +40,9 @@ WHERE instance_id = $1
       'TASK_STATE_COMPLETED',
       'TASK_STATE_CANCELED',
       'TASK_STATE_FAILED',
-      'TASK_STATE_REJECTED'
+      'TASK_STATE_REJECTED',
+      'TASK_STATE_INPUT_REQUIRED',
+      'TASK_STATE_AUTH_REQUIRED'
   );
 
 -- name: GetAgentInstanceTaskByMessageID :one
@@ -64,6 +75,8 @@ WHERE instance_id = $1
       'TASK_STATE_COMPLETED',
       'TASK_STATE_CANCELED',
       'TASK_STATE_FAILED',
-      'TASK_STATE_REJECTED'
+      'TASK_STATE_REJECTED',
+      'TASK_STATE_INPUT_REQUIRED',
+      'TASK_STATE_AUTH_REQUIRED'
   )
 FOR UPDATE;

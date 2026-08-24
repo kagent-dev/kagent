@@ -39,6 +39,13 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
 		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
+	boundary, err := workflow.Quiesce(context.Background(), created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY || boundary.Name != "snapshot-1" || boundary.UID != "snapshot-uid" {
+		t.Fatalf("quiesced instance = %+v, boundary = %+v", created, boundary)
+	}
 
 	suspended, err := workflow.Suspend(context.Background(), created)
 	if err != nil {
@@ -129,9 +136,15 @@ func (a *lifecycleTestActors) ResumeActor(_ context.Context, atespace, name stri
 	return actor, nil
 }
 
-func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name string) error {
-	a.actors[actorKey(atespace, name)].Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
-	return nil
+func (a *lifecycleTestActors) SuspendActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
+	actor := a.actors[actorKey(atespace, name)]
+	actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+	actor.Status.LatestSnapshot = &ateapipb.ObjectRef{Atespace: atespace, Name: "snapshot-1"}
+	return actor, nil
+}
+
+func (a *lifecycleTestActors) GetActorSnapshot(_ context.Context, atespace, name string) (*ateapipb.ActorSnapshot, error) {
+	return &ateapipb.ActorSnapshot{Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "snapshot-uid"}}, nil
 }
 
 func (a *lifecycleTestActors) DeleteActor(_ context.Context, atespace, name string) error {

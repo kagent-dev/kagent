@@ -53,6 +53,55 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	}
 }
 
+func TestAgentInstanceCheckpoint(t *testing.T) {
+	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
+	_, _, task := fixture.send(t, "What is 2+2?")
+	created, err := fixture.checkpoints.CreateCheckpoint(fixture.ctx, &apiv1alpha1.CreateCheckpointRequest{
+		Namespace: "kagent", AgentInstanceId: fixture.instanceID, RequestId: uuid.NewString(),
+	})
+	if err != nil {
+		t.Fatalf("create checkpoint: %v", err)
+	}
+	checkpoint := created.GetCheckpoint()
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+		defer cleanupCancel()
+		_, cleanupErr := fixture.checkpoints.DeleteCheckpoint(cleanupCtx, &apiv1alpha1.DeleteCheckpointRequest{
+			Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+		})
+		if cleanupErr != nil && status.Code(cleanupErr) != codes.NotFound {
+			t.Errorf("delete checkpoint: %v", cleanupErr)
+		}
+	})
+	if checkpoint.GetState() != apiv1alpha1.CheckpointState_CHECKPOINT_STATE_READY ||
+		checkpoint.GetHeadTaskId() != string(task.ID) || checkpoint.GetHistorySequence() == 0 {
+		t.Fatalf("checkpoint = %+v, want ready boundary for task %s", checkpoint, task.ID)
+	}
+
+	got, err := fixture.checkpoints.GetCheckpoint(fixture.ctx, &apiv1alpha1.GetCheckpointRequest{
+		Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+	})
+	if err != nil || got.GetCheckpoint().GetId() != checkpoint.GetId() {
+		t.Fatalf("get checkpoint = %+v, error %v", got.GetCheckpoint(), err)
+	}
+	listed, err := fixture.checkpoints.ListCheckpoints(fixture.ctx, &apiv1alpha1.ListCheckpointsRequest{
+		Namespace: "kagent", AgentInstanceId: fixture.instanceID,
+	})
+	if err != nil || len(listed.GetCheckpoints()) != 1 || listed.GetCheckpoints()[0].GetId() != checkpoint.GetId() {
+		t.Fatalf("list checkpoints = %+v, error %v", listed.GetCheckpoints(), err)
+	}
+	if _, err := fixture.checkpoints.DeleteCheckpoint(fixture.ctx, &apiv1alpha1.DeleteCheckpointRequest{
+		Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+	}); err != nil {
+		t.Fatalf("delete checkpoint: %v", err)
+	}
+	if _, err := fixture.checkpoints.GetCheckpoint(fixture.ctx, &apiv1alpha1.GetCheckpointRequest{
+		Namespace: "kagent", CheckpointId: checkpoint.GetId(),
+	}); status.Code(err) != codes.NotFound {
+		t.Fatalf("get deleted checkpoint error = %v, want %s", err, codes.NotFound)
+	}
+}
+
 func TestMCPInteraction(t *testing.T) {
 	target := interactionTarget(t)
 	mcpURL, mcpServer := startMCPMock(t)
@@ -251,10 +300,11 @@ func TestAgentInstanceActiveTask(t *testing.T) {
 }
 
 type interactionFixture struct {
-	ctx        context.Context
-	client     a2apb.A2AServiceClient
-	instances  apiv1alpha1.AgentInstanceServiceClient
-	instanceID string
+	ctx         context.Context
+	client      a2apb.A2AServiceClient
+	instances   apiv1alpha1.AgentInstanceServiceClient
+	checkpoints apiv1alpha1.CheckpointServiceClient
+	instanceID  string
 }
 
 type sharedInteractionFixture struct {
@@ -322,9 +372,10 @@ func newInteractionFixtureForTemplate(t *testing.T, target, templateName string)
 			"x-kagent-agent-instance-namespace", "kagent",
 			"x-kagent-agent-instance-id", instance.GetId(),
 		),
-		client:     a2apb.NewA2AServiceClient(conn),
-		instances:  instances,
-		instanceID: instance.GetId(),
+		client:      a2apb.NewA2AServiceClient(conn),
+		instances:   instances,
+		checkpoints: apiv1alpha1.NewCheckpointServiceClient(conn),
+		instanceID:  instance.GetId(),
 	}
 }
 

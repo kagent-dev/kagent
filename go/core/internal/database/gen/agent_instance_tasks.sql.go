@@ -68,13 +68,15 @@ func (q *Queries) CreateAgentInstanceTask(ctx context.Context, arg CreateAgentIn
 }
 
 const getActiveAgentInstanceTask = `-- name: GetActiveAgentInstanceTask :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
 WHERE instance_id = $1
   AND state NOT IN (
       'TASK_STATE_COMPLETED',
       'TASK_STATE_CANCELED',
       'TASK_STATE_FAILED',
-      'TASK_STATE_REJECTED'
+      'TASK_STATE_REJECTED',
+      'TASK_STATE_INPUT_REQUIRED',
+      'TASK_STATE_AUTH_REQUIRED'
   )
 `
 
@@ -91,12 +93,16 @@ func (q *Queries) GetActiveAgentInstanceTask(ctx context.Context, instanceID str
 		&i.UpdatedAt,
 		&i.InitialMessageID,
 		&i.RequestHash,
+		&i.SnapshotAtespace,
+		&i.SnapshotName,
+		&i.SnapshotUid,
+		&i.HistorySequence,
 	)
 	return i, err
 }
 
 const getAgentInstanceTask = `-- name: GetAgentInstanceTask :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
 WHERE instance_id = $1 AND id = $2
 `
 
@@ -118,12 +124,16 @@ func (q *Queries) GetAgentInstanceTask(ctx context.Context, arg GetAgentInstance
 		&i.UpdatedAt,
 		&i.InitialMessageID,
 		&i.RequestHash,
+		&i.SnapshotAtespace,
+		&i.SnapshotName,
+		&i.SnapshotUid,
+		&i.HistorySequence,
 	)
 	return i, err
 }
 
 const getAgentInstanceTaskByMessageID = `-- name: GetAgentInstanceTaskByMessageID :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
 WHERE instance_id = $1 AND initial_message_id = $2
 `
 
@@ -145,13 +155,18 @@ func (q *Queries) GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAg
 		&i.UpdatedAt,
 		&i.InitialMessageID,
 		&i.RequestHash,
+		&i.SnapshotAtespace,
+		&i.SnapshotName,
+		&i.SnapshotUid,
+		&i.HistorySequence,
 	)
 	return i, err
 }
 
-const insertAgentInstanceTaskEvent = `-- name: InsertAgentInstanceTaskEvent :exec
+const insertAgentInstanceTaskEvent = `-- name: InsertAgentInstanceTaskEvent :one
 INSERT INTO agent_instance_task_event (instance_id, task_id, data)
 VALUES ($1, $2, $3)
+RETURNING sequence
 `
 
 type InsertAgentInstanceTaskEventParams struct {
@@ -160,13 +175,15 @@ type InsertAgentInstanceTaskEventParams struct {
 	Data       []byte
 }
 
-func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) error {
-	_, err := q.db.Exec(ctx, insertAgentInstanceTaskEvent, arg.InstanceID, arg.TaskID, arg.Data)
-	return err
+func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertAgentInstanceTaskEvent, arg.InstanceID, arg.TaskID, arg.Data)
+	var sequence int64
+	err := row.Scan(&sequence)
+	return sequence, err
 }
 
 const listAgentInstanceTasks = `-- name: ListAgentInstanceTasks :many
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
 WHERE instance_id = $1
   AND id > $2
   AND ($3::text = '' OR state = $3)
@@ -209,6 +226,10 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 			&i.UpdatedAt,
 			&i.InitialMessageID,
 			&i.RequestHash,
+			&i.SnapshotAtespace,
+			&i.SnapshotName,
+			&i.SnapshotUid,
+			&i.HistorySequence,
 		); err != nil {
 			return nil, err
 		}
@@ -221,13 +242,15 @@ func (q *Queries) ListAgentInstanceTasks(ctx context.Context, arg ListAgentInsta
 }
 
 const lockActiveAgentInstanceTask = `-- name: LockActiveAgentInstanceTask :one
-SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash FROM agent_instance_task
+SELECT instance_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, history_sequence FROM agent_instance_task
 WHERE instance_id = $1
   AND state NOT IN (
       'TASK_STATE_COMPLETED',
       'TASK_STATE_CANCELED',
       'TASK_STATE_FAILED',
-      'TASK_STATE_REJECTED'
+      'TASK_STATE_REJECTED',
+      'TASK_STATE_INPUT_REQUIRED',
+      'TASK_STATE_AUTH_REQUIRED'
   )
 FOR UPDATE
 `
@@ -247,8 +270,42 @@ func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, instanceID st
 		&i.UpdatedAt,
 		&i.InitialMessageID,
 		&i.RequestHash,
+		&i.SnapshotAtespace,
+		&i.SnapshotName,
+		&i.SnapshotUid,
+		&i.HistorySequence,
 	)
 	return i, err
+}
+
+const setAgentInstanceTaskSnapshot = `-- name: SetAgentInstanceTaskSnapshot :exec
+UPDATE agent_instance_task SET
+    snapshot_atespace = $3,
+    snapshot_name = $4,
+    snapshot_uid = $5,
+    history_sequence = $6
+WHERE instance_id = $1 AND id = $2
+`
+
+type SetAgentInstanceTaskSnapshotParams struct {
+	InstanceID       string
+	ID               string
+	SnapshotAtespace *string
+	SnapshotName     *string
+	SnapshotUid      *string
+	HistorySequence  *int64
+}
+
+func (q *Queries) SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgentInstanceTaskSnapshotParams) error {
+	_, err := q.db.Exec(ctx, setAgentInstanceTaskSnapshot,
+		arg.InstanceID,
+		arg.ID,
+		arg.SnapshotAtespace,
+		arg.SnapshotName,
+		arg.SnapshotUid,
+		arg.HistorySequence,
+	)
+	return err
 }
 
 const upsertAgentInstanceTask = `-- name: UpsertAgentInstanceTask :exec

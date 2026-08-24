@@ -111,7 +111,7 @@ func (b *AgentHarnessSessionActorBackend) SuspendSessionActor(ctx context.Contex
 	}
 	switch actor.GetStatus().GetState() {
 	case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
-		if err := b.client.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
+		if _, err := b.client.SuspendActor(ctx, atespace, actorID); err != nil && status.Code(err) != codes.NotFound {
 			return fmt.Errorf("substrate SuspendActor %q: %w", actorID, err)
 		}
 	}

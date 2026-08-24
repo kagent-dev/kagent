@@ -14,6 +14,7 @@ type Querier interface {
 	CreateAgentInstanceTask(ctx context.Context, arg CreateAgentInstanceTaskParams) (int64, error)
 	CreateSessionShare(ctx context.Context, arg CreateSessionShareParams) (SessionShare, error)
 	DeleteAgentInstance(ctx context.Context, id string) error
+	DeleteAgentInstanceCheckpoint(ctx context.Context, arg DeleteAgentInstanceCheckpointParams) (int64, error)
 	DeleteAgentInstanceShare(ctx context.Context, arg DeleteAgentInstanceShareParams) (int64, error)
 	DeleteAgentMemory(ctx context.Context, arg DeleteAgentMemoryParams) error
 	DeleteExpiredMemories(ctx context.Context) error
@@ -28,11 +29,14 @@ type Querier interface {
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error)
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
+	GetAgentInstanceCheckpoint(ctx context.Context, arg GetAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
+	GetAgentInstanceCheckpointByRequest(ctx context.Context, arg GetAgentInstanceCheckpointByRequestParams) (AgentInstanceCheckpoint, error)
 	GetAgentInstanceForUser(ctx context.Context, arg GetAgentInstanceForUserParams) (AgentInstance, error)
 	GetAgentInstanceTask(ctx context.Context, arg GetAgentInstanceTaskParams) (AgentInstanceTask, error)
 	GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAgentInstanceTaskByMessageIDParams) (AgentInstanceTask, error)
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
 	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
+	GetLatestAgentInstanceTaskBoundary(ctx context.Context, instanceID string) (AgentInstanceTask, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
 	GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error)
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
@@ -60,10 +64,12 @@ type Querier interface {
 	// Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
 	IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error
 	InsertAgentInstance(ctx context.Context, arg InsertAgentInstanceParams) (AgentInstance, error)
-	InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) error
+	InsertAgentInstanceCheckpoint(ctx context.Context, arg InsertAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
+	InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) (int64, error)
 	InsertEvent(ctx context.Context, arg InsertEventParams) error
 	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
+	ListAgentInstanceCheckpoints(ctx context.Context, arg ListAgentInstanceCheckpointsParams) ([]AgentInstanceCheckpoint, error)
 	ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error)
 	ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error)
 	ListAgentInstances(ctx context.Context, arg ListAgentInstancesParams) ([]AgentInstance, error)
@@ -92,6 +98,9 @@ type Querier interface {
 	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
 	// rest of the transaction so reclamation cannot overwrite concurrent progress.
 	LockActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
+	LockAgentInstance(ctx context.Context, id string) (AgentInstance, error)
+	MarkAgentInstanceCheckpointFailed(ctx context.Context, arg MarkAgentInstanceCheckpointFailedParams) error
+	MarkAgentInstanceCheckpointReady(ctx context.Context, arg MarkAgentInstanceCheckpointReadyParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error
@@ -102,6 +111,7 @@ type Querier interface {
 	SearchAgentMemory(ctx context.Context, arg SearchAgentMemoryParams) ([]SearchAgentMemoryRow, error)
 	SearchCrewAIMemoryByTask(ctx context.Context, arg SearchCrewAIMemoryByTaskParams) ([]CrewaiAgentMemory, error)
 	SearchCrewAIMemoryByTaskLimit(ctx context.Context, arg SearchCrewAIMemoryByTaskLimitParams) ([]CrewaiAgentMemory, error)
+	SetAgentInstanceTaskSnapshot(ctx context.Context, arg SetAgentInstanceTaskSnapshotParams) error
 	SoftDeleteAgent(ctx context.Context, id string) error
 	SoftDeleteCheckpointWrites(ctx context.Context, arg SoftDeleteCheckpointWritesParams) error
 	SoftDeleteCheckpoints(ctx context.Context, arg SoftDeleteCheckpointsParams) error

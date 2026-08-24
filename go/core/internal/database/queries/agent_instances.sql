@@ -21,6 +21,9 @@ RETURNING *;
 -- name: GetAgentInstanceByID :one
 SELECT * FROM agent_instance WHERE id = $1;
 
+-- name: LockAgentInstance :one
+SELECT * FROM agent_instance WHERE id = $1 FOR UPDATE;
+
 -- name: GetAgentInstanceForUser :one
 SELECT * FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3;
 

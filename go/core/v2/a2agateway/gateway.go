@@ -43,13 +43,17 @@ type instanceStore interface {
 	CreateAgentInstanceTask(context.Context, string, []byte, *a2atype.Task) (*a2atype.Task, bool, error)
 	GetActiveAgentInstanceTask(context.Context, string) (*a2atype.Task, error)
 	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
-	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event) error
+	StoreAgentInstanceTaskEvent(context.Context, string, *a2atype.Task, a2atype.Event, *dbpkg.AgentInstanceTaskSnapshot) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2atype.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2atype.TaskState, *time.Time, int) ([]*a2atype.Task, int, error)
 }
 
 type runtimeDialer interface {
 	Dial(context.Context, *apiv1alpha1.AgentInstance) (*a2aclient.Client, error)
+}
+
+type instanceWorkflow interface {
+	Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*dbpkg.AgentInstanceTaskSnapshot, error)
 }
 
 // Gateway is transport-neutral. The v0 deployment registers it on the
@@ -59,6 +63,7 @@ type Gateway struct {
 	store      instanceStore
 	authorizer auth.Authorizer
 	dialer     runtimeDialer
+	workflow   instanceWorkflow
 	gatewayURL string
 }
 
@@ -66,10 +71,10 @@ var _ a2asrv.RequestHandler = (*Gateway)(nil)
 
 // New returns the upstream A2A handler independently of any listener or gRPC
 // server, keeping deployment topology outside the gateway package.
-func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, gatewayURL string) a2asrv.RequestHandler {
+func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, workflow instanceWorkflow, gatewayURL string) a2asrv.RequestHandler {
 	return &a2asrv.InterceptedHandler{
 		Handler: &Gateway{
-			store: store, authorizer: authorizer, dialer: dialer,
+			store: store, authorizer: authorizer, dialer: dialer, workflow: workflow,
 			gatewayURL: gatewayURL,
 		},
 		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
@@ -205,7 +210,7 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 	if err := validateTaskInfo(canceled, task); err != nil {
 		return nil, a2atype.NewError(a2atype.ErrInternalError, err.Error())
 	}
-	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), canceled, canceled); err != nil {
+	if err := g.storeEvent(ctx, instance, canceled, canceled); err != nil {
 		return nil, g.storeError(ctx, err)
 	}
 	return canceled, nil
@@ -236,8 +241,7 @@ func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageReque
 		g.failTask(ctx, instance.GetId(), submitted)
 		return nil, err
 	}
-	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, result); err != nil {
-		g.failTask(ctx, instance.GetId(), submitted)
+	if err := g.storeEvent(ctx, instance, task, result); err != nil {
 		return nil, g.storeError(ctx, err)
 	}
 	return result, nil
@@ -259,7 +263,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 		ctrllog.FromContext(ctx).Error(err, "failed to load AgentInstance task", "task", req.ID)
 		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to load task"))
 	}
-	if task.Status.State.Terminal() {
+	if isQuiescent(task.Status.State) {
 		return func(yield func(a2atype.Event, error) bool) { yield(task, nil) }
 	}
 	client, err := g.dialer.Dial(ctx, instance)
@@ -276,7 +280,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 			}
 			updated, err := g.taskForEvent(ctx, client, instance.GetId(), task, event)
 			if err == nil {
-				err = g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), updated, event)
+				err = g.storeEvent(ctx, instance, updated, event)
 			}
 			if err != nil {
 				yield(nil, g.storeError(ctx, err))
@@ -314,10 +318,9 @@ func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMes
 			}
 			task, err := g.taskForEvent(ctx, client, instance.GetId(), submitted, event)
 			if err == nil {
-				err = g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, event)
+				err = g.storeEvent(ctx, instance, task, event)
 			}
 			if err != nil {
-				g.failTask(ctx, instance.GetId(), submitted)
 				yield(nil, g.storeError(ctx, err))
 				return
 			}
@@ -436,8 +439,8 @@ func (g *Gateway) reconcileActiveTask(ctx context.Context, instance *apiv1alpha1
 				ctrllog.FromContext(ctx).Error(err, "runtime returned invalid active task", "task", active.ID)
 				return dbpkg.ErrAgentInstanceTaskConflict
 			}
-			if latest.Status.State.Terminal() {
-				return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), latest, latest)
+			if isQuiescent(latest.Status.State) {
+				return g.storeEvent(ctx, instance, latest, latest)
 			}
 			return g.interruptTask(ctx, instance.GetId(), active.ID)
 		}
@@ -556,11 +559,27 @@ func validateTaskInfo(value a2atype.TaskInfoProvider, expected *a2atype.Task) er
 	return nil
 }
 
+func (g *Gateway) storeEvent(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, event a2atype.Event) error {
+	var snapshot *dbpkg.AgentInstanceTaskSnapshot
+	var err error
+	if task != nil && isQuiescent(task.Status.State) {
+		snapshot, err = g.workflow.Quiesce(ctx, instance)
+		if err != nil {
+			return fmt.Errorf("quiesce AgentInstance runtime: %w", err)
+		}
+	}
+	return g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), task, event, snapshot)
+}
+
+func isQuiescent(state a2atype.TaskState) bool {
+	return state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
+}
+
 func (g *Gateway) failTask(ctx context.Context, instanceID string, task *a2atype.Task) {
 	now := time.Now()
 	failed := *task
 	failed.Status = a2atype.TaskStatus{State: a2atype.TaskStateFailed, Timestamp: &now}
-	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instanceID, &failed, &failed); err != nil {
+	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instanceID, &failed, &failed, nil); err != nil {
 		ctrllog.FromContext(ctx).Error(err, "failed to record failed AgentInstance task", "task", task.ID)
 	}
 }

@@ -28,7 +28,8 @@ type actorClient interface {
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
 	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
-	SuspendActor(context.Context, string, string) error
+	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
+	GetActorSnapshot(context.Context, string, string) (*ateapipb.ActorSnapshot, error)
 	DeleteActor(context.Context, string, string) error
 }
 
@@ -42,6 +43,32 @@ type ActorWorkflow struct {
 
 func NewActorWorkflow(store workflowStore, actors actorClient) *ActorWorkflow {
 	return &ActorWorkflow{store: store, actors: actors}
+}
+
+// Quiesce durably suspends the runtime without changing the AgentInstance's
+// logical READY state and returns the exact immutable snapshot it produced.
+func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.AgentInstance) (*dbpkg.AgentInstanceTaskSnapshot, error) {
+	atespace, name := instance.GetNamespace(), actorName(instance.GetId())
+	actor, err := w.actors.SuspendActor(ctx, atespace, name)
+	if err != nil {
+		return nil, fmt.Errorf("suspend Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		return nil, fmt.Errorf("suspend Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
+	}
+	ref := actor.GetStatus().GetLatestSnapshot()
+	if ref.GetAtespace() == "" || ref.GetName() == "" {
+		return nil, fmt.Errorf("suspend Actor %s/%s returned no snapshot", atespace, name)
+	}
+	snapshot, err := w.actors.GetActorSnapshot(ctx, ref.GetAtespace(), ref.GetName())
+	if err != nil {
+		return nil, fmt.Errorf("get ActorSnapshot %s/%s: %w", ref.GetAtespace(), ref.GetName(), err)
+	}
+	metadata := snapshot.GetMetadata()
+	if metadata.GetAtespace() != ref.GetAtespace() || metadata.GetName() != ref.GetName() || metadata.GetUid() == "" {
+		return nil, fmt.Errorf("ActorSnapshot %s/%s returned invalid identity", ref.GetAtespace(), ref.GetName())
+	}
+	return &dbpkg.AgentInstanceTaskSnapshot{Atespace: metadata.GetAtespace(), Name: metadata.GetName(), UID: metadata.GetUid()}, nil
 }
 
 // Create converges a persisted CREATING instance to READY. Retries discover
@@ -114,7 +141,7 @@ func (w *ActorWorkflow) Suspend(ctx context.Context, instance *apiv1alpha1.Agent
 		switch actor.GetStatus().GetState() {
 		case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
 		case ateapipb.ActorState_ACTOR_STATE_RUNNING, ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_SUSPENDING:
-			err = w.actors.SuspendActor(ctx, instance.GetNamespace(), actorName(instance.GetId()))
+			_, err = w.actors.SuspendActor(ctx, instance.GetNamespace(), actorName(instance.GetId()))
 		default:
 			err = fmt.Errorf("actor %s/%s cannot be suspended from status %s", instance.GetNamespace(), actorName(instance.GetId()), actor.GetStatus().GetState())
 		}
@@ -281,7 +308,7 @@ func (w *ActorWorkflow) Delete(ctx context.Context, instance *apiv1alpha1.AgentI
 	switch actor.GetStatus().GetState() {
 	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED, ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_DELETING:
 	default:
-		if err := w.actors.SuspendActor(ctx, atespace, name); err != nil && status.Code(err) != codes.NotFound {
+		if _, err := w.actors.SuspendActor(ctx, atespace, name); err != nil && status.Code(err) != codes.NotFound {
 			return nil, w.release(ctx, instance, originalState, claimed, fmt.Errorf("suspend Actor %s/%s before deletion: %w", atespace, name, err))
 		}
 	}
