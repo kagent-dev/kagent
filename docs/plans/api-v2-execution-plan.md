@@ -232,9 +232,9 @@ Extend preparation and the kagent adapter:
 - Preserve each parent-specific binding name, description, prompt, model, skills, and exact tool allowlist.
 - Do not expose a public AgentInstance, Actor, or A2A Task for Shared children.
 
-### K9 — Dedicated tools and multi-member topology (deferred)
+### K9 — Dedicated tools and multi-member topology
 
-After the initial API v2 release, add Dedicated boundaries:
+Once the single-member lifecycle and its core E2E coverage are in place, add Dedicated boundaries:
 
 - Produce a prepared runtime bundle and ActorTemplate per Dedicated boundary.
 - Provision every member through K5’s existing state machine.
@@ -458,7 +458,7 @@ Substrate Kind E2E may remain disabled during earlier PRs, but it is blocking he
 
 After K0:
 
-- API lane: K1 → K3 → K7/K8. K9 is deferred.
+- API lane: K1 → K3 → K7/K8. K9 follows the single-member lifecycle and core E2E coverage.
 - Control-plane lane: K2, then prepare K5 database/service work.
 - Runtime lane: K4 independently.
 - External lane: S0 can unlock K5A at any time after K5; S1 → S2 independently.
@@ -483,7 +483,6 @@ K7 and K8 should branch from K3 and avoid editing each other’s source-specific
 
 ## Deliberate exclusions
 
-- Dedicated tools and multi-member topology are deferred until after the initial API v2 release.
 - No AgentHost, HostedAgent, shared Actors, managed native profiles, or channels.
 - No OpenClaw or Hermes release requirement.
 - No BYO/fallback runtime.
