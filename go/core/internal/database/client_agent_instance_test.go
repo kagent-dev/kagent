@@ -216,12 +216,23 @@ func TestAgentInstanceCheckpointRetainsRecordedBoundary(t *testing.T) {
 	if err != nil || replayed.ID != checkpoint.ID {
 		t.Fatalf("replayed checkpoint = %+v, error %v", replayed, err)
 	}
-	ready, err := client.MarkAgentInstanceCheckpointReady(ctx, checkpoint.ID, "tag-uid")
+	ready, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID, "tag-uid", "")
 	if err != nil || ready.State != "READY" || ready.TagUID != "tag-uid" {
 		t.Fatalf("ready checkpoint = %+v, error %v", ready, err)
 	}
-	if replayed, err := client.MarkAgentInstanceCheckpointReady(ctx, checkpoint.ID, "tag-uid"); err != nil || replayed.State != "READY" {
+	if replayed, err := client.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID, "tag-uid", ""); err != nil || replayed.State != "READY" {
 		t.Fatalf("replayed ready checkpoint = %+v, error %v", replayed, err)
+	}
+	failed, err := client.ReserveAgentInstanceCheckpoint(ctx, dbpkg.AgentInstanceCheckpoint{
+		ID: "checkpoint-2", Namespace: "team-a", SourceInstanceID: "instance-1", UserID: "alice",
+		RequestID: "failed-checkpoint-request",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, err = client.FinalizeAgentInstanceCheckpoint(ctx, failed.ID, "", "tag creation failed")
+	if err != nil || failed.State != "FAILED" || failed.Failure != "tag creation failed" {
+		t.Fatalf("failed checkpoint = %+v, error %v", failed, err)
 	}
 	if err := client.DeleteAgentInstance(ctx, "instance-1"); err != nil {
 		t.Fatal(err)

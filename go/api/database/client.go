@@ -140,8 +140,7 @@ type Client interface {
 	GetAgentInstanceTask(context.Context, string, string) (*a2a.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)
 	ReserveAgentInstanceCheckpoint(context.Context, AgentInstanceCheckpoint) (*AgentInstanceCheckpoint, error)
-	MarkAgentInstanceCheckpointReady(context.Context, string, string) (*AgentInstanceCheckpoint, error)
-	MarkAgentInstanceCheckpointFailed(context.Context, string, string) error
+	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
 	GetAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
 	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]AgentInstanceCheckpoint, error)
 	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)

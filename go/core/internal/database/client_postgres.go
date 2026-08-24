@@ -994,19 +994,17 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 	return result, nil
 }
 
-func (c *postgresClient) MarkAgentInstanceCheckpointReady(ctx context.Context, id, tagUID string) (*dbpkg.AgentInstanceCheckpoint, error) {
-	row, err := c.q.MarkAgentInstanceCheckpointReady(ctx, dbgen.MarkAgentInstanceCheckpointReadyParams{ID: id, TagUid: tagUID})
+func (c *postgresClient) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID, failure string) (*dbpkg.AgentInstanceCheckpoint, error) {
+	if (tagUID == "") == (failure == "") {
+		return nil, fmt.Errorf("finalize AgentInstance checkpoint requires exactly one of tag UID or failure")
+	}
+	row, err := c.q.FinalizeAgentInstanceCheckpoint(ctx, dbgen.FinalizeAgentInstanceCheckpointParams{
+		ID: id, TagUid: tagUID, Failure: failure,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("mark AgentInstance checkpoint ready: %w", notFoundOr(err))
+		return nil, fmt.Errorf("finalize AgentInstance checkpoint: %w", notFoundOr(err))
 	}
 	return toAgentInstanceCheckpoint(row), nil
-}
-
-func (c *postgresClient) MarkAgentInstanceCheckpointFailed(ctx context.Context, id, failure string) error {
-	if err := c.q.MarkAgentInstanceCheckpointFailed(ctx, dbgen.MarkAgentInstanceCheckpointFailedParams{ID: id, Failure: failure}); err != nil {
-		return fmt.Errorf("mark AgentInstance checkpoint failed: %w", err)
-	}
-	return nil
 }
 
 func (c *postgresClient) GetAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {

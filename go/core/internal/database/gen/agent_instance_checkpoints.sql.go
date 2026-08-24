@@ -65,6 +65,49 @@ func (q *Queries) DeleteAgentInstanceCheckpoint(ctx context.Context, arg DeleteA
 	return result.RowsAffected(), nil
 }
 
+const finalizeAgentInstanceCheckpoint = `-- name: FinalizeAgentInstanceCheckpoint :one
+UPDATE agent_instance_checkpoint
+SET state = CASE WHEN $2::text <> '' THEN 'READY' ELSE 'FAILED' END,
+    tag_uid = $2,
+    failure = $3
+WHERE id = $1
+  AND (
+    state = 'CREATING'
+    OR (state = 'READY' AND tag_uid = $2::text AND $3::text = '')
+    OR (state = 'FAILED' AND $2::text = '' AND failure = $3::text)
+  )
+RETURNING id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at
+`
+
+type FinalizeAgentInstanceCheckpointParams struct {
+	ID      string
+	TagUid  string
+	Failure string
+}
+
+func (q *Queries) FinalizeAgentInstanceCheckpoint(ctx context.Context, arg FinalizeAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error) {
+	row := q.db.QueryRow(ctx, finalizeAgentInstanceCheckpoint, arg.ID, arg.TagUid, arg.Failure)
+	var i AgentInstanceCheckpoint
+	err := row.Scan(
+		&i.ID,
+		&i.Namespace,
+		&i.SourceInstanceID,
+		&i.UserID,
+		&i.RequestID,
+		&i.HeadTaskID,
+		&i.HistorySequence,
+		&i.SnapshotAtespace,
+		&i.SnapshotName,
+		&i.SnapshotUid,
+		&i.SnapshotContentScope,
+		&i.TagUid,
+		&i.State,
+		&i.Failure,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getAgentInstanceCheckpoint = `-- name: GetAgentInstanceCheckpoint :one
 SELECT id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at FROM agent_instance_checkpoint
 WHERE namespace = $1 AND id = $2 AND user_id = $3 AND state = 'READY'
@@ -294,56 +337,4 @@ func (q *Queries) ListAgentInstanceCheckpoints(ctx context.Context, arg ListAgen
 		return nil, err
 	}
 	return items, nil
-}
-
-const markAgentInstanceCheckpointFailed = `-- name: MarkAgentInstanceCheckpointFailed :exec
-UPDATE agent_instance_checkpoint
-SET state = 'FAILED', failure = $2
-WHERE id = $1 AND state = 'CREATING'
-`
-
-type MarkAgentInstanceCheckpointFailedParams struct {
-	ID      string
-	Failure string
-}
-
-func (q *Queries) MarkAgentInstanceCheckpointFailed(ctx context.Context, arg MarkAgentInstanceCheckpointFailedParams) error {
-	_, err := q.db.Exec(ctx, markAgentInstanceCheckpointFailed, arg.ID, arg.Failure)
-	return err
-}
-
-const markAgentInstanceCheckpointReady = `-- name: MarkAgentInstanceCheckpointReady :one
-UPDATE agent_instance_checkpoint
-SET state = 'READY', tag_uid = $2, failure = ''
-WHERE id = $1
-  AND (state = 'CREATING' OR (state = 'READY' AND tag_uid = $2))
-RETURNING id, namespace, source_instance_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, tag_uid, state, failure, created_at
-`
-
-type MarkAgentInstanceCheckpointReadyParams struct {
-	ID     string
-	TagUid string
-}
-
-func (q *Queries) MarkAgentInstanceCheckpointReady(ctx context.Context, arg MarkAgentInstanceCheckpointReadyParams) (AgentInstanceCheckpoint, error) {
-	row := q.db.QueryRow(ctx, markAgentInstanceCheckpointReady, arg.ID, arg.TagUid)
-	var i AgentInstanceCheckpoint
-	err := row.Scan(
-		&i.ID,
-		&i.Namespace,
-		&i.SourceInstanceID,
-		&i.UserID,
-		&i.RequestID,
-		&i.HeadTaskID,
-		&i.HistorySequence,
-		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
-		&i.SnapshotContentScope,
-		&i.TagUid,
-		&i.State,
-		&i.Failure,
-		&i.CreatedAt,
-	)
-	return i, err
 }

@@ -279,7 +279,9 @@ K10 progress:
 - Completed: authenticated routing and runtime proxying; durable Task and event persistence; database-backed get/list/filter/count/pagination and history/artifact shaping; the one-active-Task constraint; and message idempotency with conflicting-ID rejection.
 - Remaining parallel slices: cancellation and reconnect/subscription;
   automatic post-turn suspension; generated Agent Card; creator/operator/share
-  authorization coverage; and Kind end-to-end coverage.
+  authorization coverage; consolidate each Task/event/snapshot persistence
+  boundary into one PostgreSQL statement (2→1 queries for regular events and
+  3→1 for quiescent snapshot events); and Kind end-to-end coverage.
 
 ### K11 — Agent-to-Agent delegation and approval profile
 

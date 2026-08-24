@@ -31,17 +31,18 @@ INSERT INTO agent_instance_checkpoint (
 ON CONFLICT DO NOTHING
 RETURNING *;
 
--- name: MarkAgentInstanceCheckpointReady :one
+-- name: FinalizeAgentInstanceCheckpoint :one
 UPDATE agent_instance_checkpoint
-SET state = 'READY', tag_uid = $2, failure = ''
+SET state = CASE WHEN sqlc.arg(tag_uid)::text <> '' THEN 'READY' ELSE 'FAILED' END,
+    tag_uid = sqlc.arg(tag_uid),
+    failure = sqlc.arg(failure)
 WHERE id = $1
-  AND (state = 'CREATING' OR (state = 'READY' AND tag_uid = $2))
+  AND (
+    state = 'CREATING'
+    OR (state = 'READY' AND tag_uid = sqlc.arg(tag_uid)::text AND sqlc.arg(failure)::text = '')
+    OR (state = 'FAILED' AND sqlc.arg(tag_uid)::text = '' AND failure = sqlc.arg(failure)::text)
+  )
 RETURNING *;
-
--- name: MarkAgentInstanceCheckpointFailed :exec
-UPDATE agent_instance_checkpoint
-SET state = 'FAILED', failure = $2
-WHERE id = $1 AND state = 'CREATING';
 
 -- name: GetAgentInstanceCheckpoint :one
 SELECT * FROM agent_instance_checkpoint

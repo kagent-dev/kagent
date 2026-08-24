@@ -26,6 +26,7 @@ type Querier interface {
 	DeleteSessionShare(ctx context.Context, arg DeleteSessionShareParams) error
 	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
+	FinalizeAgentInstanceCheckpoint(ctx context.Context, arg FinalizeAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error)
@@ -100,8 +101,6 @@ type Querier interface {
 	// rest of the transaction so reclamation cannot overwrite concurrent progress.
 	LockActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
 	LockAgentInstance(ctx context.Context, id string) (AgentInstance, error)
-	MarkAgentInstanceCheckpointFailed(ctx context.Context, arg MarkAgentInstanceCheckpointFailedParams) error
-	MarkAgentInstanceCheckpointReady(ctx context.Context, arg MarkAgentInstanceCheckpointReadyParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error

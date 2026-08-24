@@ -39,14 +39,13 @@ func (s *testStore) ReserveAgentInstanceCheckpoint(_ context.Context, checkpoint
 	return &checkpoint, nil
 }
 
-func (s *testStore) MarkAgentInstanceCheckpointReady(_ context.Context, id, tagUID string) (*dbpkg.AgentInstanceCheckpoint, error) {
-	s.prepared.State, s.prepared.TagUID = "READY", tagUID
+func (s *testStore) FinalizeAgentInstanceCheckpoint(_ context.Context, _ string, tagUID, failure string) (*dbpkg.AgentInstanceCheckpoint, error) {
+	if failure != "" {
+		s.prepared.State, s.failed = "FAILED", failure
+	} else {
+		s.prepared.State, s.prepared.TagUID = "READY", tagUID
+	}
 	return s.prepared, nil
-}
-
-func (s *testStore) MarkAgentInstanceCheckpointFailed(_ context.Context, _ string, failure string) error {
-	s.failed = failure
-	return nil
 }
 
 func (*testStore) GetAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error) {

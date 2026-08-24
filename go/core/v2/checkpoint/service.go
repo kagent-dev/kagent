@@ -26,8 +26,7 @@ const (
 
 type store interface {
 	ReserveAgentInstanceCheckpoint(context.Context, dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error)
-	MarkAgentInstanceCheckpointReady(context.Context, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
-	MarkAgentInstanceCheckpointFailed(context.Context, string, string) error
+	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
 	GetAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
 	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceCheckpoint, error)
 	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
@@ -99,11 +98,11 @@ func (s *Service) Create(ctx context.Context, namespace, instanceID, requestID s
 	if err != nil {
 		cleanupErr := s.tags.DeleteActorSnapshotTag(ctx, checkpoint.SnapshotAtespace, tagName(checkpoint.ID))
 		if cleanupErr == nil || status.Code(cleanupErr) == codes.NotFound {
-			_ = s.store.MarkAgentInstanceCheckpointFailed(ctx, checkpoint.ID, err.Error())
+			_, _ = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID, "", err.Error())
 		}
 		return nil, serviceerrors.NewUnavailable("Failed to retain checkpoint snapshot", err)
 	}
-	checkpoint, err = s.store.MarkAgentInstanceCheckpointReady(ctx, checkpoint.ID, tag.GetMetadata().GetUid())
+	checkpoint, err = s.store.FinalizeAgentInstanceCheckpoint(ctx, checkpoint.ID, tag.GetMetadata().GetUid(), "")
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to publish checkpoint", err)
 	}
