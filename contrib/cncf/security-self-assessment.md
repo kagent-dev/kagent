@@ -46,7 +46,7 @@ This document provides a self-assessment of the kagent project following the gui
 |   |  |
 | - | - |
 | Software | [kagent Repository](https://github.com/kagent-dev/kagent) |
-| Security Policy | [SECURITY.md](SECURITY.md) |
+| Security Policy | [SECURITY.md](../../SECURITY.md) |
 | Security Provider | No. kagent is designed to facilitate security and compliance validation, but it should not be considered a security provider. |
 | Languages | Go, Python, TypeScript/JavaScript |
 | Security Insights | See [Project Compliance > Future State](#future-state) |

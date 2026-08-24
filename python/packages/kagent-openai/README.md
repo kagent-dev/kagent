@@ -57,7 +57,7 @@ agent = Agent(
 )
 ```
 
-See [skills README](../../kagent-skills/README.md) for skill format and structure.
+See [skills README](../kagent-skills/README.md) for skill format and structure.
 
 ---
 
@@ -147,7 +147,7 @@ See `samples/openai/` for complete examples:
 ## See Also
 
 - [OpenAI Agents SDK Docs](https://github.com/openai/agents)
-- [KAgent Skills](../../kagent-skills/README.md)
+- [KAgent Skills](../kagent-skills/README.md)
 - [A2A Protocol](https://docs.kagent.ai/a2a)
 
 ---
