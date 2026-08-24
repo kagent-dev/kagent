@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
+	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/modelconfig"
 )
 
 // GatewayBootstrapConfig describes the gateway section of openclaw.json for a harness runtime.
@@ -60,7 +61,7 @@ func buildCoreBootstrapDocument(mc *v1alpha3.ModelConfig, gw GatewayBootstrapCon
 	// Substrate: do not emit models.providers without baseUrl (OpenClaw rejects undefined baseUrl).
 	// Rely on agents.defaults + API key env unless the user set an explicit URL on ModelConfig.
 	if defaultBaseURLWhenUnset == SubstrateBootstrapDefaultBaseURL {
-		if explicit := modelConfigExplicitBaseURL(mc); explicit != "" {
+		if explicit := modelconfig.ExplicitBaseURL(mc); explicit != "" {
 			doc.Models = &modelsSection{
 				Mode: "merge",
 				Providers: map[string]providerSettings{
