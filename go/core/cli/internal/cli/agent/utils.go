@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"slices"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	pygen "github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/adk/python"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/agent/frameworks/common"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
@@ -20,25 +18,6 @@ const (
 	DockerComposeFilename = "docker-compose.yaml"
 	DockerComposeTemplate = "templates/docker-compose.yaml.tmpl"
 )
-
-func StreamA2AEvents(ch <-chan clia2a.StreamResult, verbose bool) error {
-	_ = verbose
-	defer fmt.Fprintln(os.Stdout)
-
-	for result := range ch {
-		if result.Err != nil {
-			return result.Err
-		}
-
-		json, err := json.Marshal(result.Event)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error marshaling A2A event: %v\n", err)
-			continue
-		}
-		fmt.Fprintf(os.Stdout, "%+v\n", string(json))
-	}
-	return nil
-}
 
 // ResolveProjectDir resolves the project directory to an absolute path
 func ResolveProjectDir(projectDir string) (string, error) {

@@ -10,9 +10,11 @@ import (
 	"time"
 
 	cli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agent"
+	agentinstancecli "github.com/kagent-dev/kagent/go/core/cli/internal/cli/agentinstance"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/envdoc"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/mcp"
+	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
@@ -64,11 +66,17 @@ func loadConfig() (*config.Config, error) {
 
 func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "kagent",
-		Short: "kagent is a CLI and TUI for kagent",
-		Long:  "kagent is a CLI and TUI for kagent",
+		Use:           "kagent",
+		Short:         "kagent is a CLI and TUI for kagent",
+		Long:          "kagent is a CLI and TUI for kagent",
+		SilenceErrors: true,
+		SilenceUsage:  true,
 		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-			return cfg.Validate()
+			if err := cfg.Validate(); err != nil {
+				return err
+			}
+			_, err := clioutput.Parse(cfg.OutputFormat)
+			return err
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			runInteractive(cmd, args, cfg)
@@ -112,28 +120,29 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		},
 	}
 
-	invokeCfg := &cli.InvokeCfg{
+	invokeCfg := &agentinstancecli.InvokeCfg{
 		Config: cfg,
 	}
 
 	invokeCmd := &cobra.Command{
 		Use:   "invoke",
-		Short: "Invoke a kagent agent",
-		Long:  `Invoke a kagent agent`,
-		Run: func(cmd *cobra.Command, args []string) {
-			cli.InvokeCmd(cmd.Context(), invokeCfg)
+		Short: "Invoke an AgentInstance",
+		Long:  `Invoke an existing AgentInstance through the A2A API.`,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return agentinstancecli.InvokeCmd(cmd.Context(), invokeCfg, cmd.InOrStdin(), cmd.OutOrStdout())
 		},
-		Example: `kagent invoke --agent "k8s-agent" --task "Get all the pods in the kagent namespace"`,
+		Example: `kagent invoke --agent-instance 8bd650a8-9775-488f-8bc1-0d52bf7bdcab --task "Get all the pods"`,
 	}
 
-	invokeCmd.Flags().StringVarP(&invokeCfg.Task, "task", "t", "", "Task")
-	invokeCmd.Flags().StringVarP(&invokeCfg.Session, "session", "s", "", "Session")
-	invokeCmd.Flags().StringVarP(&invokeCfg.Agent, "agent", "a", "", "Agent")
+	invokeCmd.Flags().StringVar(&invokeCfg.AgentInstance, "agent-instance", "", "AgentInstance ID")
+	invokeCmd.Flags().StringVarP(&invokeCfg.Task, "task", "t", "", "Task text")
+	invokeCmd.Flags().StringVarP(&invokeCfg.File, "file", "f", "", "Read task text from a file or - for stdin")
 	invokeCmd.Flags().BoolVarP(&invokeCfg.Stream, "stream", "S", false, "Stream the response")
-	invokeCmd.Flags().StringVarP(&invokeCfg.File, "file", "f", "", "File to read the task from")
-	invokeCmd.Flags().StringVarP(&invokeCfg.URLOverride, "url-override", "u", "", "URL override")
-	invokeCmd.Flags().MarkHidden("url-override") //nolint:errcheck
-	invokeCmd.Flags().StringVar(&invokeCfg.Token, "token", "", "Bearer token to include in A2A requests (for API key passthrough)")
+	invokeCmd.Flags().StringVar(&invokeCfg.Token, "token", "", "Model API key passed through as an A2A Bearer token")
+	_ = invokeCmd.MarkFlagRequired("agent-instance")
+	invokeCmd.MarkFlagsOneRequired("task", "file")
+	invokeCmd.MarkFlagsMutuallyExclusive("task", "file")
 
 	bugReportCmd := &cobra.Command{
 		Use:   "bug-report",
@@ -180,12 +189,26 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		Use:   "get",
 		Short: "Get a kagent resource",
 		Long:  `Get a kagent resource`,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintf(os.Stderr, "No resource type provided\n\n")
-			cmd.Help() //nolint:errcheck
-			os.Exit(1)
+		Args:  cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return fmt.Errorf("resource type is required")
 		},
 	}
+	agentInstanceGetCfg := &agentinstancecli.GetCfg{Config: cfg}
+	getAgentInstanceCmd := &cobra.Command{
+		Use:   "agent-instance [ID]",
+		Short: "Get an AgentInstance or list your AgentInstances",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			agentInstanceGetCfg.InstanceID = ""
+			if len(args) == 1 {
+				agentInstanceGetCfg.InstanceID = args[0]
+			}
+			return agentinstancecli.GetCmd(cmd.Context(), agentInstanceGetCfg, cmd.OutOrStdout())
+		},
+	}
+	getAgentInstanceCmd.Flags().Int32Var(&agentInstanceGetCfg.PageSize, "page-size", 0, "Number of AgentInstances to return (default 50, maximum 100)")
+	getAgentInstanceCmd.Flags().StringVar(&agentInstanceGetCfg.PageToken, "page-token", "", "Token returned by the previous page")
 
 	getSessionCmd := &cobra.Command{
 		Use:   "session [session_id]",
@@ -246,7 +269,7 @@ func newRootCommand(ctx context.Context, cfg *config.Config) *cobra.Command {
 		},
 	}
 
-	getCmd.AddCommand(getSessionCmd, getAgentCmd, getToolCmd)
+	getCmd.AddCommand(getAgentInstanceCmd, getSessionCmd, getAgentCmd, getToolCmd)
 
 	initCfg := &cli.InitCfg{
 		Config: cfg,

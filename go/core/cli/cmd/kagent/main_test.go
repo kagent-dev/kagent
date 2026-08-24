@@ -68,10 +68,12 @@ func TestLoadConfigReadsUserIDFromEnvironment(t *testing.T) {
 
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("KAGENT_USER_ID", "environment-user")
+	t.Setenv("KAGENT_OUTPUT_FORMAT", "json")
 
 	cfg, err := loadConfig()
 	require.NoError(t, err)
 	assert.Equal(t, "environment-user", cfg.UserID)
+	assert.Equal(t, "json", cfg.OutputFormat)
 }
 
 func TestLoadConfigRejectsInvalidUserID(t *testing.T) {
@@ -179,6 +181,49 @@ func TestRootCommandRejectsInvalidUserIDFlag(t *testing.T) {
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "caller identity")
 		})
+	}
+}
+
+func TestRootCommandRejectsInvalidOutputBeforeRunningCommand(t *testing.T) {
+	cfg := &config.Config{
+		KAgentURL:     config.DefaultKAgentURL,
+		KAgentGRPCURL: config.DefaultKAgentGRPCURL,
+		OutputFormat:  "yaml",
+		UserID:        config.DefaultUserID,
+	}
+	rootCmd := newRootCommand(t.Context(), cfg)
+	rootCmd.SetArgs([]string{"version"})
+
+	err := rootCmd.ExecuteContext(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unsupported output format "yaml"`)
+}
+
+func TestRootCommandInvokeContract(t *testing.T) {
+	cfg := &config.Config{
+		KAgentURL:     config.DefaultKAgentURL,
+		KAgentGRPCURL: config.DefaultKAgentGRPCURL,
+		OutputFormat:  "table",
+		UserID:        config.DefaultUserID,
+	}
+	rootCmd := newRootCommand(t.Context(), cfg)
+	assert.True(t, rootCmd.SilenceErrors)
+	assert.True(t, rootCmd.SilenceUsage)
+
+	invokeCmd, _, err := rootCmd.Find([]string{"invoke"})
+	require.NoError(t, err)
+	for _, flag := range []string{"agent-instance", "task", "file", "stream", "token"} {
+		assert.NotNil(t, invokeCmd.Flags().Lookup(flag), "missing --%s", flag)
+	}
+	for _, legacyFlag := range []string{"agent", "session", "url-override"} {
+		assert.Nil(t, invokeCmd.Flags().Lookup(legacyFlag), "legacy --%s must be removed", legacyFlag)
+	}
+
+	getInstanceCmd, _, err := rootCmd.Find([]string{"get", "agent-instance"})
+	require.NoError(t, err)
+	assert.Equal(t, "agent-instance [ID]", getInstanceCmd.Use)
+	for _, flag := range []string{"page-size", "page-token"} {
+		assert.NotNil(t, getInstanceCmd.Flags().Lookup(flag), "missing --%s", flag)
 	}
 }
 

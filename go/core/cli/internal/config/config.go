@@ -93,6 +93,7 @@ func Init() error {
 	viper.MustBindEnv("kagent_grpc_tls", "KAGENT_GRPC_TLS")
 	viper.MustBindEnv("kagent_grpc_ca_file", "KAGENT_GRPC_CA_FILE")
 	viper.MustBindEnv("kagent_grpc_server_name", "KAGENT_GRPC_SERVER_NAME")
+	viper.MustBindEnv("output_format", "KAGENT_OUTPUT_FORMAT")
 	viper.MustBindEnv("user_id", "KAGENT_USER_ID")
 
 	if err := viper.ReadInConfig(); err != nil {

@@ -462,33 +462,6 @@ func TestEdgeCaseInputs(t *testing.T) {
 	}
 }
 
-// TestInvokeWithInvalidAgent tests agent name validation logic
-func TestInvokeWithInvalidAgent(t *testing.T) {
-	// Note: These tests are limited because InvokeCmd attempts connection
-	// before validation, so we can only test the validation logic indirectly
-
-	t.Run("agent name validation", func(t *testing.T) {
-		// Test that agent names with "/" are invalid
-		invalidName := "namespace/agent"
-		assert.Contains(t, invalidName, "/", "Agent name with / should be caught")
-
-		// Test that empty agent names should fail
-		emptyName := ""
-		assert.Empty(t, emptyName, "Empty agent name should be invalid")
-	})
-
-	t.Run("task validation", func(t *testing.T) {
-		// Both task and file empty should fail
-		cfg := &InvokeCfg{
-			Task: "",
-			File: "",
-		}
-
-		assert.Empty(t, cfg.Task, "Empty task should be invalid")
-		assert.Empty(t, cfg.File, "Empty file should be invalid")
-	})
-}
-
 // TestDeployWithMissingResources tests deploy when required resources are missing
 func TestDeployWithMissingResources(t *testing.T) {
 	tests := []struct {
