@@ -117,6 +117,17 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			Location: sandboxAgentSnapshotsLocation(sa),
 			OnPause:  atev1alpha1.SnapshotScopeFull,
 			OnCommit: atev1alpha1.SnapshotScopeFull,
+			// Same class of bug as ContainerReadyz.TimeoutSeconds above:
+			// OnResume is a plain (non-pointer) struct, so Go's encoding/json
+			// omitempty never actually omits it — "desired" always serializes
+			// onResume:{}, and the apiserver's structural-schema defaulting then
+			// fills in fromData: "ColdBoot" (+kubebuilder:default=ColdBoot,
+			// actortemplate_types.go) on the *stored* object. Leaving this
+			// unset here left desired.OnResume.FromData="" permanently
+			// disagreeing with existing's server-defaulted "ColdBoot", which
+			// alone was enough to keep the delete+recreate loop going even
+			// after the TimeoutSeconds fix.
+			OnResume: atev1alpha1.OnResumeConfig{FromData: atev1alpha1.ResumeSourceColdBoot},
 		},
 	}
 	applyDurableDirSessionStore(&spec)

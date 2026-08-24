@@ -226,6 +226,11 @@ func TestBuildSandboxAgentActorTemplate(t *testing.T) {
 			// loop (see the TimeoutSeconds field comment above for the full mechanism).
 			require.Equal(t, int32(30), c.Readyz.TimeoutSeconds)
 
+			// OnResume must mirror SnapshotsConfig's own +kubebuilder:default=ColdBoot for the
+			// same reason: it's a non-pointer struct, so an unset value here would leave the
+			// desired spec permanently disagreeing with the apiserver-defaulted stored spec.
+			require.Equal(t, atev1alpha1.ResumeSourceColdBoot, tmpl.Spec.SnapshotsConfig.OnResume.FromData)
+
 			names := actorEnvNames(c.Env)
 			require.True(t, names["KAGENT_NAME"], "KAGENT_NAME must be a literal env var")
 			require.True(t, names["KAGENT_NAMESPACE"], "KAGENT_NAMESPACE must be a literal env var")

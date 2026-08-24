@@ -186,6 +186,13 @@ func (p *Lifecycle) buildActorTemplate(ctx context.Context, ah *v1alpha3.AgentHa
 				// re-creates the ActorTemplate every reconcile in a hot loop.
 				OnPause:  atev1alpha1.SnapshotScopeFull,
 				OnCommit: atev1alpha1.SnapshotScopeFull,
+				// OnResume was missing here too: it's a non-pointer struct, so
+				// encoding/json's omitempty never actually omits it, the apiserver
+				// defaults its fromData to "ColdBoot" on the stored object
+				// regardless, and an unset OnResume here left desired at the Go
+				// zero value ("") forever disagreeing with it — same hot loop via
+				// a different field.
+				OnResume: atev1alpha1.OnResumeConfig{FromData: atev1alpha1.ResumeSourceColdBoot},
 			},
 		},
 	}
