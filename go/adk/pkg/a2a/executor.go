@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -129,6 +130,9 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		if e.appName != "" {
 			spanAttributes["kagent.app_name"] = e.appName
 		}
+		// Allowlisted caller context joins the request-scoped bag rather than a
+		// single span, so tool, sub-agent, and model spans all carry it.
+		maps.Copy(spanAttributes, telemetry.CallerContextAttributes(ctx, reqCtx.Message.Metadata))
 		ctx = telemetry.SetKAgentSpanAttributes(ctx, spanAttributes)
 		ctx, invocationSpan := telemetry.StartInvocationSpan(ctx)
 		defer invocationSpan.End()
