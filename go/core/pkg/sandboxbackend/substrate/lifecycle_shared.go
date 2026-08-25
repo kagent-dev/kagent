@@ -16,8 +16,7 @@ import (
 )
 
 const (
-	defaultSnapshotsBucket   = "ate-snapshots"
-	defaultOpenClawContainer = "openclaw"
+	defaultSnapshotsBucket = "ate-snapshots"
 
 	// Referenced by generated ActorTemplates to gate scheduling onto a WorkerPool.
 	// The kagent Helm chart stamps it on the WorkerPool it manages;
@@ -27,32 +26,16 @@ const (
 
 // LifecycleDefaults are cluster-wide defaults for generated ActorTemplate lifecycle.
 type LifecycleDefaults struct {
-	DefaultWorkloadImage string
-	DefaultWorkerPool    types.NamespacedName
-	// ImageRegistry and ImageRepository are the runtime registry/repository used
-	// to compose digest-pinned acp-sandbox workload image refs (from
-	// --image-registry/--image-repository). ImageRepository is the agent app
-	// repository (e.g. "kagent-dev/kagent/app"); see acpSandboxImageConfig.
-	ImageRegistry   string
-	ImageRepository string
+	DefaultWorkerPool types.NamespacedName
 }
 
-// Lifecycle reconciles the Kubernetes lifecycle that kagent owns for a substrate AgentHarness.
+// Lifecycle reconciles the Kubernetes lifecycle that kagent owns for substrate-backed agents.
 // WorkerPools are externally owned; this helper only resolves the selected WorkerPool.
 type Lifecycle struct {
 	Client    client.Client
 	Defaults  LifecycleDefaults
 	AteClient *Client
 }
-
-// AgentHarnessLifecycle is the substrate lifecycle surface used by the
-// AgentHarness controller.
-type AgentHarnessLifecycle interface {
-	EnsureGeneratedTemplate(ctx context.Context, ah *v1alpha3.AgentHarness) (LifecycleState, error)
-	CleanupGeneratedTemplate(ctx context.Context, ah *v1alpha3.AgentHarness) (bool, error)
-}
-
-var _ AgentHarnessLifecycle = (*Lifecycle)(nil)
 
 func NewLifecycle(kube client.Client, defaults LifecycleDefaults, ateClient *Client) *Lifecycle {
 	return &Lifecycle{
@@ -62,20 +45,6 @@ func NewLifecycle(kube client.Client, defaults LifecycleDefaults, ateClient *Cli
 	}
 }
 
-// acpSandboxImageConfig returns the runtime registry/repository used to compose
-// digest-pinned acp-sandbox workload image refs.
-func (p *Lifecycle) acpSandboxImageConfig() acpSandboxImageConfig {
-	return acpSandboxImageConfig{
-		Registry:   p.Defaults.ImageRegistry,
-		Repository: p.Defaults.ImageRepository,
-	}
-}
-
-// LifecycleState describes the generated Substrate lifecycle for an AgentHarness.
-type LifecycleState struct {
-	ActorTemplateReady bool
-}
-
 func workerSelectorForPool(wpKey types.NamespacedName) *metav1.LabelSelector {
 	if wpKey.Name == "" {
 		return nil
@@ -83,17 +52,6 @@ func workerSelectorForPool(wpKey types.NamespacedName) *metav1.LabelSelector {
 	return &metav1.LabelSelector{
 		MatchLabels: map[string]string{WorkerPoolLabelKey: wpKey.Name},
 	}
-}
-
-func substrateSnapshotsLocation(ah *v1alpha3.AgentHarness) string {
-	if ah == nil {
-		return substrateSnapshotsLocationFor("", "", "")
-	}
-	loc := ""
-	if sub := ah.Spec.Substrate; sub != nil && sub.SnapshotsConfig != nil {
-		loc = sub.SnapshotsConfig.Location
-	}
-	return substrateSnapshotsLocationFor(ah.Namespace, ah.Name, loc)
 }
 
 func substrateSnapshotsLocationFor(namespace, name, explicitLocation string) string {
@@ -133,17 +91,6 @@ func (p *Lifecycle) resolveWorkerPoolRefFor(
 
 func defaultSubstrateSnapshotsLocation(namespace, name string) string {
 	return fmt.Sprintf("gs://%s/%s/%s", defaultSnapshotsBucket, namespace, name)
-}
-
-func lifecycleLabels(ah *v1alpha3.AgentHarness) map[string]string {
-	return map[string]string{
-		"app.kubernetes.io/managed-by": "kagent",
-		"kagent.dev/agent-harness":     ah.Name,
-	}
-}
-
-func actorTemplateName(ah *v1alpha3.AgentHarness) string {
-	return truncateDNS1123(ah.Name)
 }
 
 func truncateDNS1123(s string) string {

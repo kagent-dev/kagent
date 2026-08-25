@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package kagent.api.v1alpha1;
 
+import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 import "kagent/api/v1alpha1/agent_instances.proto";
 import "kagent/api/v1alpha1/common.proto";
@@ -36,9 +37,12 @@ message Checkpoint {
 }
 
 message CreateCheckpointRequest {
-  string namespace = 1;
-  string agent_instance_id = 2;
-  string request_id = 3;
+  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
+  string request_id = 3 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+  }];
 }
 
 message CreateCheckpointResponse {
@@ -46,8 +50,8 @@ message CreateCheckpointResponse {
 }
 
 message GetCheckpointRequest {
-  string namespace = 1;
-  string checkpoint_id = 2;
+  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  string checkpoint_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message GetCheckpointResponse {
@@ -55,8 +59,8 @@ message GetCheckpointResponse {
 }
 
 message ListCheckpointsRequest {
-  string namespace = 1;
-  string agent_instance_id = 2;
+  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  string agent_instance_id = 2 [(buf.validate.field).string.min_len = 1];
   PageRequest page = 3;
 }
 
@@ -66,16 +70,19 @@ message ListCheckpointsResponse {
 }
 
 message DeleteCheckpointRequest {
-  string namespace = 1;
-  string checkpoint_id = 2;
+  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  string checkpoint_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 
 message DeleteCheckpointResponse {}
 
 message ForkAgentInstanceRequest {
-  string namespace = 1;
-  string checkpoint_id = 2;
-  string request_id = 3;
+  string namespace = 1 [(buf.validate.field).string.min_len = 1];
+  string checkpoint_id = 2 [(buf.validate.field).string.min_len = 1];
+  string request_id = 3 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+  }];
 }
 
 message ForkAgentInstanceResponse {

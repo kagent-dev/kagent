@@ -735,6 +735,14 @@ func (c *Compiler) translateModel(ctx context.Context, model *v1alpha3.ModelConf
 			},
 		)
 
+		// Map the CRD API format (OpenAI default | Anthropic) to the ADK wire
+		// surface. Anthropic-format Foundry models are served over the Claude
+		// Messages API instead of the OpenAI-compatible surface.
+		apiFormat := adk.FoundryAPIFormatOpenAI
+		if cfg.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {
+			apiFormat = adk.FoundryAPIFormatAnthropic
+		}
+
 		foundry := &adk.Foundry{
 			BaseModel: adk.BaseModel{
 				Model:   model.Spec.Model,
@@ -743,6 +751,7 @@ func (c *Compiler) translateModel(ctx context.Context, model *v1alpha3.ModelConf
 			Endpoint:   endpoint,
 			Deployment: cfg.Deployment,
 			APIVersion: cfg.APIVersion,
+			APIFormat:  apiFormat,
 		}
 		populateTLSFields(&foundry.BaseModel, model.Spec.TLS)
 		foundry.APIKeyPassthrough = model.Spec.APIKeyPassthrough

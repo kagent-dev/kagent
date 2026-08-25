@@ -1,7 +1,6 @@
 package a2a
 
 import (
-	"context"
 	"net/http"
 
 	"go.opentelemetry.io/otel"
@@ -9,9 +8,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
 // a2aTracingMiddleware is an A2A server middleware that creates an invoke_agent
@@ -41,59 +37,4 @@ func (m *a2aTracingMiddleware) Wrap(next http.Handler) http.Handler {
 		defer span.End()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-// resolveProviderName looks up the ModelConfig for a declarative agent and
-// returns the corresponding gen_ai.provider.name attribute. Falls back to "kagent"
-// for BYO agents or if the ModelConfig cannot be fetched.
-func resolveProviderName(ctx context.Context, reader client.Reader, agent *v1alpha3.SandboxAgent) attribute.KeyValue {
-	spec := agent.GetAgentSpec()
-	if spec.Declarative == nil {
-		return semconv.GenAIProviderNameKey.String("kagent")
-	}
-	mcName := spec.Declarative.ModelConfig
-	if mcName == "" {
-		mcName = "default-model-config"
-	}
-	mc := &v1alpha3.ModelConfig{}
-	if err := reader.Get(ctx, types.NamespacedName{Namespace: agent.GetNamespace(), Name: mcName}, mc); err != nil {
-		return semconv.GenAIProviderNameKey.String("kagent")
-	}
-	// Foundry serves multiple API formats. For the Anthropic (Claude) format the
-	// span's gen_ai.provider.name is set to the model vendor ("anthropic"); the
-	// OpenAI-compatible surface falls through to the platform name
-	// ("azure.ai.inference") in genAIProviderName.
-	if mc.Spec.Provider == v1alpha3.ModelProviderFoundry &&
-		mc.Spec.Foundry != nil && mc.Spec.Foundry.APIFormat == v1alpha3.FoundryAPIFormatAnthropic {
-		return semconv.GenAIProviderNameAnthropic
-	}
-	return genAIProviderName(mc.Spec.Provider)
-}
-
-// genAIProviderName maps kagent's ModelProvider values to the standard
-// gen_ai.provider.name attributes defined by the OpenTelemetry GenAI semantic
-// conventions. Custom values are used for providers not in the standard list.
-func genAIProviderName(p v1alpha3.ModelProvider) attribute.KeyValue {
-	switch p {
-	case v1alpha3.ModelProviderOpenAI:
-		return semconv.GenAIProviderNameOpenAI
-	case v1alpha3.ModelProviderAzureOpenAI:
-		return semconv.GenAIProviderNameAzureAIOpenAI
-	case v1alpha3.ModelProviderFoundry:
-		return semconv.GenAIProviderNameAzureAIInference
-	case v1alpha3.ModelProviderAnthropic:
-		return semconv.GenAIProviderNameAnthropic
-	case v1alpha3.ModelProviderGemini:
-		return semconv.GenAIProviderNameGCPGemini
-	case v1alpha3.ModelProviderGeminiVertexAI:
-		return semconv.GenAIProviderNameGCPVertexAI
-	case v1alpha3.ModelProviderAnthropicVertexAI:
-		return semconv.GenAIProviderNameKey.String("anthropic.vertex_ai")
-	case v1alpha3.ModelProviderBedrock:
-		return semconv.GenAIProviderNameAWSBedrock
-	case v1alpha3.ModelProviderOllama:
-		return semconv.GenAIProviderNameKey.String("ollama")
-	default:
-		return semconv.GenAIProviderNameKey.String("kagent")
-	}
 }

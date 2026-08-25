@@ -7,6 +7,7 @@
 package apiv1alpha1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
@@ -234,7 +235,7 @@ var File_kagent_api_v1alpha1_common_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1alpha1_common_proto_rawDesc = "" +
 	"\n" +
-	" kagent/api/v1alpha1/common.proto\x12\x13kagent.api.v1alpha1\x1a\x1cgoogle/protobuf/struct.proto\"v\n" +
+	" kagent/api/v1alpha1/common.proto\x12\x13kagent.api.v1alpha1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\"v\n" +
 	"\x10StructuredObject\x12\x1f\n" +
 	"\vapi_version\x18\x01 \x01(\tR\n" +
 	"apiVersion\x12\x12\n" +
@@ -242,9 +243,9 @@ const file_kagent_api_v1alpha1_common_proto_rawDesc = "" +
 	"\x05value\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x05value\"E\n" +
 	"\x11ResourceReference\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"B\n" +
-	"\vPageRequest\x12\x14\n" +
-	"\x05limit\x18\x01 \x01(\x05R\x05limit\x12\x1d\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"M\n" +
+	"\vPageRequest\x12\x1f\n" +
+	"\x05limit\x18\x01 \x01(\x05B\t\xbaH\x06\x1a\x04\x18d(\x00R\x05limit\x12\x1d\n" +
 	"\n" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\"6\n" +
 	"\fPageResponse\x12&\n" +

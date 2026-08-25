@@ -41,6 +41,7 @@ Avoid speculative abstractions. Add an interface when there is a real boundary o
 Every component has a single responsibility. If code reaches into another component's internals, the behavior is probably in the wrong place.
 
 - **Transport handlers** convert wire formats to domain types and call one service or workflow operation. They do not orchestrate, hold locks, or know backend details.
+- **Protobuf request validation** is declared in source `.proto` files with `buf.validate` annotations and enforced by the shared gRPC Protovalidate interceptor before handlers run. Use standard rules first, CEL for request-intrinsic cross-field or domain rules, and reusable predefined rules only when needed across schemas. The annotations live in generated Go descriptors; there are no generated validator files. Authorization and checks requiring database, Kubernetes, or network state remain in the owning service or workflow.
 - **Services and workflows** orchestrate operations end-to-end. They know the order of operations, but delegate each step to the component that owns it.
 - **Harness compilers** resolve agent configuration into explicit build inputs. They do not apply resources or perform transport work.
 - **Harness adapters and Substrate clients** own runtime-specific creation and lifecycle details. Backend decisions stay behind this boundary.

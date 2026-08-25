@@ -138,39 +138,6 @@ func (s *agentServer) DeleteAgentHarness(ctx context.Context, request *apiv1alph
 	return &apiv1alpha1.DeleteAgentHarnessResponse{}, nil
 }
 
-func (s *agentServer) EnsureAgentHarnessSessionActor(ctx context.Context, request *apiv1alpha1.EnsureAgentHarnessSessionActorRequest) (*apiv1alpha1.EnsureAgentHarnessSessionActorResponse, error) {
-	actor, err := s.service.EnsureAgentHarnessSessionActor(ctx, agentservice.ActorRequest{
-		Ref:       requiredAgentRef(request.GetRef()),
-		SessionID: request.GetSessionId(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &apiv1alpha1.EnsureAgentHarnessSessionActorResponse{Actor: agentActor(actor)}, nil
-}
-
-func (s *agentServer) SuspendAgentHarnessSessionActor(ctx context.Context, request *apiv1alpha1.SuspendAgentHarnessSessionActorRequest) (*apiv1alpha1.SuspendAgentHarnessSessionActorResponse, error) {
-	actor, err := s.service.SuspendAgentHarnessSessionActor(ctx, agentservice.ActorRequest{
-		Ref:       requiredAgentRef(request.GetRef()),
-		SessionID: request.GetSessionId(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &apiv1alpha1.SuspendAgentHarnessSessionActorResponse{Actor: agentActor(actor)}, nil
-}
-
-func (s *agentServer) GetAgentHarnessSessionActor(ctx context.Context, request *apiv1alpha1.GetAgentHarnessSessionActorRequest) (*apiv1alpha1.GetAgentHarnessSessionActorResponse, error) {
-	actor, err := s.service.GetAgentHarnessSessionActor(ctx, agentservice.ActorRequest{
-		Ref:       requiredAgentRef(request.GetRef()),
-		SessionID: request.GetSessionId(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &apiv1alpha1.GetAgentHarnessSessionActorResponse{Actor: agentActor(actor)}, nil
-}
-
 func (s *agentServer) agent(view agentservice.View) (*apiv1alpha1.Agent, error) {
 	resource, err := structuredobject.FromGo(view.Resource, v1alpha3.GroupVersion.String(), string(view.Kind), s.maxMessageBytes)
 	if err != nil {
@@ -205,7 +172,6 @@ func (s *agentServer) agent(view agentservice.View) (*apiv1alpha1.Agent, error) 
 			ActorId:      view.Harness.ActorID,
 			BackendRefId: view.Harness.BackendRefID,
 			Endpoint:     view.Harness.Endpoint,
-			AcpPath:      view.Harness.ACPPath,
 		}
 	}
 	return response, nil
@@ -267,23 +233,5 @@ func agentKind(kind agentservice.Kind) apiv1alpha1.AgentKind {
 		return apiv1alpha1.AgentKind_AGENT_KIND_AGENT_HARNESS
 	default:
 		return apiv1alpha1.AgentKind_AGENT_KIND_UNSPECIFIED
-	}
-}
-
-func agentActor(actor agentservice.Actor) *apiv1alpha1.AgentHarnessSessionActor {
-	state := apiv1alpha1.AgentHarnessActorState_AGENT_HARNESS_ACTOR_STATE_UNSPECIFIED
-	switch actor.State {
-	case agentservice.ActorStateRunning:
-		state = apiv1alpha1.AgentHarnessActorState_AGENT_HARNESS_ACTOR_STATE_RUNNING
-	case agentservice.ActorStateSuspended:
-		state = apiv1alpha1.AgentHarnessActorState_AGENT_HARNESS_ACTOR_STATE_SUSPENDED
-	case agentservice.ActorStateMissing:
-		state = apiv1alpha1.AgentHarnessActorState_AGENT_HARNESS_ACTOR_STATE_MISSING
-	}
-	return &apiv1alpha1.AgentHarnessSessionActor{
-		Ref:       resourceReference(actor.Ref),
-		SessionId: actor.SessionID,
-		ActorId:   actor.ActorID,
-		State:     state,
 	}
 }
