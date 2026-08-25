@@ -6,12 +6,9 @@ import (
 	"strings"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
-	"github.com/kagent-dev/kagent/go/core/internal/controller/reconciler"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,7 +28,6 @@ type HarnessDetails struct {
 	ActorID      string
 	BackendRefID string
 	Endpoint     string
-	ACPPath      string
 }
 
 type View struct {
@@ -74,33 +70,7 @@ type DeleteRequest struct {
 	Ref types.NamespacedName
 }
 
-type ActorState string
-
-const (
-	ActorStateRunning   ActorState = "running"
-	ActorStateSuspended ActorState = "suspended"
-	ActorStateMissing   ActorState = "missing"
-)
-
-type ActorRequest struct {
-	Ref       types.NamespacedName
-	SessionID string
-}
-
-type Actor struct {
-	Ref       types.NamespacedName
-	SessionID string
-	ActorID   string
-	State     ActorState
-}
-
 type Validator func(context.Context, *v1alpha3.SandboxAgent) error
-
-type ActorLifecycle interface {
-	EnsureSessionActor(context.Context, *v1alpha3.AgentHarness, string) (sandboxbackend.EnsureResult, error)
-	SuspendSessionActor(context.Context, *v1alpha3.AgentHarness, string) error
-	GetSessionActorState(context.Context, *v1alpha3.AgentHarness, string) (substrate.SessionActorState, error)
-}
 
 type ServiceOption func(*Service)
 
@@ -110,18 +80,11 @@ func WithValidator(validator Validator) ServiceOption {
 	}
 }
 
-func WithActorLifecycle(lifecycle ActorLifecycle) ServiceOption {
-	return func(service *Service) {
-		service.actorLifecycle = lifecycle
-	}
-}
-
 type Service struct {
 	kubeClient       client.Client
 	authorizer       auth.Authorizer
 	defaultNamespace string
 	validator        Validator
-	actorLifecycle   ActorLifecycle
 }
 
 func NewService(kubeClient client.Client, authorizer auth.Authorizer, defaultNamespace string, options ...ServiceOption) *Service {
@@ -299,41 +262,6 @@ func (s *Service) DeleteAgentHarness(ctx context.Context, request DeleteRequest)
 	return nil
 }
 
-func (s *Service) EnsureAgentHarnessSessionActor(ctx context.Context, request ActorRequest) (Actor, error) {
-	request, harness, err := s.actorHarness(ctx, request, auth.VerbCreate)
-	if err != nil {
-		return Actor{}, err
-	}
-	result, err := s.actorLifecycle.EnsureSessionActor(ctx, harness, request.SessionID)
-	if err != nil {
-		return Actor{}, serviceerrors.NewInternal("Failed to provision session actor", err)
-	}
-	return Actor{Ref: request.Ref, SessionID: request.SessionID, ActorID: result.Handle.ID, State: ActorStateRunning}, nil
-}
-
-func (s *Service) SuspendAgentHarnessSessionActor(ctx context.Context, request ActorRequest) (Actor, error) {
-	request, harness, err := s.actorHarness(ctx, request, auth.VerbUpdate)
-	if err != nil {
-		return Actor{}, err
-	}
-	if err := s.actorLifecycle.SuspendSessionActor(ctx, harness, request.SessionID); err != nil {
-		return Actor{}, serviceerrors.NewInternal("Failed to suspend session actor", err)
-	}
-	return Actor{Ref: request.Ref, SessionID: request.SessionID, State: ActorStateSuspended}, nil
-}
-
-func (s *Service) GetAgentHarnessSessionActor(ctx context.Context, request ActorRequest) (Actor, error) {
-	request, harness, err := s.actorHarness(ctx, request, auth.VerbGet)
-	if err != nil {
-		return Actor{}, err
-	}
-	state, err := s.actorLifecycle.GetSessionActorState(ctx, harness, request.SessionID)
-	if err != nil {
-		return Actor{}, serviceerrors.NewInternal("Failed to read session actor state", err)
-	}
-	return Actor{Ref: request.Ref, SessionID: request.SessionID, State: actorState(state)}, nil
-}
-
 func (s *Service) prepareCreate(ctx context.Context, object client.Object, kind Kind, verb auth.Verb) (types.NamespacedName, error) {
 	if object.GetNamespace() == "" {
 		object.SetNamespace(s.defaultNamespace)
@@ -416,41 +344,9 @@ func (s *Service) loadForMutation(ctx context.Context, ref types.NamespacedName,
 	return nil
 }
 
-func (s *Service) actorHarness(ctx context.Context, request ActorRequest, verb auth.Verb) (ActorRequest, *v1alpha3.AgentHarness, error) {
-	if request.Ref.Namespace == "" || request.Ref.Name == "" {
-		return ActorRequest{}, nil, serviceerrors.NewInvalidArgument("namespace and name are required", nil)
-	}
-	request.SessionID = strings.TrimSpace(request.SessionID)
-	if request.SessionID == "" {
-		return ActorRequest{}, nil, serviceerrors.NewInvalidArgument("session id is required", nil)
-	}
-	if s.actorLifecycle == nil {
-		return ActorRequest{}, nil, serviceerrors.NewFailedPrecondition("substrate session actor backend is not configured", nil)
-	}
-	if err := s.authorize(ctx, verb, auth.Resource{Type: "Agent", Name: request.Ref.String()}); err != nil {
-		return ActorRequest{}, nil, err
-	}
-	harness := &v1alpha3.AgentHarness{}
-	if err := s.loadForMutation(ctx, request.Ref, harness, "AgentHarness not found", "Failed to load AgentHarness"); err != nil {
-		return ActorRequest{}, nil, err
-	}
-	return request, harness, nil
-}
-
 func normalizeSandboxAgent(agent *v1alpha3.SandboxAgent) {
 	if agent.Spec.Type == "" {
 		agent.Spec.Type = v1alpha3.AgentType_Declarative
-	}
-}
-
-func actorState(state substrate.SessionActorState) ActorState {
-	switch state {
-	case substrate.SessionActorStateRunning:
-		return ActorStateRunning
-	case substrate.SessionActorStateSuspended:
-		return ActorStateSuspended
-	default:
-		return ActorStateMissing
 	}
 }
 
@@ -479,7 +375,7 @@ func (s *Service) agentView(ctx context.Context, object *v1alpha3.SandboxAgent, 
 		ID:       utils.ConvertToPythonIdentifier(utils.GetObjectRef(object)),
 	}
 	for _, condition := range object.GetAgentStatus().Conditions {
-		if condition.Type == "Ready" && condition.Status == metav1.ConditionTrue && condition.Reason == reconciler.AgentReadyReasonWorkloadReady {
+		if condition.Type == "Ready" && condition.Status == metav1.ConditionTrue && condition.Reason == "WorkloadReady" {
 			view.Ready = true
 		}
 		if condition.Type == "Accepted" && condition.Status == metav1.ConditionTrue {
@@ -512,7 +408,6 @@ func (s *Service) harnessView(ctx context.Context, harness *v1alpha3.AgentHarnes
 		ID:       utils.ConvertToPythonIdentifier(utils.GetObjectRef(harness)),
 		Harness: &HarnessDetails{
 			Backend: harness.Spec.Backend,
-			ACPPath: fmt.Sprintf("/api/agentharnesses/%s/%s/acp", harness.Namespace, harness.Name),
 		},
 	}
 	for _, condition := range harness.Status.Conditions {
