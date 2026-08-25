@@ -365,6 +365,27 @@ func (q *Queries) ListAgentInstances(ctx context.Context, arg ListAgentInstances
 	return items, nil
 }
 
+const lockAgentInstance = `-- name: LockAgentInstance :one
+SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation FROM agent_instance WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) LockAgentInstance(ctx context.Context, id string) (AgentInstance, error) {
+	row := q.db.QueryRow(ctx, lockAgentInstance, id)
+	var i AgentInstance
+	err := row.Scan(
+		&i.ID,
+		&i.Namespace,
+		&i.UserID,
+		&i.RequestID,
+		&i.PreparedRevision,
+		&i.State,
+		&i.Labels,
+		&i.Data,
+		&i.Operation,
+	)
+	return i, err
+}
+
 const markAgentInstanceReady = `-- name: MarkAgentInstanceReady :one
 UPDATE agent_instance
 SET state = 'READY', operation = 'NONE', data = $2
@@ -397,9 +418,16 @@ func (q *Queries) MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInsta
 const transitionAgentInstance = `-- name: TransitionAgentInstance :one
 UPDATE agent_instance
 SET state = $1, operation = $2, data = $3
-WHERE id = $4
-  AND state = $5
-  AND operation = $6
+WHERE agent_instance.id = $4
+  AND agent_instance.state = $5
+  AND agent_instance.operation = $6
+  AND (
+    $6::text <> 'NONE'
+    OR NOT EXISTS (
+      SELECT 1 FROM agent_instance_checkpoint c
+      WHERE c.source_instance_id = agent_instance.id AND c.state = 'CREATING'
+    )
+  )
 RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation
 `
 

@@ -21,6 +21,8 @@ var ErrAgentInstanceConflict = errors.New("AgentInstance lifecycle operation con
 
 var ErrAgentInstanceTaskConflict = errors.New("AgentInstance already has an active task")
 
+var ErrAgentInstanceNotQuiescent = errors.New("AgentInstance has no quiescent turn boundary")
+
 type QueryOptions struct {
 	Limit    int
 	After    time.Time
@@ -134,7 +136,13 @@ type Client interface {
 	// InterruptActiveAgentInstanceTask fails the expected task and records an
 	// interruption. It returns false if that task is no longer active.
 	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
-	StoreAgentInstanceTaskEvent(context.Context, string, *a2a.Task, a2a.Event) error
+	StoreAgentInstanceTaskEvent(context.Context, string, *a2a.Task, a2a.Event, *AgentInstanceTaskSnapshot) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2a.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)
+	ReserveAgentInstanceCheckpoint(context.Context, AgentInstanceCheckpoint) (*AgentInstanceCheckpoint, error)
+	FinalizeAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
+	GetAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
+	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]AgentInstanceCheckpoint, error)
+	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*AgentInstanceCheckpoint, error)
+	DeleteAgentInstanceCheckpoint(context.Context, string, string, string) error
 }

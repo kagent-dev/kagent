@@ -23,6 +23,7 @@ import (
 	toolservice "github.com/kagent-dev/kagent/go/core/internal/service/tool"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
+	"github.com/kagent-dev/kagent/go/core/v2/checkpoint"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -58,6 +59,7 @@ type Config struct {
 	SessionService        *sessionservice.Service
 	TaskService           *taskservice.Service
 	AgentInstanceService  *agentinstance.Service
+	CheckpointService     *checkpoint.Service
 	A2AHandler            a2asrv.RequestHandler
 	MethodPolicies        MethodPolicies
 	Listener              net.Listener
@@ -146,6 +148,9 @@ func New(config Config) (*Server, error) {
 	}
 	if config.AgentInstanceService != nil {
 		agentinstance.RegisterGRPC(grpcServer, config.AgentInstanceService)
+	}
+	if config.CheckpointService != nil {
+		checkpoint.RegisterGRPC(grpcServer, config.CheckpointService)
 	}
 	if config.A2AHandler != nil {
 		a2agrpc.NewHandler(config.A2AHandler).RegisterWith(grpcServer)
