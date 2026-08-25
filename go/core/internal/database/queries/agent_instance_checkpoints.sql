@@ -43,6 +43,15 @@ JOIN agent_instance_task t
 WHERE c.id = sqlc.arg(checkpoint_id)
 ORDER BY t.created_at, t.id;
 
+-- name: ListAgentInstanceCheckpointEvents :many
+SELECT e.*
+FROM agent_instance_checkpoint c
+JOIN agent_instance_task_event e
+  ON e.context_id = c.source_context_id
+ AND e.sequence <= c.history_sequence
+WHERE c.id = sqlc.arg(checkpoint_id)
+ORDER BY e.sequence;
+
 -- name: FinalizeAgentInstanceCheckpoint :one
 UPDATE agent_instance_checkpoint
 SET state = CASE WHEN sqlc.arg(tag_uid)::text <> '' THEN 'READY' ELSE 'FAILED' END,

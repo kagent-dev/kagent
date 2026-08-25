@@ -171,19 +171,35 @@ func (q *Queries) GetAgentInstanceTaskByMessageID(ctx context.Context, arg GetAg
 }
 
 const insertAgentInstanceTaskEvent = `-- name: InsertAgentInstanceTaskEvent :one
-INSERT INTO agent_instance_task_event (context_id, task_id, data)
-VALUES ($1, $2, $3)
-RETURNING sequence
+WITH inserted AS (
+    INSERT INTO agent_instance_task_event (context_id, task_id, message_id, data)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (context_id, task_id, message_id)
+        WHERE message_id IS NOT NULL
+    DO NOTHING
+    RETURNING sequence
+)
+SELECT sequence FROM inserted
+UNION ALL
+SELECT sequence FROM agent_instance_task_event
+WHERE context_id = $1 AND task_id IS NOT DISTINCT FROM $2 AND message_id = $3
+LIMIT 1
 `
 
 type InsertAgentInstanceTaskEventParams struct {
 	ContextID string
 	TaskID    *string
+	MessageID *string
 	Data      []byte
 }
 
 func (q *Queries) InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) (int64, error) {
-	row := q.db.QueryRow(ctx, insertAgentInstanceTaskEvent, arg.ContextID, arg.TaskID, arg.Data)
+	row := q.db.QueryRow(ctx, insertAgentInstanceTaskEvent,
+		arg.ContextID,
+		arg.TaskID,
+		arg.MessageID,
+		arg.Data,
+	)
 	var sequence int64
 	err := row.Scan(&sequence)
 	return sequence, err
@@ -232,6 +248,45 @@ func (q *Queries) InsertCopiedAgentInstanceTask(ctx context.Context, arg InsertC
 		arg.HistorySequence,
 	)
 	return err
+}
+
+const listAgentInstanceTaskHistory = `-- name: ListAgentInstanceTaskHistory :many
+SELECT task_id, data
+FROM agent_instance_task_event
+WHERE context_id = $1
+  AND task_id = ANY($2::text[])
+  AND message_id IS NOT NULL
+ORDER BY sequence
+`
+
+type ListAgentInstanceTaskHistoryParams struct {
+	ContextID string
+	TaskIds   []string
+}
+
+type ListAgentInstanceTaskHistoryRow struct {
+	TaskID *string
+	Data   []byte
+}
+
+func (q *Queries) ListAgentInstanceTaskHistory(ctx context.Context, arg ListAgentInstanceTaskHistoryParams) ([]ListAgentInstanceTaskHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listAgentInstanceTaskHistory, arg.ContextID, arg.TaskIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAgentInstanceTaskHistoryRow
+	for rows.Next() {
+		var i ListAgentInstanceTaskHistoryRow
+		if err := rows.Scan(&i.TaskID, &i.Data); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listAgentInstanceTasks = `-- name: ListAgentInstanceTasks :many

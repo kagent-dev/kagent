@@ -1,3 +1,8 @@
+DROP INDEX IF EXISTS agent_instance_task_event_message_idx;
+
+ALTER TABLE agent_instance_task_event
+    DROP COLUMN IF EXISTS message_id;
+
 ALTER TABLE agent_instance_task_event
     DROP CONSTRAINT IF EXISTS agent_instance_task_event_context_id_fkey;
 

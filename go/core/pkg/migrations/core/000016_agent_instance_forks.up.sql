@@ -45,6 +45,13 @@ ALTER TABLE agent_instance_task_event
     ADD CONSTRAINT agent_instance_task_event_context_id_fkey
         FOREIGN KEY (context_id) REFERENCES a2a_context(id) ON DELETE CASCADE;
 
+ALTER TABLE agent_instance_task_event
+    ADD COLUMN IF NOT EXISTS message_id TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS agent_instance_task_event_message_idx
+    ON agent_instance_task_event (context_id, task_id, message_id)
+    WHERE message_id IS NOT NULL;
+
 ALTER TABLE agent_instance_checkpoint
     ADD COLUMN IF NOT EXISTS source_context_id TEXT,
     ADD COLUMN IF NOT EXISTS prepared_revision TEXT REFERENCES runtime_revision(revision) ON DELETE RESTRICT,

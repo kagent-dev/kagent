@@ -21,9 +21,27 @@ ON CONFLICT (context_id, initial_message_id)
 DO NOTHING;
 
 -- name: InsertAgentInstanceTaskEvent :one
-INSERT INTO agent_instance_task_event (context_id, task_id, data)
-VALUES ($1, $2, $3)
-RETURNING sequence;
+WITH inserted AS (
+    INSERT INTO agent_instance_task_event (context_id, task_id, message_id, data)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (context_id, task_id, message_id)
+        WHERE message_id IS NOT NULL
+    DO NOTHING
+    RETURNING sequence
+)
+SELECT sequence FROM inserted
+UNION ALL
+SELECT sequence FROM agent_instance_task_event
+WHERE context_id = $1 AND task_id IS NOT DISTINCT FROM $2 AND message_id = $3
+LIMIT 1;
+
+-- name: ListAgentInstanceTaskHistory :many
+SELECT task_id, data
+FROM agent_instance_task_event
+WHERE context_id = sqlc.arg(context_id)
+  AND task_id = ANY(sqlc.arg(task_ids)::text[])
+  AND message_id IS NOT NULL
+ORDER BY sequence;
 
 -- name: SetAgentInstanceTaskSnapshot :exec
 UPDATE agent_instance_task SET

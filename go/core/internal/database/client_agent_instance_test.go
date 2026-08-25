@@ -78,31 +78,47 @@ func TestAgentInstanceTasksAreDurableAndExclusive(t *testing.T) {
 	if err != nil || got.ID != first.ID || got.Status.State != first.Status.State || len(got.History) != 1 {
 		t.Fatalf("GetAgentInstanceTask() = %#v, %v", got, err)
 	}
+	var projectionData []byte
+	if err := db.QueryRow(ctx, `SELECT data FROM agent_instance_task WHERE context_id = 'instance-1' AND id = 'task-1'`).Scan(&projectionData); err != nil {
+		t.Fatal(err)
+	}
+	projection, err := unmarshalAgentInstanceTask(projectionData)
+	if err != nil || len(projection.History) != 0 {
+		t.Fatalf("stored task projection history = %#v, error %v", projection.History, err)
+	}
 	second := &a2a.Task{ID: "task-2", ContextID: "instance-1", Status: a2a.TaskStatus{State: a2a.TaskStateSubmitted}}
 	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", second, second, nil); !errors.Is(err, dbpkg.ErrAgentInstanceTaskConflict) {
 		t.Fatalf("second active task error = %v", err)
 	}
+	first.History = append(first.History, a2a.NewMessageForTask(a2a.MessageRoleAgent, first, a2a.NewTextPart("done")))
 	first.Status.State = a2a.TaskStateCompleted
 	snapshot := &dbpkg.AgentInstanceTaskSnapshot{Atespace: "team-a", Name: "snapshot-1", UID: "snapshot-uid"}
 	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", first, first, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	var snapshotAtespace, snapshotName, snapshotUID string
-	var historySequence int64
+	var historySequence, latestSequence int64
 	if err := db.QueryRow(ctx, `
 		SELECT snapshot_atespace, snapshot_name, snapshot_uid, history_sequence
 		FROM agent_instance_task WHERE context_id = 'instance-1' AND id = 'task-1'
 	`).Scan(&snapshotAtespace, &snapshotName, &snapshotUID, &historySequence); err != nil {
 		t.Fatal(err)
 	}
-	if snapshotAtespace != snapshot.Atespace || snapshotName != snapshot.Name || snapshotUID != snapshot.UID || historySequence != 2 {
+	if err := db.QueryRow(ctx, `SELECT MAX(sequence) FROM agent_instance_task_event`).Scan(&latestSequence); err != nil {
+		t.Fatal(err)
+	}
+	if snapshotAtespace != snapshot.Atespace || snapshotName != snapshot.Name || snapshotUID != snapshot.UID || historySequence != latestSequence {
 		t.Fatalf("stored boundary = %s/%s uid %s sequence %d", snapshotAtespace, snapshotName, snapshotUID, historySequence)
+	}
+	got, err = client.GetAgentInstanceTask(ctx, "instance-1", "task-1")
+	if err != nil || len(got.History) != 2 || got.History[1].Role != a2a.MessageRoleAgent {
+		t.Fatalf("reconstructed task history = %#v, error %v", got, err)
 	}
 	if err := client.StoreAgentInstanceTaskEvent(ctx, "instance-1", second, second, nil); err != nil {
 		t.Fatal(err)
 	}
-	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 3 {
-		t.Fatalf("event count = %d, want 3", events)
+	if events := countRows(t, db, "SELECT COUNT(*) FROM agent_instance_task_event"); events != 4 {
+		t.Fatalf("event count = %d, want 4", events)
 	}
 
 	tasks, total, err := client.ListAgentInstanceTasks(ctx, "instance-1", "", a2a.TaskStateUnspecified, nil, 1)

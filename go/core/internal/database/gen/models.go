@@ -98,6 +98,7 @@ type AgentInstanceTaskEvent struct {
 	TaskID    *string
 	Data      []byte
 	CreatedAt time.Time
+	MessageID *string
 }
 
 type AgentTemplateHarnessPair struct {

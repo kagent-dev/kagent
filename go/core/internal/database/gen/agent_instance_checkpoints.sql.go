@@ -303,6 +303,43 @@ func (q *Queries) InsertAgentInstanceCheckpoint(ctx context.Context, arg InsertA
 	return i, err
 }
 
+const listAgentInstanceCheckpointEvents = `-- name: ListAgentInstanceCheckpointEvents :many
+SELECT e.sequence, e.context_id, e.task_id, e.data, e.created_at, e.message_id
+FROM agent_instance_checkpoint c
+JOIN agent_instance_task_event e
+  ON e.context_id = c.source_context_id
+ AND e.sequence <= c.history_sequence
+WHERE c.id = $1
+ORDER BY e.sequence
+`
+
+func (q *Queries) ListAgentInstanceCheckpointEvents(ctx context.Context, checkpointID string) ([]AgentInstanceTaskEvent, error) {
+	rows, err := q.db.Query(ctx, listAgentInstanceCheckpointEvents, checkpointID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentInstanceTaskEvent
+	for rows.Next() {
+		var i AgentInstanceTaskEvent
+		if err := rows.Scan(
+			&i.Sequence,
+			&i.ContextID,
+			&i.TaskID,
+			&i.Data,
+			&i.CreatedAt,
+			&i.MessageID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentInstanceCheckpointTasks = `-- name: ListAgentInstanceCheckpointTasks :many
 SELECT t.context_id, t.id, t.state, t.status_timestamp, t.data, t.created_at, t.updated_at, t.initial_message_id, t.request_hash, t.snapshot_atespace, t.snapshot_name, t.snapshot_uid, t.snapshot_content_scope, t.history_sequence
 FROM agent_instance_checkpoint c
