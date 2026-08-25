@@ -59,28 +59,64 @@ type instanceWorkflow interface {
 	Quiesce(context.Context, *apiv1alpha1.AgentInstance) (*dbpkg.AgentInstanceTaskSnapshot, error)
 }
 
+type runtimeCoordinator interface {
+	RuntimeCall(string) func()
+	Quiesce(string) func()
+}
+
+type memoryRuntimeCoordinator struct {
+	locks sync.Map
+}
+
+var processRuntimeCoordinator = &memoryRuntimeCoordinator{}
+
+func (c *memoryRuntimeCoordinator) lock(instanceID string) *sync.RWMutex {
+	lock, _ := c.locks.LoadOrStore(instanceID, &sync.RWMutex{})
+	return lock.(*sync.RWMutex)
+}
+
+func (c *memoryRuntimeCoordinator) RuntimeCall(instanceID string) func() {
+	lock := c.lock(instanceID)
+	lock.RLock()
+	return lock.RUnlock
+}
+
+func (c *memoryRuntimeCoordinator) Quiesce(instanceID string) func() {
+	lock := c.lock(instanceID)
+	lock.Lock()
+	return lock.Unlock
+}
+
 // Gateway is transport-neutral. The v0 deployment registers it on the
 // controller's gRPC server, while a standalone gateway can register the same
 // handler on its own server later.
 type Gateway struct {
-	store      instanceStore
-	authorizer auth.Authorizer
-	dialer     runtimeDialer
-	workflow   instanceWorkflow
-	gatewayURL string
-	events     eventqueue.Manager
-	runs       sync.Map
+	store       instanceStore
+	authorizer  auth.Authorizer
+	dialer      runtimeDialer
+	workflow    instanceWorkflow
+	gatewayURL  string
+	events      eventqueue.Manager
+	runs        sync.Map
+	coordinator runtimeCoordinator
 }
 
 var _ a2asrv.RequestHandler = (*Gateway)(nil)
 
 // New returns the upstream A2A handler independently of any listener or gRPC
 // server, keeping deployment topology outside the gateway package.
+//
+// ponytail: coordination is process-local. Gateway deployments must remain at
+// one replica until this is replaced by a PostgreSQL-backed coordinator.
 func New(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, workflow instanceWorkflow, gatewayURL string) a2asrv.RequestHandler {
+	return newGateway(store, authorizer, dialer, workflow, gatewayURL, processRuntimeCoordinator)
+}
+
+func newGateway(store instanceStore, authorizer auth.Authorizer, dialer runtimeDialer, workflow instanceWorkflow, gatewayURL string, coordinator runtimeCoordinator) a2asrv.RequestHandler {
 	return &a2asrv.InterceptedHandler{
 		Handler: &Gateway{
 			store: store, authorizer: authorizer, dialer: dialer, workflow: workflow,
-			gatewayURL: gatewayURL, events: eventqueue.NewInMemoryManager(),
+			gatewayURL: gatewayURL, events: eventqueue.NewInMemoryManager(), coordinator: coordinator,
 		},
 		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
 	}
@@ -207,6 +243,8 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime")
 	}
+	release := g.coordinator.RuntimeCall(instance.GetId())
+	defer release()
 	defer client.Destroy()
 	canceled, err := client.CancelTask(ctx, req)
 	if err != nil {

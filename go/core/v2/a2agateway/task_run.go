@@ -76,7 +76,17 @@ func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstanc
 			return
 		}
 		updated, err := taskForEvent(task, event)
-		if err == nil {
+		if err == nil && isQuiescent(updated.Status.State) {
+			release := r.gateway.coordinator.Quiesce(instance.GetId())
+			// Quiescence drains ingress; close this terminal stream so it cannot wait on itself.
+			if closeErr := client.Destroy(); closeErr != nil {
+				err = fmt.Errorf("close terminal runtime stream: %w", closeErr)
+			}
+			if err == nil {
+				err = r.gateway.storeEvent(ctx, instance, updated, event)
+			}
+			release()
+		} else if err == nil {
 			err = r.gateway.storeEvent(ctx, instance, updated, event)
 		}
 		if err != nil {

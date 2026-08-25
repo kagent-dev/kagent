@@ -218,9 +218,10 @@ func gatewayTestClient(t *testing.T, runtime a2aclient.Transport) *a2aclient.Cli
 
 type blockingGatewayRuntime struct {
 	a2aclient.Transport
-	started  chan struct{}
-	canceled chan struct{}
-	once     sync.Once
+	started       chan struct{}
+	canceled      chan struct{}
+	releaseCancel chan struct{}
+	once          sync.Once
 
 	mu   sync.Mutex
 	task *a2atype.Task
@@ -244,10 +245,21 @@ func (r *blockingGatewayRuntime) CancelTask(_ context.Context, _ a2aclient.Servi
 	r.mu.Unlock()
 	task.Status.State = a2atype.TaskStateCanceled
 	r.once.Do(func() { close(r.canceled) })
+	<-r.releaseCancel
 	return &task, nil
 }
 
 func (r *blockingGatewayRuntime) Destroy() error { return nil }
+
+type gatewayTestCoordinator struct {
+	runtimeCoordinator
+	quiescing chan struct{}
+}
+
+func (c *gatewayTestCoordinator) Quiesce(instanceID string) func() {
+	close(c.quiescing)
+	return c.runtimeCoordinator.Quiesce(instanceID)
+}
 
 func gatewayTestContext() context.Context {
 	return gatewayTestContextWithRoute("team-a", gatewayTestID)
@@ -299,7 +311,9 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 	instance := gatewayTestInstance()
 	runtime := &gatewayTestRuntime{}
-	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+	destroyedAtQuiesce := false
+	workflow := &gatewayTestWorkflow{onQuiesce: func() { destroyedAtQuiesce = runtime.destroyed }}
+	gateway := New(&gatewayTestStore{instance: instance}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
 
 	var events int
 	for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
@@ -308,8 +322,8 @@ func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 		}
 		events++
 	}
-	if events != 1 || !runtime.destroyed {
-		t.Fatalf("stream events = %d, destroyed %v", events, runtime.destroyed)
+	if events != 1 || !runtime.destroyed || !destroyedAtQuiesce {
+		t.Fatalf("stream events = %d, destroyed %v, destroyed at quiesce %v", events, runtime.destroyed, destroyedAtQuiesce)
 	}
 }
 
@@ -499,10 +513,12 @@ func TestGatewayPersistsBeforePublishing(t *testing.T) {
 }
 
 func TestGatewayTaskRunOwnsTerminalEventSideEffects(t *testing.T) {
-	runtime := &blockingGatewayRuntime{started: make(chan struct{}), canceled: make(chan struct{})}
+	runtime := &blockingGatewayRuntime{started: make(chan struct{}), canceled: make(chan struct{}), releaseCancel: make(chan struct{})}
 	store := &gatewayTestStore{instance: gatewayTestInstance()}
-	workflow := &gatewayTestWorkflow{}
-	gateway := New(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL)
+	quiesced := make(chan struct{})
+	workflow := &gatewayTestWorkflow{onQuiesce: func() { close(quiesced) }}
+	coordinator := &gatewayTestCoordinator{runtimeCoordinator: &memoryRuntimeCoordinator{}, quiescing: make(chan struct{})}
+	gateway := newGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, workflow, gatewayTestURL, coordinator)
 
 	stream := gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest())
 	streamResult := make(chan a2atype.TaskState, 1)
@@ -544,7 +560,28 @@ func TestGatewayTaskRunOwnsTerminalEventSideEffects(t *testing.T) {
 		t.Fatal("task subscription did not start")
 	}
 
-	canceled, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: task.ID})
+	type cancelResult struct {
+		task *a2atype.Task
+		err  error
+	}
+	cancelResultCh := make(chan cancelResult, 1)
+	go func() {
+		canceled, err := gateway.CancelTask(gatewayTestContext(), &a2atype.CancelTaskRequest{ID: task.ID})
+		cancelResultCh <- cancelResult{task: canceled, err: err}
+	}()
+	select {
+	case <-coordinator.quiescing:
+	case <-time.After(time.Second):
+		t.Fatal("terminal event did not request quiescence")
+	}
+	select {
+	case <-quiesced:
+		t.Fatal("quiescence started before cancellation returned")
+	default:
+	}
+	close(runtime.releaseCancel)
+	result := <-cancelResultCh
+	canceled, err := result.task, result.err
 	if err != nil || canceled.Status.State != a2atype.TaskStateCanceled {
 		t.Fatalf("CancelTask() = %#v, %v", canceled, err)
 	}
