@@ -24,7 +24,7 @@ env:
   BUILDX_VERSION: v0.23.0
 jobs:
   setup:
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     outputs:
       cache-key: ${{ steps.cache-key.outputs.key }}
     steps:
@@ -41,7 +41,7 @@ jobs:
     env:
       VERSION: v0.0.1-test
       SUBSTRATE_VERSION: 0.0.20
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     timeout-minutes: 30
     steps:
       - name: Checkout repository
@@ -49,7 +49,7 @@ jobs:
       - name: Initialize Environment
         uses: ./.github/actions/initialize-environment
       - name: Allow unprivileged user namespaces
-        # Ubuntu 24.04 (ubuntu-latest) enables AppArmor-based restrictions on
+        # Ubuntu 24.04 (cncf-ubuntu-16-64-x86) enables AppArmor-based restrictions on
         # unprivileged user namespaces by default, which causes bubblewrap
         # to fail with EPERM on unshare(CLONE_NEWUSER)
         # See https://github.com/openai/codex/issues/14919
@@ -164,7 +164,7 @@ jobs:
 
   query-contraction-check:
     name: Query Contraction Check
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -185,7 +185,7 @@ jobs:
 
   proto-check:
     name: Protobuf Contract Check
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -207,7 +207,7 @@ jobs:
       - setup
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     strategy:
       fail-fast: false
       matrix:
@@ -253,7 +253,7 @@ jobs:
       - setup
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     strategy:
       fail-fast: false
       matrix:
@@ -295,7 +295,7 @@ jobs:
           kubectl logs -n kagent deployment/kagent-controller || true
 
   go-unit-tests:
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -322,7 +322,7 @@ jobs:
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -346,7 +346,7 @@ jobs:
           helm unittest helm/tools/grafana-mcp
 
   ui-tests:
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     permissions:
       contents: read
       pull-requests: write
@@ -402,7 +402,7 @@ jobs:
           - acp-sandbox-hermes
           - acp-sandbox-openclaw
           - acp-sandbox-claude
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     services:
       registry:
         image: registry:2
@@ -438,7 +438,7 @@ jobs:
         working-directory: ./
 
   go-lint:
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -456,7 +456,7 @@ jobs:
   python-test:
     env:
       OPENAI_API_KEY: fake
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
@@ -483,7 +483,7 @@ jobs:
         run: make test
 
   python-lint:
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -515,7 +515,7 @@ jobs:
           fi
 
   manifests-check:
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
