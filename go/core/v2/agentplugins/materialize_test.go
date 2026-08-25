@@ -50,7 +50,7 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Stdio) != 1 || result.Stdio[0].Command != "server" {
+	if len(result.Stdio) != 1 || result.Stdio[0].Command != "server" || result.Stdio[0].Name != "acme.test/local" {
 		t.Fatalf("materialized plugin = %#v", result)
 	}
 	if content, err := os.ReadFile(filepath.Join(root, "skills", "review", "SKILL.md")); err != nil || string(content) != "# Review" {

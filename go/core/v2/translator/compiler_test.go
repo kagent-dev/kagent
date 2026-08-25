@@ -210,6 +210,13 @@ func TestCompileAgentTemplateResolvesCredentialsForSubstrate(t *testing.T) {
 	if len(spec.EgressDestinations) != 3 || spec.EgressDestinations[0] != "api.openai.com" || spec.EgressDestinations[1] != "mcp.example.com" || spec.EgressDestinations[2] != "second-mcp.example.com" {
 		t.Fatalf("egress destinations = %v", spec.EgressDestinations)
 	}
+	var config adk.AgentConfig
+	if err := json.Unmarshal(spec.ConfigJSON, &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.HttpTools) != 2 || config.HttpTools[0].Name != server.Name || config.HttpTools[1].Name != secondServer.Name {
+		t.Fatalf("compiled MCP server names = %#v, want %q and %q", config.HttpTools, server.Name, secondServer.Name)
+	}
 }
 
 func TestCompileAgentTemplateSharedAgent(t *testing.T) {

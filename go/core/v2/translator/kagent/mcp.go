@@ -21,7 +21,7 @@ func (c *Compiler) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRun
 		}
 		params.TLSInsecureSkipVerify, params.TLSCACertPath, params.TLSDisableSystemCAs = deriveTLSFields(server.Spec.TLS)
 		config.SseTools = append(config.SseTools, adk.SseMcpServerConfig{
-			Params: params, Tools: tool.ToolNames, AllowedHeaders: tool.AllowedHeaders, RequireApproval: tool.RequireApproval,
+			Name: server.Name, Params: params, Tools: tool.ToolNames, AllowedHeaders: tool.AllowedHeaders, RequireApproval: tool.RequireApproval,
 		})
 	default:
 		params := adk.StreamableHTTPConnectionParams{Url: targetURL, Headers: headers}
@@ -36,7 +36,7 @@ func (c *Compiler) addRemoteMCPServer(config *adk.AgentConfig, runtime *modelRun
 		}
 		params.TLSInsecureSkipVerify, params.TLSCACertPath, params.TLSDisableSystemCAs = deriveTLSFields(server.Spec.TLS)
 		config.HttpTools = append(config.HttpTools, adk.HttpMcpServerConfig{
-			Params: params, Tools: tool.ToolNames, AllowedHeaders: tool.AllowedHeaders, RequireApproval: tool.RequireApproval,
+			Name: server.Name, Params: params, Tools: tool.ToolNames, AllowedHeaders: tool.AllowedHeaders, RequireApproval: tool.RequireApproval,
 		})
 	}
 

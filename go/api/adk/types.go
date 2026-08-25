@@ -20,6 +20,7 @@ type StreamableHTTPConnectionParams struct {
 }
 
 type HttpMcpServerConfig struct {
+	Name            string                         `json:"name,omitempty"`
 	Params          StreamableHTTPConnectionParams `json:"params"`
 	Tools           []string                       `json:"tools,omitempty"`
 	AllowedHeaders  []string                       `json:"allowed_headers,omitempty"`
@@ -38,6 +39,7 @@ type SseConnectionParams struct {
 }
 
 type SseMcpServerConfig struct {
+	Name            string              `json:"name,omitempty"`
 	Params          SseConnectionParams `json:"params"`
 	Tools           []string            `json:"tools,omitempty"`
 	AllowedHeaders  []string            `json:"allowed_headers,omitempty"`
@@ -46,6 +48,7 @@ type SseMcpServerConfig struct {
 
 // StdioMcpServerConfig starts one local MCP server without invoking a shell.
 type StdioMcpServerConfig struct {
+	Name    string            `json:"name,omitempty"`
 	Command string            `json:"command"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`

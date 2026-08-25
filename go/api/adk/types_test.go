@@ -7,7 +7,7 @@ import (
 )
 
 func TestAgentConfigStdioToolsRoundTrip(t *testing.T) {
-	want := []StdioMcpServerConfig{{Command: "server", Args: []string{"--stdio"}, Env: map[string]string{"KEY": "value"}, Dir: "/plugin"}}
+	want := []StdioMcpServerConfig{{Name: "local", Command: "server", Args: []string{"--stdio"}, Env: map[string]string{"KEY": "value"}, Dir: "/plugin"}}
 	wantPlugins := &AgentPluginConfig{Skills: []StandaloneSkill{{
 		Name: "review",
 		Source: AgentPluginSource{Git: &AgentPluginGit{
@@ -28,6 +28,25 @@ func TestAgentConfigStdioToolsRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(output.AgentPlugins, wantPlugins) {
 		t.Fatalf("agent plugins = %#v, want %#v", output.AgentPlugins, wantPlugins)
+	}
+}
+
+func TestAgentConfigMCPServerNamesRoundTrip(t *testing.T) {
+	want := AgentConfig{
+		HttpTools:  []HttpMcpServerConfig{{Name: "remote-http", Params: StreamableHTTPConnectionParams{Url: "https://http.example.com"}}},
+		SseTools:   []SseMcpServerConfig{{Name: "remote-sse", Params: SseConnectionParams{Url: "https://sse.example.com"}}},
+		StdioTools: []StdioMcpServerConfig{{Name: "local", Command: "server"}},
+	}
+	raw, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got AgentConfig
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.HttpTools[0].Name != "remote-http" || got.SseTools[0].Name != "remote-sse" || got.StdioTools[0].Name != "local" {
+		t.Fatalf("MCP server names = (%q, %q, %q), want names preserved", got.HttpTools[0].Name, got.SseTools[0].Name, got.StdioTools[0].Name)
 	}
 }
 
