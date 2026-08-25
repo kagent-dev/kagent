@@ -8,8 +8,10 @@ import (
 	"net"
 	"time"
 
+	"buf.build/go/protovalidate"
 	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	protovalidatemiddleware "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	agentservice "github.com/kagent-dev/kagent/go/core/internal/service/agent"
@@ -89,6 +91,10 @@ func New(config Config) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create gRPC metrics: %w", err)
 	}
+	validator, err := protovalidate.New()
+	if err != nil {
+		return nil, fmt.Errorf("create protobuf validator: %w", err)
+	}
 
 	serverOptions := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(config.MaxMessageBytes),
@@ -99,6 +105,7 @@ func New(config Config) (*Server, error) {
 			metrics.unaryInterceptor,
 			recoverUnaryInterceptor,
 			authenticationUnaryInterceptor(config.Authenticator, config.ShareStore, config.MethodPolicies),
+			protovalidatemiddleware.UnaryServerInterceptor(validator),
 			errorMappingUnaryInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
