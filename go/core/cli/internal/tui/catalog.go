@@ -14,13 +14,13 @@ import (
 // catalog reads what could be run, not what is running. Harness and AgentTemplate
 // are CRDs with no gRPC read service, so this is the TUI's only kubeconfig need.
 type catalog interface {
-	Namespaces(ctx context.Context) ([]NamespaceCount, error)
+	Namespaces(ctx context.Context) ([]namespaceCount, error)
 	Harnesses(ctx context.Context, namespace string) ([]string, error)
 	AgentTemplates(ctx context.Context, namespace string) ([]string, error)
 }
 
-// NamespaceCount is a namespace and how many AgentTemplates it holds.
-type NamespaceCount struct {
+// namespaceCount is a namespace and how many AgentTemplates it holds.
+type namespaceCount struct {
 	Name      string
 	Templates int
 }
@@ -44,7 +44,7 @@ func newKubeCatalog() (catalog, error) {
 
 // Namespaces lists the namespaces holding AgentTemplates. An empty namespace
 // lists cluster-wide, which needs list permission the caller may not have.
-func (c *kubeCatalog) Namespaces(ctx context.Context) ([]NamespaceCount, error) {
+func (c *kubeCatalog) Namespaces(ctx context.Context) ([]namespaceCount, error) {
 	list, err := c.clients.ApiV1alpha3().AgentTemplates("").List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list AgentTemplates across namespaces: %w", err)
@@ -53,11 +53,11 @@ func (c *kubeCatalog) Namespaces(ctx context.Context) ([]NamespaceCount, error) 
 	for i := range list.Items {
 		counts[list.Items[i].Namespace]++
 	}
-	namespaces := make([]NamespaceCount, 0, len(counts))
+	namespaces := make([]namespaceCount, 0, len(counts))
 	for name, templates := range counts {
-		namespaces = append(namespaces, NamespaceCount{Name: name, Templates: templates})
+		namespaces = append(namespaces, namespaceCount{Name: name, Templates: templates})
 	}
-	slices.SortFunc(namespaces, func(a, b NamespaceCount) int {
+	slices.SortFunc(namespaces, func(a, b namespaceCount) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 	return namespaces, nil

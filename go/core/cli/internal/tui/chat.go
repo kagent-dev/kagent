@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/api/utils"
 	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/instance"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 	"github.com/muesli/reflow/wordwrap"
 )
@@ -47,7 +48,12 @@ type toolResult struct {
 type chatModel struct {
 	agentRef  string
 	contextID string
-	verbose   bool
+	// The header is pinned above the viewport rather than written into
+	// history, so it stays visible however long the transcript grows. state
+	// arrives pre-rendered: a local agent has no lifecycle and leaves it empty.
+	state      string
+	lastActive time.Time
+	verbose    bool
 
 	vp    viewport.Model
 	input textarea.Model
@@ -85,8 +91,6 @@ func newChatModel(agentRef string, contextID string, send SendMessageFn, verbose
 	input.Focus()
 
 	vp := viewport.New(0, 0)
-	initial := chatTitle(agentRef, contextID)
-	vp.SetContent(initial)
 	vp.MouseWheelEnabled = true
 
 	sp := spinner.New()
@@ -100,13 +104,8 @@ func newChatModel(agentRef string, contextID string, send SendMessageFn, verbose
 		vp:        vp,
 		input:     input,
 		send:      send,
-		history:   initial,
 		spin:      sp,
 	}
-}
-
-func chatTitle(agentRef, contextID string) string {
-	return theme.HeadingStyle().Render(fmt.Sprintf("Chat with %s (%s)", agentRef, contextID))
 }
 
 func (m *chatModel) Init() tea.Cmd {
@@ -139,10 +138,10 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.WindowSizeMsg:
-		// Reserve space for input and separator
-		inputHeight := 3
-		sepHeight := 2 // extra line for status
-		vpHeight := max(msg.Height-inputHeight-sepHeight, 5)
+		// What View draws around the viewport: the pinned header and its rule
+		// above; a rule, the status line, and the input below.
+		const chromeHeight = 5
+		vpHeight := max(msg.Height-chromeHeight, 5)
 
 		oldWidth := m.vp.Width
 		m.vp.Width = msg.Width
@@ -202,12 +201,46 @@ func (m *chatModel) View() string {
 	if m.working {
 		status = fmt.Sprintf("%s %s", m.spin.View(), status)
 	}
+	rule := theme.SeparatorStyle().Render(strings.Repeat("─", max(10, width)))
 	return lipgloss.JoinVertical(lipgloss.Left,
+		m.headerView(width),
+		rule,
 		m.vp.View(),
-		theme.SeparatorStyle().Render(strings.Repeat("─", max(10, width))),
+		rule,
 		theme.StatusStyle().Render(status),
 		m.input.View(),
 	)
+}
+
+// setHeaderMeta adds lifecycle detail to the pinned header. The caller renders
+// state, so this stays free of any control-plane type.
+func (m *chatModel) setHeaderMeta(state string, lastActive time.Time) {
+	m.state, m.lastActive = state, lastActive
+}
+
+// stop cancels an in-flight stream, so a replaced chat stops delivering.
+func (m *chatModel) stop() {
+	if m != nil && m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+	}
+}
+
+// headerView pins who you are talking to, its state, and when it last ran.
+// The ID is abbreviated so the metadata after it survives a narrow pane; the
+// details pane carries the full copyable one.
+func (m *chatModel) headerView(width int) string {
+	parts := []string{
+		theme.HeadingStyle().Render(m.agentRef),
+		theme.DimStyle().Render(instance.ShortID(m.contextID)),
+	}
+	if m.state != "" {
+		parts = append(parts, m.state)
+	}
+	if !m.lastActive.IsZero() {
+		parts = append(parts, theme.DimStyle().Render("active "+instance.Since(m.lastActive, time.Now())+" ago"))
+	}
+	return lipgloss.NewStyle().MaxWidth(width).Render(strings.Join(parts, theme.DimStyle().Render(" · ")))
 }
 
 func (m *chatModel) submit(text string) tea.Cmd {
@@ -246,6 +279,7 @@ func (m *chatModel) endStream() {
 	m.commitAgentText()
 	m.streaming = false
 	m.working = false
+	m.lastActive = time.Now()
 	m.updateStatus()
 }
 
@@ -338,10 +372,13 @@ func (m *chatModel) renderState() {
 	m.lastState = state
 
 	switch state {
+	// The gateway rejects a message carrying a TaskID, so a reply cannot
+	// resume a paused task yet; it starts a new one. Say so rather than
+	// promising a continuation that does not happen.
 	case a2atype.TaskStateInputRequired:
-		m.appendLine(theme.StatusStyle().Render("⏸ Input required — reply to continue."))
+		m.appendLine(theme.StatusStyle().Render("⏸ Input required. Resuming a paused task is not supported yet; a reply starts a new one."))
 	case a2atype.TaskStateAuthRequired:
-		m.appendLine(theme.StatusStyle().Render("⏸ Authentication required to continue."))
+		m.appendLine(theme.StatusStyle().Render("⏸ Authentication required. This task cannot continue here."))
 	case a2atype.TaskStateFailed, a2atype.TaskStateRejected, a2atype.TaskStateCanceled:
 		banner := fmt.Sprintf("✗ Task %s.", state)
 		if task.Status.Message != nil {
@@ -509,16 +546,6 @@ func (m *chatModel) render() {
 	}
 	m.vp.SetContent(content)
 	m.vp.GotoBottom()
-}
-
-// ResetTranscript clears the viewport with a new header/title.
-func (m *chatModel) ResetTranscript(title string) {
-	m.history = title
-	m.agentText = ""
-	m.projected = ""
-	m.lastState = ""
-	m.assembler = nil
-	m.render()
 }
 
 type tickMsg time.Time

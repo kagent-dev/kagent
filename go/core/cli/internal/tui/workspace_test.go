@@ -6,8 +6,10 @@ import (
 	"testing"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	tea "github.com/charmbracelet/bubbletea"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
+	clia2a "github.com/kagent-dev/kagent/go/core/cli/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,13 +35,13 @@ func (f *fakeLister) ListAgentInstances(_ context.Context, request *apiv1alpha1.
 
 // fakeCatalog stands in for the Kubernetes read.
 type fakeCatalog struct {
-	namespaces []NamespaceCount
+	namespaces []namespaceCount
 	harnesses  []string
 	templates  []string
 	err        error
 }
 
-func (f *fakeCatalog) Namespaces(context.Context) ([]NamespaceCount, error) {
+func (f *fakeCatalog) Namespaces(context.Context) ([]namespaceCount, error) {
 	return f.namespaces, f.err
 }
 func (f *fakeCatalog) Harnesses(context.Context, string) ([]string, error) {
@@ -57,7 +59,7 @@ func testWorkspace(t *testing.T, lister instanceLister) *workspaceModel {
 	clientSet := conn.Client()
 	t.Cleanup(func() { _ = clientSet.Close() })
 
-	m := newWorkspaceModel(Options{Namespace: conn.Namespace}, clientSet, false)
+	m := newWorkspaceModel(t.Context(), Options{Namespace: conn.Namespace}, clientSet, false)
 	m.lister = lister
 	m.width, m.height = 120, 40
 	return m
@@ -385,7 +387,7 @@ func TestWorkspaceNamespacePanel(t *testing.T) {
 	}{
 		{
 			name: "lists namespaces with template counts",
-			catalog: &fakeCatalog{namespaces: []NamespaceCount{
+			catalog: &fakeCatalog{namespaces: []namespaceCount{
 				{Name: "kagent", Templates: 3}, {Name: "team-b", Templates: 1},
 			}},
 			want: []nameItem{{name: "kagent", count: 3}, {name: "team-b", count: 1}},
@@ -425,7 +427,7 @@ func TestWorkspaceSwitchingNamespaceRefetches(t *testing.T) {
 		page("", readyInstance("a", "smoke")),
 	}}
 	m := testWorkspace(t, lister)
-	m.catalog = &fakeCatalog{namespaces: []NamespaceCount{{Name: "kagent"}, {Name: "team-b"}}}
+	m.catalog = &fakeCatalog{namespaces: []namespaceCount{{Name: "kagent"}, {Name: "team-b"}}}
 	m.Update(m.loadNamespaces()())
 	loaded(m)
 	require.Len(t, m.all, 1)
@@ -489,4 +491,63 @@ func TestWorkspaceRenders(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Async replies name their instance, so one that lands after the user moved on
+// must not be written into the new chat.
+func TestWorkspaceIgnoresHistoryForAnotherInstance(t *testing.T) {
+	first, second := readyInstance("a", "smoke"), readyInstance("b", "reporter")
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListAgentInstancesResponse{page("", first, second)}})
+	loaded(m)
+	m.selectInstance(second)
+	before := transcript(m.chat)
+
+	m.Update(instanceHistoryLoadedMsg{
+		instanceID: first.GetId(),
+		tasks:      []*a2atype.Task{{ID: "t", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}},
+	})
+
+	assert.Equal(t, before, transcript(m.chat), "history for another instance is dropped")
+}
+
+func TestWorkspaceStopsTheOutgoingStreamOnSwitch(t *testing.T) {
+	first, second := readyInstance("a", "smoke"), readyInstance("b", "reporter")
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListAgentInstancesResponse{page("", first, second)}})
+	loaded(m)
+	m.selectInstance(first)
+	stopped := false
+	m.chat.cancel = func() { stopped = true }
+
+	m.selectInstance(second)
+
+	assert.True(t, stopped, "the previous instance's stream is cancelled")
+}
+
+// Stream messages must reach the chat even when a panel has focus, or nothing
+// re-arms the read and the reply is stranded.
+func TestWorkspaceRoutesStreamMessagesRegardlessOfFocus(t *testing.T) {
+	ready := readyInstance("a", "smoke")
+	m := testWorkspace(t, &fakeLister{pages: []*apiv1alpha1.ListAgentInstancesResponse{page("", ready)}})
+	loaded(m)
+	m.selectInstance(ready)
+	m.focus = panelInstances
+
+	m.Update(clia2a.StreamResult{Err: errors.New("stream disconnected")})
+
+	assert.Contains(t, transcript(m.chat), "Connection error")
+}
+
+func TestWorkspaceRefreshDropsADeletedInstance(t *testing.T) {
+	ready := readyInstance("a", "smoke")
+	lister := &fakeLister{pages: []*apiv1alpha1.ListAgentInstancesResponse{page("", ready), page("")}}
+	m := testWorkspace(t, lister)
+	loaded(m)
+	m.selectInstance(ready)
+	require.NotNil(t, m.chat)
+
+	loaded(m) // second page is empty: the instance is gone
+
+	assert.Nil(t, m.chat, "a deleted instance leaves no chat behind")
+	assert.Nil(t, m.current)
+	assert.Contains(t, m.status, "no longer exists")
 }

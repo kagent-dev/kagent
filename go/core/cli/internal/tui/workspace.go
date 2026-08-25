@@ -2,12 +2,14 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kagent-dev/kagent/go/api/client"
@@ -53,8 +55,8 @@ type instanceLister interface {
 
 // RunWorkspace launches the workspace: three cascading panels left, chat right.
 // Mouse reporting costs click-drag selection, which shift (option on macOS) restores.
-func RunWorkspace(cfg Options, clientSet *client.ClientSet, verbose bool) error {
-	m := newWorkspaceModel(cfg, clientSet, verbose)
+func RunWorkspace(ctx context.Context, cfg Options, clientSet *client.ClientSet, verbose bool) error {
+	m := newWorkspaceModel(ctx, cfg, clientSet, verbose)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
@@ -68,9 +70,12 @@ type instancesLoadedMsg struct {
 
 type instanceSelectedMsg struct{ agentInstance *apiv1alpha1.AgentInstance }
 
+// instanceHistoryLoadedMsg names the instance it belongs to: a reply that
+// arrives after the user moved on must not land in the new chat.
 type instanceHistoryLoadedMsg struct {
-	tasks []*a2atype.Task
-	err   error
+	instanceID string
+	tasks      []*a2atype.Task
+	err        error
 }
 
 // catalogLoadedMsg carries the Kubernetes-side names. An error is reported but
@@ -84,16 +89,20 @@ type catalogLoadedMsg struct {
 // namespacesLoadedMsg carries the namespaces holding AgentTemplates. Listing
 // cluster-wide can be forbidden, so a failure leaves just the current one.
 type namespacesLoadedMsg struct {
-	namespaces []NamespaceCount
+	namespaces []namespaceCount
 	err        error
 }
 
 type workspaceModel struct {
-	cfg     Options
-	client  *client.ClientSet
-	lister  instanceLister
-	catalog catalog
-	verbose bool
+	// ctx cancels in-flight I/O when the program stops. Bubble Tea commands
+	// take no context of their own, so they close over this one.
+	ctx        context.Context
+	cfg        Options
+	client     *client.ClientSet
+	lister     instanceLister
+	catalog    catalog
+	catalogErr error
+	verbose    bool
 
 	width  int
 	height int
@@ -124,21 +133,23 @@ type workspaceModel struct {
 	focus panelID
 }
 
-func newWorkspaceModel(cfg Options, clientSet *client.ClientSet, verbose bool) *workspaceModel {
+func newWorkspaceModel(ctx context.Context, cfg Options, clientSet *client.ClientSet, verbose bool) *workspaceModel {
 	var lister instanceLister
 	if clientSet != nil {
 		lister = clientSet.AgentInstance
 	}
-	// A missing kubeconfig is not fatal; loadCatalog reports it and the
-	// cascade falls back to names derived from the instances.
-	kubeCatalog, _ := newKubeCatalog()
+	// A missing kubeconfig is not fatal, but the reason is kept so the panels
+	// can say why they fell back to names derived from the instances.
+	kubeCatalog, catalogErr := newKubeCatalog()
 
 	return &workspaceModel{
-		cfg:     cfg,
-		client:  clientSet,
-		lister:  lister,
-		catalog: kubeCatalog,
-		verbose: verbose,
+		ctx:        ctx,
+		cfg:        cfg,
+		client:     clientSet,
+		lister:     lister,
+		catalog:    kubeCatalog,
+		catalogErr: catalogErr,
+		verbose:    verbose,
 		// Seed the delegates so rows render sanely before the first resize.
 		namespaces: newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
 		harnesses:  newPanelList(rowDelegate{width: panelInnerWidth(sidebarWidth), row: nameRow}),
@@ -157,9 +168,9 @@ func (m *workspaceModel) Init() tea.Cmd {
 func (m *workspaceModel) loadNamespaces() tea.Cmd {
 	return func() tea.Msg {
 		if m.catalog == nil {
-			return namespacesLoadedMsg{err: fmt.Errorf("no Kubernetes client configured")}
+			return namespacesLoadedMsg{err: m.noCatalogErr()}
 		}
-		namespaces, err := m.catalog.Namespaces(context.Background())
+		namespaces, err := m.catalog.Namespaces(m.ctx)
 		return namespacesLoadedMsg{namespaces: namespaces, err: err}
 	}
 }
@@ -168,14 +179,14 @@ func (m *workspaceModel) loadNamespaces() tea.Cmd {
 func (m *workspaceModel) loadCatalog() tea.Cmd {
 	return func() tea.Msg {
 		if m.catalog == nil {
-			return catalogLoadedMsg{err: fmt.Errorf("no Kubernetes client configured")}
+			return catalogLoadedMsg{err: m.noCatalogErr()}
 		}
-		ctx := context.Background()
-		harnesses, err := m.catalog.Harnesses(ctx, m.namespace)
+
+		harnesses, err := m.catalog.Harnesses(m.ctx, m.namespace)
 		if err != nil {
 			return catalogLoadedMsg{err: err}
 		}
-		templates, err := m.catalog.AgentTemplates(ctx, m.namespace)
+		templates, err := m.catalog.AgentTemplates(m.ctx, m.namespace)
 		if err != nil {
 			return catalogLoadedMsg{err: err}
 		}
@@ -189,13 +200,13 @@ func (m *workspaceModel) loadInstances() tea.Cmd {
 		if m.lister == nil {
 			return instancesLoadedMsg{err: fmt.Errorf("no kagent client configured")}
 		}
-		ctx := context.Background()
+
 		var (
 			instances []*apiv1alpha1.AgentInstance
 			pageToken string
 		)
 		for range maxInstancePages {
-			response, err := m.lister.ListAgentInstances(ctx, &apiv1alpha1.ListAgentInstancesRequest{
+			response, err := m.lister.ListAgentInstances(m.ctx, &apiv1alpha1.ListAgentInstancesRequest{
 				Namespace: m.namespace,
 				Page:      &apiv1alpha1.PageRequest{Limit: instancePageSize, PageToken: pageToken},
 			})
@@ -215,25 +226,25 @@ func (m *workspaceModel) loadInstances() tea.Cmd {
 // loadHistory reads past tasks. The gateway orders them by random task UUID,
 // so they are sorted here into a coherent transcript.
 func (m *workspaceModel) loadHistory(agentInstance *apiv1alpha1.AgentInstance) tea.Cmd {
+	id := agentInstance.GetId()
 	return func() tea.Msg {
-		ctx := context.Background()
-		a2aClient, err := m.client.A2A.ForAgentInstance(ctx, m.namespace, agentInstance.GetId())
+		a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, m.namespace, id)
 		if err != nil {
-			return instanceHistoryLoadedMsg{err: err}
+			return instanceHistoryLoadedMsg{instanceID: id, err: err}
 		}
 		historyLength := historyMessageLimit
-		response, err := a2aClient.ListTasks(ctx, &a2atype.ListTasksRequest{
-			ContextID:        agentInstance.GetId(),
+		response, err := a2aClient.ListTasks(m.ctx, &a2atype.ListTasksRequest{
+			ContextID:        id,
 			PageSize:         historyTaskLimit,
 			HistoryLength:    &historyLength,
 			IncludeArtifacts: true,
 		})
 		if err != nil {
-			return instanceHistoryLoadedMsg{err: err}
+			return instanceHistoryLoadedMsg{instanceID: id, err: err}
 		}
 		tasks := response.Tasks
 		slices.SortStableFunc(tasks, compareTaskTime)
-		return instanceHistoryLoadedMsg{tasks: tasks}
+		return instanceHistoryLoadedMsg{instanceID: id, tasks: tasks}
 	}
 }
 
@@ -272,14 +283,20 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.selectInstance(msg.agentInstance)
 
 	case instanceHistoryLoadedMsg:
+		if msg.instanceID != m.current.GetId() || m.chat == nil {
+			return m, nil // the user selected something else while this was in flight
+		}
 		if msg.err != nil {
 			m.status = fmt.Sprintf("Failed to load history: %v", msg.err)
 			return m, nil
 		}
-		if m.chat != nil {
-			for _, task := range msg.tasks {
-				m.chat.AppendHistoryTask(task)
-			}
+		for _, task := range msg.tasks {
+			m.chat.AppendHistoryTask(task)
+		}
+		// Tasks are sorted oldest first, so the last is the most recent thing
+		// this instance actually did.
+		if last := len(msg.tasks) - 1; last >= 0 && msg.tasks[last] != nil && msg.tasks[last].Status.Timestamp != nil {
+			m.chat.setHeaderMeta(stateBadge(m.current.GetState()), *msg.tasks[last].Status.Timestamp)
 		}
 		return m, nil
 
@@ -292,6 +309,16 @@ func (m *workspaceModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd, handled := m.handleMouse(msg); handled {
 			return m, cmd
 		}
+
+	// Stream and timer messages go to the chat wherever focus is. Routing them
+	// by focus would strand a reply as soon as the user looked at a panel.
+	case clia2a.StreamResult, streamDoneMsg, spinner.TickMsg, tickMsg:
+		if m.chat == nil {
+			return m, nil
+		}
+		updated, cmd := m.chat.Update(msg)
+		m.chat = updated.(*chatModel)
+		return m, cmd
 	}
 
 	return m, m.forward(msg)
@@ -397,9 +424,24 @@ func (m *workspaceModel) applyInstances(msg instancesLoadedMsg) tea.Cmd {
 	})
 	m.rebuildPanels()
 
-	if m.current != nil {
-		return nil
+	if m.current == nil {
+		return m.openSelectedInstance()
 	}
+	// A refresh may have deleted the open instance or changed its state, so
+	// re-read it rather than leaving a stale chat and header behind.
+	for _, agentInstance := range m.all {
+		if agentInstance.GetId() == m.current.GetId() {
+			if agentInstance.GetState() != m.current.GetState() {
+				return m.selectInstance(agentInstance)
+			}
+			m.current = agentInstance
+			m.renderDetails()
+			return nil
+		}
+	}
+	m.chat.stop()
+	m.chat, m.current = nil, nil
+	m.status = "The open AgentInstance no longer exists."
 	return m.openSelectedInstance()
 }
 
@@ -439,9 +481,9 @@ func (m *workspaceModel) applyNamespaces(msg namespacesLoadedMsg) {
 		m.status = fmt.Sprintf("Listing only the current namespace: %v", msg.err)
 		namespaces = nil
 	}
-	if !slices.ContainsFunc(namespaces, func(n NamespaceCount) bool { return n.Name == m.namespace }) {
-		namespaces = append(namespaces, NamespaceCount{Name: m.namespace})
-		slices.SortFunc(namespaces, func(a, b NamespaceCount) int { return strings.Compare(a.Name, b.Name) })
+	if !slices.ContainsFunc(namespaces, func(n namespaceCount) bool { return n.Name == m.namespace }) {
+		namespaces = append(namespaces, namespaceCount{Name: m.namespace})
+		slices.SortFunc(namespaces, func(a, b namespaceCount) int { return strings.Compare(a.Name, b.Name) })
 	}
 
 	items := make([]list.Item, 0, len(namespaces))
@@ -559,6 +601,7 @@ func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance
 	if agentInstance == nil {
 		return nil
 	}
+	m.chat.stop() // otherwise its stream delivers into the next instance's chat
 	m.current = agentInstance
 	m.renderDetails()
 
@@ -569,7 +612,7 @@ func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance
 	}
 
 	m.status = ""
-	a2aClient, err := m.client.A2A.ForAgentInstance(context.Background(), m.namespace, agentInstance.GetId())
+	a2aClient, err := m.client.A2A.ForAgentInstance(m.ctx, m.namespace, agentInstance.GetId())
 	if err != nil {
 		m.chat = nil
 		m.status = fmt.Sprintf("Failed to connect to AgentInstance: %v", err)
@@ -580,8 +623,9 @@ func (m *workspaceModel) selectInstance(agentInstance *apiv1alpha1.AgentInstance
 		return clia2a.StreamToChannel(ctx, a2aClient, req)
 	}
 	m.chat = newChatModel(agentInstance.GetAgentTemplate().GetName(), agentInstance.GetId(), send, m.verbose)
-	m.chat.ResetTranscript(chatTitle(agentInstance.GetAgentTemplate().GetName(), agentInstance.GetId()))
-	return tea.Batch(m.resize(), m.loadHistory(agentInstance))
+	m.chat.setHeaderMeta(stateBadge(agentInstance.GetState()), agentInstance.GetUpdatedAt().AsTime())
+	// Bubble Tea calls Init only on the root model, so start the chat's here.
+	return tea.Batch(m.chat.Init(), m.resize(), m.loadHistory(agentInstance))
 }
 
 // handleKey reports whether it consumed the key; the rest fall through to the focused panel.
@@ -784,4 +828,13 @@ func lineCount(s string) int {
 		return 0
 	}
 	return strings.Count(s, "\n") + 1
+}
+
+// noCatalogErr explains why there is no catalog, preserving the kubeconfig
+// failure rather than reporting a generic absence.
+func (m *workspaceModel) noCatalogErr() error {
+	if m.catalogErr != nil {
+		return m.catalogErr
+	}
+	return errors.New("no Kubernetes client configured")
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/instance"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
@@ -128,6 +129,12 @@ func stateGlyph(state apiv1alpha1.AgentInstanceState) (string, lipgloss.Adaptive
 	}
 }
 
+// stateBadge renders a lifecycle state as a coloured glyph and label.
+func stateBadge(state apiv1alpha1.AgentInstanceState) string {
+	glyph, colour := stateGlyph(state)
+	return lipgloss.NewStyle().Foreground(colour).Render(glyph + " " + instance.StateLabel(state))
+}
+
 // rowDelegate renders one compact line per item, with a cursor on the selection.
 type rowDelegate struct {
 	width int
@@ -187,21 +194,22 @@ func instanceRow(item list.Item, width int) string {
 	)
 }
 
-// truncate shortens text to width columns, marking what it cut.
+// truncate shortens text to width display columns, marking what it cut. Width
+// is measured in cells, not bytes, so wide runes stay aligned.
 func truncate(text string, width int) string {
-	if len(text) <= width {
+	if ansi.StringWidth(text) <= width {
 		return text
 	}
 	if width <= 1 {
-		return text[:max(width, 0)]
+		return ansi.Truncate(text, max(width, 0), "")
 	}
-	return text[:width-1] + "…"
+	return ansi.Truncate(text, width-1, "…")
 }
 
-// pad right-fills text to width columns so later columns line up.
+// pad right-fills text to width display columns so later columns line up.
 func pad(text string, width int) string {
-	if len(text) >= width {
-		return text
+	if fill := width - ansi.StringWidth(text); fill > 0 {
+		return text + strings.Repeat(" ", fill)
 	}
-	return text + strings.Repeat(" ", width-len(text))
+	return text
 }
