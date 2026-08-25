@@ -5,6 +5,7 @@ import (
 	"time"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/uuid"
 	"github.com/kagent-dev/kagent/go/api/adk"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/pgvector/pgvector-go"
@@ -271,9 +272,9 @@ type RuntimeRevision struct {
 }
 
 type AgentInstanceShare struct {
-	ID         string
+	ID         uuid.UUID
 	Namespace  string
-	InstanceID string
+	InstanceID uuid.UUID
 	Creator    string
 	Permission string
 	TokenHash  []byte
@@ -290,10 +291,10 @@ type AgentInstanceTaskSnapshot struct {
 }
 
 type AgentInstanceCheckpoint struct {
-	ID                   string
+	ID                   uuid.UUID
 	Namespace            string
-	SourceInstanceID     string
-	SourceContextID      string
+	SourceInstanceID     uuid.UUID
+	SourceContextID      uuid.UUID
 	UserID               string
 	RequestID            string
 	HeadTaskID           string

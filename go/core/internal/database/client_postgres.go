@@ -915,7 +915,7 @@ func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) err
 
 func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare {
 	return dbpkg.AgentInstanceShare{
-		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
+		ID: uuid.MustParse(row.ID), Namespace: row.Namespace, InstanceID: uuid.MustParse(row.InstanceID),
 		Creator: row.Creator, Permission: row.Permission,
 		TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
 	}
@@ -923,7 +923,7 @@ func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare
 
 func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
 	row, err := c.q.CreateAgentInstanceShare(ctx, dbgen.CreateAgentInstanceShareParams{
-		ID: share.ID, Namespace: share.Namespace, InstanceID: share.InstanceID,
+		ID: share.ID.String(), Namespace: share.Namespace, InstanceID: share.InstanceID.String(),
 		Creator: share.Creator, Permission: share.Permission, TokenHash: share.TokenHash,
 	})
 	if err != nil {
@@ -1203,7 +1203,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 			UserID: checkpoint.UserID, Namespace: checkpoint.Namespace, RequestID: checkpoint.RequestID,
 		})
 		if err == nil {
-			if existing.SourceInstanceID != checkpoint.SourceInstanceID {
+			if existing.SourceInstanceID != checkpoint.SourceInstanceID.String() {
 				return dbpkg.ErrIdempotencyConflict
 			}
 			result = toAgentInstanceCheckpoint(existing)
@@ -1213,7 +1213,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 			return fmt.Errorf("get AgentInstance checkpoint by request: %w", err)
 		}
 
-		instance, err := q.LockAgentInstance(ctx, checkpoint.SourceInstanceID)
+		instance, err := q.LockAgentInstance(ctx, checkpoint.SourceInstanceID.String())
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.Namespace != checkpoint.Namespace || instance.UserID != checkpoint.UserID)) {
 			return dbpkg.ErrNotFound
 		}
@@ -1236,7 +1236,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 		}
 
 		row, err := q.InsertAgentInstanceCheckpoint(ctx, dbgen.InsertAgentInstanceCheckpointParams{
-			ID: checkpoint.ID, Namespace: checkpoint.Namespace, SourceInstanceID: checkpoint.SourceInstanceID,
+			ID: checkpoint.ID.String(), Namespace: checkpoint.Namespace, SourceInstanceID: checkpoint.SourceInstanceID.String(),
 			UserID: checkpoint.UserID, RequestID: checkpoint.RequestID, HeadTaskID: boundary.ID,
 			HistorySequence: *boundary.HistorySequence, SnapshotAtespace: *boundary.SnapshotAtespace,
 			SnapshotName: *boundary.SnapshotName, SnapshotUid: *boundary.SnapshotUid,
@@ -1249,7 +1249,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 				UserID: checkpoint.UserID, Namespace: checkpoint.Namespace, RequestID: checkpoint.RequestID,
 			})
 			if existingErr == nil {
-				if existing.SourceInstanceID != checkpoint.SourceInstanceID {
+				if existing.SourceInstanceID != checkpoint.SourceInstanceID.String() {
 					return dbpkg.ErrIdempotencyConflict
 				}
 				result = toAgentInstanceCheckpoint(existing)
@@ -2123,8 +2123,8 @@ func toCheckpointWrite(r dbgen.LgCheckpointWrite) *dbpkg.LangGraphCheckpointWrit
 
 func toAgentInstanceCheckpoint(row dbgen.AgentInstanceCheckpoint) *dbpkg.AgentInstanceCheckpoint {
 	return &dbpkg.AgentInstanceCheckpoint{
-		ID: row.ID, Namespace: row.Namespace, SourceInstanceID: row.SourceInstanceID,
-		SourceContextID: row.SourceContextID, UserID: row.UserID,
+		ID: uuid.MustParse(row.ID), Namespace: row.Namespace, SourceInstanceID: uuid.MustParse(row.SourceInstanceID),
+		SourceContextID: uuid.MustParse(row.SourceContextID), UserID: row.UserID,
 		RequestID: row.RequestID, HeadTaskID: row.HeadTaskID, HistorySequence: row.HistorySequence,
 		SnapshotAtespace: row.SnapshotAtespace, SnapshotName: row.SnapshotName, SnapshotUID: row.SnapshotUid,
 		SnapshotContentScope: row.SnapshotContentScope, PreparedRevision: derefStr(row.PreparedRevision),

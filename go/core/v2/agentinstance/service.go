@@ -247,7 +247,7 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 		return nil, "", serviceerrors.NewInternal("Failed to create share token", err)
 	}
 	share, err := s.store.CreateAgentInstanceShare(ctx, dbpkg.AgentInstanceShare{
-		ID: uuid.NewString(), Namespace: namespace, InstanceID: instanceID,
+		ID: uuid.New(), Namespace: namespace, InstanceID: uuid.MustParse(instanceID),
 		Creator: creator, Permission: permission, TokenHash: tokenHash,
 	})
 	if err != nil {
@@ -280,7 +280,7 @@ func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, 
 	}
 	result := ShareListResult{Shares: shares}
 	if len(result.Shares) > pageSize {
-		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID)
+		result.NextPageToken = encodePageToken(result.Shares[pageSize-1].ID.String())
 		result.Shares = result.Shares[:pageSize]
 	}
 	return result, nil
