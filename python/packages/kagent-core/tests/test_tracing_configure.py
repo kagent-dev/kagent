@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from opentelemetry.baggage import get_baggage
 from opentelemetry.propagate import get_global_textmap
 from opentelemetry.trace import get_current_span
 
@@ -197,6 +198,19 @@ def test_otel_sdk_default_propagator_includes_w3c_tracecontext():
 
     ctx = get_global_textmap().extract(carrier)
     assert get_current_span(ctx).get_span_context().trace_id == trace_id
+
+
+def test_otel_sdk_default_propagator_includes_baggage():
+    """The OTEL SDK must propagate W3C Baggage by default.
+
+    Baggage is how caller identity and context reach an agent and its
+    sub-agents (see caller_context_attributes). If an OTEL SDK upgrade drops
+    baggage from the default propagator, this test will fail and explicit
+    configuration will be needed.
+    """
+    ctx = get_global_textmap().extract({"baggage": "user.email=ada%40example.com"})
+
+    assert get_baggage("user.email", ctx) == "ada@example.com"
 
 
 @pytest.mark.parametrize(
