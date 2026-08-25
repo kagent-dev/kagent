@@ -726,25 +726,6 @@ grafana-mcp:
       cpu: 500m
       memory: 512Mi
 
-querydoc:
-  enabled: true
-  replicas: 1
-  image:
-    registry: ghcr.io
-    repository: kagent-dev/doc2vec/mcp
-    tag: 1.1.14
-    pullPolicy: IfNotPresent
-  resources:
-    requests:
-      cpu: 100m
-      memory: 128Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-  openai:
-    apiKey: ""
-    # secretRef: ""  # Name of existing Secret containing OPENAI_API_KEY. Takes precedence over apiKey.
-
 # ==============================================================================
 # OAUTH2-PROXY CONFIGURATION (Optional)
 # ==============================================================================

@@ -105,7 +105,6 @@ jobs:
             --set ui.replicas=0
             --set kagent-tools.enabled=false
             --set grafana-mcp.enabled=false
-            --set querydoc.enabled=false
             --set controller.substrate.enabled=true
             --set controller.substrate.ateApiEndpoint=dns:///api.ate-system.svc:443
             --set controller.substrate.atenetRouterURL=http://atenet-router.ate-system.svc:80
@@ -339,7 +338,6 @@ jobs:
       - name: Run helm unit tests
         run: |
           helm unittest helm/kagent
-          helm unittest helm/tools/querydoc
           helm unittest helm/tools/grafana-mcp
 
   ui-tests:
