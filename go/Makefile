@@ -61,6 +61,7 @@ vet: ## Run go vet.
 	go vet ./...
 
 KAL_SO = $(LOCALBIN)/kube-api-linter.so
+GO_TOOLCHAIN := $(shell go env GOVERSION)
 
 .PHONY: lint
 lint: golangci-lint $(KAL_SO) ## Run golangci-lint.
@@ -79,8 +80,8 @@ $(KAL_SO):
 	@echo "Building kube-api-linter plugin..."
 	@rm -rf $(LOCALBIN)/golangci-lint-src
 	@git clone --depth 1 --branch $(GOLANGCI_LINT_VERSION) --quiet https://github.com/golangci/golangci-lint.git $(LOCALBIN)/golangci-lint-src
-	@cd $(LOCALBIN)/golangci-lint-src && go get sigs.k8s.io/kube-api-linter@$(KAL_VERSION)
-	@cd $(LOCALBIN)/golangci-lint-src && go build -buildmode=plugin -o $(KAL_SO) sigs.k8s.io/kube-api-linter/pkg/plugin
+	@cd $(LOCALBIN)/golangci-lint-src && GOTOOLCHAIN=$(GO_TOOLCHAIN) go get sigs.k8s.io/kube-api-linter@$(KAL_VERSION)
+	@cd $(LOCALBIN)/golangci-lint-src && GOTOOLCHAIN=$(GO_TOOLCHAIN) go build -buildmode=plugin -o $(KAL_SO) sigs.k8s.io/kube-api-linter/pkg/plugin
 	@rm -rf $(LOCALBIN)/golangci-lint-src
 
 .PHONY: govulncheck
