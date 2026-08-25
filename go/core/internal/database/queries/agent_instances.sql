@@ -43,7 +43,7 @@ SELECT * FROM agent_instance WHERE namespace = $1 AND id = $2 AND user_id = $3;
 SELECT * FROM agent_instance
 WHERE namespace = sqlc.arg(namespace)
   AND (sqlc.arg(all_users)::boolean OR user_id = sqlc.arg(user_id))
-  AND id > sqlc.arg(after_id)
+  AND (NULLIF(sqlc.arg(after_id)::text, '') IS NULL OR id > NULLIF(sqlc.arg(after_id)::text, '')::uuid)
   AND labels @> sqlc.arg(match_labels)::jsonb
 ORDER BY id
 LIMIT sqlc.arg(page_size);
@@ -82,7 +82,7 @@ RETURNING *;
 SELECT s.* FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
 WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
-  AND s.id > sqlc.arg(after_id)
+  AND (NULLIF(sqlc.arg(after_id)::text, '') IS NULL OR s.id > NULLIF(sqlc.arg(after_id)::text, '')::uuid)
 ORDER BY s.id
 LIMIT sqlc.arg(page_size);
 

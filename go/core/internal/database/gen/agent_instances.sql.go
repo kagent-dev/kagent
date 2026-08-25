@@ -8,6 +8,8 @@ package dbgen
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const createAgentInstanceShare = `-- name: CreateAgentInstanceShare :one
@@ -18,9 +20,9 @@ RETURNING id, namespace, instance_id, creator, permission, token_hash, created_a
 `
 
 type CreateAgentInstanceShareParams struct {
-	ID         string
+	ID         uuid.UUID
 	Namespace  string
-	InstanceID string
+	InstanceID uuid.UUID
 	Creator    string
 	Permission string
 	TokenHash  []byte
@@ -52,7 +54,7 @@ const deleteAgentInstance = `-- name: DeleteAgentInstance :exec
 DELETE FROM agent_instance WHERE id = $1
 `
 
-func (q *Queries) DeleteAgentInstance(ctx context.Context, id string) error {
+func (q *Queries) DeleteAgentInstance(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, deleteAgentInstance, id)
 	return err
 }
@@ -66,7 +68,7 @@ WHERE s.namespace = $1 AND s.id = $2
 
 type DeleteAgentInstanceShareParams struct {
 	Namespace string
-	ID        string
+	ID        uuid.UUID
 	UserID    string
 }
 
@@ -82,7 +84,7 @@ const getAgentInstanceByID = `-- name: GetAgentInstanceByID :one
 SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id FROM agent_instance WHERE id = $1
 `
 
-func (q *Queries) GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error) {
+func (q *Queries) GetAgentInstanceByID(ctx context.Context, id uuid.UUID) (AgentInstance, error) {
 	row := q.db.QueryRow(ctx, getAgentInstanceByID, id)
 	var i AgentInstance
 	err := row.Scan(
@@ -137,7 +139,7 @@ SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, dat
 
 type GetAgentInstanceForUserParams struct {
 	Namespace string
-	ID        string
+	ID        uuid.UUID
 	UserID    string
 }
 
@@ -227,7 +229,7 @@ VALUES ($1, $2, $3)
 `
 
 type InsertA2AContextParams struct {
-	ID        string
+	ID        uuid.UUID
 	Namespace string
 	UserID    string
 }
@@ -246,11 +248,11 @@ RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, 
 `
 
 type InsertAgentInstanceParams struct {
-	ID               string
+	ID               uuid.UUID
 	Namespace        string
 	UserID           string
 	RequestID        string
-	ContextID        string
+	ContextID        uuid.UUID
 	PreparedRevision *string
 	Labels           []byte
 	Data             []byte
@@ -294,13 +296,13 @@ RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, 
 `
 
 type InsertForkedAgentInstanceParams struct {
-	ID                 string
+	ID                 uuid.UUID
 	Namespace          string
 	UserID             string
 	RequestID          string
-	ContextID          string
+	ContextID          uuid.UUID
 	PreparedRevision   *string
-	SourceCheckpointID *string
+	SourceCheckpointID *uuid.UUID
 	Labels             []byte
 	Data               []byte
 }
@@ -338,14 +340,14 @@ const listAgentInstanceShares = `-- name: ListAgentInstanceShares :many
 SELECT s.id, s.namespace, s.instance_id, s.creator, s.permission, s.token_hash, s.created_at FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
 WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
-  AND s.id > $4
+  AND (NULLIF($4::text, '') IS NULL OR s.id > NULLIF($4::text, '')::uuid)
 ORDER BY s.id
 LIMIT $5
 `
 
 type ListAgentInstanceSharesParams struct {
 	Namespace  string
-	InstanceID string
+	InstanceID uuid.UUID
 	UserID     string
 	AfterID    string
 	PageSize   int32
@@ -389,7 +391,7 @@ const listAgentInstances = `-- name: ListAgentInstances :many
 SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id FROM agent_instance
 WHERE namespace = $1
   AND ($2::boolean OR user_id = $3)
-  AND id > $4
+  AND (NULLIF($4::text, '') IS NULL OR id > NULLIF($4::text, '')::uuid)
   AND labels @> $5::jsonb
 ORDER BY id
 LIMIT $6
@@ -447,7 +449,7 @@ const lockAgentInstance = `-- name: LockAgentInstance :one
 SELECT id, namespace, user_id, request_id, prepared_revision, state, labels, data, operation, context_id, source_checkpoint_id FROM agent_instance WHERE id = $1 FOR UPDATE
 `
 
-func (q *Queries) LockAgentInstance(ctx context.Context, id string) (AgentInstance, error) {
+func (q *Queries) LockAgentInstance(ctx context.Context, id uuid.UUID) (AgentInstance, error) {
 	row := q.db.QueryRow(ctx, lockAgentInstance, id)
 	var i AgentInstance
 	err := row.Scan(
@@ -474,7 +476,7 @@ RETURNING id, namespace, user_id, request_id, prepared_revision, state, labels, 
 `
 
 type MarkAgentInstanceReadyParams struct {
-	ID   string
+	ID   uuid.UUID
 	Data []byte
 }
 
@@ -517,7 +519,7 @@ type TransitionAgentInstanceParams struct {
 	NextState         string
 	NextOperation     string
 	Data              []byte
-	ID                string
+	ID                uuid.UUID
 	ExpectedState     string
 	ExpectedOperation string
 }
