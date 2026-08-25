@@ -8,12 +8,21 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/go-logr/logr"
+	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 )
+
+func TestUserIDCallInterceptorPropagatesUserID(t *testing.T) {
+	_, callCtx := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(map[string][]string{"x-user-id": {"alice"}}))
+	ctx, _, err := UserIDCallInterceptor().Before(t.Context(), callCtx, nil)
+	if err != nil || auth.UserIDFromContext(ctx) != "alice" || callCtx.User.Name != "alice" {
+		t.Fatalf("user ID = %q, authenticated user = %#v, error = %v", auth.UserIDFromContext(ctx), callCtx.User, err)
+	}
+}
 
 type recordingExecutor struct {
 	message       *a2atype.Message

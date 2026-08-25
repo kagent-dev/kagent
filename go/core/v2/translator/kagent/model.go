@@ -1,4 +1,4 @@
-package translator
+package kagent
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	v2translator "github.com/kagent-dev/kagent/go/core/v2/translator"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -37,6 +38,8 @@ type modelRuntime struct {
 	HasUnsupportedVolumes bool
 	data                  *modelDeploymentData
 }
+
+var _ v2translator.HarnessCompiler = (*Compiler)(nil)
 
 // resolveModel collapses provider-specific translation output into the subset
 // needed to compile a runtime revision.

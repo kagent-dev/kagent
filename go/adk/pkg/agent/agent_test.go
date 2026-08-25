@@ -3,8 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/go-logr/logr"
@@ -340,40 +338,6 @@ func TestCreateLLM_BedrockTimeoutsUnset(t *testing.T) {
 	}
 }
 
-func TestBuildAgentTools_WiresSkillsToolsFromEnv(t *testing.T) {
-	skillsDir := t.TempDir()
-	skillDir := filepath.Join(skillsDir, "csv-to-json")
-	if err := os.MkdirAll(skillDir, 0755); err != nil {
-		t.Fatalf("failed to create skill dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(`---
-name: csv-to-json
-description: Convert CSV into JSON.
----
-
-Use the script in scripts/convert.py.
-`), 0644); err != nil {
-		t.Fatalf("failed to write SKILL.md: %v", err)
-	}
-
-	t.Setenv("KAGENT_SKILLS_FOLDER", skillsDir)
-	tools, err := buildAgentTools(&adk.AgentConfig{}, nil, nil, logr.Discard())
-	if err != nil {
-		t.Fatalf("buildAgentTools() error = %v", err)
-	}
-
-	got := map[string]bool{}
-	for _, tool := range tools {
-		got[tool.Name()] = true
-	}
-
-	for _, name := range []string{"skills", "read_file", "write_file", "edit_file", "bash", "ask_user"} {
-		if !got[name] {
-			t.Errorf("expected tool %q to be registered", name)
-		}
-	}
-}
-
 // TestAgentConfigFieldUsage is a smoke test that ensures AgentConfig structures
 // used by agents exercise all relevant fields. This test acts as a canary: if a
 // new field is added to AgentConfig but not reflected in this test configuration,
@@ -390,6 +354,7 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 		{
 			name: "all_fields_populated",
 			config: &adk.AgentConfig{
+				Name: "root",
 				Model: &adk.OpenAI{
 					BaseModel: adk.BaseModel{
 						Type:  "openai",
@@ -397,9 +362,13 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 					},
 					BaseUrl: "https://api.openai.com/v1",
 				},
-				Description: "Test agent with all fields",
-				Instruction: "You are a helpful test assistant",
-				Stream:      new(true),
+				Description:     "Test agent with all fields",
+				Instruction:     "You are a helpful test assistant",
+				SkillsDirectory: "/skills",
+				SubAgents: []*adk.AgentConfig{{
+					Name: "helper", Model: &adk.OpenAI{BaseModel: adk.BaseModel{Type: "openai", Model: "gpt-4o-mini"}},
+				}},
+				Stream: new(true),
 				Memory: &adk.MemoryConfig{
 					TTLDays: 15,
 					Embedding: &adk.EmbeddingConfig{
@@ -473,5 +442,25 @@ func TestAgentConfigFieldUsage(t *testing.T) {
 			// and running models. The real validation happens in E2E tests.
 			// This test primarily validates the AgentConfig structure itself.
 		})
+	}
+}
+
+func TestCreateGoogleADKAgentBuildsSubAgents(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("KAGENT_SKILLS_FOLDER", "/does/not/exist")
+	model := func() adk.Model {
+		return &adk.OpenAI{BaseModel: adk.BaseModel{Type: adk.ModelTypeOpenAI, Model: "gpt-4o"}, BaseUrl: "https://api.openai.com/v1"}
+	}
+	config := &adk.AgentConfig{
+		Model: model(), Description: "root", Instruction: "coordinate", SkillsDirectory: t.TempDir(),
+		SubAgents: []*adk.AgentConfig{{Name: "researcher", Model: model(), Description: "research", Instruction: "investigate"}},
+	}
+
+	root, err := CreateGoogleADKAgent(context.Background(), config, "root", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(root.SubAgents()) != 1 || root.SubAgents()[0].Name() != "researcher" || root.SubAgents()[0].Description() != "research" {
+		t.Fatalf("sub-agents = %#v", root.SubAgents())
 	}
 }

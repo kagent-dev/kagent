@@ -33,7 +33,9 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw             \
 FROM alpine:3.22
 ARG TARGETPLATFORM
 
-RUN apk add --no-cache bash ca-certificates
+RUN apk add --no-cache bash ca-certificates git && \
+    mkdir -p /skills /plugins /data/plugins && \
+    chown -R 65532:65532 /skills /plugins /data
 
 WORKDIR /
 COPY --from=builder /app /app

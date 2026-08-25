@@ -1,4 +1,4 @@
-package skills
+package tools
 
 import (
 	"bufio"
@@ -13,6 +13,43 @@ import (
 )
 
 type CommandExecutor struct{}
+
+// GetSessionPath creates the working directory used by skill execution tools.
+func GetSessionPath(sessionID, skillsDirectory string) (string, error) {
+	if sessionID == "" {
+		return "", fmt.Errorf("sessionID cannot be empty")
+	}
+
+	basePath := filepath.Join(os.TempDir(), "kagent")
+	sessionPath := filepath.Clean(filepath.Join(basePath, sessionID))
+	if !strings.HasPrefix(sessionPath, filepath.Clean(basePath)+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid sessionID: path traversal detected")
+	}
+
+	if err := os.MkdirAll(filepath.Join(sessionPath, "uploads"), 0755); err != nil {
+		return "", fmt.Errorf("failed to create uploads directory: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(sessionPath, "outputs"), 0755); err != nil {
+		return "", fmt.Errorf("failed to create outputs directory: %w", err)
+	}
+
+	absSkillsDir, err := filepath.Abs(skillsDirectory)
+	if err != nil {
+		absSkillsDir = skillsDirectory
+	}
+	skillsLink := filepath.Join(sessionPath, "skills")
+	if target, err := os.Readlink(skillsLink); err == nil {
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(skillsLink), target)
+		}
+		if filepath.Clean(target) == filepath.Clean(absSkillsDir) {
+			return sessionPath, nil
+		}
+	}
+	_ = os.Remove(skillsLink)
+	_ = os.Symlink(absSkillsDir, skillsLink)
+	return sessionPath, nil
+}
 
 // ReadFileContent reads a file with line numbers.
 func ReadFileContent(path string, offset, limit int) (string, error) {
