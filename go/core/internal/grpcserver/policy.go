@@ -94,6 +94,11 @@ func DefaultMethodPolicies() MethodPolicies {
 	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstanceShare_FullMethodName] = AccessCreate
 	policies[apiv1alpha1.AgentInstanceService_ListAgentInstanceShares_FullMethodName] = AccessRead
 	policies[apiv1alpha1.AgentInstanceService_RevokeAgentInstanceShare_FullMethodName] = AccessDelete
+	policies[apiv1alpha1.CheckpointService_CreateCheckpoint_FullMethodName] = AccessCreate
+	policies[apiv1alpha1.CheckpointService_GetCheckpoint_FullMethodName] = AccessRead
+	policies[apiv1alpha1.CheckpointService_ListCheckpoints_FullMethodName] = AccessRead
+	policies[apiv1alpha1.CheckpointService_DeleteCheckpoint_FullMethodName] = AccessDelete
+	policies[apiv1alpha1.CheckpointService_ForkAgentInstance_FullMethodName] = AccessCreate
 	policies[a2apb.A2AService_SendMessage_FullMethodName] = AccessCreate
 	policies[a2apb.A2AService_SendStreamingMessage_FullMethodName] = AccessCreate
 	policies[a2apb.A2AService_GetTask_FullMethodName] = AccessRead

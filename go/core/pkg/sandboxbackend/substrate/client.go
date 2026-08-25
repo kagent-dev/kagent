@@ -163,10 +163,44 @@ func (c *Client) ResumeActor(ctx context.Context, atespace, actorID string) (*at
 	return resp.GetActor(), nil
 }
 
-func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) error {
+func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
-	_, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: actorRef(atespace, actorID)})
+	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{Actor: actorRef(atespace, actorID)})
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetActor(), nil
+}
+
+func (c *Client) GetActorSnapshot(ctx context.Context, atespace, name string) (*ateapipb.ActorSnapshot, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	return c.ControlClient.GetActorSnapshot(ctx, &ateapipb.GetActorSnapshotRequest{Snapshot: actorRef(atespace, name)})
+}
+
+func (c *Client) GetActorSnapshotTag(ctx context.Context, atespace, name string) (*ateapipb.ActorSnapshotTag, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	return c.ControlClient.GetActorSnapshotTag(ctx, &ateapipb.GetActorSnapshotTagRequest{Tag: actorRef(atespace, name)})
+}
+
+func (c *Client) CreateActorSnapshotTag(ctx context.Context, atespace, name, snapshotName string) (*ateapipb.ActorSnapshotTag, error) {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	return c.ControlClient.CreateActorSnapshotTag(ctx, &ateapipb.CreateActorSnapshotTagRequest{
+		ActorSnapshotTag: &ateapipb.ActorSnapshotTag{
+			Metadata: &ateapipb.ResourceMetadata{Atespace: atespace, Name: name},
+			Snapshot: actorRef(atespace, snapshotName),
+			Scope:    ateapipb.ActorSnapshotTagScope_ACTOR_SNAPSHOT_TAG_SCOPE_ATESPACE,
+		},
+	})
+}
+
+func (c *Client) DeleteActorSnapshotTag(ctx context.Context, atespace, name string) error {
+	ctx, cancel := c.callCtx(ctx)
+	defer cancel()
+	_, err := c.ControlClient.DeleteActorSnapshotTag(ctx, &ateapipb.DeleteActorSnapshotTagRequest{Tag: actorRef(atespace, name)})
 	return err
 }
 
