@@ -303,7 +303,6 @@ type AgentInstanceCheckpoint struct {
 	SnapshotUID          string
 	SnapshotContentScope string
 	PreparedRevision     string
-	SourceInstanceData   []byte
 	TagUID               string
 	State                string
 	Failure              string

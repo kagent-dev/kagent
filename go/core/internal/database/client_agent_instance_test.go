@@ -301,6 +301,7 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 	pair := dbpkg.AgentTemplateHarnessPair{
 		Namespace: "team-a", AgentTemplateName: "assistant", AgentTemplateUID: "template-uid",
 		HarnessName: "kagent", HarnessUID: "harness-uid", DesiredRevision: revision.Revision,
+		AgentTemplateLabels: map[string]string{"app": "assistant"},
 	}
 	if err := client.UpsertAgentTemplateHarnessPair(ctx, pair); err != nil {
 		t.Fatal(err)
@@ -361,7 +362,9 @@ func TestForkAgentInstanceCopiesBoundedHistory(t *testing.T) {
 		t.Fatalf("ForkAgentInstance() = %+v, created %v, error %v", fork, created, err)
 	}
 	if fork.GetId() != "fork-1" || fork.GetPreparedRevision() != revision.Revision || fork.GetA2AAuthority() != "" ||
-		fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING {
+		fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING ||
+		fork.GetHarness().GetName() != "kagent" || fork.GetAgentTemplate().GetName() != "assistant" ||
+		fork.GetLabels()["app"] != "assistant" {
 		t.Fatalf("fork = %+v", fork)
 	}
 	instances, err := client.ListAgentInstances(ctx, "team-a", "alice", false, nil, "", 10)

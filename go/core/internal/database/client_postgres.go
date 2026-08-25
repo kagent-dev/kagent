@@ -589,32 +589,31 @@ func (c *postgresClient) ForkAgentInstance(ctx context.Context, namespace, check
 		if err != nil {
 			return fmt.Errorf("lock checkpoint: %w", err)
 		}
-		if checkpoint.PreparedRevision == nil || len(checkpoint.SourceInstanceData) == 0 {
+		if checkpoint.PreparedRevision == nil {
 			return fmt.Errorf("checkpoint %s has no fork source", checkpointID)
 		}
 
-		instance := &apiv1alpha1.AgentInstance{}
-		if err := proto.Unmarshal(checkpoint.SourceInstanceData, instance); err != nil {
-			return fmt.Errorf("decode checkpoint AgentInstance: %w", err)
+		revision, err := q.GetRuntimeRevision(ctx, *checkpoint.PreparedRevision)
+		if err != nil {
+			return fmt.Errorf("get checkpoint runtime revision: %w", err)
+		}
+		labels := map[string]string{}
+		if err := json.Unmarshal(checkpoint.SourceLabels, &labels); err != nil {
+			return fmt.Errorf("decode checkpoint labels: %w", err)
 		}
 		now := timestamppb.Now()
-		instance.Id = instanceID
-		instance.Namespace = namespace
-		instance.Creator = userID
-		instance.PreparedRevision = *checkpoint.PreparedRevision
-		instance.A2AAuthority = ""
-		instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
-		instance.Operation = apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE
-		instance.Failure = nil
-		instance.CreatedAt = now
-		instance.UpdatedAt = now
+		instance := &apiv1alpha1.AgentInstance{
+			Id: instanceID, Namespace: namespace, Creator: userID,
+			Harness:          &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.HarnessName},
+			AgentTemplate:    &apiv1alpha1.ResourceReference{Namespace: revision.Namespace, Name: revision.AgentTemplateName},
+			PreparedRevision: *checkpoint.PreparedRevision,
+			State:            apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+			Operation:        apiv1alpha1.AgentInstanceOperation_AGENT_INSTANCE_OPERATION_CREATE,
+			CreatedAt:        now, UpdatedAt: now, Labels: labels,
+		}
 		data, err := marshalAgentInstance(instance)
 		if err != nil {
 			return err
-		}
-		labels := instance.GetLabels()
-		if labels == nil {
-			labels = map[string]string{}
 		}
 		encodedLabels, err := json.Marshal(labels)
 		if err != nil {
@@ -1243,7 +1242,7 @@ func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, che
 			SnapshotName: *boundary.SnapshotName, SnapshotUid: *boundary.SnapshotUid,
 			SnapshotContentScope: *boundary.SnapshotContentScope,
 			SourceContextID:      instance.ContextID, PreparedRevision: instance.PreparedRevision,
-			SourceInstanceData: instance.Data,
+			SourceLabels: instance.Labels,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			existing, existingErr := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
@@ -2129,8 +2128,7 @@ func toAgentInstanceCheckpoint(row dbgen.AgentInstanceCheckpoint) *dbpkg.AgentIn
 		RequestID: row.RequestID, HeadTaskID: row.HeadTaskID, HistorySequence: row.HistorySequence,
 		SnapshotAtespace: row.SnapshotAtespace, SnapshotName: row.SnapshotName, SnapshotUID: row.SnapshotUid,
 		SnapshotContentScope: row.SnapshotContentScope, PreparedRevision: derefStr(row.PreparedRevision),
-		SourceInstanceData: row.SourceInstanceData,
-		TagUID:             row.TagUid, State: row.State, Failure: row.Failure, CreatedAt: row.CreatedAt,
+		TagUID: row.TagUid, State: row.State, Failure: row.Failure, CreatedAt: row.CreatedAt,
 	}
 }
 

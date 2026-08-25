@@ -27,7 +27,7 @@ WHERE NOT EXISTS (
 INSERT INTO agent_instance_checkpoint (
     id, namespace, source_instance_id, user_id, request_id, head_task_id,
     history_sequence, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope,
-    source_context_id, prepared_revision, source_instance_data, state
+    source_context_id, prepared_revision, source_labels, state
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'CREATING')
 ON CONFLICT DO NOTHING
 RETURNING *;

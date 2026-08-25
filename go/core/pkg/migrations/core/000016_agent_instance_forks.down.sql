@@ -29,7 +29,7 @@ ALTER TABLE agent_instance
 
 ALTER TABLE agent_instance_checkpoint
     DROP COLUMN IF EXISTS source_context_id,
-    DROP COLUMN IF EXISTS source_instance_data,
+    DROP COLUMN IF EXISTS source_labels,
     DROP COLUMN IF EXISTS prepared_revision;
 
 DROP TABLE IF EXISTS a2a_context;

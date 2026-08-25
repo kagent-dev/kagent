@@ -62,7 +62,7 @@ type AgentInstanceCheckpoint struct {
 	CreatedAt            time.Time
 	SourceContextID      string
 	PreparedRevision     *string
-	SourceInstanceData   []byte
+	SourceLabels         []byte
 }
 
 type AgentInstanceShare struct {

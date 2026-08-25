@@ -55,7 +55,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS agent_instance_task_event_message_idx
 ALTER TABLE agent_instance_checkpoint
     ADD COLUMN IF NOT EXISTS source_context_id TEXT,
     ADD COLUMN IF NOT EXISTS prepared_revision TEXT REFERENCES runtime_revision(revision) ON DELETE RESTRICT,
-    ADD COLUMN IF NOT EXISTS source_instance_data BYTEA;
+    ADD COLUMN IF NOT EXISTS source_labels JSONB NOT NULL DEFAULT '{}'
+        CHECK (jsonb_typeof(source_labels) = 'object');
 
 UPDATE agent_instance_checkpoint
 SET source_context_id = source_instance_id
@@ -68,10 +69,10 @@ ALTER TABLE agent_instance_checkpoint
 
 UPDATE agent_instance_checkpoint c
 SET prepared_revision = i.prepared_revision,
-    source_instance_data = i.data
+    source_labels = i.labels
 FROM agent_instance i
 WHERE i.id = c.source_instance_id
-  AND (c.prepared_revision IS NULL OR c.source_instance_data IS NULL);
+  AND c.prepared_revision IS NULL;
 
 ALTER TABLE agent_instance
     ADD COLUMN IF NOT EXISTS source_checkpoint_id TEXT REFERENCES agent_instance_checkpoint(id) ON DELETE RESTRICT;
