@@ -36,7 +36,7 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	if len(actors.actors) != 1 {
 		t.Fatalf("actors = %v", actors.actors)
 	}
-	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
+	if actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]; actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
 		t.Fatalf("created Actor status = %s", actor.GetStatus().GetState())
 	}
 	boundary, err := workflow.Quiesce(context.Background(), created)

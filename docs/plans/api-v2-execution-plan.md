@@ -165,10 +165,10 @@ Creation:
 
 - Select the latest successful prepared revision.
 - Reserve caller/namespace/request ID transactionally.
-- Execute create and delete as imperative Substrate workflows within their RPCs.
-- Create and resume the deterministic Substrate Actor through Substrate's imperative APIs; a successful resume returns it `RUNNING`, with ActorTemplate `/readyz` as the readiness contract.
+- Execute AgentInstance create and delete synchronously within their RPCs.
+- Create the deterministic Substrate Actor in its initial suspended state; Substrate establishes runtime readiness while preparing the ActorTemplate.
 - Publish the logical A2A authority and transition to `READY`.
-- Retrying a canceled create with the same request ID resumes the same deterministic workflow.
+- Retrying a canceled create with the same request ID re-enters the same deterministic workflow.
 - Never duplicate a member while creation outcome is unknown.
 
 Deletion fences interaction, deletes owned Actors, releases its prepared-revision foreign key, triggers cleanup when that was the final reference, and leaves an indefinitely retained V1 tombstone. No retention configuration is added until scale requires one.

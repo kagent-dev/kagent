@@ -79,8 +79,7 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, instance *apiv1alpha1.Agent
 }
 
 // Create converges a persisted CREATING instance to READY. Retries discover
-// the deterministically named Actor before creating it, then resume it if a
-// previous attempt stopped before the Actor was running. An existing Actor is
+// the deterministically named Actor before creating it. An existing Actor is
 // accepted only when it still references the instance's prepared template;
 // this prevents an ID collision from attaching the instance to another
 // workload.
@@ -112,18 +111,6 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	if actor.GetActorTemplateNamespace() != revision.ActorTemplateNamespace || actor.GetActorTemplateName() != revision.ActorTemplateName {
 		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplateNamespace(), actor.GetActorTemplateName())
 	}
-	// Substrate's resume RPC is an imperative workflow and returns only after
-	// the Actor is running.
-	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
-		actor, err = w.actors.ResumeActor(ctx, atespace, name)
-		if err != nil {
-			return nil, fmt.Errorf("resume Actor %s/%s: %w", atespace, name, err)
-		}
-		if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_RUNNING {
-			return nil, fmt.Errorf("resume Actor %s/%s returned status %s", atespace, name, actor.GetStatus().GetState())
-		}
-	}
-
 	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), legacysubstrate.ActorHost(atespace, name, ""))
 	if err != nil {
 		return nil, fmt.Errorf("mark AgentInstance ready: %w", err)
