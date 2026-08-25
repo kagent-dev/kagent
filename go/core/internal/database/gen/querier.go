@@ -27,7 +27,7 @@ type Querier interface {
 	DeleteUnreferencedRuntimeRevision(ctx context.Context, revision string) error
 	ExtendMemoryTTL(ctx context.Context) error
 	FinalizeAgentInstanceCheckpoint(ctx context.Context, arg FinalizeAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
-	GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
+	GetActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	GetAgentInstanceByID(ctx context.Context, id string) (AgentInstance, error)
 	GetAgentInstanceByRequest(ctx context.Context, arg GetAgentInstanceByRequestParams) (AgentInstance, error)
@@ -39,7 +39,7 @@ type Querier interface {
 	GetCheckpoint(ctx context.Context, arg GetCheckpointParams) (LgCheckpoint, error)
 	GetEvent(ctx context.Context, arg GetEventParams) (Event, error)
 	GetLatestCrewAIFlowState(ctx context.Context, arg GetLatestCrewAIFlowStateParams) (CrewaiFlowState, error)
-	GetLatestQuiescentAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
+	GetLatestQuiescentAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
 	GetLatestRuntimeRevisionForInstance(ctx context.Context, arg GetLatestRuntimeRevisionForInstanceParams) (GetLatestRuntimeRevisionForInstanceRow, error)
 	GetPushNotification(ctx context.Context, arg GetPushNotificationParams) (PushNotification, error)
 	GetRuntimeRevision(ctx context.Context, revision string) (RuntimeRevision, error)
@@ -65,12 +65,16 @@ type Querier interface {
 	HardDeleteCrewAIMemory(ctx context.Context, arg HardDeleteCrewAIMemoryParams) error
 	// Lock rows in id order to avoid deadlocks between concurrent overlapping increments.
 	IncrementMemoryAccessCount(ctx context.Context, dollar_1 []string) error
+	InsertA2AContext(ctx context.Context, arg InsertA2AContextParams) error
 	InsertAgentInstance(ctx context.Context, arg InsertAgentInstanceParams) (AgentInstance, error)
 	InsertAgentInstanceCheckpoint(ctx context.Context, arg InsertAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	InsertAgentInstanceTaskEvent(ctx context.Context, arg InsertAgentInstanceTaskEventParams) (int64, error)
+	InsertCopiedAgentInstanceTask(ctx context.Context, arg InsertCopiedAgentInstanceTaskParams) error
 	InsertEvent(ctx context.Context, arg InsertEventParams) error
 	InsertFeedback(ctx context.Context, arg InsertFeedbackParams) error
+	InsertForkedAgentInstance(ctx context.Context, arg InsertForkedAgentInstanceParams) (AgentInstance, error)
 	InsertMemory(ctx context.Context, arg InsertMemoryParams) (string, error)
+	ListAgentInstanceCheckpointTasks(ctx context.Context, checkpointID string) ([]AgentInstanceTask, error)
 	ListAgentInstanceCheckpoints(ctx context.Context, arg ListAgentInstanceCheckpointsParams) ([]AgentInstanceCheckpoint, error)
 	ListAgentInstanceShares(ctx context.Context, arg ListAgentInstanceSharesParams) ([]AgentInstanceShare, error)
 	ListAgentInstanceTasks(ctx context.Context, arg ListAgentInstanceTasksParams) ([]AgentInstanceTask, error)
@@ -99,8 +103,9 @@ type Querier interface {
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
 	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
 	// rest of the transaction so reclamation cannot overwrite concurrent progress.
-	LockActiveAgentInstanceTask(ctx context.Context, instanceID string) (AgentInstanceTask, error)
+	LockActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
 	LockAgentInstance(ctx context.Context, id string) (AgentInstance, error)
+	LockReadyAgentInstanceCheckpoint(ctx context.Context, arg LockReadyAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
 	RetireAgentTemplateHarnessPair(ctx context.Context, arg RetireAgentTemplateHarnessPairParams) error

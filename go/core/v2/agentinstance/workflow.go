@@ -27,6 +27,7 @@ type actorClient interface {
 	EnsureAtespace(context.Context, string) error
 	GetActor(context.Context, string, string) (*ateapipb.Actor, error)
 	CreateActor(context.Context, string, string, string, string) (*ateapipb.Actor, error)
+	CreateActorFromSnapshotTag(context.Context, string, string, string, string, string, string) (*ateapipb.Actor, error)
 	ResumeActor(context.Context, string, string) (*ateapipb.Actor, error)
 	SuspendActor(context.Context, string, string) (*ateapipb.Actor, error)
 	GetActorSnapshot(context.Context, string, string) (*ateapipb.ActorSnapshot, error)
@@ -114,6 +115,51 @@ func (w *ActorWorkflow) Create(ctx context.Context, instance *apiv1alpha1.AgentI
 	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), legacysubstrate.ActorHost(atespace, name, ""))
 	if err != nil {
 		return nil, fmt.Errorf("mark AgentInstance ready: %w", err)
+	}
+	return instance, nil
+}
+
+func (w *ActorWorkflow) Fork(ctx context.Context, instance *apiv1alpha1.AgentInstance, checkpoint *dbpkg.AgentInstanceCheckpoint) (*apiv1alpha1.AgentInstance, error) {
+	if instance.GetState() == apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
+		return instance, nil
+	}
+	if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING {
+		return nil, fmt.Errorf("AgentInstance %s is not creating", instance.GetId())
+	}
+	revision, err := w.store.GetRuntimeRevision(ctx, instance.GetPreparedRevision())
+	if err != nil {
+		return nil, fmt.Errorf("load prepared revision: %w", err)
+	}
+	atespace, name := instance.GetNamespace(), actorName(instance.GetId())
+	if err := w.actors.EnsureAtespace(ctx, atespace); err != nil {
+		return nil, fmt.Errorf("ensure Atespace %s: %w", atespace, err)
+	}
+	tag := &ateapipb.ObjectRef{Atespace: checkpoint.SnapshotAtespace, Name: "checkpoint-" + checkpoint.ID}
+	actor, err := w.actors.GetActor(ctx, atespace, name)
+	if status.Code(err) == codes.NotFound {
+		actor, err = w.actors.CreateActorFromSnapshotTag(ctx, atespace, name,
+			revision.ActorTemplateNamespace, revision.ActorTemplateName, tag.GetAtespace(), tag.GetName())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("ensure fork Actor %s/%s: %w", atespace, name, err)
+	}
+	if actor.GetActorTemplateNamespace() != revision.ActorTemplateNamespace || actor.GetActorTemplateName() != revision.ActorTemplateName {
+		return nil, fmt.Errorf("actor %s/%s uses unexpected ActorTemplate %s/%s", atespace, name, actor.GetActorTemplateNamespace(), actor.GetActorTemplateName())
+	}
+	if !proto.Equal(actor.GetSourceSnapshotTag(), tag) {
+		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot tag", atespace, name)
+	}
+	if actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED {
+		return nil, fmt.Errorf("fork actor %s/%s is not suspended", atespace, name)
+	}
+	source := actor.GetStatus().GetSourceSnapshot()
+	if source.GetSnapshot().GetAtespace() != checkpoint.SnapshotAtespace || source.GetSnapshot().GetName() != checkpoint.SnapshotName ||
+		source.GetSnapshotUid() != checkpoint.SnapshotUID {
+		return nil, fmt.Errorf("actor %s/%s uses unexpected source snapshot", atespace, name)
+	}
+	instance, err = w.store.MarkAgentInstanceReady(ctx, instance.GetId(), legacysubstrate.ActorHost(atespace, name, ""))
+	if err != nil {
+		return nil, fmt.Errorf("mark fork AgentInstance ready: %w", err)
 	}
 	return instance, nil
 }

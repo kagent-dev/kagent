@@ -138,6 +138,14 @@ func (c *Client) GetActor(ctx context.Context, atespace, actorID string) (*ateap
 }
 
 func (c *Client) CreateActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string) (*ateapipb.Actor, error) {
+	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, nil)
+}
+
+func (c *Client) CreateActorFromSnapshotTag(ctx context.Context, atespace, actorID, tmplNS, tmplName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
+	return c.createActor(ctx, atespace, actorID, tmplNS, tmplName, &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName})
+}
+
+func (c *Client) createActor(ctx context.Context, atespace, actorID, tmplNS, tmplName string, source *ateapipb.ObjectRef) (*ateapipb.Actor, error) {
 	ctx, cancel := c.callCtx(ctx)
 	defer cancel()
 	resp, err := c.ControlClient.CreateActor(ctx, &ateapipb.CreateActorRequest{
@@ -145,6 +153,7 @@ func (c *Client) CreateActor(ctx context.Context, atespace, actorID, tmplNS, tmp
 			Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: actorID},
 			ActorTemplateNamespace: tmplNS,
 			ActorTemplateName:      tmplName,
+			SourceSnapshotTag:      source,
 		},
 	})
 	if err != nil {

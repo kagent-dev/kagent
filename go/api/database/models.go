@@ -293,6 +293,7 @@ type AgentInstanceCheckpoint struct {
 	ID                   string
 	Namespace            string
 	SourceInstanceID     string
+	SourceContextID      string
 	UserID               string
 	RequestID            string
 	HeadTaskID           string
@@ -301,6 +302,8 @@ type AgentInstanceCheckpoint struct {
 	SnapshotName         string
 	SnapshotUID          string
 	SnapshotContentScope string
+	PreparedRevision     string
+	SourceInstanceData   []byte
 	TagUID               string
 	State                string
 	Failure              string

@@ -75,6 +75,39 @@ func TestActorWorkflowLifecycle(t *testing.T) {
 	}
 }
 
+func TestActorWorkflowForkCreatesSuspendedActorFromCheckpoint(t *testing.T) {
+	instance := &apiv1alpha1.AgentInstance{
+		Id: "fork-1", Namespace: "team-a", PreparedRevision: "revision-1",
+		State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING,
+	}
+	store := &lifecycleTestStore{
+		instance: instance,
+		revision: &dbpkg.RuntimeRevision{
+			Revision: "revision-1", ActorTemplateNamespace: "team-a", ActorTemplateName: "assistant-kagent-revision",
+		},
+	}
+	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+	checkpoint := &dbpkg.AgentInstanceCheckpoint{
+		ID: "checkpoint-1", SnapshotAtespace: "team-a", SnapshotName: "snapshot-1", SnapshotUID: "snapshot-uid",
+	}
+	fork, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actor := actors.actors[actorKey("team-a", actorName(instance.GetId()))]
+	if fork.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY ||
+		actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED ||
+		actor.GetSourceSnapshotTag().GetName() != "checkpoint-checkpoint-1" {
+		t.Fatalf("fork = %+v, actor = %+v", fork, actor)
+	}
+	instance.State = apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_CREATING
+	store.instance = instance
+	actor.SourceSnapshotTag.Name = "wrong-tag"
+	if _, err := NewActorWorkflow(store, actors).Fork(context.Background(), instance, checkpoint); err == nil {
+		t.Fatal("Fork() accepted an existing Actor with the wrong snapshot tag")
+	}
+}
+
 type lifecycleTestStore struct {
 	instance *apiv1alpha1.AgentInstance
 	revision *dbpkg.RuntimeRevision
@@ -125,6 +158,22 @@ func (a *lifecycleTestActors) CreateActor(_ context.Context, atespace, name, tem
 		Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
 		ActorTemplateNamespace: templateNamespace, ActorTemplateName: templateName,
 		Status: &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED},
+	}
+	a.actors[actorKey(atespace, name)] = actor
+	return actor, nil
+}
+
+func (a *lifecycleTestActors) CreateActorFromSnapshotTag(_ context.Context, atespace, name, templateNamespace, templateName, tagAtespace, tagName string) (*ateapipb.Actor, error) {
+	actor := &ateapipb.Actor{
+		Metadata:               &ateapipb.ResourceMetadata{Atespace: atespace, Name: name, Uid: "actor-uid"},
+		ActorTemplateNamespace: templateNamespace, ActorTemplateName: templateName,
+		SourceSnapshotTag: &ateapipb.ObjectRef{Atespace: tagAtespace, Name: tagName},
+		Status: &ateapipb.ActorStatus{
+			State: ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+			SourceSnapshot: &ateapipb.ActorSourceSnapshotStatus{
+				Snapshot: &ateapipb.ObjectRef{Atespace: tagAtespace, Name: "snapshot-1"}, SnapshotUid: "snapshot-uid",
+			},
+		},
 	}
 	a.actors[actorKey(atespace, name)] = actor
 	return actor, nil

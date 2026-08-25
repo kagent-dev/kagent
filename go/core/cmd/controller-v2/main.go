@@ -105,7 +105,7 @@ func main() {
 	authorizer := &authimpl.NoopAuthorizer{}
 	instanceWorkflow := agentinstance.NewActorWorkflow(store, actors)
 	instances := agentinstance.NewService(store, authorizer, instanceWorkflow)
-	checkpoints := checkpoint.NewService(store, authorizer, actors)
+	checkpoints := checkpoint.NewService(store, authorizer, actors, instanceWorkflow)
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		env("SUBSTRATE_ATENET_ROUTER_URL", legacysubstrate.DefaultAtenetRouterURL),
 		authenticator,
