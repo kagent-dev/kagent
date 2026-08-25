@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jedib0t/go-pretty/v6/table"
-	kagentclient "github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
@@ -20,6 +19,11 @@ import (
 )
 
 const maxPageSize = 100
+
+type getClient interface {
+	GetAgentInstance(context.Context, *apiv1alpha1.GetAgentInstanceRequest) (*apiv1alpha1.GetAgentInstanceResponse, error)
+	ListAgentInstances(context.Context, *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error)
+}
 
 // GetCfg configures AgentInstance get and list operations.
 type GetCfg struct {
@@ -74,7 +78,7 @@ func validateGetCfg(cfg *GetCfg) error {
 
 func get(
 	ctx context.Context,
-	client kagentclient.AgentInstance,
+	client getClient,
 	cfg *GetCfg,
 	format clioutput.Format,
 	out io.Writer,

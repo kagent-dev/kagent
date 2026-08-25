@@ -15,7 +15,7 @@ type ClientSet struct {
 	Model               Model
 	Namespace           Namespace
 	Feedback            Feedback
-	AgentInstance       AgentInstance
+	AgentInstance       *AgentInstanceClient
 	A2A                 *A2AClient
 }
 

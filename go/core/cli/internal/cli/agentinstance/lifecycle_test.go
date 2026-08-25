@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	kagentclient "github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
@@ -120,7 +119,6 @@ func TestDeleteAgentInstanceAborted(t *testing.T) {
 }
 
 type lifecycleAgentInstanceClient struct {
-	kagentclient.AgentInstance
 	createInstance *apiv1alpha1.AgentInstance
 	deleteInstance *apiv1alpha1.AgentInstance
 	createRequest  *apiv1alpha1.CreateAgentInstanceRequest

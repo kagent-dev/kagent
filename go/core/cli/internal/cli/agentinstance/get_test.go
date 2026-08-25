@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	kagentclient "github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
@@ -86,7 +85,6 @@ func TestListAgentInstancesJSONPreservesNextPageToken(t *testing.T) {
 }
 
 type fakeAgentInstanceClient struct {
-	kagentclient.AgentInstance
 	instance      *apiv1alpha1.AgentInstance
 	nextPageToken string
 	getRequest    *apiv1alpha1.GetAgentInstanceRequest

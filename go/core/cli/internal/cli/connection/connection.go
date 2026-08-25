@@ -81,9 +81,9 @@ func (r connectionRuntime) connect(ctx context.Context, cfg *config.Config) (*Po
 func shouldPortForward(cfg *config.Config, err error) bool {
 	grpcURL := cfg.KAgentGRPCURL
 	if grpcURL == "" {
-		grpcURL = client.DefaultGRPCTarget
+		grpcURL = config.DefaultKAgentGRPCURL
 	}
-	if cfg.KAgentGRPCTLS || grpcURL != client.DefaultGRPCTarget || strings.TrimRight(cfg.KAgentURL, "/") != config.DefaultKAgentURL {
+	if cfg.KAgentGRPCTLS || grpcURL != config.DefaultKAgentGRPCURL || strings.TrimRight(cfg.KAgentURL, "/") != config.DefaultKAgentURL {
 		return false
 	}
 	code := status.Code(err)

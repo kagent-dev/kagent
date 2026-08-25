@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	kagentclient "github.com/kagent-dev/kagent/go/api/client"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
@@ -17,6 +16,11 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
+
+type lifecycleClient interface {
+	CreateAgentInstance(context.Context, *apiv1alpha1.CreateAgentInstanceRequest) (*apiv1alpha1.CreateAgentInstanceResponse, error)
+	DeleteAgentInstance(context.Context, *apiv1alpha1.DeleteAgentInstanceRequest) (*apiv1alpha1.DeleteAgentInstanceResponse, error)
+}
 
 // CreateCfg configures AgentInstance creation.
 type CreateCfg struct {
@@ -110,7 +114,7 @@ func validateDeleteCfg(cfg *DeleteCfg) error {
 
 func create(
 	ctx context.Context,
-	client kagentclient.AgentInstance,
+	client lifecycleClient,
 	cfg *CreateCfg,
 	format clioutput.Format,
 	out io.Writer,
@@ -130,7 +134,7 @@ func create(
 
 func deleteAgentInstance(
 	ctx context.Context,
-	client kagentclient.AgentInstance,
+	client lifecycleClient,
 	cfg *DeleteCfg,
 	format clioutput.Format,
 	out io.Writer,

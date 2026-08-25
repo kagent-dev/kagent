@@ -6,26 +6,17 @@ import (
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 )
 
-// AgentInstance provides AgentInstance lifecycle operations.
-type AgentInstance interface {
-	CreateAgentInstance(context.Context, *apiv1alpha1.CreateAgentInstanceRequest) (*apiv1alpha1.CreateAgentInstanceResponse, error)
-	GetAgentInstance(context.Context, *apiv1alpha1.GetAgentInstanceRequest) (*apiv1alpha1.GetAgentInstanceResponse, error)
-	ListAgentInstances(context.Context, *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error)
-	SuspendAgentInstance(context.Context, *apiv1alpha1.SuspendAgentInstanceRequest) (*apiv1alpha1.SuspendAgentInstanceResponse, error)
-	ResumeAgentInstance(context.Context, *apiv1alpha1.ResumeAgentInstanceRequest) (*apiv1alpha1.ResumeAgentInstanceResponse, error)
-	DeleteAgentInstance(context.Context, *apiv1alpha1.DeleteAgentInstanceRequest) (*apiv1alpha1.DeleteAgentInstanceResponse, error)
-}
-
-type agentInstanceClient struct {
+// AgentInstanceClient provides supported AgentInstance operations.
+type AgentInstanceClient struct {
 	client *BaseClient
 }
 
 // NewAgentInstanceClient creates an AgentInstance client over the shared gRPC connection.
-func NewAgentInstanceClient(client *BaseClient) AgentInstance {
-	return &agentInstanceClient{client: client}
+func NewAgentInstanceClient(client *BaseClient) *AgentInstanceClient {
+	return &AgentInstanceClient{client: client}
 }
 
-func (c *agentInstanceClient) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.CreateAgentInstanceRequest) (*apiv1alpha1.CreateAgentInstanceResponse, error) {
+func (c *AgentInstanceClient) CreateAgentInstance(ctx context.Context, request *apiv1alpha1.CreateAgentInstanceRequest) (*apiv1alpha1.CreateAgentInstanceResponse, error) {
 	client, callContext, cancel, err := c.client.agentInstanceCall(ctx)
 	if err != nil {
 		return nil, err
@@ -34,7 +25,7 @@ func (c *agentInstanceClient) CreateAgentInstance(ctx context.Context, request *
 	return client.CreateAgentInstance(callContext, request)
 }
 
-func (c *agentInstanceClient) GetAgentInstance(ctx context.Context, request *apiv1alpha1.GetAgentInstanceRequest) (*apiv1alpha1.GetAgentInstanceResponse, error) {
+func (c *AgentInstanceClient) GetAgentInstance(ctx context.Context, request *apiv1alpha1.GetAgentInstanceRequest) (*apiv1alpha1.GetAgentInstanceResponse, error) {
 	client, callContext, cancel, err := c.client.agentInstanceCall(ctx)
 	if err != nil {
 		return nil, err
@@ -43,7 +34,7 @@ func (c *agentInstanceClient) GetAgentInstance(ctx context.Context, request *api
 	return client.GetAgentInstance(callContext, request)
 }
 
-func (c *agentInstanceClient) ListAgentInstances(ctx context.Context, request *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error) {
+func (c *AgentInstanceClient) ListAgentInstances(ctx context.Context, request *apiv1alpha1.ListAgentInstancesRequest) (*apiv1alpha1.ListAgentInstancesResponse, error) {
 	client, callContext, cancel, err := c.client.agentInstanceCall(ctx)
 	if err != nil {
 		return nil, err
@@ -52,25 +43,7 @@ func (c *agentInstanceClient) ListAgentInstances(ctx context.Context, request *a
 	return client.ListAgentInstances(callContext, request)
 }
 
-func (c *agentInstanceClient) SuspendAgentInstance(ctx context.Context, request *apiv1alpha1.SuspendAgentInstanceRequest) (*apiv1alpha1.SuspendAgentInstanceResponse, error) {
-	client, callContext, cancel, err := c.client.agentInstanceCall(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cancel()
-	return client.SuspendAgentInstance(callContext, request)
-}
-
-func (c *agentInstanceClient) ResumeAgentInstance(ctx context.Context, request *apiv1alpha1.ResumeAgentInstanceRequest) (*apiv1alpha1.ResumeAgentInstanceResponse, error) {
-	client, callContext, cancel, err := c.client.agentInstanceCall(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cancel()
-	return client.ResumeAgentInstance(callContext, request)
-}
-
-func (c *agentInstanceClient) DeleteAgentInstance(ctx context.Context, request *apiv1alpha1.DeleteAgentInstanceRequest) (*apiv1alpha1.DeleteAgentInstanceResponse, error) {
+func (c *AgentInstanceClient) DeleteAgentInstance(ctx context.Context, request *apiv1alpha1.DeleteAgentInstanceRequest) (*apiv1alpha1.DeleteAgentInstanceResponse, error) {
 	client, callContext, cancel, err := c.client.agentInstanceCall(ctx)
 	if err != nil {
 		return nil, err
