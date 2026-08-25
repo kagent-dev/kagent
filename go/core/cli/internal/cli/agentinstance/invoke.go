@@ -293,7 +293,7 @@ func sendResultText(result a2atype.SendMessageResult) string {
 			if artifact == nil {
 				continue
 			}
-			if text := partsText(artifact.Parts); text != "" {
+			if text := clia2a.PartsText(artifact.Parts); text != "" {
 				groups = append(groups, text)
 			}
 		}
@@ -307,17 +307,7 @@ func messageText(message *a2atype.Message) string {
 	if message == nil {
 		return ""
 	}
-	return partsText(message.Parts)
-}
-
-func partsText(parts a2atype.ContentParts) string {
-	var text strings.Builder
-	for _, part := range parts {
-		if part != nil {
-			text.WriteString(part.Text())
-		}
-	}
-	return text.String()
+	return clia2a.PartsText(message.Parts)
 }
 
 func sendResultError(result a2atype.SendMessageResult) error {

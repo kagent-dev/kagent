@@ -158,10 +158,17 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range []string{"agent", "session", "tool"} {
 		assert.NotContains(t, getCommands, command)
 	}
+}
 
+func TestRootCommandRequiresTerminalForInteractiveUse(t *testing.T) {
+	rootCmd := newRootCommand(t.Context(), defaultRootOptions())
 	rootCmd.SetArgs(nil)
-	err = rootCmd.ExecuteContext(t.Context())
+	rootCmd.SetIn(&bytes.Buffer{})
+	rootCmd.SetOut(&bytes.Buffer{})
+
+	err := rootCmd.ExecuteContext(t.Context())
+
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "interactive mode is not available")
+	assert.Contains(t, err.Error(), "kagent requires a terminal")
 	assert.Contains(t, err.Error(), "kagent invoke")
 }

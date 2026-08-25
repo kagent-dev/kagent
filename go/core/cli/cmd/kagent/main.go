@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,10 +17,12 @@ import (
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/envdoc"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/cli/mcp"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/profiles"
+	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
 	dbcli "github.com/kagent-dev/kagent/go/core/pkg/cli/db"
 	dbmigrate "github.com/kagent-dev/kagent/go/core/pkg/cli/db/migrate"
 	"github.com/kagent-dev/kagent/go/core/pkg/migrations"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -66,8 +69,8 @@ func newRootCommand(ctx context.Context, opts *rootOptions) *cobra.Command {
 		Long:          "kagent is a CLI for kagent",
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return fmt.Errorf("interactive mode is not available in this release; use `kagent get agent-instance` and `kagent invoke`")
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runInteractive(cmd, cfg)
 		},
 	}
 	rootCmd.SetContext(ctx)
@@ -349,4 +352,38 @@ func currentKubeContext() string {
 		return "(current kubeconfig context)"
 	}
 	return raw.CurrentContext
+}
+
+// runInteractive launches the AgentInstance workspace. The TUI takes over the
+// screen and reads raw keys, so a redirected stream is an error, not a fallback.
+func runInteractive(cmd *cobra.Command, cfg *connection.Options) (err error) {
+	if !isTerminal(cmd.InOrStdin()) || !isTerminal(cmd.OutOrStdout()) {
+		return errors.New("kagent requires a terminal; use `kagent get agent-instance` and `kagent invoke` for non-interactive use")
+	}
+
+	client := cfg.Client()
+	defer func() {
+		err = errors.Join(err, client.Close())
+	}()
+
+	portForward, connectErr := connection.Connect(cmd.Context(), cfg)
+	if connectErr != nil {
+		return fmt.Errorf("connect to kagent: %w", connectErr)
+	}
+	if portForward != nil {
+		defer portForward.Stop()
+	}
+
+	workspace := tui.Options{Namespace: cfg.Namespace}
+	if runErr := tui.RunWorkspace(workspace, client, cfg.Verbose); runErr != nil {
+		return fmt.Errorf("run kagent workspace: %w", runErr)
+	}
+	return nil
+}
+
+// isTerminal reports whether a stream is backed by a TTY. A stream that is not
+// an *os.File (a test buffer, a pipe wrapper) is never a terminal.
+func isTerminal(stream any) bool {
+	file, ok := stream.(*os.File)
+	return ok && term.IsTerminal(int(file.Fd()))
 }

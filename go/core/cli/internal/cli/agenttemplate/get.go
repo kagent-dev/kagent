@@ -10,13 +10,12 @@ import (
 	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
-	clientset "github.com/kagent-dev/kagent/go/api/clientset/versioned"
 	typedapiv1alpha3 "github.com/kagent-dev/kagent/go/api/clientset/versioned/typed/api/v1alpha3"
 	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/cli/output"
+	commonk8s "github.com/kagent-dev/kagent/go/core/cli/internal/common/k8s"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/clientcmd"
 )
 
 const maxPageSize = 100
@@ -40,16 +39,9 @@ func GetCmd(ctx context.Context, cfg *GetCfg, out io.Writer) error {
 		return err
 	}
 
-	restConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		clientcmd.NewDefaultClientConfigLoadingRules(),
-		&clientcmd.ConfigOverrides{},
-	).ClientConfig()
+	clients, err := commonk8s.NewKagentClientset()
 	if err != nil {
-		return fmt.Errorf("load Kubernetes client config: %w", err)
-	}
-	clients, err := clientset.NewForConfig(restConfig)
-	if err != nil {
-		return fmt.Errorf("create Kubernetes client: %w", err)
+		return err
 	}
 	return get(ctx, clients.ApiV1alpha3().AgentTemplates(cfg.Namespace), cfg, format, out)
 }

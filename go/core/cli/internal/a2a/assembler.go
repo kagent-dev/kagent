@@ -3,6 +3,7 @@ package a2a
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aevent"
@@ -70,4 +71,15 @@ func (a *Assembler) Complete() bool {
 	}
 	state := a.task.Status.State
 	return state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
+}
+
+// PartsText concatenates the text of every text part, ignoring data parts.
+func PartsText(parts a2atype.ContentParts) string {
+	var text strings.Builder
+	for _, part := range parts {
+		if part != nil {
+			text.WriteString(part.Text())
+		}
+	}
+	return text.String()
 }
