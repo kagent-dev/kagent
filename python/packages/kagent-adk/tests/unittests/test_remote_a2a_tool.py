@@ -140,6 +140,7 @@ def _make_tool(
     *,
     httpx_client: httpx.AsyncClient | None = None,
     header_provider: Callable[[Any], dict[str, str]] | None = None,
+    isolate_sessions: bool = False,
 ) -> KAgentRemoteA2ATool:
     return KAgentRemoteA2ATool(
         name="k8s_agent",
@@ -147,6 +148,7 @@ def _make_tool(
         agent_card_url="http://k8s-agent/.well-known/agent.json",
         httpx_client=httpx_client,
         header_provider=header_provider,
+        isolate_sessions=isolate_sessions,
     )
 
 
@@ -297,6 +299,50 @@ class TestFirstCall:
             p.stop()
 
         assert sent[0].message.context_id == tool._last_context_id
+
+    async def test_shared_session_reuses_context_id_across_calls(self):
+        """The default mode keeps stateful sub-agent calls in one session."""
+        tool = _make_tool()
+        task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
+        sent: list[SendMessageRequest] = []
+
+        async def capture(*, request: SendMessageRequest, **kw):
+            sent.append(request)
+            yield (task, None)
+
+        p, _ = _patch_client(tool, capture)
+        try:
+            context = MockToolContext().as_tool_context()
+            await tool.run_async(args={"request": "first"}, tool_context=context)
+            await tool.run_async(args={"request": "second"}, tool_context=context)
+        finally:
+            p.stop()
+
+        assert len(sent) == 2
+        assert sent[0].message.context_id == sent[1].message.context_id
+
+    async def test_isolated_session_mints_context_id_per_call(self):
+        """Isolation gives each sub-agent invocation a distinct session."""
+        tool = _make_tool(isolate_sessions=True)
+        task = _make_task(TaskState.TASK_STATE_COMPLETED, text="ok")
+        sent: list[SendMessageRequest] = []
+
+        async def capture(*, request: SendMessageRequest, **kw):
+            sent.append(request)
+            yield (task, None)
+
+        p, _ = _patch_client(tool, capture)
+        try:
+            context = MockToolContext().as_tool_context()
+            first = await tool.run_async(args={"request": "first"}, tool_context=context)
+            second = await tool.run_async(args={"request": "second"}, tool_context=context)
+        finally:
+            p.stop()
+
+        assert len(sent) == 2
+        assert sent[0].message.context_id != sent[1].message.context_id
+        assert first["subagent_session_id"] == sent[0].message.context_id
+        assert second["subagent_session_id"] == sent[1].message.context_id
 
     async def test_user_id_forwarded_in_call_context(self):
         """The parent session's user_id is forwarded via ClientCallContext."""
@@ -557,6 +603,18 @@ class TestHITLResume:
 
 
 class TestToolsetLifecycle:
+    async def test_isolate_sessions_is_retained_by_toolset(self):
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        toolset = KAgentRemoteA2AToolset(
+            name="agent",
+            description="desc",
+            agent_card_url="http://agent/.well-known/agent.json",
+            httpx_client=mock_client,
+            isolate_sessions=True,
+        )
+        assert toolset._tool._isolate_sessions is True
+        await toolset.close()
+
     async def test_close_closes_owned_client(self):
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         toolset = KAgentRemoteA2AToolset(

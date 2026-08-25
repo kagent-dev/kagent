@@ -58,6 +58,69 @@ func TestMaterializeGitPlugin(t *testing.T) {
 	}
 }
 
+func TestFetchSourceReusesExistingMaterialization(t *testing.T) {
+	destination := t.TempDir()
+	if err := os.WriteFile(filepath.Join(destination, "SKILL.md"), []byte("# Existing"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
+		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
+	}}, destination, "SKILL.md")
+	if err != nil {
+		t.Fatalf("fetchSource() redownloaded existing materialization: %v", err)
+	}
+	if root != destination {
+		t.Fatalf("fetchSource() root = %q, want %q", root, destination)
+	}
+}
+
+func TestFetchSourceDoesNotReuseIncompleteMaterialization(t *testing.T) {
+	destination := t.TempDir()
+
+	_, err := fetchSource(context.Background(), adk.AgentPluginSource{Git: &adk.AgentPluginGit{
+		URL: "does-not-exist", Commit: strings.Repeat("a", 40),
+	}}, destination, "SKILL.md")
+	if err == nil {
+		t.Fatal("fetchSource() reused incomplete materialization")
+	}
+}
+
+func TestMaterializeAgentConfigIsolatesSubagentSkills(t *testing.T) {
+	root := t.TempDir()
+	paths := Paths{Plugins: filepath.Join(root, "plugins"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")}
+	source := adk.AgentPluginSource{Git: &adk.AgentPluginGit{URL: "unused", Commit: strings.Repeat("a", 40)}}
+	config := &adk.AgentConfig{
+		AgentPlugins: &adk.AgentPluginConfig{Skills: []adk.StandaloneSkill{{Name: "root", Source: source}}},
+		SubAgents:    []*adk.AgentConfig{{Name: "child", AgentPlugins: &adk.AgentPluginConfig{Skills: []adk.StandaloneSkill{{Name: "child", Source: source}}}}},
+	}
+	for _, path := range []string{
+		filepath.Join(paths.Plugins, "standalone-0"),
+		filepath.Join(paths.Plugins, "subagents", "0", "standalone-0"),
+	} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("# Skill"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := MaterializeAgentConfig(context.Background(), config, paths); err != nil {
+		t.Fatal(err)
+	}
+	if config.SkillsDirectory == config.SubAgents[0].SkillsDirectory {
+		t.Fatalf("root and child share skills directory %q", config.SkillsDirectory)
+	}
+	for _, path := range []string{
+		filepath.Join(config.SkillsDirectory, "root", "SKILL.md"),
+		filepath.Join(config.SubAgents[0].SkillsDirectory, "child", "SKILL.md"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("materialized skill %q: %v", path, err)
+		}
+	}
+}
+
 func TestLoadManifestUsesAgentPluginsV1Schema(t *testing.T) {
 	root := t.TempDir()
 	raw := `{
@@ -94,7 +157,7 @@ func TestParseMCPServerSupportsLocalAndRemoteTransports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stdio.Command != command || stdio.Args[0] != "--root="+root || stdio.Env["STATE"] != filepath.Join(data, "state") || stdio.CWD != filepath.Join(data, "work") {
+	if stdio.Command != canonicalPath(command) || stdio.Args[0] != "--root="+root || stdio.Env["STATE"] != filepath.Join(data, "state") || stdio.CWD != filepath.Join(data, "work") {
 		t.Fatalf("stdio server = %#v", stdio)
 	}
 
@@ -165,5 +228,36 @@ func TestCopySkillRejectsSymlinkOutsideSkill(t *testing.T) {
 	}
 	if err := copySkill(source, destination); err == nil {
 		t.Fatal("copySkill() accepted a symlink outside the skill root")
+	}
+}
+
+func TestValidateSkillNameRejectsPathTraversal(t *testing.T) {
+	for _, name := range []string{"../escape", "nested/skill", `nested\skill`, ".", ".."} {
+		if err := validateSkillName(name); err == nil {
+			t.Fatalf("validateSkillName(%q) accepted a path-like name", name)
+		}
+	}
+}
+
+func TestValidateSkillSelectionsRejectsDuplicateNames(t *testing.T) {
+	err := validateSkillSelections([]string{"review", "lint", "review"})
+	if err == nil || !strings.Contains(err.Error(), `duplicate skill name "review"`) {
+		t.Fatalf("validateSkillSelections() error = %v, want duplicate skill error", err)
+	}
+}
+
+func TestPathWithinCanonicalizesRootAliases(t *testing.T) {
+	actualRoot := t.TempDir()
+	child := filepath.Join(actualRoot, "child")
+	if err := os.Mkdir(child, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "root-alias")
+	if err := os.Symlink(actualRoot, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	if !pathWithin(alias, child) {
+		t.Fatalf("pathWithin(%q, %q) rejected a path under the aliased root", alias, child)
 	}
 }

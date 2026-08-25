@@ -366,8 +366,7 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 	}
 
 	cfg := mcptoolset.Config{
-		Transport:  mcpTransport,
-		ToolFilter: toolPredicate,
+		Transport: mcpTransport,
 	}
 
 	toolset, err := mcptoolset.New(cfg)
@@ -375,5 +374,9 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 		return nil, fmt.Errorf("failed to create MCP toolset for %s: %w", params.URL, err)
 	}
 
-	return &mcpAppToolset{inner: toolset, appToolNames: appToolNames}, nil
+	visibleTools := tool.Toolset(toolset)
+	if toolPredicate != nil {
+		visibleTools = tool.FilterToolset(toolset, toolPredicate)
+	}
+	return &mcpAppToolset{inner: visibleTools, appToolNames: appToolNames}, nil
 }

@@ -279,3 +279,30 @@ type AgentInstanceShare struct {
 	TokenHash  []byte
 	CreatedAt  time.Time
 }
+
+// AgentInstanceTaskSnapshot identifies the immutable Substrate snapshot at a
+// completed A2A turn boundary.
+type AgentInstanceTaskSnapshot struct {
+	Atespace     string
+	Name         string
+	UID          string
+	ContentScope string
+}
+
+type AgentInstanceCheckpoint struct {
+	ID                   string
+	Namespace            string
+	SourceInstanceID     string
+	UserID               string
+	RequestID            string
+	HeadTaskID           string
+	HistorySequence      int64
+	SnapshotAtespace     string
+	SnapshotName         string
+	SnapshotUID          string
+	SnapshotContentScope string
+	TagUID               string
+	State                string
+	Failure              string
+	CreatedAt            time.Time
+}

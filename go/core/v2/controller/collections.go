@@ -52,7 +52,7 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	workerPools := typedCollection[*atev1alpha1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
 	actorTemplates := typedCollection[*atev1alpha1.ActorTemplate](client, watchNamespaces, "ActorTemplates", opts)
 	pairs := newPairCollection(agentTemplates, harnesses, opts)
-	reconciliations := newPairReconciliations(pairs, modelConfigs, remoteMCPServers, configMaps, secrets, workerPools, actorTemplates, opts)
+	reconciliations := newPairReconciliations(pairs, agentTemplates, modelConfigs, remoteMCPServers, configMaps, secrets, workerPools, actorTemplates, opts)
 	statuses := newAgentTemplateStatuses(agentTemplates, reconciliations, opts)
 
 	return Collections{

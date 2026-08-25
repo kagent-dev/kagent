@@ -732,6 +732,13 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 	result := task
 	created := false
 	err = c.withTx(ctx, func(q *dbgen.Queries) error {
+		instance, err := q.LockAgentInstance(ctx, instanceID)
+		if err != nil {
+			return fmt.Errorf("lock AgentInstance %s: %w", instanceID, err)
+		}
+		if instance.State != "READY" || instance.Operation != "NONE" {
+			return dbpkg.ErrAgentInstanceTaskConflict
+		}
 		rows, err := q.CreateAgentInstanceTask(ctx, dbgen.CreateAgentInstanceTaskParams{
 			InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
 			StatusTimestamp: task.Status.Timestamp, Data: taskData,
@@ -747,6 +754,9 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 			row, err := q.GetAgentInstanceTaskByMessageID(ctx, dbgen.GetAgentInstanceTaskByMessageIDParams{
 				InstanceID: instanceID, InitialMessageID: &message.ID,
 			})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return dbpkg.ErrAgentInstanceTaskConflict
+			}
 			if err != nil {
 				return fmt.Errorf("get AgentInstance task for message %s: %w", message.ID, err)
 			}
@@ -757,9 +767,10 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 			return err
 		}
 		created = true
-		return q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
+		_, err = q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
 			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(task.ID)), Data: eventData,
 		})
+		return err
 	})
 	if err != nil {
 		return nil, false, fmt.Errorf("create AgentInstance task: %w", err)
@@ -767,7 +778,70 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 	return result, created, nil
 }
 
-func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event) error {
+// taskInterruptedMessage explains a task terminated because its runtime no
+// longer has an active execution for it.
+const taskInterruptedMessage = "The turn was interrupted before it completed, and the process running it is no longer reporting progress."
+
+func (c *postgresClient) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
+	row, err := c.q.GetActiveAgentInstanceTask(ctx, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("get active AgentInstance task: %w", notFoundOr(err))
+	}
+	return unmarshalAgentInstanceTask(row.Data)
+}
+
+// InterruptActiveAgentInstanceTask atomically fails taskID only if it is still the
+// instance's active task.
+func (c *postgresClient) InterruptActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
+	interruptedTask := false
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		row, err := q.LockActiveAgentInstanceTask(ctx, instanceID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("lock active AgentInstance task: %w", err)
+		}
+		if row.ID != taskID {
+			return nil
+		}
+		task, err := unmarshalAgentInstanceTask(row.Data)
+		if err != nil {
+			return err
+		}
+		interrupted := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart(taskInterruptedMessage))
+		now := time.Now()
+		task.History = append(task.History, interrupted)
+		task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Message: interrupted, Timestamp: &now}
+		data, err := marshalAgentInstanceTask(task)
+		if err != nil {
+			return err
+		}
+		if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
+			InstanceID: instanceID, ID: string(task.ID), State: string(task.Status.State),
+			StatusTimestamp: task.Status.Timestamp, Data: data,
+		}); err != nil {
+			return fmt.Errorf("interrupt AgentInstance task %s: %w", task.ID, err)
+		}
+		eventData, err := marshalAgentInstanceTaskEvent(interrupted)
+		if err != nil {
+			return err
+		}
+		if _, err := q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
+			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(task.ID)), Data: eventData,
+		}); err != nil {
+			return fmt.Errorf("record AgentInstance task interruption: %w", err)
+		}
+		interruptedTask = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return interruptedTask, nil
+}
+
+func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instanceID string, task *a2a.Task, event a2a.Event, snapshot *dbpkg.AgentInstanceTaskSnapshot) error {
 	eventData, err := marshalAgentInstanceTaskEvent(event)
 	if err != nil {
 		return err
@@ -789,10 +863,20 @@ func (c *postgresClient) StoreAgentInstanceTaskEvent(ctx context.Context, instan
 				return fmt.Errorf("store AgentInstance task %s: %w", task.ID, err)
 			}
 		}
-		if err := q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
+		sequence, err := q.InsertAgentInstanceTaskEvent(ctx, dbgen.InsertAgentInstanceTaskEventParams{
 			InstanceID: instanceID, TaskID: strPtrIfNotEmpty(string(event.TaskInfo().TaskID)), Data: eventData,
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("store AgentInstance task event: %w", err)
+		}
+		if snapshot != nil {
+			if err := q.SetAgentInstanceTaskSnapshot(ctx, dbgen.SetAgentInstanceTaskSnapshotParams{
+				InstanceID: instanceID, ID: string(task.ID), SnapshotAtespace: &snapshot.Atespace,
+				SnapshotName: &snapshot.Name, SnapshotUid: &snapshot.UID,
+				SnapshotContentScope: &snapshot.ContentScope, HistorySequence: &sequence,
+			}); err != nil {
+				return fmt.Errorf("store AgentInstance task snapshot: %w", err)
+			}
 		}
 		return nil
 	})
@@ -834,6 +918,133 @@ func (c *postgresClient) ListAgentInstanceTasks(ctx context.Context, instanceID,
 		tasks = append(tasks, task)
 	}
 	return tasks, int(total), nil
+}
+
+func (c *postgresClient) ReserveAgentInstanceCheckpoint(ctx context.Context, checkpoint dbpkg.AgentInstanceCheckpoint) (*dbpkg.AgentInstanceCheckpoint, error) {
+	var result *dbpkg.AgentInstanceCheckpoint
+	err := c.withTx(ctx, func(q *dbgen.Queries) error {
+		existing, err := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
+			UserID: checkpoint.UserID, Namespace: checkpoint.Namespace, RequestID: checkpoint.RequestID,
+		})
+		if err == nil {
+			if existing.SourceInstanceID != checkpoint.SourceInstanceID {
+				return dbpkg.ErrIdempotencyConflict
+			}
+			result = toAgentInstanceCheckpoint(existing)
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("get AgentInstance checkpoint by request: %w", err)
+		}
+
+		instance, err := q.LockAgentInstance(ctx, checkpoint.SourceInstanceID)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && (instance.Namespace != checkpoint.Namespace || instance.UserID != checkpoint.UserID)) {
+			return dbpkg.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("lock AgentInstance %s: %w", checkpoint.SourceInstanceID, err)
+		}
+		if instance.State != "READY" || instance.Operation != "NONE" {
+			return dbpkg.ErrAgentInstanceConflict
+		}
+		boundary, err := q.GetLatestQuiescentAgentInstanceTask(ctx, checkpoint.SourceInstanceID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return dbpkg.ErrAgentInstanceNotQuiescent
+		}
+		if err != nil {
+			return fmt.Errorf("get latest AgentInstance task boundary: %w", err)
+		}
+		if boundary.SnapshotAtespace == nil || boundary.SnapshotName == nil || boundary.SnapshotUid == nil ||
+			boundary.SnapshotContentScope == nil || boundary.HistorySequence == nil {
+			return dbpkg.ErrAgentInstanceNotQuiescent
+		}
+
+		row, err := q.InsertAgentInstanceCheckpoint(ctx, dbgen.InsertAgentInstanceCheckpointParams{
+			ID: checkpoint.ID, Namespace: checkpoint.Namespace, SourceInstanceID: checkpoint.SourceInstanceID,
+			UserID: checkpoint.UserID, RequestID: checkpoint.RequestID, HeadTaskID: boundary.ID,
+			HistorySequence: *boundary.HistorySequence, SnapshotAtespace: *boundary.SnapshotAtespace,
+			SnapshotName: *boundary.SnapshotName, SnapshotUid: *boundary.SnapshotUid,
+			SnapshotContentScope: *boundary.SnapshotContentScope,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			existing, existingErr := q.GetAgentInstanceCheckpointByRequest(ctx, dbgen.GetAgentInstanceCheckpointByRequestParams{
+				UserID: checkpoint.UserID, Namespace: checkpoint.Namespace, RequestID: checkpoint.RequestID,
+			})
+			if existingErr == nil {
+				if existing.SourceInstanceID != checkpoint.SourceInstanceID {
+					return dbpkg.ErrIdempotencyConflict
+				}
+				result = toAgentInstanceCheckpoint(existing)
+				return nil
+			}
+			if errors.Is(existingErr, pgx.ErrNoRows) {
+				return dbpkg.ErrAgentInstanceConflict
+			}
+			return fmt.Errorf("get conflicting AgentInstance checkpoint request: %w", existingErr)
+		}
+		if err != nil {
+			return fmt.Errorf("insert AgentInstance checkpoint: %w", err)
+		}
+		result = toAgentInstanceCheckpoint(row)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("reserve AgentInstance checkpoint: %w", err)
+	}
+	return result, nil
+}
+
+func (c *postgresClient) FinalizeAgentInstanceCheckpoint(ctx context.Context, id, tagUID, failure string) (*dbpkg.AgentInstanceCheckpoint, error) {
+	if (tagUID == "") == (failure == "") {
+		return nil, fmt.Errorf("finalize AgentInstance checkpoint requires exactly one of tag UID or failure")
+	}
+	row, err := c.q.FinalizeAgentInstanceCheckpoint(ctx, dbgen.FinalizeAgentInstanceCheckpointParams{
+		ID: id, TagUid: tagUID, Failure: failure,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("finalize AgentInstance checkpoint: %w", notFoundOr(err))
+	}
+	return toAgentInstanceCheckpoint(row), nil
+}
+
+func (c *postgresClient) GetAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
+	row, err := c.q.GetAgentInstanceCheckpoint(ctx, dbgen.GetAgentInstanceCheckpointParams{Namespace: namespace, ID: id, UserID: userID})
+	if err != nil {
+		return nil, fmt.Errorf("get AgentInstance checkpoint: %w", notFoundOr(err))
+	}
+	return toAgentInstanceCheckpoint(row), nil
+}
+
+func (c *postgresClient) ListAgentInstanceCheckpoints(ctx context.Context, namespace, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceCheckpoint, error) {
+	rows, err := c.q.ListAgentInstanceCheckpoints(ctx, dbgen.ListAgentInstanceCheckpointsParams{
+		Namespace: namespace, SourceInstanceID: instanceID, UserID: userID, AfterID: afterID, PageSize: int32(limit),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list AgentInstance checkpoints: %w", err)
+	}
+	result := make([]dbpkg.AgentInstanceCheckpoint, len(rows))
+	for i := range rows {
+		result[i] = *toAgentInstanceCheckpoint(rows[i])
+	}
+	return result, nil
+}
+
+func (c *postgresClient) BeginDeleteAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) (*dbpkg.AgentInstanceCheckpoint, error) {
+	row, err := c.q.BeginDeleteAgentInstanceCheckpoint(ctx, dbgen.BeginDeleteAgentInstanceCheckpointParams{
+		Namespace: namespace, ID: id, UserID: userID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("begin delete AgentInstance checkpoint: %w", notFoundOr(err))
+	}
+	return toAgentInstanceCheckpoint(row), nil
+}
+
+func (c *postgresClient) DeleteAgentInstanceCheckpoint(ctx context.Context, namespace, id, userID string) error {
+	_, err := c.q.DeleteAgentInstanceCheckpoint(ctx, dbgen.DeleteAgentInstanceCheckpointParams{Namespace: namespace, ID: id, UserID: userID})
+	if err != nil {
+		return fmt.Errorf("delete AgentInstance checkpoint: %w", err)
+	}
+	return nil
 }
 
 func marshalAgentInstanceTask(task *a2a.Task) ([]byte, error) {
@@ -1539,6 +1750,16 @@ func toCheckpointWrite(r dbgen.LgCheckpointWrite) *dbpkg.LangGraphCheckpointWrit
 		CreatedAt:    derefTime(r.CreatedAt),
 		UpdatedAt:    derefTime(r.UpdatedAt),
 		DeletedAt:    r.DeletedAt,
+	}
+}
+
+func toAgentInstanceCheckpoint(row dbgen.AgentInstanceCheckpoint) *dbpkg.AgentInstanceCheckpoint {
+	return &dbpkg.AgentInstanceCheckpoint{
+		ID: row.ID, Namespace: row.Namespace, SourceInstanceID: row.SourceInstanceID, UserID: row.UserID,
+		RequestID: row.RequestID, HeadTaskID: row.HeadTaskID, HistorySequence: row.HistorySequence,
+		SnapshotAtespace: row.SnapshotAtespace, SnapshotName: row.SnapshotName, SnapshotUID: row.SnapshotUid,
+		SnapshotContentScope: row.SnapshotContentScope,
+		TagUID:               row.TagUid, State: row.State, Failure: row.Failure, CreatedAt: row.CreatedAt,
 	}
 }
 
