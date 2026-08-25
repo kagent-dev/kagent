@@ -443,3 +443,77 @@ tests:
           value:
             - name: secret1
             - name: secret2
+
+  # =============================================================================
+  # scheduling (bundled PostgreSQL pod)
+  # =============================================================================
+
+  - it: should not set scheduling fields by default
+    template: postgresql.yaml
+    documentIndex: 2
+    asserts:
+      - isKind:
+          of: Deployment
+      - notExists:
+          path: spec.template.spec.nodeSelector
+      - notExists:
+          path: spec.template.spec.tolerations
+      - notExists:
+          path: spec.template.spec.affinity
+
+  - it: should set nodeSelector
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      database:
+        postgres:
+          bundled:
+            nodeSelector:
+              role: AI
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            role: AI
+
+  - it: should set tolerations
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      database:
+        postgres:
+          bundled:
+            tolerations:
+              - key: dedicated
+                operator: Equal
+                value: ai
+                effect: NoSchedule
+    asserts:
+      - equal:
+          path: spec.template.spec.tolerations
+          value:
+            - key: dedicated
+              operator: Equal
+              value: ai
+              effect: NoSchedule
+
+  - it: should set affinity
+    template: postgresql.yaml
+    documentIndex: 2
+    set:
+      database:
+        postgres:
+          bundled:
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: topology.kubernetes.io/zone
+                          operator: In
+                          values:
+                            - eu-west-1a
+    asserts:
+      - equal:
+          path: spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key
+          value: topology.kubernetes.io/zone
