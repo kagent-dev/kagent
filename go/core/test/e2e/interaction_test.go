@@ -20,6 +20,7 @@ import (
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
+	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/mockllm"
@@ -54,6 +55,40 @@ func TestAgentInstanceInteraction(t *testing.T) {
 	_, _, task = fixture.send(t, "What is 2+2?")
 	if task.Status.State != a2atype.TaskStateCompleted {
 		t.Fatalf("second A2A task state = %s, want COMPLETED", task.Status.State)
+	}
+}
+
+func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
+	fixture := newInteractionFixture(t, interactionTarget(t), startMockLLM(t, "mocks/invoke_golang_hitl_ask_user.json"))
+	fixture.ctx = metadata.AppendToOutgoingContext(fixture.ctx, strings.ToLower(a2atype.SvcParamExtensions), adka2a.HITLExtensionURI)
+	_, _, waiting := fixture.send(t, "Which database should we use for storage?")
+	if waiting.Status.State != a2atype.TaskStateInputRequired {
+		t.Fatalf("A2A task state = %s, want INPUT_REQUIRED", waiting.Status.State)
+	}
+	request := adka2a.GetAskUserRequest(waiting.Status.Message)
+	if request == nil {
+		t.Fatal("INPUT_REQUIRED task has no ask_user request")
+	}
+	reply := adka2a.AttachHitlExtension(a2atype.NewMessage(a2atype.MessageRoleUser), &adka2a.AskUserResponse{
+		Type: adka2a.HITLTypeAskUserResponse, ID: request.ID,
+		Answers: []adka2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
+	})
+	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
+	encoded, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: reply})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := fixture.client.SendMessage(fixture.ctx, encoded)
+	if err != nil {
+		t.Fatalf("resume A2A task: %v", err)
+	}
+	result, err := pbconv.FromProtoSendMessageResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, ok := result.(*a2atype.Task)
+	if !ok || completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "Using PostgreSQL") {
+		t.Fatalf("resumed A2A task = %#v, want completed PostgreSQL response", result)
 	}
 }
 

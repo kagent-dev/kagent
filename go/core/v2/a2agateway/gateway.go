@@ -257,31 +257,31 @@ func (g *Gateway) CancelTask(ctx context.Context, req *a2atype.CancelTaskRequest
 }
 
 func (g *Gateway) SendMessage(ctx context.Context, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
-	instance, submitted, created, err := g.prepareSend(ctx, req)
+	attempt, err := g.prepareSend(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	if !created {
-		return submitted, nil
+	if !attempt.dispatch {
+		return attempt.task, nil
 	}
-	client, err := g.dialer.Dial(ctx, instance)
+	client, err := g.dialer.Dial(ctx, attempt.instance)
 	if err != nil {
-		g.failTask(ctx, instance.GetId(), submitted)
-		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
+		g.failAttempt(ctx, attempt)
+		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", attempt.instance.GetId())
 		return nil, a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime")
 	}
 	defer client.Destroy()
 	result, err := client.SendMessage(ctx, req)
 	if err != nil {
-		g.failTask(ctx, instance.GetId(), submitted)
+		g.failAttempt(ctx, attempt)
 		return nil, err
 	}
-	task, err := taskForResult(submitted, result)
+	task, err := taskForResult(attempt.task, result)
 	if err != nil {
-		g.failTask(ctx, instance.GetId(), submitted)
+		g.failAttempt(ctx, attempt)
 		return nil, err
 	}
-	if err := g.storeEvent(ctx, instance, task, result); err != nil {
+	if err := g.storeEvent(ctx, attempt.instance, task, result); err != nil {
 		return nil, g.storeError(ctx, err)
 	}
 	return result, nil
@@ -314,7 +314,7 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
 		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime"))
 	}
-	run, reader, err := g.startTaskRun(ctx, instance, task, client, client.SubscribeToTask(context.WithoutCancel(ctx), req))
+	run, reader, err := g.startTaskRun(ctx, instance, task, nil, client, client.SubscribeToTask(context.WithoutCancel(ctx), req))
 	if err != nil {
 		_ = client.Destroy()
 		if run, ok := g.taskRun(instance.GetId(), task.ID); ok {
@@ -326,23 +326,23 @@ func (g *Gateway) SubscribeToTask(ctx context.Context, req *a2atype.SubscribeToT
 }
 
 func (g *Gateway) SendStreamingMessage(ctx context.Context, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
-	instance, submitted, created, err := g.prepareSend(ctx, req)
+	attempt, err := g.prepareSend(ctx, req)
 	if err != nil {
 		return errorEvents(err)
 	}
-	if !created {
-		return func(yield func(a2atype.Event, error) bool) { yield(submitted, nil) }
+	if !attempt.dispatch {
+		return func(yield func(a2atype.Event, error) bool) { yield(attempt.task, nil) }
 	}
-	client, err := g.dialer.Dial(ctx, instance)
+	client, err := g.dialer.Dial(ctx, attempt.instance)
 	if err != nil {
-		g.failTask(ctx, instance.GetId(), submitted)
-		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", instance.GetId())
+		g.failAttempt(ctx, attempt)
+		ctrllog.FromContext(ctx).Error(err, "failed to connect to AgentInstance runtime", "instance", attempt.instance.GetId())
 		return errorEvents(a2atype.NewError(a2atype.ErrInternalError, "failed to connect to AgentInstance runtime"))
 	}
-	run, reader, err := g.startTaskRun(ctx, instance, submitted, client, client.SendStreamingMessage(context.WithoutCancel(ctx), req))
+	run, reader, err := g.startTaskRun(ctx, attempt.instance, attempt.task, attempt.previous, client, client.SendStreamingMessage(context.WithoutCancel(ctx), req))
 	if err != nil {
 		_ = client.Destroy()
-		g.failTask(ctx, instance.GetId(), submitted)
+		g.failAttempt(ctx, attempt)
 		return errorEvents(g.storeError(ctx, err))
 	}
 	return run.observeReader(ctx, nil, reader)
@@ -391,27 +391,38 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, _ *a2atype.GetExtend
 	return card, nil
 }
 
-func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageRequest) (*apiv1alpha1.AgentInstance, *a2atype.Task, bool, error) {
-	instance, err := g.instance(ctx, auth.VerbCreate)
+type preparedSend struct {
+	instance *apiv1alpha1.AgentInstance
+	task     *a2atype.Task
+	previous *a2atype.Task
+	dispatch bool
+}
+
+func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageRequest) (*preparedSend, error) {
+	verb := auth.VerbCreate
+	if req != nil && req.Message != nil && req.Message.TaskID != "" {
+		verb = auth.VerbUpdate
+	}
+	instance, err := g.instance(ctx, verb)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, err
 	}
 	if req == nil || req.Message == nil {
-		return nil, nil, false, a2atype.NewError(a2atype.ErrInvalidRequest, "message is required")
+		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message is required")
 	}
 	if req.Message.ID == "" {
-		return nil, nil, false, a2atype.NewError(a2atype.ErrInvalidRequest, "message ID is required")
+		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message ID is required")
 	}
 	if req.Message.ContextID != "" && req.Message.ContextID != instance.GetId() {
-		return nil, nil, false, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
+		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message context does not match AgentInstance")
 	}
 	if req.Message.TaskID != "" {
-		return nil, nil, false, a2atype.NewError(a2atype.ErrUnsupportedOperation, "continuing a task is not supported")
+		return g.prepareReply(ctx, instance, req.Message)
 	}
 	req.Message.ContextID = instance.GetId()
 	requestHash, err := hashSendRequest(req)
 	if err != nil {
-		return nil, nil, false, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
+		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "message cannot be encoded")
 	}
 	req.Message.TaskID = a2atype.NewTaskID()
 	submitted := a2atype.NewSubmittedTask(req.Message, req.Message)
@@ -422,9 +433,34 @@ func (g *Gateway) prepareSend(ctx context.Context, req *a2atype.SendMessageReque
 		}
 	}
 	if err != nil {
-		return nil, nil, false, g.storeError(ctx, err)
+		return nil, g.storeError(ctx, err)
 	}
-	return instance, stored, created, nil
+	return &preparedSend{instance: instance, task: stored, dispatch: created}, nil
+}
+
+func (g *Gateway) prepareReply(ctx context.Context, instance *apiv1alpha1.AgentInstance, message *a2atype.Message) (*preparedSend, error) {
+	stored, err := g.store.GetAgentInstanceTask(ctx, instance.GetId(), string(message.TaskID))
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, a2atype.ErrTaskNotFound
+	}
+	if err != nil {
+		return nil, g.storeError(ctx, err)
+	}
+	if stored.ContextID != instance.GetId() {
+		return nil, a2atype.NewError(a2atype.ErrInvalidRequest, "task context does not match AgentInstance")
+	}
+	if stored.Status.State != a2atype.TaskStateInputRequired && stored.Status.State != a2atype.TaskStateAuthRequired {
+		return nil, a2atype.NewError(a2atype.ErrUnsupportedOperation, "task is not waiting for input")
+	}
+	message.ContextID = stored.ContextID
+	attempt := *stored
+	attempt.History = append(append([]*a2atype.Message{}, stored.History...), message)
+	now := time.Now()
+	attempt.Status = a2atype.TaskStatus{State: a2atype.TaskStateSubmitted, Timestamp: &now}
+	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instance.GetId(), &attempt, message, nil); err != nil {
+		return nil, g.storeError(ctx, err)
+	}
+	return &preparedSend{instance: instance, task: &attempt, previous: stored, dispatch: true}, nil
 }
 
 // reconcileActiveTask frees the task slot only when the runtime authoritatively
@@ -587,6 +623,16 @@ func (g *Gateway) failTask(ctx context.Context, instanceID string, task *a2atype
 	failed.Status = a2atype.TaskStatus{State: a2atype.TaskStateFailed, Timestamp: &now}
 	if err := g.store.StoreAgentInstanceTaskEvent(ctx, instanceID, &failed, &failed, nil); err != nil {
 		ctrllog.FromContext(ctx).Error(err, "failed to record failed AgentInstance task", "task", task.ID)
+	}
+}
+
+func (g *Gateway) failAttempt(ctx context.Context, attempt *preparedSend) {
+	if attempt.previous == nil {
+		g.failTask(ctx, attempt.instance.GetId(), attempt.task)
+		return
+	}
+	if err := g.store.StoreAgentInstanceTaskEvent(ctx, attempt.instance.GetId(), attempt.previous, attempt.previous, nil); err != nil {
+		ctrllog.FromContext(ctx).Error(err, "failed to restore task awaiting input", "task", attempt.task.ID)
 	}
 }
 

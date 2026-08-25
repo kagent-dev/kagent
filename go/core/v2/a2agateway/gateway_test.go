@@ -308,6 +308,31 @@ func TestGatewayResolvesAuthenticatedHeadersBeforeSending(t *testing.T) {
 	}
 }
 
+func TestGatewayContinuesInputRequiredTask(t *testing.T) {
+	waiting := &a2atype.Task{
+		ID: "task-1", ContextID: gatewayTestID,
+		Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired},
+	}
+	store := &gatewayTestStore{instance: gatewayTestInstance(), task: waiting}
+	runtime := &gatewayTestRuntime{}
+	authorizer := &gatewayTestAuthorizer{}
+	gateway := New(store, authorizer, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, &gatewayTestWorkflow{}, gatewayTestURL)
+	reply := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("PostgreSQL"))
+	reply.TaskID = waiting.ID
+
+	result, err := gateway.SendMessage(gatewayTestContext(), &a2atype.SendMessageRequest{Message: reply})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, ok := result.(*a2atype.Task)
+	if !ok || task.Status.State != a2atype.TaskStateCompleted || !runtime.sent {
+		t.Fatalf("reply result = %#v, runtime sent = %v", result, runtime.sent)
+	}
+	if authorizer.verb != auth.VerbUpdate || reply.ContextID != gatewayTestID || len(store.stored) != 2 {
+		t.Fatalf("reply authorization = %s, context = %q, stored events = %d", authorizer.verb, reply.ContextID, len(store.stored))
+	}
+}
+
 func TestGatewayClosesRuntimeAfterStreaming(t *testing.T) {
 	instance := gatewayTestInstance()
 	runtime := &gatewayTestRuntime{}
