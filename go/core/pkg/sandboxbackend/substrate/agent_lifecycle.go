@@ -98,6 +98,18 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 					Path: "/.well-known/agent-card.json",
 					Port: substrateKagentListenPort,
 				},
+				// Must match ActorTemplateSpec's ContainerReadyz.TimeoutSeconds
+				// +kubebuilder:default=30 (actortemplate_types.go). Leaving this
+				// unset builds a spec with TimeoutSeconds=0, but the apiserver
+				// applies the CRD default (30) to whatever gets stored — so every
+				// freshly-rebuilt "desired" spec permanently disagrees with the
+				// "existing" one just fetched back from the cluster.
+				// actorTemplateSpecEqual (apiequality.Semantic.DeepEqual) then
+				// sees 0 != 30 on every reconcile, reconcileActorTemplate treats
+				// it as spec drift, and deletes+recreates the ActorTemplate (and
+				// its golden actor) in an infinite loop. Setting it explicitly
+				// here keeps "desired" and "existing" in agreement.
+				TimeoutSeconds: 30,
 			},
 		}},
 		WorkerSelector: workerSelectorForPool(wpKey),
@@ -105,6 +117,17 @@ func (p *Lifecycle) buildSandboxAgentActorTemplate(
 			Location: sandboxAgentSnapshotsLocation(sa),
 			OnPause:  atev1alpha1.SnapshotScopeFull,
 			OnCommit: atev1alpha1.SnapshotScopeFull,
+			// Same class of bug as ContainerReadyz.TimeoutSeconds above:
+			// OnResume is a plain (non-pointer) struct, so Go's encoding/json
+			// omitempty never actually omits it — "desired" always serializes
+			// onResume:{}, and the apiserver's structural-schema defaulting then
+			// fills in fromData: "ColdBoot" (+kubebuilder:default=ColdBoot,
+			// actortemplate_types.go) on the *stored* object. Leaving this
+			// unset here left desired.OnResume.FromData="" permanently
+			// disagreeing with existing's server-defaulted "ColdBoot", which
+			// alone was enough to keep the delete+recreate loop going even
+			// after the TimeoutSeconds fix.
+			OnResume: atev1alpha1.OnResumeConfig{FromData: atev1alpha1.ResumeSourceColdBoot},
 		},
 	}
 	applyDurableDirSessionStore(&spec)
