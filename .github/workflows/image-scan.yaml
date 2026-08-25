@@ -42,7 +42,7 @@ jobs:
           - build_target: golang-adk
             image_name: golang-adk
             tag_suffix: ""
-    runs-on: ubuntu-latest
+    runs-on: cncf-ubuntu-16-64-x86
     services:
       registry:
         image: registry:2
