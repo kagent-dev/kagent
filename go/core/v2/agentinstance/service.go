@@ -262,11 +262,11 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 	if permission != "READ_ONLY" && permission != "READ_WRITE" {
 		return nil, "", serviceerrors.NewInvalidArgument("share permission must be READ_ONLY or READ_WRITE", nil)
 	}
-	creator, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+instanceID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+instanceID+"/shares")
 	if err != nil {
 		return nil, "", err
 	}
-	_, err = s.store.GetAgentInstance(ctx, namespace, instanceID, creator)
+	_, err = s.store.GetAgentInstance(ctx, namespace, instanceID, userID)
 	if err != nil {
 		if errors.Is(err, dbpkg.ErrNotFound) {
 			return nil, "", serviceerrors.NewNotFound("AgentInstance not found", err)
@@ -279,7 +279,7 @@ func (s *Service) CreateShare(ctx context.Context, namespace, instanceID, permis
 	}
 	share, err := s.store.CreateAgentInstanceShare(ctx, dbpkg.AgentInstanceShare{
 		ID: uuid.NewString(), Namespace: namespace, InstanceID: instanceID,
-		Creator: creator, Permission: permission, TokenHash: tokenHash,
+		Permission: permission, TokenHash: tokenHash,
 	})
 	if err != nil {
 		return nil, "", serviceerrors.NewInternal("Failed to create AgentInstance share", err)
@@ -291,7 +291,7 @@ func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, 
 	if err := validateIdentity(namespace, instanceID); err != nil {
 		return ShareListResult{}, err
 	}
-	creator, err := s.authorize(ctx, auth.VerbGet, namespace+"/"+instanceID+"/shares")
+	userID, err := s.authorize(ctx, auth.VerbGet, namespace+"/"+instanceID+"/shares")
 	if err != nil {
 		return ShareListResult{}, err
 	}
@@ -305,7 +305,7 @@ func (s *Service) ListShares(ctx context.Context, namespace, instanceID string, 
 	if err != nil {
 		return ShareListResult{}, serviceerrors.NewInvalidArgument("page token is invalid", err)
 	}
-	shares, err := s.store.ListAgentInstanceShares(ctx, namespace, instanceID, creator, afterID, pageSize+1)
+	shares, err := s.store.ListAgentInstanceShares(ctx, namespace, instanceID, userID, afterID, pageSize+1)
 	if err != nil {
 		return ShareListResult{}, serviceerrors.NewInternal("Failed to list AgentInstance shares", err)
 	}
@@ -321,11 +321,11 @@ func (s *Service) RevokeShare(ctx context.Context, namespace, shareID string) er
 	if err := validateIdentity(namespace, shareID); err != nil {
 		return err
 	}
-	creator, err := s.authorize(ctx, auth.VerbDelete, namespace+"/shares/"+shareID)
+	userID, err := s.authorize(ctx, auth.VerbDelete, namespace+"/shares/"+shareID)
 	if err != nil {
 		return err
 	}
-	if err := s.store.DeleteAgentInstanceShare(ctx, namespace, shareID, creator); err != nil {
+	if err := s.store.DeleteAgentInstanceShare(ctx, namespace, shareID, userID); err != nil {
 		if errors.Is(err, dbpkg.ErrNotFound) {
 			return serviceerrors.NewNotFound("AgentInstance share not found", err)
 		}

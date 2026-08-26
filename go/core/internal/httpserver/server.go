@@ -27,14 +27,6 @@ type ServerConfig struct {
 	KubeClient    ctrl_client.Client
 	DbClient      dbpkg.Client
 	Authenticator auth.AuthProvider
-
-	// GrpcWebRouter composes this server's handler so that gRPC-Web calls reach the
-	// gRPC services and everything else reaches the router. Supplied by the gRPC
-	// server (see grpcserver.Server.WebHandlerOr), which owns the rule — there is
-	// more than one binary serving HTTP beside that server, and a second copy of
-	// the rule would drift.
-	//
-	// Optional: left nil, this server behaves exactly as it did before one existed.
 	GrpcWebRouter func(next http.Handler) http.Handler
 }
 
@@ -71,7 +63,7 @@ func (s *HTTPServer) Start(ctx context.Context) error {
 	// and W3C TraceContext propagation on every incoming request.
 	s.httpServer = &http.Server{
 		Addr: s.config.BindAddr,
-		Handler: otelhttp.NewHandler(s.withGrpcWeb(s.router), "http.server",
+		Handler: otelhttp.NewHandler(s.config.GrpcWebRouter(s.router), "http.server",
 			otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
 				return r.Method + " " + r.URL.Path
 			}),
@@ -202,19 +194,4 @@ func wsAuthQueryMiddleware(next http.Handler) http.Handler {
 
 func adaptHealthHandler(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return h
-}
-
-// withGrpcWeb lets the gRPC server route gRPC-Web calls ahead of this router.
-//
-// The split happens outside the router's middleware chain on purpose. That chain
-// authenticates, rewrites content types and maps errors for the REST-shaped
-// handlers, none of which a gRPC-Web frame survives — and it does not need any of
-// it, because the gRPC server authenticates in its own interceptors. Routing these
-// past the chain rather than through it keeps one protocol from being handled by
-// the other's conventions.
-func (s *HTTPServer) withGrpcWeb(next http.Handler) http.Handler {
-	if s.config.GrpcWebRouter == nil {
-		return next
-	}
-	return s.config.GrpcWebRouter(next)
 }

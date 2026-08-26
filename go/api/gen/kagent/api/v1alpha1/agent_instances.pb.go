@@ -1149,9 +1149,8 @@ type AgentInstanceShare struct {
 	Id              string                       `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Namespace       string                       `protobuf:"bytes,2,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	AgentInstanceId string                       `protobuf:"bytes,3,opt,name=agent_instance_id,json=agentInstanceId,proto3" json:"agent_instance_id,omitempty"`
-	Creator         string                       `protobuf:"bytes,4,opt,name=creator,proto3" json:"creator,omitempty"`
-	Permission      AgentInstanceSharePermission `protobuf:"varint,5,opt,name=permission,proto3,enum=kagent.api.v1alpha1.AgentInstanceSharePermission" json:"permission,omitempty"`
-	CreatedAt       *timestamppb.Timestamp       `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Permission      AgentInstanceSharePermission `protobuf:"varint,4,opt,name=permission,proto3,enum=kagent.api.v1alpha1.AgentInstanceSharePermission" json:"permission,omitempty"`
+	CreatedAt       *timestamppb.Timestamp       `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1203,13 +1202,6 @@ func (x *AgentInstanceShare) GetNamespace() string {
 func (x *AgentInstanceShare) GetAgentInstanceId() string {
 	if x != nil {
 		return x.AgentInstanceId
-	}
-	return ""
-}
-
-func (x *AgentInstanceShare) GetCreator() string {
-	if x != nil {
-		return x.Creator
 	}
 	return ""
 }
@@ -1618,17 +1610,16 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
 	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"h\n" +
 	"\x1bDeleteAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\x96\x02\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\xfc\x01\n" +
 	"\x12AgentInstanceShare\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\tnamespace\x18\x02 \x01(\tR\tnamespace\x12*\n" +
-	"\x11agent_instance_id\x18\x03 \x01(\tR\x0fagentInstanceId\x12\x18\n" +
-	"\acreator\x18\x04 \x01(\tR\acreator\x12Q\n" +
+	"\x11agent_instance_id\x18\x03 \x01(\tR\x0fagentInstanceId\x12Q\n" +
 	"\n" +
-	"permission\x18\x05 \x01(\x0e21.kagent.api.v1alpha1.AgentInstanceSharePermissionR\n" +
+	"permission\x18\x04 \x01(\x0e21.kagent.api.v1alpha1.AgentInstanceSharePermissionR\n" +
 	"permission\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xdc\x01\n" +
+	"created_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"\xdc\x01\n" +
 	"\x1fCreateAgentInstanceShareRequest\x12%\n" +
 	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
 	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\x12]\n" +

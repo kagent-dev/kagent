@@ -33,7 +33,6 @@ import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import { admitsLabels } from "@/api/domain/harnesses";
 import type { Session, SessionShare } from "@/api/domain/sessions";
 import {
-  MOCK_INSTANCE_CREATOR,
   mockAgentInstances,
   mockAgentTemplates,
   mockHarnesses,
@@ -534,7 +533,6 @@ export const SEEDED_INSTANCE_SHARE: AgentInstanceShare = {
   id: "mock-instance-share-seed",
   namespace: "kagent",
   agentInstanceId: "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
-  creator: MOCK_INSTANCE_CREATOR,
   permission: "readOnly",
   createdAt: "2026-08-01T09:00:00Z",
 };
@@ -591,7 +589,6 @@ export function createInstanceShare(
     id: `mock-share-${existing.length + 1}`,
     namespace,
     agentInstanceId,
-    creator: MOCK_INSTANCE_CREATOR,
     permission,
     createdAt: new Date().toISOString(),
   };

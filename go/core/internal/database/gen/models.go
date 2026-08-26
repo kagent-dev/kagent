@@ -70,7 +70,6 @@ type AgentInstanceShare struct {
 	ID         string
 	Namespace  string
 	InstanceID string
-	Creator    string
 	Permission string
 	TokenHash  []byte
 	CreatedAt  time.Time

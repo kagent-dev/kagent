@@ -926,15 +926,14 @@ func (c *postgresClient) DeleteAgentInstance(ctx context.Context, id string) err
 func toAgentInstanceShare(row dbgen.AgentInstanceShare) dbpkg.AgentInstanceShare {
 	return dbpkg.AgentInstanceShare{
 		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
-		Creator: row.Creator, Permission: row.Permission,
-		TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
+		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
 	}
 }
 
 func (c *postgresClient) CreateAgentInstanceShare(ctx context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
 	row, err := c.q.CreateAgentInstanceShare(ctx, dbgen.CreateAgentInstanceShareParams{
 		ID: share.ID, Namespace: share.Namespace, InstanceID: share.InstanceID,
-		Creator: share.Creator, Permission: share.Permission, TokenHash: share.TokenHash,
+		Permission: share.Permission, TokenHash: share.TokenHash,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create AgentInstance share: %w", err)
@@ -954,15 +953,14 @@ func (c *postgresClient) GetAgentInstanceShareByTokenHash(ctx context.Context, t
 	}
 	return &dbpkg.AgentInstanceShare{
 		ID: row.ID, Namespace: row.Namespace, InstanceID: row.InstanceID,
-		Creator: row.Creator, Permission: row.Permission,
-		TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
+		Permission: row.Permission, TokenHash: row.TokenHash, CreatedAt: row.CreatedAt,
 		OwnerUserID: row.OwnerUserID,
 	}, nil
 }
 
-func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, creator, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
+func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace, instanceID, userID, afterID string, limit int) ([]dbpkg.AgentInstanceShare, error) {
 	rows, err := c.q.ListAgentInstanceShares(ctx, dbgen.ListAgentInstanceSharesParams{
-		Namespace: namespace, InstanceID: instanceID, UserID: creator,
+		Namespace: namespace, InstanceID: instanceID, UserID: userID,
 		AfterID: afterID, PageSize: int32(limit),
 	})
 	if err != nil {
@@ -975,8 +973,8 @@ func (c *postgresClient) ListAgentInstanceShares(ctx context.Context, namespace,
 	return result, nil
 }
 
-func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, creator string) error {
-	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: id, UserID: creator})
+func (c *postgresClient) DeleteAgentInstanceShare(ctx context.Context, namespace, id, userID string) error {
+	count, err := c.q.DeleteAgentInstanceShare(ctx, dbgen.DeleteAgentInstanceShareParams{Namespace: namespace, ID: id, UserID: userID})
 	if err != nil {
 		return fmt.Errorf("delete AgentInstance share %s/%s: %w", namespace, id, err)
 	}

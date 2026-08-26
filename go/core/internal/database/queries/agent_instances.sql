@@ -95,8 +95,8 @@ DELETE FROM agent_instance WHERE id = $1;
 
 -- name: CreateAgentInstanceShare :one
 INSERT INTO agent_instance_share (
-    id, namespace, instance_id, creator, permission, token_hash
-) VALUES ($1, $2, $3, $4, $5, $6)
+    id, namespace, instance_id, permission, token_hash
+) VALUES ($1, $2, $3, $4, $5)
 RETURNING *;
 
 -- Resolves a share token to the share and the instance's owner.

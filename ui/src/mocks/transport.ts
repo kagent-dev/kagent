@@ -1411,7 +1411,6 @@ const instanceShareMessage = (share: AgentInstanceShare) => ({
   id: share.id,
   namespace: share.namespace,
   agentInstanceId: share.agentInstanceId,
-  creator: share.creator,
   permission:
     share.permission === "readWrite"
       ? PbSharePermission.READ_WRITE

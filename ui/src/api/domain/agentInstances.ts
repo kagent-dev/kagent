@@ -231,7 +231,6 @@ export interface AgentInstanceShare {
   id: string;
   namespace: string;
   agentInstanceId: string;
-  creator: string;
   permission: AgentInstanceSharePermission;
   /** RFC3339, or empty when the record carried no timestamp. */
   createdAt: string;

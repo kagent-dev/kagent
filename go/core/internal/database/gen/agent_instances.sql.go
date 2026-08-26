@@ -12,16 +12,15 @@ import (
 
 const createAgentInstanceShare = `-- name: CreateAgentInstanceShare :one
 INSERT INTO agent_instance_share (
-    id, namespace, instance_id, creator, permission, token_hash
-) VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, namespace, instance_id, creator, permission, token_hash, created_at
+    id, namespace, instance_id, permission, token_hash
+) VALUES ($1, $2, $3, $4, $5)
+RETURNING id, namespace, instance_id, permission, token_hash, created_at
 `
 
 type CreateAgentInstanceShareParams struct {
 	ID         string
 	Namespace  string
 	InstanceID string
-	Creator    string
 	Permission string
 	TokenHash  []byte
 }
@@ -31,7 +30,6 @@ func (q *Queries) CreateAgentInstanceShare(ctx context.Context, arg CreateAgentI
 		arg.ID,
 		arg.Namespace,
 		arg.InstanceID,
-		arg.Creator,
 		arg.Permission,
 		arg.TokenHash,
 	)
@@ -40,7 +38,6 @@ func (q *Queries) CreateAgentInstanceShare(ctx context.Context, arg CreateAgentI
 		&i.ID,
 		&i.Namespace,
 		&i.InstanceID,
-		&i.Creator,
 		&i.Permission,
 		&i.TokenHash,
 		&i.CreatedAt,
@@ -164,7 +161,7 @@ func (q *Queries) GetAgentInstanceForUser(ctx context.Context, arg GetAgentInsta
 }
 
 const getAgentInstanceShareByTokenHash = `-- name: GetAgentInstanceShareByTokenHash :one
-SELECT s.id, s.namespace, s.instance_id, s.creator, s.permission, s.token_hash, s.created_at, i.user_id AS owner_user_id
+SELECT s.id, s.namespace, s.instance_id, s.permission, s.token_hash, s.created_at, i.user_id AS owner_user_id
 FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
 WHERE s.token_hash = $1
@@ -174,7 +171,6 @@ type GetAgentInstanceShareByTokenHashRow struct {
 	ID          string
 	Namespace   string
 	InstanceID  string
-	Creator     string
 	Permission  string
 	TokenHash   []byte
 	CreatedAt   time.Time
@@ -194,7 +190,6 @@ func (q *Queries) GetAgentInstanceShareByTokenHash(ctx context.Context, tokenHas
 		&i.ID,
 		&i.Namespace,
 		&i.InstanceID,
-		&i.Creator,
 		&i.Permission,
 		&i.TokenHash,
 		&i.CreatedAt,
@@ -382,7 +377,7 @@ func (q *Queries) InsertForkedAgentInstance(ctx context.Context, arg InsertForke
 }
 
 const listAgentInstanceShares = `-- name: ListAgentInstanceShares :many
-SELECT s.id, s.namespace, s.instance_id, s.creator, s.permission, s.token_hash, s.created_at FROM agent_instance_share s
+SELECT s.id, s.namespace, s.instance_id, s.permission, s.token_hash, s.created_at FROM agent_instance_share s
 JOIN agent_instance i ON i.id = s.instance_id
 WHERE s.namespace = $1 AND s.instance_id = $2 AND i.user_id = $3
   AND s.id > $4
@@ -417,7 +412,6 @@ func (q *Queries) ListAgentInstanceShares(ctx context.Context, arg ListAgentInst
 			&i.ID,
 			&i.Namespace,
 			&i.InstanceID,
-			&i.Creator,
 			&i.Permission,
 			&i.TokenHash,
 			&i.CreatedAt,

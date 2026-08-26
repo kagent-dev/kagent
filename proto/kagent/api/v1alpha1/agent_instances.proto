@@ -174,9 +174,8 @@ message AgentInstanceShare {
   string id = 1;
   string namespace = 2;
   string agent_instance_id = 3;
-  string creator = 4;
-  AgentInstanceSharePermission permission = 5;
-  google.protobuf.Timestamp created_at = 6;
+  AgentInstanceSharePermission permission = 4;
+  google.protobuf.Timestamp created_at = 5;
 }
 
 message CreateAgentInstanceShareRequest {

@@ -1029,7 +1029,6 @@ function toAgentInstanceShare(share: PbAgentInstanceShare): AgentInstanceShare {
     id: share.id,
     namespace: share.namespace,
     agentInstanceId: share.agentInstanceId,
-    creator: share.creator,
     permission: SHARE_PERMISSION_FROM_PB[share.permission] ?? "readOnly",
     createdAt: isoFrom(share.createdAt),
   };
