@@ -28,7 +28,7 @@ import {
   specFromDraft,
   type AgentTemplateDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
-import { paths } from "@/router/routes";
+import { agentTemplatesTab, paths } from "@/router/routes";
 import {
   apiClient,
   useAgentConversations,
@@ -436,7 +436,7 @@ export function AgentTemplateDetailsPage() {
             }
             />
           ) : null}
-          <Button onClick={() => navigate(paths.agentTemplates)}>Back to templates</Button>
+          <Button onClick={() => navigate(agentTemplatesTab)}>Back to templates</Button>
         </Space>
       }
     >

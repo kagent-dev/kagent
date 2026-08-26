@@ -136,21 +136,14 @@ export default defineConfig({
    * in-browser mock answers in milliseconds, so the defaults that suit the mock
    * suite are too tight to distinguish "slow cluster" from "broken page".
    *
-   * The mock suite gets sixty rather than the default thirty, which is about the
-   * machine and not about the app. Several of these tests are journeys — six steps,
-   * a page load in most of them — and thirty seconds is a comfortable budget on an
-   * idle laptop and a tight one on a runner sharing itself with another engine. The
-   * failure it produced said `Test timeout of 30000ms exceeded` partway through a
-   * step that had done nothing wrong, which is a report about contention dressed as
-   * a defect.
-   *
-   * `expect.timeout` is deliberately left at its default. That is the one that keeps
-   * a genuinely missing element fast to find: an assertion still gives up in five
-   * seconds, so a real failure does not sit here spending the larger budget.
+   * The mock suite keeps Playwright's default thirty. It was briefly given sixty, on
+   * the reading that a six-step journey timing out was a report about contention — and
+   * that was wrong twice over. The step in question was waiting on a URL a redirect
+   * replaces in the same tick, so it was never going to arrive however long the budget;
+   * and a mock-backed suite that needs more than thirty seconds for one test is saying
+   * something is stuck, which is worth hearing rather than absorbing.
    */
-  ...(LIVE
-    ? { timeout: 120_000, expect: { timeout: 30_000 } }
-    : { timeout: 60_000 }),
+  ...(LIVE ? { timeout: 120_000, expect: { timeout: 30_000 } } : {}),
   use: {
     trace: "on-first-retry",
     screenshot: "only-on-failure",

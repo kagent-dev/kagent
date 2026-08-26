@@ -11,7 +11,7 @@ import {
   labelsFromDraft,
   specFromDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
-import { paths } from "@/router/routes";
+import { agentTemplatesTab, paths } from "@/router/routes";
 import { apiClient, useAgentTemplates, useNamespaces } from "@/api";
 
 const { Text } = Typography;
@@ -150,7 +150,7 @@ export function AgentTemplateNewPage() {
           >
             Create template
           </Button>
-          <Button onClick={() => navigate(paths.agentTemplates)}>Cancel</Button>
+          <Button onClick={() => navigate(agentTemplatesTab)}>Cancel</Button>
         </div>
       </Space>
     </PageFrame>

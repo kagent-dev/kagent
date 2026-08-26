@@ -2,7 +2,7 @@ import { Button, Space, Typography } from "antd";
 import { Compass } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { Link, useLocation } from "react-router-dom";
-import { paths } from "@/router/routes";
+import { agentTemplatesTab, paths } from "@/router/routes";
 
 const { Text, Title } = Typography;
 
@@ -32,7 +32,7 @@ export function NotFoundPage() {
 
   const destinations = [
     { to: paths.agents, label: "Agents", hint: "and the conversations people have had with them" },
-    { to: paths.agentTemplates, label: "Agent templates", hint: "what an agent does" },
+    { to: agentTemplatesTab, label: "Agent templates", hint: "what an agent does" },
     { to: paths.models, label: "Model configurations", hint: "what an agent thinks with" },
     { to: paths.mcpServers, label: "MCP servers", hint: "the tools agents can reach" },
     { to: paths.prompts, label: "Prompts", hint: "reusable prompt libraries" },

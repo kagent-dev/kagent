@@ -137,6 +137,17 @@ export const paths = {
   sharedAgent: "/shared/agent/:namespace/:id/:token",
 } as const;
 
+/**
+ * Where the templates list actually is.
+ *
+ * `paths.agentTemplates` is a redirect, kept so an address somebody already has still
+ * resolves. Navigating through it from inside the app costs a render on a URL that is
+ * replaced immediately — and anything watching the address, a test most of all, can
+ * lose the race against that replacement and wait for a URL that no longer exists.
+ * This is the address the reader ends up at, so it is the one to navigate to.
+ */
+export const agentTemplatesTab = `${paths.agents}?tab=templates`;
+
 export function buildPath(
   path: string,
   params: Record<string, string | undefined>,

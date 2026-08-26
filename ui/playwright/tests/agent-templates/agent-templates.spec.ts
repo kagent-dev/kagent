@@ -106,7 +106,7 @@ test("agent templates: creating one, and being told when nothing will run it", a
   await test.step("6. it saves, and the list reports what will run it", async () => {
     await expect(page.getByTestId("template-submit")).toBeEnabled();
     await page.getByTestId("template-submit").click();
-    await page.waitForURL(/\/agent-templates(\?|$)/, { timeout: 30_000 });
+    await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 30_000 });
 
     const row = rowNamed(page, "browser-made");
     await expect(row).toBeVisible({ timeout: 30_000 });
@@ -275,7 +275,7 @@ test("agent templates: deleting one says what it costs, and the list is re-read"
 
   await test.step("2. a template nothing runs says that instead", async () => {
     await page.getByRole("button", { name: "Back to templates" }).click();
-    await page.waitForURL(/\/agent-templates(\?|$)/);
+    await page.waitForURL(/\/agents\?.*tab=templates/);
     await expect(rowNamed(page, "note-taker")).toBeVisible({ timeout: 30_000 });
     await page.getByTestId("template-link-note-taker").click();
     await page.waitForURL(/\/agent-templates\/kagent\/note-taker/);
@@ -296,7 +296,7 @@ test("agent templates: deleting one says what it costs, and the list is re-read"
       .locator(".ant-popconfirm:visible")
       .getByRole("button", { name: "Delete" })
       .click();
-    await page.waitForURL(/\/agent-templates\?/, { timeout: 30_000 });
+    await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 30_000 });
 
     // The claim worth making. The list is cached, so landing on it without re-reading
     // shows the template that was just removed — which reads as a delete that
