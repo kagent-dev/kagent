@@ -15,6 +15,7 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
+	localtaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -55,6 +56,10 @@ type AppConfig struct {
 	// Agent is the ADK agent used to enrich the agent card with skills via
 	// adka2a.BuildAgentSkills. Optional; when nil, the card is used as-is.
 	Agent adkagent.Agent
+
+	// SessionDBURL locates actor-local durable storage. When set, A2A tasks are
+	// persisted beside the ADK session database so HITL tasks survive suspension.
+	SessionDBURL string
 }
 
 // KAgentApp wires an AgentExecutor with kagent's A2A server.
@@ -99,7 +104,17 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	log := cfg.Logger
 
 	app := &KAgentApp{logger: log}
-	tasks := a2ataskstore.NewInMemory(&a2ataskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})
+	authenticator := a2asrv.NewTaskStoreAuthenticator()
+	var tasks a2ataskstore.Store
+	if cfg.SessionDBURL == "" {
+		tasks = a2ataskstore.NewInMemory(&a2ataskstore.InMemoryStoreConfig{Authenticator: authenticator})
+	} else {
+		var err error
+		tasks, err = localtaskstore.New(cfg.SessionDBURL, authenticator)
+		if err != nil {
+			return nil, fmt.Errorf("open local task store: %w", err)
+		}
+	}
 	handlerOpts := []a2asrv.RequestHandlerOption{a2asrv.WithTaskStore(tasks)}
 
 	// The private runtime receives a gateway-assigned ID for a new task. Seed it

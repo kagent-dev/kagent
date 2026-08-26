@@ -3,6 +3,8 @@ module github.com/kagent-dev/kagent/go
 go 1.27.0
 
 require (
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260709200747-435963d16310.1
+	buf.build/go/protovalidate v1.3.0
 	// core dependencies
 	dario.cat/mergo v1.0.2
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.0
@@ -31,6 +33,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.3
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jedib0t/go-pretty/v6 v6.8.3
@@ -68,6 +71,7 @@ require (
 	golang.org/x/sync v0.22.0
 	golang.org/x/text v0.41.0
 	google.golang.org/adk/v2 v2.2.0
+	gorm.io/gorm v1.31.2
 	google.golang.org/genai v1.69.0
 	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.12
@@ -455,7 +459,6 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
-	gorm.io/gorm v1.31.2 // indirect
 	honnef.co/go/tools v0.7.0 // indirect
 	istio.io/api v1.31.0-alpha.1.0.20260819121012-5803fb6accf7 // indirect
 	istio.io/client-go v1.31.0-alpha.0.0.20260807010324-676a810f2c1f // indirect

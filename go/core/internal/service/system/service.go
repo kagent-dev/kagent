@@ -330,9 +330,7 @@ func (s *Service) listSubstrateCRs(ctx context.Context, namespace string) ([]Sub
 			WorkerSelector:  labelSelectorString(ctx, actorTemplate.Spec.WorkerSelector),
 			ManagedByKagent: actorTemplate.Labels["app.kubernetes.io/managed-by"] == "kagent",
 		}
-		if harness := strings.TrimSpace(actorTemplate.Labels[substrate.HarnessLabelKey]); harness != "" {
-			entry.HarnessName = harness
-		} else if agentName := substrate.SandboxAgentNameFromLabels(actorTemplate.Labels); agentName != "" {
+		if agentName := substrate.SandboxAgentNameFromLabels(actorTemplate.Labels); agentName != "" {
 			entry.HarnessName = agentName
 		}
 		actorTemplates = append(actorTemplates, entry)

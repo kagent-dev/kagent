@@ -42,3 +42,8 @@ func (s *grpcServer) DeleteCheckpoint(ctx context.Context, request *apiv1alpha1.
 	err := s.service.Delete(ctx, request.GetNamespace(), request.GetCheckpointId())
 	return &apiv1alpha1.DeleteCheckpointResponse{}, err
 }
+
+func (s *grpcServer) ForkAgentInstance(ctx context.Context, request *apiv1alpha1.ForkAgentInstanceRequest) (*apiv1alpha1.ForkAgentInstanceResponse, error) {
+	instance, err := s.service.Fork(ctx, request.GetNamespace(), request.GetCheckpointId(), request.GetRequestId())
+	return &apiv1alpha1.ForkAgentInstanceResponse{AgentInstance: instance}, err
+}

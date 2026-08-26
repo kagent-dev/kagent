@@ -241,6 +241,7 @@ func main() {
 		ShutdownTimeout: 5 * time.Second,
 		Logger:          logger,
 		Agent:           runnerConfig.Agent,
+		SessionDBURL:    agentConfig.SessionDBURL,
 	}, executor)
 	if err != nil {
 		logger.Error(err, "Failed to create app")

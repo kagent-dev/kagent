@@ -399,9 +399,6 @@ jobs:
           - kagent-adk
           - cli
           - golang-adk
-          - acp-sandbox-hermes
-          - acp-sandbox-openclaw
-          - acp-sandbox-claude
     runs-on: ubuntu-latest
     services:
       registry:

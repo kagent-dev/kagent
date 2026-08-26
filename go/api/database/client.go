@@ -122,6 +122,7 @@ type Client interface {
 
 	// AgentInstance lifecycle methods
 	CreateAgentInstance(context.Context, *apiv1alpha1.AgentInstance, string) (*apiv1alpha1.AgentInstance, bool, error)
+	ForkAgentInstance(context.Context, string, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
 	GetAgentInstance(context.Context, string, string, string) (*apiv1alpha1.AgentInstance, error)
 	ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error)
 	MarkAgentInstanceReady(context.Context, string, string) (*apiv1alpha1.AgentInstance, error)

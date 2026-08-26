@@ -31,6 +31,11 @@ type store interface {
 	ListAgentInstanceCheckpoints(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceCheckpoint, error)
 	BeginDeleteAgentInstanceCheckpoint(context.Context, string, string, string) (*dbpkg.AgentInstanceCheckpoint, error)
 	DeleteAgentInstanceCheckpoint(context.Context, string, string, string) error
+	ForkAgentInstance(context.Context, string, string, string, string, string) (*apiv1alpha1.AgentInstance, bool, error)
+}
+
+type workflow interface {
+	Fork(context.Context, *apiv1alpha1.AgentInstance, *dbpkg.AgentInstanceCheckpoint) (*apiv1alpha1.AgentInstance, error)
 }
 
 type tagClient interface {
@@ -44,6 +49,7 @@ type Service struct {
 	store      store
 	authorizer auth.Authorizer
 	tags       tagClient
+	workflow   workflow
 }
 
 type ListRequest struct {
@@ -58,8 +64,8 @@ type ListResult struct {
 	NextPageToken string
 }
 
-func NewService(store store, authorizer auth.Authorizer, tags tagClient) *Service {
-	return &Service{store: store, authorizer: authorizer, tags: tags}
+func NewService(store store, authorizer auth.Authorizer, tags tagClient, workflow workflow) *Service {
+	return &Service{store: store, authorizer: authorizer, tags: tags, workflow: workflow}
 }
 
 func (s *Service) Create(ctx context.Context, namespace, instanceID, requestID string) (*apiv1alpha1.Checkpoint, error) {
@@ -229,6 +235,45 @@ func (s *Service) Delete(ctx context.Context, namespace, checkpointID string) er
 		return serviceerrors.NewInternal("Failed to delete checkpoint", err)
 	}
 	return nil
+}
+
+func (s *Service) Fork(ctx context.Context, namespace, checkpointID, requestID string) (*apiv1alpha1.AgentInstance, error) {
+	if err := validateCreate(namespace, checkpointID, requestID); err != nil {
+		return nil, err
+	}
+	userID, err := s.authorize(ctx, auth.VerbCreate, "AgentInstance", namespace)
+	if err != nil {
+		return nil, err
+	}
+	checkpoint, err := s.store.GetAgentInstanceCheckpoint(ctx, namespace, checkpointID, userID)
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to get checkpoint", err)
+	}
+	if checkpoint.SnapshotContentScope != "DATA" {
+		return nil, serviceerrors.NewFailedPrecondition("Checkpoint includes process state and cannot be forked", nil)
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to generate AgentInstance identifier", err)
+	}
+	instance, _, err := s.store.ForkAgentInstance(ctx, namespace, checkpointID, userID, requestID, id.String())
+	if errors.Is(err, dbpkg.ErrIdempotencyConflict) {
+		return nil, serviceerrors.NewAlreadyExists("request_id was already used for a different AgentInstance", err)
+	}
+	if errors.Is(err, dbpkg.ErrNotFound) {
+		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to reserve fork AgentInstance", err)
+	}
+	instance, err = s.workflow.Fork(ctx, instance, checkpoint)
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to create fork AgentInstance", err)
+	}
+	return instance, nil
 }
 
 func (s *Service) authorize(ctx context.Context, verb auth.Verb, resourceType, name string) (string, error) {

@@ -38,7 +38,7 @@ func (g *Gateway) taskRun(instanceID string, taskID a2atype.TaskID) (*taskRun, b
 	return run.(*taskRun), true
 }
 
-func (g *Gateway) startTaskRun(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) (*taskRun, eventqueue.Reader, error) {
+func (g *Gateway) startTaskRun(ctx context.Context, instance *apiv1alpha1.AgentInstance, task, previous *a2atype.Task, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) (*taskRun, eventqueue.Reader, error) {
 	key := taskRunKey(instance.GetId(), task.ID)
 	run := &taskRun{gateway: g, key: key, queueID: a2atype.TaskID(key), done: make(chan struct{})}
 	if _, loaded := g.runs.LoadOrStore(key, run); loaded {
@@ -56,11 +56,11 @@ func (g *Gateway) startTaskRun(ctx context.Context, instance *apiv1alpha1.AgentI
 		g.runs.Delete(key)
 		return nil, nil, fmt.Errorf("create task event reader: %w", err)
 	}
-	go run.ingest(context.WithoutCancel(ctx), instance, task, client, writer, events)
+	go run.ingest(context.WithoutCancel(ctx), instance, task, previous, client, writer, events)
 	return run, reader, nil
 }
 
-func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstance, task *a2atype.Task, client *a2aclient.Client, writer eventqueue.Writer, events iter.Seq2[a2atype.Event, error]) {
+func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstance, task, previous *a2atype.Task, client *a2aclient.Client, writer eventqueue.Writer, events iter.Seq2[a2atype.Event, error]) {
 	defer func() {
 		_ = writer.Close()
 		_ = client.Destroy()
@@ -71,12 +71,22 @@ func (r *taskRun) ingest(ctx context.Context, instance *apiv1alpha1.AgentInstanc
 
 	for event, eventErr := range events {
 		if eventErr != nil {
-			r.gateway.failTask(ctx, instance.GetId(), task)
+			r.gateway.failAttempt(ctx, &preparedSend{instance: instance, task: task, previous: previous})
 			r.setError(eventErr)
 			return
 		}
 		updated, err := taskForEvent(task, event)
-		if err == nil {
+		if err == nil && isQuiescent(updated.Status.State) {
+			release := r.gateway.coordinator.Quiesce(instance.GetId())
+			// Quiescence drains ingress; close this terminal stream so it cannot wait on itself.
+			if closeErr := client.Destroy(); closeErr != nil {
+				err = fmt.Errorf("close terminal runtime stream: %w", closeErr)
+			}
+			if err == nil {
+				err = r.gateway.storeEvent(ctx, instance, updated, event)
+			}
+			release()
+		} else if err == nil {
 			err = r.gateway.storeEvent(ctx, instance, updated, event)
 		}
 		if err != nil {

@@ -8,11 +8,8 @@ import (
 
 	"github.com/gorilla/mux"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
-	"github.com/kagent-dev/kagent/go/core/internal/a2a"
 	"github.com/kagent-dev/kagent/go/core/internal/httpserver/handlers"
-	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
-	"github.com/kagent-dev/kagent/go/core/pkg/sandboxbackend/substrate"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
@@ -20,24 +17,16 @@ import (
 
 const (
 	// API Path constants
-	APIPathHealth          = "/health"
-	APIPathA2A             = "/api/a2a"
-	APIPathA2ASandboxes    = "/api/a2a-sandboxes"
-	APIPathMCP             = "/mcp"
-	APIPathAgentHarnessACP = "/api/agentharnesses/{namespace}/{name}/acp/"
+	APIPathHealth = "/health"
 )
 
 // ServerConfig holds the configuration for the HTTP server
 type ServerConfig struct {
-	Router                   *mux.Router
-	BindAddr                 string
-	KubeClient               ctrl_client.Client
-	A2AHandler               a2a.A2AHandlerMux
-	MCPHandler               *mcp.MCPHandler
-	DbClient                 dbpkg.Client
-	Authenticator            auth.AuthProvider
-	AgentHarnessGateway      *handlers.AgentHarnessGatewayConfig
-	AgentHarnessSessionActor *substrate.AgentHarnessSessionActorBackend
+	Router        *mux.Router
+	BindAddr      string
+	KubeClient    ctrl_client.Client
+	DbClient      dbpkg.Client
+	Authenticator auth.AuthProvider
 }
 
 // HTTPServer is the structure that manages the HTTP server
@@ -54,13 +43,9 @@ func NewHTTPServer(config ServerConfig) (*HTTPServer, error) {
 	// Initialize database
 
 	return &HTTPServer{
-		config: config,
-		router: config.Router,
-		handlers: handlers.NewHandlers(
-			config.KubeClient,
-			config.AgentHarnessGateway,
-			config.AgentHarnessSessionActor,
-		),
+		config:        config,
+		router:        config.Router,
+		handlers:      handlers.NewHandlers(config.KubeClient),
 		authenticator: config.Authenticator,
 	}, nil
 }
@@ -178,24 +163,9 @@ func (s *HTTPServer) setupRoutes() {
 	// Health check endpoint
 	s.router.HandleFunc(APIPathHealth, adaptHealthHandler(s.handlers.Health.HandleHealth)).Methods(http.MethodGet)
 
-	// Substrate harness /acp WebSocket proxy via atenet-router.
-	s.router.PathPrefix(APIPathAgentHarnessACP).Handler(
-		adaptHandler(s.handlers.HandleAgentHarnessGateway),
-	)
-
-	// A2A
-	s.router.PathPrefix(APIPathA2A + "/{namespace}/{name}").Handler(s.config.A2AHandler)
-	s.router.PathPrefix(APIPathA2ASandboxes + "/{namespace}/{name}").Handler(s.config.A2AHandler)
-
-	// MCP
-	if s.config.MCPHandler != nil {
-		s.router.PathPrefix(APIPathMCP).Handler(s.config.MCPHandler)
-	}
-
 	// Use middleware for common functionality (first registered runs outermost on incoming requests).
 	s.router.Use(wsAuthQueryMiddleware)
 	s.router.Use(auth.AuthnMiddleware(s.authenticator))
-	s.router.Use(s.shareTokenMiddleware)
 	s.router.Use(contentTypeMiddleware)
 	s.router.Use(loggingMiddleware)
 	s.router.Use(errorHandlerMiddleware)
@@ -219,12 +189,6 @@ func wsAuthQueryMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
-}
-
-func adaptHandler(h func(handlers.ErrorResponseWriter, *http.Request)) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		h(w.(handlers.ErrorResponseWriter), r)
-	}
 }
 
 func adaptHealthHandler(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {

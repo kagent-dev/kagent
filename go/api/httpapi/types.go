@@ -101,14 +101,11 @@ func AgentResourceFrom(agent *v1alpha3.SandboxAgent) *AgentResource {
 
 // SubstrateAgentHarnessListEntry describes an AgentHarness backed by Agent Substrate.
 type SubstrateAgentHarnessListEntry struct {
-	Backend v1alpha3.AgentHarnessBackendType `json:"backend"`
-	ActorID string                           `json:"actorId,omitempty"`
-	// AcpPath is the server-side ACP WebSocket proxy path for chatting with
-	// the harness from the kagent UI.
-	AcpPath        string `json:"acpPath,omitempty"`
-	ModelConfigRef string `json:"modelConfigRef,omitempty"`
-	BackendRefID   string `json:"backendRefId,omitempty"`
-	Endpoint       string `json:"endpoint,omitempty"`
+	Backend        v1alpha3.AgentHarnessBackendType `json:"backend"`
+	ActorID        string                           `json:"actorId,omitempty"`
+	ModelConfigRef string                           `json:"modelConfigRef,omitempty"`
+	BackendRefID   string                           `json:"backendRefId,omitempty"`
+	Endpoint       string                           `json:"endpoint,omitempty"`
 }
 
 type AgentResponse struct {
