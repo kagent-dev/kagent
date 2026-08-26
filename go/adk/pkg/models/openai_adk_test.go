@@ -39,6 +39,17 @@ func TestFunctionResponseContentString(t *testing.T) {
 			},
 			"result": "from result",
 		}, "from content"},
+		{"map with content[0].resource.text", map[string]any{
+			"content": []any{
+				map[string]any{"type": "resource", "resource": map[string]any{"text": "embedded resource text"}},
+			},
+		}, "embedded resource text"},
+		{"map with text and resource blocks joined", map[string]any{
+			"content": []any{
+				map[string]any{"text": "summary line"},
+				map[string]any{"type": "resource", "resource": map[string]any{"text": "full file content"}},
+			},
+		}, "summary line\nfull file content"},
 		{"map empty content slice falls back to JSON", map[string]any{
 			"content": []any{},
 		}, `{"content":[]}`},

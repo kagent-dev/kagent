@@ -112,7 +112,7 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // parametersJsonSchemaToMap converts a genai.FunctionDeclaration.ParametersJsonSchema value
 // to map[string]any. ParametersJsonSchema is typed as `any` and can hold:
-//   - map[string]any (rare — only if someone constructs it manually)
+//   - map[string]any (rare, only if someone constructs it manually)
 //   - *jsonschema.Schema (from functiontool.New and MCP tools via mcptoolset)
 //   - any other JSON-serializable type
 func parametersJsonSchemaToMap(v any) map[string]any {
@@ -150,8 +150,18 @@ func extractFunctionResponseContent(resp any) string {
 		if c, ok := m["content"].([]any); ok && len(c) > 0 {
 			var parts []string
 			for _, item := range c {
-				if itemMap, ok := item.(map[string]any); ok {
-					if t, ok := itemMap["text"].(string); ok {
+				itemMap, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				if t, ok := itemMap["text"].(string); ok {
+					parts = append(parts, t)
+					continue
+				}
+				// Embedded resource content (type: "resource") carries its text
+				// under resource.text instead of a top-level text field.
+				if resource, ok := itemMap["resource"].(map[string]any); ok {
+					if t, ok := resource["text"].(string); ok {
 						parts = append(parts, t)
 					}
 				}
