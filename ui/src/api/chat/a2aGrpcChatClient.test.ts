@@ -554,6 +554,27 @@ describe("A2AGrpcChatClient.history", () => {
     });
   }
 
+  it("replays protocol history before deliverable artifacts", async () => {
+    serveTasks([
+      {
+        id: "task-1",
+        contextId: CONVERSATION.id,
+        status: { state: TaskState.COMPLETED, timestamp: { seconds: 1767225600n } },
+        history: [
+          { messageId: "u0", role: Role.USER, parts: [text("ask me a question")] },
+          { messageId: "a0", role: Role.AGENT, parts: [data({ name: "ask_user" })] },
+          { messageId: "a1", role: Role.AGENT, parts: [text("Which topic?")] },
+          { messageId: "u1", role: Role.USER, parts: [text("Personal development")] },
+          { messageId: "a2", role: Role.AGENT, parts: [data({ name: "ask_user" })] },
+        ],
+        artifacts: [{ artifactId: "result", parts: [text("Thank you for sharing.")] }],
+      },
+    ]);
+
+    const { messages } = await new A2AGrpcChatClient().history(CONVERSATION);
+    expect(messages.map((message) => message.id)).toEqual(["u0", "a0", "a1", "u1", "a2", "result"]);
+  });
+
   it("keeps a tool call and its result apart when replaying", async () => {
     // Consecutive agent messages carrying data parts and no text at all: comparing
     // text made them look identical and dropped the result, so a replayed

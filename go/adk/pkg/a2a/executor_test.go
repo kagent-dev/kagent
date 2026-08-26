@@ -198,6 +198,31 @@ func TestKAgentExecutor_PreservesContentBearingLastChunk(t *testing.T) {
 	}
 }
 
+func TestKAgentExecutor_EmitsToolEventsAsStatusMessages(t *testing.T) {
+	reqCtx := &a2asrv.ExecutorContext{TaskID: "task-1", ContextID: "ctx-1"}
+	reqCtx.Message = a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hi"))
+	toolPart := a2atype.NewDataPart(map[string]any{PartKeyName: "search"})
+	toolPart.Metadata = map[string]any{GetKAgentMetadataKey(A2ADataPartMetadataTypeKey): A2ADataPartMetadataTypeFunctionCall}
+	tool := a2atype.NewArtifactEvent(reqCtx, toolPart)
+	text := a2atype.NewArtifactEvent(reqCtx, a2atype.NewTextPart("done"))
+	executor := &KAgentExecutor{builtin: &recordingExecutor{events: []a2atype.Event{tool, text}}, logger: logr.Discard()}
+
+	var got []a2atype.Event
+	for event, err := range executor.Execute(t.Context(), reqCtx) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, event)
+	}
+	status, ok := got[0].(*a2atype.TaskStatusUpdateEvent)
+	if !ok || status.Status.State != a2atype.TaskStateWorking || status.Status.Message.ID != string(tool.Artifact.ID) || status.Status.Message.Parts[0] != toolPart {
+		t.Fatalf("tool event = %#v, want working status message", got[0])
+	}
+	if got[1] != text {
+		t.Fatalf("text event = %#v, want original artifact", got[1])
+	}
+}
+
 func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 	const (
 		appName   = "test-app"

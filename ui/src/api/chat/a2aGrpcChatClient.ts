@@ -76,7 +76,6 @@ import {
   type PendingRequest,
 } from "./hitl";
 import { agentInstanceShareToken } from "../shareToken";
-import { interleaveTaskMessages } from "./transcriptOrder";
 import { serviceClient } from "../transport";
 import type {
   ChatClient,
@@ -765,43 +764,22 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
     });
   };
 
-  /*
-   * Sorted into three, because the gateway hands back two lists with no way to
-   * interleave them — see `interleaveTaskMessages`, which does the inferring and
-   * carries the reasoning.
-   *
-   * The split has to happen here rather than after conversion: what marks a reader
-   * turn as an answer is the HITL metadata on the A2A message, and a `ChatMessage`
-   * does not carry it.
-   */
-  const openingCount = messages.length;
-  const answerAt: number[] = [];
   for (const message of task.history) {
-    if (isAskUserResponse(message)) answerAt.push(messages.length);
     push(message);
   }
   if (task.status?.message) push(task.status.message);
 
-  const fromHistory = messages.slice(openingCount);
-  const answered = new Set(answerAt.map((index) => index - openingCount));
-  const answers = fromHistory.filter((_, index) => answered.has(index));
-  const opening = [
-    ...messages.slice(0, openingCount),
-    ...fromHistory.filter((_, index) => !answered.has(index)),
-  ];
-
   // An artifact repeating text already in the history is the same reply arriving
   // twice, exactly as it is on a live stream.
   const shown = new Set(messages.map((message) => textOf(message.parts)));
-  const agent: ChatMessage[] = [];
   for (const artifact of task.artifacts) {
     const parts = toParts(artifact.parts);
     const body = textOf(parts);
     if (parts.length === 0 || (body !== "" && shown.has(body))) continue;
-    agent.push({
+    messages.push({
       // Derived, for the reason given against the message id above: an unnamed
       // artifact renamed on every read is an artifact the merge cannot recognise.
-      id: artifact.artifactId || `${task.id || "task"}-artifact-${messages.length + agent.length}`,
+      id: artifact.artifactId || `${task.id || "task"}-artifact-${messages.length}`,
       role: "agent",
       parts,
       createdAt,
@@ -809,13 +787,5 @@ export function messagesFromTask(task: A2ATask): ChatMessage[] {
     });
   }
 
-  return interleaveTaskMessages(opening, answers, agent);
-}
-
-/** Whether a reader's turn is answering an `ask_user` rather than opening a task. */
-function isAskUserResponse(message: A2AMessage): boolean {
-  const carried = (message.metadata as Record<string, unknown> | undefined)?.[
-    HITL_EXTENSION_URI
-  ] as { type?: unknown } | undefined;
-  return carried?.type === "ask_user_response";
+  return messages;
 }

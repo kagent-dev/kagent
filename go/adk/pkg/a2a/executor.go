@@ -34,7 +34,7 @@ type KAgentExecutorConfig struct {
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
-// A2A executor. Event conversion and artifact streaming are delegated to ADK.
+// A2A executor.
 type KAgentExecutor struct {
 	builtin        a2asrv.AgentExecutor
 	sessionService adksession.Service
@@ -105,7 +105,7 @@ func (u *userIDInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallCont
 }
 
 // Execute applies kagent-specific request setup and delegates event generation
-// to the upstream ADK executor, which streams output as artifact updates.
+// to the upstream ADK executor.
 func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		if reqCtx.Message == nil {
@@ -175,11 +175,36 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 				update.Status.Message.TaskID = update.TaskID
 				update.Status.Message.ContextID = update.ContextID
 			}
+			if update, ok := event.(*a2atype.TaskArtifactUpdateEvent); ok && artifactContainsToolEvent(update.Artifact) {
+				message := a2atype.NewMessageForTask(a2atype.MessageRoleAgent, update, update.Artifact.Parts...)
+				message.ID = string(update.Artifact.ID)
+				message.Extensions = update.Artifact.Extensions
+				message.Metadata = update.Artifact.Metadata
+				status := a2atype.NewStatusUpdateEvent(update, a2atype.TaskStateWorking, message)
+				status.Metadata = update.Metadata
+				event = status
+			}
 			if !yield(event, err) {
 				return
 			}
 		}
 	}
+}
+
+func artifactContainsToolEvent(artifact *a2atype.Artifact) bool {
+	if artifact == nil {
+		return false
+	}
+	for _, part := range artifact.Parts {
+		if part == nil {
+			continue
+		}
+		partType, _ := ReadMetadataValue(part.Metadata, A2ADataPartMetadataTypeKey)
+		if partType == A2ADataPartMetadataTypeFunctionCall || partType == A2ADataPartMetadataTypeFunctionResponse {
+			return true
+		}
+	}
+	return false
 }
 
 // ensureSession ensures that a session exists for the given user and session ID.
