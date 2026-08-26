@@ -240,6 +240,48 @@ func TestStoreSessionIdempotence(t *testing.T) {
 	require.Error(t, err, "another user's session must not be readable")
 }
 
+// A soft-deleted session keeps its (id, user_id) row, so its id is burned:
+// recreating it must fail loudly instead of updating a row that stays deleted
+// and that no read path can see.
+func TestDeletedSessionIdCannotBeReused(t *testing.T) {
+	db := setupTestDB(t)
+	client := NewClient(db)
+	ctx := context.Background()
+
+	name := "First incarnation"
+	session := &dbpkg.Session{ID: "s-dead", UserID: "alice", Name: &name}
+	require.NoError(t, client.StoreSession(ctx, session))
+	require.NoError(t, client.DeleteSession(ctx, "s-dead", "alice"))
+
+	tombstone := func() (createdAt, deletedAt *time.Time, storedName *string) {
+		require.NoError(t, db.QueryRow(ctx,
+			"SELECT created_at, deleted_at, name FROM session WHERE id = $1 AND user_id = $2",
+			"s-dead", "alice").Scan(&createdAt, &deletedAt, &storedName))
+		return
+	}
+	createdBefore, deletedBefore, _ := tombstone()
+	require.NotNil(t, deletedBefore, "delete must leave a tombstone")
+
+	renamed := "Second incarnation"
+	err := client.StoreSession(ctx, &dbpkg.Session{ID: "s-dead", UserID: "alice", Name: &renamed})
+	require.ErrorIs(t, err, dbpkg.ErrSessionIDRetired, "the owner must not silently resurrect a deleted id")
+
+	createdAfter, deletedAfter, storedName := tombstone()
+	assert.Equal(t, createdBefore, createdAfter, "the tombstone's created_at must not move")
+	assert.Equal(t, deletedBefore, deletedAfter, "the tombstone must stay deleted")
+	assert.Equal(t, name, *storedName, "the rejected write must not have touched the tombstone")
+
+	_, err = client.GetSession(ctx, "s-dead", "alice")
+	require.Error(t, err, "the session must stay deleted")
+
+	// A tombstone is not a live row, so the same id under another user does not
+	// collide with it.
+	require.NoError(t, client.StoreSession(ctx, &dbpkg.Session{ID: "s-dead", UserID: "bob", Name: &renamed}))
+	bobs, err := client.GetSession(ctx, "s-dead", "bob")
+	require.NoError(t, err)
+	assert.Equal(t, renamed, *bobs.Name)
+}
+
 func TestListSessionsOrdersByRecentActivity(t *testing.T) {
 	db := setupTestDB(t)
 	client := NewClient(db)
