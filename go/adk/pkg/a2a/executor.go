@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"iter"
-	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -251,23 +250,11 @@ func extractSessionName(message *a2atype.Message) string {
 // withBearerToken extracts the Bearer token from the incoming A2A request's
 // Authorization header and stores it in ctx for API key passthrough.
 func withBearerToken(ctx context.Context) context.Context {
-	callCtx, ok := a2asrv.CallContextFrom(ctx)
-	if !ok {
+	token := models.BearerFromCallContext(ctx)
+	if token == "" {
 		return ctx
 	}
-	meta := callCtx.ServiceParams()
-	if meta == nil {
-		return ctx
-	}
-	vals, ok := meta.Get("authorization")
-	if !ok || len(vals) == 0 || vals[0] == "" {
-		return ctx
-	}
-	parts := strings.Fields(strings.TrimSpace(vals[0]))
-	if len(parts) >= 2 && strings.EqualFold(parts[0], "Bearer") {
-		return context.WithValue(ctx, models.BearerTokenKey, parts[1])
-	}
-	return ctx
+	return context.WithValue(ctx, models.BearerTokenKey, token)
 }
 
 // dropPreAppendedDecisionFromHistory removes a pre-appended HITL decision
