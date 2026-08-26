@@ -447,12 +447,16 @@ func (*fakeInstanceStore) GetAgentInstance(context.Context, string, string, stri
 	return nil, dbpkg.ErrNotFound
 }
 
-func (*fakeInstanceStore) ListAgentInstances(context.Context, string, string, bool, map[string]string, string, int) ([]*apiv1alpha1.AgentInstance, error) {
+func (*fakeInstanceStore) ListAgentInstances(context.Context, dbpkg.AgentInstanceQuery) ([]*apiv1alpha1.AgentInstance, error) {
 	return []*apiv1alpha1.AgentInstance{{
 		Id: testInstanceID, Namespace: "team-a", State: apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY,
 		AgentTemplate: &apiv1alpha1.ResourceReference{Name: "assistant"},
 		Harness:       &apiv1alpha1.ResourceReference{Name: "kagent"},
 	}}, nil
+}
+
+func (*fakeInstanceStore) UpdateAgentInstanceName(context.Context, string, string, string, string) (*apiv1alpha1.AgentInstance, error) {
+	return nil, dbpkg.ErrNotFound
 }
 
 func (*fakeInstanceStore) CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
