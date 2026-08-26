@@ -87,36 +87,15 @@ func TestCRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, testImage, fetched.Spec.Workload.Image)
 
-	updated, err := service.Update(ctx, ref, fixture("team", "shared", "pool-b"))
-	require.NoError(t, err)
-	assert.Equal(t, "pool-b", updated.Spec.Substrate.WorkerPoolRef.Name)
-
 	require.NoError(t, service.Delete(ctx, ref))
 	_, err = service.Get(ctx, ref)
 	assert.True(t, serviceerrors.IsCode(err, serviceerrors.CodeNotFound), err)
 }
 
 // The capability record in status is proven by the controller for a pinned
-// adapter and image, so an edit must not blank it and a create must not seed it.
+// adapter and image, so a create must not seed it.
 func TestStatusIsControllerOwned(t *testing.T) {
-	existing := fixture("team", "shared", "pool-a")
-	existing.Status = v1alpha3.HarnessStatus{
-		Capabilities: &v1alpha3.HarnessCapabilities{Version: "v1", Streaming: true},
-		Conditions: []metav1.Condition{{
-			Type:   v1alpha3.HarnessConditionTypeReady,
-			Status: metav1.ConditionTrue,
-			Reason: "Ready",
-		}},
-	}
-	service, ctx := newService(t, &authimpl.NoopAuthorizer{}, existing)
-
-	updated, err := service.Update(ctx,
-		types.NamespacedName{Namespace: "team", Name: "shared"},
-		fixture("team", "shared", "pool-b"))
-	require.NoError(t, err)
-	assert.Equal(t, "pool-b", updated.Spec.Substrate.WorkerPoolRef.Name)
-	require.NotNil(t, updated.Status.Capabilities)
-	assert.Equal(t, "v1", updated.Status.Capabilities.Version)
+	service, ctx := newService(t, &authimpl.NoopAuthorizer{})
 
 	forged := fixture("team", "forged", "pool-a")
 	forged.Status = v1alpha3.HarnessStatus{
@@ -175,25 +154,9 @@ func TestInvalidArgumentsAndNotFound(t *testing.T) {
 			code: serviceerrors.CodeInvalidArgument,
 		},
 		{
-			name: "update nil resource",
-			call: func(s *harness.Service, ctx context.Context) error {
-				_, err := s.Update(ctx, missing, nil)
-				return err
-			},
-			code: serviceerrors.CodeInvalidArgument,
-		},
-		{
 			name: "get missing harness",
 			call: func(s *harness.Service, ctx context.Context) error {
 				_, err := s.Get(ctx, missing)
-				return err
-			},
-			code: serviceerrors.CodeNotFound,
-		},
-		{
-			name: "update missing harness",
-			call: func(s *harness.Service, ctx context.Context) error {
-				_, err := s.Update(ctx, missing, fixture("team", "absent", "pool-a"))
 				return err
 			},
 			code: serviceerrors.CodeNotFound,
@@ -232,10 +195,6 @@ func TestAuthorizationDenied(t *testing.T) {
 		}},
 		{"create", func(s *harness.Service, ctx context.Context) error {
 			_, err := s.Create(ctx, fixture("team", "shared", "pool-a"))
-			return err
-		}},
-		{"update", func(s *harness.Service, ctx context.Context) error {
-			_, err := s.Update(ctx, ref, fixture("team", "shared", "pool-a"))
 			return err
 		}},
 		{"delete", func(s *harness.Service, ctx context.Context) error {

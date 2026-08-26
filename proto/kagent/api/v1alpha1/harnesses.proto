@@ -20,9 +20,7 @@ option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1
 // so this is a separate service rather than more RPCs on AgentService.
 service HarnessService {
   rpc ListHarnesses(ListHarnessesRequest) returns (ListHarnessesResponse);
-  rpc GetHarness(GetHarnessRequest) returns (GetHarnessResponse);
   rpc CreateHarness(CreateHarnessRequest) returns (CreateHarnessResponse);
-  rpc UpdateHarness(UpdateHarnessRequest) returns (UpdateHarnessResponse);
   rpc DeleteHarness(DeleteHarnessRequest) returns (DeleteHarnessResponse);
 }
 
@@ -54,29 +52,12 @@ message ListHarnessesResponse {
   repeated Harness harnesses = 1;
 }
 
-message GetHarnessRequest {
-  ResourceReference ref = 1;
-}
-
-message GetHarnessResponse {
-  Harness harness = 1;
-}
-
 message CreateHarnessRequest {
   ResourceReference ref = 1;
   StructuredObject resource = 2;
 }
 
 message CreateHarnessResponse {
-  Harness harness = 1;
-}
-
-message UpdateHarnessRequest {
-  ResourceReference ref = 1;
-  StructuredObject resource = 2;
-}
-
-message UpdateHarnessResponse {
   Harness harness = 1;
 }
 

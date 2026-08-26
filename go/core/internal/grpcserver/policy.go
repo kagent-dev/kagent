@@ -81,18 +81,13 @@ func DefaultMethodPolicies() MethodPolicies {
 		grpc_health_v1.Health_Watch_FullMethodName:                            AccessPublic,
 		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo":           AccessPublic,
 		"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo":      AccessPublic,
-		apiv1alpha1.SystemService_GetSubstrateSummary_FullMethodName:          AccessRead,
-		apiv1alpha1.SystemService_ListSubstrateActors_FullMethodName:          AccessRead,
-		apiv1alpha1.SystemService_ListSubstrateWorkers_FullMethodName:         AccessRead,
 		apiv1alpha1.AgentTemplateService_ListAgentTemplates_FullMethodName:    AccessRead,
 		apiv1alpha1.AgentTemplateService_GetAgentTemplate_FullMethodName:      AccessRead,
 		apiv1alpha1.AgentTemplateService_CreateAgentTemplate_FullMethodName:   AccessCreate,
 		apiv1alpha1.AgentTemplateService_UpdateAgentTemplate_FullMethodName:   AccessUpdate,
 		apiv1alpha1.AgentTemplateService_DeleteAgentTemplate_FullMethodName:   AccessDelete,
 		apiv1alpha1.HarnessService_ListHarnesses_FullMethodName:               AccessRead,
-		apiv1alpha1.HarnessService_GetHarness_FullMethodName:                  AccessRead,
 		apiv1alpha1.HarnessService_CreateHarness_FullMethodName:               AccessCreate,
-		apiv1alpha1.HarnessService_UpdateHarness_FullMethodName:               AccessUpdate,
 		apiv1alpha1.HarnessService_DeleteHarness_FullMethodName:               AccessDelete,
 	}
 	policies[apiv1alpha1.AgentInstanceService_CreateAgentInstance_FullMethodName] = AccessCreate

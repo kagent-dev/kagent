@@ -39,30 +39,14 @@ func (s *harnessServer) ListHarnesses(ctx context.Context, request *apiv1alpha1.
 		return nil, err
 	}
 	harnesses := make([]*apiv1alpha1.Harness, 0, len(items))
-	for index := range items {
-		encoded, err := s.harness(&items[index])
+	for _, item := range items {
+		encoded, err := s.harness(item)
 		if err != nil {
 			return nil, err
 		}
 		harnesses = append(harnesses, encoded)
 	}
 	return &apiv1alpha1.ListHarnessesResponse{Harnesses: harnesses}, nil
-}
-
-func (s *harnessServer) GetHarness(ctx context.Context, request *apiv1alpha1.GetHarnessRequest) (*apiv1alpha1.GetHarnessResponse, error) {
-	ref, err := requiredHarnessRef(request.GetRef())
-	if err != nil {
-		return nil, err
-	}
-	result, err := s.service.Get(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	encoded, err := s.harness(result)
-	if err != nil {
-		return nil, err
-	}
-	return &apiv1alpha1.GetHarnessResponse{Harness: encoded}, nil
 }
 
 func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1alpha1.CreateHarnessRequest) (*apiv1alpha1.CreateHarnessResponse, error) {
@@ -79,26 +63,6 @@ func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1alpha1.
 		return nil, err
 	}
 	return &apiv1alpha1.CreateHarnessResponse{Harness: encoded}, nil
-}
-
-func (s *harnessServer) UpdateHarness(ctx context.Context, request *apiv1alpha1.UpdateHarnessRequest) (*apiv1alpha1.UpdateHarnessResponse, error) {
-	ref, err := requiredHarnessRef(request.GetRef())
-	if err != nil {
-		return nil, err
-	}
-	incoming := &v1alpha3.Harness{}
-	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
-		return nil, err
-	}
-	result, err := s.service.Update(ctx, ref, incoming)
-	if err != nil {
-		return nil, err
-	}
-	encoded, err := s.harness(result)
-	if err != nil {
-		return nil, err
-	}
-	return &apiv1alpha1.UpdateHarnessResponse{Harness: encoded}, nil
 }
 
 func (s *harnessServer) DeleteHarness(ctx context.Context, request *apiv1alpha1.DeleteHarnessRequest) (*apiv1alpha1.DeleteHarnessResponse, error) {

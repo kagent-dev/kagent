@@ -398,9 +398,7 @@ type CreateAgentInstanceRequest struct {
 	Harness       string                 `protobuf:"bytes,2,opt,name=harness,proto3" json:"harness,omitempty"`
 	AgentTemplate string                 `protobuf:"bytes,3,opt,name=agent_template,json=agentTemplate,proto3" json:"agent_template,omitempty"`
 	RequestId     string                 `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	// Optional display name. Omit it to create an unnamed conversation. Unvalidated
-	// because empty is the ordinary case: a conversation is usually named later, or
-	// never.
+	// Optional display name. Empty means unnamed.
 	Name          string `protobuf:"bytes,5,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1571,39 +1569,39 @@ const file_kagent_api_v1alpha1_agent_instances_proto_rawDesc = "" +
 	"\x04name\x18\x0e \x01(\tR\x04name\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd5\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x94\x02\n" +
 	"\x1aCreateAgentInstanceRequest\x12%\n" +
 	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x12!\n" +
 	"\aharness\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\aharness\x12.\n" +
 	"\x0eagent_template\x18\x03 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\ragentTemplate\x12)\n" +
 	"\n" +
 	"request_id\x18\x04 \x01(\tB\n" +
-	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\x12\x12\n" +
-	"\x04name\x18\x05 \x01(\tR\x04name\"h\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\x12Q\n" +
+	"\x04name\x18\x05 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04name\"h\n" +
 	"\x1bCreateAgentInstanceResponse\x12I\n" +
 	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"u\n" +
 	"\x17GetAgentInstanceRequest\x12%\n" +
 	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x123\n" +
 	"\x11agent_instance_id\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x0fagentInstanceId\"e\n" +
 	"\x18GetAgentInstanceResponse\x12I\n" +
-	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\x80\x03\n" +
+	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"\xb2\x04\n" +
 	"\x19ListAgentInstancesRequest\x12%\n" +
 	"\tnamespace\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tnamespace\x12b\n" +
 	"\fmatch_labels\x18\x02 \x03(\v2?.kagent.api.v1alpha1.ListAgentInstancesRequest.MatchLabelsEntryR\vmatchLabels\x12!\n" +
 	"\fall_creators\x18\x03 \x01(\bR\vallCreators\x124\n" +
-	"\x04page\x18\x04 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12%\n" +
-	"\x0eagent_template\x18\x05 \x01(\tR\ragentTemplate\x12\x18\n" +
-	"\aharness\x18\x06 \x01(\tR\aharness\x1a>\n" +
+	"\x04page\x18\x04 \x01(\v2 .kagent.api.v1alpha1.PageRequestR\x04page\x12~\n" +
+	"\x0eagent_template\x18\x05 \x01(\tBW\xbaHTrR\x18\xfd\x012M^(?:$|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*)$R\ragentTemplate\x12q\n" +
+	"\aharness\x18\x06 \x01(\tBW\xbaHTrR\x18\xfd\x012M^(?:$|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*)$R\aharness\x1a>\n" +
 	"\x10MatchLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x01\n" +
 	"\x1aListAgentInstancesResponse\x12K\n" +
 	"\x0fagent_instances\x18\x01 \x03(\v2\".kagent.api.v1alpha1.AgentInstanceR\x0eagentInstances\x125\n" +
-	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"z\n" +
-	"\x1aRenameAgentInstanceRequest\x12\x1c\n" +
-	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12*\n" +
-	"\x11agent_instance_id\x18\x02 \x01(\tR\x0fagentInstanceId\x12\x12\n" +
-	"\x04name\x18\x03 \x01(\tR\x04name\"h\n" +
+	"\x04page\x18\x02 \x01(\v2!.kagent.api.v1alpha1.PageResponseR\x04page\"\xf1\x01\n" +
+	"\x1aRenameAgentInstanceRequest\x12J\n" +
+	"\tnamespace\x18\x01 \x01(\tB,\xbaH)r'\x10\x01\x18?2!^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$R\tnamespace\x124\n" +
+	"\x11agent_instance_id\x18\x02 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\x0fagentInstanceId\x12Q\n" +
+	"\x04name\x18\x03 \x01(\tB=\xbaH:r8\x18\xc8\x0123^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$R\x04name\"h\n" +
 	"\x1bRenameAgentInstanceResponse\x12I\n" +
 	"\x0eagent_instance\x18\x01 \x01(\v2\".kagent.api.v1alpha1.AgentInstanceR\ragentInstance\"y\n" +
 	"\x1bSuspendAgentInstanceRequest\x12%\n" +

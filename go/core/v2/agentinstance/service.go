@@ -8,27 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
-	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
 	defaultPageSize = 50
 	maxPageSize     = 100
-	// maxNameLength bounds the conversation's display name. It is counted in
-	// runes rather than bytes so a non-ASCII title is not cut to a third of the
-	// length an ASCII one gets, and it is generous enough to hold a title derived
-	// from a first message while still fitting a list column.
-	maxNameLength = 200
 )
 
 type store interface {
@@ -39,8 +30,6 @@ type store interface {
 	CreateAgentInstanceShare(context.Context, dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error)
 	ListAgentInstanceShares(context.Context, string, string, string, string, int) ([]dbpkg.AgentInstanceShare, error)
 	DeleteAgentInstanceShare(context.Context, string, string, string) error
-	GetActiveAgentInstanceTask(context.Context, string) (*a2a.Task, error)
-	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
 }
 
 type instanceWorkflow interface {
@@ -87,9 +76,6 @@ func NewService(store store, authorizer auth.Authorizer, workflow instanceWorkfl
 // created before names existed behaves.
 func (s *Service) Create(ctx context.Context, namespace, harness, template, requestID, name string) (*apiv1alpha1.AgentInstance, error) {
 	if err := validateCreate(namespace, harness, template, requestID); err != nil {
-		return nil, err
-	}
-	if err := validateName(name); err != nil {
 		return nil, err
 	}
 	creator, err := s.authorize(ctx, auth.VerbCreate, namespace+"/"+template)
@@ -139,12 +125,6 @@ func (s *Service) Get(ctx context.Context, namespace, id string) (*apiv1alpha1.A
 // service this is a write, and it authorizes as one: a reader who may list and
 // open a conversation must not be able to retitle it.
 func (s *Service) Rename(ctx context.Context, namespace, id, name string) (*apiv1alpha1.AgentInstance, error) {
-	if err := validateIdentity(namespace, id); err != nil {
-		return nil, err
-	}
-	if err := validateName(name); err != nil {
-		return nil, err
-	}
 	creator, err := s.authorize(ctx, auth.VerbUpdate, namespace+"/"+id)
 	if err != nil {
 		return nil, err
@@ -161,12 +141,6 @@ func (s *Service) Rename(ctx context.Context, namespace, id, name string) (*apiv
 
 func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, error) {
 	if err := validateNamespace(request.Namespace); err != nil {
-		return ListResult{}, err
-	}
-	if err := validateOptionalName("agent_template", request.AgentTemplate); err != nil {
-		return ListResult{}, err
-	}
-	if err := validateOptionalName("harness", request.Harness); err != nil {
 		return ListResult{}, err
 	}
 	userID, err := s.authorize(ctx, auth.VerbGet, request.Namespace)
@@ -253,39 +227,7 @@ func (s *Service) Suspend(ctx context.Context, namespace, id string) (*apiv1alph
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to suspend AgentInstance", err)
 	}
-	s.reapActiveTask(ctx, instance.GetId())
 	return instance, nil
-}
-
-// reapActiveTask records that the instance's in-flight turn ended, because
-// suspending stops the runtime executing it. Without this the turn stays
-// non-terminal and holds the instance's single active-task slot, and the
-// instance is left unable to answer until something else notices.
-//
-// A turn parked awaiting the reader is deliberately left alone. Suspending is a
-// pause, not an abandonment: the agent's question is still valid and still
-// answerable after a resume, so failing it here would destroy the very thing the
-// conversation is waiting for — and would do so invisibly, since a suspend says
-// nothing about tasks.
-//
-// A failure here is logged rather than returned: the suspend itself succeeded,
-// and reporting it as failed would invite a retry of an operation that already
-// happened.
-func (s *Service) reapActiveTask(ctx context.Context, instanceID string) {
-	active, err := s.store.GetActiveAgentInstanceTask(ctx, instanceID)
-	if errors.Is(err, dbpkg.ErrNotFound) {
-		return
-	}
-	if err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to read active task while suspending AgentInstance", "instance", instanceID)
-		return
-	}
-	if dbpkg.TaskParkedAwaitingUser(active.Status.State) {
-		return
-	}
-	if _, err := s.store.InterruptActiveAgentInstanceTask(ctx, instanceID, string(active.ID)); err != nil {
-		ctrllog.FromContext(ctx).Error(err, "failed to interrupt active task while suspending AgentInstance", "instance", instanceID, "task", active.ID)
-	}
 }
 
 func (s *Service) Resume(ctx context.Context, namespace, id string) (*apiv1alpha1.AgentInstance, error) {
@@ -446,44 +388,6 @@ func validateCreate(namespace, harness, template, requestID string) error {
 	}
 	if requestID == "" || strings.TrimSpace(requestID) != requestID || len(requestID) > 128 {
 		return serviceerrors.NewInvalidArgument("request_id must be 1-128 characters without surrounding whitespace", nil)
-	}
-	return nil
-}
-
-// validateName bounds a conversation's display name. An empty name is valid and
-// means unnamed. Control characters are refused because they render as an
-// invisible break in a table cell or silently truncate a header, and surrounding
-// whitespace is refused rather than trimmed: quietly rewriting what someone
-// typed reads on screen as a rename that did not take.
-func validateName(name string) error {
-	if name == "" {
-		return nil
-	}
-	if strings.TrimSpace(name) != name {
-		return serviceerrors.NewInvalidArgument("name must not have leading or trailing whitespace", nil)
-	}
-	if utf8.RuneCountInString(name) > maxNameLength {
-		return serviceerrors.NewInvalidArgument(fmt.Sprintf("name must be at most %d characters", maxNameLength), nil)
-	}
-	if !utf8.ValidString(name) {
-		return serviceerrors.NewInvalidArgument("name must be valid UTF-8", nil)
-	}
-	for _, character := range name {
-		if unicode.IsControl(character) {
-			return serviceerrors.NewInvalidArgument("name must not contain control characters", nil)
-		}
-	}
-	return nil
-}
-
-// validateOptionalName checks a filter that names a Kubernetes object, where
-// absent means "do not filter".
-func validateOptionalName(field, value string) error {
-	if value == "" {
-		return nil
-	}
-	if problems := utilvalidation.IsDNS1123Subdomain(value); len(problems) > 0 {
-		return serviceerrors.NewInvalidArgument(field+" is invalid: "+strings.Join(problems, "; "), nil)
 	}
 	return nil
 }

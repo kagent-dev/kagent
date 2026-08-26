@@ -79,10 +79,11 @@ message CreateAgentInstanceRequest {
     min_len: 1
     max_len: 128
   }];
-  // Optional display name. Omit it to create an unnamed conversation. Unvalidated
-  // because empty is the ordinary case: a conversation is usually named later, or
-  // never.
-  string name = 5;
+  // Optional display name. Empty means unnamed.
+  string name = 5 [(buf.validate.field).string = {
+    max_len: 200
+    pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
+  }];
 }
 
 message CreateAgentInstanceResponse {
@@ -108,8 +109,14 @@ message ListAgentInstancesRequest {
   // (AgentTemplate, Harness) pair. Either may be given alone. Both are matched
   // against the pair the instance's prepared revision was built from, so they
   // also select instances created before these fields existed.
-  string agent_template = 5;
-  string harness = 6;
+  string agent_template = 5 [(buf.validate.field).string = {
+    max_len: 253
+    pattern: "^(?:$|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*)$"
+  }];
+  string harness = 6 [(buf.validate.field).string = {
+    max_len: 253
+    pattern: "^(?:$|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*)$"
+  }];
 }
 
 message ListAgentInstancesResponse {
@@ -118,11 +125,18 @@ message ListAgentInstancesResponse {
 }
 
 message RenameAgentInstanceRequest {
-  string namespace = 1;
-  string agent_instance_id = 2;
+  string namespace = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 63
+    pattern: "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$"
+  }];
+  string agent_instance_id = 2 [(buf.validate.field).string.uuid = true];
   // The new display name. Empty clears the name, returning the conversation to
   // being identified by its id.
-  string name = 3;
+  string name = 3 [(buf.validate.field).string = {
+    max_len: 200
+    pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
+  }];
 }
 
 message RenameAgentInstanceResponse {

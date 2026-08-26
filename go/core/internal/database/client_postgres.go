@@ -1060,12 +1060,6 @@ func (c *postgresClient) CreateAgentInstanceTask(ctx context.Context, instanceID
 // longer has an active execution for it.
 const taskInterruptedMessage = "The turn was interrupted before it completed, and the process running it is no longer reporting progress."
 
-// taskAbandonedMessage explains a task closed because it was waiting on the
-// reader and the reader started a new turn instead. It is deliberately not the
-// interrupted wording: nothing went wrong, so saying the runtime stopped
-// reporting progress would be a falsehood in the transcript.
-const taskAbandonedMessage = "This turn was waiting for a reply and was closed when a new message started the next turn."
-
 func (c *postgresClient) GetActiveAgentInstanceTask(ctx context.Context, instanceID string) (*a2a.Task, error) {
 	row, err := c.q.GetActiveAgentInstanceTask(ctx, instanceID)
 	if err != nil {
@@ -1081,120 +1075,14 @@ func (c *postgresClient) GetActiveAgentInstanceTask(ctx context.Context, instanc
 // InterruptActiveAgentInstanceTask atomically fails taskID only if it is still the
 // instance's active task.
 func (c *postgresClient) InterruptActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
-	return c.terminateAgentInstanceTask(ctx, instanceID, taskID, a2a.TaskStateFailed, taskInterruptedMessage, true)
-}
-
-// AbandonActiveAgentInstanceTask closes a task that was parked awaiting the
-// reader, so the instance's single active-task slot is released. It is canceled
-// rather than failed because nothing failed: the turn was waiting for input
-// that never came.
-func (c *postgresClient) AbandonActiveAgentInstanceTask(ctx context.Context, instanceID, taskID string) (bool, error) {
-	return c.terminateAgentInstanceTask(ctx, instanceID, taskID, a2a.TaskStateCanceled, taskAbandonedMessage, false)
-}
-
-// ClaimParkedAgentInstanceTask moves a task that is waiting on the reader into
-// TASK_STATE_WORKING so a reply can be delivered, and reports whether this call
-// is the one that did it.
-//
-// The row lock is what makes it a replay guard: a duplicate reply serialises
-// behind the first, sees a task that is no longer parked, and is refused rather
-// than delivered twice. The returned task is the parked one as it stood *before*
-// the claim, so a caller whose delivery fails can put the question back.
-func (c *postgresClient) ClaimParkedAgentInstanceTask(ctx context.Context, instanceID, taskID string) (*a2a.Task, bool, error) {
-	var parked *a2a.Task
-	claimed := false
-	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		// By id, not "the active task". A parked turn no longer holds the instance's
-		// slot — an unanswered question must not stop the next turn — so asking for the
-		// active task finds something else, or nothing, and the reply lands nowhere.
-		row, err := q.LockAgentInstanceTask(ctx, dbgen.LockAgentInstanceTaskParams{
-			ContextID: instanceID, ID: taskID,
-		})
-		// Not claimed rather than an error: a reply naming a task this instance does
-		// not have is the same answer as one naming a task that is not parked — there
-		// is nothing here to reply to. Both leave `claimed` false, and the caller
-		// refuses the reply on that alone.
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("lock AgentInstance task: %w", err)
-		}
-		task, err := unmarshalAgentInstanceTask(row.Data)
-		if err != nil {
-			return err
-		}
-		if !dbpkg.TaskParkedAwaitingUser(task.Status.State) {
-			return nil
-		}
-		working := *task
-		now := time.Now()
-		working.Status = a2a.TaskStatus{State: a2a.TaskStateWorking, Timestamp: &now}
-		data, err := marshalAgentInstanceTask(&working)
-		if err != nil {
-			return err
-		}
-		if err := q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
-			ContextID: instanceID, ID: string(working.ID), State: string(working.Status.State),
-			StatusTimestamp: working.Status.Timestamp, Data: data,
-		}); err != nil {
-			return fmt.Errorf("claim parked AgentInstance task %s: %w", working.ID, err)
-		}
-		parked, claimed = task, true
-		return nil
-	})
-	if err != nil {
-		return nil, false, err
-	}
-	return parked, claimed, nil
-}
-
-// RestoreParkedAgentInstanceTask puts a claimed task back exactly as it was, for
-// a reply that never reached the runtime. The question stays answerable, which
-// failing the task would not allow.
-func (c *postgresClient) RestoreParkedAgentInstanceTask(ctx context.Context, instanceID string, task *a2a.Task) error {
-	data, err := marshalAgentInstanceTask(task)
-	if err != nil {
-		return err
-	}
-	if err := c.q.UpsertAgentInstanceTask(ctx, dbgen.UpsertAgentInstanceTaskParams{
-		ContextID: instanceID, ID: string(task.ID), State: string(task.Status.State),
-		StatusTimestamp: task.Status.Timestamp, Data: data,
-	}); err != nil {
-		return fmt.Errorf("restore parked AgentInstance task %s: %w", task.ID, err)
-	}
-	return nil
-}
-
-// terminateAgentInstanceTask atomically moves taskID to a terminal state.
-//
-// `requireActive` says which task the caller means, and the two callers mean
-// different things. Interrupting is about the turn *in flight*, so it must not touch a
-// task that a concurrent turn has already replaced — it asks for the active task and
-// gives up unless that is the one named. Abandoning is about a turn parked awaiting an
-// answer, and a parked task is no longer the active one: it stopped holding the
-// instance's slot when the active-task query began excluding INPUT_REQUIRED, so asking
-// for the active task would find something else, or nothing, and quietly do nothing.
-func (c *postgresClient) terminateAgentInstanceTask(
-	ctx context.Context, instanceID, taskID string, state a2a.TaskState, reason string,
-	requireActive bool,
-) (bool, error) {
 	interruptedTask := false
 	err := c.withTx(ctx, func(q *dbgen.Queries) error {
-		var row dbgen.AgentInstanceTask
-		var err error
-		if requireActive {
-			row, err = q.LockActiveAgentInstanceTask(ctx, instanceID)
-		} else {
-			row, err = q.LockAgentInstanceTask(ctx, dbgen.LockAgentInstanceTaskParams{
-				ContextID: instanceID, ID: taskID,
-			})
-		}
+		row, err := q.LockActiveAgentInstanceTask(ctx, instanceID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("lock AgentInstance task: %w", err)
+			return fmt.Errorf("lock active AgentInstance task: %w", err)
 		}
 		if row.ID != taskID {
 			return nil
@@ -1206,10 +1094,10 @@ func (c *postgresClient) terminateAgentInstanceTask(
 		if err := loadAgentInstanceTaskHistories(ctx, q, instanceID, []*a2a.Task{task}); err != nil {
 			return err
 		}
-		interrupted := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart(reason))
+		interrupted := a2a.NewMessageForTask(a2a.MessageRoleAgent, task, a2a.NewTextPart(taskInterruptedMessage))
 		now := time.Now()
 		task.History = append(task.History, interrupted)
-		task.Status = a2a.TaskStatus{State: state, Message: interrupted, Timestamp: &now}
+		task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Message: interrupted, Timestamp: &now}
 		data, err := marshalAgentInstanceTask(task)
 		if err != nil {
 			return err

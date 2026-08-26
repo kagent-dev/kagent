@@ -60,12 +60,7 @@ import {
   SessionService,
   TaskStoreService,
 } from "@/generated/kagent/api/v1alpha1/sessions_pb";
-import {
-  SubstrateActorSortField as PbActorSortField,
-  SubstrateSortOrder as PbSortOrder,
-  SubstrateWorkerSortField as PbWorkerSortField,
-  SystemService,
-} from "@/generated/kagent/api/v1alpha1/system_pb";
+import { SystemService } from "@/generated/kagent/api/v1alpha1/system_pb";
 import { HarnessService } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import type { Harness as PbHarness } from "@/generated/kagent/api/v1alpha1/harnesses_pb";
 import { AgentTemplateService } from "@/generated/kagent/api/v1alpha1/agent_templates_pb";
@@ -141,9 +136,7 @@ import type {
   ApiOperations,
   AgentRef,
   OperationCallOptions,
-  SubstrateActorSortField,
-  SubstrateSortOrder,
-  SubstrateWorkerSortField,
+  SubstratePageInput,
 } from "../operations";
 import { createContextValues } from "@connectrpc/connect";
 
@@ -1510,51 +1503,47 @@ function toWorkerEntry(worker: PbSubstrateWorker): SubstrateWorkerEntry {
   };
 }
 
-/*
- * The sort enums, mapped both ways.
- *
- * Written out rather than derived, and keyed by the generated enum so a member
- * added to the proto fails `yarn typecheck` here rather than being sent as a zero.
- * The inbound direction exists because the response reports the order the server
- * *applied*: a table should say how its rows are sorted rather than showing the
- * control's own state, which would still read "sorted by status" if the request had
- * been ignored.
- */
-const ACTOR_SORT_TO_PB: Record<SubstrateActorSortField, PbActorSortField> = {
-  default: PbActorSortField.UNSPECIFIED,
-  status: PbActorSortField.STATUS,
-  actorId: PbActorSortField.ACTOR_ID,
-  template: PbActorSortField.ACTOR_TEMPLATE,
-  workerPod: PbActorSortField.WORKER_POD,
-};
+async function substrateStatus(
+  namespace: string | undefined,
+  operation:
+    | "substrate.status"
+    | "substrate.summary"
+    | "substrate.actors"
+    | "substrate.workers",
+  options: OperationCallOptions,
+): Promise<SubstrateStatusResponse> {
+  const response = await rpc("SystemService/GetSubstrateStatus", options.signal, () =>
+    serviceClient(SystemService).getSubstrateStatus(
+      { namespace: namespace ?? "" },
+      call(operation, options),
+    ),
+  );
+  return toSubstrateStatus(response);
+}
 
-const ACTOR_SORT_FROM_PB: Partial<Record<PbActorSortField, SubstrateActorSortField>> = {
-  [PbActorSortField.UNSPECIFIED]: "default",
-  [PbActorSortField.STATUS]: "status",
-  [PbActorSortField.ACTOR_ID]: "actorId",
-  [PbActorSortField.ACTOR_TEMPLATE]: "template",
-  [PbActorSortField.WORKER_POD]: "workerPod",
-};
-
-const WORKER_SORT_TO_PB: Record<SubstrateWorkerSortField, PbWorkerSortField> = {
-  default: PbWorkerSortField.UNSPECIFIED,
-  pool: PbWorkerSortField.POOL,
-  pod: PbWorkerSortField.POD,
-  actor: PbWorkerSortField.ACTOR,
-};
-
-const WORKER_SORT_FROM_PB: Partial<Record<PbWorkerSortField, SubstrateWorkerSortField>> = {
-  [PbWorkerSortField.UNSPECIFIED]: "default",
-  [PbWorkerSortField.POOL]: "pool",
-  [PbWorkerSortField.POD]: "pod",
-  [PbWorkerSortField.ACTOR]: "actor",
-};
-
-const sortOrderToPb = (order: SubstrateSortOrder | undefined): PbSortOrder =>
-  order === "desc" ? PbSortOrder.DESCENDING : PbSortOrder.ASCENDING;
-
-const sortOrderFromPb = (order: PbSortOrder): SubstrateSortOrder =>
-  order === PbSortOrder.DESCENDING ? "desc" : "asc";
+function localPage<T>(
+  rows: T[],
+  input: SubstratePageInput<string>,
+  key: (row: T) => string,
+  text: (row: T) => string,
+) {
+  const needle = input.filter?.trim().toLowerCase();
+  const matching = needle
+    ? rows.filter((row) => text(row).toLowerCase().includes(needle))
+    : rows;
+  matching.sort((left, right) => {
+    const compared = key(left).localeCompare(key(right));
+    return input.sortOrder === "desc" ? -compared : compared;
+  });
+  const start = Number.parseInt(input.pageToken ?? "0", 10) || 0;
+  const limit = input.limit || 50;
+  const end = Math.min(start + limit, matching.length);
+  return {
+    rows: matching.slice(start, end),
+    nextPageToken: end < matching.length ? String(end) : undefined,
+    totalSize: matching.length,
+  };
+}
 
 const cluster: Pick<
   ApiOperations,
@@ -1575,84 +1564,95 @@ const cluster: Pick<
   },
 
   "substrate.status": async (input, options) => {
-    const response = await rpc("SystemService/GetSubstrateStatus", options.signal, () =>
-      serviceClient(SystemService).getSubstrateStatus(
-        { namespace: input.namespace ?? "" },
-        call("substrate.status", options),
-      ),
-    );
-    return toSubstrateStatus(response);
+    return substrateStatus(input.namespace, "substrate.status", options);
   },
 
   "substrate.summary": async (input, options) => {
-    const response = await rpc("SystemService/GetSubstrateSummary", options.signal, () =>
-      serviceClient(SystemService).getSubstrateSummary(
-        { namespace: input.namespace ?? "" },
-        call("substrate.summary", options),
-      ),
-    );
+    const response = await substrateStatus(input.namespace, "substrate.summary", options);
+    const actorStatusCounts = new Map<string, number>();
+    for (const actor of response.actors) {
+      actorStatusCounts.set(actor.status, (actorStatusCounts.get(actor.status) ?? 0) + 1);
+    }
     return {
       enabled: response.enabled,
-      ateApiError: orUndefined(response.ateApiError),
-      workerPools: list(response.workerPools).map(toWorkerPoolEntry),
-      actorTemplates: list(response.actorTemplates).map(toActorTemplateEntry),
-      actorCount: response.actorCount,
-      workerCount: response.workerCount,
-      runningActorCount: response.runningActorCount,
-      busyWorkerCount: response.busyWorkerCount,
-      actorStatusCounts: list(response.actorStatusCounts).map((entry) => ({
-        status: entry.status,
-        count: entry.count,
-      })),
-      computedAt: orUndefined(isoFrom(response.computedAt)),
+      ateApiError: response.ateApiError,
+      workerPools: response.workerPools,
+      actorTemplates: response.actorTemplates,
+      actorCount: response.actors.length,
+      workerCount: response.workers.length,
+      runningActorCount: response.actors.filter(
+        (actor) => actor.status.toLowerCase() === "running",
+      ).length,
+      busyWorkerCount: response.workers.filter((worker) => Boolean(worker.actorId)).length,
+      actorStatusCounts: [...actorStatusCounts].map(([status, count]) => ({ status, count })),
     };
   },
 
   "substrate.actors": async (input, options) => {
-    const response = await rpc("SystemService/ListSubstrateActors", options.signal, () =>
-      serviceClient(SystemService).listSubstrateActors(
-        {
-          namespace: input.namespace ?? "",
-          filter: input.filter ?? "",
-          page: { limit: input.limit ?? 0, pageToken: input.pageToken ?? "" },
-          sortField: ACTOR_SORT_TO_PB[input.sortField ?? "default"],
-          sortOrder: sortOrderToPb(input.sortOrder),
-        },
-        call("substrate.actors", options),
-      ),
+    const response = await substrateStatus(input.namespace, "substrate.actors", options);
+    const sortField = input.sortField ?? "default";
+    const page = localPage(
+      response.actors,
+      input,
+      (actor) => {
+        if (sortField === "actorId") return actor.actorId;
+        if (sortField === "template") {
+          return `${actor.actorTemplateNamespace ?? ""}/${actor.actorTemplateName ?? ""}\0${actor.actorId}`;
+        }
+        if (sortField === "workerPod") {
+          return `${actor.ateomPodNamespace ?? ""}/${actor.ateomPodName ?? ""}\0${actor.actorId}`;
+        }
+        return `${actor.status}\0${actor.actorId}`;
+      },
+      (actor) =>
+        [
+          actor.actorId,
+          actor.status,
+          actor.actorTemplateNamespace,
+          actor.actorTemplateName,
+          actor.ateomPodNamespace,
+          actor.ateomPodName,
+          actor.ateomPodIp,
+        ].join(" "),
     );
     return {
-      actors: list(response.actors).map(toActorEntry),
-      // Absent rather than empty, so "is there more" is a question about presence
-      // and a caller cannot accidentally re-request page one with `""`.
-      nextPageToken: orUndefined(response.page?.nextPageToken),
-      totalSize: response.totalSize,
-      appliedSortField: ACTOR_SORT_FROM_PB[response.appliedSortField] ?? "default",
-      appliedSortOrder: sortOrderFromPb(response.appliedSortOrder),
-      computedAt: orUndefined(isoFrom(response.computedAt)),
+      actors: page.rows,
+      nextPageToken: page.nextPageToken,
+      totalSize: page.totalSize,
+      appliedSortField: sortField,
+      appliedSortOrder: input.sortOrder ?? "asc",
     };
   },
 
   "substrate.workers": async (input, options) => {
-    const response = await rpc("SystemService/ListSubstrateWorkers", options.signal, () =>
-      serviceClient(SystemService).listSubstrateWorkers(
-        {
-          namespace: input.namespace ?? "",
-          filter: input.filter ?? "",
-          page: { limit: input.limit ?? 0, pageToken: input.pageToken ?? "" },
-          sortField: WORKER_SORT_TO_PB[input.sortField ?? "default"],
-          sortOrder: sortOrderToPb(input.sortOrder),
-        },
-        call("substrate.workers", options),
-      ),
+    const response = await substrateStatus(input.namespace, "substrate.workers", options);
+    const sortField = input.sortField ?? "default";
+    const page = localPage(
+      response.workers,
+      input,
+      (worker) => {
+        const pod = `${worker.workerNamespace}/${worker.workerPod}`;
+        if (sortField === "pod") return pod;
+        if (sortField === "actor") return `${worker.actorId || "\uffff"}\0${pod}`;
+        return `${worker.workerPool}\0${pod}`;
+      },
+      (worker) =>
+        [
+          worker.workerNamespace,
+          worker.workerPool,
+          worker.workerPod,
+          worker.actorNamespace,
+          worker.actorTemplate,
+          worker.actorId,
+          worker.ip,
+        ].join(" "),
     );
     return {
-      workers: list(response.workers).map(toWorkerEntry),
-      nextPageToken: orUndefined(response.page?.nextPageToken),
-      totalSize: response.totalSize,
-      appliedSortField: WORKER_SORT_FROM_PB[response.appliedSortField] ?? "default",
-      appliedSortOrder: sortOrderFromPb(response.appliedSortOrder),
-      computedAt: orUndefined(isoFrom(response.computedAt)),
+      workers: page.rows,
+      nextPageToken: page.nextPageToken,
+      totalSize: page.totalSize,
+      appliedSortField: sortField,
+      appliedSortOrder: input.sortOrder ?? "asc",
     };
   },
 };

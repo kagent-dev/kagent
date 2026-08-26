@@ -363,51 +363,10 @@ WHERE context_id = $1
 FOR UPDATE
 `
 
-func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error) {
-	row := q.db.QueryRow(ctx, lockActiveAgentInstanceTask, contextID)
-	var i AgentInstanceTask
-	err := row.Scan(
-		&i.ContextID,
-		&i.ID,
-		&i.State,
-		&i.StatusTimestamp,
-		&i.Data,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.InitialMessageID,
-		&i.RequestHash,
-		&i.SnapshotAtespace,
-		&i.SnapshotName,
-		&i.SnapshotUid,
-		&i.SnapshotContentScope,
-		&i.HistorySequence,
-	)
-	return i, err
-}
-
-const lockAgentInstanceTask = `-- name: LockAgentInstanceTask :one
-SELECT context_id, id, state, status_timestamp, data, created_at, updated_at, initial_message_id, request_hash, snapshot_atespace, snapshot_name, snapshot_uid, snapshot_content_scope, history_sequence FROM agent_instance_task
-WHERE context_id = $1 AND id = $2
-FOR UPDATE
-`
-
-type LockAgentInstanceTaskParams struct {
-	ContextID string
-	ID        string
-}
-
 // LockActiveAgentInstanceTask holds the instance's non-terminal task for the
 // rest of the transaction so reclamation cannot overwrite concurrent progress.
-//
-// One task by id, whatever state it is in.
-//
-// Distinct from LockActiveAgentInstanceTask, which finds whichever task currently
-// holds the instance's turn — and deliberately no longer counts a parked one, since a
-// question awaiting an answer must not stop the next turn starting. The parked-task
-// operations still need to reach that exact task to answer it or give it up, so they
-// name it instead of asking for the active one.
-func (q *Queries) LockAgentInstanceTask(ctx context.Context, arg LockAgentInstanceTaskParams) (AgentInstanceTask, error) {
-	row := q.db.QueryRow(ctx, lockAgentInstanceTask, arg.ContextID, arg.ID)
+func (q *Queries) LockActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error) {
+	row := q.db.QueryRow(ctx, lockActiveAgentInstanceTask, contextID)
 	var i AgentInstanceTask
 	err := row.Scan(
 		&i.ContextID,

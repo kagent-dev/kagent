@@ -21,22 +21,6 @@ var ErrAgentInstanceConflict = errors.New("AgentInstance lifecycle operation con
 
 var ErrAgentInstanceTaskConflict = errors.New("AgentInstance already has an active task")
 
-// TaskParkedAwaitingUser reports whether a task stopped to wait on a human
-// rather than because it is being executed. Such a task is non-terminal, so it
-// holds the instance's single active-task slot, but no execution is in flight:
-// the runtime has asked a question (`ask_user`, a tool approval) and is waiting
-// for the answer.
-//
-// The distinction has to live in one place because two callers act on it in
-// opposite directions — a suspend must leave a parked turn alone, since the
-// question is still valid and the reader may answer it after resuming, while a
-// send has to report the parked turn as the reason it was refused. Getting
-// either backwards destroys a pending question or hides why a conversation
-// stopped answering.
-func TaskParkedAwaitingUser(state a2a.TaskState) bool {
-	return state == a2a.TaskStateInputRequired || state == a2a.TaskStateAuthRequired
-}
-
 var ErrAgentInstanceNotQuiescent = errors.New("AgentInstance has no quiescent turn boundary")
 
 type QueryOptions struct {
@@ -160,18 +144,6 @@ type Client interface {
 	// InterruptActiveAgentInstanceTask fails the expected task and records an
 	// interruption. It returns false if that task is no longer active.
 	InterruptActiveAgentInstanceTask(context.Context, string, string) (bool, error)
-	// AbandonActiveAgentInstanceTask cancels the expected task, releasing the
-	// instance's active-task slot for a turn that was parked awaiting the reader.
-	// It returns false if that task is no longer active.
-	AbandonActiveAgentInstanceTask(context.Context, string, string) (bool, error)
-	// ClaimParkedAgentInstanceTask moves a task waiting on the reader into a
-	// working state so a reply can be delivered, returning the task as it was
-	// parked and whether this call claimed it. A second caller is refused, which
-	// is what stops a duplicate reply being delivered twice.
-	ClaimParkedAgentInstanceTask(context.Context, string, string) (*a2a.Task, bool, error)
-	// RestoreParkedAgentInstanceTask puts a claimed task back as it was, for a
-	// reply that never reached the runtime.
-	RestoreParkedAgentInstanceTask(context.Context, string, *a2a.Task) error
 	StoreAgentInstanceTaskEvent(context.Context, string, *a2a.Task, a2a.Event, *AgentInstanceTaskSnapshot) error
 	GetAgentInstanceTask(context.Context, string, string) (*a2a.Task, error)
 	ListAgentInstanceTasks(context.Context, string, string, a2a.TaskState, *time.Time, int) ([]*a2a.Task, int, error)

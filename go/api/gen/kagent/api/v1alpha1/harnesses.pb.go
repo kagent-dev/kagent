@@ -193,94 +193,6 @@ func (x *ListHarnessesResponse) GetHarnesses() []*Harness {
 	return nil
 }
 
-type GetHarnessRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ref           *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetHarnessRequest) Reset() {
-	*x = GetHarnessRequest{}
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetHarnessRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetHarnessRequest) ProtoMessage() {}
-
-func (x *GetHarnessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetHarnessRequest.ProtoReflect.Descriptor instead.
-func (*GetHarnessRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *GetHarnessRequest) GetRef() *ResourceReference {
-	if x != nil {
-		return x.Ref
-	}
-	return nil
-}
-
-type GetHarnessResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Harness       *Harness               `protobuf:"bytes,1,opt,name=harness,proto3" json:"harness,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *GetHarnessResponse) Reset() {
-	*x = GetHarnessResponse{}
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *GetHarnessResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*GetHarnessResponse) ProtoMessage() {}
-
-func (x *GetHarnessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use GetHarnessResponse.ProtoReflect.Descriptor instead.
-func (*GetHarnessResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *GetHarnessResponse) GetHarness() *Harness {
-	if x != nil {
-		return x.Harness
-	}
-	return nil
-}
-
 type CreateHarnessRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ref           *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
@@ -291,7 +203,7 @@ type CreateHarnessRequest struct {
 
 func (x *CreateHarnessRequest) Reset() {
 	*x = CreateHarnessRequest{}
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[5]
+	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -303,7 +215,7 @@ func (x *CreateHarnessRequest) String() string {
 func (*CreateHarnessRequest) ProtoMessage() {}
 
 func (x *CreateHarnessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[5]
+	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -316,7 +228,7 @@ func (x *CreateHarnessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateHarnessRequest.ProtoReflect.Descriptor instead.
 func (*CreateHarnessRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{5}
+	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *CreateHarnessRequest) GetRef() *ResourceReference {
@@ -342,7 +254,7 @@ type CreateHarnessResponse struct {
 
 func (x *CreateHarnessResponse) Reset() {
 	*x = CreateHarnessResponse{}
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[6]
+	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -354,7 +266,7 @@ func (x *CreateHarnessResponse) String() string {
 func (*CreateHarnessResponse) ProtoMessage() {}
 
 func (x *CreateHarnessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[6]
+	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -367,106 +279,10 @@ func (x *CreateHarnessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateHarnessResponse.ProtoReflect.Descriptor instead.
 func (*CreateHarnessResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{6}
+	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CreateHarnessResponse) GetHarness() *Harness {
-	if x != nil {
-		return x.Harness
-	}
-	return nil
-}
-
-type UpdateHarnessRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ref           *ResourceReference     `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
-	Resource      *StructuredObject      `protobuf:"bytes,2,opt,name=resource,proto3" json:"resource,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UpdateHarnessRequest) Reset() {
-	*x = UpdateHarnessRequest{}
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[7]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UpdateHarnessRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UpdateHarnessRequest) ProtoMessage() {}
-
-func (x *UpdateHarnessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[7]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UpdateHarnessRequest.ProtoReflect.Descriptor instead.
-func (*UpdateHarnessRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *UpdateHarnessRequest) GetRef() *ResourceReference {
-	if x != nil {
-		return x.Ref
-	}
-	return nil
-}
-
-func (x *UpdateHarnessRequest) GetResource() *StructuredObject {
-	if x != nil {
-		return x.Resource
-	}
-	return nil
-}
-
-type UpdateHarnessResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Harness       *Harness               `protobuf:"bytes,1,opt,name=harness,proto3" json:"harness,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *UpdateHarnessResponse) Reset() {
-	*x = UpdateHarnessResponse{}
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UpdateHarnessResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UpdateHarnessResponse) ProtoMessage() {}
-
-func (x *UpdateHarnessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use UpdateHarnessResponse.ProtoReflect.Descriptor instead.
-func (*UpdateHarnessResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *UpdateHarnessResponse) GetHarness() *Harness {
 	if x != nil {
 		return x.Harness
 	}
@@ -482,7 +298,7 @@ type DeleteHarnessRequest struct {
 
 func (x *DeleteHarnessRequest) Reset() {
 	*x = DeleteHarnessRequest{}
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[9]
+	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -494,7 +310,7 @@ func (x *DeleteHarnessRequest) String() string {
 func (*DeleteHarnessRequest) ProtoMessage() {}
 
 func (x *DeleteHarnessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[9]
+	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -507,7 +323,7 @@ func (x *DeleteHarnessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteHarnessRequest.ProtoReflect.Descriptor instead.
 func (*DeleteHarnessRequest) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{9}
+	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *DeleteHarnessRequest) GetRef() *ResourceReference {
@@ -525,7 +341,7 @@ type DeleteHarnessResponse struct {
 
 func (x *DeleteHarnessResponse) Reset() {
 	*x = DeleteHarnessResponse{}
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[10]
+	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -537,7 +353,7 @@ func (x *DeleteHarnessResponse) String() string {
 func (*DeleteHarnessResponse) ProtoMessage() {}
 
 func (x *DeleteHarnessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[10]
+	mi := &file_kagent_api_v1alpha1_harnesses_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -550,7 +366,7 @@ func (x *DeleteHarnessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteHarnessResponse.ProtoReflect.Descriptor instead.
 func (*DeleteHarnessResponse) Descriptor() ([]byte, []int) {
-	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{10}
+	return file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP(), []int{6}
 }
 
 var File_kagent_api_v1alpha1_harnesses_proto protoreflect.FileDescriptor
@@ -567,30 +383,18 @@ const file_kagent_api_v1alpha1_harnesses_proto_rawDesc = "" +
 	"\x14ListHarnessesRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\"S\n" +
 	"\x15ListHarnessesResponse\x12:\n" +
-	"\tharnesses\x18\x01 \x03(\v2\x1c.kagent.api.v1alpha1.HarnessR\tharnesses\"M\n" +
-	"\x11GetHarnessRequest\x128\n" +
-	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\"L\n" +
-	"\x12GetHarnessResponse\x126\n" +
-	"\aharness\x18\x01 \x01(\v2\x1c.kagent.api.v1alpha1.HarnessR\aharness\"\x93\x01\n" +
+	"\tharnesses\x18\x01 \x03(\v2\x1c.kagent.api.v1alpha1.HarnessR\tharnesses\"\x93\x01\n" +
 	"\x14CreateHarnessRequest\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\x12A\n" +
 	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\"O\n" +
 	"\x15CreateHarnessResponse\x126\n" +
-	"\aharness\x18\x01 \x01(\v2\x1c.kagent.api.v1alpha1.HarnessR\aharness\"\x93\x01\n" +
-	"\x14UpdateHarnessRequest\x128\n" +
-	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\x12A\n" +
-	"\bresource\x18\x02 \x01(\v2%.kagent.api.v1alpha1.StructuredObjectR\bresource\"O\n" +
-	"\x15UpdateHarnessResponse\x126\n" +
 	"\aharness\x18\x01 \x01(\v2\x1c.kagent.api.v1alpha1.HarnessR\aharness\"P\n" +
 	"\x14DeleteHarnessRequest\x128\n" +
 	"\x03ref\x18\x01 \x01(\v2&.kagent.api.v1alpha1.ResourceReferenceR\x03ref\"\x17\n" +
-	"\x15DeleteHarnessResponse2\x8f\x04\n" +
+	"\x15DeleteHarnessResponse2\xc8\x02\n" +
 	"\x0eHarnessService\x12f\n" +
-	"\rListHarnesses\x12).kagent.api.v1alpha1.ListHarnessesRequest\x1a*.kagent.api.v1alpha1.ListHarnessesResponse\x12]\n" +
-	"\n" +
-	"GetHarness\x12&.kagent.api.v1alpha1.GetHarnessRequest\x1a'.kagent.api.v1alpha1.GetHarnessResponse\x12f\n" +
+	"\rListHarnesses\x12).kagent.api.v1alpha1.ListHarnessesRequest\x1a*.kagent.api.v1alpha1.ListHarnessesResponse\x12f\n" +
 	"\rCreateHarness\x12).kagent.api.v1alpha1.CreateHarnessRequest\x1a*.kagent.api.v1alpha1.CreateHarnessResponse\x12f\n" +
-	"\rUpdateHarness\x12).kagent.api.v1alpha1.UpdateHarnessRequest\x1a*.kagent.api.v1alpha1.UpdateHarnessResponse\x12f\n" +
 	"\rDeleteHarness\x12).kagent.api.v1alpha1.DeleteHarnessRequest\x1a*.kagent.api.v1alpha1.DeleteHarnessResponseBIZGgithub.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1b\x06proto3"
 
 var (
@@ -605,50 +409,37 @@ func file_kagent_api_v1alpha1_harnesses_proto_rawDescGZIP() []byte {
 	return file_kagent_api_v1alpha1_harnesses_proto_rawDescData
 }
 
-var file_kagent_api_v1alpha1_harnesses_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_kagent_api_v1alpha1_harnesses_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_kagent_api_v1alpha1_harnesses_proto_goTypes = []any{
 	(*Harness)(nil),               // 0: kagent.api.v1alpha1.Harness
 	(*ListHarnessesRequest)(nil),  // 1: kagent.api.v1alpha1.ListHarnessesRequest
 	(*ListHarnessesResponse)(nil), // 2: kagent.api.v1alpha1.ListHarnessesResponse
-	(*GetHarnessRequest)(nil),     // 3: kagent.api.v1alpha1.GetHarnessRequest
-	(*GetHarnessResponse)(nil),    // 4: kagent.api.v1alpha1.GetHarnessResponse
-	(*CreateHarnessRequest)(nil),  // 5: kagent.api.v1alpha1.CreateHarnessRequest
-	(*CreateHarnessResponse)(nil), // 6: kagent.api.v1alpha1.CreateHarnessResponse
-	(*UpdateHarnessRequest)(nil),  // 7: kagent.api.v1alpha1.UpdateHarnessRequest
-	(*UpdateHarnessResponse)(nil), // 8: kagent.api.v1alpha1.UpdateHarnessResponse
-	(*DeleteHarnessRequest)(nil),  // 9: kagent.api.v1alpha1.DeleteHarnessRequest
-	(*DeleteHarnessResponse)(nil), // 10: kagent.api.v1alpha1.DeleteHarnessResponse
-	(*ResourceReference)(nil),     // 11: kagent.api.v1alpha1.ResourceReference
-	(*StructuredObject)(nil),      // 12: kagent.api.v1alpha1.StructuredObject
+	(*CreateHarnessRequest)(nil),  // 3: kagent.api.v1alpha1.CreateHarnessRequest
+	(*CreateHarnessResponse)(nil), // 4: kagent.api.v1alpha1.CreateHarnessResponse
+	(*DeleteHarnessRequest)(nil),  // 5: kagent.api.v1alpha1.DeleteHarnessRequest
+	(*DeleteHarnessResponse)(nil), // 6: kagent.api.v1alpha1.DeleteHarnessResponse
+	(*ResourceReference)(nil),     // 7: kagent.api.v1alpha1.ResourceReference
+	(*StructuredObject)(nil),      // 8: kagent.api.v1alpha1.StructuredObject
 }
 var file_kagent_api_v1alpha1_harnesses_proto_depIdxs = []int32{
-	11, // 0: kagent.api.v1alpha1.Harness.ref:type_name -> kagent.api.v1alpha1.ResourceReference
-	12, // 1: kagent.api.v1alpha1.Harness.resource:type_name -> kagent.api.v1alpha1.StructuredObject
+	7,  // 0: kagent.api.v1alpha1.Harness.ref:type_name -> kagent.api.v1alpha1.ResourceReference
+	8,  // 1: kagent.api.v1alpha1.Harness.resource:type_name -> kagent.api.v1alpha1.StructuredObject
 	0,  // 2: kagent.api.v1alpha1.ListHarnessesResponse.harnesses:type_name -> kagent.api.v1alpha1.Harness
-	11, // 3: kagent.api.v1alpha1.GetHarnessRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
-	0,  // 4: kagent.api.v1alpha1.GetHarnessResponse.harness:type_name -> kagent.api.v1alpha1.Harness
-	11, // 5: kagent.api.v1alpha1.CreateHarnessRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
-	12, // 6: kagent.api.v1alpha1.CreateHarnessRequest.resource:type_name -> kagent.api.v1alpha1.StructuredObject
-	0,  // 7: kagent.api.v1alpha1.CreateHarnessResponse.harness:type_name -> kagent.api.v1alpha1.Harness
-	11, // 8: kagent.api.v1alpha1.UpdateHarnessRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
-	12, // 9: kagent.api.v1alpha1.UpdateHarnessRequest.resource:type_name -> kagent.api.v1alpha1.StructuredObject
-	0,  // 10: kagent.api.v1alpha1.UpdateHarnessResponse.harness:type_name -> kagent.api.v1alpha1.Harness
-	11, // 11: kagent.api.v1alpha1.DeleteHarnessRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
-	1,  // 12: kagent.api.v1alpha1.HarnessService.ListHarnesses:input_type -> kagent.api.v1alpha1.ListHarnessesRequest
-	3,  // 13: kagent.api.v1alpha1.HarnessService.GetHarness:input_type -> kagent.api.v1alpha1.GetHarnessRequest
-	5,  // 14: kagent.api.v1alpha1.HarnessService.CreateHarness:input_type -> kagent.api.v1alpha1.CreateHarnessRequest
-	7,  // 15: kagent.api.v1alpha1.HarnessService.UpdateHarness:input_type -> kagent.api.v1alpha1.UpdateHarnessRequest
-	9,  // 16: kagent.api.v1alpha1.HarnessService.DeleteHarness:input_type -> kagent.api.v1alpha1.DeleteHarnessRequest
-	2,  // 17: kagent.api.v1alpha1.HarnessService.ListHarnesses:output_type -> kagent.api.v1alpha1.ListHarnessesResponse
-	4,  // 18: kagent.api.v1alpha1.HarnessService.GetHarness:output_type -> kagent.api.v1alpha1.GetHarnessResponse
-	6,  // 19: kagent.api.v1alpha1.HarnessService.CreateHarness:output_type -> kagent.api.v1alpha1.CreateHarnessResponse
-	8,  // 20: kagent.api.v1alpha1.HarnessService.UpdateHarness:output_type -> kagent.api.v1alpha1.UpdateHarnessResponse
-	10, // 21: kagent.api.v1alpha1.HarnessService.DeleteHarness:output_type -> kagent.api.v1alpha1.DeleteHarnessResponse
-	17, // [17:22] is the sub-list for method output_type
-	12, // [12:17] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	7,  // 3: kagent.api.v1alpha1.CreateHarnessRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
+	8,  // 4: kagent.api.v1alpha1.CreateHarnessRequest.resource:type_name -> kagent.api.v1alpha1.StructuredObject
+	0,  // 5: kagent.api.v1alpha1.CreateHarnessResponse.harness:type_name -> kagent.api.v1alpha1.Harness
+	7,  // 6: kagent.api.v1alpha1.DeleteHarnessRequest.ref:type_name -> kagent.api.v1alpha1.ResourceReference
+	1,  // 7: kagent.api.v1alpha1.HarnessService.ListHarnesses:input_type -> kagent.api.v1alpha1.ListHarnessesRequest
+	3,  // 8: kagent.api.v1alpha1.HarnessService.CreateHarness:input_type -> kagent.api.v1alpha1.CreateHarnessRequest
+	5,  // 9: kagent.api.v1alpha1.HarnessService.DeleteHarness:input_type -> kagent.api.v1alpha1.DeleteHarnessRequest
+	2,  // 10: kagent.api.v1alpha1.HarnessService.ListHarnesses:output_type -> kagent.api.v1alpha1.ListHarnessesResponse
+	4,  // 11: kagent.api.v1alpha1.HarnessService.CreateHarness:output_type -> kagent.api.v1alpha1.CreateHarnessResponse
+	6,  // 12: kagent.api.v1alpha1.HarnessService.DeleteHarness:output_type -> kagent.api.v1alpha1.DeleteHarnessResponse
+	10, // [10:13] is the sub-list for method output_type
+	7,  // [7:10] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1alpha1_harnesses_proto_init() }
@@ -663,7 +454,7 @@ func file_kagent_api_v1alpha1_harnesses_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_api_v1alpha1_harnesses_proto_rawDesc), len(file_kagent_api_v1alpha1_harnesses_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

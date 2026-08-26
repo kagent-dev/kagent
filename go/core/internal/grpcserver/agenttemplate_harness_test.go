@@ -237,17 +237,6 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 	})
 	assertCode(t, err, codes.AlreadyExists)
 
-	updated, err := client.UpdateHarness(ctx, &apiv1alpha1.UpdateHarnessRequest{
-		Ref:      ref,
-		Resource: structured(t, testHarness("team", "a-created", "pool-b"), harnessKind),
-	})
-	if err != nil {
-		t.Fatalf("UpdateHarness() error = %v", err)
-	}
-	if updated.GetHarness().GetRuntime() != harnessRuntimeCodex {
-		t.Fatalf("UpdateHarness() runtime = %q", updated.GetHarness().GetRuntime())
-	}
-
 	listed, err := client.ListHarnesses(ctx, &apiv1alpha1.ListHarnessesRequest{Namespace: "team"})
 	if err != nil {
 		t.Fatalf("ListHarnesses() error = %v", err)
@@ -275,13 +264,6 @@ func TestHarnessServiceGeneratedClient(t *testing.T) {
 
 	_, err = client.ListHarnesses(ctx, &apiv1alpha1.ListHarnessesRequest{})
 	assertCode(t, err, codes.InvalidArgument)
-	_, err = client.GetHarness(ctx, &apiv1alpha1.GetHarnessRequest{})
-	assertCode(t, err, codes.InvalidArgument)
-	_, err = client.GetHarness(ctx, &apiv1alpha1.GetHarnessRequest{
-		Ref: &apiv1alpha1.ResourceReference{Namespace: "team", Name: "absent"},
-	})
-	assertCode(t, err, codes.NotFound)
-
 	if _, err := client.DeleteHarness(ctx, &apiv1alpha1.DeleteHarnessRequest{Ref: ref}); err != nil {
 		t.Fatalf("DeleteHarness() error = %v", err)
 	}

@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -29,13 +30,6 @@ type Version struct {
 type ATEClient interface {
 	ListActors(context.Context, string) ([]*ateapipb.Actor, error)
 	ListWorkers(context.Context) ([]*ateapipb.Worker, error)
-	// EachActorPage walks the actors a page at a time without accumulating them.
-	//
-	// Part of the interface rather than an optional cast, because the whole point
-	// is that the paged reads never hold the whole inventory — and an optional
-	// interface that silently does not engage would put that back without anything
-	// failing. See the substrate client's implementation for the numbers.
-	EachActorPage(ctx context.Context, atespace string, visit func([]*ateapipb.Actor) error) error
 }
 
 type Service struct {
@@ -43,9 +37,6 @@ type Service struct {
 	observedNamespaces []string
 	authorizer         auth.Authorizer
 	ateClient          ATEClient
-	// cache memoises the substrate reads for a fraction of a second; see
-	// substratecache.go for what it is for and why its answers carry their age.
-	cache *substrateCache
 }
 
 type Option func(*Service)
@@ -110,7 +101,7 @@ type SubstrateWorker struct {
 }
 
 func NewService(options ...Option) *Service {
-	service := &Service{cache: newSubstrateCache()}
+	service := &Service{}
 	for _, option := range options {
 		option(service)
 	}
@@ -189,14 +180,19 @@ func (s *Service) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 	return namespaces, nil
 }
 
-// GetSubstrateStatus returns the whole inventory in one value.
-//
-// It does not survive a large cluster — see the package comment on substrate.go
-// for what replaced it and why. Kept for callers that predate the split.
 func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace string) (SubstrateStatus, error) {
-	namespaces, err := s.substrateScope(ctx, requestedNamespace)
-	if err != nil {
+	if err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Agent"}); err != nil {
 		return SubstrateStatus{}, err
+	}
+
+	requestedNamespace = strings.TrimSpace(requestedNamespace)
+	if requestedNamespace != "" {
+		if validationErrors := utilvalidation.IsDNS1123Label(requestedNamespace); len(validationErrors) > 0 {
+			return SubstrateStatus{}, serviceerrors.NewInvalidArgument(
+				fmt.Sprintf("invalid namespace %q: %s", requestedNamespace, strings.Join(validationErrors, ", ")),
+				nil,
+			)
+		}
 	}
 
 	result := SubstrateStatus{
@@ -213,6 +209,7 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 		return SubstrateStatus{}, serviceerrors.NewInternal("Failed to list substrate resources from Kubernetes", fmt.Errorf("kubernetes client is not configured"))
 	}
 
+	namespaces := s.substrateNamespaces(requestedNamespace)
 	for _, namespace := range namespaces {
 		workerPools, actorTemplates, err := s.listSubstrateCRs(ctx, namespace)
 		if err != nil {
@@ -230,8 +227,12 @@ func (s *Service) GetSubstrateStatus(ctx context.Context, requestedNamespace str
 		ctrllog.FromContext(ctx).Error(err, "list ate-api state")
 	}
 
-	sortWorkerPools(result.WorkerPools)
-	sortActorTemplates(result.ActorTemplates)
+	slices.SortStableFunc(result.WorkerPools, func(left, right SubstrateWorkerPool) int {
+		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
+	})
+	slices.SortStableFunc(result.ActorTemplates, func(left, right SubstrateActorTemplate) int {
+		return strings.Compare(left.Namespace+"/"+left.Name, right.Namespace+"/"+right.Name)
+	})
 	slices.SortStableFunc(result.Actors, func(left, right SubstrateActor) int {
 		return strings.Compare(left.ActorID, right.ActorID)
 	})

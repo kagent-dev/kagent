@@ -29,8 +29,8 @@ func (s *agentTemplateServer) ListAgentTemplates(ctx context.Context, request *a
 		return nil, err
 	}
 	templates := make([]*apiv1alpha1.AgentTemplate, 0, len(items))
-	for index := range items {
-		template, err := s.agentTemplate(&items[index])
+	for _, item := range items {
+		template, err := s.agentTemplate(item)
 		if err != nil {
 			return nil, err
 		}

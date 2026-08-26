@@ -39,22 +39,12 @@ import { operationCallCounts, rpc } from "../../helpers/mockCalls";
 
 const SUBSTRATE = "/substrate";
 
-/**
- * The inventory, which is three reads now rather than one.
- *
- * `GetSubstrateStatus` returned everything in a single message and stopped working —
- * a cluster of 410,110 actors produces a response gRPC refuses to send. The page
- * reads a summary for the counts and a page each of actors and workers, and polling
- * drives all three: a timer that re-read the tiles while leaving the tables stale
- * would show a moving count over rows that never change.
- */
-const POLLED = rpc.substrateSummary;
-const ALSO_POLLED = [rpc.substrateActors, rpc.substrateWorkers] as const;
+const POLLED = rpc.substrateStatus;
 
 /** The scope control's own read, which must stay still while the inventory moves. */
 const NOT_POLLED = rpc.listNamespaces;
 
-const READS = [POLLED, ...ALSO_POLLED, NOT_POLLED] as const;
+const READS = [POLLED, NOT_POLLED] as const;
 
 const readCounts = (page: import("@playwright/test").Page) =>
   operationCallCounts(page, READS);

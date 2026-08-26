@@ -5,10 +5,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
-	"strings"
 	"testing"
 
-	a2a "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
 	dbpkg "github.com/kagent-dev/kagent/go/api/database"
 	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
@@ -43,8 +41,6 @@ type serviceTestStore struct {
 	renameUserID string
 	renameErr    error
 	getCreator   string
-	activeTask   *a2a.Task
-	interrupted  string
 }
 
 func (s *serviceTestStore) CreateAgentInstance(_ context.Context, instance *apiv1alpha1.AgentInstance, requestID string) (*apiv1alpha1.AgentInstance, bool, error) {
@@ -74,18 +70,6 @@ func (s *serviceTestStore) RenameAgentInstance(_ context.Context, _, id, userID,
 	s.renameName, s.renameUserID = name, userID
 	s.renamed = &apiv1alpha1.AgentInstance{Id: id, Name: name}
 	return s.renamed, nil
-}
-
-func (s *serviceTestStore) GetActiveAgentInstanceTask(context.Context, string) (*a2a.Task, error) {
-	if s.activeTask == nil {
-		return nil, dbpkg.ErrNotFound
-	}
-	return s.activeTask, nil
-}
-
-func (s *serviceTestStore) InterruptActiveAgentInstanceTask(_ context.Context, _, taskID string) (bool, error) {
-	s.interrupted = taskID
-	return true, nil
 }
 
 func (s *serviceTestStore) CreateAgentInstanceShare(_ context.Context, share dbpkg.AgentInstanceShare) (*dbpkg.AgentInstanceShare, error) {
@@ -298,52 +282,6 @@ func TestServiceCreateCarriesTheNameAndLeavesAnOmittedOneEmpty(t *testing.T) {
 	}
 }
 
-func TestServiceRejectsInvalidNames(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		given   string
-		wantErr bool
-	}{
-		{name: "empty is unnamed", given: "", wantErr: false},
-		{name: "ordinary title", given: "Why is the pod pending?", wantErr: false},
-		{name: "punctuation and emoji", given: "deploy 🚀 v2 — take 3", wantErr: false},
-		{name: "at the length limit", given: strings.Repeat("a", maxNameLength), wantErr: false},
-		{name: "runes not bytes at the limit", given: strings.Repeat("é", maxNameLength), wantErr: false},
-		{name: "over the length limit", given: strings.Repeat("a", maxNameLength+1), wantErr: true},
-		{name: "newline", given: "first line\nsecond line", wantErr: true},
-		{name: "carriage return", given: "title\r", wantErr: true},
-		{name: "tab", given: "a\tb", wantErr: true},
-		{name: "leading whitespace", given: " title", wantErr: true},
-		{name: "trailing whitespace", given: "title ", wantErr: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			service := NewService(&serviceTestStore{}, serviceTestAuthorizer{}, serviceTestWorkflow{})
-			ctx := serviceTestContext("alice")
-			createErr := service.createError(ctx, test.given)
-			renameErr := service.renameError(ctx, test.given)
-			if (createErr != nil) != test.wantErr || (renameErr != nil) != test.wantErr {
-				t.Fatalf("create error = %v, rename error = %v, want error %t", createErr, renameErr, test.wantErr)
-			}
-			if test.wantErr && !serviceerrors.IsCode(createErr, serviceerrors.CodeInvalidArgument) {
-				t.Fatalf("create error = %v, want code %s", createErr, serviceerrors.CodeInvalidArgument)
-			}
-		})
-	}
-}
-
-// createError and renameError keep the validation table above honest: both entry
-// points must apply the same rules, or a name refused on create is accepted on
-// rename and reaches the database anyway.
-func (s *Service) createError(ctx context.Context, name string) error {
-	_, err := s.Create(ctx, "team-a", "kagent", "assistant", "request-1", name)
-	return err
-}
-
-func (s *Service) renameError(ctx context.Context, name string) error {
-	_, err := s.Rename(ctx, "team-a", "11111111-1111-4111-8111-111111111111", name)
-	return err
-}
-
 func TestServiceRenameRequiresWriteAuthorizationAndScopesToTheOwner(t *testing.T) {
 	instanceID := "11111111-1111-4111-8111-111111111111"
 
@@ -471,7 +409,6 @@ func TestServiceListPassesTheAgentPairThroughToTheStore(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		request  ListRequest
-		wantErr  bool
 		wantPair [2]string
 	}{
 		{
@@ -489,90 +426,17 @@ func TestServiceListPassesTheAgentPairThroughToTheStore(t *testing.T) {
 			request:  ListRequest{Namespace: "team-a"},
 			wantPair: [2]string{"", ""},
 		},
-		{
-			name:    "an invalid template name is refused rather than matching nothing",
-			request: ListRequest{Namespace: "team-a", AgentTemplate: "NOT A NAME"},
-			wantErr: true,
-		},
-		{
-			name:    "an invalid harness name is refused",
-			request: ListRequest{Namespace: "team-a", Harness: "NOT A NAME"},
-			wantErr: true,
-		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &serviceTestStore{}
 			service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{})
 			_, err := service.List(serviceTestContext("alice"), test.request)
-			if test.wantErr {
-				if !serviceerrors.IsCode(err, serviceerrors.CodeInvalidArgument) {
-					t.Fatalf("List() error = %v, want code %s", err, serviceerrors.CodeInvalidArgument)
-				}
-				return
-			}
 			if err != nil {
 				t.Fatal(err)
 			}
 			got := [2]string{store.listQuery.AgentTemplate, store.listQuery.Harness}
 			if got != test.wantPair {
 				t.Fatalf("store query pair = %v, want %v", got, test.wantPair)
-			}
-		})
-	}
-}
-
-// TestServiceSuspendReapsTheActiveTurn pins the half of the stranded-task fix that
-// stops the strand forming. Suspending stops the runtime, so an in-flight turn is
-// over; leaving it non-terminal holds the instance's one active-task slot and
-// every later send is refused with "AgentInstance already has an active task".
-func TestServiceSuspendReapsTheActiveTurn(t *testing.T) {
-	for _, test := range []struct {
-		name            string
-		active          *a2a.Task
-		workflowErr     error
-		wantInterrupted string
-	}{
-		{
-			name:            "an in-flight turn is interrupted",
-			active:          &a2a.Task{ID: "task-1", Status: a2a.TaskStatus{State: a2a.TaskStateWorking}},
-			wantInterrupted: "task-1",
-		},
-		{
-			name:            "no active turn is left alone",
-			active:          nil,
-			wantInterrupted: "",
-		},
-		{
-			// A suspend that did not happen must not close a turn that is still running.
-			name:            "a failed suspend interrupts nothing",
-			active:          &a2a.Task{ID: "task-1", Status: a2a.TaskStatus{State: a2a.TaskStateWorking}},
-			workflowErr:     errors.New("substrate unavailable"),
-			wantInterrupted: "",
-		},
-		{
-			// Suspending is a pause, not an abandonment. A question the agent asked is
-			// still valid and still answerable after a resume, so failing it here would
-			// destroy the thing the conversation is waiting for — invisibly, since a
-			// suspend says nothing about tasks.
-			name:            "a turn waiting on the reader survives a suspend",
-			active:          &a2a.Task{ID: "task-1", Status: a2a.TaskStatus{State: a2a.TaskStateInputRequired}},
-			wantInterrupted: "",
-		},
-		{
-			name:            "a turn waiting on authorization survives a suspend",
-			active:          &a2a.Task{ID: "task-1", Status: a2a.TaskStatus{State: a2a.TaskStateAuthRequired}},
-			wantInterrupted: "",
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			store := &serviceTestStore{activeTask: test.active}
-			service := NewService(store, serviceTestAuthorizer{}, serviceTestWorkflow{err: test.workflowErr})
-			_, err := service.Suspend(serviceTestContext("alice"), "team-a", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab")
-			if (err != nil) != (test.workflowErr != nil) {
-				t.Fatalf("Suspend() error = %v", err)
-			}
-			if store.interrupted != test.wantInterrupted {
-				t.Fatalf("interrupted task = %q, want %q", store.interrupted, test.wantInterrupted)
 			}
 		})
 	}

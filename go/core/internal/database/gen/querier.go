@@ -118,19 +118,10 @@ type Querier interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	ListToolsForServer(ctx context.Context, arg ListToolsForServerParams) ([]Tool, error)
 	ListUnreferencedRuntimeRevisions(ctx context.Context) ([]RuntimeRevision, error)
-	LockActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
-	LockAgentInstance(ctx context.Context, id string) (AgentInstance, error)
 	// LockActiveAgentInstanceTask holds the instance's non-terminal task for the
 	// rest of the transaction so reclamation cannot overwrite concurrent progress.
-	//
-	// One task by id, whatever state it is in.
-	//
-	// Distinct from LockActiveAgentInstanceTask, which finds whichever task currently
-	// holds the instance's turn — and deliberately no longer counts a parked one, since a
-	// question awaiting an answer must not stop the next turn starting. The parked-task
-	// operations still need to reach that exact task to answer it or give it up, so they
-	// name it instead of asking for the active one.
-	LockAgentInstanceTask(ctx context.Context, arg LockAgentInstanceTaskParams) (AgentInstanceTask, error)
+	LockActiveAgentInstanceTask(ctx context.Context, contextID string) (AgentInstanceTask, error)
+	LockAgentInstance(ctx context.Context, id string) (AgentInstance, error)
 	LockReadyAgentInstanceCheckpoint(ctx context.Context, arg LockReadyAgentInstanceCheckpointParams) (AgentInstanceCheckpoint, error)
 	MarkAgentInstanceReady(ctx context.Context, arg MarkAgentInstanceReadyParams) (AgentInstance, error)
 	MarkRuntimeRevisionSuccessful(ctx context.Context, arg MarkRuntimeRevisionSuccessfulParams) error
