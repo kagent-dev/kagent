@@ -17,6 +17,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
@@ -74,21 +75,13 @@ func TestAgentInstanceAskUserSurvivesSuspension(t *testing.T) {
 		Answers: []adka2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 	})
 	reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-	encoded, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: reply})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := fixture.client.SendMessage(fixture.ctx, encoded)
+	response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Message: reply})
 	if err != nil {
 		t.Fatalf("resume A2A task: %v", err)
 	}
-	result, err := pbconv.FromProtoSendMessageResponse(response)
-	if err != nil {
-		t.Fatal(err)
-	}
-	completed, ok := result.(*a2atype.Task)
+	completed, ok := response.(*a2atype.Task)
 	if !ok || completed.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(completed), "Using PostgreSQL") {
-		t.Fatalf("resumed A2A task = %#v, want completed PostgreSQL response", result)
+		t.Fatalf("resumed A2A task = %#v, want completed PostgreSQL response", response)
 	}
 }
 

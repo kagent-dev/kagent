@@ -15,7 +15,7 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a/server"
-	localtaskstore "github.com/kagent-dev/kagent/go/adk/pkg/taskstore"
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -56,10 +56,6 @@ type AppConfig struct {
 	// Agent is the ADK agent used to enrich the agent card with skills via
 	// adka2a.BuildAgentSkills. Optional; when nil, the card is used as-is.
 	Agent adkagent.Agent
-
-	// SessionDBURL locates actor-local durable storage. When set, A2A tasks are
-	// persisted beside the ADK session database so HITL tasks survive suspension.
-	SessionDBURL string
 }
 
 // KAgentApp wires an AgentExecutor with kagent's A2A server.
@@ -81,12 +77,19 @@ func (i seedTaskInterceptor) Before(ctx context.Context, _ *a2asrv.CallContext, 
 	if !ok || send.Message == nil || send.Message.TaskID == "" {
 		return ctx, nil, nil
 	}
+	storedTask, err := apia2a.TakeStoredTask(send.Message)
+	if err != nil {
+		return ctx, nil, err
+	}
 	if _, err := i.store.Get(ctx, send.Message.TaskID); err == nil {
 		return ctx, nil, nil
 	} else if !errors.Is(err, a2atype.ErrTaskNotFound) {
 		return ctx, nil, fmt.Errorf("load actor task: %w", err)
 	}
-	if _, err := i.store.Create(ctx, a2atype.NewSubmittedTask(send.Message, send.Message)); err != nil && !errors.Is(err, a2ataskstore.ErrTaskAlreadyExists) {
+	if storedTask == nil {
+		storedTask = a2atype.NewSubmittedTask(send.Message, send.Message)
+	}
+	if _, err := i.store.Create(ctx, storedTask); err != nil && !errors.Is(err, a2ataskstore.ErrTaskAlreadyExists) {
 		return ctx, nil, fmt.Errorf("seed actor task: %w", err)
 	}
 	return ctx, nil, nil
@@ -104,17 +107,7 @@ func New(cfg AppConfig, executor a2asrv.AgentExecutor) (*KAgentApp, error) {
 	log := cfg.Logger
 
 	app := &KAgentApp{logger: log}
-	authenticator := a2asrv.NewTaskStoreAuthenticator()
-	var tasks a2ataskstore.Store
-	if cfg.SessionDBURL == "" {
-		tasks = a2ataskstore.NewInMemory(&a2ataskstore.InMemoryStoreConfig{Authenticator: authenticator})
-	} else {
-		var err error
-		tasks, err = localtaskstore.New(cfg.SessionDBURL, authenticator)
-		if err != nil {
-			return nil, fmt.Errorf("open local task store: %w", err)
-		}
-	}
+	tasks := a2ataskstore.NewInMemory(&a2ataskstore.InMemoryStoreConfig{Authenticator: a2asrv.NewTaskStoreAuthenticator()})
 	handlerOpts := []a2asrv.RequestHandlerOption{a2asrv.WithTaskStore(tasks)}
 
 	// The private runtime receives a gateway-assigned ID for a new task. Seed it
