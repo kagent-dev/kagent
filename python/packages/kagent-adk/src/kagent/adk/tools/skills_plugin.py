@@ -64,4 +64,6 @@ def add_skills_tool_to_agent(
             agent.tools.append(GrepFileTool(skills_directory))
             logger.debug(f"Added grep file tool to agent: {agent.name}")
     else:
-        logger.debug(f"Omitting list_files/grep_file tools for agent: {agent.name} (KAGENT_ENABLE_FILE_SEARCH_TOOLS not enabled)")
+        logger.debug(
+            f"Omitting list_files/grep_file tools for agent: {agent.name} (KAGENT_ENABLE_FILE_SEARCH_TOOLS not enabled)"
+        )

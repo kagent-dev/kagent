@@ -147,7 +147,6 @@ Timeouts:
     # raise or silently corrupt output.
     if file_search_tools_enabled():
         description += (
-            "\nAlso available: list_files and grep_file, "
-            "for exploring the filesystem without a full shell command.\n"
+            "\nAlso available: list_files and grep_file, for exploring the filesystem without a full shell command.\n"
         )
     return description
