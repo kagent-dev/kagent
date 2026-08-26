@@ -130,7 +130,7 @@ func main() {
 	}
 	gateway := a2agateway.New(store, authorizer, gatewayDialer, instanceWorkflow,
 		env("A2A_GATEWAY_URL", "http://127.0.0.1:8084"))
-	mcpHandler, err := v2mcp.New(instances, gateway)
+	mcpHandler, err := v2mcp.New(instances, checkpoints, gateway)
 	if err != nil {
 		log.Fatal(err)
 	}

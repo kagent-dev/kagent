@@ -17,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
+	"github.com/kagent-dev/kagent/go/core/v2/checkpoint"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/grpc/metadata"
 )
@@ -28,9 +29,10 @@ const (
 )
 
 type Handler struct {
-	instances *agentinstance.Service
-	gateway   a2asrv.RequestHandler
-	http      http.Handler
+	instances   *agentinstance.Service
+	checkpoints *checkpoint.Service
+	gateway     a2asrv.RequestHandler
+	http        http.Handler
 }
 
 type invocationStart struct {
@@ -74,11 +76,11 @@ type InvokeAgentInstanceOutput struct {
 	Text            string `json:"text,omitempty"`
 }
 
-func New(instances *agentinstance.Service, gateway a2asrv.RequestHandler) (*Handler, error) {
-	if instances == nil || gateway == nil {
-		return nil, fmt.Errorf("AgentInstance service and A2A gateway are required")
+func New(instances *agentinstance.Service, checkpoints *checkpoint.Service, gateway a2asrv.RequestHandler) (*Handler, error) {
+	if instances == nil || checkpoints == nil || gateway == nil {
+		return nil, fmt.Errorf("AgentInstance service, checkpoint service, and A2A gateway are required")
 	}
-	h := &Handler{instances: instances, gateway: gateway}
+	h := &Handler{instances: instances, checkpoints: checkpoints, gateway: gateway}
 	capabilities := &mcp.ServerCapabilities{}
 	capabilities.AddExtension(tasksExtension, nil)
 	server := mcp.NewServer(
@@ -93,6 +95,7 @@ func New(instances *agentinstance.Service, gateway a2asrv.RequestHandler) (*Hand
 		Name:        invokeToolName,
 		Description: "Invoke an AgentInstance through the public A2A gateway",
 	}, h.invokeAgentInstance)
+	h.registerCheckpointTools(server)
 	server.AddReceivingMiddleware(h.taskAwareToolCall)
 	if err := h.registerTaskMethods(server); err != nil {
 		return nil, err
@@ -118,12 +121,7 @@ func (h *Handler) listAgentInstances(ctx context.Context, _ *mcp.CallToolRequest
 		if instance.GetState() != apiv1alpha1.AgentInstanceState_AGENT_INSTANCE_STATE_READY {
 			continue
 		}
-		output.AgentInstances = append(output.AgentInstances, AgentInstanceSummary{
-			Namespace: instance.GetNamespace(), ID: instance.GetId(),
-			AgentTemplate: instance.GetAgentTemplate().GetName(),
-			Harness:       instance.GetHarness().GetName(),
-			State:         instance.GetState().String(),
-		})
+		output.AgentInstances = append(output.AgentInstances, agentInstanceSummary(instance))
 	}
 	var text strings.Builder
 	for i, instance := range output.AgentInstances {

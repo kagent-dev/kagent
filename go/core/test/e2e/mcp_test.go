@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -12,7 +13,11 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
+	apiv1alpha1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -101,6 +106,54 @@ func TestMCPCancelTask(t *testing.T) {
 	}
 	mcpCall(t, endpoint, "tasks/cancel", map[string]any{"taskId": handle}, true)
 	waitMCPTask(t, endpoint, handle, "cancelled")
+}
+
+func TestMCPCheckpointFork(t *testing.T) {
+	fixture := newInteractionFixture(t, interactionTarget(t), startInteractionMock(t))
+	endpoint := mcpEndpoint(t)
+	if result := mcpInvoke(t, endpoint, fixture.instanceID, "What is 2+2?", false); result["resultType"] != "complete" {
+		t.Fatalf("initial invocation = %#v", result)
+	}
+
+	created := mcpCall(t, endpoint, "tools/call", map[string]any{
+		"name":      "create_agent_instance_checkpoint",
+		"arguments": map[string]any{"namespace": "kagent", "agent_instance_id": fixture.instanceID},
+	}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["checkpoint"].(map[string]any)
+	checkpointID := created["id"].(string)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+		defer cancel()
+		_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1alpha1.DeleteCheckpointRequest{Namespace: "kagent", CheckpointId: checkpointID})
+		if err != nil && status.Code(err) != codes.NotFound {
+			t.Errorf("delete checkpoint: %v", err)
+		}
+	})
+
+	listed := mcpCall(t, endpoint, "tools/call", map[string]any{
+		"name":      "list_agent_instance_checkpoints",
+		"arguments": map[string]any{"namespace": "kagent", "agent_instance_id": fixture.instanceID},
+	}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["checkpoints"].([]any)
+	if len(listed) != 1 || listed[0].(map[string]any)["id"] != checkpointID {
+		t.Fatalf("listed checkpoints = %#v", listed)
+	}
+
+	forked := mcpCall(t, endpoint, "tools/call", map[string]any{
+		"name":      "fork_agent_instance",
+		"arguments": map[string]any{"namespace": "kagent", "checkpoint_id": checkpointID},
+	}, false)["result"].(map[string]any)["structuredContent"].(map[string]any)["agent_instance"].(map[string]any)
+	forkID := forked["id"].(string)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(context.Background(), "x-user-id", "e2e"), time.Minute)
+		defer cancel()
+		_, err := fixture.instances.DeleteAgentInstance(ctx, &apiv1alpha1.DeleteAgentInstanceRequest{Namespace: "kagent", AgentInstanceId: forkID})
+		if err != nil && status.Code(err) != codes.NotFound {
+			t.Errorf("delete fork AgentInstance: %v", err)
+		}
+	})
+
+	if result := mcpInvoke(t, endpoint, forkID, "What is 2+2?", false); !strings.Contains(mcpResultText(result), "The answer is 4.") {
+		t.Fatalf("fork invocation = %#v", result)
+	}
 }
 
 func mcpEndpoint(t *testing.T) string {

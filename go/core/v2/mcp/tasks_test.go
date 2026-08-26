@@ -21,6 +21,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/v2/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/v2/agentinstance"
+	"github.com/kagent-dev/kagent/go/core/v2/checkpoint"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -183,7 +184,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 
 func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 	gateway := &fakeGateway{}
-	h, err := New(testAgentInstanceService(), &a2asrv.InterceptedHandler{Handler: gateway})
+	h, err := New(testAgentInstanceService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,7 @@ func TestTaskCapableToolCallReturnsDurableHandle(t *testing.T) {
 
 func TestToolCallWithoutTasksWaitsForResult(t *testing.T) {
 	gateway := &fakeGateway{completeOnDrain: true}
-	h, err := New(testAgentInstanceService(), &a2asrv.InterceptedHandler{Handler: gateway})
+	h, err := New(testAgentInstanceService(), testCheckpointService(), &a2asrv.InterceptedHandler{Handler: gateway})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,4 +492,8 @@ func (*fakeInstanceWorkflow) Delete(_ context.Context, instance *apiv1alpha1.Age
 
 func testAgentInstanceService() *agentinstance.Service {
 	return agentinstance.NewService(&fakeInstanceStore{}, &authimpl.NoopAuthorizer{}, &fakeInstanceWorkflow{})
+}
+
+func testCheckpointService() *checkpoint.Service {
+	return checkpoint.NewService(nil, nil, nil, nil)
 }
